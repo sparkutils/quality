@@ -45,7 +45,7 @@ Your expressions used, in dq/triggers, output expressions (for Rules and Folder)
 
 ## withColumn is BAD - how else can I add columns?
 
-I understand [withColumn is bad](https://connections.swissbank.com/people/PSI00211080/blog/2020/03/17/developing-with-meg-dp-moniker-performance) but how else can I add a RuleSuite in Spark?
+I understand repeatedly calling withColumn/withColumnRenamed can cause performance issues due to excessive projections but how else can I add a RuleSuite in Spark?
 
 ```scala
 // read a file and apply the rules storing results in the column DataQuality

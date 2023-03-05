@@ -35,9 +35,9 @@ The uber test jar artefact starts with 'quality_testshade_' instead of just 'qua
 
 ## Running the tests
 
-As with any local Spark development, in order to run the tests you must have the vcredist 2010 (use the artifact under your DevCloud Desktop) and winutils package installed, for Spark 2.4.6 and 3.0 it can be downloaded from [here](https://it4it-nexus-repo-test.swissbank.com/repository/public-bin-windows/winutils/raw/master/hadoop-2.7.7/bin/winutils.exe).
+As with any local Spark development, in order to run the tests you must have the vcredist 2010 and winutils packages installed, for Spark 2.4.6 and 3.0 it can be downloaded from [here]().
 
-If you are using 3.1.2 or 3.2 download both the [dll](https://it4it-nexus-tp-repo.swissbank.com/repository/proxy-bin-windows-raw-oss-github-winutils/winutils/raw/master/hadoop-3.2.0/bin/hadoop.dll) and [exe](https://it4it-nexus-tp-repo.swissbank.com/repository/proxy-bin-windows-raw-oss-github-winutils/winutils/raw/master/hadoop-3.2.0/bin/winutils.exe) and ensure that not only is the HADOOP_HOME defined but that the bin directory is on the PATH, you may need to restart Intellij.
+If you are using 3.1.2 or 3.2 download both the dll and exe from [here](https://github.com/cdarlint/winutils/tree/master/hadoop-3.2.0/bin) and ensure that not only is the HADOOP_HOME defined but that the bin directory within it is on the PATH, you may need to restart Intellij.
 
 Also ensure only the correct target Maven profile and source directories are enabled in your IDE of choice. 
 
