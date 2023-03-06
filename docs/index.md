@@ -1,7 +1,15 @@
-# Quality -  
+# Quality - {{project_version()}}
 
 ??? coverage "Coverage"
-    is good
+    
+    <table>
+    <tr>
+        <td>Statement</td>
+        <td class="coveragePercent">{{statement_coverage()}}:material-percent-outline:</td>
+        <td>Branch</td>
+        <td class="coveragePercent">{{branch_coverage()}}:material-percent-outline:</td>
+    </tr>
+    </table>
 
 ## Run complex data quality rules using simple SQL in a batch or streaming Spark application at scale.
 
