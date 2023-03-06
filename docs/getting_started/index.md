@@ -61,7 +61,7 @@ The build poms generate those variables via maven profiles, but you are advised 
 
 ```xml
 <dependency>
-    <groupId>com.sparkutils.quality</groupId>
+    <groupId>com.sparkutils</groupId>
     <artifactId>quality_${qualityRuntime}${sparkShortVersion}_${scalaCompatVersion}</artifactId>
     <version>${qualityVersion}</version>
 </dependency>
@@ -98,13 +98,13 @@ As there are many compatibility issues that Quality works around between the var
 
 <dependencies>
     <dependency>
-        <groupId>com.sparkutils.quality.</groupId>
+        <groupId>com.sparkutils.</groupId>
         <artifactId>quality_${qualityTestPrefix}${sparkShortVersion}_${scalaCompatVersion}</artifactId>
         <version>${qualityVersion}</version>
         <scope>test</scope>
     </dependency>
     <dependency>
-        <groupId>com.sparkutils.quality</groupId>
+        <groupId>com.sparkutils</groupId>
         <artifactId>quality_${qualityDatabricksPrefix}${sparkShortVersion}_${scalaCompatVersion}</artifactId>
         <version>${qualityVersion}</version>
         <scope>compile</scope>
