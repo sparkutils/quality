@@ -1,0 +1,4573 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/sparkutils/quality/VariablesLookup.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality
+</span>2 <span style=''>
+</span>3 <span style=''>import org.apache.spark.sql.SparkSession
+</span>4 <span style=''>import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedFunction}
+</span>5 <span style=''>import org.apache.spark.sql.catalyst.expressions.{Expression, LeafExpression, NamedExpression, UnresolvedNamedLambdaVariable, LambdaFunction =&gt; SparkLambdaFunction}
+</span>6 <span style=''>import org.slf4j.LoggerFactory
+</span>7 <span style=''>
+</span>8 <span style=''>// Used to pull in |+| to deep merge the maps as SemiGroups - https://typelevel.org/cats/typeclasses/semigroup.html#example-usage-merging-maps
+</span>9 <span style=''>import cats.implicits._
+</span>10 <span style=''>
+</span>11 <span style=''>/**
+</span>12 <span style=''> * For a given expression it breaks down information useful for documentation and validation for a non-resolved expression.
+</span>13 <span style=''> *
+</span>14 <span style=''> * All names may include optional scope (e.g. database)
+</span>15 <span style=''> *
+</span>16 <span style=''> * @param attributesUsed Which attributes are used in the expression
+</span>17 <span style=''> * @param unknownSparkFunctions Which functions are used but are neither known lambdas nor registered spark expressions
+</span>18 <span style=''> * @param lambdas Which known lambdas are used
+</span>19 <span style=''> * @param sparkFunctions Which known spark functions are used
+</span>20 <span style=''> */
+</span>21 <span style=''>case class ExpressionLookup(attributesUsed: VariablesLookup.Identifiers = Set.empty, unknownSparkFunctions: VariablesLookup.Identifiers = Set.empty, lambdas: Set[Id] = Set.empty, sparkFunctions: Set[String] = Set.empty)
+</span>22 <span style=''>
+</span>23 <span style=''>/**
+</span>24 <span style=''> * Provides a variable lookup function, after using the sql parser it will return all the fields used in an expression,
+</span>25 <span style=''> * allowing sanity checks on rules to use only expected fields but also to attribute how much a rule does - does it check
+</span>26 <span style=''> * just one field or use 20 of them.
+</span>27 <span style=''> * It is also used to identify fields which are note provided by a lambda i.e. the ones bound at use.
+</span>28 <span style=''> * Note: this cannot process nested lambdas in a simple expression unless the lambdas are also passed in, so process lambdas first.
+</span>29 <span style=''> */
+</span>30 <span style=''>object VariablesLookup {
+</span>31 <span style=''>
+</span>32 <span style=''>  val logger = </span><span style='background: #AEF1AE'>LoggerFactory.getLogger(&quot;VariablesLookup&quot;)</span><span style=''>
+</span>33 <span style=''>
+</span>34 <span style=''>  type Identifier = String
+</span>35 <span style=''>  type Identifiers = Set[Identifier]
+</span>36 <span style=''>  type ProcessedLambdas = Map[String, Map[Id, Identifiers]]
+</span>37 <span style=''>  type PossibleOverflowIds = Set[Id]
+</span>38 <span style=''>  type UnknownSparkFunctions = Map[Id, Set[String]]
+</span>39 <span style=''>
+</span>40 <span style=''>  def toName(ne: NamedExpression): String =
+</span>41 <span style=''>    ne match {
+</span>42 <span style=''>      case nv: UnresolvedNamedLambdaVariable =&gt; </span><span style='background: #AEF1AE'>toName(nv)</span><span style=''>
+</span>43 <span style=''>      case _ =&gt; </span><span style='background: #F0ADAD'>toName(ne.qualifier :+ ne.name)</span><span style=''>
+</span>44 <span style=''>    }
+</span>45 <span style=''>  def toName(nv: UnresolvedNamedLambdaVariable): String =
+</span>46 <span style=''>    </span><span style='background: #AEF1AE'>toName(nv.nameParts)</span><span style=''>
+</span>47 <span style=''>
+</span>48 <span style=''>  def toName(parts: Seq[String]): String =
+</span>49 <span style=''>    </span><span style='background: #AEF1AE'>parts.mkString(&quot;.&quot;)</span><span style=''>
+</span>50 <span style=''>
+</span>51 <span style=''>  def toName(unresolvedFunction: UnresolvedFunction): String =
+</span>52 <span style=''>    </span><span style='background: #AEF1AE'>toName(unresolvedFunction.nameParts)</span><span style=''>
+</span>53 <span style=''>
+</span>54 <span style=''>  def processLambdas(m: Map[String, Map[Id,Expression]]): (ProcessedLambdas, PossibleOverflowIds, UnknownSparkFunctions) =
+</span>55 <span style=''>    </span><span style='background: #AEF1AE'>m.foldLeft((Map.empty[String, Map[Id, Identifiers]], Set.empty[Id], Map.empty[Id, Set[String]])){ (acc, p) =&gt;
+</span>56 <span style=''></span><span style='background: #AEF1AE'>      if (acc._1.contains(p._1))
+</span>57 <span style=''></span><span style='background: #AEF1AE'>        acc
+</span>58 <span style=''></span><span style='background: #AEF1AE'>      else {
+</span>59 <span style=''></span><span style='background: #AEF1AE'>        val (macc, s, us) = acc
+</span>60 <span style=''></span><span style='background: #AEF1AE'>        val (res, ress, resus) = fieldsFromLambda( p._1, p._2, macc, m)
+</span>61 <span style=''></span><span style='background: #AEF1AE'>        (macc |+| res, ress |+| s, resus |+| us)
+</span>62 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>63 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>64 <span style=''>
+</span>65 <span style=''>  def fieldsFromLambda(name: String, exprMap: Map[Id, Expression], m: ProcessedLambdas, lambdaExpressions: Map[String, Map[Id, Expression]]): (ProcessedLambdas, PossibleOverflowIds, UnknownSparkFunctions) = {
+</span>66 <span style=''>    // allow communication across tree depths
+</span>67 <span style=''>    val evaluatedLambdas = </span><span style='background: #AEF1AE'>scala.collection.mutable.Map.empty[String, Map[Id, Identifiers]] ++ m</span><span style=''>
+</span>68 <span style=''>    val overflowIds = </span><span style='background: #AEF1AE'>scala.collection.mutable.Set.empty[Id]</span><span style=''>
+</span>69 <span style=''>    val unknownSparkFunctionIds = </span><span style='background: #AEF1AE'>scala.collection.mutable.Map.empty[Id, Set[String]]</span><span style=''>
+</span>70 <span style=''>
+</span>71 <span style=''>    def children(res: Map[Id, Identifiers], children: Seq[(Id, Expression)], parent: UnresolvedFunction): Map[Id, Identifiers] =
+</span>72 <span style=''>      </span><span style='background: #AEF1AE'>children.foldLeft(res){
+</span>73 <span style=''></span><span style='background: #AEF1AE'>        (curRes, exp) =&gt;
+</span>74 <span style=''></span><span style='background: #AEF1AE'>          curRes |+| accumulate(curRes, exp, parent)
+</span>75 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>76 <span style=''>
+</span>77 <span style=''>    def processFields(args: Set[String], expr: Expression, id: Id, parent: UnresolvedFunction, ids: Identifiers = Set.empty): Identifiers = {
+</span>78 <span style=''>      def fieldChildren(res: Identifiers, children: Seq[Expression]): Identifiers =
+</span>79 <span style=''>        </span><span style='background: #AEF1AE'>children.foldLeft(res) {
+</span>80 <span style=''></span><span style='background: #AEF1AE'>          (curRes, exp) =&gt;
+</span>81 <span style=''></span><span style='background: #AEF1AE'>            faccumulate(curRes, exp)
+</span>82 <span style=''></span><span style='background: #AEF1AE'>        }</span><span style=''>
+</span>83 <span style=''>
+</span>84 <span style=''>      def faccumulate(identifiers: Identifiers, expression: Expression): Identifiers =
+</span>85 <span style=''>        expression match {
+</span>86 <span style=''>          case a : UnresolvedNamedLambdaVariable =&gt;
+</span>87 <span style=''>            val full = </span><span style='background: #AEF1AE'>toName(a)</span><span style=''>
+</span>88 <span style=''>            if (</span><span style='background: #AEF1AE'>!args.contains(full)</span><span style=''>) // don't accept args, so we should only be left with outer scopes, which may be from a nested..
+</span>89 <span style=''>              </span><span style='background: #AEF1AE'>identifiers + full</span><span style=''>
+</span>90 <span style=''>            else
+</span>91 <span style=''>              </span><span style='background: #AEF1AE'>identifiers</span><span style=''>
+</span>92 <span style=''>
+</span>93 <span style=''>          case f @ UnresolvedFunction(functionIdentifier, argumentExpressions, _, _, _) =&gt; // nested....
+</span>94 <span style=''>            val name = </span><span style='background: #AEF1AE'>toName(functionIdentifier)</span><span style=''>
+</span>95 <span style=''>            val nids =
+</span>96 <span style=''>              if (</span><span style='background: #AEF1AE'>evaluatedLambdas.contains(name)</span><span style=''>)
+</span>97 <span style=''>                </span><span style='background: #AEF1AE'>identifiers</span><span style=''>
+</span>98 <span style=''>              else {
+</span>99 <span style=''>                </span><span style='background: #AEF1AE'>if (lambdaExpressions.contains(name)) {
+</span>100 <span style=''></span><span style='background: #AEF1AE'>                  // we haven't yet evaluated it, pass back up to the top and recurse down
+</span>101 <span style=''></span><span style='background: #AEF1AE'>                  if ((parent ne null) &amp;&amp; toName(functionIdentifier) == toName(parent.nameParts)) {
+</span>102 <span style=''></span><span style='background: #AEF1AE'>                    // special case for recursion on the same identifier - are we calling the same id?
+</span>103 <span style=''></span><span style='background: #AEF1AE'>                    // get the exact arity matching
+</span>104 <span style=''></span><span style='background: #AEF1AE'>                    lambdaExpressions(name).find(_._2.children.size == argumentExpressions.size).fold{
+</span>105 <span style=''></span><span style='background: #AEF1AE'>                      overflowIds += id
+</span>106 <span style=''></span><span style='background: #AEF1AE'>                      logger.warn(s&quot;Function ${name} calls itself, this may StackOverflowError on evaluation&quot;)
+</span>107 <span style=''></span><span style='background: #AEF1AE'>                    }{
+</span>108 <span style=''></span><span style='background: #AEF1AE'>                      i =&gt;
+</span>109 <span style=''></span><span style='background: #AEF1AE'>                        val r = </span><span style='background: #F0ADAD'>children(Map.empty, Seq(i), f)</span><span style='background: #AEF1AE'>
+</span>110 <span style=''></span><span style='background: #AEF1AE'>                        </span><span style='background: #F0ADAD'>evaluatedLambdas(name) = r</span><span style='background: #AEF1AE'>
+</span>111 <span style=''></span><span style='background: #AEF1AE'>                    }
+</span>112 <span style=''></span><span style='background: #AEF1AE'>                  } else {
+</span>113 <span style=''></span><span style='background: #AEF1AE'>                    val r = children(Map.empty, lambdaExpressions(name).toSeq, f)
+</span>114 <span style=''></span><span style='background: #AEF1AE'>                    evaluatedLambdas(name) = r
+</span>115 <span style=''></span><span style='background: #AEF1AE'>                  }
+</span>116 <span style=''></span><span style='background: #AEF1AE'>                  identifiers
+</span>117 <span style=''></span><span style='background: #AEF1AE'>                } else {
+</span>118 <span style=''></span><span style='background: #AEF1AE'>                  // it's not a lambda function we know, is it inbuilt?
+</span>119 <span style=''></span><span style='background: #AEF1AE'>                  // NB you would have to register UDFs etc. before calling validate etc.
+</span>120 <span style=''></span><span style='background: #AEF1AE'>                  val name = toName(functionIdentifier)
+</span>121 <span style=''></span><span style='background: #AEF1AE'>                  val exists =
+</span>122 <span style=''></span><span style='background: #AEF1AE'>                    SparkSession.active.catalog.functionExists(name)
+</span>123 <span style=''></span><span style='background: #AEF1AE'>
+</span>124 <span style=''></span><span style='background: #AEF1AE'>                  if (!exists) {
+</span>125 <span style=''></span><span style='background: #AEF1AE'>                    // add it in to the unknowns list
+</span>126 <span style=''></span><span style='background: #AEF1AE'>                    val map = unknownSparkFunctionIds.getOrElse(id, Set.empty)
+</span>127 <span style=''></span><span style='background: #AEF1AE'>                    unknownSparkFunctionIds(id) = map + name
+</span>128 <span style=''></span><span style='background: #AEF1AE'>                  }
+</span>129 <span style=''></span><span style='background: #AEF1AE'>                  identifiers
+</span>130 <span style=''></span><span style='background: #AEF1AE'>                }</span><span style=''>
+</span>131 <span style=''>              }
+</span>132 <span style=''>            // params may be including nested children
+</span>133 <span style=''>            </span><span style='background: #AEF1AE'>fieldChildren(nids, argumentExpressions)</span><span style=''>
+</span>134 <span style=''>          case p : Expression =&gt; </span><span style='background: #AEF1AE'>fieldChildren(identifiers, p.children)</span><span style=''>
+</span>135 <span style=''>          case _  =&gt; identifiers
+</span>136 <span style=''>        }
+</span>137 <span style=''>
+</span>138 <span style=''>      </span><span style='background: #AEF1AE'>faccumulate(ids, expr)</span><span style=''>
+</span>139 <span style=''>    }
+</span>140 <span style=''>
+</span>141 <span style=''>    def accumulate(res: Map[Id, Identifiers], exp: (Id, Expression), parent: UnresolvedFunction): Map[Id, Identifiers] =
+</span>142 <span style=''>      exp match {
+</span>143 <span style=''>        // unresolved case where we cannot see more unresolved functions
+</span>144 <span style=''>        case (id, SparkLambdaFunction(functionExpr, arguments, _)) =&gt;
+</span>145 <span style=''>          // remove the arguments from any unresolved bound variables
+</span>146 <span style=''>          val names = </span><span style='background: #AEF1AE'>arguments.map(v =&gt; toName(v.asInstanceOf[UnresolvedNamedLambdaVariable])).toSet</span><span style=''>
+</span>147 <span style=''>          // parse the functionExpr with the names
+</span>148 <span style=''>          </span><span style='background: #AEF1AE'>Map( id -&gt; processFields(names, functionExpr, id, parent))</span><span style=''> //TODO is this parent?
+</span>149 <span style=''>        case (id, a : UnresolvedAttribute) =&gt; // not as part of a lambda
+</span>150 <span style=''>          val s = </span><span style='background: #AEF1AE'>res.getOrElse(id, Set.empty)</span><span style=''>
+</span>151 <span style=''>          </span><span style='background: #AEF1AE'>res + ( id -&gt; (s + toName(a.nameParts)) )</span><span style=''>
+</span>152 <span style=''>        case (id, _ : LeafExpression) =&gt; res
+</span>153 <span style=''>        case (id, parent: UnresolvedFunction) =&gt; </span><span style='background: #AEF1AE'>res |+| children(res, parent.children.map((id,_)), parent)</span><span style=''> // override
+</span>154 <span style=''>        case (id, newparent: Expression) =&gt; </span><span style='background: #AEF1AE'>res |+| children(res, newparent.children.map((id,_)), parent)</span><span style=''>
+</span>155 <span style=''>      }
+</span>156 <span style=''>
+</span>157 <span style=''>    val ids = </span><span style='background: #AEF1AE'>children(Map.empty, exprMap.toSeq, null)</span><span style=''>
+</span>158 <span style=''>
+</span>159 <span style=''>    </span><span style='background: #AEF1AE'>(( m + (name -&gt; ids) ) ++ evaluatedLambdas, Set() ++ overflowIds, Map() ++ unknownSparkFunctionIds)</span><span style=''>
+</span>160 <span style=''>  }
+</span>161 <span style=''>
+</span>162 <span style=''>  /**
+</span>163 <span style=''>   * Identifies all variables from an expression tree, attempts to drill down into lambdas if the name is already known.
+</span>164 <span style=''>   * @param expr The root expression to be evaluated
+</span>165 <span style=''>   * @param knownLambdaLookups using a map of lambda functions to already identified late bind fields calls to this lambda will be expanded
+</span>166 <span style=''>   * @return
+</span>167 <span style=''>   */
+</span>168 <span style=''>  def fieldsFromExpression(expr: Expression, knownLambdaLookups: ProcessedLambdas = Map.empty): ExpressionLookup = {
+</span>169 <span style=''>    def children(res: ExpressionLookup, children: Seq[Expression]): ExpressionLookup =
+</span>170 <span style=''>      </span><span style='background: #AEF1AE'>children.foldLeft(res){
+</span>171 <span style=''></span><span style='background: #AEF1AE'>        (curRes, exp) =&gt;
+</span>172 <span style=''></span><span style='background: #AEF1AE'>          accumulate(curRes, exp)
+</span>173 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>174 <span style=''>
+</span>175 <span style=''>    def accumulate(res: ExpressionLookup, exp: Expression): ExpressionLookup =
+</span>176 <span style=''>      exp match {
+</span>177 <span style=''>        // unresolved case where we cannot see more unresolved functions
+</span>178 <span style=''>        case UnresolvedFunction(nameParts, arguments, _, _, _) =&gt;
+</span>179 <span style=''>          val name = </span><span style='background: #AEF1AE'>toName(nameParts)</span><span style=''>
+</span>180 <span style=''>          val r =
+</span>181 <span style=''>            if (</span><span style='background: #AEF1AE'>knownLambdaLookups.contains(name)</span><span style=''>) </span><span style='background: #AEF1AE'>{
+</span>182 <span style=''></span><span style='background: #AEF1AE'>              val lambdas = knownLambdaLookups(name)
+</span>183 <span style=''></span><span style='background: #AEF1AE'>              res.copy(attributesUsed = res.attributesUsed ++ lambdas.flatMap(_._2), lambdas = res.lambdas ++ lambdas.keySet)  // merge the identifier set and lambdas
+</span>184 <span style=''></span><span style='background: #AEF1AE'>            }</span><span style=''> else </span><span style='background: #AEF1AE'>{
+</span>185 <span style=''></span><span style='background: #AEF1AE'>              // it's not a lambda function we know, is it inbuilt?
+</span>186 <span style=''></span><span style='background: #AEF1AE'>              // NB you would have to register UDFs etc. before calling validate etc.
+</span>187 <span style=''></span><span style='background: #AEF1AE'>              val exists =
+</span>188 <span style=''></span><span style='background: #AEF1AE'>                SparkSession.active.catalog.functionExists(name)
+</span>189 <span style=''></span><span style='background: #AEF1AE'>
+</span>190 <span style=''></span><span style='background: #AEF1AE'>              if (!exists)
+</span>191 <span style=''></span><span style='background: #AEF1AE'>                // add it in to the unknowns list
+</span>192 <span style=''></span><span style='background: #AEF1AE'>                res.copy(unknownSparkFunctions = res.unknownSparkFunctions + name)
+</span>193 <span style=''></span><span style='background: #AEF1AE'>              else
+</span>194 <span style=''></span><span style='background: #AEF1AE'>                res.copy(sparkFunctions = res.sparkFunctions + name)
+</span>195 <span style=''></span><span style='background: #AEF1AE'>            }</span><span style=''>
+</span>196 <span style=''>
+</span>197 <span style=''>          // we still need to do the args
+</span>198 <span style=''>          </span><span style='background: #AEF1AE'>children(r, arguments)</span><span style=''>
+</span>199 <span style=''>        case a : UnresolvedAttribute =&gt;
+</span>200 <span style=''>          </span><span style='background: #AEF1AE'>res.copy(attributesUsed = res.attributesUsed + a.name)</span><span style=''>
+</span>201 <span style=''>        // typically handled by the lambda functions above, but for coalesce this doesn't work, we need sub expression handling
+</span>202 <span style=''>        case a : UnresolvedNamedLambdaVariable =&gt;
+</span>203 <span style=''>          </span><span style='background: #AEF1AE'>res.copy(attributesUsed = res.attributesUsed + a.name)</span><span style=''>
+</span>204 <span style=''>        case _ : LeafExpression =&gt; res
+</span>205 <span style=''>        case parent: Expression =&gt; </span><span style='background: #AEF1AE'>children(res, parent.children)</span><span style=''>
+</span>206 <span style=''>      }
+</span>207 <span style=''>
+</span>208 <span style=''>    val ids = </span><span style='background: #AEF1AE'>accumulate(ExpressionLookup(), expr)</span><span style=''>
+</span>209 <span style=''>
+</span>210 <span style=''>    ids
+</span>211 <span style=''>  }
+</span>212 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          63
+        </td>
+        <td>
+          1801
+          -
+          1843
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.LoggerFactory.getLogger
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.slf4j.LoggerFactory.getLogger(&quot;VariablesLookup&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          64
+        </td>
+        <td>
+          2166
+          -
+          2176
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.VariablesLookup.toName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          VariablesLookup.this.toName(nv)
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          68
+        </td>
+        <td>
+          2193
+          -
+          2224
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.VariablesLookup.toName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          VariablesLookup.this.toName(ne.qualifier.:+[String, Seq[String]](ne.name)(collection.this.Seq.canBuildFrom[String]))
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          65
+        </td>
+        <td>
+          2216
+          -
+          2223
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.NamedExpression.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ne.name
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          67
+        </td>
+        <td>
+          2200
+          -
+          2223
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.SeqLike.:+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ne.qualifier.:+[String, Seq[String]](ne.name)(collection.this.Seq.canBuildFrom[String])
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          66
+        </td>
+        <td>
+          2213
+          -
+          2213
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[String]
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          70
+        </td>
+        <td>
+          2293
+          -
+          2313
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.VariablesLookup.toName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          VariablesLookup.this.toName(nv.nameParts)
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          69
+        </td>
+        <td>
+          2300
+          -
+          2312
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable.nameParts
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          nv.nameParts
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          71
+        </td>
+        <td>
+          2362
+          -
+          2381
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.mkString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          parts.mkString(&quot;.&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          73
+        </td>
+        <td>
+          2450
+          -
+          2486
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.VariablesLookup.toName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          VariablesLookup.this.toName(unresolvedFunction.nameParts)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          72
+        </td>
+        <td>
+          2457
+          -
+          2485
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.analysis.UnresolvedFunction.nameParts
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          unresolvedFunction.nameParts
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          92
+        </td>
+        <td>
+          2615
+          -
+          2949
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.foldLeft
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          m.foldLeft[(scala.collection.immutable.Map[String,Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]], scala.collection.immutable.Set[com.sparkutils.quality.Id], scala.collection.immutable.Map[com.sparkutils.quality.Id,Set[String]])](scala.Tuple3.apply[scala.collection.immutable.Map[String,Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]], scala.collection.immutable.Set[com.sparkutils.quality.Id], scala.collection.immutable.Map[com.sparkutils.quality.Id,Set[String]]](scala.Predef.Map.empty[String, Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]], scala.Predef.Set.empty[com.sparkutils.quality.Id], scala.Predef.Map.empty[com.sparkutils.quality.Id, Set[String]]))(((acc: (scala.collection.immutable.Map[String,Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]], scala.collection.immutable.Set[com.sparkutils.quality.Id], scala.collection.immutable.Map[com.sparkutils.quality.Id,Set[String]]), p: (String, Map[com.sparkutils.quality.Id,org.apache.spark.sql.catalyst.expressions.Expression])) =&gt; if (acc._1.contains(p._1))
+  acc
+else
+  {
+    &lt;synthetic&gt; &lt;artifact&gt; private[this] val x$1: (scala.collection.immutable.Map[String,Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]], scala.collection.immutable.Set[com.sparkutils.quality.Id], scala.collection.immutable.Map[com.sparkutils.quality.Id,Set[String]]) = (acc: (scala.collection.immutable.Map[String,Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]], scala.collection.immutable.Set[com.sparkutils.quality.Id], scala.collection.immutable.Map[com.sparkutils.quality.Id,Set[String]]) @unchecked) match {
+      case (_1: scala.collection.immutable.Map[String,Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]], _2: scala.collection.immutable.Set[com.sparkutils.quality.Id], _3: scala.collection.immutable.Map[com.sparkutils.quality.Id,Set[String]])(scala.collection.immutable.Map[String,Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]], scala.collection.immutable.Set[com.sparkutils.quality.Id], scala.collection.immutable.Map[com.sparkutils.quality.Id,Set[String]])((macc @ _), (s @ _), (us @ _)) =&gt; scala.Tuple3.apply[scala.collection.immutable.Map[String,Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]], scala.collection.immutable.Set[com.sparkutils.quality.Id], scala.collection.immutable.Map[com.sparkutils.quality.Id,Set[String]]](macc, s, us)
+    };
+    val macc: scala.collection.immutable.Map[String,Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]] = x$1._1;
+    val s: scala.collection.immutable.Set[com.sparkutils.quality.Id] = x$1._2;
+    val us: scala.collection.immutable.Map[com.sparkutils.quality.Id,Set[String]] = x$1._3;
+    &lt;synthetic&gt; &lt;artifact&gt; private[this] val x$2: (com.sparkutils.quality.VariablesLookup.ProcessedLambdas, com.sparkutils.quality.VariablesLookup.PossibleOverflowIds, com.sparkutils.quality.VariablesLookup.UnknownSparkFunctions) = (VariablesLookup.this.fieldsFromLambda(p._1, p._2, macc, m): (com.sparkutils.quality.VariablesLookup.ProcessedLambdas, com.sparkutils.quality.VariablesLookup.PossibleOverflowIds, com.sparkutils.quality.VariablesLookup.UnknownSparkFunctions) @unchecked) match {
+      case (_1: com.sparkutils.quality.VariablesLookup.ProcessedLambdas, _2: com.sparkutils.quality.VariablesLookup.PossibleOverflowIds, _3: com.sparkutils.quality.VariablesLookup.UnknownSparkFunctions)(com.sparkutils.quality.VariablesLookup.ProcessedLambdas, com.sparkutils.quality.VariablesLookup.PossibleOverflowIds, com.sparkutils.quality.VariablesLookup.UnknownSparkFunctions)((res @ _), (ress @ _), (resus @ _)) =&gt; scala.Tuple3.apply[com.sparkutils.quality.VariablesLookup.ProcessedLambdas, com.sparkutils.quality.VariablesLookup.PossibleOverflowIds, com.sparkutils.quality.VariablesLookup.UnknownSparkFunctions](res, ress, resus)
+    };
+    val res: com.sparkutils.quality.VariablesLookup.ProcessedLambdas = x$2._1;
+    val ress: com.sparkutils.quality.VariablesLookup.PossibleOverflowIds = x$2._2;
+    val resus: com.sparkutils.quality.VariablesLookup.UnknownSparkFunctions = x$2._3;
+    scala.Tuple3.apply[scala.collection.immutable.Map[String,Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]], com.sparkutils.quality.VariablesLookup.PossibleOverflowIds, com.sparkutils.quality.VariablesLookup.UnknownSparkFunctions](cats.implicits.catsSyntaxSemigroup[scala.collection.immutable.Map[String,Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]]](macc)(cats.implicits.catsKernelStdCommutativeMonoidForMap[String, Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]](cats.implicits.catsKernelStdCommutativeMonoidForMap[com.sparkutils.quality.Id, com.sparkutils.quality.VariablesLookup.Identifiers](cats.implicits.catsKernelStdSemilatticeForSet[com.sparkutils.quality.VariablesLookup.Identifier]))).|+|(res), cats.implicits.catsSyntaxSemigroup[com.sparkutils.quality.VariablesLookup.PossibleOverflowIds](ress)(cats.implicits.catsKernelStdSemilatticeForSet[com.sparkutils.quality.Id]).|+|(s), cats.implicits.catsSyntaxSemigroup[com.sparkutils.quality.VariablesLookup.UnknownSparkFunctions](resus)(cats.implicits.catsKernelStdCommutativeMonoidForMap[com.sparkutils.quality.Id, Set[String]](cats.implicits.catsKernelStdSemilatticeForSet[String])).|+|(us))
+  }))
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          77
+        </td>
+        <td>
+          2626
+          -
+          2710
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple3.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple3.apply[scala.collection.immutable.Map[String,Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]], scala.collection.immutable.Set[com.sparkutils.quality.Id], scala.collection.immutable.Map[com.sparkutils.quality.Id,Set[String]]](scala.Predef.Map.empty[String, Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]], scala.Predef.Set.empty[com.sparkutils.quality.Id], scala.Predef.Map.empty[com.sparkutils.quality.Id, Set[String]])
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          74
+        </td>
+        <td>
+          2627
+          -
+          2666
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Map.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.Map.empty[String, Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]]
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          76
+        </td>
+        <td>
+          2683
+          -
+          2709
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Map.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.Map.empty[com.sparkutils.quality.Id, Set[String]]
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          75
+        </td>
+        <td>
+          2668
+          -
+          2681
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.generic.ImmutableSetFactory.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.Set.empty[com.sparkutils.quality.Id]
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          79
+        </td>
+        <td>
+          2735
+          -
+          2756
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.contains
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          acc._1.contains(p._1)
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          78
+        </td>
+        <td>
+          2751
+          -
+          2755
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          p._1
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          80
+        </td>
+        <td>
+          2766
+          -
+          2769
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.sparkutils.quality.VariablesLookup.acc
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          acc
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          91
+        </td>
+        <td>
+          2781
+          -
+          2943
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  &lt;synthetic&gt; &lt;artifact&gt; private[this] val x$1: (scala.collection.immutable.Map[String,Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]], scala.collection.immutable.Set[com.sparkutils.quality.Id], scala.collection.immutable.Map[com.sparkutils.quality.Id,Set[String]]) = (acc: (scala.collection.immutable.Map[String,Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]], scala.collection.immutable.Set[com.sparkutils.quality.Id], scala.collection.immutable.Map[com.sparkutils.quality.Id,Set[String]]) @unchecked) match {
+    case (_1: scala.collection.immutable.Map[String,Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]], _2: scala.collection.immutable.Set[com.sparkutils.quality.Id], _3: scala.collection.immutable.Map[com.sparkutils.quality.Id,Set[String]])(scala.collection.immutable.Map[String,Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]], scala.collection.immutable.Set[com.sparkutils.quality.Id], scala.collection.immutable.Map[com.sparkutils.quality.Id,Set[String]])((macc @ _), (s @ _), (us @ _)) =&gt; scala.Tuple3.apply[scala.collection.immutable.Map[String,Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]], scala.collection.immutable.Set[com.sparkutils.quality.Id], scala.collection.immutable.Map[com.sparkutils.quality.Id,Set[String]]](macc, s, us)
+  };
+  val macc: scala.collection.immutable.Map[String,Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]] = x$1._1;
+  val s: scala.collection.immutable.Set[com.sparkutils.quality.Id] = x$1._2;
+  val us: scala.collection.immutable.Map[com.sparkutils.quality.Id,Set[String]] = x$1._3;
+  &lt;synthetic&gt; &lt;artifact&gt; private[this] val x$2: (com.sparkutils.quality.VariablesLookup.ProcessedLambdas, com.sparkutils.quality.VariablesLookup.PossibleOverflowIds, com.sparkutils.quality.VariablesLookup.UnknownSparkFunctions) = (VariablesLookup.this.fieldsFromLambda(p._1, p._2, macc, m): (com.sparkutils.quality.VariablesLookup.ProcessedLambdas, com.sparkutils.quality.VariablesLookup.PossibleOverflowIds, com.sparkutils.quality.VariablesLookup.UnknownSparkFunctions) @unchecked) match {
+    case (_1: com.sparkutils.quality.VariablesLookup.ProcessedLambdas, _2: com.sparkutils.quality.VariablesLookup.PossibleOverflowIds, _3: com.sparkutils.quality.VariablesLookup.UnknownSparkFunctions)(com.sparkutils.quality.VariablesLookup.ProcessedLambdas, com.sparkutils.quality.VariablesLookup.PossibleOverflowIds, com.sparkutils.quality.VariablesLookup.UnknownSparkFunctions)((res @ _), (ress @ _), (resus @ _)) =&gt; scala.Tuple3.apply[com.sparkutils.quality.VariablesLookup.ProcessedLambdas, com.sparkutils.quality.VariablesLookup.PossibleOverflowIds, com.sparkutils.quality.VariablesLookup.UnknownSparkFunctions](res, ress, resus)
+  };
+  val res: com.sparkutils.quality.VariablesLookup.ProcessedLambdas = x$2._1;
+  val ress: com.sparkutils.quality.VariablesLookup.PossibleOverflowIds = x$2._2;
+  val resus: com.sparkutils.quality.VariablesLookup.UnknownSparkFunctions = x$2._3;
+  scala.Tuple3.apply[scala.collection.immutable.Map[String,Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]], com.sparkutils.quality.VariablesLookup.PossibleOverflowIds, com.sparkutils.quality.VariablesLookup.UnknownSparkFunctions](cats.implicits.catsSyntaxSemigroup[scala.collection.immutable.Map[String,Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]]](macc)(cats.implicits.catsKernelStdCommutativeMonoidForMap[String, Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]](cats.implicits.catsKernelStdCommutativeMonoidForMap[com.sparkutils.quality.Id, com.sparkutils.quality.VariablesLookup.Identifiers](cats.implicits.catsKernelStdSemilatticeForSet[com.sparkutils.quality.VariablesLookup.Identifier]))).|+|(res), cats.implicits.catsSyntaxSemigroup[com.sparkutils.quality.VariablesLookup.PossibleOverflowIds](ress)(cats.implicits.catsKernelStdSemilatticeForSet[com.sparkutils.quality.Id]).|+|(s), cats.implicits.catsSyntaxSemigroup[com.sparkutils.quality.VariablesLookup.UnknownSparkFunctions](resus)(cats.implicits.catsKernelStdCommutativeMonoidForMap[com.sparkutils.quality.Id, Set[String]](cats.implicits.catsKernelStdSemilatticeForSet[String])).|+|(us))
+}
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          83
+        </td>
+        <td>
+          2805
+          -
+          2805
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple3._3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$1._3
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          82
+        </td>
+        <td>
+          2802
+          -
+          2802
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple3._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$1._2
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          81
+        </td>
+        <td>
+          2796
+          -
+          2796
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple3._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$1._1
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          86
+        </td>
+        <td>
+          2839
+          -
+          2839
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple3._3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$2._3
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          85
+        </td>
+        <td>
+          2833
+          -
+          2833
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple3._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$2._2
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          84
+        </td>
+        <td>
+          2828
+          -
+          2828
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple3._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$2._1
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          89
+        </td>
+        <td>
+          2922
+          -
+          2934
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          cats.syntax.SemigroupOps.|+|
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cats.implicits.catsSyntaxSemigroup[com.sparkutils.quality.VariablesLookup.UnknownSparkFunctions](resus)(cats.implicits.catsKernelStdCommutativeMonoidForMap[com.sparkutils.quality.Id, Set[String]](cats.implicits.catsKernelStdSemilatticeForSet[String])).|+|(us)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          88
+        </td>
+        <td>
+          2910
+          -
+          2920
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          cats.syntax.SemigroupOps.|+|
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cats.implicits.catsSyntaxSemigroup[com.sparkutils.quality.VariablesLookup.PossibleOverflowIds](ress)(cats.implicits.catsKernelStdSemilatticeForSet[com.sparkutils.quality.Id]).|+|(s)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          87
+        </td>
+        <td>
+          2896
+          -
+          2908
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          cats.syntax.SemigroupOps.|+|
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cats.implicits.catsSyntaxSemigroup[scala.collection.immutable.Map[String,Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]]](macc)(cats.implicits.catsKernelStdCommutativeMonoidForMap[String, Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]](cats.implicits.catsKernelStdCommutativeMonoidForMap[com.sparkutils.quality.Id, com.sparkutils.quality.VariablesLookup.Identifiers](cats.implicits.catsKernelStdSemilatticeForSet[com.sparkutils.quality.VariablesLookup.Identifier]))).|+|(res)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          90
+        </td>
+        <td>
+          2895
+          -
+          2935
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple3.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple3.apply[scala.collection.immutable.Map[String,Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]], com.sparkutils.quality.VariablesLookup.PossibleOverflowIds, com.sparkutils.quality.VariablesLookup.UnknownSparkFunctions](cats.implicits.catsSyntaxSemigroup[scala.collection.immutable.Map[String,Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]]](macc)(cats.implicits.catsKernelStdCommutativeMonoidForMap[String, Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]](cats.implicits.catsKernelStdCommutativeMonoidForMap[com.sparkutils.quality.Id, com.sparkutils.quality.VariablesLookup.Identifiers](cats.implicits.catsKernelStdSemilatticeForSet[com.sparkutils.quality.VariablesLookup.Identifier]))).|+|(res), cats.implicits.catsSyntaxSemigroup[com.sparkutils.quality.VariablesLookup.PossibleOverflowIds](ress)(cats.implicits.catsKernelStdSemilatticeForSet[com.sparkutils.quality.Id]).|+|(s), cats.implicits.catsSyntaxSemigroup[com.sparkutils.quality.VariablesLookup.UnknownSparkFunctions](resus)(cats.implicits.catsKernelStdCommutativeMonoidForMap[com.sparkutils.quality.Id, Set[String]](cats.implicits.catsKernelStdSemilatticeForSet[String])).|+|(us))
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          93
+        </td>
+        <td>
+          3233
+          -
+          3302
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.MapLike.++
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.mutable.Map.empty[String, Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]].++[Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]](m)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          94
+        </td>
+        <td>
+          3325
+          -
+          3363
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.mutable.Set.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.mutable.Set.empty[com.sparkutils.quality.Id]
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          95
+        </td>
+        <td>
+          3398
+          -
+          3449
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.mutable.Map.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.mutable.Map.empty[com.sparkutils.quality.Id, Set[String]]
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          100
+        </td>
+        <td>
+          3586
+          -
+          3695
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.foldLeft
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          children.foldLeft[Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]](res)(((curRes: Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers], exp: (com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression)) =&gt; cats.implicits.catsSyntaxSemigroup[Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]](curRes)(cats.implicits.catsKernelStdCommutativeMonoidForMap[com.sparkutils.quality.Id, com.sparkutils.quality.VariablesLookup.Identifiers](cats.implicits.catsKernelStdSemilatticeForSet[com.sparkutils.quality.VariablesLookup.Identifier])).|+|(accumulate(curRes, exp, parent))))
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          98
+        </td>
+        <td>
+          3656
+          -
+          3687
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.VariablesLookup.accumulate
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          accumulate(curRes, exp, parent)
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          97
+        </td>
+        <td>
+          3645
+          -
+          3645
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          cats.kernel.instances.MapInstances.catsKernelStdCommutativeMonoidForMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cats.implicits.catsKernelStdCommutativeMonoidForMap[com.sparkutils.quality.Id, com.sparkutils.quality.VariablesLookup.Identifiers](cats.implicits.catsKernelStdSemilatticeForSet[com.sparkutils.quality.VariablesLookup.Identifier])
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          96
+        </td>
+        <td>
+          3645
+          -
+          3645
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          cats.kernel.instances.SetInstances1.catsKernelStdSemilatticeForSet
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cats.implicits.catsKernelStdSemilatticeForSet[com.sparkutils.quality.VariablesLookup.Identifier]
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          99
+        </td>
+        <td>
+          3645
+          -
+          3687
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          cats.syntax.SemigroupOps.|+|
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cats.implicits.catsSyntaxSemigroup[Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]](curRes)(cats.implicits.catsKernelStdCommutativeMonoidForMap[com.sparkutils.quality.Id, com.sparkutils.quality.VariablesLookup.Identifiers](cats.implicits.catsKernelStdSemilatticeForSet[com.sparkutils.quality.VariablesLookup.Identifier])).|+|(accumulate(curRes, exp, parent))
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          102
+        </td>
+        <td>
+          3931
+          -
+          4029
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.foldLeft
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          children.foldLeft[com.sparkutils.quality.VariablesLookup.Identifiers](res)(((curRes: com.sparkutils.quality.VariablesLookup.Identifiers, exp: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; faccumulate(curRes, exp)))
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          101
+        </td>
+        <td>
+          3995
+          -
+          4019
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.VariablesLookup.faccumulate
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          faccumulate(curRes, exp)
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          103
+        </td>
+        <td>
+          4220
+          -
+          4229
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.VariablesLookup.toName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          VariablesLookup.this.toName(a)
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          104
+        </td>
+        <td>
+          4246
+          -
+          4266
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          args.contains(full).unary_!
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          106
+        </td>
+        <td>
+          4378
+          -
+          4396
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.SetLike.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          identifiers.+(full)
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          105
+        </td>
+        <td>
+          4378
+          -
+          4396
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SetLike.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          identifiers.+(full)
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          107
+        </td>
+        <td>
+          4428
+          -
+          4439
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.sparkutils.quality.VariablesLookup.identifiers
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          identifiers
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          108
+        </td>
+        <td>
+          4569
+          -
+          4595
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.VariablesLookup.toName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          VariablesLookup.this.toName(functionIdentifier)
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          109
+        </td>
+        <td>
+          4637
+          -
+          4668
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.contains
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          evaluatedLambdas.contains(name)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          110
+        </td>
+        <td>
+          4686
+          -
+          4697
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.sparkutils.quality.VariablesLookup.identifiers
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          identifiers
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          133
+        </td>
+        <td>
+          4773
+          -
+          5784
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  if (parent.ne(null).&amp;&amp;(VariablesLookup.this.toName(functionIdentifier).==(VariablesLookup.this.toName(parent.nameParts))))
+    lambdaExpressions.apply(name).find(((x$3: (com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression)) =&gt; x$3._2.children.size.==(argumentExpressions.size))).fold[Unit]({
+      overflowIds.+=(id);
+      VariablesLookup.this.logger.warn(scala.StringContext.apply(&quot;Function &quot;, &quot; calls itself, this may StackOverflowError on evaluation&quot;).s(name))
+    })(((i: (com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression)) =&gt; {
+      val r: Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers] = children(scala.Predef.Map.empty[com.sparkutils.quality.Id, Nothing], scala.collection.Seq.apply[(com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression)](i), f);
+      evaluatedLambdas.update(name, r)
+    }))
+  else
+    {
+      val r: Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers] = children(scala.Predef.Map.empty[com.sparkutils.quality.Id, Nothing], lambdaExpressions.apply(name).toSeq, f);
+      evaluatedLambdas.update(name, r)
+    };
+  identifiers
+}
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          145
+        </td>
+        <td>
+          4735
+          -
+          6405
+        </td>
+        <td>
+          If
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          if (lambdaExpressions.contains(name))
+  {
+    if (parent.ne(null).&amp;&amp;(VariablesLookup.this.toName(functionIdentifier).==(VariablesLookup.this.toName(parent.nameParts))))
+      lambdaExpressions.apply(name).find(((x$3: (com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression)) =&gt; x$3._2.children.size.==(argumentExpressions.size))).fold[Unit]({
+        overflowIds.+=(id);
+        VariablesLookup.this.logger.warn(scala.StringContext.apply(&quot;Function &quot;, &quot; calls itself, this may StackOverflowError on evaluation&quot;).s(name))
+      })(((i: (com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression)) =&gt; {
+        val r: Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers] = children(scala.Predef.Map.empty[com.sparkutils.quality.Id, Nothing], scala.collection.Seq.apply[(com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression)](i), f);
+        evaluatedLambdas.update(name, r)
+      }))
+    else
+      {
+        val r: Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers] = children(scala.Predef.Map.empty[com.sparkutils.quality.Id, Nothing], lambdaExpressions.apply(name).toSeq, f);
+        evaluatedLambdas.update(name, r)
+      };
+    identifiers
+  }
+else
+  {
+    val name: String = VariablesLookup.this.toName(functionIdentifier);
+    val exists: Boolean = org.apache.spark.sql.SparkSession.active.catalog.functionExists(name);
+    if (exists.unary_!)
+      {
+        val map: Set[String] = unknownSparkFunctionIds.getOrElse[Set[String]](id, scala.Predef.Set.empty[String]);
+        unknownSparkFunctionIds.update(id, map.+(name))
+      }
+    else
+      ();
+    identifiers
+  }
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          111
+        </td>
+        <td>
+          4739
+          -
+          4771
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.contains
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          lambdaExpressions.contains(name)
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          113
+        </td>
+        <td>
+          4945
+          -
+          4961
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.analysis.UnresolvedFunction.nameParts
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          parent.nameParts
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          116
+        </td>
+        <td>
+          4888
+          -
+          4962
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          parent.ne(null).&amp;&amp;(VariablesLookup.this.toName(functionIdentifier).==(VariablesLookup.this.toName(parent.nameParts)))
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          115
+        </td>
+        <td>
+          4908
+          -
+          4962
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          VariablesLookup.this.toName(functionIdentifier).==(VariablesLookup.this.toName(parent.nameParts))
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          112
+        </td>
+        <td>
+          4899
+          -
+          4903
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          114
+        </td>
+        <td>
+          4938
+          -
+          4962
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.VariablesLookup.toName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          VariablesLookup.this.toName(parent.nameParts)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          118
+        </td>
+        <td>
+          5170
+          -
+          5216
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$3._2.children.size.==(argumentExpressions.size)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          117
+        </td>
+        <td>
+          5192
+          -
+          5216
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.SeqLike.size
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          argumentExpressions.size
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          119
+        </td>
+        <td>
+          5246
+          -
+          5263
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.SetLike.+=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          overflowIds.+=(id)
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          121
+        </td>
+        <td>
+          5286
+          -
+          5374
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.warn
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          VariablesLookup.this.logger.warn(scala.StringContext.apply(&quot;Function &quot;, &quot; calls itself, this may StackOverflowError on evaluation&quot;).s(name))
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          120
+        </td>
+        <td>
+          5298
+          -
+          5373
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Function &quot;, &quot; calls itself, this may StackOverflowError on evaluation&quot;).s(name)
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          127
+        </td>
+        <td>
+          5141
+          -
+          5560
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Option.fold
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          lambdaExpressions.apply(name).find(((x$3: (com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression)) =&gt; x$3._2.children.size.==(argumentExpressions.size))).fold[Unit]({
+  overflowIds.+=(id);
+  VariablesLookup.this.logger.warn(scala.StringContext.apply(&quot;Function &quot;, &quot; calls itself, this may StackOverflowError on evaluation&quot;).s(name))
+})(((i: (com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression)) =&gt; {
+  val r: Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers] = children(scala.Predef.Map.empty[com.sparkutils.quality.Id, Nothing], scala.collection.Seq.apply[(com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression)](i), f);
+  evaluatedLambdas.update(name, r)
+}))
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          126
+        </td>
+        <td>
+          5141
+          -
+          5560
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.fold
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          lambdaExpressions.apply(name).find(((x$3: (com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression)) =&gt; x$3._2.children.size.==(argumentExpressions.size))).fold[Unit]({
+  overflowIds.+=(id);
+  VariablesLookup.this.logger.warn(scala.StringContext.apply(&quot;Function &quot;, &quot; calls itself, this may StackOverflowError on evaluation&quot;).s(name))
+})(((i: (com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression)) =&gt; {
+  val r: Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers] = children(scala.Predef.Map.empty[com.sparkutils.quality.Id, Nothing], scala.collection.Seq.apply[(com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression)](i), f);
+  evaluatedLambdas.update(name, r)
+}))
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          122
+        </td>
+        <td>
+          5466
+          -
+          5475
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Map.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.Map.empty[com.sparkutils.quality.Id, Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          124
+        </td>
+        <td>
+          5457
+          -
+          5487
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.VariablesLookup.children
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          children(scala.Predef.Map.empty[com.sparkutils.quality.Id, Nothing], scala.collection.Seq.apply[(com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression)](i), f)
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          123
+        </td>
+        <td>
+          5477
+          -
+          5483
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.Seq.apply[(com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression)](i)
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          125
+        </td>
+        <td>
+          5512
+          -
+          5538
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.MapLike.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          evaluatedLambdas.update(name, r)
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          132
+        </td>
+        <td>
+          5586
+          -
+          5736
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val r: Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers] = children(scala.Predef.Map.empty[com.sparkutils.quality.Id, Nothing], lambdaExpressions.apply(name).toSeq, f);
+  evaluatedLambdas.update(name, r)
+}
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          128
+        </td>
+        <td>
+          5625
+          -
+          5634
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Map.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.Map.empty[com.sparkutils.quality.Id, Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          130
+        </td>
+        <td>
+          5616
+          -
+          5669
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.VariablesLookup.children
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          children(scala.Predef.Map.empty[com.sparkutils.quality.Id, Nothing], lambdaExpressions.apply(name).toSeq, f)
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          129
+        </td>
+        <td>
+          5636
+          -
+          5665
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.MapLike.toSeq
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          lambdaExpressions.apply(name).toSeq
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          131
+        </td>
+        <td>
+          5690
+          -
+          5716
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.MapLike.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          evaluatedLambdas.update(name, r)
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          144
+        </td>
+        <td>
+          5790
+          -
+          6405
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val name: String = VariablesLookup.this.toName(functionIdentifier);
+  val exists: Boolean = org.apache.spark.sql.SparkSession.active.catalog.functionExists(name);
+  if (exists.unary_!)
+    {
+      val map: Set[String] = unknownSparkFunctionIds.getOrElse[Set[String]](id, scala.Predef.Set.empty[String]);
+      unknownSparkFunctionIds.update(id, map.+(name))
+    }
+  else
+    ();
+  identifiers
+}
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          134
+        </td>
+        <td>
+          5983
+          -
+          6009
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.VariablesLookup.toName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          VariablesLookup.this.toName(functionIdentifier)
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          135
+        </td>
+        <td>
+          6061
+          -
+          6109
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalog.Catalog.functionExists
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.SparkSession.active.catalog.functionExists(name)
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          142
+        </td>
+        <td>
+          6129
+          -
+          6129
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          136
+        </td>
+        <td>
+          6133
+          -
+          6140
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          exists.unary_!
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          141
+        </td>
+        <td>
+          6142
+          -
+          6357
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val map: Set[String] = unknownSparkFunctionIds.getOrElse[Set[String]](id, scala.Predef.Set.empty[String]);
+  unknownSparkFunctionIds.update(id, map.+(name))
+}
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          143
+        </td>
+        <td>
+          6129
+          -
+          6129
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          137
+        </td>
+        <td>
+          6266
+          -
+          6275
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.generic.ImmutableSetFactory.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.Set.empty[String]
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          138
+        </td>
+        <td>
+          6228
+          -
+          6276
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          unknownSparkFunctionIds.getOrElse[Set[String]](id, scala.Predef.Set.empty[String])
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          140
+        </td>
+        <td>
+          6297
+          -
+          6337
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.MapLike.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          unknownSparkFunctionIds.update(id, map.+(name))
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          139
+        </td>
+        <td>
+          6327
+          -
+          6337
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SetLike.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          map.+(name)
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          146
+        </td>
+        <td>
+          6489
+          -
+          6529
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.VariablesLookup.fieldChildren
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          fieldChildren(nids, argumentExpressions)
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          148
+        </td>
+        <td>
+          6563
+          -
+          6601
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.VariablesLookup.fieldChildren
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          fieldChildren(identifiers, p.children)
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          147
+        </td>
+        <td>
+          6590
+          -
+          6600
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.trees.TreeNode.children
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          p.children
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          149
+        </td>
+        <td>
+          6652
+          -
+          6674
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.VariablesLookup.faccumulate
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          faccumulate(ids, expr)
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          151
+        </td>
+        <td>
+          7075
+          -
+          7128
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.VariablesLookup.toName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          VariablesLookup.this.toName(v.asInstanceOf[org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable])
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          150
+        </td>
+        <td>
+          7082
+          -
+          7127
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          v.asInstanceOf[org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable]
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          153
+        </td>
+        <td>
+          7056
+          -
+          7135
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toSet
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          arguments.map[String, Seq[String]](((v: org.apache.spark.sql.catalyst.expressions.NamedExpression) =&gt; VariablesLookup.this.toName(v.asInstanceOf[org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable])))(collection.this.Seq.canBuildFrom[String]).toSet[String]
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          152
+        </td>
+        <td>
+          7069
+          -
+          7069
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[String]
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          155
+        </td>
+        <td>
+          7202
+          -
+          7254
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.ArrowAssoc[com.sparkutils.quality.Id](id).-&gt;[com.sparkutils.quality.VariablesLookup.Identifiers](processFields(names, functionExpr, id, parent, processFields$default$5))
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          154
+        </td>
+        <td>
+          7208
+          -
+          7254
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.VariablesLookup.processFields
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          processFields(names, functionExpr, id, parent, processFields$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          156
+        </td>
+        <td>
+          7197
+          -
+          7255
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenMapFactory.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.Map.apply[com.sparkutils.quality.Id, com.sparkutils.quality.VariablesLookup.Identifiers](scala.Predef.ArrowAssoc[com.sparkutils.quality.Id](id).-&gt;[com.sparkutils.quality.VariablesLookup.Identifiers](processFields(names, functionExpr, id, parent, processFields$default$5)))
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          158
+        </td>
+        <td>
+          7370
+          -
+          7398
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.getOrElse[com.sparkutils.quality.VariablesLookup.Identifiers](id, scala.Predef.Set.empty[com.sparkutils.quality.VariablesLookup.Identifier])
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          157
+        </td>
+        <td>
+          7388
+          -
+          7397
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.generic.ImmutableSetFactory.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.Set.empty[com.sparkutils.quality.VariablesLookup.Identifier]
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          160
+        </td>
+        <td>
+          7428
+          -
+          7447
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.VariablesLookup.toName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          VariablesLookup.this.toName(a.nameParts)
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          163
+        </td>
+        <td>
+          7409
+          -
+          7450
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.Map.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.+[com.sparkutils.quality.VariablesLookup.Identifiers](scala.Predef.ArrowAssoc[com.sparkutils.quality.Id](id).-&gt;[scala.collection.immutable.Set[com.sparkutils.quality.VariablesLookup.Identifier]](s.+(VariablesLookup.this.toName(a.nameParts))))
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          159
+        </td>
+        <td>
+          7435
+          -
+          7446
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute.nameParts
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          a.nameParts
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          162
+        </td>
+        <td>
+          7417
+          -
+          7448
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.ArrowAssoc[com.sparkutils.quality.Id](id).-&gt;[scala.collection.immutable.Set[com.sparkutils.quality.VariablesLookup.Identifier]](s.+(VariablesLookup.this.toName(a.nameParts)))
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          161
+        </td>
+        <td>
+          7424
+          -
+          7447
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SetLike.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          s.+(VariablesLookup.this.toName(a.nameParts))
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          164
+        </td>
+        <td>
+          7545
+          -
+          7545
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          cats.kernel.instances.SetInstances1.catsKernelStdSemilatticeForSet
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cats.implicits.catsKernelStdSemilatticeForSet[com.sparkutils.quality.VariablesLookup.Identifier]
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          167
+        </td>
+        <td>
+          7586
+          -
+          7586
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[(com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression)]
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          166
+        </td>
+        <td>
+          7587
+          -
+          7593
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression](id, x$4)
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          169
+        </td>
+        <td>
+          7553
+          -
+          7603
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.VariablesLookup.children
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          children(res, parent.children.map[(com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression), Seq[(com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression)]](((x$4: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; scala.Tuple2.apply[com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression](id, x$4)))(collection.this.Seq.canBuildFrom[(com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression)]), parent)
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          165
+        </td>
+        <td>
+          7545
+          -
+          7545
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          cats.kernel.instances.MapInstances.catsKernelStdCommutativeMonoidForMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cats.implicits.catsKernelStdCommutativeMonoidForMap[com.sparkutils.quality.Id, com.sparkutils.quality.VariablesLookup.Identifiers](cats.implicits.catsKernelStdSemilatticeForSet[com.sparkutils.quality.VariablesLookup.Identifier])
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          168
+        </td>
+        <td>
+          7567
+          -
+          7594
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          parent.children.map[(com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression), Seq[(com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression)]](((x$4: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; scala.Tuple2.apply[com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression](id, x$4)))(collection.this.Seq.canBuildFrom[(com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression)])
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          170
+        </td>
+        <td>
+          7545
+          -
+          7603
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          cats.syntax.SemigroupOps.|+|
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cats.implicits.catsSyntaxSemigroup[Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]](res)(cats.implicits.catsKernelStdCommutativeMonoidForMap[com.sparkutils.quality.Id, com.sparkutils.quality.VariablesLookup.Identifiers](cats.implicits.catsKernelStdSemilatticeForSet[com.sparkutils.quality.VariablesLookup.Identifier])).|+|(children(res, parent.children.map[(com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression), Seq[(com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression)]](((x$4: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; scala.Tuple2.apply[com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression](id, x$4)))(collection.this.Seq.canBuildFrom[(com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression)]), parent))
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          173
+        </td>
+        <td>
+          7705
+          -
+          7711
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression](id, x$5)
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          176
+        </td>
+        <td>
+          7668
+          -
+          7721
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.VariablesLookup.children
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          children(res, newparent.children.map[(com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression), Seq[(com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression)]](((x$5: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; scala.Tuple2.apply[com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression](id, x$5)))(collection.this.Seq.canBuildFrom[(com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression)]), parent)
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          175
+        </td>
+        <td>
+          7682
+          -
+          7712
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          newparent.children.map[(com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression), Seq[(com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression)]](((x$5: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; scala.Tuple2.apply[com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression](id, x$5)))(collection.this.Seq.canBuildFrom[(com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression)])
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          172
+        </td>
+        <td>
+          7660
+          -
+          7660
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          cats.kernel.instances.MapInstances.catsKernelStdCommutativeMonoidForMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cats.implicits.catsKernelStdCommutativeMonoidForMap[com.sparkutils.quality.Id, com.sparkutils.quality.VariablesLookup.Identifiers](cats.implicits.catsKernelStdSemilatticeForSet[com.sparkutils.quality.VariablesLookup.Identifier])
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          174
+        </td>
+        <td>
+          7704
+          -
+          7704
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[(com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression)]
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          177
+        </td>
+        <td>
+          7660
+          -
+          7721
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          cats.syntax.SemigroupOps.|+|
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cats.implicits.catsSyntaxSemigroup[Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]](res)(cats.implicits.catsKernelStdCommutativeMonoidForMap[com.sparkutils.quality.Id, com.sparkutils.quality.VariablesLookup.Identifiers](cats.implicits.catsKernelStdSemilatticeForSet[com.sparkutils.quality.VariablesLookup.Identifier])).|+|(children(res, newparent.children.map[(com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression), Seq[(com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression)]](((x$5: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; scala.Tuple2.apply[com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression](id, x$5)))(collection.this.Seq.canBuildFrom[(com.sparkutils.quality.Id, org.apache.spark.sql.catalyst.expressions.Expression)]), parent))
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          171
+        </td>
+        <td>
+          7660
+          -
+          7660
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          cats.kernel.instances.SetInstances1.catsKernelStdSemilatticeForSet
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cats.implicits.catsKernelStdSemilatticeForSet[com.sparkutils.quality.VariablesLookup.Identifier]
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          178
+        </td>
+        <td>
+          7754
+          -
+          7763
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Map.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.Map.empty[com.sparkutils.quality.Id, Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          181
+        </td>
+        <td>
+          7745
+          -
+          7785
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.VariablesLookup.children
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          children(scala.Predef.Map.empty[com.sparkutils.quality.Id, Nothing], exprMap.toSeq, null)
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          180
+        </td>
+        <td>
+          7780
+          -
+          7784
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          179
+        </td>
+        <td>
+          7765
+          -
+          7778
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.MapLike.toSeq
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          exprMap.toSeq
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          182
+        </td>
+        <td>
+          7792
+          -
+          7833
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.MapLike.++
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          m.+[Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]](scala.Predef.ArrowAssoc[String](name).-&gt;[Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]](ids)).++[Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]](evaluatedLambdas)
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          185
+        </td>
+        <td>
+          7791
+          -
+          7890
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple3.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple3.apply[scala.collection.immutable.Map[String,Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]], scala.collection.immutable.Set[com.sparkutils.quality.Id], scala.collection.immutable.Map[com.sparkutils.quality.Id,Set[String]]](m.+[Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]](scala.Predef.ArrowAssoc[String](name).-&gt;[Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]](ids)).++[Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers]](evaluatedLambdas), scala.Predef.Set.apply[com.sparkutils.quality.Id]().++(overflowIds), scala.Predef.Map.apply[com.sparkutils.quality.Id, Nothing]().++[Set[String]](unknownSparkFunctionIds))
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          184
+        </td>
+        <td>
+          7857
+          -
+          7889
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.MapLike.++
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.Map.apply[com.sparkutils.quality.Id, Nothing]().++[Set[String]](unknownSparkFunctionIds)
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          183
+        </td>
+        <td>
+          7835
+          -
+          7855
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SetLike.++
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.Set.apply[com.sparkutils.quality.Id]().++(overflowIds)
+        </td>
+      </tr><tr>
+        <td>
+          170
+        </td>
+        <td>
+          187
+        </td>
+        <td>
+          8445
+          -
+          8535
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.foldLeft
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          children.foldLeft[com.sparkutils.quality.ExpressionLookup](res)(((curRes: com.sparkutils.quality.ExpressionLookup, exp: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; accumulate(curRes, exp)))
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          186
+        </td>
+        <td>
+          8504
+          -
+          8527
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.VariablesLookup.accumulate
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          accumulate(curRes, exp)
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          188
+        </td>
+        <td>
+          8794
+          -
+          8811
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.VariablesLookup.toName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          VariablesLookup.this.toName(nameParts)
+        </td>
+      </tr><tr>
+        <td>
+          181
+        </td>
+        <td>
+          200
+        </td>
+        <td>
+          8881
+          -
+          9116
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val lambdas: Map[com.sparkutils.quality.Id,com.sparkutils.quality.VariablesLookup.Identifiers] = knownLambdaLookups.apply(name);
+  {
+    &lt;artifact&gt; val x$1: scala.collection.immutable.Set[com.sparkutils.quality.VariablesLookup.Identifier] @scala.reflect.internal.annotations.uncheckedBounds = res.attributesUsed.++(lambdas.flatMap[com.sparkutils.quality.VariablesLookup.Identifier, scala.collection.immutable.Iterable[com.sparkutils.quality.VariablesLookup.Identifier]](((x$6: (com.sparkutils.quality.Id, com.sparkutils.quality.VariablesLookup.Identifiers)) =&gt; x$6._2))(immutable.this.Iterable.canBuildFrom[com.sparkutils.quality.VariablesLookup.Identifier]));
+    &lt;artifact&gt; val x$2: scala.collection.immutable.Set[com.sparkutils.quality.Id] @scala.reflect.internal.annotations.uncheckedBounds = res.lambdas.++(lambdas.keySet);
+    &lt;artifact&gt; val x$3: com.sparkutils.quality.VariablesLookup.Identifiers = res.copy$default$2;
+    &lt;artifact&gt; val x$4: Set[String] @scala.reflect.internal.annotations.uncheckedBounds = res.copy$default$4;
+    res.copy(x$1, x$3, x$2, x$4)
+  }
+}
+        </td>
+      </tr><tr>
+        <td>
+          181
+        </td>
+        <td>
+          189
+        </td>
+        <td>
+          8846
+          -
+          8879
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.contains
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          knownLambdaLookups.contains(name)
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          190
+        </td>
+        <td>
+          8911
+          -
+          8935
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          knownLambdaLookups.apply(name)
+        </td>
+      </tr><tr>
+        <td>
+          183
+        </td>
+        <td>
+          191
+        </td>
+        <td>
+          9014
+          -
+          9018
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$6._2
+        </td>
+      </tr><tr>
+        <td>
+          183
+        </td>
+        <td>
+          194
+        </td>
+        <td>
+          8976
+          -
+          9019
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SetLike.++
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.attributesUsed.++(lambdas.flatMap[com.sparkutils.quality.VariablesLookup.Identifier, scala.collection.immutable.Iterable[com.sparkutils.quality.VariablesLookup.Identifier]](((x$6: (com.sparkutils.quality.Id, com.sparkutils.quality.VariablesLookup.Identifiers)) =&gt; x$6._2))(immutable.this.Iterable.canBuildFrom[com.sparkutils.quality.VariablesLookup.Identifier]))
+        </td>
+      </tr><tr>
+        <td>
+          183
+        </td>
+        <td>
+          193
+        </td>
+        <td>
+          8998
+          -
+          9019
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.flatMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          lambdas.flatMap[com.sparkutils.quality.VariablesLookup.Identifier, scala.collection.immutable.Iterable[com.sparkutils.quality.VariablesLookup.Identifier]](((x$6: (com.sparkutils.quality.Id, com.sparkutils.quality.VariablesLookup.Identifiers)) =&gt; x$6._2))(immutable.this.Iterable.canBuildFrom[com.sparkutils.quality.VariablesLookup.Identifier])
+        </td>
+      </tr><tr>
+        <td>
+          183
+        </td>
+        <td>
+          196
+        </td>
+        <td>
+          9031
+          -
+          9060
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SetLike.++
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.lambdas.++(lambdas.keySet)
+        </td>
+      </tr><tr>
+        <td>
+          183
+        </td>
+        <td>
+          199
+        </td>
+        <td>
+          8950
+          -
+          9061
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ExpressionLookup.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.copy(x$1, x$3, x$2, x$4)
+        </td>
+      </tr><tr>
+        <td>
+          183
+        </td>
+        <td>
+          198
+        </td>
+        <td>
+          8954
+          -
+          8954
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ExpressionLookup.copy$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.copy$default$4
+        </td>
+      </tr><tr>
+        <td>
+          183
+        </td>
+        <td>
+          192
+        </td>
+        <td>
+          9013
+          -
+          9013
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Iterable.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          immutable.this.Iterable.canBuildFrom[com.sparkutils.quality.VariablesLookup.Identifier]
+        </td>
+      </tr><tr>
+        <td>
+          183
+        </td>
+        <td>
+          195
+        </td>
+        <td>
+          9046
+          -
+          9060
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.immutable.MapLike.keySet
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          lambdas.keySet
+        </td>
+      </tr><tr>
+        <td>
+          183
+        </td>
+        <td>
+          197
+        </td>
+        <td>
+          8954
+          -
+          8954
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ExpressionLookup.copy$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.copy$default$2
+        </td>
+      </tr><tr>
+        <td>
+          184
+        </td>
+        <td>
+          215
+        </td>
+        <td>
+          9122
+          -
+          9632
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val exists: Boolean = org.apache.spark.sql.SparkSession.active.catalog.functionExists(name);
+  if (exists.unary_!)
+    {
+      &lt;artifact&gt; val x$5: scala.collection.immutable.Set[com.sparkutils.quality.VariablesLookup.Identifier] @scala.reflect.internal.annotations.uncheckedBounds = res.unknownSparkFunctions.+(name);
+      &lt;artifact&gt; val x$6: com.sparkutils.quality.VariablesLookup.Identifiers = res.copy$default$1;
+      &lt;artifact&gt; val x$7: Set[com.sparkutils.quality.Id] @scala.reflect.internal.annotations.uncheckedBounds = res.copy$default$3;
+      &lt;artifact&gt; val x$8: Set[String] @scala.reflect.internal.annotations.uncheckedBounds = res.copy$default$4;
+      res.copy(x$6, x$5, x$7, x$8)
+    }
+  else
+    {
+      &lt;artifact&gt; val x$9: scala.collection.immutable.Set[String] @scala.reflect.internal.annotations.uncheckedBounds = res.sparkFunctions.+(name);
+      &lt;artifact&gt; val x$10: com.sparkutils.quality.VariablesLookup.Identifiers = res.copy$default$1;
+      &lt;artifact&gt; val x$11: com.sparkutils.quality.VariablesLookup.Identifiers = res.copy$default$2;
+      &lt;artifact&gt; val x$12: Set[com.sparkutils.quality.Id] @scala.reflect.internal.annotations.uncheckedBounds = res.copy$default$3;
+      res.copy(x$10, x$11, x$12, x$9)
+    }
+}
+        </td>
+      </tr><tr>
+        <td>
+          188
+        </td>
+        <td>
+          201
+        </td>
+        <td>
+          9321
+          -
+          9369
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalog.Catalog.functionExists
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.SparkSession.active.catalog.functionExists(name)
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          202
+        </td>
+        <td>
+          9389
+          -
+          9396
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          exists.unary_!
+        </td>
+      </tr><tr>
+        <td>
+          192
+        </td>
+        <td>
+          205
+        </td>
+        <td>
+          9468
+          -
+          9468
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ExpressionLookup.copy$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.copy$default$3
+        </td>
+      </tr><tr>
+        <td>
+          192
+        </td>
+        <td>
+          208
+        </td>
+        <td>
+          9464
+          -
+          9530
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  &lt;artifact&gt; val x$5: scala.collection.immutable.Set[com.sparkutils.quality.VariablesLookup.Identifier] @scala.reflect.internal.annotations.uncheckedBounds = res.unknownSparkFunctions.+(name);
+  &lt;artifact&gt; val x$6: com.sparkutils.quality.VariablesLookup.Identifiers = res.copy$default$1;
+  &lt;artifact&gt; val x$7: Set[com.sparkutils.quality.Id] @scala.reflect.internal.annotations.uncheckedBounds = res.copy$default$3;
+  &lt;artifact&gt; val x$8: Set[String] @scala.reflect.internal.annotations.uncheckedBounds = res.copy$default$4;
+  res.copy(x$6, x$5, x$7, x$8)
+}
+        </td>
+      </tr><tr>
+        <td>
+          192
+        </td>
+        <td>
+          207
+        </td>
+        <td>
+          9464
+          -
+          9530
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ExpressionLookup.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.copy(x$6, x$5, x$7, x$8)
+        </td>
+      </tr><tr>
+        <td>
+          192
+        </td>
+        <td>
+          204
+        </td>
+        <td>
+          9468
+          -
+          9468
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ExpressionLookup.copy$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.copy$default$1
+        </td>
+      </tr><tr>
+        <td>
+          192
+        </td>
+        <td>
+          203
+        </td>
+        <td>
+          9497
+          -
+          9529
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SetLike.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.unknownSparkFunctions.+(name)
+        </td>
+      </tr><tr>
+        <td>
+          192
+        </td>
+        <td>
+          206
+        </td>
+        <td>
+          9468
+          -
+          9468
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ExpressionLookup.copy$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.copy$default$4
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          209
+        </td>
+        <td>
+          9592
+          -
+          9617
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SetLike.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.sparkFunctions.+(name)
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          211
+        </td>
+        <td>
+          9570
+          -
+          9570
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ExpressionLookup.copy$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.copy$default$2
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          214
+        </td>
+        <td>
+          9566
+          -
+          9618
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  &lt;artifact&gt; val x$9: scala.collection.immutable.Set[String] @scala.reflect.internal.annotations.uncheckedBounds = res.sparkFunctions.+(name);
+  &lt;artifact&gt; val x$10: com.sparkutils.quality.VariablesLookup.Identifiers = res.copy$default$1;
+  &lt;artifact&gt; val x$11: com.sparkutils.quality.VariablesLookup.Identifiers = res.copy$default$2;
+  &lt;artifact&gt; val x$12: Set[com.sparkutils.quality.Id] @scala.reflect.internal.annotations.uncheckedBounds = res.copy$default$3;
+  res.copy(x$10, x$11, x$12, x$9)
+}
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          210
+        </td>
+        <td>
+          9570
+          -
+          9570
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ExpressionLookup.copy$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.copy$default$1
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          213
+        </td>
+        <td>
+          9566
+          -
+          9618
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ExpressionLookup.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.copy(x$10, x$11, x$12, x$9)
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          212
+        </td>
+        <td>
+          9570
+          -
+          9570
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ExpressionLookup.copy$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.copy$default$3
+        </td>
+      </tr><tr>
+        <td>
+          198
+        </td>
+        <td>
+          216
+        </td>
+        <td>
+          9686
+          -
+          9708
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.VariablesLookup.children
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          children(r, arguments)
+        </td>
+      </tr><tr>
+        <td>
+          200
+        </td>
+        <td>
+          218
+        </td>
+        <td>
+          9785
+          -
+          9812
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SetLike.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.attributesUsed.+(a.name)
+        </td>
+      </tr><tr>
+        <td>
+          200
+        </td>
+        <td>
+          220
+        </td>
+        <td>
+          9763
+          -
+          9763
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ExpressionLookup.copy$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.copy$default$3
+        </td>
+      </tr><tr>
+        <td>
+          200
+        </td>
+        <td>
+          217
+        </td>
+        <td>
+          9806
+          -
+          9812
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          a.name
+        </td>
+      </tr><tr>
+        <td>
+          200
+        </td>
+        <td>
+          219
+        </td>
+        <td>
+          9763
+          -
+          9763
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ExpressionLookup.copy$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.copy$default$2
+        </td>
+      </tr><tr>
+        <td>
+          200
+        </td>
+        <td>
+          222
+        </td>
+        <td>
+          9759
+          -
+          9813
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ExpressionLookup.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.copy(res.attributesUsed.+(a.name), res.copy$default$2, res.copy$default$3, res.copy$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          200
+        </td>
+        <td>
+          221
+        </td>
+        <td>
+          9763
+          -
+          9763
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ExpressionLookup.copy$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.copy$default$4
+        </td>
+      </tr><tr>
+        <td>
+          203
+        </td>
+        <td>
+          227
+        </td>
+        <td>
+          10006
+          -
+          10006
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ExpressionLookup.copy$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.copy$default$4
+        </td>
+      </tr><tr>
+        <td>
+          203
+        </td>
+        <td>
+          226
+        </td>
+        <td>
+          10006
+          -
+          10006
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ExpressionLookup.copy$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.copy$default$3
+        </td>
+      </tr><tr>
+        <td>
+          203
+        </td>
+        <td>
+          223
+        </td>
+        <td>
+          10049
+          -
+          10055
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          a.name
+        </td>
+      </tr><tr>
+        <td>
+          203
+        </td>
+        <td>
+          225
+        </td>
+        <td>
+          10006
+          -
+          10006
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ExpressionLookup.copy$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.copy$default$2
+        </td>
+      </tr><tr>
+        <td>
+          203
+        </td>
+        <td>
+          228
+        </td>
+        <td>
+          10002
+          -
+          10056
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ExpressionLookup.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.copy(res.attributesUsed.+(a.name), res.copy$default$2, res.copy$default$3, res.copy$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          203
+        </td>
+        <td>
+          224
+        </td>
+        <td>
+          10028
+          -
+          10055
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SetLike.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.attributesUsed.+(a.name)
+        </td>
+      </tr><tr>
+        <td>
+          205
+        </td>
+        <td>
+          229
+        </td>
+        <td>
+          10145
+          -
+          10160
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.trees.TreeNode.children
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          parent.children
+        </td>
+      </tr><tr>
+        <td>
+          205
+        </td>
+        <td>
+          230
+        </td>
+        <td>
+          10131
+          -
+          10161
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.VariablesLookup.children
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          children(res, parent.children)
+        </td>
+      </tr><tr>
+        <td>
+          208
+        </td>
+        <td>
+          236
+        </td>
+        <td>
+          10185
+          -
+          10221
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.VariablesLookup.accumulate
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          accumulate(ExpressionLookup.apply(ExpressionLookup.apply$default$1, ExpressionLookup.apply$default$2, ExpressionLookup.apply$default$3, ExpressionLookup.apply$default$4), expr)
+        </td>
+      </tr><tr>
+        <td>
+          208
+        </td>
+        <td>
+          235
+        </td>
+        <td>
+          10196
+          -
+          10214
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ExpressionLookup.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ExpressionLookup.apply(ExpressionLookup.apply$default$1, ExpressionLookup.apply$default$2, ExpressionLookup.apply$default$3, ExpressionLookup.apply$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          208
+        </td>
+        <td>
+          232
+        </td>
+        <td>
+          10196
+          -
+          10196
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ExpressionLookup.apply$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ExpressionLookup.apply$default$2
+        </td>
+      </tr><tr>
+        <td>
+          208
+        </td>
+        <td>
+          234
+        </td>
+        <td>
+          10196
+          -
+          10196
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ExpressionLookup.apply$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ExpressionLookup.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          208
+        </td>
+        <td>
+          231
+        </td>
+        <td>
+          10196
+          -
+          10196
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ExpressionLookup.apply$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ExpressionLookup.apply$default$1
+        </td>
+      </tr><tr>
+        <td>
+          208
+        </td>
+        <td>
+          233
+        </td>
+        <td>
+          10196
+          -
+          10196
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ExpressionLookup.apply$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ExpressionLookup.apply$default$3
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
