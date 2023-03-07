@@ -34,7 +34,7 @@ Use the 11.3.dbr build / profile, the artefact name will also end with _11.3.dbr
 
 ## Testing out Quality via Notebooks
 
-You can use the quality_testshade artefact jar to upload into your workspace / notebook env.  When using Databricks make sure to use the appropriate _Version.dbr builds.
+You can use the appropriate runtime quality_testshade artefact jar (e.g. [DBR 11.3](https://s01.oss.sonatype.org/content/repositories/releases/com/sparkutils/quality_testshade_11.3.dbr_3.3_2.12/)) from maven to upload into your workspace / notebook env (or add via maven).  When using Databricks make sure to use the appropriate _Version.dbr builds.
 
 Then using:
 
