@@ -1,5 +1,9 @@
 name: Mkdocs
 description: Combines mvn and spark
+inputs:
+  prepScript:
+    required: true
+    description: prepare the docs directory (e.g. include site) and version.txt / coverage.txt files
 
 runs:
   using: "composite"
@@ -7,12 +11,19 @@ runs:
     - uses: s-weigand/setup-conda@v1
       with:
         python-version: '3.10'
+    - name: setup graphviz etc.
+      run: |
+        conda install libgomp=11.2.0 # force the right libs
+        conda install graphviz=2.50.0 # conda is from fatty
+      shell: bash
     - name: setup pips
       run: pip install -r requirements.txt
+      shell: bash
     - name: setup plant
       run: |
         cp src/build/plantuml .
         chmod +x plantuml
+      shell: bash
     - name: prep repo for mkdocs / mike
       run: | # borrowed from mhausenblas/mkdocs-deploy-gh-pages/
         export remote_repo="https://x-access-token:${GITHUB_TOKEN}@${GITHUB_DOMAIN:-"github.com"}/${GITHUB_REPOSITORY}.git"
@@ -28,11 +39,10 @@ runs:
 
         git remote rm origin
         git remote add origin "${remote_repo}"
+      shell: bash
     - name: prep data for mike # copy mvn site over and version/coverage to expected locations for macros
-      run: |
-        cp -rf target/site docs/
-        cp target/version.txt .
-        cp target/coverage.txt .
+      run: ${{ inputs.prepScript }}
+      shell: bash
     - name: run mike
       # needs the path setting here, it's not carried over from setup plant
       run: |
@@ -40,5 +50,14 @@ runs:
         export PATH=$GITHUB_WORKSPACE:$PATH:${pwd}
         echo Asking which plantuml with path $PATH
         which plantuml
-        echo Calling mike
+        echo forcing a fetch and a pull
+        git fetch --all
+        git checkout gh-pages
+        git pull
+        echo re-checking out the actual branch $GITHUB_REF_NAME
+        git checkout $GITHUB_REF_NAME
+        echo Calling mike for build / deploy
         mike deploy --push --update-aliases $(cat version.txt) latest
+        echo Calling mike for default redirect
+        mike set-default --push latest
+      shell: bash
