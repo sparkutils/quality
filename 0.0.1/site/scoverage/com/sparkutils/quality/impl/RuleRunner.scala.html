@@ -1,0 +1,5960 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/sparkutils/quality/impl/RuleRunner.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality.impl
+</span>2 <span style=''>
+</span>3 <span style=''>import com.sparkutils.quality.RuleLogicUtils.mapRules
+</span>4 <span style=''>import com.sparkutils.quality.{DisabledRule, ExpressionWrapper, Failed, Id, Passed, Probability, RuleLogic, RuleResult, RuleResultWithProcessor, RuleSetResult, RuleSuite, RuleSuiteResult, SoftFailed}
+</span>5 <span style=''>import com.sparkutils.quality.impl.RuleRunnerFunctions.flattenExpressions
+</span>6 <span style=''>import org.apache.spark.sql.{Column, DataFrame, QualitySparkUtils}
+</span>7 <span style=''>import org.apache.spark.sql.catalyst.InternalRow
+</span>8 <span style=''>import org.apache.spark.sql.catalyst.expressions.codegen.Block._
+</span>9 <span style=''>import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode}
+</span>10 <span style=''>import org.apache.spark.sql.catalyst.expressions.{Expression, Literal, NonSQLExpression, UnaryExpression}
+</span>11 <span style=''>import org.apache.spark.sql.catalyst.util.ArrayBasedMapData
+</span>12 <span style=''>import org.apache.spark.sql.types.{DataType, _}
+</span>13 <span style=''>import org.apache.spark.unsafe.types.UTF8String
+</span>14 <span style=''>import com.sparkutils.quality.utils.{NonPassThrough, PassThrough}
+</span>15 <span style=''>
+</span>16 <span style=''>import scala.reflect.ClassTag
+</span>17 <span style=''>
+</span>18 <span style=''>object PackId {
+</span>19 <span style=''>
+</span>20 <span style=''>  def packId(anyId: Any) = {
+</span>21 <span style=''>    val r = </span><span style='background: #AEF1AE'>anyId.asInstanceOf[Id]</span><span style=''>
+</span>22 <span style=''>    </span><span style='background: #AEF1AE'>((r.id.toLong) &lt;&lt; 32) | (r.version &amp; 0xffffffffL)</span><span style=''>
+</span>23 <span style=''>  }
+</span>24 <span style=''>
+</span>25 <span style=''>  def unpack(a: Any): Id =
+</span>26 <span style=''>    if (</span><span style='background: #AEF1AE'>a == null</span><span style=''>)
+</span>27 <span style=''>      </span><span style='background: #F0ADAD'>a.asInstanceOf[Id]</span><span style=''>
+</span>28 <span style=''>    else
+</span>29 <span style=''>      </span><span style='background: #AEF1AE'>unpack(a.asInstanceOf[Long])</span><span style=''>
+</span>30 <span style=''>
+</span>31 <span style=''>  def unpack(a: Long) = {
+</span>32 <span style=''>    val id = </span><span style='background: #AEF1AE'>a &gt;&gt; 32</span><span style=''>
+</span>33 <span style=''>    val version = </span><span style='background: #AEF1AE'>a.toInt</span><span style=''>
+</span>34 <span style=''>    </span><span style='background: #AEF1AE'>Id(id.toInt, version)</span><span style=''> // lookup goes here
+</span>35 <span style=''>  }
+</span>36 <span style=''>}
+</span>37 <span style=''>
+</span>38 <span style=''>trait RuleRunnerImports {
+</span>39 <span style=''>
+</span>40 <span style=''>  /**
+</span>41 <span style=''>   * Creates a column that runs the RuleSuite.  This also forces registering the lambda functions used by that RuleSuite
+</span>42 <span style=''>   *
+</span>43 <span style=''>   * @param ruleSuite The Qualty RuleSuite to evaluate
+</span>44 <span style=''>   * @param compileEvals Should the rules be compiled out to interim objects - by default true for eval usage, wholeStageCodeGen will evaluate in place
+</span>45 <span style=''>   * @param resolveWith This experimental parameter can take the DataFrame these rules will be added to and pre-resolve and optimise the sql expressions, see the documentation for details on when to and not to use this. RuleRunner does not currently do wholestagecodegen when resolveWith is used.
+</span>46 <span style=''>   * @param variablesPerFunc Defaulting to 40, it allows, in combination with variableFuncGroup customisation of handling the 64k jvm method size limitation when performing WholeStageCodeGen.  You _shouldn't_ need it but it's there just in case.
+</span>47 <span style=''>   * @param variableFuncGroup Defaulting to 20
+</span>48 <span style=''>   * @param forceRunnerEval Defaulting to false, passing true forces a simplified partially interpreted evaluation (compileEvals must be false to get fully interpreted)
+</span>49 <span style=''>   * @return A Column representing the Quality DQ expression built from this ruleSuite
+</span>50 <span style=''>   */
+</span>51 <span style=''>  def ruleRunner(ruleSuite: RuleSuite, compileEvals: Boolean = true, resolveWith: Option[DataFrame] = None, variablesPerFunc: Int = 40, variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false): Column = {
+</span>52 <span style=''>    </span><span style='background: #AEF1AE'>com.sparkutils.quality.registerLambdaFunctions( ruleSuite.lambdaFunctions )</span><span style=''>
+</span>53 <span style=''>    val runner = </span><span style='background: #AEF1AE'>new RuleRunner(ruleSuite, PassThrough(flattenExpressions(ruleSuite)), compileEvals, variablesPerFunc, variableFuncGroup, forceRunnerEval)</span><span style=''>
+</span>54 <span style=''>    </span><span style='background: #AEF1AE'>new Column(
+</span>55 <span style=''></span><span style='background: #AEF1AE'>      QualitySparkUtils.resolveWithOverride(resolveWith).map { df =&gt;
+</span>56 <span style=''></span><span style='background: #AEF1AE'>        val resolved = QualitySparkUtils.resolveExpression(df, runner)
+</span>57 <span style=''></span><span style='background: #AEF1AE'>
+</span>58 <span style=''></span><span style='background: #AEF1AE'>        resolved.asInstanceOf[RuleRunner].copy(child = resolved.children(0) match {
+</span>59 <span style=''></span><span style='background: #AEF1AE'>          // replace the expr
+</span>60 <span style=''></span><span style='background: #AEF1AE'>          case PassThrough(children) =&gt; NonPassThrough(children)
+</span>61 <span style=''></span><span style='background: #AEF1AE'>        })
+</span>62 <span style=''></span><span style='background: #AEF1AE'>      } getOrElse runner
+</span>63 <span style=''></span><span style='background: #AEF1AE'>    )</span><span style=''>
+</span>64 <span style=''>  }
+</span>65 <span style=''>
+</span>66 <span style=''>  def strLit(str: String) =
+</span>67 <span style=''>    </span><span style='background: #F0ADAD'>UTF8String.fromString(str)</span><span style=''>
+</span>68 <span style=''>
+</span>69 <span style=''>  val strLitA = (str: Any) =&gt;
+</span>70 <span style=''>    </span><span style='background: #F0ADAD'>UTF8String.fromString(str.asInstanceOf[String])</span><span style=''>
+</span>71 <span style=''>
+</span>72 <span style=''>  val packId = </span><span style='background: #AEF1AE'>PackId.packId</span><span style=''> _
+</span>73 <span style=''>  val unpackId = </span><span style='background: #F0ADAD'>PackId.unpack</span><span style=''> _
+</span>74 <span style=''>
+</span>75 <span style=''>  val SoftFailedInt = </span><span style='background: #AEF1AE'>-1</span><span style=''>
+</span>76 <span style=''>  val SoftFailedExpr = </span><span style='background: #AEF1AE'>Literal(SoftFailedInt, IntegerType)</span><span style=''>
+</span>77 <span style=''>  val DisabledRuleInt = </span><span style='background: #AEF1AE'>-2</span><span style=''>
+</span>78 <span style=''>  val DisabledRuleExpr = </span><span style='background: #AEF1AE'>Literal(DisabledRuleInt, IntegerType)</span><span style=''>
+</span>79 <span style=''>  val PassedInt = </span><span style='background: #AEF1AE'>100000</span><span style=''>
+</span>80 <span style=''>  val PassedExpr = </span><span style='background: #AEF1AE'>Literal(PassedInt, IntegerType)</span><span style=''>
+</span>81 <span style=''>  val FailedInt = </span><span style='background: #AEF1AE'>0</span><span style=''>
+</span>82 <span style=''>  val FailedExpr = </span><span style='background: #AEF1AE'>Literal(FailedInt, IntegerType)</span><span style=''>
+</span>83 <span style=''>
+</span>84 <span style=''>}
+</span>85 <span style=''>
+</span>86 <span style=''>private[quality] object RuleRunnerUtils extends RuleRunnerImports {
+</span>87 <span style=''>
+</span>88 <span style=''>  def ruleResultToInt(ruleResult: RuleResult): Int =
+</span>89 <span style=''>    ruleResult match {
+</span>90 <span style=''>      case Failed =&gt; </span><span style='background: #AEF1AE'>FailedInt</span><span style=''>
+</span>91 <span style=''>      case SoftFailed =&gt; </span><span style='background: #F0ADAD'>SoftFailedInt</span><span style=''>
+</span>92 <span style=''>      case DisabledRule =&gt; </span><span style='background: #AEF1AE'>DisabledRuleInt</span><span style=''>
+</span>93 <span style=''>      case Passed =&gt; </span><span style='background: #AEF1AE'>PassedInt</span><span style=''>
+</span>94 <span style=''>      case Probability(percentage) =&gt; (</span><span style='background: #AEF1AE'>percentage * PassedInt).toInt</span><span style=''>
+</span>95 <span style=''>      case RuleResultWithProcessor(res, _) =&gt; </span><span style='background: #F0ADAD'>ruleResultToInt(res)</span><span style=''>
+</span>96 <span style=''>    }
+</span>97 <span style=''>
+</span>98 <span style=''>  def reincorporateExpressions(ruleSuite: RuleSuite, expr: Seq[Expression], compileEvals: Boolean = true): RuleSuite =
+</span>99 <span style=''>    </span><span style='background: #AEF1AE'>reincorporateExpressionsF(ruleSuite, expr, (expr: Expression) =&gt; ExpressionWrapper(expr, compileEvals))</span><span style=''>
+</span>100 <span style=''>
+</span>101 <span style=''>  def reincorporateExpressionsF[T](ruleSuite: RuleSuite, expr: Seq[T], f: T =&gt; RuleLogic): RuleSuite = {
+</span>102 <span style=''>    val itr = </span><span style='background: #AEF1AE'>expr.iterator</span><span style=''>
+</span>103 <span style=''>    </span><span style='background: #AEF1AE'>mapRules(ruleSuite) { rule =&gt;
+</span>104 <span style=''></span><span style='background: #AEF1AE'>      rule.copy(expression = f(itr.next()))
+</span>105 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>106 <span style=''>  }
+</span>107 <span style=''>
+</span>108 <span style=''>  case class RuleSuiteResultArray(packedId: Long, ruleSetIds: Array[Long], ruleSets: Array[Array[Long]]) {
+</span>109 <span style=''>
+</span>110 <span style=''>  }
+</span>111 <span style=''>
+</span>112 <span style=''>  // create base arrays for each maps
+</span>113 <span style=''>  def ruleSuiteArrays(ruleSuite: RuleSuite): RuleSuiteResultArray = {
+</span>114 <span style=''>    val (ruleSetIds, rulesArrays) =
+</span>115 <span style=''>      ruleSuite.ruleSets.map{
+</span>116 <span style=''>        ruleSet =&gt;
+</span>117 <span style=''>          packTheId(ruleSet.id) -&gt;
+</span>118 <span style=''>            ruleSet.rules.map(r =&gt; packTheId(r.id)).toArray
+</span>119 <span style=''>
+</span>120 <span style=''>      }.unzip // make sure no funkyness on ordering occurs
+</span>121 <span style=''>
+</span>122 <span style=''>    </span><span style='background: #AEF1AE'>RuleSuiteResultArray(packTheId(ruleSuite.id),
+</span>123 <span style=''></span><span style='background: #AEF1AE'>      ruleSetIds.toArray, rulesArrays.toArray)</span><span style=''>
+</span>124 <span style=''>  }
+</span>125 <span style=''>
+</span>126 <span style=''>  def evalArray(ruleSuite: RuleSuite, ruleSuiteArrays: RuleSuiteResultArray, results: Array[Any]): InternalRow = {
+</span>127 <span style=''>    import ruleSuite._
+</span>128 <span style=''>
+</span>129 <span style=''>    val ruleSetRes = </span><span style='background: #AEF1AE'>Array.ofDim[InternalRow](ruleSuiteArrays.ruleSetIds.length)</span><span style=''>
+</span>130 <span style=''>
+</span>131 <span style=''>    var rsOverall = </span><span style='background: #AEF1AE'>PassedInt</span><span style=''>
+</span>132 <span style=''>
+</span>133 <span style=''>    var offset = </span><span style='background: #AEF1AE'>0</span><span style=''>
+</span>134 <span style=''>
+</span>135 <span style=''>    </span><span style='background: #AEF1AE'>for( rsi &lt;- 0 until ruleSuiteArrays.ruleSetIds.length) {
+</span>136 <span style=''></span><span style='background: #AEF1AE'>
+</span>137 <span style=''></span><span style='background: #AEF1AE'>      val rulesetSize = ruleSuiteArrays.ruleSets(rsi).length
+</span>138 <span style=''></span><span style='background: #AEF1AE'>
+</span>139 <span style=''></span><span style='background: #AEF1AE'>      val ruleSetResults = results.slice(offset, offset + rulesetSize)
+</span>140 <span style=''></span><span style='background: #AEF1AE'>      offset += rulesetSize
+</span>141 <span style=''></span><span style='background: #AEF1AE'>
+</span>142 <span style=''></span><span style='background: #AEF1AE'>      val overall = ruleSetResults.foldLeft(PassedInt){
+</span>143 <span style=''></span><span style='background: #AEF1AE'>        (ov, res) =&gt;
+</span>144 <span style=''></span><span style='background: #AEF1AE'>          OverallResult.inplaceInt(ov, res.asInstanceOf[Int], probablePass) // convert needed for process
+</span>145 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>146 <span style=''></span><span style='background: #AEF1AE'>
+</span>147 <span style=''></span><span style='background: #AEF1AE'>      rsOverall = OverallResult.inplaceInt(overall, rsOverall, probablePass)
+</span>148 <span style=''></span><span style='background: #AEF1AE'>
+</span>149 <span style=''></span><span style='background: #AEF1AE'>      ruleSetRes(rsi) = InternalRow(
+</span>150 <span style=''></span><span style='background: #AEF1AE'>        overall: java.lang.Integer,
+</span>151 <span style=''></span><span style='background: #AEF1AE'>        ArrayBasedMapData( ruleSuiteArrays.ruleSets(rsi), ruleSetResults )
+</span>152 <span style=''></span><span style='background: #AEF1AE'>        )
+</span>153 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>154 <span style=''>
+</span>155 <span style=''>    </span><span style='background: #AEF1AE'>InternalRow( ruleSuiteArrays.packedId,
+</span>156 <span style=''></span><span style='background: #AEF1AE'>      rsOverall: java.lang.Integer,
+</span>157 <span style=''></span><span style='background: #AEF1AE'>      ArrayBasedMapData( ruleSuiteArrays.ruleSetIds, ruleSetRes)
+</span>158 <span style=''></span><span style='background: #AEF1AE'>    )</span><span style=''>
+</span>159 <span style=''>  }
+</span>160 <span style=''>
+</span>161 <span style=''>  def ruleResultToRow(ruleSuiteResult: RuleSuiteResult): InternalRow =
+</span>162 <span style=''>    </span><span style='background: #AEF1AE'>InternalRow(
+</span>163 <span style=''></span><span style='background: #AEF1AE'>      packId(ruleSuiteResult.id),
+</span>164 <span style=''></span><span style='background: #AEF1AE'>      ruleResultToInt(ruleSuiteResult.overallResult),
+</span>165 <span style=''></span><span style='background: #AEF1AE'>      ArrayBasedMapData(
+</span>166 <span style=''></span><span style='background: #AEF1AE'>        ruleSuiteResult.ruleSetResults, packId, (a: Any) =&gt; {
+</span>167 <span style=''></span><span style='background: #AEF1AE'>          val v = a.asInstanceOf[RuleSetResult]
+</span>168 <span style=''></span><span style='background: #AEF1AE'>          InternalRow(
+</span>169 <span style=''></span><span style='background: #AEF1AE'>            ruleResultToInt(v.overallResult),
+</span>170 <span style=''></span><span style='background: #AEF1AE'>            ArrayBasedMapData(
+</span>171 <span style=''></span><span style='background: #AEF1AE'>              v.ruleResults, packId, (a: Any) =&gt; ruleResultToInt(a.asInstanceOf[RuleResult])
+</span>172 <span style=''></span><span style='background: #AEF1AE'>            )
+</span>173 <span style=''></span><span style='background: #AEF1AE'>          )
+</span>174 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>175 <span style=''></span><span style='background: #AEF1AE'>      )
+</span>176 <span style=''></span><span style='background: #AEF1AE'>    )</span><span style=''>
+</span>177 <span style=''>
+</span>178 <span style=''>  def packTheId(obj: Object) = </span><span style='background: #AEF1AE'>packId(obj)</span><span style=''>//: java.lang.Long
+</span>179 <span style=''>
+</span>180 <span style=''>  protected[quality] def generateFunctionGroups(ctx: CodegenContext, allExpr: Iterator[Seq[String]]#GroupedIterator[Seq[String]], paramsDef: String, paramsCall: String) = {
+</span>181 <span style=''>    val funNames =
+</span>182 <span style=''>      </span><span style='background: #AEF1AE'>for (exprGroup &lt;- allExpr) yield {
+</span>183 <span style=''></span><span style='background: #AEF1AE'>        val groupName = ctx.freshName(&quot;ruleRunnerEGroup&quot;)
+</span>184 <span style=''></span><span style='background: #AEF1AE'>        ctx.addNewFunction(groupName, {
+</span>185 <span style=''></span><span style='background: #AEF1AE'>          val funNames =
+</span>186 <span style=''></span><span style='background: #AEF1AE'>            for {
+</span>187 <span style=''></span><span style='background: #AEF1AE'>              exprFunc &lt;- exprGroup
+</span>188 <span style=''></span><span style='background: #AEF1AE'>            } yield {
+</span>189 <span style=''></span><span style='background: #AEF1AE'>              val exprFuncName = ctx.freshName(&quot;ruleRunnerEFuncGroup&quot;)
+</span>190 <span style=''></span><span style='background: #AEF1AE'>              ctx.addNewFunction(exprFuncName,
+</span>191 <span style=''></span><span style='background: #AEF1AE'>s&quot;&quot;&quot;
+</span>192 <span style=''></span><span style='background: #AEF1AE'>   private void $exprFuncName($paramsDef) {
+</span>193 <span style=''></span><span style='background: #AEF1AE'>     ${exprFunc.mkString(&quot;\n&quot;)}
+</span>194 <span style=''></span><span style='background: #AEF1AE'>   }
+</span>195 <span style=''></span><span style='background: #AEF1AE'>  &quot;&quot;&quot;
+</span>196 <span style=''></span><span style='background: #AEF1AE'>              )
+</span>197 <span style=''></span><span style='background: #AEF1AE'>            }
+</span>198 <span style=''></span><span style='background: #AEF1AE'>
+</span>199 <span style=''></span><span style='background: #AEF1AE'>s&quot;&quot;&quot;
+</span>200 <span style=''></span><span style='background: #AEF1AE'>   private void $groupName($paramsDef) {
+</span>201 <span style=''></span><span style='background: #AEF1AE'>     ${funNames.map { f =&gt; s&quot;$f($paramsCall);&quot; }.mkString(&quot;\n&quot;)}
+</span>202 <span style=''></span><span style='background: #AEF1AE'>   }
+</span>203 <span style=''></span><span style='background: #AEF1AE'>   &quot;&quot;&quot;
+</span>204 <span style=''></span><span style='background: #AEF1AE'>
+</span>205 <span style=''></span><span style='background: #AEF1AE'>        })
+</span>206 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>207 <span style=''>    funNames
+</span>208 <span style=''>  }
+</span>209 <span style=''>
+</span>210 <span style=''>  def genRuleSuiteTerm[T: ClassTag](ctx: CodegenContext): (String, (String, String) =&gt; String) = {
+</span>211 <span style=''>    val ruleSuiteClassName = </span><span style='background: #AEF1AE'>classOf[RuleSuite].getName</span><span style=''>
+</span>212 <span style=''>    val ruleRunnerClassName = </span><span style='background: #AEF1AE'>implicitly[ClassTag[T]].runtimeClass.getName</span><span style=''>
+</span>213 <span style=''>    val ruleRunnerExpressionIdx = </span><span style='background: #AEF1AE'>ctx.references.size - 1</span><span style=''>
+</span>214 <span style=''>    val ruleSuitTerm = </span><span style='background: #AEF1AE'>ctx.addMutableState(ruleSuiteClassName, ctx.freshName(&quot;ruleSuite&quot;),
+</span>215 <span style=''></span><span style='background: #AEF1AE'>      v =&gt; s&quot;$v = ($ruleSuiteClassName)((($ruleRunnerClassName)references&quot; +
+</span>216 <span style=''></span><span style='background: #AEF1AE'>        s&quot;[$ruleRunnerExpressionIdx]).ruleSuite());&quot;)</span><span style=''>
+</span>217 <span style=''>
+</span>218 <span style=''>    val realChildrenTerm =
+</span>219 <span style=''>      (funname: String, className: String) =&gt;
+</span>220 <span style=''>        </span><span style='background: #AEF1AE'>ctx.addMutableState(className, ctx.freshName(funname),
+</span>221 <span style=''></span><span style='background: #AEF1AE'>      v =&gt; s&quot;$v = ($className)((($ruleRunnerClassName)references&quot; +
+</span>222 <span style=''></span><span style='background: #AEF1AE'>        s&quot;[$ruleRunnerExpressionIdx]).$funname());&quot;)</span><span style=''>
+</span>223 <span style=''>
+</span>224 <span style=''>    </span><span style='background: #AEF1AE'>(ruleSuitTerm, realChildrenTerm)</span><span style=''>
+</span>225 <span style=''>  }
+</span>226 <span style=''>}
+</span>227 <span style=''>
+</span>228 <span style=''>/**
+</span>229 <span style=''> * Children will be rewritten by the plan, either by resolveWith, it's then re-incorporated into ruleSuite
+</span>230 <span style=''> *
+</span>231 <span style=''> * The variablePerFunc (40) and variableFuncGroup (20) parameters are chosen due to 64k method limitation,
+</span>232 <span style=''> * is null for all of a 1600 column row blasts the 64k jvm limit.  You may customise these values if a given rulesuite
+</span>233 <span style=''> * requires it.
+</span>234 <span style=''> *
+</span>235 <span style=''> * @param variablesPerFunc How many variables are in a function
+</span>236 <span style=''> * @param variableFuncGroup How many functions are then grouped into a new function
+</span>237 <span style=''> */
+</span>238 <span style=''>case class RuleRunner(ruleSuite: RuleSuite, child: Expression, compileEvals: Boolean,
+</span>239 <span style=''>                      variablesPerFunc: Int, variableFuncGroup: Int, forceRunnerEval: Boolean) extends UnaryExpression with NonSQLExpression with CodegenFallback {
+</span>240 <span style=''>
+</span>241 <span style=''>  import RuleRunnerUtils._
+</span>242 <span style=''>
+</span>243 <span style=''>  lazy val realChildren =
+</span>244 <span style=''>    child match {
+</span>245 <span style=''>      case r @ NonPassThrough(_) =&gt; r.rules
+</span>246 <span style=''>      case PassThrough(children) =&gt; children
+</span>247 <span style=''>    }
+</span>248 <span style=''>
+</span>249 <span style=''>  override def nullable: Boolean = </span><span style='background: #AEF1AE'>false</span><span style=''>
+</span>250 <span style=''>  override def toString: String = </span><span style='background: #AEF1AE'>s&quot;RuleRunner(${realChildren.mkString(&quot;, &quot;)})&quot;</span><span style=''>
+</span>251 <span style=''>
+</span>252 <span style=''>  // used only for eval, compiled uses the children directly
+</span>253 <span style=''>  lazy val reincorporated = reincorporateExpressions(ruleSuite, realChildren, compileEvals)
+</span>254 <span style=''>
+</span>255 <span style=''>  // keep it simple for this one. - can return an internal row or whatever..
+</span>256 <span style=''>  override def eval(input: InternalRow): Any = {
+</span>257 <span style=''>    val res = </span><span style='background: #AEF1AE'>reincorporated.eval(input)</span><span style=''>
+</span>258 <span style=''>    </span><span style='background: #AEF1AE'>ruleResultToRow(res)</span><span style=''>
+</span>259 <span style=''>  }
+</span>260 <span style=''>
+</span>261 <span style=''>  def dataType: DataType = </span><span style='background: #AEF1AE'>com.sparkutils.quality.ruleSuiteResultType</span><span style=''>
+</span>262 <span style=''>
+</span>263 <span style=''>  /**
+</span>264 <span style=''>   * Instead of evaluating through the RuleSuite structure the expressions are evaluated back to back, then
+</span>265 <span style=''>   * reincorporated via just the results afterwards before working out the overall results
+</span>266 <span style=''>   * @param ctx
+</span>267 <span style=''>   * @param ev
+</span>268 <span style=''>   * @return
+</span>269 <span style=''>   */
+</span>270 <span style=''>  override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
+</span>271 <span style=''>    if (</span><span style='background: #AEF1AE'>forceRunnerEval</span><span style=''>) {
+</span>272 <span style=''>      </span><span style='background: #F0ADAD'>return super[CodegenFallback].doGenCode(ctx, ev)</span><span style=''>
+</span>273 <span style=''>    }
+</span>274 <span style=''>    val i = </span><span style='background: #AEF1AE'>ctx.INPUT_ROW</span><span style=''>
+</span>275 <span style=''>
+</span>276 <span style=''>    if (</span><span style='background: #AEF1AE'>child.isInstanceOf[NonPassThrough] &amp;&amp; (i eq null)</span><span style=''> ) {
+</span>277 <span style=''>      // for some reason code gen ends up with assuming iterator based gen on children instead of simple gen - the actual gen isn't even called for flattenResultsTest, only for withResolve, could be dragons.
+</span>278 <span style=''>      </span><span style='background: #F0ADAD'>return super[CodegenFallback].doGenCode(ctx, ev)</span><span style=''>
+</span>279 <span style=''>    }
+</span>280 <span style=''>
+</span>281 <span style=''>    </span><span style='background: #AEF1AE'>ctx.references += this</span><span style=''>
+</span>282 <span style=''>
+</span>283 <span style=''>    // bind the rules
+</span>284 <span style=''>    val ruleSuitTerm = </span><span style='background: #AEF1AE'>genRuleSuiteTerm[RuleRunner](ctx)._1</span><span style=''>
+</span>285 <span style=''>    val utilsName = </span><span style='background: #AEF1AE'>&quot;com.sparkutils.quality.impl.RuleRunnerUtils&quot;</span><span style=''>
+</span>286 <span style=''>
+</span>287 <span style=''>    val ruleSuiteArrays = </span><span style='background: #AEF1AE'>ctx.addMutableState(classOf[RuleSuiteResultArray].getName,
+</span>288 <span style=''></span><span style='background: #AEF1AE'>      ctx.freshName(&quot;ruleSuiteArrays&quot;),
+</span>289 <span style=''></span><span style='background: #AEF1AE'>      v =&gt; s&quot;$v = $utilsName.ruleSuiteArrays($ruleSuitTerm);&quot;
+</span>290 <span style=''></span><span style='background: #AEF1AE'>    )</span><span style=''>
+</span>291 <span style=''>
+</span>292 <span style=''>    val ruleRes = </span><span style='background: #AEF1AE'>&quot;java.lang.Object&quot;</span><span style=''>
+</span>293 <span style=''>    val arrTerm = </span><span style='background: #AEF1AE'>ctx.addMutableState(ruleRes+&quot;[]&quot;, ctx.freshName(&quot;results&quot;),
+</span>294 <span style=''></span><span style='background: #AEF1AE'>      v =&gt; s&quot;$v = new $ruleRes[${realChildren.size}];&quot;)</span><span style=''>
+</span>295 <span style=''>
+</span>296 <span style=''>    val allExpr = </span><span style='background: #AEF1AE'>realChildren.zipWithIndex.map { case (child, idx) =&gt;
+</span>297 <span style=''></span><span style='background: #AEF1AE'>        val eval = child.genCode(ctx)
+</span>298 <span style=''></span><span style='background: #AEF1AE'>        val converted =
+</span>299 <span style=''></span><span style='background: #AEF1AE'>          s&quot;&quot;&quot;${eval.code}\n
+</span>300 <span style=''></span><span style='background: #AEF1AE'>
+</span>301 <span style=''></span><span style='background: #AEF1AE'>             $arrTerm[$idx] = ${eval.isNull} ? null : com.sparkutils.quality.RuleLogicUtils.anyToRuleResultInt(${eval.value});&quot;&quot;&quot;
+</span>302 <span style=''></span><span style='background: #AEF1AE'>
+</span>303 <span style=''></span><span style='background: #AEF1AE'>        converted
+</span>304 <span style=''></span><span style='background: #AEF1AE'>    }.grouped(variablesPerFunc).grouped(variableFuncGroup)</span><span style=''>
+</span>305 <span style=''>
+</span>306 <span style=''>    val (paramsDef, paramsCall) =
+</span>307 <span style=''>      if (i ne null)
+</span>308 <span style=''>        (s&quot;InternalRow $i&quot;, s&quot;$i&quot;)
+</span>309 <span style=''>      else
+</span>310 <span style=''>        (ctx.currentVars.map(v =&gt; s&quot;${if (v.value.javaType.isPrimitive) v.value.javaType else v.value.javaType.getName} ${v.value}, ${v.isNull.javaType} ${v.isNull}&quot;).mkString(&quot;, &quot;), ctx.currentVars.map(v =&gt; s&quot;${v.value}, ${v.isNull}&quot;).mkString(&quot;, &quot;))
+</span>311 <span style=''>
+</span>312 <span style=''>    val funNames: _root_.scala.collection.Iterator[_root_.scala.Predef.String] =
+</span>313 <span style=''>      </span><span style='background: #AEF1AE'>RuleRunnerUtils.generateFunctionGroups(ctx, allExpr, paramsDef, paramsCall)</span><span style=''>
+</span>314 <span style=''>
+</span>315 <span style=''>    val res = </span><span style='background: #AEF1AE'>ev.copy(code = code&quot;&quot;&quot;
+</span>316 <span style=''></span><span style='background: #AEF1AE'>      ${funNames.map{f =&gt; s&quot;$f($paramsCall);&quot;}.mkString(&quot;\n&quot;)}
+</span>317 <span style=''></span><span style='background: #AEF1AE'>
+</span>318 <span style=''></span><span style='background: #AEF1AE'>      InternalRow ${ev.value} = $utilsName.evalArray($ruleSuitTerm, $ruleSuiteArrays, $arrTerm);
+</span>319 <span style=''></span><span style='background: #AEF1AE'>      boolean ${ev.isNull} = false;
+</span>320 <span style=''></span><span style='background: #AEF1AE'>      &quot;&quot;&quot;
+</span>321 <span style=''></span><span style='background: #AEF1AE'>    )</span><span style=''>
+</span>322 <span style=''>
+</span>323 <span style=''>    res
+</span>324 <span style=''>
+</span>325 <span style=''>  }
+</span>326 <span style=''>
+</span>327 <span style=''>  protected def withNewChildInternal(newChild: Expression): Expression = </span><span style='background: #AEF1AE'>copy(child = newChild)</span><span style=''>
+</span>328 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          21
+        </td>
+        <td>
+          1740
+        </td>
+        <td>
+          1065
+          -
+          1087
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          anyId.asInstanceOf[com.sparkutils.quality.Id]
+        </td>
+      </tr><tr>
+        <td>
+          22
+        </td>
+        <td>
+          1743
+        </td>
+        <td>
+          1092
+          -
+          1141
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.|
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          r.id.toLong.&lt;&lt;(32).|(r.version.&amp;(4294967295L))
+        </td>
+      </tr><tr>
+        <td>
+          22
+        </td>
+        <td>
+          1742
+        </td>
+        <td>
+          1117
+          -
+          1140
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          r.version.&amp;(4294967295L)
+        </td>
+      </tr><tr>
+        <td>
+          22
+        </td>
+        <td>
+          1741
+        </td>
+        <td>
+          1110
+          -
+          1112
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          32
+        </td>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          1744
+        </td>
+        <td>
+          1182
+          -
+          1191
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Any.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          a.==(null)
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          1746
+        </td>
+        <td>
+          1199
+          -
+          1217
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          a.asInstanceOf[com.sparkutils.quality.Id]
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          1745
+        </td>
+        <td>
+          1199
+          -
+          1217
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          a.asInstanceOf[com.sparkutils.quality.Id]
+        </td>
+      </tr><tr>
+        <td>
+          29
+        </td>
+        <td>
+          1748
+        </td>
+        <td>
+          1233
+          -
+          1261
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.PackId.unpack
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          PackId.this.unpack(a.asInstanceOf[Long])
+        </td>
+      </tr><tr>
+        <td>
+          29
+        </td>
+        <td>
+          1747
+        </td>
+        <td>
+          1240
+          -
+          1260
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          a.asInstanceOf[Long]
+        </td>
+      </tr><tr>
+        <td>
+          29
+        </td>
+        <td>
+          1749
+        </td>
+        <td>
+          1233
+          -
+          1261
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.PackId.unpack
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          PackId.this.unpack(a.asInstanceOf[Long])
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          1750
+        </td>
+        <td>
+          1302
+          -
+          1309
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.&gt;&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          a.&gt;&gt;(32)
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          1751
+        </td>
+        <td>
+          1328
+          -
+          1335
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Long.toInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          a.toInt
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          1752
+        </td>
+        <td>
+          1343
+          -
+          1351
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Long.toInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          id.toInt
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          1753
+        </td>
+        <td>
+          1340
+          -
+          1361
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.Id.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.Id.apply(id.toInt, version)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1755
+        </td>
+        <td>
+          2822
+          -
+          2897
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.LambdaFunctions.registerLambdaFunctions
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.`package`.registerLambdaFunctions(ruleSuite.lambdaFunctions)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1754
+        </td>
+        <td>
+          2870
+          -
+          2895
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuite.lambdaFunctions
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuite.lambdaFunctions
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          1757
+        </td>
+        <td>
+          2941
+          -
+          2983
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.utils.PassThrough.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.utils.PassThrough.apply(com.sparkutils.quality.impl.RuleRunnerFunctions.flattenExpressions(ruleSuite))
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          1756
+        </td>
+        <td>
+          2953
+          -
+          2982
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunnerFunctions.flattenExpressions
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.RuleRunnerFunctions.flattenExpressions(ruleSuite)
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          1758
+        </td>
+        <td>
+          2915
+          -
+          3052
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunner.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new RuleRunner(ruleSuite, com.sparkutils.quality.utils.PassThrough.apply(com.sparkutils.quality.impl.RuleRunnerFunctions.flattenExpressions(ruleSuite)), compileEvals, variablesPerFunc, variableFuncGroup, forceRunnerEval)
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          1760
+        </td>
+        <td>
+          3057
+          -
+          3430
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.sql.Column(org.apache.spark.sql.QualitySparkUtils.resolveWithOverride(resolveWith).map[com.sparkutils.quality.impl.RuleRunner](((df: org.apache.spark.sql.DataFrame) =&gt; {
+  val resolved: org.apache.spark.sql.catalyst.expressions.Expression = org.apache.spark.sql.QualitySparkUtils.resolveExpression(df, runner);
+  {
+    &lt;artifact&gt; val qual$1: com.sparkutils.quality.impl.RuleRunner = resolved.asInstanceOf[com.sparkutils.quality.impl.RuleRunner];
+    &lt;artifact&gt; val x$1: org.apache.spark.sql.catalyst.expressions.Expression = resolved.children.apply(0) match {
+      case (children: Seq[org.apache.spark.sql.catalyst.expressions.Expression])com.sparkutils.quality.utils.PassThrough((children @ _)) =&gt; com.sparkutils.quality.utils.NonPassThrough.apply(children)
+    };
+    &lt;artifact&gt; val x$2: com.sparkutils.quality.RuleSuite = qual$1.copy$default$1;
+    &lt;artifact&gt; val x$3: Boolean = qual$1.copy$default$3;
+    &lt;artifact&gt; val x$4: Int = qual$1.copy$default$4;
+    &lt;artifact&gt; val x$5: Int = qual$1.copy$default$5;
+    &lt;artifact&gt; val x$6: Boolean = qual$1.copy$default$6;
+    qual$1.copy(x$2, x$1, x$3, x$4, x$5, x$6)
+  }
+})).getOrElse[com.sparkutils.quality.impl.RuleRunner](runner))
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          1759
+        </td>
+        <td>
+          3075
+          -
+          3424
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.QualitySparkUtils.resolveWithOverride(resolveWith).map[com.sparkutils.quality.impl.RuleRunner](((df: org.apache.spark.sql.DataFrame) =&gt; {
+  val resolved: org.apache.spark.sql.catalyst.expressions.Expression = org.apache.spark.sql.QualitySparkUtils.resolveExpression(df, runner);
+  {
+    &lt;artifact&gt; val qual$1: com.sparkutils.quality.impl.RuleRunner = resolved.asInstanceOf[com.sparkutils.quality.impl.RuleRunner];
+    &lt;artifact&gt; val x$1: org.apache.spark.sql.catalyst.expressions.Expression = resolved.children.apply(0) match {
+      case (children: Seq[org.apache.spark.sql.catalyst.expressions.Expression])com.sparkutils.quality.utils.PassThrough((children @ _)) =&gt; com.sparkutils.quality.utils.NonPassThrough.apply(children)
+    };
+    &lt;artifact&gt; val x$2: com.sparkutils.quality.RuleSuite = qual$1.copy$default$1;
+    &lt;artifact&gt; val x$3: Boolean = qual$1.copy$default$3;
+    &lt;artifact&gt; val x$4: Int = qual$1.copy$default$4;
+    &lt;artifact&gt; val x$5: Int = qual$1.copy$default$5;
+    &lt;artifact&gt; val x$6: Boolean = qual$1.copy$default$6;
+    qual$1.copy(x$2, x$1, x$3, x$4, x$5, x$6)
+  }
+})).getOrElse[com.sparkutils.quality.impl.RuleRunner](runner)
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          1761
+        </td>
+        <td>
+          3468
+          -
+          3494
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.unsafe.types.UTF8String.fromString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.unsafe.types.UTF8String.fromString(str)
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          1763
+        </td>
+        <td>
+          3530
+          -
+          3577
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.unsafe.types.UTF8String.fromString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.unsafe.types.UTF8String.fromString(str.asInstanceOf[String])
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          1762
+        </td>
+        <td>
+          3552
+          -
+          3576
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          str.asInstanceOf[String]
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          1764
+        </td>
+        <td>
+          3594
+          -
+          3607
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.PackId.packId
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          PackId.packId(anyId)
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          1765
+        </td>
+        <td>
+          3627
+          -
+          3640
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.PackId.unpack
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          PackId.unpack(a)
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          1766
+        </td>
+        <td>
+          3666
+          -
+          3668
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          -1
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          1769
+        </td>
+        <td>
+          3692
+          -
+          3727
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Literal.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.Literal.apply(RuleRunnerImports.this.SoftFailedInt, org.apache.spark.sql.types.IntegerType)
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          1768
+        </td>
+        <td>
+          3715
+          -
+          3726
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.IntegerType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.IntegerType
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          1767
+        </td>
+        <td>
+          3700
+          -
+          3713
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunnerImports.SoftFailedInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleRunnerImports.this.SoftFailedInt
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          1770
+        </td>
+        <td>
+          3752
+          -
+          3754
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          -2
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          1773
+        </td>
+        <td>
+          3780
+          -
+          3817
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Literal.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.Literal.apply(RuleRunnerImports.this.DisabledRuleInt, org.apache.spark.sql.types.IntegerType)
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          1772
+        </td>
+        <td>
+          3805
+          -
+          3816
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.IntegerType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.IntegerType
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          1771
+        </td>
+        <td>
+          3788
+          -
+          3803
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunnerImports.DisabledRuleInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleRunnerImports.this.DisabledRuleInt
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          1774
+        </td>
+        <td>
+          3836
+          -
+          3842
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          100000
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          1775
+        </td>
+        <td>
+          3870
+          -
+          3879
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunnerImports.PassedInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleRunnerImports.this.PassedInt
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          1777
+        </td>
+        <td>
+          3862
+          -
+          3893
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Literal.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.Literal.apply(RuleRunnerImports.this.PassedInt, org.apache.spark.sql.types.IntegerType)
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          1776
+        </td>
+        <td>
+          3881
+          -
+          3892
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.IntegerType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.IntegerType
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          1778
+        </td>
+        <td>
+          3912
+          -
+          3913
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          1779
+        </td>
+        <td>
+          3941
+          -
+          3950
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunnerImports.FailedInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleRunnerImports.this.FailedInt
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          1781
+        </td>
+        <td>
+          3933
+          -
+          3964
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Literal.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.Literal.apply(RuleRunnerImports.this.FailedInt, org.apache.spark.sql.types.IntegerType)
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          1780
+        </td>
+        <td>
+          3952
+          -
+          3963
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.IntegerType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.IntegerType
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          1782
+        </td>
+        <td>
+          4135
+          -
+          4144
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunnerImports.FailedInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleRunnerUtils.this.FailedInt
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          1783
+        </td>
+        <td>
+          4170
+          -
+          4183
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunnerImports.SoftFailedInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          RuleRunnerUtils.this.SoftFailedInt
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          1784
+        </td>
+        <td>
+          4211
+          -
+          4226
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunnerImports.DisabledRuleInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleRunnerUtils.this.DisabledRuleInt
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          1785
+        </td>
+        <td>
+          4248
+          -
+          4257
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunnerImports.PassedInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleRunnerUtils.this.PassedInt
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1787
+        </td>
+        <td>
+          4297
+          -
+          4326
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Double.toInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          percentage.*(RuleRunnerUtils.this.PassedInt).toInt
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1786
+        </td>
+        <td>
+          4310
+          -
+          4319
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunnerImports.PassedInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleRunnerUtils.this.PassedInt
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          1788
+        </td>
+        <td>
+          4373
+          -
+          4393
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunnerUtils.ruleResultToInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          RuleRunnerUtils.this.ruleResultToInt(res)
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          1790
+        </td>
+        <td>
+          4524
+          -
+          4627
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunnerUtils.reincorporateExpressionsF
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleRunnerUtils.this.reincorporateExpressionsF[org.apache.spark.sql.catalyst.expressions.Expression](ruleSuite, expr, ((expr: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; com.sparkutils.quality.ExpressionWrapper.apply(expr, compileEvals)))
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          1789
+        </td>
+        <td>
+          4589
+          -
+          4626
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ExpressionWrapper.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.ExpressionWrapper.apply(expr, compileEvals)
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          1791
+        </td>
+        <td>
+          4748
+          -
+          4761
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IterableLike.iterator
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          expr.iterator
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          1797
+        </td>
+        <td>
+          4766
+          -
+          4845
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleLogicUtils.mapRules
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.RuleLogicUtils.mapRules(ruleSuite)(((rule: com.sparkutils.quality.Rule) =&gt; {
+  &lt;artifact&gt; val x$1: com.sparkutils.quality.RuleLogic = f.apply(itr.next());
+  &lt;artifact&gt; val x$2: com.sparkutils.quality.Id = rule.copy$default$1;
+  &lt;artifact&gt; val x$3: com.sparkutils.quality.RunOnPassProcessor = rule.copy$default$3;
+  rule.copy(x$2, x$1, x$3)
+}))
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          1793
+        </td>
+        <td>
+          4825
+          -
+          4838
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          f.apply(itr.next())
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          1796
+        </td>
+        <td>
+          4802
+          -
+          4839
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.Rule.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          rule.copy(x$2, x$1, x$3)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          1795
+        </td>
+        <td>
+          4807
+          -
+          4807
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.Rule.copy$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          rule.copy$default$3
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          1792
+        </td>
+        <td>
+          4827
+          -
+          4837
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.Iterator.next
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          itr.next()
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          1794
+        </td>
+        <td>
+          4807
+          -
+          4807
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.Rule.copy$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          rule.copy$default$1
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          1799
+        </td>
+        <td>
+          5093
+          -
+          5093
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$1._2
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          1798
+        </td>
+        <td>
+          5081
+          -
+          5081
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$1._1
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          1804
+        </td>
+        <td>
+          5317
+          -
+          5409
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunnerUtils.RuleSuiteResultArray.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleRunnerUtils.this.RuleSuiteResultArray.apply(RuleRunnerUtils.this.packTheId(ruleSuite.id), ruleSetIds.toArray[Long]((ClassTag.Long: scala.reflect.ClassTag[Long])), rulesArrays.toArray[Array[Long]]((ClassTag.apply[Array[Long]](scala.runtime.ScalaRunTime.arrayClass(classOf[scala.Long])): scala.reflect.ClassTag[Array[Long]])))
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          1801
+        </td>
+        <td>
+          5338
+          -
+          5361
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunnerUtils.packTheId
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleRunnerUtils.this.packTheId(ruleSuite.id)
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          1800
+        </td>
+        <td>
+          5348
+          -
+          5360
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuite.id
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuite.id
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          1802
+        </td>
+        <td>
+          5369
+          -
+          5387
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSetIds.toArray[Long]((ClassTag.Long: scala.reflect.ClassTag[Long]))
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          1803
+        </td>
+        <td>
+          5389
+          -
+          5408
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          rulesArrays.toArray[Array[Long]]((ClassTag.apply[Array[Long]](scala.runtime.ScalaRunTime.arrayClass(classOf[scala.Long])): scala.reflect.ClassTag[Array[Long]]))
+        </td>
+      </tr><tr>
+        <td>
+          129
+        </td>
+        <td>
+          1806
+        </td>
+        <td>
+          5575
+          -
+          5634
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.ofDim
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Array.ofDim[org.apache.spark.sql.catalyst.InternalRow](ruleSuiteArrays.ruleSetIds.length)((ClassTag.apply[org.apache.spark.sql.catalyst.InternalRow](classOf[org.apache.spark.sql.catalyst.InternalRow]): scala.reflect.ClassTag[org.apache.spark.sql.catalyst.InternalRow]))
+        </td>
+      </tr><tr>
+        <td>
+          129
+        </td>
+        <td>
+          1805
+        </td>
+        <td>
+          5600
+          -
+          5633
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Array.length
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuiteArrays.ruleSetIds.length
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          1807
+        </td>
+        <td>
+          5656
+          -
+          5665
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunnerImports.PassedInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleRunnerUtils.this.PassedInt
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          1808
+        </td>
+        <td>
+          5684
+          -
+          5685
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          135
+        </td>
+        <td>
+          1810
+        </td>
+        <td>
+          5711
+          -
+          5744
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Array.length
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuiteArrays.ruleSetIds.length
+        </td>
+      </tr><tr>
+        <td>
+          135
+        </td>
+        <td>
+          1827
+        </td>
+        <td>
+          5691
+          -
+          6344
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.Range.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.intWrapper(0).until(ruleSuiteArrays.ruleSetIds.length).foreach[Unit](((rsi: Int) =&gt; {
+  val rulesetSize: Int = ruleSuiteArrays.ruleSets.apply(rsi).length;
+  val ruleSetResults: Array[Any] = scala.Predef.genericArrayOps[Any](results).slice(offset, offset.+(rulesetSize));
+  offset = offset.+(rulesetSize);
+  val overall: Int = scala.Predef.genericArrayOps[Any](ruleSetResults).foldLeft[Int](RuleRunnerUtils.this.PassedInt)(((ov: Int, res: Any) =&gt; OverallResult.inplaceInt(ov, res.asInstanceOf[Int], ruleSuite.probablePass)));
+  rsOverall = OverallResult.inplaceInt(overall, rsOverall, ruleSuite.probablePass);
+  ruleSetRes.update(rsi, org.apache.spark.sql.catalyst.InternalRow.apply((scala.Predef.int2Integer(overall): Integer), org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply(ruleSuiteArrays.ruleSets.apply(rsi), ruleSetResults)))
+}))
+        </td>
+      </tr><tr>
+        <td>
+          135
+        </td>
+        <td>
+          1809
+        </td>
+        <td>
+          5703
+          -
+          5704
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          1811
+        </td>
+        <td>
+          5773
+          -
+          5809
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Array.length
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuiteArrays.ruleSets.apply(rsi).length
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          1813
+        </td>
+        <td>
+          5838
+          -
+          5881
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.ArrayOps.slice
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.genericArrayOps[Any](results).slice(offset, offset.+(rulesetSize))
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          1812
+        </td>
+        <td>
+          5860
+          -
+          5880
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          offset.+(rulesetSize)
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          1814
+        </td>
+        <td>
+          5888
+          -
+          5909
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          offset.+(rulesetSize)
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          1815
+        </td>
+        <td>
+          5955
+          -
+          5964
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunnerImports.PassedInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleRunnerUtils.this.PassedInt
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          1819
+        </td>
+        <td>
+          5931
+          -
+          6101
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IndexedSeqOptimized.foldLeft
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.genericArrayOps[Any](ruleSetResults).foldLeft[Int](RuleRunnerUtils.this.PassedInt)(((ov: Int, res: Any) =&gt; OverallResult.inplaceInt(ov, res.asInstanceOf[Int], ruleSuite.probablePass)))
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          1817
+        </td>
+        <td>
+          6050
+          -
+          6062
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuite.probablePass
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuite.probablePass
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          1816
+        </td>
+        <td>
+          6027
+          -
+          6048
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.asInstanceOf[Int]
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          1818
+        </td>
+        <td>
+          5998
+          -
+          6063
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.OverallResult.inplaceInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          OverallResult.inplaceInt(ov, res.asInstanceOf[Int], ruleSuite.probablePass)
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          1820
+        </td>
+        <td>
+          6166
+          -
+          6178
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuite.probablePass
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuite.probablePass
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          1821
+        </td>
+        <td>
+          6121
+          -
+          6179
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.OverallResult.inplaceInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          OverallResult.inplaceInt(overall, rsOverall, ruleSuite.probablePass)
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          1826
+        </td>
+        <td>
+          6187
+          -
+          6338
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSetRes.update(rsi, org.apache.spark.sql.catalyst.InternalRow.apply((scala.Predef.int2Integer(overall): Integer), org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply(ruleSuiteArrays.ruleSets.apply(rsi), ruleSetResults)))
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          1825
+        </td>
+        <td>
+          6205
+          -
+          6338
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.InternalRow.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.InternalRow.apply((scala.Predef.int2Integer(overall): Integer), org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply(ruleSuiteArrays.ruleSets.apply(rsi), ruleSetResults))
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          1822
+        </td>
+        <td>
+          6226
+          -
+          6233
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.Predef.int2Integer
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.int2Integer(overall)
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          1824
+        </td>
+        <td>
+          6262
+          -
+          6328
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply(ruleSuiteArrays.ruleSets.apply(rsi), ruleSetResults)
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          1823
+        </td>
+        <td>
+          6281
+          -
+          6310
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuiteArrays.ruleSets.apply(rsi)
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          1832
+        </td>
+        <td>
+          6350
+          -
+          6495
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.InternalRow.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.InternalRow.apply(ruleSuiteArrays.packedId, (scala.Predef.int2Integer(rsOverall): Integer), org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply(ruleSuiteArrays.ruleSetIds, ruleSetRes))
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          1828
+        </td>
+        <td>
+          6363
+          -
+          6387
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunnerUtils.RuleSuiteResultArray.packedId
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuiteArrays.packedId
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          1829
+        </td>
+        <td>
+          6395
+          -
+          6404
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.Predef.int2Integer
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.int2Integer(rsOverall)
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          1831
+        </td>
+        <td>
+          6431
+          -
+          6489
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply(ruleSuiteArrays.ruleSetIds, ruleSetRes)
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          1830
+        </td>
+        <td>
+          6450
+          -
+          6476
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunnerUtils.RuleSuiteResultArray.ruleSetIds
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuiteArrays.ruleSetIds
+        </td>
+      </tr><tr>
+        <td>
+          162
+        </td>
+        <td>
+          1849
+        </td>
+        <td>
+          6576
+          -
+          7054
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.InternalRow.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.InternalRow.apply(RuleRunnerUtils.this.packId.apply(ruleSuiteResult.id), RuleRunnerUtils.this.ruleResultToInt(ruleSuiteResult.overallResult), org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply(ruleSuiteResult.ruleSetResults, RuleRunnerUtils.this.packId, ((a: Any) =&gt; {
+  val v: com.sparkutils.quality.RuleSetResult = a.asInstanceOf[com.sparkutils.quality.RuleSetResult];
+  org.apache.spark.sql.catalyst.InternalRow.apply(RuleRunnerUtils.this.ruleResultToInt(v.overallResult), org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply(v.ruleResults, RuleRunnerUtils.this.packId, ((a: Any) =&gt; RuleRunnerUtils.this.ruleResultToInt(a.asInstanceOf[com.sparkutils.quality.RuleResult]))))
+})))
+        </td>
+      </tr><tr>
+        <td>
+          163
+        </td>
+        <td>
+          1833
+        </td>
+        <td>
+          6602
+          -
+          6620
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteResult.id
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuiteResult.id
+        </td>
+      </tr><tr>
+        <td>
+          163
+        </td>
+        <td>
+          1834
+        </td>
+        <td>
+          6595
+          -
+          6621
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleRunnerUtils.this.packId.apply(ruleSuiteResult.id)
+        </td>
+      </tr><tr>
+        <td>
+          164
+        </td>
+        <td>
+          1835
+        </td>
+        <td>
+          6645
+          -
+          6674
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteResult.overallResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuiteResult.overallResult
+        </td>
+      </tr><tr>
+        <td>
+          164
+        </td>
+        <td>
+          1836
+        </td>
+        <td>
+          6629
+          -
+          6675
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunnerUtils.ruleResultToInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleRunnerUtils.this.ruleResultToInt(ruleSuiteResult.overallResult)
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          1848
+        </td>
+        <td>
+          6683
+          -
+          7048
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply(ruleSuiteResult.ruleSetResults, RuleRunnerUtils.this.packId, ((a: Any) =&gt; {
+  val v: com.sparkutils.quality.RuleSetResult = a.asInstanceOf[com.sparkutils.quality.RuleSetResult];
+  org.apache.spark.sql.catalyst.InternalRow.apply(RuleRunnerUtils.this.ruleResultToInt(v.overallResult), org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply(v.ruleResults, RuleRunnerUtils.this.packId, ((a: Any) =&gt; RuleRunnerUtils.this.ruleResultToInt(a.asInstanceOf[com.sparkutils.quality.RuleResult]))))
+}))
+        </td>
+      </tr><tr>
+        <td>
+          166
+        </td>
+        <td>
+          1838
+        </td>
+        <td>
+          6742
+          -
+          6748
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunnerImports.packId
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleRunnerUtils.this.packId
+        </td>
+      </tr><tr>
+        <td>
+          166
+        </td>
+        <td>
+          1837
+        </td>
+        <td>
+          6710
+          -
+          6740
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteResult.ruleSetResults
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuiteResult.ruleSetResults
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          1839
+        </td>
+        <td>
+          6782
+          -
+          6811
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          a.asInstanceOf[com.sparkutils.quality.RuleSetResult]
+        </td>
+      </tr><tr>
+        <td>
+          168
+        </td>
+        <td>
+          1847
+        </td>
+        <td>
+          6822
+          -
+          7030
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.InternalRow.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.InternalRow.apply(RuleRunnerUtils.this.ruleResultToInt(v.overallResult), org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply(v.ruleResults, RuleRunnerUtils.this.packId, ((a: Any) =&gt; RuleRunnerUtils.this.ruleResultToInt(a.asInstanceOf[com.sparkutils.quality.RuleResult]))))
+        </td>
+      </tr><tr>
+        <td>
+          169
+        </td>
+        <td>
+          1841
+        </td>
+        <td>
+          6847
+          -
+          6879
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunnerUtils.ruleResultToInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleRunnerUtils.this.ruleResultToInt(v.overallResult)
+        </td>
+      </tr><tr>
+        <td>
+          169
+        </td>
+        <td>
+          1840
+        </td>
+        <td>
+          6863
+          -
+          6878
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetResult.overallResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          v.overallResult
+        </td>
+      </tr><tr>
+        <td>
+          170
+        </td>
+        <td>
+          1846
+        </td>
+        <td>
+          6893
+          -
+          7018
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply(v.ruleResults, RuleRunnerUtils.this.packId, ((a: Any) =&gt; RuleRunnerUtils.this.ruleResultToInt(a.asInstanceOf[com.sparkutils.quality.RuleResult])))
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          1842
+        </td>
+        <td>
+          6926
+          -
+          6939
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetResult.ruleResults
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          v.ruleResults
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          1844
+        </td>
+        <td>
+          6977
+          -
+          7003
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          a.asInstanceOf[com.sparkutils.quality.RuleResult]
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          1843
+        </td>
+        <td>
+          6941
+          -
+          6947
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunnerImports.packId
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleRunnerUtils.this.packId
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          1845
+        </td>
+        <td>
+          6961
+          -
+          7004
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunnerUtils.ruleResultToInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleRunnerUtils.this.ruleResultToInt(a.asInstanceOf[com.sparkutils.quality.RuleResult])
+        </td>
+      </tr><tr>
+        <td>
+          178
+        </td>
+        <td>
+          1850
+        </td>
+        <td>
+          7087
+          -
+          7098
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleRunnerUtils.this.packId.apply(obj)
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          1871
+        </td>
+        <td>
+          7316
+          -
+          7933
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.Iterator.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          allExpr.map[String](((exprGroup: Seq[Seq[String]]) =&gt; {
+  val groupName: String = ctx.freshName(&quot;ruleRunnerEGroup&quot;);
+  ctx.addNewFunction(groupName, {
+    val funNames: Seq[String] = exprGroup.map[String, Seq[String]](((exprFunc: Seq[String]) =&gt; {
+      val exprFuncName: String = ctx.freshName(&quot;ruleRunnerEFuncGroup&quot;);
+      ctx.addNewFunction(exprFuncName, scala.StringContext.apply(&quot;\n   private void &quot;, &quot;(&quot;, &quot;) {\n     &quot;, &quot;\n   }\n  &quot;).s(exprFuncName, paramsDef, exprFunc.mkString(&quot;\n&quot;)), ctx.addNewFunction$default$3)
+    }))(collection.this.Seq.canBuildFrom[String]);
+    scala.StringContext.apply(&quot;\n   private void &quot;, &quot;(&quot;, &quot;) {\n     &quot;, &quot;\n   }\n   &quot;).s(groupName, paramsDef, funNames.map[String, Seq[String]](((f: String) =&gt; scala.StringContext.apply(&quot;&quot;, &quot;(&quot;, &quot;);&quot;).s(f, paramsCall)))(collection.this.Seq.canBuildFrom[String]).mkString(&quot;\n&quot;))
+  }, ctx.addNewFunction$default$3)
+}))
+        </td>
+      </tr><tr>
+        <td>
+          183
+        </td>
+        <td>
+          1851
+        </td>
+        <td>
+          7375
+          -
+          7408
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.freshName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.freshName(&quot;ruleRunnerEGroup&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          184
+        </td>
+        <td>
+          1870
+        </td>
+        <td>
+          7417
+          -
+          7925
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.addNewFunction
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.addNewFunction(groupName, {
+  val funNames: Seq[String] = exprGroup.map[String, Seq[String]](((exprFunc: Seq[String]) =&gt; {
+    val exprFuncName: String = ctx.freshName(&quot;ruleRunnerEFuncGroup&quot;);
+    ctx.addNewFunction(exprFuncName, scala.StringContext.apply(&quot;\n   private void &quot;, &quot;(&quot;, &quot;) {\n     &quot;, &quot;\n   }\n  &quot;).s(exprFuncName, paramsDef, exprFunc.mkString(&quot;\n&quot;)), ctx.addNewFunction$default$3)
+  }))(collection.this.Seq.canBuildFrom[String]);
+  scala.StringContext.apply(&quot;\n   private void &quot;, &quot;(&quot;, &quot;) {\n     &quot;, &quot;\n   }\n   &quot;).s(groupName, paramsDef, funNames.map[String, Seq[String]](((f: String) =&gt; scala.StringContext.apply(&quot;&quot;, &quot;(&quot;, &quot;);&quot;).s(f, paramsCall)))(collection.this.Seq.canBuildFrom[String]).mkString(&quot;\n&quot;))
+}, ctx.addNewFunction$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          184
+        </td>
+        <td>
+          1869
+        </td>
+        <td>
+          7421
+          -
+          7421
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.addNewFunction$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.addNewFunction$default$3
+        </td>
+      </tr><tr>
+        <td>
+          187
+        </td>
+        <td>
+          1862
+        </td>
+        <td>
+          7486
+          -
+          7789
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          exprGroup.map[String, Seq[String]](((exprFunc: Seq[String]) =&gt; {
+  val exprFuncName: String = ctx.freshName(&quot;ruleRunnerEFuncGroup&quot;);
+  ctx.addNewFunction(exprFuncName, scala.StringContext.apply(&quot;\n   private void &quot;, &quot;(&quot;, &quot;) {\n     &quot;, &quot;\n   }\n  &quot;).s(exprFuncName, paramsDef, exprFunc.mkString(&quot;\n&quot;)), ctx.addNewFunction$default$3)
+}))(collection.this.Seq.canBuildFrom[String])
+        </td>
+      </tr><tr>
+        <td>
+          187
+        </td>
+        <td>
+          1861
+        </td>
+        <td>
+          7515
+          -
+          7515
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[String]
+        </td>
+      </tr><tr>
+        <td>
+          189
+        </td>
+        <td>
+          1852
+        </td>
+        <td>
+          7583
+          -
+          7620
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.freshName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.freshName(&quot;ruleRunnerEFuncGroup&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          1859
+        </td>
+        <td>
+          7639
+          -
+          7639
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.addNewFunction$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.addNewFunction$default$3
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          1860
+        </td>
+        <td>
+          7635
+          -
+          7775
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.addNewFunction
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.addNewFunction(exprFuncName, scala.StringContext.apply(&quot;\n   private void &quot;, &quot;(&quot;, &quot;) {\n     &quot;, &quot;\n   }\n  &quot;).s(exprFuncName, paramsDef, exprFunc.mkString(&quot;\n&quot;)), ctx.addNewFunction$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          191
+        </td>
+        <td>
+          1853
+        </td>
+        <td>
+          7672
+          -
+          7690
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;\n   private void &quot;
+        </td>
+      </tr><tr>
+        <td>
+          191
+        </td>
+        <td>
+          1858
+        </td>
+        <td>
+          7668
+          -
+          7759
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;\n   private void &quot;, &quot;(&quot;, &quot;) {\n     &quot;, &quot;\n   }\n  &quot;).s(exprFuncName, paramsDef, exprFunc.mkString(&quot;\n&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          192
+        </td>
+        <td>
+          1855
+        </td>
+        <td>
+          7713
+          -
+          7723
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;) {\n     &quot;
+        </td>
+      </tr><tr>
+        <td>
+          192
+        </td>
+        <td>
+          1854
+        </td>
+        <td>
+          7702
+          -
+          7704
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;(&quot;
+        </td>
+      </tr><tr>
+        <td>
+          193
+        </td>
+        <td>
+          1856
+        </td>
+        <td>
+          7748
+          -
+          7759
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;\n   }\n  &quot;
+        </td>
+      </tr><tr>
+        <td>
+          193
+        </td>
+        <td>
+          1857
+        </td>
+        <td>
+          7724
+          -
+          7747
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.mkString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          exprFunc.mkString(&quot;\n&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          199
+        </td>
+        <td>
+          1868
+        </td>
+        <td>
+          7791
+          -
+          7913
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;\n   private void &quot;, &quot;(&quot;, &quot;) {\n     &quot;, &quot;\n   }\n   &quot;).s(groupName, paramsDef, funNames.map[String, Seq[String]](((f: String) =&gt; scala.StringContext.apply(&quot;&quot;, &quot;(&quot;, &quot;);&quot;).s(f, paramsCall)))(collection.this.Seq.canBuildFrom[String]).mkString(&quot;\n&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          199
+        </td>
+        <td>
+          1863
+        </td>
+        <td>
+          7795
+          -
+          7813
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;\n   private void &quot;
+        </td>
+      </tr><tr>
+        <td>
+          200
+        </td>
+        <td>
+          1865
+        </td>
+        <td>
+          7833
+          -
+          7843
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;) {\n     &quot;
+        </td>
+      </tr><tr>
+        <td>
+          200
+        </td>
+        <td>
+          1864
+        </td>
+        <td>
+          7822
+          -
+          7824
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;(&quot;
+        </td>
+      </tr><tr>
+        <td>
+          201
+        </td>
+        <td>
+          1867
+        </td>
+        <td>
+          7844
+          -
+          7900
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.mkString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          funNames.map[String, Seq[String]](((f: String) =&gt; scala.StringContext.apply(&quot;&quot;, &quot;(&quot;, &quot;);&quot;).s(f, paramsCall)))(collection.this.Seq.canBuildFrom[String]).mkString(&quot;\n&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          201
+        </td>
+        <td>
+          1866
+        </td>
+        <td>
+          7901
+          -
+          7913
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;\n   }\n   &quot;
+        </td>
+      </tr><tr>
+        <td>
+          211
+        </td>
+        <td>
+          1872
+        </td>
+        <td>
+          8080
+          -
+          8106
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Class.getName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          classOf[com.sparkutils.quality.RuleSuite].getName()
+        </td>
+      </tr><tr>
+        <td>
+          212
+        </td>
+        <td>
+          1873
+        </td>
+        <td>
+          8137
+          -
+          8181
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Class.getName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.implicitly[scala.reflect.ClassTag[T]](evidence$1).runtimeClass.getName()
+        </td>
+      </tr><tr>
+        <td>
+          213
+        </td>
+        <td>
+          1874
+        </td>
+        <td>
+          8216
+          -
+          8239
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.-
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.references.size.-(1)
+        </td>
+      </tr><tr>
+        <td>
+          214
+        </td>
+        <td>
+          1883
+        </td>
+        <td>
+          8267
+          -
+          8267
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.addMutableState$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.addMutableState$default$5
+        </td>
+      </tr><tr>
+        <td>
+          214
+        </td>
+        <td>
+          1882
+        </td>
+        <td>
+          8267
+          -
+          8267
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.addMutableState$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.addMutableState$default$4
+        </td>
+      </tr><tr>
+        <td>
+          214
+        </td>
+        <td>
+          1875
+        </td>
+        <td>
+          8303
+          -
+          8329
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.freshName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.freshName(&quot;ruleSuite&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          214
+        </td>
+        <td>
+          1884
+        </td>
+        <td>
+          8263
+          -
+          8461
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.addMutableState
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.addMutableState(ruleSuiteClassName, ctx.freshName(&quot;ruleSuite&quot;), ((v: String) =&gt; scala.StringContext.apply(&quot;&quot;, &quot; = (&quot;, &quot;)(((&quot;, &quot;)references&quot;).s(v, ruleSuiteClassName, ruleRunnerClassName).+(scala.StringContext.apply(&quot;[&quot;, &quot;]).ruleSuite());&quot;).s(ruleRunnerExpressionIdx))), ctx.addMutableState$default$4, ctx.addMutableState$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          215
+        </td>
+        <td>
+          1877
+        </td>
+        <td>
+          8346
+          -
+          8351
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot; = (&quot;
+        </td>
+      </tr><tr>
+        <td>
+          215
+        </td>
+        <td>
+          1876
+        </td>
+        <td>
+          8344
+          -
+          8345
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          215
+        </td>
+        <td>
+          1879
+        </td>
+        <td>
+          8393
+          -
+          8405
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;)references&quot;
+        </td>
+      </tr><tr>
+        <td>
+          215
+        </td>
+        <td>
+          1878
+        </td>
+        <td>
+          8369
+          -
+          8374
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;)(((&quot;
+        </td>
+      </tr><tr>
+        <td>
+          215
+        </td>
+        <td>
+          1881
+        </td>
+        <td>
+          8342
+          -
+          8460
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;&quot;, &quot; = (&quot;, &quot;)(((&quot;, &quot;)references&quot;).s(v, ruleSuiteClassName, ruleRunnerClassName).+(scala.StringContext.apply(&quot;[&quot;, &quot;]).ruleSuite());&quot;).s(ruleRunnerExpressionIdx))
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          1880
+        </td>
+        <td>
+          8416
+          -
+          8460
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;[&quot;, &quot;]).ruleSuite());&quot;).s(ruleRunnerExpressionIdx)
+        </td>
+      </tr><tr>
+        <td>
+          220
+        </td>
+        <td>
+          1892
+        </td>
+        <td>
+          8548
+          -
+          8548
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.addMutableState$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.addMutableState$default$4
+        </td>
+      </tr><tr>
+        <td>
+          220
+        </td>
+        <td>
+          1885
+        </td>
+        <td>
+          8575
+          -
+          8597
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.freshName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.freshName(funname)
+        </td>
+      </tr><tr>
+        <td>
+          220
+        </td>
+        <td>
+          1894
+        </td>
+        <td>
+          8544
+          -
+          8719
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.addMutableState
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.addMutableState(className, ctx.freshName(funname), ((v: String) =&gt; scala.StringContext.apply(&quot;&quot;, &quot; = (&quot;, &quot;)(((&quot;, &quot;)references&quot;).s(v, className, ruleRunnerClassName).+(scala.StringContext.apply(&quot;[&quot;, &quot;]).&quot;, &quot;());&quot;).s(ruleRunnerExpressionIdx, funname))), ctx.addMutableState$default$4, ctx.addMutableState$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          220
+        </td>
+        <td>
+          1893
+        </td>
+        <td>
+          8548
+          -
+          8548
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.addMutableState$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.addMutableState$default$5
+        </td>
+      </tr><tr>
+        <td>
+          221
+        </td>
+        <td>
+          1886
+        </td>
+        <td>
+          8612
+          -
+          8613
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          221
+        </td>
+        <td>
+          1889
+        </td>
+        <td>
+          8652
+          -
+          8664
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;)references&quot;
+        </td>
+      </tr><tr>
+        <td>
+          221
+        </td>
+        <td>
+          1891
+        </td>
+        <td>
+          8610
+          -
+          8718
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;&quot;, &quot; = (&quot;, &quot;)(((&quot;, &quot;)references&quot;).s(v, className, ruleRunnerClassName).+(scala.StringContext.apply(&quot;[&quot;, &quot;]).&quot;, &quot;());&quot;).s(ruleRunnerExpressionIdx, funname))
+        </td>
+      </tr><tr>
+        <td>
+          221
+        </td>
+        <td>
+          1888
+        </td>
+        <td>
+          8628
+          -
+          8633
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;)(((&quot;
+        </td>
+      </tr><tr>
+        <td>
+          221
+        </td>
+        <td>
+          1887
+        </td>
+        <td>
+          8614
+          -
+          8619
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot; = (&quot;
+        </td>
+      </tr><tr>
+        <td>
+          222
+        </td>
+        <td>
+          1890
+        </td>
+        <td>
+          8675
+          -
+          8718
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;[&quot;, &quot;]).&quot;, &quot;());&quot;).s(ruleRunnerExpressionIdx, funname)
+        </td>
+      </tr><tr>
+        <td>
+          224
+        </td>
+        <td>
+          1895
+        </td>
+        <td>
+          8725
+          -
+          8757
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[String, (String, String) =&gt; String](ruleSuitTerm, realChildrenTerm)
+        </td>
+      </tr><tr>
+        <td>
+          249
+        </td>
+        <td>
+          1896
+        </td>
+        <td>
+          9730
+          -
+          9735
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          250
+        </td>
+        <td>
+          1898
+        </td>
+        <td>
+          9813
+          -
+          9815
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;)&quot;
+        </td>
+      </tr><tr>
+        <td>
+          250
+        </td>
+        <td>
+          1897
+        </td>
+        <td>
+          9772
+          -
+          9784
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;RuleRunner(&quot;
+        </td>
+      </tr><tr>
+        <td>
+          250
+        </td>
+        <td>
+          1900
+        </td>
+        <td>
+          9770
+          -
+          9815
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;RuleRunner(&quot;, &quot;)&quot;).s(RuleRunner.this.realChildren.mkString(&quot;, &quot;))
+        </td>
+      </tr><tr>
+        <td>
+          250
+        </td>
+        <td>
+          1899
+        </td>
+        <td>
+          9785
+          -
+          9812
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.mkString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleRunner.this.realChildren.mkString(&quot;, &quot;)
+        </td>
+      </tr><tr>
+        <td>
+          257
+        </td>
+        <td>
+          1901
+        </td>
+        <td>
+          10111
+          -
+          10137
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuite.eval
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleRunner.this.reincorporated.eval(input)
+        </td>
+      </tr><tr>
+        <td>
+          258
+        </td>
+        <td>
+          1902
+        </td>
+        <td>
+          10142
+          -
+          10162
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunnerUtils.ruleResultToRow
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleRunnerUtils.ruleResultToRow(res)
+        </td>
+      </tr><tr>
+        <td>
+          261
+        </td>
+        <td>
+          1903
+        </td>
+        <td>
+          10195
+          -
+          10237
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleSparkTypes.ruleSuiteResultType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.`package`.ruleSuiteResultType
+        </td>
+      </tr><tr>
+        <td>
+          271
+        </td>
+        <td>
+          1904
+        </td>
+        <td>
+          10586
+          -
+          10601
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunner.forceRunnerEval
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleRunner.this.forceRunnerEval
+        </td>
+      </tr><tr>
+        <td>
+          271
+        </td>
+        <td>
+          1907
+        </td>
+        <td>
+          10582
+          -
+          10582
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          271
+        </td>
+        <td>
+          1908
+        </td>
+        <td>
+          10582
+          -
+          10582
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          272
+        </td>
+        <td>
+          1906
+        </td>
+        <td>
+          10611
+          -
+          10659
+        </td>
+        <td>
+          Return
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunner.doGenCode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          return RuleRunner.super[CodegenFallback].doGenCode(ctx, ev)
+        </td>
+      </tr><tr>
+        <td>
+          272
+        </td>
+        <td>
+          1905
+        </td>
+        <td>
+          10618
+          -
+          10659
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback.doGenCode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          RuleRunner.super[CodegenFallback].doGenCode(ctx, ev)
+        </td>
+      </tr><tr>
+        <td>
+          274
+        </td>
+        <td>
+          1909
+        </td>
+        <td>
+          10678
+          -
+          10691
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.INPUT_ROW
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.INPUT_ROW
+        </td>
+      </tr><tr>
+        <td>
+          276
+        </td>
+        <td>
+          1910
+        </td>
+        <td>
+          10740
+          -
+          10749
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.eq
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          i.eq(null)
+        </td>
+      </tr><tr>
+        <td>
+          276
+        </td>
+        <td>
+          1915
+        </td>
+        <td>
+          10697
+          -
+          10697
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          276
+        </td>
+        <td>
+          1914
+        </td>
+        <td>
+          10697
+          -
+          10697
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          276
+        </td>
+        <td>
+          1911
+        </td>
+        <td>
+          10701
+          -
+          10750
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleRunner.this.child.isInstanceOf[com.sparkutils.quality.utils.NonPassThrough].&amp;&amp;(i.eq(null))
+        </td>
+      </tr><tr>
+        <td>
+          278
+        </td>
+        <td>
+          1913
+        </td>
+        <td>
+          10969
+          -
+          11017
+        </td>
+        <td>
+          Return
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunner.doGenCode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          return RuleRunner.super[CodegenFallback].doGenCode(ctx, ev)
+        </td>
+      </tr><tr>
+        <td>
+          278
+        </td>
+        <td>
+          1912
+        </td>
+        <td>
+          10976
+          -
+          11017
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback.doGenCode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          RuleRunner.super[CodegenFallback].doGenCode(ctx, ev)
+        </td>
+      </tr><tr>
+        <td>
+          281
+        </td>
+        <td>
+          1916
+        </td>
+        <td>
+          11029
+          -
+          11051
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.ArrayBuffer.+=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.references.+=(this)
+        </td>
+      </tr><tr>
+        <td>
+          284
+        </td>
+        <td>
+          1917
+        </td>
+        <td>
+          11098
+          -
+          11134
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleRunnerUtils.genRuleSuiteTerm[com.sparkutils.quality.impl.RuleRunner](ctx)((ClassTag.apply[com.sparkutils.quality.impl.RuleRunner](classOf[com.sparkutils.quality.impl.RuleRunner]): scala.reflect.ClassTag[com.sparkutils.quality.impl.RuleRunner]))._1
+        </td>
+      </tr><tr>
+        <td>
+          285
+        </td>
+        <td>
+          1918
+        </td>
+        <td>
+          11155
+          -
+          11200
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;com.sparkutils.quality.impl.RuleRunnerUtils&quot;
+        </td>
+      </tr><tr>
+        <td>
+          287
+        </td>
+        <td>
+          1919
+        </td>
+        <td>
+          11248
+          -
+          11285
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Class.getName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          classOf[com.sparkutils.quality.impl.RuleRunnerUtils$$RuleSuiteResultArray].getName()
+        </td>
+      </tr><tr>
+        <td>
+          287
+        </td>
+        <td>
+          1922
+        </td>
+        <td>
+          11232
+          -
+          11232
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.addMutableState$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.addMutableState$default$4
+        </td>
+      </tr><tr>
+        <td>
+          287
+        </td>
+        <td>
+          1924
+        </td>
+        <td>
+          11228
+          -
+          11394
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.addMutableState
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.addMutableState(classOf[com.sparkutils.quality.impl.RuleRunnerUtils$$RuleSuiteResultArray].getName(), ctx.freshName(&quot;ruleSuiteArrays&quot;), ((v: String) =&gt; scala.StringContext.apply(&quot;&quot;, &quot; = &quot;, &quot;.ruleSuiteArrays(&quot;, &quot;);&quot;).s(v, utilsName, ruleSuitTerm)), ctx.addMutableState$default$4, ctx.addMutableState$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          287
+        </td>
+        <td>
+          1923
+        </td>
+        <td>
+          11232
+          -
+          11232
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.addMutableState$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.addMutableState$default$5
+        </td>
+      </tr><tr>
+        <td>
+          288
+        </td>
+        <td>
+          1920
+        </td>
+        <td>
+          11293
+          -
+          11325
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.freshName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.freshName(&quot;ruleSuiteArrays&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          289
+        </td>
+        <td>
+          1921
+        </td>
+        <td>
+          11338
+          -
+          11388
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;&quot;, &quot; = &quot;, &quot;.ruleSuiteArrays(&quot;, &quot;);&quot;).s(v, utilsName, ruleSuitTerm)
+        </td>
+      </tr><tr>
+        <td>
+          292
+        </td>
+        <td>
+          1925
+        </td>
+        <td>
+          11414
+          -
+          11432
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;java.lang.Object&quot;
+        </td>
+      </tr><tr>
+        <td>
+          293
+        </td>
+        <td>
+          1934
+        </td>
+        <td>
+          11455
+          -
+          11455
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.addMutableState$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.addMutableState$default$4
+        </td>
+      </tr><tr>
+        <td>
+          293
+        </td>
+        <td>
+          1927
+        </td>
+        <td>
+          11485
+          -
+          11509
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.freshName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.freshName(&quot;results&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          293
+        </td>
+        <td>
+          1936
+        </td>
+        <td>
+          11451
+          -
+          11566
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.addMutableState
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.addMutableState(ruleRes.+(&quot;[]&quot;), ctx.freshName(&quot;results&quot;), ((v: String) =&gt; scala.StringContext.apply(&quot;&quot;, &quot; = new &quot;, &quot;[&quot;, &quot;];&quot;).s(v, ruleRes, RuleRunner.this.realChildren.size)), ctx.addMutableState$default$4, ctx.addMutableState$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          293
+        </td>
+        <td>
+          1935
+        </td>
+        <td>
+          11455
+          -
+          11455
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.addMutableState$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.addMutableState$default$5
+        </td>
+      </tr><tr>
+        <td>
+          293
+        </td>
+        <td>
+          1926
+        </td>
+        <td>
+          11471
+          -
+          11483
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleRes.+(&quot;[]&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          294
+        </td>
+        <td>
+          1928
+        </td>
+        <td>
+          11524
+          -
+          11525
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          294
+        </td>
+        <td>
+          1931
+        </td>
+        <td>
+          11562
+          -
+          11565
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;];&quot;
+        </td>
+      </tr><tr>
+        <td>
+          294
+        </td>
+        <td>
+          1933
+        </td>
+        <td>
+          11522
+          -
+          11565
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;&quot;, &quot; = new &quot;, &quot;[&quot;, &quot;];&quot;).s(v, ruleRes, RuleRunner.this.realChildren.size)
+        </td>
+      </tr><tr>
+        <td>
+          294
+        </td>
+        <td>
+          1930
+        </td>
+        <td>
+          11541
+          -
+          11543
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;[&quot;
+        </td>
+      </tr><tr>
+        <td>
+          294
+        </td>
+        <td>
+          1929
+        </td>
+        <td>
+          11526
+          -
+          11534
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot; = new &quot;
+        </td>
+      </tr><tr>
+        <td>
+          294
+        </td>
+        <td>
+          1932
+        </td>
+        <td>
+          11544
+          -
+          11561
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.SeqLike.size
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleRunner.this.realChildren.size
+        </td>
+      </tr><tr>
+        <td>
+          296
+        </td>
+        <td>
+          1937
+        </td>
+        <td>
+          11599
+          -
+          11599
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[(org.apache.spark.sql.catalyst.expressions.Expression, Int)]
+        </td>
+      </tr><tr>
+        <td>
+          296
+        </td>
+        <td>
+          1949
+        </td>
+        <td>
+          11616
+          -
+          11616
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[String]
+        </td>
+      </tr><tr>
+        <td>
+          297
+        </td>
+        <td>
+          1938
+        </td>
+        <td>
+          11658
+          -
+          11676
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.genCode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          child.genCode(ctx)
+        </td>
+      </tr><tr>
+        <td>
+          299
+        </td>
+        <td>
+          1940
+        </td>
+        <td>
+          11727
+          -
+          11745
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;\\n\n\n             &quot;
+        </td>
+      </tr><tr>
+        <td>
+          299
+        </td>
+        <td>
+          1945
+        </td>
+        <td>
+          11717
+          -
+          11726
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.code
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          eval.code
+        </td>
+      </tr><tr>
+        <td>
+          299
+        </td>
+        <td>
+          1948
+        </td>
+        <td>
+          11711
+          -
+          11860
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;&quot;, &quot;\\n\n\n             &quot;, &quot;[&quot;, &quot;] = &quot;, &quot; ? null : com.sparkutils.quality.RuleLogicUtils.anyToRuleResultInt(&quot;, &quot;);&quot;).s(eval.code, arrTerm, idx, eval.isNull, eval.value)
+        </td>
+      </tr><tr>
+        <td>
+          299
+        </td>
+        <td>
+          1939
+        </td>
+        <td>
+          11715
+          -
+          11716
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          301
+        </td>
+        <td>
+          1943
+        </td>
+        <td>
+          11775
+          -
+          11843
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot; ? null : com.sparkutils.quality.RuleLogicUtils.anyToRuleResultInt(&quot;
+        </td>
+      </tr><tr>
+        <td>
+          301
+        </td>
+        <td>
+          1946
+        </td>
+        <td>
+          11763
+          -
+          11774
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.isNull
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          eval.isNull
+        </td>
+      </tr><tr>
+        <td>
+          301
+        </td>
+        <td>
+          1942
+        </td>
+        <td>
+          11757
+          -
+          11762
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;] = &quot;
+        </td>
+      </tr><tr>
+        <td>
+          301
+        </td>
+        <td>
+          1947
+        </td>
+        <td>
+          11844
+          -
+          11854
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.value
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          eval.value
+        </td>
+      </tr><tr>
+        <td>
+          301
+        </td>
+        <td>
+          1941
+        </td>
+        <td>
+          11752
+          -
+          11754
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;[&quot;
+        </td>
+      </tr><tr>
+        <td>
+          301
+        </td>
+        <td>
+          1944
+        </td>
+        <td>
+          11855
+          -
+          11860
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;);&quot;
+        </td>
+      </tr><tr>
+        <td>
+          304
+        </td>
+        <td>
+          1952
+        </td>
+        <td>
+          11586
+          -
+          11938
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.Iterator.grouped
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleRunner.this.realChildren.zipWithIndex[org.apache.spark.sql.catalyst.expressions.Expression, Seq[(org.apache.spark.sql.catalyst.expressions.Expression, Int)]](collection.this.Seq.canBuildFrom[(org.apache.spark.sql.catalyst.expressions.Expression, Int)]).map[String, Seq[String]](((x0$1: (org.apache.spark.sql.catalyst.expressions.Expression, Int)) =&gt; x0$1 match {
+  case (_1: org.apache.spark.sql.catalyst.expressions.Expression, _2: Int)(org.apache.spark.sql.catalyst.expressions.Expression, Int)((child @ _), (idx @ _)) =&gt; {
+    val eval: org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = child.genCode(ctx);
+    val converted: String = scala.StringContext.apply(&quot;&quot;, &quot;\\n\n\n             &quot;, &quot;[&quot;, &quot;] = &quot;, &quot; ? null : com.sparkutils.quality.RuleLogicUtils.anyToRuleResultInt(&quot;, &quot;);&quot;).s(eval.code, arrTerm, idx, eval.isNull, eval.value);
+    converted
+  }
+}))(collection.this.Seq.canBuildFrom[String]).grouped(RuleRunner.this.variablesPerFunc).grouped[Seq[String]](RuleRunner.this.variableFuncGroup)
+        </td>
+      </tr><tr>
+        <td>
+          304
+        </td>
+        <td>
+          1951
+        </td>
+        <td>
+          11920
+          -
+          11937
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunner.variableFuncGroup
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleRunner.this.variableFuncGroup
+        </td>
+      </tr><tr>
+        <td>
+          304
+        </td>
+        <td>
+          1950
+        </td>
+        <td>
+          11894
+          -
+          11910
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunner.variablesPerFunc
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleRunner.this.variablesPerFunc
+        </td>
+      </tr><tr>
+        <td>
+          306
+        </td>
+        <td>
+          1954
+        </td>
+        <td>
+          11960
+          -
+          11960
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$2._2
+        </td>
+      </tr><tr>
+        <td>
+          306
+        </td>
+        <td>
+          1953
+        </td>
+        <td>
+          11949
+          -
+          11949
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$2._1
+        </td>
+      </tr><tr>
+        <td>
+          313
+        </td>
+        <td>
+          1955
+        </td>
+        <td>
+          12381
+          -
+          12456
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunnerUtils.generateFunctionGroups
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleRunnerUtils.generateFunctionGroups(ctx, allExpr, paramsDef, paramsCall)
+        </td>
+      </tr><tr>
+        <td>
+          315
+        </td>
+        <td>
+          1961
+        </td>
+        <td>
+          12475
+          -
+          12475
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.copy$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ev.copy$default$2
+        </td>
+      </tr><tr>
+        <td>
+          315
+        </td>
+        <td>
+          1960
+        </td>
+        <td>
+          12487
+          -
+          12701
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper.code
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n      &quot;, &quot;\n\n      InternalRow &quot;, &quot; = &quot;, &quot;.evalArray(&quot;, &quot;, &quot;, &quot;, &quot;, &quot;);\n      boolean &quot;, &quot; = false;\n      &quot;)).code(funNames.map[String](((f: String) =&gt; scala.StringContext.apply(&quot;&quot;, &quot;(&quot;, &quot;);&quot;).s(f, paramsCall))).mkString(&quot;\n&quot;), ev.value, utilsName, ruleSuitTerm, ruleSuiteArrays, arrTerm, ev.isNull)
+        </td>
+      </tr><tr>
+        <td>
+          315
+        </td>
+        <td>
+          1963
+        </td>
+        <td>
+          12472
+          -
+          12707
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ev.copy(org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n      &quot;, &quot;\n\n      InternalRow &quot;, &quot; = &quot;, &quot;.evalArray(&quot;, &quot;, &quot;, &quot;, &quot;, &quot;);\n      boolean &quot;, &quot; = false;\n      &quot;)).code(funNames.map[String](((f: String) =&gt; scala.StringContext.apply(&quot;&quot;, &quot;(&quot;, &quot;);&quot;).s(f, paramsCall))).mkString(&quot;\n&quot;), ev.value, utilsName, ruleSuitTerm, ruleSuiteArrays, arrTerm, ev.isNull), ev.copy$default$2, ev.copy$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          315
+        </td>
+        <td>
+          1956
+        </td>
+        <td>
+          12487
+          -
+          12701
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;\n      &quot;, &quot;\n\n      InternalRow &quot;, &quot; = &quot;, &quot;.evalArray(&quot;, &quot;, &quot;, &quot;, &quot;, &quot;);\n      boolean &quot;, &quot; = false;\n      &quot;)
+        </td>
+      </tr><tr>
+        <td>
+          315
+        </td>
+        <td>
+          1962
+        </td>
+        <td>
+          12475
+          -
+          12475
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.copy$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ev.copy$default$3
+        </td>
+      </tr><tr>
+        <td>
+          316
+        </td>
+        <td>
+          1957
+        </td>
+        <td>
+          12503
+          -
+          12556
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.mkString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          funNames.map[String](((f: String) =&gt; scala.StringContext.apply(&quot;&quot;, &quot;(&quot;, &quot;);&quot;).s(f, paramsCall))).mkString(&quot;\n&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          318
+        </td>
+        <td>
+          1958
+        </td>
+        <td>
+          12579
+          -
+          12587
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.value
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ev.value
+        </td>
+      </tr><tr>
+        <td>
+          319
+        </td>
+        <td>
+          1959
+        </td>
+        <td>
+          12672
+          -
+          12681
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.isNull
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ev.isNull
+        </td>
+      </tr><tr>
+        <td>
+          327
+        </td>
+        <td>
+          1964
+        </td>
+        <td>
+          12796
+          -
+          12796
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunner.copy$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleRunner.this.copy$default$1
+        </td>
+      </tr><tr>
+        <td>
+          327
+        </td>
+        <td>
+          1967
+        </td>
+        <td>
+          12796
+          -
+          12796
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunner.copy$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleRunner.this.copy$default$5
+        </td>
+      </tr><tr>
+        <td>
+          327
+        </td>
+        <td>
+          1966
+        </td>
+        <td>
+          12796
+          -
+          12796
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunner.copy$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleRunner.this.copy$default$4
+        </td>
+      </tr><tr>
+        <td>
+          327
+        </td>
+        <td>
+          1969
+        </td>
+        <td>
+          12796
+          -
+          12818
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunner.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleRunner.this.copy(x$2, x$1, x$3, x$4, x$5, x$6)
+        </td>
+      </tr><tr>
+        <td>
+          327
+        </td>
+        <td>
+          1965
+        </td>
+        <td>
+          12796
+          -
+          12796
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunner.copy$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleRunner.this.copy$default$3
+        </td>
+      </tr><tr>
+        <td>
+          327
+        </td>
+        <td>
+          1968
+        </td>
+        <td>
+          12796
+          -
+          12796
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunner.copy$default$6
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleRunner.this.copy$default$6
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

@@ -1,0 +1,3785 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          org/apache/spark/sql/QualitySparkUtils.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package org.apache.spark.sql
+</span>2 <span style=''>
+</span>3 <span style=''>import com.sparkutils.quality.impl.{RuleEngineRunner, RuleFolderRunner, RuleRunner, ShowParams}
+</span>4 <span style=''>import com.sparkutils.quality.{RuleSuite, debugTime}
+</span>5 <span style=''>import com.sparkutils.quality.utils.PassThrough
+</span>6 <span style=''>import org.apache.spark.sql.catalyst.CatalystTypeConverters
+</span>7 <span style=''>import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, FunctionRegistry, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveHigherOrderFunctions, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCoercion, UnresolvedFunction}
+</span>8 <span style=''>import org.apache.spark.sql.catalyst.catalog.SessionCatalog
+</span>9 <span style=''>import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Attribute, BindReferences, Cast, EqualNullSafe, Expression, ExpressionSet, LambdaFunction, Literal}
+</span>10 <span style=''>import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, UnaryNode}
+</span>11 <span style=''>import org.apache.spark.sql.catalyst.rules.Rule
+</span>12 <span style=''>import org.apache.spark.sql.catalyst.trees.TreeNode
+</span>13 <span style=''>import org.apache.spark.sql.execution.SparkSqlParser
+</span>14 <span style=''>import org.apache.spark.sql.internal.SQLConf
+</span>15 <span style=''>import org.apache.spark.sql.qualityFunctions.{Digest, InterpretedHashLongsFunction}
+</span>16 <span style=''>import org.apache.spark.sql.types._
+</span>17 <span style=''>import org.apache.spark.unsafe.types.CalendarInterval
+</span>18 <span style=''>import org.apache.spark.util.Utils
+</span>19 <span style=''>
+</span>20 <span style=''>/**
+</span>21 <span style=''> * Set of utilities to reach in to private functions
+</span>22 <span style=''> */
+</span>23 <span style=''>object QualitySparkUtils {
+</span>24 <span style=''>
+</span>25 <span style=''>  def isPrimitive(dataType: DataType) = </span><span style='background: #AEF1AE'>CatalystTypeConverters.isPrimitive(dataType)</span><span style=''>
+</span>26 <span style=''>
+</span>27 <span style=''>  /**
+</span>28 <span style=''>   * Where resolveWith is not possible (e.g. 10.x DBRs) it is disabled here.
+</span>29 <span style=''>   * This is, in the 10.x DBR case, due to the class files for UnaryNode (FakePlan) being radically different and causing an IncompatibleClassChangeError: Implementing class
+</span>30 <span style=''>   * @param orig
+</span>31 <span style=''>   * @return
+</span>32 <span style=''>   */
+</span>33 <span style=''>  def resolveWithOverride(orig: Option[DataFrame]): Option[DataFrame] =
+</span>34 <span style=''>    orig
+</span>35 <span style=''>
+</span>36 <span style=''>  /**
+</span>37 <span style=''>   * Dbr 11.2 broke the contract for add and cast
+</span>38 <span style=''>   * @param left
+</span>39 <span style=''>   * @param right
+</span>40 <span style=''>   * @return
+</span>41 <span style=''>   */
+</span>42 <span style=''>  def add(left: Expression, right: Expression, dataType: DataType): Expression =
+</span>43 <span style=''>    </span><span style='background: #AEF1AE'>Add(left, right)</span><span style=''>
+</span>44 <span style=''>
+</span>45 <span style=''>  /**
+</span>46 <span style=''>   * Dbr 11.2 broke the contract for add and cast
+</span>47 <span style=''>   * @param child
+</span>48 <span style=''>   * @param dataType
+</span>49 <span style=''>   * @return
+</span>50 <span style=''>   */
+</span>51 <span style=''>  def cast(child: Expression, dataType: DataType): Expression =
+</span>52 <span style=''>    </span><span style='background: #AEF1AE'>Cast(child, dataType)</span><span style=''>
+</span>53 <span style=''>
+</span>54 <span style=''>  /**
+</span>55 <span style=''>   * Arguments for everything above 2.4
+</span>56 <span style=''>   */
+</span>57 <span style=''>  def arguments(unresolvedFunction: UnresolvedFunction): Seq[Expression] =
+</span>58 <span style=''>    </span><span style='background: #AEF1AE'>unresolvedFunction.arguments</span><span style=''>
+</span>59 <span style=''>
+</span>60 <span style=''>  /**
+</span>61 <span style=''>   * Provides Spark 3 specific version of hashing CalendarInterval
+</span>62 <span style=''>   *
+</span>63 <span style=''>   * @param c
+</span>64 <span style=''>   * @param hashlongs
+</span>65 <span style=''>   * @param digest
+</span>66 <span style=''>   * @return
+</span>67 <span style=''>   */
+</span>68 <span style=''>  def hashCalendarInterval(c: CalendarInterval, hashlongs: InterpretedHashLongsFunction, digest: Digest): Digest = {
+</span>69 <span style=''>    import hashlongs._
+</span>70 <span style=''>    </span><span style='background: #F0ADAD'>hashInt(c.months, hashInt(
+</span>71 <span style=''></span><span style='background: #F0ADAD'>      c.days
+</span>72 <span style=''></span><span style='background: #F0ADAD'>      , hashLong(c.microseconds, digest)))</span><span style=''>
+</span>73 <span style=''>  }
+</span>74 <span style=''>
+</span>75 <span style=''>  /**
+</span>76 <span style=''>   * Resolves expressions against a dataframe, this allows them to be swapped out after name checking - spark cannot then
+</span>77 <span style=''>   * simply optimise the tree so certain things like constant folding etc. won't show up.
+</span>78 <span style=''>   *
+</span>79 <span style=''>   * @param dataFrame resolve's must be against a given dataframe to keep names matching
+</span>80 <span style=''>   * @param expr      the expression to resolve
+</span>81 <span style=''>   */
+</span>82 <span style=''>  def resolveExpression(dataFrame: DataFrame, expr: Expression): Expression = {
+</span>83 <span style=''>
+</span>84 <span style=''>    val sparkSession = </span><span style='background: #AEF1AE'>SparkSession.getActiveSession.get</span><span style=''>
+</span>85 <span style=''>
+</span>86 <span style=''>    val plan = </span><span style='background: #AEF1AE'>dataFrame.select(&quot;*&quot;).logicalPlan</span><span style=''> // select * needed for toDF's etc. from dataset to force evaluation of the attributes
+</span>87 <span style=''>    val res = </span><span style='background: #AEF1AE'>debugTime(&quot;tryResolveReferences&quot;) {
+</span>88 <span style=''></span><span style='background: #AEF1AE'>      tryResolveReferences(sparkSession)(expr, plan)
+</span>89 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>90 <span style=''>
+</span>91 <span style=''>    val fres = </span><span style='background: #AEF1AE'>debugTime(&quot;bindReferences&quot;) {
+</span>92 <span style=''></span><span style='background: #AEF1AE'>      BindReferences.bindReference(res, plan.allAttributes)
+</span>93 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>94 <span style=''>
+</span>95 <span style=''>    fres
+</span>96 <span style=''>  }
+</span>97 <span style=''>
+</span>98 <span style=''>  def execute(logicalPlan: LogicalPlan, batch: Batch) = {
+</span>99 <span style=''>    var iteration = </span><span style='background: #AEF1AE'>1</span><span style=''>
+</span>100 <span style=''>    var curPlan = logicalPlan
+</span>101 <span style=''>    var lastPlan = logicalPlan
+</span>102 <span style=''>
+</span>103 <span style=''>    var start = </span><span style='background: #AEF1AE'>System.currentTimeMillis</span><span style=''>
+</span>104 <span style=''>
+</span>105 <span style=''>
+</span>106 <span style=''>    var continue = </span><span style='background: #AEF1AE'>true</span><span style=''>
+</span>107 <span style=''>    val analyzer = SparkSession.getActiveSession.get.sessionState.analyzer
+</span>108 <span style=''>
+</span>109 <span style=''>    // Run until fix point (or the max number of iterations as specified in the strategy.
+</span>110 <span style=''>    while (continue) </span><span style='background: #AEF1AE'>{
+</span>111 <span style=''></span><span style='background: #AEF1AE'>      curPlan = batch.rules.foldLeft(curPlan) {
+</span>112 <span style=''></span><span style='background: #AEF1AE'>        case (plan, rule) =&gt;
+</span>113 <span style=''></span><span style='background: #AEF1AE'>          val startTime = System.nanoTime()
+</span>114 <span style=''></span><span style='background: #AEF1AE'>          val result = rule(plan)
+</span>115 <span style=''></span><span style='background: #AEF1AE'>
+</span>116 <span style=''></span><span style='background: #AEF1AE'>          result
+</span>117 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>118 <span style=''></span><span style='background: #AEF1AE'>      iteration += 1
+</span>119 <span style=''></span><span style='background: #AEF1AE'>      if (iteration &gt; batch.strategy.maxIterations) </span><span style='background: #F0ADAD'>{
+</span>120 <span style=''></span><span style='background: #F0ADAD'>        // Only log if this is a rule that is supposed to run more than once.
+</span>121 <span style=''></span><span style='background: #F0ADAD'>        if (iteration != 2) {
+</span>122 <span style=''></span><span style='background: #F0ADAD'>          val endingMsg = if (batch.strategy.maxIterationsSetting == null) {
+</span>123 <span style=''></span><span style='background: #F0ADAD'>            &quot;.&quot;
+</span>124 <span style=''></span><span style='background: #F0ADAD'>          } else {
+</span>125 <span style=''></span><span style='background: #F0ADAD'>            s&quot;, please set '${batch.strategy.maxIterationsSetting}' to a larger value.&quot;
+</span>126 <span style=''></span><span style='background: #F0ADAD'>          }
+</span>127 <span style=''></span><span style='background: #F0ADAD'>          val message = s&quot;Max iterations (${iteration - 1}) reached for batch ${batch.name}&quot; +
+</span>128 <span style=''></span><span style='background: #F0ADAD'>            s&quot;$endingMsg&quot;
+</span>129 <span style=''></span><span style='background: #F0ADAD'>          if (Utils.isTesting || batch.strategy.errorOnExceed) {
+</span>130 <span style=''></span><span style='background: #F0ADAD'>            throw new Exception(message)
+</span>131 <span style=''></span><span style='background: #F0ADAD'>          } else {
+</span>132 <span style=''></span><span style='background: #F0ADAD'>          }
+</span>133 <span style=''></span><span style='background: #F0ADAD'>        }
+</span>134 <span style=''></span><span style='background: #F0ADAD'>        continue = false
+</span>135 <span style=''></span><span style='background: #F0ADAD'>      }</span><span style='background: #AEF1AE'>
+</span>136 <span style=''></span><span style='background: #AEF1AE'>
+</span>137 <span style=''></span><span style='background: #AEF1AE'>      if (curPlan.fastEquals(lastPlan)) {
+</span>138 <span style=''></span><span style='background: #AEF1AE'>        continue = false
+</span>139 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>140 <span style=''></span><span style='background: #AEF1AE'>      lastPlan = curPlan
+</span>141 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>142 <span style=''>    var stop = </span><span style='background: #AEF1AE'>System.currentTimeMillis</span><span style=''>
+</span>143 <span style=''>    //println(s&quot;did $iteration iterations to execute the plan in ${stop-start}ms&quot;)
+</span>144 <span style=''>    curPlan
+</span>145 <span style=''>  }
+</span>146 <span style=''>
+</span>147 <span style=''>  case class Strategy(
+</span>148 <span style=''>                       maxIterations: Int, errorOnExceed: Boolean = false, maxIterationsSetting: String = null
+</span>149 <span style=''>                     )
+</span>150 <span style=''>
+</span>151 <span style=''>  case class Batch(name: String, strategy: Strategy, rules: Rule[LogicalPlan]*)
+</span>152 <span style=''>
+</span>153 <span style=''>
+</span>154 <span style=''>  def resolution(analyzer: Analyzer, sparkSession: SparkSession, plan: LogicalPlan) = {
+</span>155 <span style=''>    val conf = </span><span style='background: #AEF1AE'>sparkSession.sqlContext.conf</span><span style=''>
+</span>156 <span style=''>    val fixedPoint = </span><span style='background: #AEF1AE'>new Strategy(
+</span>157 <span style=''></span><span style='background: #AEF1AE'>      conf.analyzerMaxIterations,
+</span>158 <span style=''></span><span style='background: #AEF1AE'>      errorOnExceed = true,
+</span>159 <span style=''></span><span style='background: #AEF1AE'>      maxIterationsSetting = SQLConf.ANALYZER_MAX_ITERATIONS.key)</span><span style=''>
+</span>160 <span style=''>
+</span>161 <span style=''>    import analyzer._
+</span>162 <span style=''>
+</span>163 <span style=''>    </span><span style='background: #AEF1AE'>Batch(&quot;Resolution&quot;, fixedPoint,
+</span>164 <span style=''></span><span style='background: #AEF1AE'>      ResolveNamespace(catalogManager) ::
+</span>165 <span style=''></span><span style='background: #AEF1AE'>        new ResolveCatalogs(catalogManager) ::
+</span>166 <span style=''></span><span style='background: #AEF1AE'>        ResolveUserSpecifiedColumns ::
+</span>167 <span style=''></span><span style='background: #AEF1AE'>        ResolveInsertInto ::
+</span>168 <span style=''></span><span style='background: #AEF1AE'>        ResolveRelations ::
+</span>169 <span style=''></span><span style='background: #AEF1AE'>        ResolveTables ::
+</span>170 <span style=''></span><span style='background: #AEF1AE'>        ResolvePartitionSpec ::
+</span>171 <span style=''></span><span style='background: #AEF1AE'>        ResolveAlterTableCommands ::
+</span>172 <span style=''></span><span style='background: #AEF1AE'>        AddMetadataColumns ::
+</span>173 <span style=''></span><span style='background: #AEF1AE'>        DeduplicateRelations ::
+</span>174 <span style=''></span><span style='background: #AEF1AE'>        ResolveReferences ::
+</span>175 <span style=''></span><span style='background: #AEF1AE'>        ResolveExpressionsWithNamePlaceholders ::
+</span>176 <span style=''></span><span style='background: #AEF1AE'>        ResolveDeserializer ::
+</span>177 <span style=''></span><span style='background: #AEF1AE'>        ResolveNewInstance ::
+</span>178 <span style=''></span><span style='background: #AEF1AE'>        ResolveUpCast ::
+</span>179 <span style=''></span><span style='background: #AEF1AE'>        ResolveGroupingAnalytics ::
+</span>180 <span style=''></span><span style='background: #AEF1AE'>        ResolvePivot ::
+</span>181 <span style=''></span><span style='background: #AEF1AE'>        ResolveOrdinalInOrderByAndGroupBy ::
+</span>182 <span style=''></span><span style='background: #AEF1AE'>        ResolveAggAliasInGroupBy ::
+</span>183 <span style=''></span><span style='background: #AEF1AE'>        ResolveMissingReferences ::
+</span>184 <span style=''></span><span style='background: #AEF1AE'>        ExtractGenerator ::
+</span>185 <span style=''></span><span style='background: #AEF1AE'>        ResolveGenerate ::
+</span>186 <span style=''></span><span style='background: #AEF1AE'>        ResolveFunctions ::
+</span>187 <span style=''></span><span style='background: #AEF1AE'>        ResolveAliases ::
+</span>188 <span style=''></span><span style='background: #AEF1AE'>        ResolveSubquery ::
+</span>189 <span style=''></span><span style='background: #AEF1AE'>        ResolveSubqueryColumnAliases ::
+</span>190 <span style=''></span><span style='background: #AEF1AE'>        ResolveWindowOrder ::
+</span>191 <span style=''></span><span style='background: #AEF1AE'>        ResolveWindowFrame ::
+</span>192 <span style=''></span><span style='background: #AEF1AE'>        ResolveNaturalAndUsingJoin ::
+</span>193 <span style=''></span><span style='background: #AEF1AE'>        ResolveOutputRelation ::
+</span>194 <span style=''></span><span style='background: #AEF1AE'>        ExtractWindowExpressions ::
+</span>195 <span style=''></span><span style='background: #AEF1AE'>        GlobalAggregates ::
+</span>196 <span style=''></span><span style='background: #AEF1AE'>        ResolveAggregateFunctions ::
+</span>197 <span style=''></span><span style='background: #AEF1AE'>        TimeWindowing ::
+</span>198 <span style=''></span><span style='background: #AEF1AE'>        SessionWindowing ::
+</span>199 <span style=''></span><span style='background: #AEF1AE'>        ResolveInlineTables ::
+</span>200 <span style=''></span><span style='background: #AEF1AE'>        ResolveHigherOrderFunctions(catalogManager) ::
+</span>201 <span style=''></span><span style='background: #AEF1AE'>        ResolveLambdaVariables ::
+</span>202 <span style=''></span><span style='background: #AEF1AE'>        ResolveTimeZone ::
+</span>203 <span style=''></span><span style='background: #AEF1AE'>        ResolveRandomSeed ::
+</span>204 <span style=''></span><span style='background: #AEF1AE'>        ResolveBinaryArithmetic ::
+</span>205 <span style=''></span><span style='background: #AEF1AE'>        ResolveUnion ::
+</span>206 <span style=''></span><span style='background: #AEF1AE'>        TypeCoercion.typeCoercionRules ++
+</span>207 <span style=''></span><span style='background: #AEF1AE'>          Seq(ResolveWithCTE): _*)</span><span style=''>
+</span>208 <span style=''>  }
+</span>209 <span style=''>
+</span>210 <span style=''>  // below based on approach from delta / discussed with Alex to use a Project, LeafNode should be fine
+</span>211 <span style=''>  protected def tryResolveReferences(
+</span>212 <span style=''>                                      sparkSession: SparkSession)(
+</span>213 <span style=''>                                      expr: Expression,
+</span>214 <span style=''>                                      child: LogicalPlan): Expression = {
+</span>215 <span style=''>    val analyzer = sparkSession.sessionState.analyzer
+</span>216 <span style=''>
+</span>217 <span style=''>    def forExpr(expr: Expression) = {
+</span>218 <span style=''>      val newPlan = </span><span style='background: #AEF1AE'>FakePlan(expr, child)</span><span style=''>
+</span>219 <span style=''>      //analyzer.execute(newPlan)
+</span>220 <span style=''>      </span><span style='background: #AEF1AE'>execute(newPlan, resolution(analyzer, sparkSession, newPlan))</span><span style=''>
+</span>221 <span style=''>      match {
+</span>222 <span style=''>        case FakePlan(resolvedExpr, _) =&gt;
+</span>223 <span style=''>          // Return even if it did not successfully resolve
+</span>224 <span style=''>          resolvedExpr
+</span>225 <span style=''>        case _ =&gt;
+</span>226 <span style=''>          // This is unexpected
+</span>227 <span style=''>          </span><span style='background: #F0ADAD'>throw new Exception(
+</span>228 <span style=''></span><span style='background: #F0ADAD'>            s&quot;Could not resolve expression $expr with child $child}&quot;)</span><span style=''>
+</span>229 <span style=''>      }
+</span>230 <span style=''>    }
+</span>231 <span style=''>    // special case as it's faster to do individual items it seems, 36816ms vs 48974ms
+</span>232 <span style=''>    expr match {
+</span>233 <span style=''>      case r @ RuleEngineRunner(ruleSuite, PassThrough( expressions ), realType, compileEvals, debugMode, func, group, forceRunnerEval, expressionOffsets, forceTriggerEval) =&gt;
+</span>234 <span style=''>        val nexprs = </span><span style='background: #AEF1AE'>expressions.map(forExpr)</span><span style=''>
+</span>235 <span style=''>        </span><span style='background: #AEF1AE'>RuleEngineRunner(ruleSuite, PassThrough( nexprs ), realType, compileEvals, debugMode, func, group, forceRunnerEval, expressionOffsets, forceTriggerEval)</span><span style=''>
+</span>236 <span style=''>      case r @ RuleFolderRunner(ruleSuite, left, PassThrough( expressions ), resultDataType, compileEvals, debugMode, variablesPerFunc,
+</span>237 <span style=''>        variableFuncGroup, forceRunnerEval, expressionOffsets, dataRef, forceTriggerEval) =&gt;
+</span>238 <span style=''>        val nexprs = </span><span style='background: #F0ADAD'>expressions.map(forExpr)</span><span style=''>
+</span>239 <span style=''>        </span><span style='background: #F0ADAD'>RuleFolderRunner(ruleSuite, left, PassThrough( nexprs ), resultDataType, compileEvals, debugMode, variablesPerFunc,
+</span>240 <span style=''></span><span style='background: #F0ADAD'>          variableFuncGroup, forceRunnerEval, expressionOffsets, dataRef, forceTriggerEval)</span><span style=''>
+</span>241 <span style=''>      case r @ RuleRunner(ruleSuite, PassThrough( expressions ), compileEvals, func, group, forceRunnerEval) =&gt;
+</span>242 <span style=''>        val nexprs = </span><span style='background: #AEF1AE'>expressions.map(forExpr)</span><span style=''>
+</span>243 <span style=''>        </span><span style='background: #AEF1AE'>RuleRunner(ruleSuite, PassThrough( nexprs ), compileEvals, func, group, forceRunnerEval)</span><span style=''>
+</span>244 <span style=''>      case _ =&gt; </span><span style='background: #F0ADAD'>forExpr(expr)</span><span style=''>
+</span>245 <span style=''>    }
+</span>246 <span style=''>  }
+</span>247 <span style=''>
+</span>248 <span style=''>  case class FakePlan(expr: Expression, child: LogicalPlan)
+</span>249 <span style=''>    extends UnaryNode {
+</span>250 <span style=''>
+</span>251 <span style=''>    override def output: Seq[Attribute] = </span><span style='background: #F0ADAD'>child.allAttributes.attrs</span><span style=''>
+</span>252 <span style=''>
+</span>253 <span style=''>    override def maxRows: Option[Long] = </span><span style='background: #F0ADAD'>Some(1)</span><span style=''>
+</span>254 <span style=''>
+</span>255 <span style=''>    protected def mygetAllValidConstraints(projectList: Seq[Expression]): Set[Expression] = {
+</span>256 <span style=''>      var allConstraints = </span><span style='background: #F0ADAD'>Set.empty[Expression]</span><span style=''>
+</span>257 <span style=''>      </span><span style='background: #F0ADAD'>projectList.foreach {
+</span>258 <span style=''></span><span style='background: #F0ADAD'>        case a@Alias(l: Literal, _) =&gt;
+</span>259 <span style=''></span><span style='background: #F0ADAD'>          allConstraints += EqualNullSafe(a.toAttribute, l)
+</span>260 <span style=''></span><span style='background: #F0ADAD'>        case a@Alias(e, _) =&gt;
+</span>261 <span style=''></span><span style='background: #F0ADAD'>          // For every alias in `projectList`, replace the reference in constraints by its attribute.
+</span>262 <span style=''></span><span style='background: #F0ADAD'>          allConstraints ++= allConstraints.map(_ transform {
+</span>263 <span style=''></span><span style='background: #F0ADAD'>            case expr: Expression if expr.semanticEquals(e) =&gt;
+</span>264 <span style=''></span><span style='background: #F0ADAD'>              a.toAttribute
+</span>265 <span style=''></span><span style='background: #F0ADAD'>          })
+</span>266 <span style=''></span><span style='background: #F0ADAD'>          allConstraints += EqualNullSafe(e, a.toAttribute)
+</span>267 <span style=''></span><span style='background: #F0ADAD'>        case _ =&gt; // Don't change.
+</span>268 <span style=''></span><span style='background: #F0ADAD'>      }</span><span style=''>
+</span>269 <span style=''>
+</span>270 <span style=''>      allConstraints
+</span>271 <span style=''>    }
+</span>272 <span style=''>
+</span>273 <span style=''>    override lazy val validConstraints: ExpressionSet = ExpressionSet(mygetAllValidConstraints(Seq(expr)))
+</span>274 <span style=''>
+</span>275 <span style=''>    protected def withNewChildInternal(newChild: LogicalPlan): LogicalPlan = </span><span style='background: #F0ADAD'>copy(child = newChild)</span><span style=''>
+</span>276 <span style=''>  }
+</span>277 <span style=''>
+</span>278 <span style=''>  /**
+</span>279 <span style=''>   * Creates a new parser, introduced in 0.4 - 3.2.0 due to SparkSqlParser having no params
+</span>280 <span style=''>   *
+</span>281 <span style=''>   * @return
+</span>282 <span style=''>   */
+</span>283 <span style=''>  def newParser() = {
+</span>284 <span style=''>    </span><span style='background: #AEF1AE'>new SparkSqlParser()</span><span style=''>
+</span>285 <span style=''>  }
+</span>286 <span style=''>
+</span>287 <span style=''>  /**
+</span>288 <span style=''>   * Registers functions with spark, Introduced in 0.4 - 3.2.0 support due to extra source parameter - &quot;built-in&quot; is used as no other option is remotely close
+</span>289 <span style=''>   *
+</span>290 <span style=''>   * @param funcReg
+</span>291 <span style=''>   * @param name
+</span>292 <span style=''>   * @param builder
+</span>293 <span style=''>   */
+</span>294 <span style=''>  def registerFunction(funcReg: FunctionRegistry)(name: String, builder: Seq[Expression] =&gt; Expression) =
+</span>295 <span style=''>    </span><span style='background: #AEF1AE'>funcReg.createOrReplaceTempFunction(name, builder, &quot;built-in&quot;)</span><span style=''>
+</span>296 <span style=''>
+</span>297 <span style=''>  def toString(dataFrame: DataFrame, showParams: ShowParams = ShowParams()) =
+</span>298 <span style=''>    </span><span style='background: #AEF1AE'>dataFrame.showString(showParams.numRows, showParams.truncate, showParams.vertical)</span><span style=''>
+</span>299 <span style=''>
+</span>300 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          253
+        </td>
+        <td>
+          1486
+          -
+          1530
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.CatalystTypeConverters.isPrimitive
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.CatalystTypeConverters.isPrimitive(dataType)
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          254
+        </td>
+        <td>
+          2102
+          -
+          2102
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Add.apply$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.Add.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          255
+        </td>
+        <td>
+          2102
+          -
+          2118
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Add.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.Add.apply(left, right, org.apache.spark.sql.catalyst.expressions.Add.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          256
+        </td>
+        <td>
+          2302
+          -
+          2302
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Cast.apply$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.Cast.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          258
+        </td>
+        <td>
+          2302
+          -
+          2323
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Cast.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.Cast.apply(child, dataType, org.apache.spark.sql.catalyst.expressions.Cast.apply$default$3, org.apache.spark.sql.catalyst.expressions.Cast.apply$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          257
+        </td>
+        <td>
+          2302
+          -
+          2302
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Cast.apply$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.Cast.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          259
+        </td>
+        <td>
+          2456
+          -
+          2484
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.analysis.UnresolvedFunction.arguments
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          unresolvedFunction.arguments
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          265
+        </td>
+        <td>
+          2782
+          -
+          2864
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.InterpretedHashLongsFunction.hashInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          hashlongs.hashInt(c.months, hashlongs.hashInt(c.days, hashlongs.hashLong(c.microseconds, digest)))
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          264
+        </td>
+        <td>
+          2800
+          -
+          2863
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.InterpretedHashLongsFunction.hashInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          hashlongs.hashInt(c.days, hashlongs.hashLong(c.microseconds, digest))
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          260
+        </td>
+        <td>
+          2790
+          -
+          2798
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.unsafe.types.CalendarInterval.months
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          c.months
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          261
+        </td>
+        <td>
+          2815
+          -
+          2821
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.unsafe.types.CalendarInterval.days
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          c.days
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          262
+        </td>
+        <td>
+          2839
+          -
+          2853
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.unsafe.types.CalendarInterval.microseconds
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          c.microseconds
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          263
+        </td>
+        <td>
+          2830
+          -
+          2862
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.InterpretedHashLongsFunction.hashLong
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          hashlongs.hashLong(c.microseconds, digest)
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          266
+        </td>
+        <td>
+          3340
+          -
+          3373
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SparkSession.getActiveSession.get
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          268
+        </td>
+        <td>
+          3390
+          -
+          3423
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.Dataset.logicalPlan
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          dataFrame.select(&quot;*&quot;).logicalPlan
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          267
+        </td>
+        <td>
+          3407
+          -
+          3410
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;*&quot;
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          270
+        </td>
+        <td>
+          3524
+          -
+          3524
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          com.sparkutils.quality.debugTime$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.`package`.debugTime$default$2[Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          272
+        </td>
+        <td>
+          3524
+          -
+          3618
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.debugTime
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.`package`.debugTime[org.apache.spark.sql.catalyst.expressions.Expression](&quot;tryResolveReferences&quot;, com.sparkutils.quality.`package`.debugTime$default$2[Nothing])(QualitySparkUtils.this.tryResolveReferences(sparkSession)(expr, plan))
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          269
+        </td>
+        <td>
+          3534
+          -
+          3556
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;tryResolveReferences&quot;
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          271
+        </td>
+        <td>
+          3566
+          -
+          3612
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.QualitySparkUtils.tryResolveReferences
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualitySparkUtils.this.tryResolveReferences(sparkSession)(expr, plan)
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          274
+        </td>
+        <td>
+          3635
+          -
+          3635
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          com.sparkutils.quality.debugTime$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.`package`.debugTime$default$2[Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          277
+        </td>
+        <td>
+          3635
+          -
+          3730
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.debugTime
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.`package`.debugTime[org.apache.spark.sql.catalyst.expressions.Expression](&quot;bindReferences&quot;, com.sparkutils.quality.`package`.debugTime$default$2[Nothing])(org.apache.spark.sql.catalyst.expressions.BindReferences.bindReference[org.apache.spark.sql.catalyst.expressions.Expression](res, plan.allAttributes, org.apache.spark.sql.catalyst.expressions.BindReferences.bindReference$default$3[Nothing]))
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          273
+        </td>
+        <td>
+          3645
+          -
+          3661
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;bindReferences&quot;
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          276
+        </td>
+        <td>
+          3671
+          -
+          3724
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.BindReferences.bindReference
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.BindReferences.bindReference[org.apache.spark.sql.catalyst.expressions.Expression](res, plan.allAttributes, org.apache.spark.sql.catalyst.expressions.BindReferences.bindReference$default$3[Nothing])
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          275
+        </td>
+        <td>
+          3686
+          -
+          3686
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.BindReferences.bindReference$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.BindReferences.bindReference$default$3[Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          278
+        </td>
+        <td>
+          3824
+          -
+          3825
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          279
+        </td>
+        <td>
+          3904
+          -
+          3928
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.System.currentTimeMillis
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          java.lang.System.currentTimeMillis()
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          280
+        </td>
+        <td>
+          3950
+          -
+          3954
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          322
+        </td>
+        <td>
+          4142
+          -
+          5127
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  {
+    curPlan = batch.rules.foldLeft[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan](curPlan)(((x0$1: org.apache.spark.sql.catalyst.plans.logical.LogicalPlan, x1$1: org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]) =&gt; scala.Tuple2.apply[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan, org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x0$1, x1$1) match {
+      case (_1: org.apache.spark.sql.catalyst.plans.logical.LogicalPlan, _2: org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan])(org.apache.spark.sql.catalyst.plans.logical.LogicalPlan, org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan])((plan @ _), (rule @ _)) =&gt; {
+        val startTime: Long = java.lang.System.nanoTime();
+        val result: org.apache.spark.sql.catalyst.plans.logical.LogicalPlan = rule.apply(plan);
+        result
+      }
+    }));
+    iteration = iteration.+(1);
+    if (iteration.&gt;(batch.strategy.maxIterations))
+      {
+        if (iteration.!=(2))
+          {
+            val endingMsg: String = if (batch.strategy.maxIterationsSetting.==(null))
+              &quot;.&quot;
+            else
+              scala.StringContext.apply(&quot;, please set \'&quot;, &quot;\' to a larger value.&quot;).s(batch.strategy.maxIterationsSetting);
+            val message: String = scala.StringContext.apply(&quot;Max iterations (&quot;, &quot;) reached for batch &quot;, &quot;&quot;).s(iteration.-(1), batch.name).+(scala.StringContext.apply(&quot;&quot;, &quot;&quot;).s(endingMsg));
+            if (org.apache.spark.util.Utils.isTesting.||(batch.strategy.errorOnExceed))
+              throw new scala.`package`.Exception(message)
+            else
+              ()
+          }
+        else
+          ();
+        continue = false
+      }
+    else
+      ();
+    if (curPlan.fastEquals(lastPlan))
+      continue = false
+    else
+      ();
+    lastPlan = curPlan
+  };
+  while$1()
+}
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          321
+        </td>
+        <td>
+          4142
+          -
+          4142
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.QualitySparkUtils.while$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          while$1()
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          324
+        </td>
+        <td>
+          4125
+          -
+          4125
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          323
+        </td>
+        <td>
+          4125
+          -
+          4125
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          283
+        </td>
+        <td>
+          4160
+          -
+          4324
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.foldLeft
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          batch.rules.foldLeft[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan](curPlan)(((x0$1: org.apache.spark.sql.catalyst.plans.logical.LogicalPlan, x1$1: org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]) =&gt; scala.Tuple2.apply[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan, org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x0$1, x1$1) match {
+  case (_1: org.apache.spark.sql.catalyst.plans.logical.LogicalPlan, _2: org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan])(org.apache.spark.sql.catalyst.plans.logical.LogicalPlan, org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan])((plan @ _), (rule @ _)) =&gt; {
+    val startTime: Long = java.lang.System.nanoTime();
+    val result: org.apache.spark.sql.catalyst.plans.logical.LogicalPlan = rule.apply(plan);
+    result
+  }
+}))
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          281
+        </td>
+        <td>
+          4247
+          -
+          4264
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.System.nanoTime
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          java.lang.System.nanoTime()
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          282
+        </td>
+        <td>
+          4288
+          -
+          4298
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.rules.Rule.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          rule.apply(plan)
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          284
+        </td>
+        <td>
+          4331
+          -
+          4345
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          iteration.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          286
+        </td>
+        <td>
+          4356
+          -
+          4396
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          iteration.&gt;(batch.strategy.maxIterations)
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          313
+        </td>
+        <td>
+          4398
+          -
+          5020
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  if (iteration.!=(2))
+    {
+      val endingMsg: String = if (batch.strategy.maxIterationsSetting.==(null))
+        &quot;.&quot;
+      else
+        scala.StringContext.apply(&quot;, please set \'&quot;, &quot;\' to a larger value.&quot;).s(batch.strategy.maxIterationsSetting);
+      val message: String = scala.StringContext.apply(&quot;Max iterations (&quot;, &quot;) reached for batch &quot;, &quot;&quot;).s(iteration.-(1), batch.name).+(scala.StringContext.apply(&quot;&quot;, &quot;&quot;).s(endingMsg));
+      if (org.apache.spark.util.Utils.isTesting.||(batch.strategy.errorOnExceed))
+        throw new scala.`package`.Exception(message)
+      else
+        ()
+    }
+  else
+    ();
+  continue = false
+}
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          285
+        </td>
+        <td>
+          4368
+          -
+          4396
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.QualitySparkUtils.Strategy.maxIterations
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          batch.strategy.maxIterations
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          315
+        </td>
+        <td>
+          4352
+          -
+          4352
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          314
+        </td>
+        <td>
+          4352
+          -
+          4352
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          310
+        </td>
+        <td>
+          4486
+          -
+          4486
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          309
+        </td>
+        <td>
+          4506
+          -
+          4987
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val endingMsg: String = if (batch.strategy.maxIterationsSetting.==(null))
+    &quot;.&quot;
+  else
+    scala.StringContext.apply(&quot;, please set \'&quot;, &quot;\' to a larger value.&quot;).s(batch.strategy.maxIterationsSetting);
+  val message: String = scala.StringContext.apply(&quot;Max iterations (&quot;, &quot;) reached for batch &quot;, &quot;&quot;).s(iteration.-(1), batch.name).+(scala.StringContext.apply(&quot;&quot;, &quot;&quot;).s(endingMsg));
+  if (org.apache.spark.util.Utils.isTesting.||(batch.strategy.errorOnExceed))
+    throw new scala.`package`.Exception(message)
+  else
+    ()
+}
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          311
+        </td>
+        <td>
+          4486
+          -
+          4486
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          287
+        </td>
+        <td>
+          4490
+          -
+          4504
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.!=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          iteration.!=(2)
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          288
+        </td>
+        <td>
+          4538
+          -
+          4581
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          batch.strategy.maxIterationsSetting.==(null)
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          289
+        </td>
+        <td>
+          4597
+          -
+          4600
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;.&quot;
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          290
+        </td>
+        <td>
+          4597
+          -
+          4600
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;.&quot;
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          295
+        </td>
+        <td>
+          4632
+          -
+          4707
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;, please set \'&quot;, &quot;\' to a larger value.&quot;).s(batch.strategy.maxIterationsSetting)
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          292
+        </td>
+        <td>
+          4686
+          -
+          4707
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\' to a larger value.&quot;
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          294
+        </td>
+        <td>
+          4632
+          -
+          4707
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;, please set \'&quot;, &quot;\' to a larger value.&quot;).s(batch.strategy.maxIterationsSetting)
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          291
+        </td>
+        <td>
+          4634
+          -
+          4649
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;, please set \'&quot;
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          293
+        </td>
+        <td>
+          4650
+          -
+          4685
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.QualitySparkUtils.Strategy.maxIterationsSetting
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          batch.strategy.maxIterationsSetting
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          298
+        </td>
+        <td>
+          4811
+          -
+          4812
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          300
+        </td>
+        <td>
+          4800
+          -
+          4810
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.QualitySparkUtils.Batch.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          batch.name
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          297
+        </td>
+        <td>
+          4778
+          -
+          4799
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;) reached for batch &quot;
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          299
+        </td>
+        <td>
+          4764
+          -
+          4777
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.-
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          iteration.-(1)
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          302
+        </td>
+        <td>
+          4744
+          -
+          4840
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Max iterations (&quot;, &quot;) reached for batch &quot;, &quot;&quot;).s(iteration.-(1), batch.name).+(scala.StringContext.apply(&quot;&quot;, &quot;&quot;).s(endingMsg))
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          296
+        </td>
+        <td>
+          4746
+          -
+          4763
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Max iterations (&quot;
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          301
+        </td>
+        <td>
+          4827
+          -
+          4840
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;&quot;).s(endingMsg)
+        </td>
+      </tr><tr>
+        <td>
+          129
+        </td>
+        <td>
+          304
+        </td>
+        <td>
+          4855
+          -
+          4902
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.||
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.util.Utils.isTesting.||(batch.strategy.errorOnExceed)
+        </td>
+      </tr><tr>
+        <td>
+          129
+        </td>
+        <td>
+          303
+        </td>
+        <td>
+          4874
+          -
+          4902
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.QualitySparkUtils.Strategy.errorOnExceed
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          batch.strategy.errorOnExceed
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          306
+        </td>
+        <td>
+          4918
+          -
+          4946
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw new scala.`package`.Exception(message)
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          305
+        </td>
+        <td>
+          4918
+          -
+          4946
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw new scala.`package`.Exception(message)
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          307
+        </td>
+        <td>
+          4964
+          -
+          4977
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          308
+        </td>
+        <td>
+          4964
+          -
+          4977
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          312
+        </td>
+        <td>
+          5007
+          -
+          5012
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          316
+        </td>
+        <td>
+          5032
+          -
+          5060
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.trees.TreeNode.fastEquals
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          curPlan.fastEquals(lastPlan)
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          319
+        </td>
+        <td>
+          5028
+          -
+          5028
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          320
+        </td>
+        <td>
+          5028
+          -
+          5028
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          318
+        </td>
+        <td>
+          5072
+          -
+          5088
+        </td>
+        <td>
+          Assign
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          continue = false
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          317
+        </td>
+        <td>
+          5083
+          -
+          5088
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          325
+        </td>
+        <td>
+          5143
+          -
+          5167
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.System.currentTimeMillis
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          java.lang.System.currentTimeMillis()
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          326
+        </td>
+        <td>
+          5611
+          -
+          5639
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.SQLContext.conf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          sparkSession.sqlContext.conf
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          330
+        </td>
+        <td>
+          5661
+          -
+          5802
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.QualitySparkUtils.Strategy.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new QualitySparkUtils.this.Strategy(conf.analyzerMaxIterations, true, org.apache.spark.sql.internal.SQLConf.ANALYZER_MAX_ITERATIONS.key)
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          327
+        </td>
+        <td>
+          5681
+          -
+          5707
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.internal.SQLConf.analyzerMaxIterations
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          conf.analyzerMaxIterations
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          328
+        </td>
+        <td>
+          5731
+          -
+          5735
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          329
+        </td>
+        <td>
+          5766
+          -
+          5801
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.internal.config.ConfigEntry.key
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.internal.SQLConf.ANALYZER_MAX_ITERATIONS.key
+        </td>
+      </tr><tr>
+        <td>
+          163
+        </td>
+        <td>
+          331
+        </td>
+        <td>
+          5837
+          -
+          5849
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Resolution&quot;
+        </td>
+      </tr><tr>
+        <td>
+          163
+        </td>
+        <td>
+          333
+        </td>
+        <td>
+          5831
+          -
+          7318
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.QualitySparkUtils.Batch.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualitySparkUtils.this.Batch.apply(&quot;Resolution&quot;, fixedPoint, ({
+  &lt;synthetic&gt; &lt;artifact&gt; val x$42: analyzer.ResolveNamespace = analyzer.ResolveNamespace.apply(analyzer.catalogManager);
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$41: org.apache.spark.sql.catalyst.analysis.ResolveCatalogs = new org.apache.spark.sql.catalyst.analysis.ResolveCatalogs(analyzer.catalogManager);
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$40: analyzer.ResolveUserSpecifiedColumns.type = analyzer.ResolveUserSpecifiedColumns;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$39: analyzer.ResolveInsertInto.type = analyzer.ResolveInsertInto;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$38: analyzer.ResolveRelations.type = analyzer.ResolveRelations;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$37: analyzer.ResolveTables.type = analyzer.ResolveTables;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$36: org.apache.spark.sql.catalyst.analysis.ResolvePartitionSpec.type = org.apache.spark.sql.catalyst.analysis.ResolvePartitionSpec;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$35: analyzer.ResolveAlterTableCommands.type = analyzer.ResolveAlterTableCommands;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$34: analyzer.AddMetadataColumns.type = analyzer.AddMetadataColumns;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$33: org.apache.spark.sql.catalyst.analysis.DeduplicateRelations.type = org.apache.spark.sql.catalyst.analysis.DeduplicateRelations;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$32: analyzer.ResolveReferences.type = analyzer.ResolveReferences;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$31: org.apache.spark.sql.catalyst.analysis.ResolveExpressionsWithNamePlaceholders.type = org.apache.spark.sql.catalyst.analysis.ResolveExpressionsWithNamePlaceholders;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$30: analyzer.ResolveDeserializer.type = analyzer.ResolveDeserializer;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$29: analyzer.ResolveNewInstance.type = analyzer.ResolveNewInstance;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$28: analyzer.ResolveUpCast.type = analyzer.ResolveUpCast;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$27: analyzer.ResolveGroupingAnalytics.type = analyzer.ResolveGroupingAnalytics;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$26: analyzer.ResolvePivot.type = analyzer.ResolvePivot;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$25: analyzer.ResolveOrdinalInOrderByAndGroupBy.type = analyzer.ResolveOrdinalInOrderByAndGroupBy;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$24: analyzer.ResolveAggAliasInGroupBy.type = analyzer.ResolveAggAliasInGroupBy;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$23: analyzer.ResolveMissingReferences.type = analyzer.ResolveMissingReferences;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$22: analyzer.ExtractGenerator.type = analyzer.ExtractGenerator;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$21: analyzer.ResolveGenerate.type = analyzer.ResolveGenerate;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$20: analyzer.ResolveFunctions.type = analyzer.ResolveFunctions;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$19: analyzer.ResolveAliases.type = analyzer.ResolveAliases;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$18: analyzer.ResolveSubquery.type = analyzer.ResolveSubquery;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$17: analyzer.ResolveSubqueryColumnAliases.type = analyzer.ResolveSubqueryColumnAliases;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$16: analyzer.ResolveWindowOrder.type = analyzer.ResolveWindowOrder;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$15: analyzer.ResolveWindowFrame.type = analyzer.ResolveWindowFrame;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$14: analyzer.ResolveNaturalAndUsingJoin.type = analyzer.ResolveNaturalAndUsingJoin;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$13: analyzer.ResolveOutputRelation.type = analyzer.ResolveOutputRelation;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$12: analyzer.ExtractWindowExpressions.type = analyzer.ExtractWindowExpressions;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$11: analyzer.GlobalAggregates.type = analyzer.GlobalAggregates;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$10: analyzer.ResolveAggregateFunctions.type = analyzer.ResolveAggregateFunctions;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$9: org.apache.spark.sql.catalyst.analysis.TimeWindowing.type = org.apache.spark.sql.catalyst.analysis.TimeWindowing;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$8: org.apache.spark.sql.catalyst.analysis.SessionWindowing.type = org.apache.spark.sql.catalyst.analysis.SessionWindowing;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$7: org.apache.spark.sql.catalyst.analysis.ResolveInlineTables.type = org.apache.spark.sql.catalyst.analysis.ResolveInlineTables;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$6: org.apache.spark.sql.catalyst.analysis.ResolveHigherOrderFunctions = org.apache.spark.sql.catalyst.analysis.ResolveHigherOrderFunctions.apply(analyzer.catalogManager);
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$5: org.apache.spark.sql.catalyst.analysis.ResolveLambdaVariables.type = org.apache.spark.sql.catalyst.analysis.ResolveLambdaVariables;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$4: org.apache.spark.sql.catalyst.analysis.ResolveTimeZone.type = org.apache.spark.sql.catalyst.analysis.ResolveTimeZone;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$3: analyzer.ResolveRandomSeed.type = analyzer.ResolveRandomSeed;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$2: analyzer.ResolveBinaryArithmetic.type = analyzer.ResolveBinaryArithmetic;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$1: org.apache.spark.sql.catalyst.analysis.ResolveUnion.type = org.apache.spark.sql.catalyst.analysis.ResolveUnion;
+  org.apache.spark.sql.catalyst.analysis.TypeCoercion.typeCoercionRules.++[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan], List[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]]](scala.collection.Seq.apply[org.apache.spark.sql.catalyst.analysis.ResolveWithCTE.type](org.apache.spark.sql.catalyst.analysis.ResolveWithCTE))(immutable.this.List.canBuildFrom[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]]).::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$1)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$2)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$3)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$4)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$5)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$6)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$7)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$8)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$9)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$10)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$11)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$12)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$13)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$14)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$15)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$16)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$17)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$18)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$19)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$20)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$21)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$22)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$23)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$24)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$25)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$26)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$27)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$28)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$29)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$30)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$31)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$32)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$33)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$34)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$35)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$36)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$37)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$38)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$39)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$40)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$41)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$42)
+}: _*))
+        </td>
+      </tr><tr>
+        <td>
+          164
+        </td>
+        <td>
+          332
+        </td>
+        <td>
+          5869
+          -
+          7313
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.List.::
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$41: org.apache.spark.sql.catalyst.analysis.ResolveCatalogs = new org.apache.spark.sql.catalyst.analysis.ResolveCatalogs(analyzer.catalogManager);
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$40: analyzer.ResolveUserSpecifiedColumns.type = analyzer.ResolveUserSpecifiedColumns;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$39: analyzer.ResolveInsertInto.type = analyzer.ResolveInsertInto;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$38: analyzer.ResolveRelations.type = analyzer.ResolveRelations;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$37: analyzer.ResolveTables.type = analyzer.ResolveTables;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$36: org.apache.spark.sql.catalyst.analysis.ResolvePartitionSpec.type = org.apache.spark.sql.catalyst.analysis.ResolvePartitionSpec;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$35: analyzer.ResolveAlterTableCommands.type = analyzer.ResolveAlterTableCommands;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$34: analyzer.AddMetadataColumns.type = analyzer.AddMetadataColumns;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$33: org.apache.spark.sql.catalyst.analysis.DeduplicateRelations.type = org.apache.spark.sql.catalyst.analysis.DeduplicateRelations;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$32: analyzer.ResolveReferences.type = analyzer.ResolveReferences;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$31: org.apache.spark.sql.catalyst.analysis.ResolveExpressionsWithNamePlaceholders.type = org.apache.spark.sql.catalyst.analysis.ResolveExpressionsWithNamePlaceholders;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$30: analyzer.ResolveDeserializer.type = analyzer.ResolveDeserializer;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$29: analyzer.ResolveNewInstance.type = analyzer.ResolveNewInstance;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$28: analyzer.ResolveUpCast.type = analyzer.ResolveUpCast;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$27: analyzer.ResolveGroupingAnalytics.type = analyzer.ResolveGroupingAnalytics;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$26: analyzer.ResolvePivot.type = analyzer.ResolvePivot;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$25: analyzer.ResolveOrdinalInOrderByAndGroupBy.type = analyzer.ResolveOrdinalInOrderByAndGroupBy;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$24: analyzer.ResolveAggAliasInGroupBy.type = analyzer.ResolveAggAliasInGroupBy;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$23: analyzer.ResolveMissingReferences.type = analyzer.ResolveMissingReferences;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$22: analyzer.ExtractGenerator.type = analyzer.ExtractGenerator;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$21: analyzer.ResolveGenerate.type = analyzer.ResolveGenerate;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$20: analyzer.ResolveFunctions.type = analyzer.ResolveFunctions;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$19: analyzer.ResolveAliases.type = analyzer.ResolveAliases;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$18: analyzer.ResolveSubquery.type = analyzer.ResolveSubquery;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$17: analyzer.ResolveSubqueryColumnAliases.type = analyzer.ResolveSubqueryColumnAliases;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$16: analyzer.ResolveWindowOrder.type = analyzer.ResolveWindowOrder;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$15: analyzer.ResolveWindowFrame.type = analyzer.ResolveWindowFrame;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$14: analyzer.ResolveNaturalAndUsingJoin.type = analyzer.ResolveNaturalAndUsingJoin;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$13: analyzer.ResolveOutputRelation.type = analyzer.ResolveOutputRelation;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$12: analyzer.ExtractWindowExpressions.type = analyzer.ExtractWindowExpressions;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$11: analyzer.GlobalAggregates.type = analyzer.GlobalAggregates;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$10: analyzer.ResolveAggregateFunctions.type = analyzer.ResolveAggregateFunctions;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$9: org.apache.spark.sql.catalyst.analysis.TimeWindowing.type = org.apache.spark.sql.catalyst.analysis.TimeWindowing;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$8: org.apache.spark.sql.catalyst.analysis.SessionWindowing.type = org.apache.spark.sql.catalyst.analysis.SessionWindowing;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$7: org.apache.spark.sql.catalyst.analysis.ResolveInlineTables.type = org.apache.spark.sql.catalyst.analysis.ResolveInlineTables;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$6: org.apache.spark.sql.catalyst.analysis.ResolveHigherOrderFunctions = org.apache.spark.sql.catalyst.analysis.ResolveHigherOrderFunctions.apply(analyzer.catalogManager);
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$5: org.apache.spark.sql.catalyst.analysis.ResolveLambdaVariables.type = org.apache.spark.sql.catalyst.analysis.ResolveLambdaVariables;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$4: org.apache.spark.sql.catalyst.analysis.ResolveTimeZone.type = org.apache.spark.sql.catalyst.analysis.ResolveTimeZone;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$3: analyzer.ResolveRandomSeed.type = analyzer.ResolveRandomSeed;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$2: analyzer.ResolveBinaryArithmetic.type = analyzer.ResolveBinaryArithmetic;
+  {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$1: org.apache.spark.sql.catalyst.analysis.ResolveUnion.type = org.apache.spark.sql.catalyst.analysis.ResolveUnion;
+  org.apache.spark.sql.catalyst.analysis.TypeCoercion.typeCoercionRules.++[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan], List[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]]](scala.collection.Seq.apply[org.apache.spark.sql.catalyst.analysis.ResolveWithCTE.type](org.apache.spark.sql.catalyst.analysis.ResolveWithCTE))(immutable.this.List.canBuildFrom[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]]).::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$1)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$2)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$3)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$4)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$5)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$6)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$7)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$8)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$9)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$10)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$11)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$12)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$13)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$14)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$15)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$16)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$17)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$18)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$19)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$20)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$21)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$22)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$23)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$24)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$25)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$26)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$27)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$28)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$29)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$30)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$31)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$32)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$33)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$34)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$35)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$36)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$37)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$38)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$39)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$40)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$41)
+}.::[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](x$42)
+        </td>
+      </tr><tr>
+        <td>
+          218
+        </td>
+        <td>
+          334
+        </td>
+        <td>
+          7776
+          -
+          7797
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.QualitySparkUtils.FakePlan.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualitySparkUtils.this.FakePlan.apply(expr, child)
+        </td>
+      </tr><tr>
+        <td>
+          220
+        </td>
+        <td>
+          336
+        </td>
+        <td>
+          7838
+          -
+          7899
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.QualitySparkUtils.execute
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualitySparkUtils.this.execute(newPlan, QualitySparkUtils.this.resolution(analyzer, sparkSession, newPlan))
+        </td>
+      </tr><tr>
+        <td>
+          220
+        </td>
+        <td>
+          335
+        </td>
+        <td>
+          7855
+          -
+          7898
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.QualitySparkUtils.resolution
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualitySparkUtils.this.resolution(analyzer, sparkSession, newPlan)
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          337
+        </td>
+        <td>
+          8099
+          -
+          8189
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw new scala.`package`.Exception(scala.StringContext.apply(&quot;Could not resolve expression &quot;, &quot; with child &quot;, &quot;}&quot;).s(expr, child))
+        </td>
+      </tr><tr>
+        <td>
+          234
+        </td>
+        <td>
+          340
+        </td>
+        <td>
+          8505
+          -
+          8529
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          expressions.map[org.apache.spark.sql.catalyst.expressions.Expression, Seq[org.apache.spark.sql.catalyst.expressions.Expression]]({
+  ((expr: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; forExpr(expr))
+})(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression])
+        </td>
+      </tr><tr>
+        <td>
+          234
+        </td>
+        <td>
+          339
+        </td>
+        <td>
+          8520
+          -
+          8520
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression]
+        </td>
+      </tr><tr>
+        <td>
+          234
+        </td>
+        <td>
+          338
+        </td>
+        <td>
+          8521
+          -
+          8528
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.QualitySparkUtils.forExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          forExpr(expr)
+        </td>
+      </tr><tr>
+        <td>
+          235
+        </td>
+        <td>
+          342
+        </td>
+        <td>
+          8538
+          -
+          8690
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleEngineRunner.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.RuleEngineRunner.apply(ruleSuite, com.sparkutils.quality.utils.PassThrough.apply(nexprs), realType, compileEvals, debugMode, func, group, forceRunnerEval, expressionOffsets, forceTriggerEval)
+        </td>
+      </tr><tr>
+        <td>
+          235
+        </td>
+        <td>
+          341
+        </td>
+        <td>
+          8566
+          -
+          8587
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.utils.PassThrough.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.utils.PassThrough.apply(nexprs)
+        </td>
+      </tr><tr>
+        <td>
+          238
+        </td>
+        <td>
+          343
+        </td>
+        <td>
+          8957
+          -
+          8964
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.QualitySparkUtils.forExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          forExpr(expr)
+        </td>
+      </tr><tr>
+        <td>
+          238
+        </td>
+        <td>
+          345
+        </td>
+        <td>
+          8941
+          -
+          8965
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          expressions.map[org.apache.spark.sql.catalyst.expressions.Expression, Seq[org.apache.spark.sql.catalyst.expressions.Expression]]({
+  ((expr: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; forExpr(expr))
+})(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression])
+        </td>
+      </tr><tr>
+        <td>
+          238
+        </td>
+        <td>
+          344
+        </td>
+        <td>
+          8956
+          -
+          8956
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression]
+        </td>
+      </tr><tr>
+        <td>
+          239
+        </td>
+        <td>
+          346
+        </td>
+        <td>
+          9008
+          -
+          9029
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.utils.PassThrough.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.sparkutils.quality.utils.PassThrough.apply(nexprs)
+        </td>
+      </tr><tr>
+        <td>
+          239
+        </td>
+        <td>
+          347
+        </td>
+        <td>
+          8974
+          -
+          9181
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleFolderRunner.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.sparkutils.quality.impl.RuleFolderRunner.apply(ruleSuite, left, com.sparkutils.quality.utils.PassThrough.apply(nexprs), resultDataType, compileEvals, debugMode, variablesPerFunc, variableFuncGroup, forceRunnerEval, expressionOffsets, dataRef, forceTriggerEval)
+        </td>
+      </tr><tr>
+        <td>
+          242
+        </td>
+        <td>
+          349
+        </td>
+        <td>
+          9330
+          -
+          9330
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression]
+        </td>
+      </tr><tr>
+        <td>
+          242
+        </td>
+        <td>
+          348
+        </td>
+        <td>
+          9331
+          -
+          9338
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.QualitySparkUtils.forExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          forExpr(expr)
+        </td>
+      </tr><tr>
+        <td>
+          242
+        </td>
+        <td>
+          350
+        </td>
+        <td>
+          9315
+          -
+          9339
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          expressions.map[org.apache.spark.sql.catalyst.expressions.Expression, Seq[org.apache.spark.sql.catalyst.expressions.Expression]]({
+  ((expr: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; forExpr(expr))
+})(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression])
+        </td>
+      </tr><tr>
+        <td>
+          243
+        </td>
+        <td>
+          352
+        </td>
+        <td>
+          9348
+          -
+          9436
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunner.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.RuleRunner.apply(ruleSuite, com.sparkutils.quality.utils.PassThrough.apply(nexprs), compileEvals, func, group, forceRunnerEval)
+        </td>
+      </tr><tr>
+        <td>
+          243
+        </td>
+        <td>
+          351
+        </td>
+        <td>
+          9370
+          -
+          9391
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.utils.PassThrough.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.utils.PassThrough.apply(nexprs)
+        </td>
+      </tr><tr>
+        <td>
+          244
+        </td>
+        <td>
+          353
+        </td>
+        <td>
+          9453
+          -
+          9466
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.QualitySparkUtils.forExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          forExpr(expr)
+        </td>
+      </tr><tr>
+        <td>
+          251
+        </td>
+        <td>
+          354
+        </td>
+        <td>
+          9605
+          -
+          9630
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.AttributeSeq.attrs
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          FakePlan.this.child.allAttributes.attrs
+        </td>
+      </tr><tr>
+        <td>
+          253
+        </td>
+        <td>
+          355
+        </td>
+        <td>
+          9673
+          -
+          9680
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Long](1L)
+        </td>
+      </tr><tr>
+        <td>
+          256
+        </td>
+        <td>
+          356
+        </td>
+        <td>
+          9803
+          -
+          9824
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.generic.ImmutableSetFactory.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.Set.empty[org.apache.spark.sql.catalyst.expressions.Expression]
+        </td>
+      </tr><tr>
+        <td>
+          257
+        </td>
+        <td>
+          371
+        </td>
+        <td>
+          9831
+          -
+          10352
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          projectList.foreach[Unit](((x0$1: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; x0$1 match {
+  case (a @ (child: org.apache.spark.sql.catalyst.expressions.Expression, name: String)(exprId: org.apache.spark.sql.catalyst.expressions.ExprId, qualifier: Seq[String], explicitMetadata: Option[org.apache.spark.sql.types.Metadata], nonInheritableMetadataKeys: Seq[String])org.apache.spark.sql.catalyst.expressions.Alias((l @ (_: org.apache.spark.sql.catalyst.expressions.Literal)), _)) =&gt; allConstraints = allConstraints.+(org.apache.spark.sql.catalyst.expressions.EqualNullSafe.apply(a.toAttribute, l))
+  case (a @ (child: org.apache.spark.sql.catalyst.expressions.Expression, name: String)(exprId: org.apache.spark.sql.catalyst.expressions.ExprId, qualifier: Seq[String], explicitMetadata: Option[org.apache.spark.sql.types.Metadata], nonInheritableMetadataKeys: Seq[String])org.apache.spark.sql.catalyst.expressions.Alias((e @ _), _)) =&gt; {
+    allConstraints = allConstraints.++(allConstraints.map[org.apache.spark.sql.catalyst.expressions.Expression, scala.collection.immutable.Set[org.apache.spark.sql.catalyst.expressions.Expression]](((x$43: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; x$43.transform(({
+      @SerialVersionUID(value = 0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression] with Serializable {
+        def &lt;init&gt;(): &lt;$anon: org.apache.spark.sql.catalyst.expressions.Expression =&gt; org.apache.spark.sql.catalyst.expressions.Expression&gt; = {
+          $anonfun.super.&lt;init&gt;();
+          ()
+        };
+        final override def applyOrElse[A1 &lt;: org.apache.spark.sql.catalyst.expressions.Expression, B1 &gt;: org.apache.spark.sql.catalyst.expressions.Expression](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+          case (expr @ (_: org.apache.spark.sql.catalyst.expressions.Expression)) if expr.semanticEquals(e) =&gt; a.toAttribute
+          case (defaultCase$ @ _) =&gt; default.apply(x1)
+        };
+        final def isDefinedAt(x1: org.apache.spark.sql.catalyst.expressions.Expression): Boolean = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+          case (expr @ (_: org.apache.spark.sql.catalyst.expressions.Expression)) if expr.semanticEquals(e) =&gt; true
+          case (defaultCase$ @ _) =&gt; false
+        }
+      };
+      new $anonfun()
+    }: PartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression]))))(immutable.this.Set.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression]));
+    allConstraints = allConstraints.+(org.apache.spark.sql.catalyst.expressions.EqualNullSafe.apply(e, a.toAttribute))
+  }
+  case _ =&gt; ()
+}))
+        </td>
+      </tr><tr>
+        <td>
+          259
+        </td>
+        <td>
+          358
+        </td>
+        <td>
+          9920
+          -
+          9951
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.EqualNullSafe.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.catalyst.expressions.EqualNullSafe.apply(a.toAttribute, l)
+        </td>
+      </tr><tr>
+        <td>
+          259
+        </td>
+        <td>
+          357
+        </td>
+        <td>
+          9934
+          -
+          9947
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Alias.toAttribute
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          a.toAttribute
+        </td>
+      </tr><tr>
+        <td>
+          259
+        </td>
+        <td>
+          359
+        </td>
+        <td>
+          9902
+          -
+          9951
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SetLike.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          allConstraints.+(org.apache.spark.sql.catalyst.expressions.EqualNullSafe.apply(a.toAttribute, l))
+        </td>
+      </tr><tr>
+        <td>
+          262
+        </td>
+        <td>
+          364
+        </td>
+        <td>
+          10131
+          -
+          10131
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Set.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          immutable.this.Set.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression]
+        </td>
+      </tr><tr>
+        <td>
+          262
+        </td>
+        <td>
+          363
+        </td>
+        <td>
+          10132
+          -
+          10248
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.trees.TreeNode.transform
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$43.transform(({
+  @SerialVersionUID(value = 0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: org.apache.spark.sql.catalyst.expressions.Expression =&gt; org.apache.spark.sql.catalyst.expressions.Expression&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: org.apache.spark.sql.catalyst.expressions.Expression, B1 &gt;: org.apache.spark.sql.catalyst.expressions.Expression](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (expr @ (_: org.apache.spark.sql.catalyst.expressions.Expression)) if expr.semanticEquals(e) =&gt; a.toAttribute
+      case (defaultCase$ @ _) =&gt; default.apply(x1)
+    };
+    final def isDefinedAt(x1: org.apache.spark.sql.catalyst.expressions.Expression): Boolean = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (expr @ (_: org.apache.spark.sql.catalyst.expressions.Expression)) if expr.semanticEquals(e) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression]))
+        </td>
+      </tr><tr>
+        <td>
+          262
+        </td>
+        <td>
+          366
+        </td>
+        <td>
+          10094
+          -
+          10249
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SetLike.++
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          allConstraints.++(allConstraints.map[org.apache.spark.sql.catalyst.expressions.Expression, scala.collection.immutable.Set[org.apache.spark.sql.catalyst.expressions.Expression]](((x$43: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; x$43.transform(({
+  @SerialVersionUID(value = 0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: org.apache.spark.sql.catalyst.expressions.Expression =&gt; org.apache.spark.sql.catalyst.expressions.Expression&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: org.apache.spark.sql.catalyst.expressions.Expression, B1 &gt;: org.apache.spark.sql.catalyst.expressions.Expression](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (expr @ (_: org.apache.spark.sql.catalyst.expressions.Expression)) if expr.semanticEquals(e) =&gt; a.toAttribute
+      case (defaultCase$ @ _) =&gt; default.apply(x1)
+    };
+    final def isDefinedAt(x1: org.apache.spark.sql.catalyst.expressions.Expression): Boolean = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (expr @ (_: org.apache.spark.sql.catalyst.expressions.Expression)) if expr.semanticEquals(e) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression]))))(immutable.this.Set.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression]))
+        </td>
+      </tr><tr>
+        <td>
+          262
+        </td>
+        <td>
+          362
+        </td>
+        <td>
+          10144
+          -
+          10144
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.QualitySparkUtils.FakePlan.$anonfun.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          262
+        </td>
+        <td>
+          365
+        </td>
+        <td>
+          10113
+          -
+          10249
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.SetLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          allConstraints.map[org.apache.spark.sql.catalyst.expressions.Expression, scala.collection.immutable.Set[org.apache.spark.sql.catalyst.expressions.Expression]](((x$43: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; x$43.transform(({
+  @SerialVersionUID(value = 0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: org.apache.spark.sql.catalyst.expressions.Expression =&gt; org.apache.spark.sql.catalyst.expressions.Expression&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: org.apache.spark.sql.catalyst.expressions.Expression, B1 &gt;: org.apache.spark.sql.catalyst.expressions.Expression](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (expr @ (_: org.apache.spark.sql.catalyst.expressions.Expression)) if expr.semanticEquals(e) =&gt; a.toAttribute
+      case (defaultCase$ @ _) =&gt; default.apply(x1)
+    };
+    final def isDefinedAt(x1: org.apache.spark.sql.catalyst.expressions.Expression): Boolean = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (expr @ (_: org.apache.spark.sql.catalyst.expressions.Expression)) if expr.semanticEquals(e) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression]))))(immutable.this.Set.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression])
+        </td>
+      </tr><tr>
+        <td>
+          263
+        </td>
+        <td>
+          360
+        </td>
+        <td>
+          10183
+          -
+          10205
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.semanticEquals
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          expr.semanticEquals(e)
+        </td>
+      </tr><tr>
+        <td>
+          264
+        </td>
+        <td>
+          361
+        </td>
+        <td>
+          10223
+          -
+          10236
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Alias.toAttribute
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          a.toAttribute
+        </td>
+      </tr><tr>
+        <td>
+          266
+        </td>
+        <td>
+          367
+        </td>
+        <td>
+          10295
+          -
+          10308
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Alias.toAttribute
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          a.toAttribute
+        </td>
+      </tr><tr>
+        <td>
+          266
+        </td>
+        <td>
+          369
+        </td>
+        <td>
+          10260
+          -
+          10309
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SetLike.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          allConstraints.+(org.apache.spark.sql.catalyst.expressions.EqualNullSafe.apply(e, a.toAttribute))
+        </td>
+      </tr><tr>
+        <td>
+          266
+        </td>
+        <td>
+          368
+        </td>
+        <td>
+          10278
+          -
+          10309
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.EqualNullSafe.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.catalyst.expressions.EqualNullSafe.apply(e, a.toAttribute)
+        </td>
+      </tr><tr>
+        <td>
+          267
+        </td>
+        <td>
+          370
+        </td>
+        <td>
+          10325
+          -
+          10327
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          275
+        </td>
+        <td>
+          373
+        </td>
+        <td>
+          10567
+          -
+          10589
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.QualitySparkUtils.FakePlan.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          FakePlan.this.copy(x$2, x$1)
+        </td>
+      </tr><tr>
+        <td>
+          275
+        </td>
+        <td>
+          372
+        </td>
+        <td>
+          10567
+          -
+          10567
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.QualitySparkUtils.FakePlan.copy$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          FakePlan.this.copy$default$1
+        </td>
+      </tr><tr>
+        <td>
+          284
+        </td>
+        <td>
+          374
+        </td>
+        <td>
+          10743
+          -
+          10763
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.execution.SparkSqlParser.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.sql.execution.SparkSqlParser()
+        </td>
+      </tr><tr>
+        <td>
+          295
+        </td>
+        <td>
+          375
+        </td>
+        <td>
+          11112
+          -
+          11174
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.analysis.FunctionRegistryBase.createOrReplaceTempFunction
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          funcReg.createOrReplaceTempFunction(name, builder, &quot;built-in&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          298
+        </td>
+        <td>
+          376
+        </td>
+        <td>
+          11279
+          -
+          11297
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.ShowParams.numRows
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          showParams.numRows
+        </td>
+      </tr><tr>
+        <td>
+          298
+        </td>
+        <td>
+          379
+        </td>
+        <td>
+          11258
+          -
+          11340
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Dataset.showString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          dataFrame.showString(showParams.numRows, showParams.truncate, showParams.vertical)
+        </td>
+      </tr><tr>
+        <td>
+          298
+        </td>
+        <td>
+          378
+        </td>
+        <td>
+          11320
+          -
+          11339
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.ShowParams.vertical
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          showParams.vertical
+        </td>
+      </tr><tr>
+        <td>
+          298
+        </td>
+        <td>
+          377
+        </td>
+        <td>
+          11299
+          -
+          11318
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.ShowParams.truncate
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          showParams.truncate
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

@@ -1,0 +1,8554 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/sparkutils/quality/impl/id/model.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality.impl.id
+</span>2 <span style=''>
+</span>3 <span style=''>import java.net.{InetAddress, NetworkInterface}
+</span>4 <span style=''>import java.util.{Base64, Calendar, TimeZone}
+</span>5 <span style=''>
+</span>6 <span style=''>import com.sparkutils.quality.impl.bloom.parquet.Bucketed
+</span>7 <span style=''>import com.sparkutils.quality.utils.BytePackingUtils
+</span>8 <span style=''>import org.apache.spark.sql.types.{IntegerType, LongType, StructField, StructType}
+</span>9 <span style=''>
+</span>10 <span style=''>import scala.collection.immutable.BitSet
+</span>11 <span style=''>
+</span>12 <span style=''>sealed trait IDType extends Serializable {
+</span>13 <span style=''>  /**
+</span>14 <span style=''>   * Is this ID statistically likely to be unique - but not guaranteed?
+</span>15 <span style=''>   */
+</span>16 <span style=''>  val isRandom: Boolean
+</span>17 <span style=''>  /**
+</span>18 <span style=''>   * Is this ID based on other fields in the existing dataset, e.g. a Data Vault md5?
+</span>19 <span style=''>   */
+</span>20 <span style=''>  val isFieldBased: Boolean
+</span>21 <span style=''>  /**
+</span>22 <span style=''>   * Is this field guaranteed to be unique?
+</span>23 <span style=''>   */
+</span>24 <span style=''>  val isGuaranteedUnique: Boolean
+</span>25 <span style=''>  /**
+</span>26 <span style=''>   * Is this a provided ID, e.g. not maintained by any Quality functionality
+</span>27 <span style=''>   */
+</span>28 <span style=''>  val isProvided: Boolean
+</span>29 <span style=''>  /**
+</span>30 <span style=''>   * A mask to allow identification of type
+</span>31 <span style=''>   */
+</span>32 <span style=''>  val typeMask: Byte
+</span>33 <span style=''>}
+</span>34 <span style=''>
+</span>35 <span style=''>private case class IDTypeImpl(typeMask: Byte,
+</span>36 <span style=''>  isRandom: Boolean = false, isFieldBased: Boolean = false,
+</span>37 <span style=''>  isGuaranteedUnique: Boolean = false, isProvided: Boolean = false) extends IDType with Serializable
+</span>38 <span style=''>
+</span>39 <span style=''>/**
+</span>40 <span style=''> * Represents an extensible ID starting with 160bits.
+</span>41 <span style=''> *
+</span>42 <span style=''> * There are four known usages:
+</span>43 <span style=''> * - Rng (128bit PRNG using the rng function)
+</span>44 <span style=''> * - Data Vault (128bit MD5 based on user provided columns)
+</span>45 <span style=''> * - Snowflake (160bit globally unique identifier based on Twitters approach to unique IDs with a Spark twist)
+</span>46 <span style=''> * - Provided (upstream provided identifier - variable bit length + 4 for type )
+</span>47 <span style=''> *
+</span>48 <span style=''> * RNG / Provided and Field based are all the same implementation.
+</span>49 <span style=''> *
+</span>50 <span style=''> * Implementations must use the first 4 bits to signify which of the base four types are used with plus extension.
+</span>51 <span style=''> */
+</span>52 <span style=''>sealed trait ID {
+</span>53 <span style=''>  /**
+</span>54 <span style=''>   * Is this ID based on a series of opaque Long encodings, e.g. provided, data vault style hashing or prng based
+</span>55 <span style=''>   */
+</span>56 <span style=''>  val isGenericLongBased: Boolean
+</span>57 <span style=''>
+</span>58 <span style=''>  /**
+</span>59 <span style=''>   * Type of this ID
+</span>60 <span style=''>   */
+</span>61 <span style=''>  val idType: IDType
+</span>62 <span style=''>
+</span>63 <span style=''>  /**
+</span>64 <span style=''>   * Identifies the first 4 bits
+</span>65 <span style=''>   */
+</span>66 <span style=''>  val header: Byte
+</span>67 <span style=''>
+</span>68 <span style=''>  /**
+</span>69 <span style=''>   * BitSet representation of the ID
+</span>70 <span style=''>   * @return
+</span>71 <span style=''>   */
+</span>72 <span style=''>  def bitset: BitSet
+</span>73 <span style=''>
+</span>74 <span style=''>  /**
+</span>75 <span style=''>   * Bit length of this implementation
+</span>76 <span style=''>   * @return
+</span>77 <span style=''>   */
+</span>78 <span style=''>  def bitLength: Int
+</span>79 <span style=''>
+</span>80 <span style=''>  /**
+</span>81 <span style=''>   * base64 representation - matches the factory function in ID
+</span>82 <span style=''>   * @return
+</span>83 <span style=''>   */
+</span>84 <span style=''>  def base64: String
+</span>85 <span style=''>
+</span>86 <span style=''>  /**
+</span>87 <span style=''>   * Spark representation, typically these are also exploded, use dataType function to get exploding prefixes
+</span>88 <span style=''>   * @return
+</span>89 <span style=''>   */
+</span>90 <span style=''>  def rawDataType: StructType
+</span>91 <span style=''>
+</span>92 <span style=''>  /**
+</span>93 <span style=''>   * Data type to explode fields to, should be used as the dataType in Expressions
+</span>94 <span style=''>   * @param prefix prefix_ is used to prefix every direct field of this ID
+</span>95 <span style=''>   * @return
+</span>96 <span style=''>   */
+</span>97 <span style=''>  def dataType(prefix: String): StructType =
+</span>98 <span style=''>    </span><span style='background: #AEF1AE'>StructType( rawDataType.fields.map(f =&gt; f.copy( name = prefix +&quot;_&quot;+f.name ) ) )</span><span style=''>
+</span>99 <span style=''>
+</span>100 <span style=''>  /**
+</span>101 <span style=''>   * Whilst IDs can be naively compared this returns if they are compatible implementations.  For example comparing a
+</span>102 <span style=''>   * 128bit random number to 256 would be incomparable despite both being random
+</span>103 <span style=''>   * @param other
+</span>104 <span style=''>   * @return
+</span>105 <span style=''>   */
+</span>106 <span style=''>  def comparableImplementation(other: ID): Boolean
+</span>107 <span style=''>}
+</span>108 <span style=''>
+</span>109 <span style=''>/**
+</span>110 <span style=''> * Represents an ID using base with length and 4 bit leading type and an array of longs
+</span>111 <span style=''> */
+</span>112 <span style=''>sealed trait BaseWithLongs extends ID {
+</span>113 <span style=''>  /**
+</span>114 <span style=''>   * information about length and type
+</span>115 <span style=''>   */
+</span>116 <span style=''>  def base: Int =
+</span>117 <span style=''>    </span><span style='background: #AEF1AE'>(array.length &lt;&lt; model.lengthOffset) |
+</span>118 <span style=''></span><span style='background: #AEF1AE'>      (header &lt;&lt; model.headerBaseBitsOffset )</span><span style=''>
+</span>119 <span style=''>
+</span>120 <span style=''>  /**
+</span>121 <span style=''>   * the payload itself - maximum 65k which will be far above a max Row size
+</span>122 <span style=''>   */
+</span>123 <span style=''>  def array: Array[Long]
+</span>124 <span style=''>
+</span>125 <span style=''>  /**
+</span>126 <span style=''>   * Spark representation, typically these are also exploded, use dataType function to get exploding prefixes
+</span>127 <span style=''>   * @return
+</span>128 <span style=''>   */
+</span>129 <span style=''>  override def rawDataType: StructType = </span><span style='background: #AEF1AE'>StructType(
+</span>130 <span style=''></span><span style='background: #AEF1AE'>    ( StructField(name = &quot;base&quot;, dataType = IntegerType) +:
+</span>131 <span style=''></span><span style='background: #AEF1AE'>      (0 until array.length).map(i =&gt; StructField(name = &quot;i&quot;+i, dataType = LongType)) ).toArray
+</span>132 <span style=''></span><span style='background: #AEF1AE'>  )</span><span style=''>
+</span>133 <span style=''>
+</span>134 <span style=''>  /**
+</span>135 <span style=''>   * BitSet representation of the ID
+</span>136 <span style=''>   *
+</span>137 <span style=''>   * @return
+</span>138 <span style=''>   */
+</span>139 <span style=''>  override def bitset: BitSet = {
+</span>140 <span style=''>    val ar = </span><span style='background: #F0ADAD'>Array.ofDim[Long](array.length + 1)</span><span style=''>
+</span>141 <span style=''>    </span><span style='background: #F0ADAD'>ar(0) = base</span><span style=''>
+</span>142 <span style=''>    </span><span style='background: #F0ADAD'>Array.copy(array, 0, ar, 1, array.length)</span><span style=''>
+</span>143 <span style=''>    var bitset = </span><span style='background: #F0ADAD'>BitSet.fromBitMaskNoCopy( ar )</span><span style=''> // we don't modify it so no need to copy
+</span>144 <span style=''>    bitset
+</span>145 <span style=''>  }
+</span>146 <span style=''>
+</span>147 <span style=''>  /**
+</span>148 <span style=''>   * Bit length of this implementation
+</span>149 <span style=''>   *
+</span>150 <span style=''>   * @return
+</span>151 <span style=''>   */
+</span>152 <span style=''>  override def bitLength: Int = </span><span style='background: #AEF1AE'>32 + (array.length * 64)</span><span style=''>
+</span>153 <span style=''>
+</span>154 <span style=''>  /**
+</span>155 <span style=''>   * base64 representation - matches the factory function in ID
+</span>156 <span style=''>   *
+</span>157 <span style=''>   * @return
+</span>158 <span style=''>   */
+</span>159 <span style=''>  override def base64: String = </span><span style='background: #AEF1AE'>model.base64(bitLength, base, array)</span><span style=''>
+</span>160 <span style=''>
+</span>161 <span style=''>}
+</span>162 <span style=''>
+</span>163 <span style=''>/**
+</span>164 <span style=''> * Represents a GenericLongBasedID
+</span>165 <span style=''> */
+</span>166 <span style=''>case class GenericLongBasedID(idType: IDType, array: Array[Long]) extends BaseWithLongs {
+</span>167 <span style=''>  override val isGenericLongBased: Boolean = </span><span style='background: #AEF1AE'>true</span><span style=''>
+</span>168 <span style=''>
+</span>169 <span style=''>  /**
+</span>170 <span style=''>   * Whilst IDs can be naively compared this returns if they are compatible implementations.  For example comparing a
+</span>171 <span style=''>   * 128bit random number to
+</span>172 <span style=''>   *
+</span>173 <span style=''>   * @param other
+</span>174 <span style=''>   * @return
+</span>175 <span style=''>   */
+</span>176 <span style=''>  override def comparableImplementation(other: ID): Boolean =
+</span>177 <span style=''>    other match {
+</span>178 <span style=''>      case id: GenericLongBasedID if </span><span style='background: #AEF1AE'>idType == id.idType &amp;&amp; id.bitLength == this.bitLength</span><span style=''> =&gt; </span><span style='background: #AEF1AE'>true</span><span style=''>
+</span>179 <span style=''>      case _ =&gt; </span><span style='background: #AEF1AE'>false</span><span style=''>
+</span>180 <span style=''>    }
+</span>181 <span style=''>
+</span>182 <span style=''>  /**
+</span>183 <span style=''>   * The header information itself may not be the same
+</span>184 <span style=''>   * @param obj
+</span>185 <span style=''>   * @return
+</span>186 <span style=''>   */
+</span>187 <span style=''>  override def equals(obj: Any): Boolean =
+</span>188 <span style=''>    obj match {
+</span>189 <span style=''>      case id: GenericLongBasedID if </span><span style='background: #AEF1AE'>comparableImplementation(id)</span><span style=''> =&gt;
+</span>190 <span style=''>        </span><span style='background: #AEF1AE'>array.zip(id.array).forall(p =&gt; p._1 == p._2)</span><span style=''>
+</span>191 <span style=''>      case _ =&gt; </span><span style='background: #AEF1AE'>false</span><span style=''>
+</span>192 <span style=''>    }
+</span>193 <span style=''>
+</span>194 <span style=''>  /**
+</span>195 <span style=''>   * Identifies the first 4 bits
+</span>196 <span style=''>   */
+</span>197 <span style=''>  override val header: Byte = </span><span style='background: #AEF1AE'>model.GenericLongsHeader</span><span style=''>
+</span>198 <span style=''>}
+</span>199 <span style=''>
+</span>200 <span style=''>/**
+</span>201 <span style=''> * Manipulations on the long values directly for use in expressions etc.
+</span>202 <span style=''> * Use base64 to marshall as needed
+</span>203 <span style=''> */
+</span>204 <span style=''>class GuaranteedUniqueIDOps(val base: Int){
+</span>205 <span style=''>  // package private later?
+</span>206 <span style=''>  val array = </span><span style='background: #AEF1AE'>Array.ofDim[Long](2)</span><span style=''>
+</span>207 <span style=''>  var row = </span><span style='background: #AEF1AE'>0</span><span style=''>
+</span>208 <span style=''>
+</span>209 <span style=''>  // can just be removed, but doesn't add much overhead whilst providing decent extra checks
+</span>210 <span style=''>  var ms = </span><span style='background: #AEF1AE'>0L</span><span style=''>
+</span>211 <span style=''>
+</span>212 <span style=''>  /**
+</span>213 <span style=''>   * Increments the row count
+</span>214 <span style=''>   */
+</span>215 <span style=''>  def incRow = {
+</span>216 <span style=''>    if (</span><span style='background: #AEF1AE'>row &lt; model.guaranteedUniqueMaxRowID</span><span style=''>) {
+</span>217 <span style=''>      </span><span style='background: #AEF1AE'>row += 1</span><span style=''>
+</span>218 <span style=''>    } else </span><span style='background: #AEF1AE'>{
+</span>219 <span style=''></span><span style='background: #AEF1AE'>      row = 0
+</span>220 <span style=''></span><span style='background: #AEF1AE'>      // only do this when needed, it's expensive
+</span>221 <span style=''></span><span style='background: #AEF1AE'>      ms = (System.currentTimeMillis - model.guaranteedUniqueEpoch) &amp; model.guaranteedUniqueMSMask
+</span>222 <span style=''></span><span style='background: #AEF1AE'>
+</span>223 <span style=''></span><span style='background: #AEF1AE'>      // last bit of array(0) if first 8 bits of ms
+</span>224 <span style=''></span><span style='background: #AEF1AE'>      array(0) = array(0) &amp; model.allButLast8 | (ms &gt;&gt; model.guaranteedUniqueMSLastIndex) &amp; model.all64
+</span>225 <span style=''></span><span style='background: #AEF1AE'>      // first 5, wipe out the counter first
+</span>226 <span style=''></span><span style='background: #AEF1AE'>      array(1) = 0
+</span>227 <span style=''></span><span style='background: #AEF1AE'>      array(1) = array(1) &amp; model.allButFirst33 |
+</span>228 <span style=''></span><span style='background: #AEF1AE'>        (ms &lt;&lt; model.guaranteedUniqueMSLastShifted) &amp; model.all64
+</span>229 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>230 <span style=''>    </span><span style='background: #AEF1AE'>array(1) = array(1) &amp; model.allButLast31 | row &amp; model.all64</span><span style=''>
+</span>231 <span style=''>  }
+</span>232 <span style=''>
+</span>233 <span style=''>  def base64: String = </span><span style='background: #AEF1AE'>model.base64(160, base, array)</span><span style=''>
+</span>234 <span style=''>}
+</span>235 <span style=''>
+</span>236 <span style=''>/**
+</span>237 <span style=''> * Represents a Guaranteed globally unique 160 bit ID within spark based on twitters 64bit snowflake id:
+</span>238 <span style=''> * leading 4 bits - type of id
+</span>239 <span style=''> * padded 4 bits for future use / ease of code
+</span>240 <span style=''> * next 48 bits - MAC address of the drivers host network card (unique for run with no central server / service requirement)
+</span>241 <span style=''> * next 32 bits - partition id
+</span>242 <span style=''> * next 41 bits - ms since 20210101
+</span>243 <span style=''> * padded 7 bits - for future use / ease of code
+</span>244 <span style=''> * remaining 24 bits - partition specific incremented row id - allowing 16777216 rows per ms, which is unlikely to occur
+</span>245 <span style=''> * and easy to manage overflow either way
+</span>246 <span style=''> *
+</span>247 <span style=''> * The organisation allows the base and first long to be fixed at the start of a partition reset with only the last long
+</span>248 <span style=''> * changing per row easing bit fiddling.  In the case of overflow the header remains untouched and only then must 41 bits ms value be
+</span>249 <span style=''> * re-evaluated, reducing clock slow downs (coincidentally around 41ms).
+</span>250 <span style=''> *
+</span>251 <span style=''> * Full time synchronisation across all clusters in a business is not required as MAC address provides driver uniqueness
+</span>252 <span style=''> * (assuming your cloud / network provider guarantees this uniqueness for routing).  Partition id provides segregation across
+</span>253 <span style=''> * a given action with timestamp ensuring repeated runs on the same cluster do not overlap.
+</span>254 <span style=''> */
+</span>255 <span style=''>case class GuaranteedUniqueID(mac: Array[Byte] = model.localMAC, ms: Long = (System.currentTimeMillis() - model.guaranteedUniqueEpoch), partition: Int = 0, row: Int = 0) extends BaseWithLongs with Serializable {
+</span>256 <span style=''>  </span><span style='background: #AEF1AE'>assert(mac.length == 6, &quot;MAC addresses are only ever 48bit&quot;)</span><span style=''>
+</span>257 <span style=''>  </span><span style='background: #AEF1AE'>assert(row &gt;= 0, s&quot;RowID must be greater than 0 not ${row}&quot;)</span><span style=''>
+</span>258 <span style=''>  </span><span style='background: #AEF1AE'>assert(row &lt; model.guaranteedUniqueMaxRowID, s&quot;RowID cannot be more than 31bits long i.e. ${model.guaranteedUniqueMaxRowID} instead of $row&quot;)</span><span style=''>
+</span>259 <span style=''>  </span><span style='background: #AEF1AE'>assert((ms &amp; model.guaranteedUniqueMSMask) == ms, s&quot;ms may not be larger than 48bits is $ms, ensure either &quot; +
+</span>260 <span style=''></span><span style='background: #AEF1AE'>    &quot;model.guaranteedUniqueEpoch is subtracted or you used a Tardis.  Tardis usage by humans is strictly prohibited.&quot;)</span><span style=''>
+</span>261 <span style=''>
+</span>262 <span style=''>  override val idType: IDType = </span><span style='background: #AEF1AE'>model.GuaranteedUniqueIDType</span><span style=''>
+</span>263 <span style=''>  override val isGenericLongBased: Boolean = </span><span style='background: #AEF1AE'>false</span><span style=''>
+</span>264 <span style=''>
+</span>265 <span style=''>  /**
+</span>266 <span style=''>   * After serializing to a remote instance for mac / any initial values
+</span>267 <span style=''>   * @return
+</span>268 <span style=''>   */
+</span>269 <span style=''>  def uniqueOps = {
+</span>270 <span style=''>    val res = </span><span style='background: #AEF1AE'>new GuaranteedUniqueIDOps(base)</span><span style=''>
+</span>271 <span style=''>    val ar = </span><span style='background: #AEF1AE'>array</span><span style=''>
+</span>272 <span style=''>    </span><span style='background: #AEF1AE'>res.array(0) = ar(0)</span><span style=''>
+</span>273 <span style=''>    </span><span style='background: #AEF1AE'>res.array(1) = ar(1)</span><span style=''>
+</span>274 <span style=''>    </span><span style='background: #AEF1AE'>res.row = row</span><span style=''>
+</span>275 <span style=''>    </span><span style='background: #AEF1AE'>res.ms = ms</span><span style=''>
+</span>276 <span style=''>    res
+</span>277 <span style=''>  }
+</span>278 <span style=''>
+</span>279 <span style=''>  /**
+</span>280 <span style=''>   * contains the 4 bits type offset and 24 bits of the mac
+</span>281 <span style=''>   */
+</span>282 <span style=''>  override def base: Int =
+</span>283 <span style=''>    </span><span style='background: #AEF1AE'>(header &lt;&lt; model.headerBaseBitsOffset) | // nothing more to do for header here
+</span>284 <span style=''></span><span style='background: #AEF1AE'>      ((mac(0) &amp; 0xFF) &lt;&lt; model.guaranteedUniqueMACHeader1stOffset) |
+</span>285 <span style=''></span><span style='background: #AEF1AE'>      ((mac(1) &amp; 0xFF) &lt;&lt; model.guaranteedUniqueMACHeader2ndOffset) |
+</span>286 <span style=''></span><span style='background: #AEF1AE'>      ((mac(2) &amp; 0xFF) &lt;&lt; model.guaranteedUniqueMACHeader3rdOffset)</span><span style=''>
+</span>287 <span style=''>
+</span>288 <span style=''>  /**
+</span>289 <span style=''>   * Packs the remaining 3 bytes of mac, partition and the first 8bits of timestamp (48bits as well for ease of packing)
+</span>290 <span style=''>   * into the first long, then the remaining 40bits of the ms and 24bits of row id are packed into the second long.
+</span>291 <span style=''>   */
+</span>292 <span style=''>  override val array: Array[Long] = {
+</span>293 <span style=''>    val trimmedMS = </span><span style='background: #AEF1AE'>ms &amp; model.guaranteedUniqueMSMask</span><span style=''> // drop anything else not in the 41bits, shouldn't happen but still
+</span>294 <span style=''>
+</span>295 <span style=''>    // should round trip
+</span>296 <span style=''>    var lbits = </span><span style='background: #AEF1AE'>Array.ofDim[Byte](8)</span><span style=''>
+</span>297 <span style=''>    </span><span style='background: #AEF1AE'>lbits(0) = mac(3)</span><span style=''>
+</span>298 <span style=''>    </span><span style='background: #AEF1AE'>lbits(1) = mac(4)</span><span style=''>
+</span>299 <span style=''>    </span><span style='background: #AEF1AE'>lbits(2) = mac(5)</span><span style=''>
+</span>300 <span style=''>
+</span>301 <span style=''>    </span><span style='background: #AEF1AE'>BytePackingUtils.encodeInt(partition, 3, lbits)</span><span style=''>
+</span>302 <span style=''>
+</span>303 <span style=''>    // start at 2 for 48 bits
+</span>304 <span style=''>    </span><span style='background: #AEF1AE'>lbits(7) = 0</span><span style=''>// lbits2(2)
+</span>305 <span style=''>
+</span>306 <span style=''>    var first = </span><span style='background: #AEF1AE'>BytePackingUtils.unencodeLong(0, lbits)</span><span style=''>
+</span>307 <span style=''>    var second = </span><span style='background: #AEF1AE'>0L</span><span style=''>
+</span>308 <span style=''>
+</span>309 <span style=''>    // last bit of array(0) if first 8 bits of ms - will likely be 0 for a decade or so
+</span>310 <span style=''>    first = </span><span style='background: #AEF1AE'>first &amp; model.allButLast8 | (trimmedMS &gt;&gt; model.guaranteedUniqueMSLastIndex) &amp; model.all64</span><span style=''>
+</span>311 <span style=''>    // first 5 bytes for the remaining ms - will likely be exactly ms for a decade or so
+</span>312 <span style=''>    second = </span><span style='background: #AEF1AE'>second &amp; model.allButFirst33 | // move &lt;&lt; 24 makes the 40 at top, leaving 24 over
+</span>313 <span style=''></span><span style='background: #AEF1AE'>      (trimmedMS &lt;&lt; model.guaranteedUniqueMSLastShifted) &amp; model.all64</span><span style=''>
+</span>314 <span style=''>    second = </span><span style='background: #AEF1AE'>second &amp; model.allButLast31 | row &amp; model.all64</span><span style=''>
+</span>315 <span style=''>
+</span>316 <span style=''>    </span><span style='background: #AEF1AE'>Array(first, second)</span><span style=''>
+</span>317 <span style=''>  }
+</span>318 <span style=''>
+</span>319 <span style=''>  /**
+</span>320 <span style=''>   * Whilst IDs can be naively compared this returns if they are compatible implementations.  For example comparing a
+</span>321 <span style=''>   * 128bit random number to
+</span>322 <span style=''>   *
+</span>323 <span style=''>   * @param other
+</span>324 <span style=''>   * @return
+</span>325 <span style=''>   */
+</span>326 <span style=''>  override def comparableImplementation(other: ID): Boolean =
+</span>327 <span style=''>    other match {
+</span>328 <span style=''>      case id: GuaranteedUniqueID if </span><span style='background: #F0ADAD'>id == other</span><span style=''> =&gt; </span><span style='background: #F0ADAD'>true</span><span style=''>
+</span>329 <span style=''>      case _ =&gt; </span><span style='background: #F0ADAD'>false</span><span style=''>
+</span>330 <span style=''>    }
+</span>331 <span style=''>
+</span>332 <span style=''>  /**
+</span>333 <span style=''>   * Identifies the first 4 bits
+</span>334 <span style=''>   */
+</span>335 <span style=''>  override val header: Byte = </span><span style='background: #AEF1AE'>model.GuaranteedUniqueHeader</span><span style=''>
+</span>336 <span style=''>}
+</span>337 <span style=''>
+</span>338 <span style=''>
+</span>339 <span style=''>case class InvalidIDType(idType: Byte) extends RuntimeException(s&quot;Invalid ID Type $idType&quot;)
+</span>340 <span style=''>
+</span>341 <span style=''>/**
+</span>342 <span style=''> * Model for ID handling
+</span>343 <span style=''> */
+</span>344 <span style=''>object model {
+</span>345 <span style=''>  /**
+</span>346 <span style=''>   * Provides the host's MAC address
+</span>347 <span style=''>   * @return
+</span>348 <span style=''>   */
+</span>349 <span style=''>  val localMAC = {
+</span>350 <span style=''>    import java.net._
+</span>351 <span style=''>    import scala.collection.JavaConverters._
+</span>352 <span style=''>
+</span>353 <span style=''>    val nonNulls = </span><span style='background: #AEF1AE'>NetworkInterface.getNetworkInterfaces.asScala map (_.getHardwareAddress) filter (_ != null)</span><span style=''>
+</span>354 <span style=''>
+</span>355 <span style=''>    // the below doesn't work on some unixes (DBR included), gitlab runners are fine however, ni is null
+</span>356 <span style=''>    /*val localHost = InetAddress.getLocalHost()
+</span>357 <span style=''>    val ni = NetworkInterface.getByInetAddress(localHost)
+</span>358 <span style=''>    val hardwareAddress: Array[Byte] = ni.getHardwareAddress()
+</span>359 <span style=''>    */
+</span>360 <span style=''>    val hardwareAddress: Array[Byte] = </span><span style='background: #AEF1AE'>nonNulls.next</span><span style=''>
+</span>361 <span style=''>    //dumpMap(hardwareAddress, &quot;model.localMAC&quot;)
+</span>362 <span style=''>    hardwareAddress
+</span>363 <span style=''>  }
+</span>364 <span style=''>
+</span>365 <span style=''>  private[id] def dumpMap(hardwareAddress: Array[Byte], info: String) =
+</span>366 <span style=''>    </span><span style='background: #F0ADAD'>println(s&quot;Quality $info MAC Address read as ${hardwareAddress.map(_.toHexString).mkString(&quot;-&quot;)}&quot;)</span><span style=''>
+</span>367 <span style=''>
+</span>368 <span style=''>  // positions
+</span>369 <span style=''>
+</span>370 <span style=''>  /**
+</span>371 <span style=''>   * Length offset for BaseArray based IDs Base Int (last 16 bits)
+</span>372 <span style=''>   */
+</span>373 <span style=''>  val lengthOffset = </span><span style='background: #AEF1AE'>0</span><span style=''>
+</span>374 <span style=''>  /**
+</span>375 <span style=''>   * header bits offset for base Int (first 4 bits)
+</span>376 <span style=''>   */
+</span>377 <span style=''>  val headerBaseBitsOffset = </span><span style='background: #AEF1AE'>24</span><span style=''> // no longer packing !!! arghh !!!! 8
+</span>378 <span style=''>
+</span>379 <span style=''>  // types - can expand / bit map later as needed, 128 values to play with
+</span>380 <span style=''>  val GenericLongsHeader: Byte = </span><span style='background: #AEF1AE'>0x00</span><span style=''>
+</span>381 <span style=''>  val GuaranteedUniqueHeader: Byte = </span><span style='background: #AEF1AE'>0x01</span><span style=''>
+</span>382 <span style=''>
+</span>383 <span style=''>  val byteSize = </span><span style='background: #AEF1AE'>8</span><span style=''>
+</span>384 <span style=''>
+</span>385 <span style=''>  // MAC address for guaranteed unique
+</span>386 <span style=''>
+</span>387 <span style=''>  val guaranteedUniqueMACHeader1stOffset: Int = </span><span style='background: #AEF1AE'>headerBaseBitsOffset - byteSize</span><span style=''>
+</span>388 <span style=''>  val guaranteedUniqueMACHeader2ndOffset: Int  = </span><span style='background: #AEF1AE'>guaranteedUniqueMACHeader1stOffset - byteSize</span><span style=''>
+</span>389 <span style=''>  val guaranteedUniqueMACHeader3rdOffset: Int  = </span><span style='background: #AEF1AE'>guaranteedUniqueMACHeader2ndOffset - byteSize</span><span style=''>
+</span>390 <span style=''>
+</span>391 <span style=''>  // keep alignment in code please, it's a pain to figure out otherwise
+</span>392 <span style=''>  // MS Mask used to wipe out highest significance at 41bits, the constructor checks it doesn't overflow
+</span>393 <span style=''>  val guaranteedUniqueMSMask =          </span><span style='background: #AEF1AE'>0x00000DFFFFFFFFFFL</span><span style=''>
+</span>394 <span style=''>
+</span>395 <span style=''>  // last31 used for the rowid in the second long
+</span>396 <span style=''>  val allButLast31 =                    </span><span style='background: #AEF1AE'>0xFFFFFFFFE0000000L</span><span style=''>
+</span>397 <span style=''>  // last 8 used by the start of the ms value in the first long
+</span>398 <span style=''>  val allButLast8 =                     </span><span style='background: #AEF1AE'>0xFFFFFFFFFFFFFF00L</span><span style=''>
+</span>399 <span style=''>  // first 5 used for 2nd part of the MS into the second long
+</span>400 <span style=''>  val allButFirst33 =                   </span><span style='background: #AEF1AE'>0x00000000FFFFFFFFL</span><span style=''>
+</span>401 <span style=''>
+</span>402 <span style=''>  val all64 =                           </span><span style='background: #AEF1AE'>0xFFFFFFFFFFFFFFFFL</span><span style=''>
+</span>403 <span style=''>
+</span>404 <span style=''>  // used to bit shift to get last 40
+</span>405 <span style=''>  val guaranteedUniqueMSLastIndex = (</span><span style='background: #AEF1AE'>41 - 8</span><span style=''>)
+</span>406 <span style=''>  val guaranteedUniqueMSLastShifted: Int = </span><span style='background: #AEF1AE'>64 - guaranteedUniqueMSLastIndex</span><span style=''> // push it to the front of the long
+</span>407 <span style=''>
+</span>408 <span style=''>  /**
+</span>409 <span style=''>   * Unique row id's maximum value per ms / partition / mac combination, when a partition uses the max value it will
+</span>410 <span style=''>   * then re-evaluate the ms after epoch.
+</span>411 <span style=''>   * NB 16777216 for 24 bit, 1073741824 for 31
+</span>412 <span style=''>   */
+</span>413 <span style=''>  val guaranteedUniqueMaxRowID = </span><span style='background: #AEF1AE'>Math.pow(2, 64 - guaranteedUniqueMSLastShifted - 1).toInt</span><span style=''>
+</span>414 <span style=''>
+</span>415 <span style=''>  /**
+</span>416 <span style=''>   * Epoch is chosen as 2020.1.1:0.0.0 which gives 16 years of ms resolution under 40bits, but 33 under 41bits - 41 therefore attempted
+</span>417 <span style=''>   */
+</span>418 <span style=''>  val guaranteedUniqueEpoch = {
+</span>419 <span style=''>    val c = </span><span style='background: #AEF1AE'>Calendar.getInstance()</span><span style=''>
+</span>420 <span style=''>    </span><span style='background: #AEF1AE'>c.setTimeZone(TimeZone.getTimeZone(&quot;UTC&quot;))</span><span style=''>
+</span>421 <span style=''>    </span><span style='background: #AEF1AE'>c.set(2020, 1, 1, 0, 0, 0)</span><span style=''>
+</span>422 <span style=''>    </span><span style='background: #AEF1AE'>c.getTimeInMillis</span><span style=''>
+</span>423 <span style=''>  }
+</span>424 <span style=''>
+</span>425 <span style=''>  val RandomID: IDType = </span><span style='background: #AEF1AE'>IDTypeImpl(Integer.parseInt(&quot;0000&quot;, 2).toByte, isRandom = true)</span><span style=''>
+</span>426 <span style=''>  val FieldBasedID: IDType = </span><span style='background: #AEF1AE'>IDTypeImpl(Integer.parseInt(&quot;0010&quot;, 2).toByte, isFieldBased = true)</span><span style=''>
+</span>427 <span style=''>  val GuaranteedUniqueIDType: IDType = </span><span style='background: #AEF1AE'>IDTypeImpl(GuaranteedUniqueHeader, isGuaranteedUnique = true)</span><span style=''>
+</span>428 <span style=''>  val ProvidedID: IDType = </span><span style='background: #AEF1AE'>IDTypeImpl(Integer.parseInt(&quot;0100&quot;, 2).toByte, isProvided = true)</span><span style=''>
+</span>429 <span style=''>
+</span>430 <span style=''>  /**
+</span>431 <span style=''>   * parses a given base64 representation of an ID into the correct type
+</span>432 <span style=''>   */
+</span>433 <span style=''>  def parseID(base64ID: String): ID = {
+</span>434 <span style=''>    val bytes = </span><span style='background: #AEF1AE'>Base64.getDecoder.decode(base64ID)</span><span style=''>
+</span>435 <span style=''>    // take the first 4
+</span>436 <span style=''>    val header = </span><span style='background: #AEF1AE'>bytes(0)</span><span style=''>
+</span>437 <span style=''>    val idtype = </span><span style='background: #AEF1AE'>header &amp; GuaranteedUniqueHeader</span><span style=''>
+</span>438 <span style=''>    idtype match {
+</span>439 <span style=''>      case GenericLongsHeader =&gt; // use 2 and 3 to get the length
+</span>440 <span style=''>        val length =
+</span>441 <span style=''>          </span><span style='background: #AEF1AE'>((bytes(2) &amp; 0xFF) &lt;&lt; 16) |
+</span>442 <span style=''></span><span style='background: #AEF1AE'>            ((bytes(3) &amp; 0xFF) &lt;&lt; 0)</span><span style=''>
+</span>443 <span style=''>        val ar = </span><span style='background: #AEF1AE'>Array.ofDim[Long](length)</span><span style=''>
+</span>444 <span style=''>        </span><span style='background: #AEF1AE'>for{i &lt;- 0 until length}{
+</span>445 <span style=''></span><span style='background: #AEF1AE'>          ar(i) = BytePackingUtils.unencodeLong((i*8) + 4, bytes)</span><span style=''>
+</span>446 <span style=''>        }
+</span>447 <span style=''>
+</span>448 <span style=''>        </span><span style='background: #AEF1AE'>GenericLongBasedID(
+</span>449 <span style=''></span><span style='background: #AEF1AE'>          // works as the default is 0 for randoms, would not work for extends then header ^ typeMask == 0 would be needed
+</span>450 <span style=''></span><span style='background: #AEF1AE'>          header match {
+</span>451 <span style=''></span><span style='background: #AEF1AE'>            case FieldBasedID.typeMask =&gt; </span><span style='background: #F0ADAD'>FieldBasedID</span><span style='background: #AEF1AE'>
+</span>452 <span style=''></span><span style='background: #AEF1AE'>            case ProvidedID.typeMask =&gt; </span><span style='background: #F0ADAD'>ProvidedID</span><span style='background: #AEF1AE'>
+</span>453 <span style=''></span><span style='background: #AEF1AE'>            case RandomID.typeMask =&gt; RandomID
+</span>454 <span style=''></span><span style='background: #AEF1AE'>            case _ =&gt; </span><span style='background: #F0ADAD'>throw new InvalidIDType(header.toByte)</span><span style='background: #AEF1AE'>
+</span>455 <span style=''></span><span style='background: #AEF1AE'>          }, ar)</span><span style=''>
+</span>456 <span style=''>
+</span>457 <span style=''>      case GuaranteedUniqueHeader =&gt;
+</span>458 <span style=''>        val maclen = </span><span style='background: #AEF1AE'>6</span><span style=''>
+</span>459 <span style=''>        // (mac: Array[Byte], ms: Long, partition: Int, rowid: Long)
+</span>460 <span style=''>        val mac = </span><span style='background: #AEF1AE'>Array.ofDim[Byte](maclen)</span><span style=''>
+</span>461 <span style=''>        </span><span style='background: #AEF1AE'>mac(0) = bytes(1)</span><span style=''>
+</span>462 <span style=''>        </span><span style='background: #AEF1AE'>mac(1) = bytes(2)</span><span style=''>
+</span>463 <span style=''>        </span><span style='background: #AEF1AE'>mac(2) = bytes(3)</span><span style=''>
+</span>464 <span style=''>        </span><span style='background: #AEF1AE'>mac(3) = bytes(4)</span><span style=''>
+</span>465 <span style=''>        </span><span style='background: #AEF1AE'>mac(4) = bytes(5)</span><span style=''>
+</span>466 <span style=''>        </span><span style='background: #AEF1AE'>mac(5) = bytes(6)</span><span style=''>
+</span>467 <span style=''>
+</span>468 <span style=''>        // dumpMap(mac, &quot;model.parseID&quot;)
+</span>469 <span style=''>
+</span>470 <span style=''>        val partition = </span><span style='background: #AEF1AE'>BytePackingUtils.unencodeInt(maclen + 1, bytes)</span><span style=''>
+</span>471 <span style=''>
+</span>472 <span style=''>        val msstart = (</span><span style='background: #AEF1AE'>maclen + 3</span><span style=''>)
+</span>473 <span style=''>        </span><span style='background: #AEF1AE'>bytes(msstart) = 0</span><span style=''>
+</span>474 <span style=''>        </span><span style='background: #AEF1AE'>bytes(msstart + 1) = 0</span><span style=''>
+</span>475 <span style=''>        val msWith7 = // next 48 are in, so take first 2 from above and shift by 2 bytes
+</span>476 <span style=''>          </span><span style='background: #AEF1AE'>BytePackingUtils.unencodeLong(msstart, bytes)</span><span style=''>
+</span>477 <span style=''>
+</span>478 <span style=''>        // the ms is only 41 bits, however we've got an extra 7 on the end we should drop
+</span>479 <span style=''>        val ms = </span><span style='background: #AEF1AE'>msWith7 &gt;&gt; 7</span><span style=''>
+</span>480 <span style=''>
+</span>481 <span style=''>        val secondLong = // same trick to drop the last
+</span>482 <span style=''>          </span><span style='background: #AEF1AE'>BytePackingUtils.unencodeLong(12, bytes)</span><span style=''>
+</span>483 <span style=''>
+</span>484 <span style=''>        // secondLong only has the last 31 being the row
+</span>485 <span style=''>        val rowID = ( </span><span style='background: #AEF1AE'>( secondLong &lt;&lt; 33 ) &gt;&gt;&gt; 33 ).toInt</span><span style=''>
+</span>486 <span style=''>
+</span>487 <span style=''>        </span><span style='background: #AEF1AE'>GuaranteedUniqueID(mac, ms, partition, rowID)</span><span style=''>
+</span>488 <span style=''>      case _ =&gt;  </span><span style='background: #F0ADAD'>throw new InvalidIDType(header.toByte)</span><span style=''>
+</span>489 <span style=''>    }
+</span>490 <span style=''>  }
+</span>491 <span style=''>
+</span>492 <span style=''>  def base64(bitLength: Int, base: Int, array: Array[Long]) = {
+</span>493 <span style=''>    val bytes = </span><span style='background: #AEF1AE'>Array.ofDim[Byte](bitLength / 8)</span><span style=''>
+</span>494 <span style=''>
+</span>495 <span style=''>    </span><span style='background: #AEF1AE'>BytePackingUtils.encodeInt(base, 0, bytes)</span><span style=''>
+</span>496 <span style=''>    val ar = array
+</span>497 <span style=''>    </span><span style='background: #AEF1AE'>for{i &lt;- 0 until ar.length}{
+</span>498 <span style=''></span><span style='background: #AEF1AE'>      BytePackingUtils.encodeLong(ar(i), (i*8)+4, bytes)</span><span style=''>
+</span>499 <span style=''>    }
+</span>500 <span style=''>
+</span>501 <span style=''>    </span><span style='background: #AEF1AE'>Base64.getEncoder.encodeToString(bytes)</span><span style=''>
+</span>502 <span style=''>  }
+</span>503 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          4022
+        </td>
+        <td>
+          2758
+          -
+          2776
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          prefix.+(&quot;_&quot;).+(f.name)
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          4024
+        </td>
+        <td>
+          2745
+          -
+          2745
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.copy$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          f.copy$default$3
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          4027
+        </td>
+        <td>
+          2737
+          -
+          2737
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Array.canBuildFrom[org.apache.spark.sql.types.StructField]((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField]))
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          4021
+        </td>
+        <td>
+          2770
+          -
+          2776
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          f.name
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          4020
+        </td>
+        <td>
+          2766
+          -
+          2769
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;_&quot;
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          4029
+        </td>
+        <td>
+          2703
+          -
+          2782
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructType.apply(scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](ID.this.rawDataType.fields).map[org.apache.spark.sql.types.StructField, Array[org.apache.spark.sql.types.StructField]](((f: org.apache.spark.sql.types.StructField) =&gt; f.copy(prefix.+(&quot;_&quot;).+(f.name), f.copy$default$2, f.copy$default$3, f.copy$default$4)))(scala.this.Array.canBuildFrom[org.apache.spark.sql.types.StructField]((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField]))))
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          4023
+        </td>
+        <td>
+          2745
+          -
+          2745
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.copy$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          f.copy$default$2
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          4026
+        </td>
+        <td>
+          2743
+          -
+          2778
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          f.copy(prefix.+(&quot;_&quot;).+(f.name), f.copy$default$2, f.copy$default$3, f.copy$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          4025
+        </td>
+        <td>
+          2745
+          -
+          2745
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.copy$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          f.copy$default$4
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          4019
+        </td>
+        <td>
+          2715
+          -
+          2733
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.fields
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ID.this.rawDataType.fields
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          4028
+        </td>
+        <td>
+          2715
+          -
+          2780
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](ID.this.rawDataType.fields).map[org.apache.spark.sql.types.StructField, Array[org.apache.spark.sql.types.StructField]](((f: org.apache.spark.sql.types.StructField) =&gt; f.copy(prefix.+(&quot;_&quot;).+(f.name), f.copy$default$2, f.copy$default$3, f.copy$default$4)))(scala.this.Array.canBuildFrom[org.apache.spark.sql.types.StructField]((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField])))
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          4033
+        </td>
+        <td>
+          3289
+          -
+          3373
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.|
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BaseWithLongs.this.array.length.&lt;&lt;(model.lengthOffset).|(BaseWithLongs.this.header.&lt;&lt;(model.headerBaseBitsOffset))
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          4030
+        </td>
+        <td>
+          3306
+          -
+          3324
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.lengthOffset
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.lengthOffset
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          4031
+        </td>
+        <td>
+          3345
+          -
+          3371
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.headerBaseBitsOffset
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.headerBaseBitsOffset
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          4032
+        </td>
+        <td>
+          3335
+          -
+          3371
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Byte.&lt;&lt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BaseWithLongs.this.header.&lt;&lt;(model.headerBaseBitsOffset)
+        </td>
+      </tr><tr>
+        <td>
+          129
+        </td>
+        <td>
+          4045
+        </td>
+        <td>
+          3666
+          -
+          3837
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructType.apply({
+  &lt;synthetic&gt; &lt;artifact&gt; val x$1: org.apache.spark.sql.types.StructField = org.apache.spark.sql.types.StructField.apply(&quot;base&quot;, org.apache.spark.sql.types.IntegerType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4);
+  scala.Predef.intWrapper(0).until(BaseWithLongs.this.array.length).map[org.apache.spark.sql.types.StructField, scala.collection.immutable.IndexedSeq[org.apache.spark.sql.types.StructField]](((i: Int) =&gt; org.apache.spark.sql.types.StructField.apply(&quot;i&quot;.+(i), org.apache.spark.sql.types.LongType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4)))(immutable.this.IndexedSeq.canBuildFrom[org.apache.spark.sql.types.StructField]).+:[org.apache.spark.sql.types.StructField, scala.collection.immutable.IndexedSeq[org.apache.spark.sql.types.StructField]](x$1)(immutable.this.IndexedSeq.canBuildFrom[org.apache.spark.sql.types.StructField])
+}.toArray[org.apache.spark.sql.types.StructField]((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField])))
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          4042
+        </td>
+        <td>
+          3735
+          -
+          3735
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.IndexedSeq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          immutable.this.IndexedSeq.canBuildFrom[org.apache.spark.sql.types.StructField]
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          4043
+        </td>
+        <td>
+          3684
+          -
+          3823
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.SeqLike.+:
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.intWrapper(0).until(BaseWithLongs.this.array.length).map[org.apache.spark.sql.types.StructField, scala.collection.immutable.IndexedSeq[org.apache.spark.sql.types.StructField]](((i: Int) =&gt; org.apache.spark.sql.types.StructField.apply(&quot;i&quot;.+(i), org.apache.spark.sql.types.LongType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4)))(immutable.this.IndexedSeq.canBuildFrom[org.apache.spark.sql.types.StructField]).+:[org.apache.spark.sql.types.StructField, scala.collection.immutable.IndexedSeq[org.apache.spark.sql.types.StructField]](x$1)(immutable.this.IndexedSeq.canBuildFrom[org.apache.spark.sql.types.StructField])
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          4040
+        </td>
+        <td>
+          3776
+          -
+          3822
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply(&quot;i&quot;.+(i), org.apache.spark.sql.types.LongType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          4036
+        </td>
+        <td>
+          3795
+          -
+          3800
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;i&quot;.+(i)
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          4039
+        </td>
+        <td>
+          3776
+          -
+          3776
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          4038
+        </td>
+        <td>
+          3776
+          -
+          3776
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          4041
+        </td>
+        <td>
+          3770
+          -
+          3770
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.IndexedSeq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          immutable.this.IndexedSeq.canBuildFrom[org.apache.spark.sql.types.StructField]
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          4035
+        </td>
+        <td>
+          3753
+          -
+          3765
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Array.length
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BaseWithLongs.this.array.length
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          4044
+        </td>
+        <td>
+          3684
+          -
+          3833
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$1: org.apache.spark.sql.types.StructField = org.apache.spark.sql.types.StructField.apply(&quot;base&quot;, org.apache.spark.sql.types.IntegerType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4);
+  scala.Predef.intWrapper(0).until(BaseWithLongs.this.array.length).map[org.apache.spark.sql.types.StructField, scala.collection.immutable.IndexedSeq[org.apache.spark.sql.types.StructField]](((i: Int) =&gt; org.apache.spark.sql.types.StructField.apply(&quot;i&quot;.+(i), org.apache.spark.sql.types.LongType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4)))(immutable.this.IndexedSeq.canBuildFrom[org.apache.spark.sql.types.StructField]).+:[org.apache.spark.sql.types.StructField, scala.collection.immutable.IndexedSeq[org.apache.spark.sql.types.StructField]](x$1)(immutable.this.IndexedSeq.canBuildFrom[org.apache.spark.sql.types.StructField])
+}.toArray[org.apache.spark.sql.types.StructField]((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField]))
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          4034
+        </td>
+        <td>
+          3745
+          -
+          3746
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          4037
+        </td>
+        <td>
+          3813
+          -
+          3821
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.LongType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.LongType
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          4047
+        </td>
+        <td>
+          3953
+          -
+          3988
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.ofDim
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Array.ofDim[Long](BaseWithLongs.this.array.length.+(1))((ClassTag.Long: scala.reflect.ClassTag[Long]))
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          4046
+        </td>
+        <td>
+          3971
+          -
+          3987
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          BaseWithLongs.this.array.length.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          4049
+        </td>
+        <td>
+          4001
+          -
+          4005
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Int.toLong
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          BaseWithLongs.this.base.toLong
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          4048
+        </td>
+        <td>
+          3996
+          -
+          3997
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          4050
+        </td>
+        <td>
+          3993
+          -
+          4005
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ar.update(0, BaseWithLongs.this.base.toLong)
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          4051
+        </td>
+        <td>
+          4021
+          -
+          4026
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.BaseWithLongs.array
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          BaseWithLongs.this.array
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          4054
+        </td>
+        <td>
+          4038
+          -
+          4050
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Array.length
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          BaseWithLongs.this.array.length
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          4053
+        </td>
+        <td>
+          4035
+          -
+          4036
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          4052
+        </td>
+        <td>
+          4028
+          -
+          4029
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          4055
+        </td>
+        <td>
+          4010
+          -
+          4051
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Array.copy(BaseWithLongs.this.array, 0, ar, 1, BaseWithLongs.this.array.length)
+        </td>
+      </tr><tr>
+        <td>
+          143
+        </td>
+        <td>
+          4056
+        </td>
+        <td>
+          4069
+          -
+          4099
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.BitSet.fromBitMaskNoCopy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.immutable.BitSet.fromBitMaskNoCopy(ar)
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          4058
+        </td>
+        <td>
+          4264
+          -
+          4281
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.*
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BaseWithLongs.this.array.length.*(64)
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          4057
+        </td>
+        <td>
+          4258
+          -
+          4260
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          32
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          4059
+        </td>
+        <td>
+          4258
+          -
+          4282
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          32.+(BaseWithLongs.this.array.length.*(64))
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          4060
+        </td>
+        <td>
+          4423
+          -
+          4432
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.BaseWithLongs.bitLength
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BaseWithLongs.this.bitLength
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          4063
+        </td>
+        <td>
+          4410
+          -
+          4446
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.base64
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.base64(BaseWithLongs.this.bitLength, BaseWithLongs.this.base, BaseWithLongs.this.array)
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          4062
+        </td>
+        <td>
+          4440
+          -
+          4445
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.BaseWithLongs.array
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BaseWithLongs.this.array
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          4061
+        </td>
+        <td>
+          4434
+          -
+          4438
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.BaseWithLongs.base
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BaseWithLongs.this.base
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          4064
+        </td>
+        <td>
+          4629
+          -
+          4633
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          178
+        </td>
+        <td>
+          4067
+        </td>
+        <td>
+          4970
+          -
+          5000
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          id.bitLength.==(this.bitLength)
+        </td>
+      </tr><tr>
+        <td>
+          178
+        </td>
+        <td>
+          4066
+        </td>
+        <td>
+          4986
+          -
+          5000
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.BaseWithLongs.bitLength
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          this.bitLength
+        </td>
+      </tr><tr>
+        <td>
+          178
+        </td>
+        <td>
+          4069
+        </td>
+        <td>
+          5004
+          -
+          5008
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          178
+        </td>
+        <td>
+          4065
+        </td>
+        <td>
+          4957
+          -
+          4966
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.GenericLongBasedID.idType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          id.idType
+        </td>
+      </tr><tr>
+        <td>
+          178
+        </td>
+        <td>
+          4068
+        </td>
+        <td>
+          4947
+          -
+          5000
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GenericLongBasedID.this.idType.==(id.idType).&amp;&amp;(id.bitLength.==(this.bitLength))
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          4070
+        </td>
+        <td>
+          5025
+          -
+          5030
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          189
+        </td>
+        <td>
+          4071
+        </td>
+        <td>
+          5230
+          -
+          5258
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.GenericLongBasedID.comparableImplementation
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GenericLongBasedID.this.comparableImplementation(id)
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          4076
+        </td>
+        <td>
+          5270
+          -
+          5289
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.IndexedSeqOptimized.zip
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.longArrayOps(GenericLongBasedID.this.array).zip[Long, Long, Array[(Long, Long)]](scala.Predef.wrapLongArray(id.array))(scala.this.Array.canBuildFrom[(Long, Long)]((ClassTag.apply[(Long, Long)](classOf[scala.Tuple2]): scala.reflect.ClassTag[(Long, Long)])))
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          4075
+        </td>
+        <td>
+          5279
+          -
+          5279
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Array.canBuildFrom[(Long, Long)]((ClassTag.apply[(Long, Long)](classOf[scala.Tuple2]): scala.reflect.ClassTag[(Long, Long)]))
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          4078
+        </td>
+        <td>
+          5302
+          -
+          5314
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          p._1.==(p._2)
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          4072
+        </td>
+        <td>
+          5270
+          -
+          5275
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.GenericLongBasedID.array
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GenericLongBasedID.this.array
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          4074
+        </td>
+        <td>
+          5280
+          -
+          5288
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.LowPriorityImplicits.wrapLongArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.wrapLongArray(id.array)
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          4077
+        </td>
+        <td>
+          5310
+          -
+          5314
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          p._2
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          4079
+        </td>
+        <td>
+          5270
+          -
+          5315
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IndexedSeqOptimized.forall
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.refArrayOps[(Long, Long)](scala.Predef.longArrayOps(GenericLongBasedID.this.array).zip[Long, Long, Array[(Long, Long)]](scala.Predef.wrapLongArray(id.array))(scala.this.Array.canBuildFrom[(Long, Long)]((ClassTag.apply[(Long, Long)](classOf[scala.Tuple2]): scala.reflect.ClassTag[(Long, Long)])))).forall(((p: (Long, Long)) =&gt; p._1.==(p._2)))
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          4073
+        </td>
+        <td>
+          5280
+          -
+          5288
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.GenericLongBasedID.array
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          id.array
+        </td>
+      </tr><tr>
+        <td>
+          191
+        </td>
+        <td>
+          4080
+        </td>
+        <td>
+          5332
+          -
+          5337
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          197
+        </td>
+        <td>
+          4081
+        </td>
+        <td>
+          5420
+          -
+          5444
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.GenericLongsHeader
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.GenericLongsHeader
+        </td>
+      </tr><tr>
+        <td>
+          206
+        </td>
+        <td>
+          4083
+        </td>
+        <td>
+          5651
+          -
+          5671
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.ofDim
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Array.ofDim[Long](2)((ClassTag.Long: scala.reflect.ClassTag[Long]))
+        </td>
+      </tr><tr>
+        <td>
+          206
+        </td>
+        <td>
+          4082
+        </td>
+        <td>
+          5669
+          -
+          5670
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          2
+        </td>
+      </tr><tr>
+        <td>
+          207
+        </td>
+        <td>
+          4084
+        </td>
+        <td>
+          5684
+          -
+          5685
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          210
+        </td>
+        <td>
+          4085
+        </td>
+        <td>
+          5791
+          -
+          5793
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0L
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          4087
+        </td>
+        <td>
+          5862
+          -
+          5898
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&lt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueIDOps.this.row.&lt;(model.guaranteedUniqueMaxRowID)
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          4086
+        </td>
+        <td>
+          5868
+          -
+          5898
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.guaranteedUniqueMaxRowID
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.guaranteedUniqueMaxRowID
+        </td>
+      </tr><tr>
+        <td>
+          217
+        </td>
+        <td>
+          4090
+        </td>
+        <td>
+          5908
+          -
+          5916
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.GuaranteedUniqueIDOps.row_=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueIDOps.this.row_=(GuaranteedUniqueIDOps.this.row.+(1))
+        </td>
+      </tr><tr>
+        <td>
+          217
+        </td>
+        <td>
+          4089
+        </td>
+        <td>
+          5908
+          -
+          5916
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.GuaranteedUniqueIDOps.row_=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueIDOps.this.row_=(GuaranteedUniqueIDOps.this.row.+(1))
+        </td>
+      </tr><tr>
+        <td>
+          217
+        </td>
+        <td>
+          4088
+        </td>
+        <td>
+          5908
+          -
+          5916
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueIDOps.this.row.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          218
+        </td>
+        <td>
+          4113
+        </td>
+        <td>
+          5928
+          -
+          6435
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  GuaranteedUniqueIDOps.this.row_=(0);
+  GuaranteedUniqueIDOps.this.ms_=(java.lang.System.currentTimeMillis().-(model.guaranteedUniqueEpoch).&amp;(model.guaranteedUniqueMSMask));
+  GuaranteedUniqueIDOps.this.array.update(0, GuaranteedUniqueIDOps.this.array.apply(0).&amp;(model.allButLast8).|(GuaranteedUniqueIDOps.this.ms.&gt;&gt;(model.guaranteedUniqueMSLastIndex).&amp;(model.all64)));
+  GuaranteedUniqueIDOps.this.array.update(1, 0L);
+  GuaranteedUniqueIDOps.this.array.update(1, GuaranteedUniqueIDOps.this.array.apply(1).&amp;(model.allButFirst33).|(GuaranteedUniqueIDOps.this.ms.&lt;&lt;(model.guaranteedUniqueMSLastShifted).&amp;(model.all64)))
+}
+        </td>
+      </tr><tr>
+        <td>
+          219
+        </td>
+        <td>
+          4091
+        </td>
+        <td>
+          5936
+          -
+          5943
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.GuaranteedUniqueIDOps.row_=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueIDOps.this.row_=(0)
+        </td>
+      </tr><tr>
+        <td>
+          221
+        </td>
+        <td>
+          4093
+        </td>
+        <td>
+          6064
+          -
+          6092
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.guaranteedUniqueMSMask
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.guaranteedUniqueMSMask
+        </td>
+      </tr><tr>
+        <td>
+          221
+        </td>
+        <td>
+          4092
+        </td>
+        <td>
+          6033
+          -
+          6060
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.guaranteedUniqueEpoch
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.guaranteedUniqueEpoch
+        </td>
+      </tr><tr>
+        <td>
+          221
+        </td>
+        <td>
+          4095
+        </td>
+        <td>
+          6000
+          -
+          6092
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.GuaranteedUniqueIDOps.ms_=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueIDOps.this.ms_=(java.lang.System.currentTimeMillis().-(model.guaranteedUniqueEpoch).&amp;(model.guaranteedUniqueMSMask))
+        </td>
+      </tr><tr>
+        <td>
+          221
+        </td>
+        <td>
+          4094
+        </td>
+        <td>
+          6005
+          -
+          6092
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          java.lang.System.currentTimeMillis().-(model.guaranteedUniqueEpoch).&amp;(model.guaranteedUniqueMSMask)
+        </td>
+      </tr><tr>
+        <td>
+          224
+        </td>
+        <td>
+          4102
+        </td>
+        <td>
+          6163
+          -
+          6249
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.|
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueIDOps.this.array.apply(0).&amp;(model.allButLast8).|(GuaranteedUniqueIDOps.this.ms.&gt;&gt;(model.guaranteedUniqueMSLastIndex).&amp;(model.all64))
+        </td>
+      </tr><tr>
+        <td>
+          224
+        </td>
+        <td>
+          4096
+        </td>
+        <td>
+          6158
+          -
+          6159
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          224
+        </td>
+        <td>
+          4099
+        </td>
+        <td>
+          6201
+          -
+          6234
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.guaranteedUniqueMSLastIndex
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.guaranteedUniqueMSLastIndex
+        </td>
+      </tr><tr>
+        <td>
+          224
+        </td>
+        <td>
+          4098
+        </td>
+        <td>
+          6174
+          -
+          6191
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.allButLast8
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.allButLast8
+        </td>
+      </tr><tr>
+        <td>
+          224
+        </td>
+        <td>
+          4101
+        </td>
+        <td>
+          6194
+          -
+          6249
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueIDOps.this.ms.&gt;&gt;(model.guaranteedUniqueMSLastIndex).&amp;(model.all64)
+        </td>
+      </tr><tr>
+        <td>
+          224
+        </td>
+        <td>
+          4103
+        </td>
+        <td>
+          6152
+          -
+          6249
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueIDOps.this.array.update(0, GuaranteedUniqueIDOps.this.array.apply(0).&amp;(model.allButLast8).|(GuaranteedUniqueIDOps.this.ms.&gt;&gt;(model.guaranteedUniqueMSLastIndex).&amp;(model.all64)))
+        </td>
+      </tr><tr>
+        <td>
+          224
+        </td>
+        <td>
+          4097
+        </td>
+        <td>
+          6169
+          -
+          6170
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          224
+        </td>
+        <td>
+          4100
+        </td>
+        <td>
+          6238
+          -
+          6249
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.all64
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.all64
+        </td>
+      </tr><tr>
+        <td>
+          226
+        </td>
+        <td>
+          4104
+        </td>
+        <td>
+          6301
+          -
+          6313
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueIDOps.this.array.update(1, 0L)
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          4111
+        </td>
+        <td>
+          6331
+          -
+          6429
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.|
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueIDOps.this.array.apply(1).&amp;(model.allButFirst33).|(GuaranteedUniqueIDOps.this.ms.&lt;&lt;(model.guaranteedUniqueMSLastShifted).&amp;(model.all64))
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          4105
+        </td>
+        <td>
+          6326
+          -
+          6327
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          4107
+        </td>
+        <td>
+          6342
+          -
+          6361
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.allButFirst33
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.allButFirst33
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          4112
+        </td>
+        <td>
+          6320
+          -
+          6429
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueIDOps.this.array.update(1, GuaranteedUniqueIDOps.this.array.apply(1).&amp;(model.allButFirst33).|(GuaranteedUniqueIDOps.this.ms.&lt;&lt;(model.guaranteedUniqueMSLastShifted).&amp;(model.all64)))
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          4106
+        </td>
+        <td>
+          6337
+          -
+          6338
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          4108
+        </td>
+        <td>
+          6379
+          -
+          6414
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.guaranteedUniqueMSLastShifted
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.guaranteedUniqueMSLastShifted
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          4110
+        </td>
+        <td>
+          6372
+          -
+          6429
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueIDOps.this.ms.&lt;&lt;(model.guaranteedUniqueMSLastShifted).&amp;(model.all64)
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          4109
+        </td>
+        <td>
+          6418
+          -
+          6429
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.all64
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.all64
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          4117
+        </td>
+        <td>
+          6489
+          -
+          6500
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.all64
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.all64
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          4120
+        </td>
+        <td>
+          6440
+          -
+          6500
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueIDOps.this.array.update(1, GuaranteedUniqueIDOps.this.array.apply(1).&amp;(model.allButLast31).|(GuaranteedUniqueIDOps.this.row.&amp;(model.all64)))
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          4114
+        </td>
+        <td>
+          6446
+          -
+          6447
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          4116
+        </td>
+        <td>
+          6462
+          -
+          6480
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.allButLast31
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.allButLast31
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          4119
+        </td>
+        <td>
+          6451
+          -
+          6500
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.|
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueIDOps.this.array.apply(1).&amp;(model.allButLast31).|(GuaranteedUniqueIDOps.this.row.&amp;(model.all64))
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          4115
+        </td>
+        <td>
+          6457
+          -
+          6458
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          4118
+        </td>
+        <td>
+          6483
+          -
+          6500
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueIDOps.this.row.&amp;(model.all64)
+        </td>
+      </tr><tr>
+        <td>
+          233
+        </td>
+        <td>
+          4123
+        </td>
+        <td>
+          6553
+          -
+          6558
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.GuaranteedUniqueIDOps.array
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueIDOps.this.array
+        </td>
+      </tr><tr>
+        <td>
+          233
+        </td>
+        <td>
+          4122
+        </td>
+        <td>
+          6547
+          -
+          6551
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.GuaranteedUniqueIDOps.base
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueIDOps.this.base
+        </td>
+      </tr><tr>
+        <td>
+          233
+        </td>
+        <td>
+          4121
+        </td>
+        <td>
+          6542
+          -
+          6545
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          160
+        </td>
+      </tr><tr>
+        <td>
+          233
+        </td>
+        <td>
+          4124
+        </td>
+        <td>
+          6529
+          -
+          6559
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.base64
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.base64(160, GuaranteedUniqueIDOps.this.base, GuaranteedUniqueIDOps.this.array)
+        </td>
+      </tr><tr>
+        <td>
+          256
+        </td>
+        <td>
+          4126
+        </td>
+        <td>
+          8069
+          -
+          8104
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;MAC addresses are only ever 48bit&quot;
+        </td>
+      </tr><tr>
+        <td>
+          256
+        </td>
+        <td>
+          4125
+        </td>
+        <td>
+          8052
+          -
+          8067
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueID.this.mac.length.==(6)
+        </td>
+      </tr><tr>
+        <td>
+          256
+        </td>
+        <td>
+          4127
+        </td>
+        <td>
+          8045
+          -
+          8105
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.assert
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.assert(GuaranteedUniqueID.this.mac.length.==(6), &quot;MAC addresses are only ever 48bit&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          257
+        </td>
+        <td>
+          4129
+        </td>
+        <td>
+          8127
+          -
+          8161
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;RowID must be greater than 0 not &quot;
+        </td>
+      </tr><tr>
+        <td>
+          257
+        </td>
+        <td>
+          4132
+        </td>
+        <td>
+          8125
+          -
+          8167
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;RowID must be greater than 0 not &quot;, &quot;&quot;).s(GuaranteedUniqueID.this.row)
+        </td>
+      </tr><tr>
+        <td>
+          257
+        </td>
+        <td>
+          4131
+        </td>
+        <td>
+          8162
+          -
+          8165
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.GuaranteedUniqueID.row
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueID.this.row
+        </td>
+      </tr><tr>
+        <td>
+          257
+        </td>
+        <td>
+          4128
+        </td>
+        <td>
+          8115
+          -
+          8123
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&gt;=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueID.this.row.&gt;=(0)
+        </td>
+      </tr><tr>
+        <td>
+          257
+        </td>
+        <td>
+          4130
+        </td>
+        <td>
+          8166
+          -
+          8167
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          257
+        </td>
+        <td>
+          4133
+        </td>
+        <td>
+          8108
+          -
+          8168
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.assert
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.assert(GuaranteedUniqueID.this.row.&gt;=(0), scala.StringContext.apply(&quot;RowID must be greater than 0 not &quot;, &quot;&quot;).s(GuaranteedUniqueID.this.row))
+        </td>
+      </tr><tr>
+        <td>
+          258
+        </td>
+        <td>
+          4135
+        </td>
+        <td>
+          8178
+          -
+          8214
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&lt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueID.this.row.&lt;(model.guaranteedUniqueMaxRowID)
+        </td>
+      </tr><tr>
+        <td>
+          258
+        </td>
+        <td>
+          4138
+        </td>
+        <td>
+          8310
+          -
+          8311
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          258
+        </td>
+        <td>
+          4141
+        </td>
+        <td>
+          8216
+          -
+          8311
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;RowID cannot be more than 31bits long i.e. &quot;, &quot; instead of &quot;, &quot;&quot;).s(model.guaranteedUniqueMaxRowID, GuaranteedUniqueID.this.row)
+        </td>
+      </tr><tr>
+        <td>
+          258
+        </td>
+        <td>
+          4140
+        </td>
+        <td>
+          8307
+          -
+          8310
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.GuaranteedUniqueID.row
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueID.this.row
+        </td>
+      </tr><tr>
+        <td>
+          258
+        </td>
+        <td>
+          4134
+        </td>
+        <td>
+          8184
+          -
+          8214
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.guaranteedUniqueMaxRowID
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.guaranteedUniqueMaxRowID
+        </td>
+      </tr><tr>
+        <td>
+          258
+        </td>
+        <td>
+          4137
+        </td>
+        <td>
+          8294
+          -
+          8307
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot; instead of &quot;
+        </td>
+      </tr><tr>
+        <td>
+          258
+        </td>
+        <td>
+          4139
+        </td>
+        <td>
+          8263
+          -
+          8293
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.guaranteedUniqueMaxRowID
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.guaranteedUniqueMaxRowID
+        </td>
+      </tr><tr>
+        <td>
+          258
+        </td>
+        <td>
+          4142
+        </td>
+        <td>
+          8171
+          -
+          8312
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.assert
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.assert(GuaranteedUniqueID.this.row.&lt;(model.guaranteedUniqueMaxRowID), scala.StringContext.apply(&quot;RowID cannot be more than 31bits long i.e. &quot;, &quot; instead of &quot;, &quot;&quot;).s(model.guaranteedUniqueMaxRowID, GuaranteedUniqueID.this.row))
+        </td>
+      </tr><tr>
+        <td>
+          258
+        </td>
+        <td>
+          4136
+        </td>
+        <td>
+          8218
+          -
+          8262
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;RowID cannot be more than 31bits long i.e. &quot;
+        </td>
+      </tr><tr>
+        <td>
+          259
+        </td>
+        <td>
+          4144
+        </td>
+        <td>
+          8361
+          -
+          8363
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.GuaranteedUniqueID.ms
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueID.this.ms
+        </td>
+      </tr><tr>
+        <td>
+          259
+        </td>
+        <td>
+          4147
+        </td>
+        <td>
+          8315
+          -
+          8544
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.assert
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.assert(GuaranteedUniqueID.this.ms.&amp;(model.guaranteedUniqueMSMask).==(GuaranteedUniqueID.this.ms), scala.StringContext.apply(&quot;ms may not be larger than 48bits is &quot;, &quot;, ensure either &quot;).s(GuaranteedUniqueID.this.ms).+(&quot;model.guaranteedUniqueEpoch is subtracted or you used a Tardis.  Tardis usage by humans is strictly prohibited.&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          259
+        </td>
+        <td>
+          4143
+        </td>
+        <td>
+          8328
+          -
+          8356
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.guaranteedUniqueMSMask
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.guaranteedUniqueMSMask
+        </td>
+      </tr><tr>
+        <td>
+          259
+        </td>
+        <td>
+          4146
+        </td>
+        <td>
+          8365
+          -
+          8543
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;ms may not be larger than 48bits is &quot;, &quot;, ensure either &quot;).s(GuaranteedUniqueID.this.ms).+(&quot;model.guaranteedUniqueEpoch is subtracted or you used a Tardis.  Tardis usage by humans is strictly prohibited.&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          259
+        </td>
+        <td>
+          4145
+        </td>
+        <td>
+          8322
+          -
+          8363
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueID.this.ms.&amp;(model.guaranteedUniqueMSMask).==(GuaranteedUniqueID.this.ms)
+        </td>
+      </tr><tr>
+        <td>
+          262
+        </td>
+        <td>
+          4148
+        </td>
+        <td>
+          8578
+          -
+          8606
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.GuaranteedUniqueIDType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.GuaranteedUniqueIDType
+        </td>
+      </tr><tr>
+        <td>
+          263
+        </td>
+        <td>
+          4149
+        </td>
+        <td>
+          8652
+          -
+          8657
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          270
+        </td>
+        <td>
+          4150
+        </td>
+        <td>
+          8817
+          -
+          8821
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.GuaranteedUniqueID.base
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueID.this.base
+        </td>
+      </tr><tr>
+        <td>
+          270
+        </td>
+        <td>
+          4151
+        </td>
+        <td>
+          8791
+          -
+          8822
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.GuaranteedUniqueIDOps.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new GuaranteedUniqueIDOps(GuaranteedUniqueID.this.base)
+        </td>
+      </tr><tr>
+        <td>
+          271
+        </td>
+        <td>
+          4152
+        </td>
+        <td>
+          8836
+          -
+          8841
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.GuaranteedUniqueID.array
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueID.this.array
+        </td>
+      </tr><tr>
+        <td>
+          272
+        </td>
+        <td>
+          4153
+        </td>
+        <td>
+          8856
+          -
+          8857
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          272
+        </td>
+        <td>
+          4155
+        </td>
+        <td>
+          8846
+          -
+          8866
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.array.update(0, ar.apply(0))
+        </td>
+      </tr><tr>
+        <td>
+          272
+        </td>
+        <td>
+          4154
+        </td>
+        <td>
+          8861
+          -
+          8866
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ar.apply(0)
+        </td>
+      </tr><tr>
+        <td>
+          273
+        </td>
+        <td>
+          4156
+        </td>
+        <td>
+          8881
+          -
+          8882
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          273
+        </td>
+        <td>
+          4158
+        </td>
+        <td>
+          8871
+          -
+          8891
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.array.update(1, ar.apply(1))
+        </td>
+      </tr><tr>
+        <td>
+          273
+        </td>
+        <td>
+          4157
+        </td>
+        <td>
+          8886
+          -
+          8891
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ar.apply(1)
+        </td>
+      </tr><tr>
+        <td>
+          274
+        </td>
+        <td>
+          4159
+        </td>
+        <td>
+          8906
+          -
+          8909
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.GuaranteedUniqueID.row
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueID.this.row
+        </td>
+      </tr><tr>
+        <td>
+          274
+        </td>
+        <td>
+          4160
+        </td>
+        <td>
+          8896
+          -
+          8909
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.GuaranteedUniqueIDOps.row_=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.row_=(GuaranteedUniqueID.this.row)
+        </td>
+      </tr><tr>
+        <td>
+          275
+        </td>
+        <td>
+          4162
+        </td>
+        <td>
+          8914
+          -
+          8925
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.GuaranteedUniqueIDOps.ms_=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.ms_=(GuaranteedUniqueID.this.ms)
+        </td>
+      </tr><tr>
+        <td>
+          275
+        </td>
+        <td>
+          4161
+        </td>
+        <td>
+          8923
+          -
+          8925
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.GuaranteedUniqueID.ms
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueID.this.ms
+        </td>
+      </tr><tr>
+        <td>
+          283
+        </td>
+        <td>
+          4163
+        </td>
+        <td>
+          9053
+          -
+          9079
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.headerBaseBitsOffset
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.headerBaseBitsOffset
+        </td>
+      </tr><tr>
+        <td>
+          284
+        </td>
+        <td>
+          4165
+        </td>
+        <td>
+          9138
+          -
+          9142
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          255
+        </td>
+      </tr><tr>
+        <td>
+          284
+        </td>
+        <td>
+          4167
+        </td>
+        <td>
+          9128
+          -
+          9187
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&lt;&lt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueID.this.mac.apply(0).&amp;(255).&lt;&lt;(model.guaranteedUniqueMACHeader1stOffset)
+        </td>
+      </tr><tr>
+        <td>
+          284
+        </td>
+        <td>
+          4164
+        </td>
+        <td>
+          9133
+          -
+          9134
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          284
+        </td>
+        <td>
+          4166
+        </td>
+        <td>
+          9147
+          -
+          9187
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.guaranteedUniqueMACHeader1stOffset
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.guaranteedUniqueMACHeader1stOffset
+        </td>
+      </tr><tr>
+        <td>
+          285
+        </td>
+        <td>
+          4168
+        </td>
+        <td>
+          9203
+          -
+          9204
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          285
+        </td>
+        <td>
+          4171
+        </td>
+        <td>
+          9198
+          -
+          9257
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&lt;&lt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueID.this.mac.apply(1).&amp;(255).&lt;&lt;(model.guaranteedUniqueMACHeader2ndOffset)
+        </td>
+      </tr><tr>
+        <td>
+          285
+        </td>
+        <td>
+          4176
+        </td>
+        <td>
+          9042
+          -
+          9328
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.|
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueID.this.header.&lt;&lt;(model.headerBaseBitsOffset).|(GuaranteedUniqueID.this.mac.apply(0).&amp;(255).&lt;&lt;(model.guaranteedUniqueMACHeader1stOffset)).|(GuaranteedUniqueID.this.mac.apply(1).&amp;(255).&lt;&lt;(model.guaranteedUniqueMACHeader2ndOffset)).|(GuaranteedUniqueID.this.mac.apply(2).&amp;(255).&lt;&lt;(model.guaranteedUniqueMACHeader3rdOffset))
+        </td>
+      </tr><tr>
+        <td>
+          285
+        </td>
+        <td>
+          4170
+        </td>
+        <td>
+          9217
+          -
+          9257
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.guaranteedUniqueMACHeader2ndOffset
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.guaranteedUniqueMACHeader2ndOffset
+        </td>
+      </tr><tr>
+        <td>
+          285
+        </td>
+        <td>
+          4169
+        </td>
+        <td>
+          9208
+          -
+          9212
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          255
+        </td>
+      </tr><tr>
+        <td>
+          286
+        </td>
+        <td>
+          4174
+        </td>
+        <td>
+          9287
+          -
+          9327
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.guaranteedUniqueMACHeader3rdOffset
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.guaranteedUniqueMACHeader3rdOffset
+        </td>
+      </tr><tr>
+        <td>
+          286
+        </td>
+        <td>
+          4173
+        </td>
+        <td>
+          9278
+          -
+          9282
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          255
+        </td>
+      </tr><tr>
+        <td>
+          286
+        </td>
+        <td>
+          4172
+        </td>
+        <td>
+          9273
+          -
+          9274
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          2
+        </td>
+      </tr><tr>
+        <td>
+          286
+        </td>
+        <td>
+          4175
+        </td>
+        <td>
+          9268
+          -
+          9327
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&lt;&lt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueID.this.mac.apply(2).&amp;(255).&lt;&lt;(model.guaranteedUniqueMACHeader3rdOffset)
+        </td>
+      </tr><tr>
+        <td>
+          293
+        </td>
+        <td>
+          4177
+        </td>
+        <td>
+          9642
+          -
+          9670
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.guaranteedUniqueMSMask
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.guaranteedUniqueMSMask
+        </td>
+      </tr><tr>
+        <td>
+          293
+        </td>
+        <td>
+          4178
+        </td>
+        <td>
+          9637
+          -
+          9670
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueID.this.ms.&amp;(model.guaranteedUniqueMSMask)
+        </td>
+      </tr><tr>
+        <td>
+          296
+        </td>
+        <td>
+          4180
+        </td>
+        <td>
+          9781
+          -
+          9801
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.ofDim
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Array.ofDim[Byte](8)((ClassTag.Byte: scala.reflect.ClassTag[Byte]))
+        </td>
+      </tr><tr>
+        <td>
+          296
+        </td>
+        <td>
+          4179
+        </td>
+        <td>
+          9799
+          -
+          9800
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          8
+        </td>
+      </tr><tr>
+        <td>
+          297
+        </td>
+        <td>
+          4183
+        </td>
+        <td>
+          9806
+          -
+          9823
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          lbits.update(0, GuaranteedUniqueID.this.mac.apply(3))
+        </td>
+      </tr><tr>
+        <td>
+          297
+        </td>
+        <td>
+          4182
+        </td>
+        <td>
+          9817
+          -
+          9823
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueID.this.mac.apply(3)
+        </td>
+      </tr><tr>
+        <td>
+          297
+        </td>
+        <td>
+          4181
+        </td>
+        <td>
+          9812
+          -
+          9813
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          298
+        </td>
+        <td>
+          4186
+        </td>
+        <td>
+          9828
+          -
+          9845
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          lbits.update(1, GuaranteedUniqueID.this.mac.apply(4))
+        </td>
+      </tr><tr>
+        <td>
+          298
+        </td>
+        <td>
+          4185
+        </td>
+        <td>
+          9839
+          -
+          9845
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueID.this.mac.apply(4)
+        </td>
+      </tr><tr>
+        <td>
+          298
+        </td>
+        <td>
+          4184
+        </td>
+        <td>
+          9834
+          -
+          9835
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          299
+        </td>
+        <td>
+          4189
+        </td>
+        <td>
+          9850
+          -
+          9867
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          lbits.update(2, GuaranteedUniqueID.this.mac.apply(5))
+        </td>
+      </tr><tr>
+        <td>
+          299
+        </td>
+        <td>
+          4188
+        </td>
+        <td>
+          9861
+          -
+          9867
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueID.this.mac.apply(5)
+        </td>
+      </tr><tr>
+        <td>
+          299
+        </td>
+        <td>
+          4187
+        </td>
+        <td>
+          9856
+          -
+          9857
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          2
+        </td>
+      </tr><tr>
+        <td>
+          301
+        </td>
+        <td>
+          4192
+        </td>
+        <td>
+          9873
+          -
+          9920
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.utils.BytePackingUtils.encodeInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.utils.BytePackingUtils.encodeInt(GuaranteedUniqueID.this.partition, 3, lbits)
+        </td>
+      </tr><tr>
+        <td>
+          301
+        </td>
+        <td>
+          4191
+        </td>
+        <td>
+          9911
+          -
+          9912
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          3
+        </td>
+      </tr><tr>
+        <td>
+          301
+        </td>
+        <td>
+          4190
+        </td>
+        <td>
+          9900
+          -
+          9909
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.GuaranteedUniqueID.partition
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueID.this.partition
+        </td>
+      </tr><tr>
+        <td>
+          304
+        </td>
+        <td>
+          4193
+        </td>
+        <td>
+          9956
+          -
+          9968
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          lbits.update(7, 0)
+        </td>
+      </tr><tr>
+        <td>
+          306
+        </td>
+        <td>
+          4194
+        </td>
+        <td>
+          9998
+          -
+          10037
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.utils.BytePackingUtils.unencodeLong
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.utils.BytePackingUtils.unencodeLong(0, lbits)
+        </td>
+      </tr><tr>
+        <td>
+          307
+        </td>
+        <td>
+          4195
+        </td>
+        <td>
+          10055
+          -
+          10057
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0L
+        </td>
+      </tr><tr>
+        <td>
+          310
+        </td>
+        <td>
+          4198
+        </td>
+        <td>
+          10238
+          -
+          10249
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.all64
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.all64
+        </td>
+      </tr><tr>
+        <td>
+          310
+        </td>
+        <td>
+          4200
+        </td>
+        <td>
+          10159
+          -
+          10249
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.|
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          first.&amp;(model.allButLast8).|(trimmedMS.&gt;&gt;(model.guaranteedUniqueMSLastIndex).&amp;(model.all64))
+        </td>
+      </tr><tr>
+        <td>
+          310
+        </td>
+        <td>
+          4197
+        </td>
+        <td>
+          10201
+          -
+          10234
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.guaranteedUniqueMSLastIndex
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.guaranteedUniqueMSLastIndex
+        </td>
+      </tr><tr>
+        <td>
+          310
+        </td>
+        <td>
+          4199
+        </td>
+        <td>
+          10187
+          -
+          10249
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          trimmedMS.&gt;&gt;(model.guaranteedUniqueMSLastIndex).&amp;(model.all64)
+        </td>
+      </tr><tr>
+        <td>
+          310
+        </td>
+        <td>
+          4196
+        </td>
+        <td>
+          10167
+          -
+          10184
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.allButLast8
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.allButLast8
+        </td>
+      </tr><tr>
+        <td>
+          312
+        </td>
+        <td>
+          4201
+        </td>
+        <td>
+          10361
+          -
+          10380
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.allButFirst33
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.allButFirst33
+        </td>
+      </tr><tr>
+        <td>
+          312
+        </td>
+        <td>
+          4205
+        </td>
+        <td>
+          10352
+          -
+          10504
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.|
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          second.&amp;(model.allButFirst33).|(trimmedMS.&lt;&lt;(model.guaranteedUniqueMSLastShifted).&amp;(model.all64))
+        </td>
+      </tr><tr>
+        <td>
+          313
+        </td>
+        <td>
+          4204
+        </td>
+        <td>
+          10440
+          -
+          10504
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          trimmedMS.&lt;&lt;(model.guaranteedUniqueMSLastShifted).&amp;(model.all64)
+        </td>
+      </tr><tr>
+        <td>
+          313
+        </td>
+        <td>
+          4203
+        </td>
+        <td>
+          10493
+          -
+          10504
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.all64
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.all64
+        </td>
+      </tr><tr>
+        <td>
+          313
+        </td>
+        <td>
+          4202
+        </td>
+        <td>
+          10454
+          -
+          10489
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.guaranteedUniqueMSLastShifted
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.guaranteedUniqueMSLastShifted
+        </td>
+      </tr><tr>
+        <td>
+          314
+        </td>
+        <td>
+          4207
+        </td>
+        <td>
+          10554
+          -
+          10565
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.all64
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.all64
+        </td>
+      </tr><tr>
+        <td>
+          314
+        </td>
+        <td>
+          4209
+        </td>
+        <td>
+          10518
+          -
+          10565
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.|
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          second.&amp;(model.allButLast31).|(GuaranteedUniqueID.this.row.&amp;(model.all64))
+        </td>
+      </tr><tr>
+        <td>
+          314
+        </td>
+        <td>
+          4206
+        </td>
+        <td>
+          10527
+          -
+          10545
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.allButLast31
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.allButLast31
+        </td>
+      </tr><tr>
+        <td>
+          314
+        </td>
+        <td>
+          4208
+        </td>
+        <td>
+          10548
+          -
+          10565
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueID.this.row.&amp;(model.all64)
+        </td>
+      </tr><tr>
+        <td>
+          316
+        </td>
+        <td>
+          4210
+        </td>
+        <td>
+          10571
+          -
+          10591
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Array.apply(first, second)
+        </td>
+      </tr><tr>
+        <td>
+          328
+        </td>
+        <td>
+          4212
+        </td>
+        <td>
+          10924
+          -
+          10928
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          328
+        </td>
+        <td>
+          4211
+        </td>
+        <td>
+          10909
+          -
+          10920
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          id.==(other)
+        </td>
+      </tr><tr>
+        <td>
+          329
+        </td>
+        <td>
+          4213
+        </td>
+        <td>
+          10945
+          -
+          10950
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          335
+        </td>
+        <td>
+          4214
+        </td>
+        <td>
+          11033
+          -
+          11061
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.GuaranteedUniqueHeader
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.GuaranteedUniqueHeader
+        </td>
+      </tr><tr>
+        <td>
+          353
+        </td>
+        <td>
+          4216
+        </td>
+        <td>
+          11426
+          -
+          11446
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.NetworkInterface.getHardwareAddress
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$2.getHardwareAddress()
+        </td>
+      </tr><tr>
+        <td>
+          353
+        </td>
+        <td>
+          4218
+        </td>
+        <td>
+          11375
+          -
+          11466
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.Iterator.filter
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.JavaConverters.enumerationAsScalaIteratorConverter[java.net.NetworkInterface](java.net.NetworkInterface.getNetworkInterfaces()).asScala.map[Array[Byte]](((x$2: java.net.NetworkInterface) =&gt; x$2.getHardwareAddress())).filter(((x$3: Array[Byte]) =&gt; x$3.!=(null)))
+        </td>
+      </tr><tr>
+        <td>
+          353
+        </td>
+        <td>
+          4215
+        </td>
+        <td>
+          11375
+          -
+          11412
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.NetworkInterface.getNetworkInterfaces
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          java.net.NetworkInterface.getNetworkInterfaces()
+        </td>
+      </tr><tr>
+        <td>
+          353
+        </td>
+        <td>
+          4217
+        </td>
+        <td>
+          11456
+          -
+          11465
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.!=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$3.!=(null)
+        </td>
+      </tr><tr>
+        <td>
+          360
+        </td>
+        <td>
+          4219
+        </td>
+        <td>
+          11789
+          -
+          11802
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.Iterator.next
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          nonNulls.next()
+        </td>
+      </tr><tr>
+        <td>
+          366
+        </td>
+        <td>
+          4222
+        </td>
+        <td>
+          12048
+          -
+          12049
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          366
+        </td>
+        <td>
+          4225
+        </td>
+        <td>
+          11953
+          -
+          12050
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.println
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.println(scala.StringContext.apply(&quot;Quality &quot;, &quot; MAC Address read as &quot;, &quot;&quot;).s(info, scala.Predef.refArrayOps[String](scala.Predef.byteArrayOps(hardwareAddress).map[String, Array[String]](((x$4: Byte) =&gt; scala.Predef.intWrapper(x$4.toInt).toHexString))(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))).mkString(&quot;-&quot;)))
+        </td>
+      </tr><tr>
+        <td>
+          366
+        </td>
+        <td>
+          4221
+        </td>
+        <td>
+          11976
+          -
+          11998
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; MAC Address read as &quot;
+        </td>
+      </tr><tr>
+        <td>
+          366
+        </td>
+        <td>
+          4224
+        </td>
+        <td>
+          11961
+          -
+          12049
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Quality &quot;, &quot; MAC Address read as &quot;, &quot;&quot;).s(info, scala.Predef.refArrayOps[String](scala.Predef.byteArrayOps(hardwareAddress).map[String, Array[String]](((x$4: Byte) =&gt; scala.Predef.intWrapper(x$4.toInt).toHexString))(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))).mkString(&quot;-&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          366
+        </td>
+        <td>
+          4223
+        </td>
+        <td>
+          11999
+          -
+          12047
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.mkString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[String](scala.Predef.byteArrayOps(hardwareAddress).map[String, Array[String]](((x$4: Byte) =&gt; scala.Predef.intWrapper(x$4.toInt).toHexString))(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))).mkString(&quot;-&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          366
+        </td>
+        <td>
+          4220
+        </td>
+        <td>
+          11963
+          -
+          11972
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Quality &quot;
+        </td>
+      </tr><tr>
+        <td>
+          373
+        </td>
+        <td>
+          4226
+        </td>
+        <td>
+          12168
+          -
+          12169
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          377
+        </td>
+        <td>
+          4227
+        </td>
+        <td>
+          12263
+          -
+          12265
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          24
+        </td>
+      </tr><tr>
+        <td>
+          380
+        </td>
+        <td>
+          4228
+        </td>
+        <td>
+          12413
+          -
+          12417
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          381
+        </td>
+        <td>
+          4229
+        </td>
+        <td>
+          12455
+          -
+          12459
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          383
+        </td>
+        <td>
+          4230
+        </td>
+        <td>
+          12478
+          -
+          12479
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          8
+        </td>
+      </tr><tr>
+        <td>
+          387
+        </td>
+        <td>
+          4231
+        </td>
+        <td>
+          12592
+          -
+          12600
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.byteSize
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.this.byteSize
+        </td>
+      </tr><tr>
+        <td>
+          387
+        </td>
+        <td>
+          4232
+        </td>
+        <td>
+          12569
+          -
+          12600
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.-
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.this.headerBaseBitsOffset.-(model.this.byteSize)
+        </td>
+      </tr><tr>
+        <td>
+          388
+        </td>
+        <td>
+          4234
+        </td>
+        <td>
+          12650
+          -
+          12695
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.-
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.this.guaranteedUniqueMACHeader1stOffset.-(model.this.byteSize)
+        </td>
+      </tr><tr>
+        <td>
+          388
+        </td>
+        <td>
+          4233
+        </td>
+        <td>
+          12687
+          -
+          12695
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.byteSize
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.this.byteSize
+        </td>
+      </tr><tr>
+        <td>
+          389
+        </td>
+        <td>
+          4236
+        </td>
+        <td>
+          12745
+          -
+          12790
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.-
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.this.guaranteedUniqueMACHeader2ndOffset.-(model.this.byteSize)
+        </td>
+      </tr><tr>
+        <td>
+          389
+        </td>
+        <td>
+          4235
+        </td>
+        <td>
+          12782
+          -
+          12790
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.byteSize
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.this.byteSize
+        </td>
+      </tr><tr>
+        <td>
+          393
+        </td>
+        <td>
+          4237
+        </td>
+        <td>
+          13009
+          -
+          13028
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          15393162788863L
+        </td>
+      </tr><tr>
+        <td>
+          396
+        </td>
+        <td>
+          4238
+        </td>
+        <td>
+          13120
+          -
+          13139
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          -536870912L
+        </td>
+      </tr><tr>
+        <td>
+          398
+        </td>
+        <td>
+          4239
+        </td>
+        <td>
+          13244
+          -
+          13263
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          -256L
+        </td>
+      </tr><tr>
+        <td>
+          400
+        </td>
+        <td>
+          4240
+        </td>
+        <td>
+          13366
+          -
+          13385
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          4294967295L
+        </td>
+      </tr><tr>
+        <td>
+          402
+        </td>
+        <td>
+          4241
+        </td>
+        <td>
+          13427
+          -
+          13446
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          -1L
+        </td>
+      </tr><tr>
+        <td>
+          405
+        </td>
+        <td>
+          4242
+        </td>
+        <td>
+          13523
+          -
+          13529
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          33
+        </td>
+      </tr><tr>
+        <td>
+          406
+        </td>
+        <td>
+          4243
+        </td>
+        <td>
+          13574
+          -
+          13576
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          64
+        </td>
+      </tr><tr>
+        <td>
+          406
+        </td>
+        <td>
+          4245
+        </td>
+        <td>
+          13574
+          -
+          13606
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.-
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          64.-(model.this.guaranteedUniqueMSLastIndex)
+        </td>
+      </tr><tr>
+        <td>
+          406
+        </td>
+        <td>
+          4244
+        </td>
+        <td>
+          13579
+          -
+          13606
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.guaranteedUniqueMSLastIndex
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.this.guaranteedUniqueMSLastIndex
+        </td>
+      </tr><tr>
+        <td>
+          413
+        </td>
+        <td>
+          4246
+        </td>
+        <td>
+          13904
+          -
+          13905
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          2.0
+        </td>
+      </tr><tr>
+        <td>
+          413
+        </td>
+        <td>
+          4249
+        </td>
+        <td>
+          13944
+          -
+          13945
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          413
+        </td>
+        <td>
+          4251
+        </td>
+        <td>
+          13895
+          -
+          13952
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Double.toInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          java.lang.Math.pow(2.0, 64.-(model.this.guaranteedUniqueMSLastShifted).-(1).toDouble).toInt
+        </td>
+      </tr><tr>
+        <td>
+          413
+        </td>
+        <td>
+          4248
+        </td>
+        <td>
+          13912
+          -
+          13941
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.guaranteedUniqueMSLastShifted
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.this.guaranteedUniqueMSLastShifted
+        </td>
+      </tr><tr>
+        <td>
+          413
+        </td>
+        <td>
+          4250
+        </td>
+        <td>
+          13907
+          -
+          13945
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Int.toDouble
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          64.-(model.this.guaranteedUniqueMSLastShifted).-(1).toDouble
+        </td>
+      </tr><tr>
+        <td>
+          413
+        </td>
+        <td>
+          4247
+        </td>
+        <td>
+          13907
+          -
+          13909
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          64
+        </td>
+      </tr><tr>
+        <td>
+          419
+        </td>
+        <td>
+          4252
+        </td>
+        <td>
+          14146
+          -
+          14168
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.Calendar.getInstance
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          java.util.Calendar.getInstance()
+        </td>
+      </tr><tr>
+        <td>
+          420
+        </td>
+        <td>
+          4254
+        </td>
+        <td>
+          14173
+          -
+          14215
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.Calendar.setTimeZone
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          c.setTimeZone(java.util.TimeZone.getTimeZone(&quot;UTC&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          420
+        </td>
+        <td>
+          4253
+        </td>
+        <td>
+          14187
+          -
+          14214
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.TimeZone.getTimeZone
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          java.util.TimeZone.getTimeZone(&quot;UTC&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          421
+        </td>
+        <td>
+          4255
+        </td>
+        <td>
+          14220
+          -
+          14246
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.Calendar.set
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          c.set(2020, 1, 1, 0, 0, 0)
+        </td>
+      </tr><tr>
+        <td>
+          422
+        </td>
+        <td>
+          4256
+        </td>
+        <td>
+          14251
+          -
+          14268
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.Calendar.getTimeInMillis
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          c.getTimeInMillis()
+        </td>
+      </tr><tr>
+        <td>
+          425
+        </td>
+        <td>
+          4264
+        </td>
+        <td>
+          14299
+          -
+          14362
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.IDTypeImpl.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          IDTypeImpl.apply(java.lang.Integer.parseInt(&quot;0000&quot;, 2).toByte, true, IDTypeImpl.apply$default$3, IDTypeImpl.apply$default$4, IDTypeImpl.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          425
+        </td>
+        <td>
+          4258
+        </td>
+        <td>
+          14335
+          -
+          14336
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          2
+        </td>
+      </tr><tr>
+        <td>
+          425
+        </td>
+        <td>
+          4261
+        </td>
+        <td>
+          14299
+          -
+          14299
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.IDTypeImpl.apply$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          IDTypeImpl.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          425
+        </td>
+        <td>
+          4260
+        </td>
+        <td>
+          14357
+          -
+          14361
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          425
+        </td>
+        <td>
+          4263
+        </td>
+        <td>
+          14299
+          -
+          14299
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.IDTypeImpl.apply$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          IDTypeImpl.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          425
+        </td>
+        <td>
+          4257
+        </td>
+        <td>
+          14327
+          -
+          14333
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;0000&quot;
+        </td>
+      </tr><tr>
+        <td>
+          425
+        </td>
+        <td>
+          4259
+        </td>
+        <td>
+          14310
+          -
+          14344
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Int.toByte
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          java.lang.Integer.parseInt(&quot;0000&quot;, 2).toByte
+        </td>
+      </tr><tr>
+        <td>
+          425
+        </td>
+        <td>
+          4262
+        </td>
+        <td>
+          14299
+          -
+          14299
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.IDTypeImpl.apply$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          IDTypeImpl.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          426
+        </td>
+        <td>
+          4267
+        </td>
+        <td>
+          14403
+          -
+          14437
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Int.toByte
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          java.lang.Integer.parseInt(&quot;0010&quot;, 2).toByte
+        </td>
+      </tr><tr>
+        <td>
+          426
+        </td>
+        <td>
+          4270
+        </td>
+        <td>
+          14392
+          -
+          14392
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.IDTypeImpl.apply$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          IDTypeImpl.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          426
+        </td>
+        <td>
+          4269
+        </td>
+        <td>
+          14392
+          -
+          14392
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.IDTypeImpl.apply$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          IDTypeImpl.apply$default$2
+        </td>
+      </tr><tr>
+        <td>
+          426
+        </td>
+        <td>
+          4272
+        </td>
+        <td>
+          14392
+          -
+          14459
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.IDTypeImpl.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          IDTypeImpl.apply(x$1, x$3, x$2, x$4, x$5)
+        </td>
+      </tr><tr>
+        <td>
+          426
+        </td>
+        <td>
+          4266
+        </td>
+        <td>
+          14428
+          -
+          14429
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          2
+        </td>
+      </tr><tr>
+        <td>
+          426
+        </td>
+        <td>
+          4265
+        </td>
+        <td>
+          14420
+          -
+          14426
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;0010&quot;
+        </td>
+      </tr><tr>
+        <td>
+          426
+        </td>
+        <td>
+          4268
+        </td>
+        <td>
+          14454
+          -
+          14458
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          426
+        </td>
+        <td>
+          4271
+        </td>
+        <td>
+          14392
+          -
+          14392
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.IDTypeImpl.apply$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          IDTypeImpl.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          427
+        </td>
+        <td>
+          4273
+        </td>
+        <td>
+          14510
+          -
+          14532
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.GuaranteedUniqueHeader
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.this.GuaranteedUniqueHeader
+        </td>
+      </tr><tr>
+        <td>
+          427
+        </td>
+        <td>
+          4276
+        </td>
+        <td>
+          14499
+          -
+          14499
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.IDTypeImpl.apply$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          IDTypeImpl.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          427
+        </td>
+        <td>
+          4278
+        </td>
+        <td>
+          14499
+          -
+          14560
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.IDTypeImpl.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          IDTypeImpl.apply(x$6, x$8, x$9, x$7, x$10)
+        </td>
+      </tr><tr>
+        <td>
+          427
+        </td>
+        <td>
+          4275
+        </td>
+        <td>
+          14499
+          -
+          14499
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.IDTypeImpl.apply$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          IDTypeImpl.apply$default$2
+        </td>
+      </tr><tr>
+        <td>
+          427
+        </td>
+        <td>
+          4274
+        </td>
+        <td>
+          14555
+          -
+          14559
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          427
+        </td>
+        <td>
+          4277
+        </td>
+        <td>
+          14499
+          -
+          14499
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.IDTypeImpl.apply$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          IDTypeImpl.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          428
+        </td>
+        <td>
+          4282
+        </td>
+        <td>
+          14648
+          -
+          14652
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          428
+        </td>
+        <td>
+          4285
+        </td>
+        <td>
+          14588
+          -
+          14588
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.IDTypeImpl.apply$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          IDTypeImpl.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          428
+        </td>
+        <td>
+          4279
+        </td>
+        <td>
+          14616
+          -
+          14622
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;0100&quot;
+        </td>
+      </tr><tr>
+        <td>
+          428
+        </td>
+        <td>
+          4281
+        </td>
+        <td>
+          14599
+          -
+          14633
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Int.toByte
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          java.lang.Integer.parseInt(&quot;0100&quot;, 2).toByte
+        </td>
+      </tr><tr>
+        <td>
+          428
+        </td>
+        <td>
+          4284
+        </td>
+        <td>
+          14588
+          -
+          14588
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.IDTypeImpl.apply$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          IDTypeImpl.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          428
+        </td>
+        <td>
+          4283
+        </td>
+        <td>
+          14588
+          -
+          14588
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.IDTypeImpl.apply$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          IDTypeImpl.apply$default$2
+        </td>
+      </tr><tr>
+        <td>
+          428
+        </td>
+        <td>
+          4286
+        </td>
+        <td>
+          14588
+          -
+          14653
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.IDTypeImpl.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          IDTypeImpl.apply(x$11, x$13, x$14, x$15, x$12)
+        </td>
+      </tr><tr>
+        <td>
+          428
+        </td>
+        <td>
+          4280
+        </td>
+        <td>
+          14624
+          -
+          14625
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          2
+        </td>
+      </tr><tr>
+        <td>
+          434
+        </td>
+        <td>
+          4287
+        </td>
+        <td>
+          14796
+          -
+          14830
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.Base64.Decoder.decode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          java.util.Base64.getDecoder().decode(base64ID)
+        </td>
+      </tr><tr>
+        <td>
+          436
+        </td>
+        <td>
+          4288
+        </td>
+        <td>
+          14872
+          -
+          14880
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          bytes.apply(0)
+        </td>
+      </tr><tr>
+        <td>
+          437
+        </td>
+        <td>
+          4290
+        </td>
+        <td>
+          14898
+          -
+          14929
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Byte.&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          header.&amp;(model.this.GuaranteedUniqueHeader)
+        </td>
+      </tr><tr>
+        <td>
+          437
+        </td>
+        <td>
+          4289
+        </td>
+        <td>
+          14907
+          -
+          14929
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.GuaranteedUniqueHeader
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.this.GuaranteedUniqueHeader
+        </td>
+      </tr><tr>
+        <td>
+          441
+        </td>
+        <td>
+          4291
+        </td>
+        <td>
+          15054
+          -
+          15055
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          2
+        </td>
+      </tr><tr>
+        <td>
+          441
+        </td>
+        <td>
+          4293
+        </td>
+        <td>
+          15068
+          -
+          15070
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          16
+        </td>
+      </tr><tr>
+        <td>
+          441
+        </td>
+        <td>
+          4292
+        </td>
+        <td>
+          15059
+          -
+          15063
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          255
+        </td>
+      </tr><tr>
+        <td>
+          441
+        </td>
+        <td>
+          4295
+        </td>
+        <td>
+          15046
+          -
+          15110
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.|
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          bytes.apply(2).&amp;(255).&lt;&lt;(16).|(bytes.apply(3).&amp;(255).&lt;&lt;(0))
+        </td>
+      </tr><tr>
+        <td>
+          442
+        </td>
+        <td>
+          4294
+        </td>
+        <td>
+          15087
+          -
+          15109
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&lt;&lt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          bytes.apply(3).&amp;(255).&lt;&lt;(0)
+        </td>
+      </tr><tr>
+        <td>
+          443
+        </td>
+        <td>
+          4296
+        </td>
+        <td>
+          15128
+          -
+          15153
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.ofDim
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Array.ofDim[Long](length)((ClassTag.Long: scala.reflect.ClassTag[Long]))
+        </td>
+      </tr><tr>
+        <td>
+          444
+        </td>
+        <td>
+          4301
+        </td>
+        <td>
+          15162
+          -
+          15253
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.Range.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.intWrapper(0).until(length).foreach[Unit](((i: Int) =&gt; ar.update(i, com.sparkutils.quality.utils.BytePackingUtils.unencodeLong(i.*(8).+(4), bytes))))
+        </td>
+      </tr><tr>
+        <td>
+          444
+        </td>
+        <td>
+          4297
+        </td>
+        <td>
+          15171
+          -
+          15172
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          445
+        </td>
+        <td>
+          4300
+        </td>
+        <td>
+          15198
+          -
+          15253
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ar.update(i, com.sparkutils.quality.utils.BytePackingUtils.unencodeLong(i.*(8).+(4), bytes))
+        </td>
+      </tr><tr>
+        <td>
+          445
+        </td>
+        <td>
+          4299
+        </td>
+        <td>
+          15206
+          -
+          15253
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.utils.BytePackingUtils.unencodeLong
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.utils.BytePackingUtils.unencodeLong(i.*(8).+(4), bytes)
+        </td>
+      </tr><tr>
+        <td>
+          445
+        </td>
+        <td>
+          4298
+        </td>
+        <td>
+          15236
+          -
+          15245
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          i.*(8).+(4)
+        </td>
+      </tr><tr>
+        <td>
+          448
+        </td>
+        <td>
+          4306
+        </td>
+        <td>
+          15273
+          -
+          15671
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.GenericLongBasedID.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GenericLongBasedID.apply(header match {
+  case model.this.FieldBasedID.typeMask =&gt; model.this.FieldBasedID
+  case model.this.ProvidedID.typeMask =&gt; model.this.ProvidedID
+  case model.this.RandomID.typeMask =&gt; model.this.RandomID
+  case _ =&gt; throw new InvalidIDType(header.toByte)
+}, ar)
+        </td>
+      </tr><tr>
+        <td>
+          451
+        </td>
+        <td>
+          4302
+        </td>
+        <td>
+          15483
+          -
+          15495
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.FieldBasedID
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          model.this.FieldBasedID
+        </td>
+      </tr><tr>
+        <td>
+          452
+        </td>
+        <td>
+          4303
+        </td>
+        <td>
+          15536
+          -
+          15546
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.ProvidedID
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          model.this.ProvidedID
+        </td>
+      </tr><tr>
+        <td>
+          453
+        </td>
+        <td>
+          4304
+        </td>
+        <td>
+          15585
+          -
+          15593
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.model.RandomID
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          model.this.RandomID
+        </td>
+      </tr><tr>
+        <td>
+          454
+        </td>
+        <td>
+          4305
+        </td>
+        <td>
+          15616
+          -
+          15654
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw new InvalidIDType(header.toByte)
+        </td>
+      </tr><tr>
+        <td>
+          458
+        </td>
+        <td>
+          4307
+        </td>
+        <td>
+          15731
+          -
+          15732
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          6
+        </td>
+      </tr><tr>
+        <td>
+          460
+        </td>
+        <td>
+          4308
+        </td>
+        <td>
+          15820
+          -
+          15845
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.ofDim
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Array.ofDim[Byte](maclen)((ClassTag.Byte: scala.reflect.ClassTag[Byte]))
+        </td>
+      </tr><tr>
+        <td>
+          461
+        </td>
+        <td>
+          4309
+        </td>
+        <td>
+          15858
+          -
+          15859
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          461
+        </td>
+        <td>
+          4311
+        </td>
+        <td>
+          15854
+          -
+          15871
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          mac.update(0, bytes.apply(1))
+        </td>
+      </tr><tr>
+        <td>
+          461
+        </td>
+        <td>
+          4310
+        </td>
+        <td>
+          15863
+          -
+          15871
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          bytes.apply(1)
+        </td>
+      </tr><tr>
+        <td>
+          462
+        </td>
+        <td>
+          4312
+        </td>
+        <td>
+          15884
+          -
+          15885
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          462
+        </td>
+        <td>
+          4314
+        </td>
+        <td>
+          15880
+          -
+          15897
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          mac.update(1, bytes.apply(2))
+        </td>
+      </tr><tr>
+        <td>
+          462
+        </td>
+        <td>
+          4313
+        </td>
+        <td>
+          15889
+          -
+          15897
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          bytes.apply(2)
+        </td>
+      </tr><tr>
+        <td>
+          463
+        </td>
+        <td>
+          4317
+        </td>
+        <td>
+          15906
+          -
+          15923
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          mac.update(2, bytes.apply(3))
+        </td>
+      </tr><tr>
+        <td>
+          463
+        </td>
+        <td>
+          4316
+        </td>
+        <td>
+          15915
+          -
+          15923
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          bytes.apply(3)
+        </td>
+      </tr><tr>
+        <td>
+          463
+        </td>
+        <td>
+          4315
+        </td>
+        <td>
+          15910
+          -
+          15911
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          2
+        </td>
+      </tr><tr>
+        <td>
+          464
+        </td>
+        <td>
+          4318
+        </td>
+        <td>
+          15936
+          -
+          15937
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          3
+        </td>
+      </tr><tr>
+        <td>
+          464
+        </td>
+        <td>
+          4320
+        </td>
+        <td>
+          15932
+          -
+          15949
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          mac.update(3, bytes.apply(4))
+        </td>
+      </tr><tr>
+        <td>
+          464
+        </td>
+        <td>
+          4319
+        </td>
+        <td>
+          15941
+          -
+          15949
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          bytes.apply(4)
+        </td>
+      </tr><tr>
+        <td>
+          465
+        </td>
+        <td>
+          4321
+        </td>
+        <td>
+          15962
+          -
+          15963
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          4
+        </td>
+      </tr><tr>
+        <td>
+          465
+        </td>
+        <td>
+          4323
+        </td>
+        <td>
+          15958
+          -
+          15975
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          mac.update(4, bytes.apply(5))
+        </td>
+      </tr><tr>
+        <td>
+          465
+        </td>
+        <td>
+          4322
+        </td>
+        <td>
+          15967
+          -
+          15975
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          bytes.apply(5)
+        </td>
+      </tr><tr>
+        <td>
+          466
+        </td>
+        <td>
+          4326
+        </td>
+        <td>
+          15984
+          -
+          16001
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          mac.update(5, bytes.apply(6))
+        </td>
+      </tr><tr>
+        <td>
+          466
+        </td>
+        <td>
+          4325
+        </td>
+        <td>
+          15993
+          -
+          16001
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          bytes.apply(6)
+        </td>
+      </tr><tr>
+        <td>
+          466
+        </td>
+        <td>
+          4324
+        </td>
+        <td>
+          15988
+          -
+          15989
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          5
+        </td>
+      </tr><tr>
+        <td>
+          470
+        </td>
+        <td>
+          4327
+        </td>
+        <td>
+          16098
+          -
+          16108
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          maclen.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          470
+        </td>
+        <td>
+          4328
+        </td>
+        <td>
+          16069
+          -
+          16116
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.utils.BytePackingUtils.unencodeInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.utils.BytePackingUtils.unencodeInt(maclen.+(1), bytes)
+        </td>
+      </tr><tr>
+        <td>
+          472
+        </td>
+        <td>
+          4329
+        </td>
+        <td>
+          16141
+          -
+          16151
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          maclen.+(3)
+        </td>
+      </tr><tr>
+        <td>
+          473
+        </td>
+        <td>
+          4330
+        </td>
+        <td>
+          16161
+          -
+          16179
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          bytes.update(msstart, 0)
+        </td>
+      </tr><tr>
+        <td>
+          474
+        </td>
+        <td>
+          4332
+        </td>
+        <td>
+          16209
+          -
+          16210
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          474
+        </td>
+        <td>
+          4331
+        </td>
+        <td>
+          16194
+          -
+          16205
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          msstart.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          474
+        </td>
+        <td>
+          4333
+        </td>
+        <td>
+          16188
+          -
+          16210
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          bytes.update(msstart.+(1), 0)
+        </td>
+      </tr><tr>
+        <td>
+          476
+        </td>
+        <td>
+          4334
+        </td>
+        <td>
+          16310
+          -
+          16355
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.utils.BytePackingUtils.unencodeLong
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.utils.BytePackingUtils.unencodeLong(msstart, bytes)
+        </td>
+      </tr><tr>
+        <td>
+          479
+        </td>
+        <td>
+          4335
+        </td>
+        <td>
+          16464
+          -
+          16476
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.&gt;&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          msWith7.&gt;&gt;(7)
+        </td>
+      </tr><tr>
+        <td>
+          482
+        </td>
+        <td>
+          4336
+        </td>
+        <td>
+          16544
+          -
+          16584
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.utils.BytePackingUtils.unencodeLong
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.utils.BytePackingUtils.unencodeLong(12, bytes)
+        </td>
+      </tr><tr>
+        <td>
+          485
+        </td>
+        <td>
+          4339
+        </td>
+        <td>
+          16665
+          -
+          16700
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Long.toInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          secondLong.&lt;&lt;(33).&gt;&gt;&gt;(33).toInt
+        </td>
+      </tr><tr>
+        <td>
+          485
+        </td>
+        <td>
+          4338
+        </td>
+        <td>
+          16690
+          -
+          16692
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          33
+        </td>
+      </tr><tr>
+        <td>
+          485
+        </td>
+        <td>
+          4337
+        </td>
+        <td>
+          16681
+          -
+          16683
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          33
+        </td>
+      </tr><tr>
+        <td>
+          487
+        </td>
+        <td>
+          4340
+        </td>
+        <td>
+          16710
+          -
+          16755
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.id.GuaranteedUniqueID.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GuaranteedUniqueID.apply(mac, ms, partition, rowID)
+        </td>
+      </tr><tr>
+        <td>
+          488
+        </td>
+        <td>
+          4341
+        </td>
+        <td>
+          16773
+          -
+          16811
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw new InvalidIDType(header.toByte)
+        </td>
+      </tr><tr>
+        <td>
+          493
+        </td>
+        <td>
+          4343
+        </td>
+        <td>
+          16903
+          -
+          16935
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.ofDim
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Array.ofDim[Byte](bitLength./(8))((ClassTag.Byte: scala.reflect.ClassTag[Byte]))
+        </td>
+      </tr><tr>
+        <td>
+          493
+        </td>
+        <td>
+          4342
+        </td>
+        <td>
+          16921
+          -
+          16934
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int./
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          bitLength./(8)
+        </td>
+      </tr><tr>
+        <td>
+          495
+        </td>
+        <td>
+          4344
+        </td>
+        <td>
+          16941
+          -
+          16983
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.utils.BytePackingUtils.encodeInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.utils.BytePackingUtils.encodeInt(base, 0, bytes)
+        </td>
+      </tr><tr>
+        <td>
+          497
+        </td>
+        <td>
+          4345
+        </td>
+        <td>
+          17016
+          -
+          17017
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          497
+        </td>
+        <td>
+          4350
+        </td>
+        <td>
+          17007
+          -
+          17092
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.Range.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.intWrapper(0).until(ar.length).foreach[Unit](((i: Int) =&gt; com.sparkutils.quality.utils.BytePackingUtils.encodeLong(ar.apply(i), i.*(8).+(4), bytes)))
+        </td>
+      </tr><tr>
+        <td>
+          497
+        </td>
+        <td>
+          4346
+        </td>
+        <td>
+          17024
+          -
+          17033
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Array.length
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ar.length
+        </td>
+      </tr><tr>
+        <td>
+          498
+        </td>
+        <td>
+          4347
+        </td>
+        <td>
+          17070
+          -
+          17075
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ar.apply(i)
+        </td>
+      </tr><tr>
+        <td>
+          498
+        </td>
+        <td>
+          4349
+        </td>
+        <td>
+          17042
+          -
+          17092
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.utils.BytePackingUtils.encodeLong
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.utils.BytePackingUtils.encodeLong(ar.apply(i), i.*(8).+(4), bytes)
+        </td>
+      </tr><tr>
+        <td>
+          498
+        </td>
+        <td>
+          4348
+        </td>
+        <td>
+          17077
+          -
+          17084
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          i.*(8).+(4)
+        </td>
+      </tr><tr>
+        <td>
+          501
+        </td>
+        <td>
+          4351
+        </td>
+        <td>
+          17104
+          -
+          17143
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.Base64.Encoder.encodeToString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          java.util.Base64.getEncoder().encodeToString(bytes)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

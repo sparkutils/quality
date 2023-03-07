@@ -1,0 +1,2699 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/sparkutils/quality/impl/bloom/BloomFilterExpression.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality.impl.bloom
+</span>2 <span style=''>
+</span>3 <span style=''>import com.sparkutils.quality.RuleSuite
+</span>4 <span style=''>import com.sparkutils.quality.impl.RuleRunnerFunctions
+</span>5 <span style=''>import com.sparkutils.quality.BloomFilterMap
+</span>6 <span style=''>import com.sparkutils.quality.QualityException.qualityException
+</span>7 <span style=''>import com.sparkutils.quality.impl.bloom.parquet.BloomFilter
+</span>8 <span style=''>import com.sparkutils.quality.impl.longPair.SaferLongPairsExpression
+</span>9 <span style=''>import org.apache.spark.broadcast.Broadcast
+</span>10 <span style=''>import org.apache.spark.sql.catalyst.analysis.UnresolvedFunction
+</span>11 <span style=''>import org.apache.spark.sql.catalyst.FunctionIdentifier
+</span>12 <span style=''>import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode}
+</span>13 <span style=''>import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression, ExpressionDescription, Literal, NullIntolerant}
+</span>14 <span style=''>import org.apache.spark.sql.types.{DataType, DoubleType, StringType}
+</span>15 <span style=''>import org.apache.spark.sql.{Column, QualitySparkUtils, SparkSession}
+</span>16 <span style=''>import org.apache.spark.unsafe.types.UTF8String
+</span>17 <span style=''>import org.apache.spark.sql.catalyst.expressions.codegen.Block._
+</span>18 <span style=''>
+</span>19 <span style=''>trait BloomFilterRegistration {
+</span>20 <span style=''>
+</span>21 <span style=''>  /**
+</span>22 <span style=''>   * Registers this bloom map and associates the probabilityIn sql expression against it
+</span>23 <span style=''>   * @param bloomFilterMap
+</span>24 <span style=''>   */
+</span>25 <span style=''>  def registerBloomMapAndFunction(bloomFilterMap: Broadcast[BloomFilterMap]) {
+</span>26 <span style=''>    val funcReg = </span><span style='background: #AEF1AE'>SparkSession.getActiveSession.get.sessionState.functionRegistry</span><span style=''>
+</span>27 <span style=''>
+</span>28 <span style=''>    val f = (exps: Seq[Expression]) =&gt; </span><span style='background: #AEF1AE'>BloomFilterLookupExpression(exps(0), exps(1), bloomFilterMap)</span><span style=''>
+</span>29 <span style=''>    </span><span style='background: #AEF1AE'>QualitySparkUtils.registerFunction(funcReg)(&quot;probabilityIn&quot;, f)</span><span style=''>
+</span>30 <span style=''>  }
+</span>31 <span style=''>
+</span>32 <span style=''>}
+</span>33 <span style=''>
+</span>34 <span style=''>trait BloomFilterLookupImports {
+</span>35 <span style=''>
+</span>36 <span style=''>  /**
+</span>37 <span style=''>   * Identifies bloom ids before (or after) resolving for a given ruleSuite, use to know which bloom filters need to be loaded
+</span>38 <span style=''>   *
+</span>39 <span style=''>   * @param ruleSuite a ruleSuite full of expressions to check
+</span>40 <span style=''>   * @return The bloom id's used, for unresolved expression trees this may contain blooms which are not present in the bloom map
+</span>41 <span style=''>   */
+</span>42 <span style=''>  def getBlooms(ruleSuite: RuleSuite): Seq[String]  = {
+</span>43 <span style=''>    // parsing is different than plan..
+</span>44 <span style=''>    val flattened = </span><span style='background: #AEF1AE'>RuleRunnerFunctions.flattenExpressions(ruleSuite)</span><span style=''>
+</span>45 <span style=''>    val ids = </span><span style='background: #AEF1AE'>flattened.flatMap {
+</span>46 <span style=''></span><span style='background: #AEF1AE'>      exp =&gt;
+</span>47 <span style=''></span><span style='background: #AEF1AE'>        BloomFilterLookup.getBlooms(exp)
+</span>48 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>49 <span style=''>    ids
+</span>50 <span style=''>  }
+</span>51 <span style=''>
+</span>52 <span style=''>  def bloomFilterLookup(bloomFilterName: Column, lookupValue: Column, bloomMap: Broadcast[BloomFilterMap]): Column =
+</span>53 <span style=''>    </span><span style='background: #AEF1AE'>BloomFilterLookup(bloomFilterName, lookupValue, bloomMap)</span><span style=''>
+</span>54 <span style=''>}
+</span>55 <span style=''>
+</span>56 <span style=''>object BloomFilterLookup {
+</span>57 <span style=''>  /**
+</span>58 <span style=''>    * For withColumn / select usage, the bloomfilters generation and test expressions must be of the same type
+</span>59 <span style=''>    */
+</span>60 <span style=''>  def apply(bloomFilterName: Column, lookupValue: Column, bloomMap: Broadcast[BloomFilterMap]): Column =
+</span>61 <span style=''>    </span><span style='background: #AEF1AE'>new Column(BloomFilterLookupExpression(bloomFilterName.expr, lookupValue.expr, bloomMap))</span><span style=''>
+</span>62 <span style=''>
+</span>63 <span style=''>  private[impl] def bloomDoesNotExist(bloom: String) = </span><span style='background: #F0ADAD'>qualityException(&quot;The bloom filter: &quot;+bloom+&quot;, does not exist in the provided bloomMap&quot;)</span><span style=''>
+</span>64 <span style=''>
+</span>65 <span style=''>  def bloomDoesNotExistJ(bloom: String) = () =&gt; </span><span style='background: #F0ADAD'>bloomDoesNotExist(bloom)</span><span style=''>
+</span>66 <span style=''>
+</span>67 <span style=''>  /**
+</span>68 <span style=''>   * Identifies blooms from either a resolved or unresolved expression
+</span>69 <span style=''>   *
+</span>70 <span style=''>   * @param expression a single Expression, can be a complex tree or simple direct probabilityIn or rowid
+</span>71 <span style=''>   * @return The bloom id's used, for unresolved expression trees this may contain blooms which are not present in the bloom map
+</span>72 <span style=''>   */
+</span>73 <span style=''>  def getBlooms(expression: Expression): Seq[String] = </span><span style='background: #AEF1AE'>BloomFilterLookupSparkVersionSpecific.getBlooms(expression)</span><span style=''>
+</span>74 <span style=''>
+</span>75 <span style=''>}
+</span>76 <span style=''>
+</span>77 <span style=''>/**
+</span>78 <span style=''>  * Returns a 0.0 for not present or 1 - FPP value for probably present (i.e. error rate of 0.01 will return 0.99 percent likely throws exception if the table is not present
+</span>79 <span style=''>  * @param right the name of the map entry / dataframe the bloomfilter belongs to
+</span>80 <span style=''>  * @param left the expression to derive the hash - this must match the same expression used to fill the bloomfilter
+</span>81 <span style=''>  * @param bloomMap
+</span>82 <span style=''>  *
+</span>83 <span style=''>  */
+</span>84 <span style=''>@ExpressionDescription(
+</span>85 <span style=''>  usage = &quot;_FUNC_(content to lookup, bloomFilterName) - Returns either 0.0 for not present, or 1 - fpp from the bloomfilter&quot;,
+</span>86 <span style=''>  examples = &quot;&quot;&quot;
+</span>87 <span style=''>    Examples:
+</span>88 <span style=''>      &gt; SELECT _FUNC_('a thing that might be there', 'otherDataset');
+</span>89 <span style=''>       0.9
+</span>90 <span style=''>  &quot;&quot;&quot;,
+</span>91 <span style=''>  since = &quot;1.5.0&quot;)
+</span>92 <span style=''>case class BloomFilterLookupExpression(left: Expression, right: Expression, bloomMap: Broadcast[BloomFilterMap]) extends BinaryExpression with NullIntolerant {//with CodegenFallback {
+</span>93 <span style=''>
+</span>94 <span style=''>  val map = </span><span style='background: #AEF1AE'>bloomMap.value</span><span style=''>
+</span>95 <span style=''>  lazy val bloom = map.getOrElse(right.eval().toString, BloomFilterLookup.bloomDoesNotExist(right.eval().toString))
+</span>96 <span style=''>  @inline final def bloomF(right: Any) = right match {
+</span>97 <span style=''>    case Literal(a, StringType) =&gt; bloom
+</span>98 <span style=''>    case _ =&gt; </span><span style='background: #AEF1AE'>map.getOrElse(right.toString, </span><span style='background: #F0ADAD'>BloomFilterLookup.bloomDoesNotExist(right.toString)</span><span style='background: #AEF1AE'>)</span><span style=''>
+</span>99 <span style=''>  }
+</span>100 <span style=''>
+</span>101 <span style=''>  lazy val converter = BloomExpressionLookup.bloomLookupValueConverter(left)
+</span>102 <span style=''>  lazy val isPrimitive = QualitySparkUtils.isPrimitive(left.dataType) // in which case it's identity
+</span>103 <span style=''>
+</span>104 <span style=''>  override def nullSafeEval(left: Any, right: Any): Any = {
+</span>105 <span style=''>    val (bloom: com.sparkutils.quality.BloomLookup, fpp) = bloomF(right)
+</span>106 <span style=''>
+</span>107 <span style=''>    val converted =
+</span>108 <span style=''>      if (isPrimitive)
+</span>109 <span style=''>        </span><span style='background: #AEF1AE'>left</span><span style=''>
+</span>110 <span style=''>      else
+</span>111 <span style=''>        </span><span style='background: #F0ADAD'>converter(left)</span><span style=''>
+</span>112 <span style=''>
+</span>113 <span style=''>    val res = </span><span style='background: #AEF1AE'>bloom.mightContain( converted )</span><span style=''>
+</span>114 <span style=''>    if (</span><span style='background: #AEF1AE'>!res</span><span style=''>)
+</span>115 <span style=''>      </span><span style='background: #AEF1AE'>0.0</span><span style=''>
+</span>116 <span style=''>    else
+</span>117 <span style=''>      </span><span style='background: #AEF1AE'>fpp</span><span style=''>
+</span>118 <span style=''>  }
+</span>119 <span style=''>
+</span>120 <span style=''>  override def dataType: DataType = </span><span style='background: #AEF1AE'>DoubleType</span><span style=''>
+</span>121 <span style=''>
+</span>122 <span style=''>  override def sql: String = </span><span style='background: #F0ADAD'>s&quot;(probabilityIn(${left.sql}, ${right.sql}))&quot;</span><span style=''>
+</span>123 <span style=''>
+</span>124 <span style=''>  override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
+</span>125 <span style=''>    </span><span style='background: #AEF1AE'>ctx.references += this</span><span style=''>
+</span>126 <span style=''>
+</span>127 <span style=''>    val bfmClassName = </span><span style='background: #AEF1AE'>classOf[BloomFilterMap].getName</span><span style=''>
+</span>128 <span style=''>    val bClassName = </span><span style='background: #AEF1AE'>classOf[Broadcast[BloomFilterMap]].getName</span><span style=''>
+</span>129 <span style=''>    val bfeClassName = </span><span style='background: #AEF1AE'>&quot;com.sparkutils.quality.impl.bloom.BloomFilterLookupExpression&quot;</span><span style=''>
+</span>130 <span style=''>    val bfeExpressionIdx = </span><span style='background: #AEF1AE'>ctx.references.size - 1</span><span style=''>
+</span>131 <span style=''>    val bloomMapTerm = </span><span style='background: #AEF1AE'>ctx.addMutableState(bClassName, ctx.freshName(&quot;bloomMap&quot;),
+</span>132 <span style=''></span><span style='background: #AEF1AE'>      v =&gt; s&quot;$v = ($bClassName) ((($bfeClassName)references&quot; +
+</span>133 <span style=''></span><span style='background: #AEF1AE'>        s&quot;[$bfeExpressionIdx]).bloomMap());&quot;)</span><span style=''>
+</span>134 <span style=''>
+</span>135 <span style=''>    val cClassName = </span><span style='background: #AEF1AE'>classOf[Any =&gt; Any].getName</span><span style=''>
+</span>136 <span style=''>    val converterTerm = </span><span style='background: #AEF1AE'>ctx.addMutableState(cClassName, ctx.freshName(&quot;converter&quot;),
+</span>137 <span style=''></span><span style='background: #AEF1AE'>      v =&gt; s&quot;$v = ($cClassName) (com.sparkutils.quality.impl.bloom.BloomExpressionLookup.bloomLookupValueConverter( ((($bfeClassName)references&quot; +
+</span>138 <span style=''></span><span style='background: #AEF1AE'>        s&quot;[$bfeExpressionIdx]).left()) ));&quot;)</span><span style=''>
+</span>139 <span style=''>
+</span>140 <span style=''>    val blClassName = </span><span style='background: #AEF1AE'>&quot;scala.Tuple2&quot;</span><span style=''>
+</span>141 <span style=''>    val bloomTerm = </span><span style='background: #AEF1AE'>ctx.addMutableState(blClassName, ctx.freshName(&quot;bloom&quot;),
+</span>142 <span style=''></span><span style='background: #AEF1AE'>      v =&gt; s&quot;$v = ($blClassName) ((($bfeClassName)references&quot; +
+</span>143 <span style=''></span><span style='background: #AEF1AE'>        s&quot;[$bfeExpressionIdx]).bloom());&quot;)</span><span style=''>
+</span>144 <span style=''>
+</span>145 <span style=''>    val lefteval = </span><span style='background: #AEF1AE'>left.genCode(ctx)</span><span style=''>
+</span>146 <span style=''>    val leftCode =
+</span>147 <span style=''>      </span><span style='background: #AEF1AE'>s&quot;&quot;&quot;${lefteval.code}\n
+</span>148 <span style=''></span><span style='background: #AEF1AE'>          &quot;&quot;&quot;</span><span style=''>
+</span>149 <span style=''>
+</span>150 <span style=''>    val converted =
+</span>151 <span style=''>      if (isPrimitive)
+</span>152 <span style=''>        </span><span style='background: #AEF1AE'>lefteval.value</span><span style=''>
+</span>153 <span style=''>      else
+</span>154 <span style=''>        </span><span style='background: #F0ADAD'>s&quot;$converterTerm.apply(${lefteval.value})&quot;</span><span style=''>
+</span>155 <span style=''>
+</span>156 <span style=''>    val (bloomPairSetter, rightCode) =
+</span>157 <span style=''>      right match {
+</span>158 <span style=''>        case Literal(a, StringType) =&gt; (bloomTerm, &quot;&quot;)
+</span>159 <span style=''>        case _ =&gt;
+</span>160 <span style=''>          val righteval = right.genCode(ctx)
+</span>161 <span style=''>
+</span>162 <span style=''>          (s&quot;&quot;&quot;(scala.Tuple2) (($bfmClassName)$bloomMapTerm.value()).
+</span>163 <span style=''>              |          getOrElse(${righteval.value}.toString(), com.sparkutils.quality.impl.bloom.BloomFilterLookup.bloomDoesNotExistJ(${righteval.value}.toString()))&quot;&quot;&quot;.stripMargin,
+</span>164 <span style=''>          s&quot;&quot;&quot;${righteval.code}\n
+</span>165 <span style=''>          &quot;&quot;&quot;)
+</span>166 <span style=''>      }
+</span>167 <span style=''>
+</span>168 <span style=''>    val bloomPair = </span><span style='background: #AEF1AE'>ctx.freshName(&quot;bloomPair&quot;)</span><span style=''>
+</span>169 <span style=''>    </span><span style='background: #AEF1AE'>ev.copy(code = code&quot;&quot;&quot;
+</span>170 <span style=''></span><span style='background: #AEF1AE'>
+</span>171 <span style=''></span><span style='background: #AEF1AE'>        $leftCode
+</span>172 <span style=''></span><span style='background: #AEF1AE'>        $rightCode
+</span>173 <span style=''></span><span style='background: #AEF1AE'>
+</span>174 <span style=''></span><span style='background: #AEF1AE'>        scala.Tuple2 $bloomPair = $bloomPairSetter;
+</span>175 <span style=''></span><span style='background: #AEF1AE'>
+</span>176 <span style=''></span><span style='background: #AEF1AE'>        Object converted = $converted;
+</span>177 <span style=''></span><span style='background: #AEF1AE'>
+</span>178 <span style=''></span><span style='background: #AEF1AE'>        boolean res = ((com.sparkutils.quality.package$$.BloomLookup) $bloomPair._1()).mightContain(converted);
+</span>179 <span style=''></span><span style='background: #AEF1AE'>        double ${ev.value} = (!res) ? 0.0 : (Double) $bloomPair._2();
+</span>180 <span style=''></span><span style='background: #AEF1AE'>        boolean ${ev.isNull} = false;
+</span>181 <span style=''></span><span style='background: #AEF1AE'>       &quot;&quot;&quot;)</span><span style=''>
+</span>182 <span style=''>  }
+</span>183 <span style=''>
+</span>184 <span style=''>  protected def withNewChildrenInternal(newLeft: Expression, newRight: Expression): Expression = </span><span style='background: #AEF1AE'>copy(left = newLeft, right = newRight)</span><span style=''>
+</span>185 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          2997
+        </td>
+        <td>
+          1282
+          -
+          1345
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.internal.SessionState.functionRegistry
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.SparkSession.getActiveSession.get.sessionState.functionRegistry
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          2999
+        </td>
+        <td>
+          1423
+          -
+          1430
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqLike.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          exps.apply(1)
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          2998
+        </td>
+        <td>
+          1414
+          -
+          1421
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqLike.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          exps.apply(0)
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          3000
+        </td>
+        <td>
+          1386
+          -
+          1447
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.BloomFilterLookupExpression.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomFilterLookupExpression.apply(exps.apply(0), exps.apply(1), bloomFilterMap)
+        </td>
+      </tr><tr>
+        <td>
+          29
+        </td>
+        <td>
+          3001
+        </td>
+        <td>
+          1452
+          -
+          1515
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.QualitySparkUtils.registerFunction
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.QualitySparkUtils.registerFunction(funcReg)(&quot;probabilityIn&quot;, f)
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          3002
+        </td>
+        <td>
+          2010
+          -
+          2059
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunnerFunctions.flattenExpressions
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.RuleRunnerFunctions.flattenExpressions(ruleSuite)
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          3005
+        </td>
+        <td>
+          2074
+          -
+          2153
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.flatMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          flattened.flatMap[String, Seq[String]](((exp: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; BloomFilterLookup.getBlooms(exp)))(collection.this.Seq.canBuildFrom[String])
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          3004
+        </td>
+        <td>
+          2092
+          -
+          2092
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[String]
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          3003
+        </td>
+        <td>
+          2115
+          -
+          2147
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.BloomFilterLookup.getBlooms
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomFilterLookup.getBlooms(exp)
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          3006
+        </td>
+        <td>
+          2288
+          -
+          2345
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.BloomFilterLookup.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomFilterLookup.apply(bloomFilterName, lookupValue, bloomMap)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          3008
+        </td>
+        <td>
+          2670
+          -
+          2686
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.Column.expr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          lookupValue.expr
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          3007
+        </td>
+        <td>
+          2648
+          -
+          2668
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.Column.expr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          bloomFilterName.expr
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          3010
+        </td>
+        <td>
+          2609
+          -
+          2698
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.sql.Column(BloomFilterLookupExpression.apply(bloomFilterName.expr, lookupValue.expr, bloomMap))
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          3009
+        </td>
+        <td>
+          2620
+          -
+          2697
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.BloomFilterLookupExpression.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomFilterLookupExpression.apply(bloomFilterName.expr, lookupValue.expr, bloomMap)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          3011
+        </td>
+        <td>
+          2772
+          -
+          2842
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;The bloom filter: &quot;.+(bloom).+(&quot;, does not exist in the provided bloomMap&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          3013
+        </td>
+        <td>
+          2755
+          -
+          2843
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.QualityException.qualityException
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.sparkutils.quality.QualityException.qualityException(&quot;The bloom filter: &quot;.+(bloom).+(&quot;, does not exist in the provided bloomMap&quot;), com.sparkutils.quality.QualityException.qualityException$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          3012
+        </td>
+        <td>
+          2755
+          -
+          2755
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.QualityException.qualityException$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.sparkutils.quality.QualityException.qualityException$default$2
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          3014
+        </td>
+        <td>
+          2893
+          -
+          2917
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.BloomFilterLookup.bloomDoesNotExist
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          BloomFilterLookup.this.bloomDoesNotExist(bloom)
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          3015
+        </td>
+        <td>
+          3297
+          -
+          3356
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.BloomFilterLookupSparkVersionSpecific.getBlooms
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomFilterLookupSparkVersionSpecific.getBlooms(expression)
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          3016
+        </td>
+        <td>
+          4252
+          -
+          4266
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.broadcast.Broadcast.value
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomFilterLookupExpression.this.bloomMap.value
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          3017
+        </td>
+        <td>
+          4507
+          -
+          4521
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Any.toString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          right.toString()
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          3020
+        </td>
+        <td>
+          4493
+          -
+          4575
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomFilterLookupExpression.this.map.getOrElse[(com.sparkutils.quality.BloomLookup, Double)](right.toString(), BloomFilterLookup.bloomDoesNotExist(right.toString()))
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          3019
+        </td>
+        <td>
+          4523
+          -
+          4574
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.BloomFilterLookup.bloomDoesNotExist
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          BloomFilterLookup.bloomDoesNotExist(right.toString())
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          3018
+        </td>
+        <td>
+          4559
+          -
+          4573
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Any.toString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          right.toString()
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          3022
+        </td>
+        <td>
+          4872
+          -
+          4872
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$1._2
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          3021
+        </td>
+        <td>
+          4829
+          -
+          4829
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$1._1
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          3023
+        </td>
+        <td>
+          4945
+          -
+          4949
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.BloomFilterLookupExpression.left
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          left
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          3025
+        </td>
+        <td>
+          4969
+          -
+          4984
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          BloomFilterLookupExpression.this.converter.apply(left)
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          3024
+        </td>
+        <td>
+          4969
+          -
+          4984
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          BloomFilterLookupExpression.this.converter.apply(left)
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          3026
+        </td>
+        <td>
+          5000
+          -
+          5031
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.BloomFilterTypes.BloomLookup.mightContain
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          bloom.mightContain(converted)
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          3027
+        </td>
+        <td>
+          5040
+          -
+          5044
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.unary_!
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          3029
+        </td>
+        <td>
+          5052
+          -
+          5055
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0.0
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          3028
+        </td>
+        <td>
+          5052
+          -
+          5055
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0.0
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          3030
+        </td>
+        <td>
+          5071
+          -
+          5074
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.BloomFilterLookupExpression.fpp
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          fpp
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          3031
+        </td>
+        <td>
+          5116
+          -
+          5126
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.DoubleType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.DoubleType
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          3035
+        </td>
+        <td>
+          5176
+          -
+          5184
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.sql
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          BloomFilterLookupExpression.this.left.sql
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          3037
+        </td>
+        <td>
+          5157
+          -
+          5202
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;(probabilityIn(&quot;, &quot;, &quot;, &quot;))&quot;).s(BloomFilterLookupExpression.this.left.sql, BloomFilterLookupExpression.this.right.sql)
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          3034
+        </td>
+        <td>
+          5199
+          -
+          5202
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;))&quot;
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          3036
+        </td>
+        <td>
+          5189
+          -
+          5198
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.sql
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          BloomFilterLookupExpression.this.right.sql
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          3033
+        </td>
+        <td>
+          5185
+          -
+          5188
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;, &quot;
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          3032
+        </td>
+        <td>
+          5159
+          -
+          5175
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;(probabilityIn(&quot;
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          3038
+        </td>
+        <td>
+          5292
+          -
+          5314
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.ArrayBuffer.+=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.references.+=(this)
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          3039
+        </td>
+        <td>
+          5339
+          -
+          5370
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Class.getName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          classOf[scala.collection.immutable.Map].getName()
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          3040
+        </td>
+        <td>
+          5392
+          -
+          5434
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Class.getName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          classOf[org.apache.spark.broadcast.Broadcast].getName()
+        </td>
+      </tr><tr>
+        <td>
+          129
+        </td>
+        <td>
+          3041
+        </td>
+        <td>
+          5458
+          -
+          5521
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;com.sparkutils.quality.impl.bloom.BloomFilterLookupExpression&quot;
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          3042
+        </td>
+        <td>
+          5549
+          -
+          5572
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.-
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.references.size.-(1)
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          3043
+        </td>
+        <td>
+          5628
+          -
+          5653
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.freshName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.freshName(&quot;bloomMap&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          3052
+        </td>
+        <td>
+          5596
+          -
+          5763
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.addMutableState
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.addMutableState(bClassName, ctx.freshName(&quot;bloomMap&quot;), ((v: String) =&gt; scala.StringContext.apply(&quot;&quot;, &quot; = (&quot;, &quot;) (((&quot;, &quot;)references&quot;).s(v, bClassName, bfeClassName).+(scala.StringContext.apply(&quot;[&quot;, &quot;]).bloomMap());&quot;).s(bfeExpressionIdx))), ctx.addMutableState$default$4, ctx.addMutableState$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          3051
+        </td>
+        <td>
+          5600
+          -
+          5600
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.addMutableState$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.addMutableState$default$5
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          3050
+        </td>
+        <td>
+          5600
+          -
+          5600
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.addMutableState$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.addMutableState$default$4
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          3044
+        </td>
+        <td>
+          5668
+          -
+          5669
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          3047
+        </td>
+        <td>
+          5703
+          -
+          5715
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;)references&quot;
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          3046
+        </td>
+        <td>
+          5685
+          -
+          5691
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;) (((&quot;
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          3049
+        </td>
+        <td>
+          5666
+          -
+          5762
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;&quot;, &quot; = (&quot;, &quot;) (((&quot;, &quot;)references&quot;).s(v, bClassName, bfeClassName).+(scala.StringContext.apply(&quot;[&quot;, &quot;]).bloomMap());&quot;).s(bfeExpressionIdx))
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          3045
+        </td>
+        <td>
+          5670
+          -
+          5675
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot; = (&quot;
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          3048
+        </td>
+        <td>
+          5726
+          -
+          5762
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;[&quot;, &quot;]).bloomMap());&quot;).s(bfeExpressionIdx)
+        </td>
+      </tr><tr>
+        <td>
+          135
+        </td>
+        <td>
+          3053
+        </td>
+        <td>
+          5786
+          -
+          5813
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Class.getName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          classOf[scala.Function1].getName()
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          3062
+        </td>
+        <td>
+          5842
+          -
+          5842
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.addMutableState$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.addMutableState$default$5
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          3061
+        </td>
+        <td>
+          5842
+          -
+          5842
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.addMutableState$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.addMutableState$default$4
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          3054
+        </td>
+        <td>
+          5870
+          -
+          5896
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.freshName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.freshName(&quot;converter&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          3063
+        </td>
+        <td>
+          5838
+          -
+          6089
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.addMutableState
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.addMutableState(cClassName, ctx.freshName(&quot;converter&quot;), ((v: String) =&gt; scala.StringContext.apply(&quot;&quot;, &quot; = (&quot;, &quot;) (com.sparkutils.quality.impl.bloom.BloomExpressionLookup.bloomLookupValueConverter( (((&quot;, &quot;)references&quot;).s(v, cClassName, bfeClassName).+(scala.StringContext.apply(&quot;[&quot;, &quot;]).left()) ));&quot;).s(bfeExpressionIdx))), ctx.addMutableState$default$4, ctx.addMutableState$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          3056
+        </td>
+        <td>
+          5913
+          -
+          5918
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot; = (&quot;
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          3055
+        </td>
+        <td>
+          5911
+          -
+          5912
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          3058
+        </td>
+        <td>
+          6030
+          -
+          6042
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;)references&quot;
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          3060
+        </td>
+        <td>
+          5909
+          -
+          6088
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;&quot;, &quot; = (&quot;, &quot;) (com.sparkutils.quality.impl.bloom.BloomExpressionLookup.bloomLookupValueConverter( (((&quot;, &quot;)references&quot;).s(v, cClassName, bfeClassName).+(scala.StringContext.apply(&quot;[&quot;, &quot;]).left()) ));&quot;).s(bfeExpressionIdx))
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          3057
+        </td>
+        <td>
+          5928
+          -
+          6018
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;) (com.sparkutils.quality.impl.bloom.BloomExpressionLookup.bloomLookupValueConverter( (((&quot;
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          3059
+        </td>
+        <td>
+          6053
+          -
+          6088
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;[&quot;, &quot;]).left()) ));&quot;).s(bfeExpressionIdx)
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          3064
+        </td>
+        <td>
+          6113
+          -
+          6127
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;scala.Tuple2&quot;
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          3065
+        </td>
+        <td>
+          6181
+          -
+          6203
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.freshName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.freshName(&quot;bloom&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          3073
+        </td>
+        <td>
+          6152
+          -
+          6152
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.addMutableState$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.addMutableState$default$5
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          3072
+        </td>
+        <td>
+          6152
+          -
+          6152
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.addMutableState$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.addMutableState$default$4
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          3074
+        </td>
+        <td>
+          6148
+          -
+          6311
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.addMutableState
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.addMutableState(blClassName, ctx.freshName(&quot;bloom&quot;), ((v: String) =&gt; scala.StringContext.apply(&quot;&quot;, &quot; = (&quot;, &quot;) (((&quot;, &quot;)references&quot;).s(v, blClassName, bfeClassName).+(scala.StringContext.apply(&quot;[&quot;, &quot;]).bloom());&quot;).s(bfeExpressionIdx))), ctx.addMutableState$default$4, ctx.addMutableState$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          3071
+        </td>
+        <td>
+          6216
+          -
+          6310
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;&quot;, &quot; = (&quot;, &quot;) (((&quot;, &quot;)references&quot;).s(v, blClassName, bfeClassName).+(scala.StringContext.apply(&quot;[&quot;, &quot;]).bloom());&quot;).s(bfeExpressionIdx))
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          3067
+        </td>
+        <td>
+          6220
+          -
+          6225
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot; = (&quot;
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          3069
+        </td>
+        <td>
+          6254
+          -
+          6266
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;)references&quot;
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          3066
+        </td>
+        <td>
+          6218
+          -
+          6219
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          3068
+        </td>
+        <td>
+          6236
+          -
+          6242
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;) (((&quot;
+        </td>
+      </tr><tr>
+        <td>
+          143
+        </td>
+        <td>
+          3070
+        </td>
+        <td>
+          6277
+          -
+          6310
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;[&quot;, &quot;]).bloom());&quot;).s(bfeExpressionIdx)
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          3075
+        </td>
+        <td>
+          6332
+          -
+          6349
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.genCode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomFilterLookupExpression.this.left.genCode(ctx)
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          3076
+        </td>
+        <td>
+          6379
+          -
+          6380
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          3079
+        </td>
+        <td>
+          6375
+          -
+          6411
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;&quot;, &quot;\\n\n          &quot;).s(lefteval.code)
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          3078
+        </td>
+        <td>
+          6381
+          -
+          6394
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.code
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          lefteval.code
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          3077
+        </td>
+        <td>
+          6395
+          -
+          6411
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;\\n\n          &quot;
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          3080
+        </td>
+        <td>
+          6464
+          -
+          6478
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.value
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          lefteval.value
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          3081
+        </td>
+        <td>
+          6464
+          -
+          6478
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.value
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          lefteval.value
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          3082
+        </td>
+        <td>
+          6500
+          -
+          6501
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          3085
+        </td>
+        <td>
+          6523
+          -
+          6537
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.value
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          lefteval.value
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          3087
+        </td>
+        <td>
+          6498
+          -
+          6540
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;.apply(&quot;, &quot;)&quot;).s(converterTerm, lefteval.value)
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          3084
+        </td>
+        <td>
+          6538
+          -
+          6540
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;)&quot;
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          3083
+        </td>
+        <td>
+          6514
+          -
+          6522
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;.apply(&quot;
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          3086
+        </td>
+        <td>
+          6498
+          -
+          6540
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;.apply(&quot;, &quot;)&quot;).s(converterTerm, lefteval.value)
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          3089
+        </td>
+        <td>
+          6568
+          -
+          6568
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$2._2
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          3088
+        </td>
+        <td>
+          6551
+          -
+          6551
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$2._1
+        </td>
+      </tr><tr>
+        <td>
+          168
+        </td>
+        <td>
+          3090
+        </td>
+        <td>
+          7053
+          -
+          7079
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.freshName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.freshName(&quot;bloomPair&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          169
+        </td>
+        <td>
+          3097
+        </td>
+        <td>
+          7084
+          -
+          7470
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ev.copy(org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n\n        &quot;, &quot;\n        &quot;, &quot;\n\n        scala.Tuple2 &quot;, &quot; = &quot;, &quot;;\n\n        Object converted = &quot;, &quot;;\n\n        boolean res = ((com.sparkutils.quality.package$.BloomLookup) &quot;, &quot;._1()).mightContain(converted);\n        double &quot;, &quot; = (!res) ? 0.0 : (Double) &quot;, &quot;._2();\n        boolean &quot;, &quot; = false;\n       &quot;)).code(leftCode, rightCode, bloomPair, bloomPairSetter, converted, bloomPair, ev.value, bloomPair, ev.isNull), ev.copy$default$2, ev.copy$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          169
+        </td>
+        <td>
+          3091
+        </td>
+        <td>
+          7099
+          -
+          7469
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;\n\n        &quot;, &quot;\n        &quot;, &quot;\n\n        scala.Tuple2 &quot;, &quot; = &quot;, &quot;;\n\n        Object converted = &quot;, &quot;;\n\n        boolean res = ((com.sparkutils.quality.package$.BloomLookup) &quot;, &quot;._1()).mightContain(converted);\n        double &quot;, &quot; = (!res) ? 0.0 : (Double) &quot;, &quot;._2();\n        boolean &quot;, &quot; = false;\n       &quot;)
+        </td>
+      </tr><tr>
+        <td>
+          169
+        </td>
+        <td>
+          3094
+        </td>
+        <td>
+          7099
+          -
+          7469
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper.code
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n\n        &quot;, &quot;\n        &quot;, &quot;\n\n        scala.Tuple2 &quot;, &quot; = &quot;, &quot;;\n\n        Object converted = &quot;, &quot;;\n\n        boolean res = ((com.sparkutils.quality.package$.BloomLookup) &quot;, &quot;._1()).mightContain(converted);\n        double &quot;, &quot; = (!res) ? 0.0 : (Double) &quot;, &quot;._2();\n        boolean &quot;, &quot; = false;\n       &quot;)).code(leftCode, rightCode, bloomPair, bloomPairSetter, converted, bloomPair, ev.value, bloomPair, ev.isNull)
+        </td>
+      </tr><tr>
+        <td>
+          169
+        </td>
+        <td>
+          3096
+        </td>
+        <td>
+          7087
+          -
+          7087
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.copy$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ev.copy$default$3
+        </td>
+      </tr><tr>
+        <td>
+          169
+        </td>
+        <td>
+          3095
+        </td>
+        <td>
+          7087
+          -
+          7087
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.copy$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ev.copy$default$2
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          3092
+        </td>
+        <td>
+          7368
+          -
+          7376
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.value
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ev.value
+        </td>
+      </tr><tr>
+        <td>
+          180
+        </td>
+        <td>
+          3093
+        </td>
+        <td>
+          7439
+          -
+          7448
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.isNull
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ev.isNull
+        </td>
+      </tr><tr>
+        <td>
+          184
+        </td>
+        <td>
+          3098
+        </td>
+        <td>
+          7573
+          -
+          7573
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.BloomFilterLookupExpression.copy$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomFilterLookupExpression.this.copy$default$3
+        </td>
+      </tr><tr>
+        <td>
+          184
+        </td>
+        <td>
+          3099
+        </td>
+        <td>
+          7573
+          -
+          7611
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.BloomFilterLookupExpression.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomFilterLookupExpression.this.copy(newLeft, newRight, BloomFilterLookupExpression.this.copy$default$3)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
