@@ -37,4 +37,4 @@ with dependency:
 
 The qualityRuntime variable also supports further runtime types, such as Databricks.  
 
-See the docs site https://sparkutils.github.io/quality/ for detailed instructions.
+See the docs site [build-tool-dependencies](https://sparkutils.github.io/quality/latest/getting_started/#build-tool-dependencies) section for detailed instructions.
