@@ -32,6 +32,10 @@ ResolveTables, ResolveAlterTableCommands and ResolveHigherOrderFunctions are rem
 
 Use the 11.3.dbr build / profile, the artefact name will also end with _11.3.dbr.  Due to a backport of [SPARK-39316](https://issues.apache.org/jira/browse/SPARK-39316) only 11.3 LTS is supported (although likely 11.2 will also run), this changed the result type of Add causing incorrect aggregation precision via aggExpr (Sum and Average stopped using Add for this reason).
 
+## Running on Databricks Runtime 12.2 LTS
+
+DBR 12.2 backports at least [SPARK-41049](https://issues.apache.org/jira/browse/SPARK-41049) from 3.4 so the base build is closer to 3.4 than the advertised 3.3.2.  Building/Testing against 3.4.0 is the preferred approach for maximum compatibility.  As of the 14th March 23 the tests run against 12.2. 
+
 ## Testing out Quality via Notebooks
 
 You can use the appropriate runtime quality_testshade artefact jar (e.g. [DBR 11.3](https://s01.oss.sonatype.org/content/repositories/releases/com/sparkutils/quality_testshade_11.3.dbr_3.3_2.12/)) from maven to upload into your workspace / notebook env (or add via maven).  When using Databricks make sure to use the appropriate _Version.dbr builds.
@@ -67,3 +71,5 @@ import com.sparkutils.quality.tests.TestSuite
 import com.sparkutils.qualityTests.SparkTestUtils
 fileLoc: String = /dbfs/databricks/quality_test
 ```
+
+NB: _due to no 3.4 frameless yet being available as of 14th March 23 the test counts are now expected to be 206 passed instead of 210_
