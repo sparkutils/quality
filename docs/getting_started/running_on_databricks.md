@@ -34,7 +34,7 @@ Use the 11.3.dbr build / profile, the artefact name will also end with _11.3.dbr
 
 ## Running on Databricks Runtime 12.2 LTS
 
-DBR 12.2 backports at least [SPARK-41049](https://issues.apache.org/jira/browse/SPARK-41049) from 3.4 so the base build is closer to 3.4 than the advertised 3.3.2.  Building/Testing against 3.4.0 is the preferred approach for maximum compatibility.  As of the 14th March 23 the tests run against 12.2. 
+DBR 12.2 backports at least [SPARK-41049](https://issues.apache.org/jira/browse/SPARK-41049) from 3.4 so the base build is closer to 3.4 than the advertised 3.3.2.  Building/Testing against 3.3.0 is the preferred approach for maximum compatibility.  As of the 14th March 23 the tests run against 12.2. 
 
 ## Testing out Quality via Notebooks
 
