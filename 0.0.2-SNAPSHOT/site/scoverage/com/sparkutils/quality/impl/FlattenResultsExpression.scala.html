@@ -1,0 +1,4039 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/sparkutils/quality/impl/FlattenResultsExpression.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality.impl
+</span>2 <span style=''>
+</span>3 <span style=''>import com.sparkutils.quality.utils.Serializing
+</span>4 <span style=''>import com.sparkutils.quality._
+</span>5 <span style=''>import com.sparkutils.quality.utils.Serializing
+</span>6 <span style=''>import org.apache.spark.sql.{InputTypeChecks, SparkSession}
+</span>7 <span style=''>import org.apache.spark.sql.catalyst.InternalRow
+</span>8 <span style=''>import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder
+</span>9 <span style=''>import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
+</span>10 <span style=''>import org.apache.spark.sql.catalyst.expressions.{AttributeReference, BinaryExpression, Expression, ExpressionDescription, GenericInternalRow, NullIntolerant, UnaryExpression}
+</span>11 <span style=''>import org.apache.spark.sql.catalyst.util.GenericArrayData
+</span>12 <span style=''>import org.apache.spark.sql.types._
+</span>13 <span style=''>
+</span>14 <span style=''>object FlattenStruct {
+</span>15 <span style=''>
+</span>16 <span style=''>  val dataType: StructType = </span><span style='background: #AEF1AE'>StructType(Array(
+</span>17 <span style=''></span><span style='background: #AEF1AE'>    StructField(&quot;ruleSuiteId&quot;, IntegerType),
+</span>18 <span style=''></span><span style='background: #AEF1AE'>    StructField(&quot;ruleSuiteVersion&quot;, IntegerType),
+</span>19 <span style=''></span><span style='background: #AEF1AE'>    StructField(&quot;ruleSuiteResult&quot;, IntegerType),
+</span>20 <span style=''></span><span style='background: #AEF1AE'>    StructField(&quot;ruleSetResult&quot;, IntegerType),
+</span>21 <span style=''></span><span style='background: #AEF1AE'>    StructField(&quot;ruleSetId&quot;, IntegerType),
+</span>22 <span style=''></span><span style='background: #AEF1AE'>    StructField(&quot;ruleSetVersion&quot;, IntegerType),
+</span>23 <span style=''></span><span style='background: #AEF1AE'>    StructField(&quot;ruleId&quot;, IntegerType),
+</span>24 <span style=''></span><span style='background: #AEF1AE'>    StructField(&quot;ruleVersion&quot;, IntegerType),
+</span>25 <span style=''></span><span style='background: #AEF1AE'>    StructField(&quot;ruleResult&quot;, IntegerType)
+</span>26 <span style=''></span><span style='background: #AEF1AE'>  ))</span><span style=''>
+</span>27 <span style=''>
+</span>28 <span style=''>  /**
+</span>29 <span style=''>   * Creates a deserializer expression from internal row to RuleSuiteResult
+</span>30 <span style=''>   * @return
+</span>31 <span style=''>   */
+</span>32 <span style=''>  def ruleSuiteDeserializer =
+</span>33 <span style=''>    </span><span style='background: #AEF1AE'>Encoders.ruleSuiteResultExpEnc.asInstanceOf[ExpressionEncoder[RuleSuiteResult]].resolveAndBind().deserializer</span><span style=''>
+</span>34 <span style=''>}
+</span>35 <span style=''>
+</span>36 <span style=''>// NB actually adding the variables requires Star's, they only exist in plans against names
+</span>37 <span style=''>
+</span>38 <span style=''>@ExpressionDescription(
+</span>39 <span style=''>  usage = &quot;flattenResults(expr) - Returns the result from a result type column row as rows.&quot;,
+</span>40 <span style=''>  examples = &quot;&quot;&quot;
+</span>41 <span style=''>    Examples:
+</span>42 <span style=''>      &gt; SELECT explode(DQ);
+</span>43 <span style=''>       1, 2, 4, 5 etc
+</span>44 <span style=''>  &quot;&quot;&quot;)
+</span>45 <span style=''>case class FlattenResultsExpression(child: Expression, deserializer: Expression) extends UnaryExpression with CodegenFallback with NullIntolerant
+</span>46 <span style=''>  with InputTypeChecks {
+</span>47 <span style=''>  //assert(child.dataType == SparkHelpers.ruleSuiteResultType, &quot;Only RuleSuiteResult type parameters are supported&quot;)
+</span>48 <span style=''>
+</span>49 <span style=''>  // compile it out
+</span>50 <span style=''>  private val deserializerW = </span><span style='background: #AEF1AE'>ExpressionWrapper(deserializer)</span><span style=''>
+</span>51 <span style=''>
+</span>52 <span style=''>  override def nullSafeEval(col: Any): Any = {
+</span>53 <span style=''>    val res = </span><span style='background: #AEF1AE'>deserializerW.internalEval(col.asInstanceOf[InternalRow]).asInstanceOf[RuleSuiteResult]</span><span style=''>
+</span>54 <span style=''>    val flattened = </span><span style='background: #AEF1AE'>Serializing.flatten(res)</span><span style=''>
+</span>55 <span style=''>    </span><span style='background: #AEF1AE'>new GenericArrayData(flattened.map {
+</span>56 <span style=''></span><span style='background: #AEF1AE'>      row =&gt;
+</span>57 <span style=''></span><span style='background: #AEF1AE'>        import row._
+</span>58 <span style=''></span><span style='background: #AEF1AE'>        InternalRow(
+</span>59 <span style=''></span><span style='background: #AEF1AE'>          ruleSuiteId,
+</span>60 <span style=''></span><span style='background: #AEF1AE'>          ruleSuiteVersion,
+</span>61 <span style=''></span><span style='background: #AEF1AE'>          ruleSuiteResult,
+</span>62 <span style=''></span><span style='background: #AEF1AE'>          ruleSetResult,
+</span>63 <span style=''></span><span style='background: #AEF1AE'>          ruleSetId,
+</span>64 <span style=''></span><span style='background: #AEF1AE'>          ruleSetVersion,
+</span>65 <span style=''></span><span style='background: #AEF1AE'>          ruleId,
+</span>66 <span style=''></span><span style='background: #AEF1AE'>          ruleVersion,
+</span>67 <span style=''></span><span style='background: #AEF1AE'>          ruleResult
+</span>68 <span style=''></span><span style='background: #AEF1AE'>        )
+</span>69 <span style=''></span><span style='background: #AEF1AE'>    })</span><span style=''>
+</span>70 <span style=''>  }
+</span>71 <span style=''>
+</span>72 <span style=''>  override def nullable: Boolean = </span><span style='background: #F0ADAD'>false</span><span style=''>
+</span>73 <span style=''>
+</span>74 <span style=''>  override def dataType: DataType = </span><span style='background: #AEF1AE'>ArrayType(FlattenStruct.dataType)</span><span style=''>
+</span>75 <span style=''>
+</span>76 <span style=''>  override def inputDataTypes: Seq[Seq[DataType]] = </span><span style='background: #AEF1AE'>Seq(Seq(ruleSuiteResultType))</span><span style=''>
+</span>77 <span style=''>
+</span>78 <span style=''>  protected def withNewChildInternal(newChild: Expression): Expression = </span><span style='background: #AEF1AE'>copy(child = newChild)</span><span style=''>
+</span>79 <span style=''>}
+</span>80 <span style=''>
+</span>81 <span style=''>@ExpressionDescription(
+</span>82 <span style=''>  usage = &quot;flattenRulesResults(expr) - Returns the result from a result type column row as rows.&quot;,
+</span>83 <span style=''>  examples = &quot;&quot;&quot;
+</span>84 <span style=''>    Examples:
+</span>85 <span style=''>      &gt; SELECT explode(DQ);
+</span>86 <span style=''>       1, 2, 4, 5 etc
+</span>87 <span style=''>  &quot;&quot;&quot;)
+</span>88 <span style=''>case class FlattenRulesResultsExpression(child: Expression, deserializer: Expression) extends UnaryExpression with CodegenFallback with NullIntolerant {
+</span>89 <span style=''>  //assert(child.dataType == SparkHelpers.ruleSuiteResultType, &quot;Only RuleSuiteResult type parameters are supported&quot;)
+</span>90 <span style=''>
+</span>91 <span style=''>  lazy val ruleProductType = {
+</span>92 <span style=''>    val struct = child.dataType.asInstanceOf[StructType]
+</span>93 <span style=''>    struct.fields(2).dataType
+</span>94 <span style=''>
+</span>95 <span style=''>    //right.dataType
+</span>96 <span style=''>  }
+</span>97 <span style=''>
+</span>98 <span style=''>  // compile it out
+</span>99 <span style=''>  private val deserializerW = </span><span style='background: #AEF1AE'>ExpressionWrapper(deserializer)</span><span style=''>
+</span>100 <span style=''>
+</span>101 <span style=''>  override def eval(input: InternalRow): Any = {
+</span>102 <span style=''>    val field = </span><span style='background: #AEF1AE'>child.eval(input).asInstanceOf[InternalRow]</span><span style=''>
+</span>103 <span style=''>    val res = </span><span style='background: #AEF1AE'>deserializerW.internalEval(field.get(0, com.sparkutils.quality.ruleSuiteResultType).asInstanceOf[InternalRow]).asInstanceOf[RuleSuiteResult]</span><span style=''>
+</span>104 <span style=''>    val flattened = </span><span style='background: #AEF1AE'>Serializing.flatten(res)</span><span style=''>
+</span>105 <span style=''>    </span><span style='background: #AEF1AE'>new GenericArrayData(flattened.map {
+</span>106 <span style=''></span><span style='background: #AEF1AE'>      row =&gt;
+</span>107 <span style=''></span><span style='background: #AEF1AE'>        import row._
+</span>108 <span style=''></span><span style='background: #AEF1AE'>        InternalRow(
+</span>109 <span style=''></span><span style='background: #AEF1AE'>          ruleSuiteId,
+</span>110 <span style=''></span><span style='background: #AEF1AE'>          ruleSuiteVersion,
+</span>111 <span style=''></span><span style='background: #AEF1AE'>          ruleSuiteResult,
+</span>112 <span style=''></span><span style='background: #AEF1AE'>          ruleSetResult,
+</span>113 <span style=''></span><span style='background: #AEF1AE'>          ruleSetId,
+</span>114 <span style=''></span><span style='background: #AEF1AE'>          ruleSetVersion,
+</span>115 <span style=''></span><span style='background: #AEF1AE'>          ruleId,
+</span>116 <span style=''></span><span style='background: #AEF1AE'>          ruleVersion,
+</span>117 <span style=''></span><span style='background: #AEF1AE'>          ruleResult, field.get(1, com.sparkutils.quality.fullRuleIdType), field.get(2, ruleProductType)
+</span>118 <span style=''></span><span style='background: #AEF1AE'>        )
+</span>119 <span style=''></span><span style='background: #AEF1AE'>    })</span><span style=''>
+</span>120 <span style=''>  }
+</span>121 <span style=''>
+</span>122 <span style=''>  override def nullable: Boolean = </span><span style='background: #F0ADAD'>false</span><span style=''>
+</span>123 <span style=''>
+</span>124 <span style=''>  override def dataType: DataType = </span><span style='background: #AEF1AE'>ArrayType(FlattenStruct.dataType.copy(fields = (FlattenStruct.dataType.fields :+
+</span>125 <span style=''></span><span style='background: #AEF1AE'>    StructField(&quot;salientRule&quot;, com.sparkutils.quality.fullRuleIdType)) :+ StructField(&quot;result&quot;, ruleProductType) ))</span><span style=''>
+</span>126 <span style=''>
+</span>127 <span style=''>  protected def withNewChildInternal(newChild: Expression): Expression = </span><span style='background: #AEF1AE'>copy(child = newChild)</span><span style=''>
+</span>128 <span style=''>}
+</span>129 <span style=''>
+</span>130 <span style=''>/**
+</span>131 <span style=''> * NB this doesn't make much sense for folder unless in debug
+</span>132 <span style=''> * @param child
+</span>133 <span style=''> * @param deserializer
+</span>134 <span style=''> */
+</span>135 <span style=''>@ExpressionDescription(
+</span>136 <span style=''>  usage = &quot;flattenFolderResults(expr) - Returns the result from a result type column row as rows.&quot;,
+</span>137 <span style=''>  examples = &quot;&quot;&quot;
+</span>138 <span style=''>    Examples:
+</span>139 <span style=''>      &gt; SELECT explode(DQ);
+</span>140 <span style=''>       1, 2, 4, 5 etc
+</span>141 <span style=''>  &quot;&quot;&quot;)
+</span>142 <span style=''>case class FlattenFolderResultsExpression(child: Expression, deserializer: Expression) extends UnaryExpression with CodegenFallback with NullIntolerant {
+</span>143 <span style=''>  //assert(child.dataType == SparkHelpers.ruleSuiteResultType, &quot;Only RuleSuiteResult type parameters are supported&quot;)
+</span>144 <span style=''>
+</span>145 <span style=''>  lazy val ruleProductType = {
+</span>146 <span style=''>    val struct = child.dataType.asInstanceOf[StructType]
+</span>147 <span style=''>    struct.fields(1).dataType
+</span>148 <span style=''>
+</span>149 <span style=''>    //right.dataType
+</span>150 <span style=''>  }
+</span>151 <span style=''>
+</span>152 <span style=''>  // compile it out
+</span>153 <span style=''>  private val deserializerW = </span><span style='background: #AEF1AE'>ExpressionWrapper(deserializer)</span><span style=''>
+</span>154 <span style=''>
+</span>155 <span style=''>  override def eval(input: InternalRow): Any = {
+</span>156 <span style=''>    val field = </span><span style='background: #AEF1AE'>child.eval(input).asInstanceOf[InternalRow]</span><span style=''>
+</span>157 <span style=''>    val res = </span><span style='background: #AEF1AE'>deserializerW.internalEval(field.get(0, com.sparkutils.quality.ruleSuiteResultType).asInstanceOf[InternalRow]).asInstanceOf[RuleSuiteResult]</span><span style=''>
+</span>158 <span style=''>    val flattened = </span><span style='background: #AEF1AE'>Serializing.flatten(res)</span><span style=''>
+</span>159 <span style=''>    </span><span style='background: #AEF1AE'>new GenericArrayData(flattened.map {
+</span>160 <span style=''></span><span style='background: #AEF1AE'>      row =&gt;
+</span>161 <span style=''></span><span style='background: #AEF1AE'>        import row._
+</span>162 <span style=''></span><span style='background: #AEF1AE'>        InternalRow(
+</span>163 <span style=''></span><span style='background: #AEF1AE'>          ruleSuiteId,
+</span>164 <span style=''></span><span style='background: #AEF1AE'>          ruleSuiteVersion,
+</span>165 <span style=''></span><span style='background: #AEF1AE'>          ruleSuiteResult,
+</span>166 <span style=''></span><span style='background: #AEF1AE'>          ruleSetResult,
+</span>167 <span style=''></span><span style='background: #AEF1AE'>          ruleSetId,
+</span>168 <span style=''></span><span style='background: #AEF1AE'>          ruleSetVersion,
+</span>169 <span style=''></span><span style='background: #AEF1AE'>          ruleId,
+</span>170 <span style=''></span><span style='background: #AEF1AE'>          ruleVersion,
+</span>171 <span style=''></span><span style='background: #AEF1AE'>          ruleResult, field.get(1, ruleProductType)
+</span>172 <span style=''></span><span style='background: #AEF1AE'>        )
+</span>173 <span style=''></span><span style='background: #AEF1AE'>    })</span><span style=''>
+</span>174 <span style=''>  }
+</span>175 <span style=''>
+</span>176 <span style=''>  override def nullable: Boolean = </span><span style='background: #F0ADAD'>false</span><span style=''>
+</span>177 <span style=''>
+</span>178 <span style=''>  override def dataType: DataType = </span><span style='background: #AEF1AE'>ArrayType(FlattenStruct.dataType.copy(fields = (FlattenStruct.dataType.fields :+
+</span>179 <span style=''></span><span style='background: #AEF1AE'>    StructField(&quot;result&quot;, ruleProductType) )))</span><span style=''>
+</span>180 <span style=''>
+</span>181 <span style=''>  protected def withNewChildInternal(newChild: Expression): Expression = </span><span style='background: #AEF1AE'>copy(child = newChild)</span><span style=''>
+</span>182 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          16
+        </td>
+        <td>
+          804
+        </td>
+        <td>
+          736
+          -
+          1168
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructType.apply(scala.Array.apply[org.apache.spark.sql.types.StructField](org.apache.spark.sql.types.StructField.apply(&quot;ruleSuiteId&quot;, org.apache.spark.sql.types.IntegerType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4), org.apache.spark.sql.types.StructField.apply(&quot;ruleSuiteVersion&quot;, org.apache.spark.sql.types.IntegerType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4), org.apache.spark.sql.types.StructField.apply(&quot;ruleSuiteResult&quot;, org.apache.spark.sql.types.IntegerType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4), org.apache.spark.sql.types.StructField.apply(&quot;ruleSetResult&quot;, org.apache.spark.sql.types.IntegerType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4), org.apache.spark.sql.types.StructField.apply(&quot;ruleSetId&quot;, org.apache.spark.sql.types.IntegerType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4), org.apache.spark.sql.types.StructField.apply(&quot;ruleSetVersion&quot;, org.apache.spark.sql.types.IntegerType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4), org.apache.spark.sql.types.StructField.apply(&quot;ruleId&quot;, org.apache.spark.sql.types.IntegerType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4), org.apache.spark.sql.types.StructField.apply(&quot;ruleVersion&quot;, org.apache.spark.sql.types.IntegerType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4), org.apache.spark.sql.types.StructField.apply(&quot;ruleResult&quot;, org.apache.spark.sql.types.IntegerType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4))((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField])))
+        </td>
+      </tr><tr>
+        <td>
+          16
+        </td>
+        <td>
+          803
+        </td>
+        <td>
+          747
+          -
+          1167
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Array.apply[org.apache.spark.sql.types.StructField](org.apache.spark.sql.types.StructField.apply(&quot;ruleSuiteId&quot;, org.apache.spark.sql.types.IntegerType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4), org.apache.spark.sql.types.StructField.apply(&quot;ruleSuiteVersion&quot;, org.apache.spark.sql.types.IntegerType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4), org.apache.spark.sql.types.StructField.apply(&quot;ruleSuiteResult&quot;, org.apache.spark.sql.types.IntegerType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4), org.apache.spark.sql.types.StructField.apply(&quot;ruleSetResult&quot;, org.apache.spark.sql.types.IntegerType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4), org.apache.spark.sql.types.StructField.apply(&quot;ruleSetId&quot;, org.apache.spark.sql.types.IntegerType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4), org.apache.spark.sql.types.StructField.apply(&quot;ruleSetVersion&quot;, org.apache.spark.sql.types.IntegerType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4), org.apache.spark.sql.types.StructField.apply(&quot;ruleId&quot;, org.apache.spark.sql.types.IntegerType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4), org.apache.spark.sql.types.StructField.apply(&quot;ruleVersion&quot;, org.apache.spark.sql.types.IntegerType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4), org.apache.spark.sql.types.StructField.apply(&quot;ruleResult&quot;, org.apache.spark.sql.types.IntegerType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4))((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField]))
+        </td>
+      </tr><tr>
+        <td>
+          17
+        </td>
+        <td>
+          759
+        </td>
+        <td>
+          785
+          -
+          796
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.IntegerType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.IntegerType
+        </td>
+      </tr><tr>
+        <td>
+          17
+        </td>
+        <td>
+          762
+        </td>
+        <td>
+          758
+          -
+          797
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply(&quot;ruleSuiteId&quot;, org.apache.spark.sql.types.IntegerType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          17
+        </td>
+        <td>
+          761
+        </td>
+        <td>
+          758
+          -
+          758
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          17
+        </td>
+        <td>
+          758
+        </td>
+        <td>
+          770
+          -
+          783
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;ruleSuiteId&quot;
+        </td>
+      </tr><tr>
+        <td>
+          17
+        </td>
+        <td>
+          760
+        </td>
+        <td>
+          758
+          -
+          758
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          18
+        </td>
+        <td>
+          765
+        </td>
+        <td>
+          803
+          -
+          803
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          18
+        </td>
+        <td>
+          764
+        </td>
+        <td>
+          835
+          -
+          846
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.IntegerType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.IntegerType
+        </td>
+      </tr><tr>
+        <td>
+          18
+        </td>
+        <td>
+          767
+        </td>
+        <td>
+          803
+          -
+          847
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply(&quot;ruleSuiteVersion&quot;, org.apache.spark.sql.types.IntegerType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          18
+        </td>
+        <td>
+          766
+        </td>
+        <td>
+          803
+          -
+          803
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          18
+        </td>
+        <td>
+          763
+        </td>
+        <td>
+          815
+          -
+          833
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;ruleSuiteVersion&quot;
+        </td>
+      </tr><tr>
+        <td>
+          19
+        </td>
+        <td>
+          768
+        </td>
+        <td>
+          865
+          -
+          882
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;ruleSuiteResult&quot;
+        </td>
+      </tr><tr>
+        <td>
+          19
+        </td>
+        <td>
+          771
+        </td>
+        <td>
+          853
+          -
+          853
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          19
+        </td>
+        <td>
+          770
+        </td>
+        <td>
+          853
+          -
+          853
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          19
+        </td>
+        <td>
+          769
+        </td>
+        <td>
+          884
+          -
+          895
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.IntegerType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.IntegerType
+        </td>
+      </tr><tr>
+        <td>
+          19
+        </td>
+        <td>
+          772
+        </td>
+        <td>
+          853
+          -
+          896
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply(&quot;ruleSuiteResult&quot;, org.apache.spark.sql.types.IntegerType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          774
+        </td>
+        <td>
+          931
+          -
+          942
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.IntegerType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.IntegerType
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          777
+        </td>
+        <td>
+          902
+          -
+          943
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply(&quot;ruleSetResult&quot;, org.apache.spark.sql.types.IntegerType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          773
+        </td>
+        <td>
+          914
+          -
+          929
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;ruleSetResult&quot;
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          776
+        </td>
+        <td>
+          902
+          -
+          902
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          775
+        </td>
+        <td>
+          902
+          -
+          902
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          21
+        </td>
+        <td>
+          779
+        </td>
+        <td>
+          974
+          -
+          985
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.IntegerType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.IntegerType
+        </td>
+      </tr><tr>
+        <td>
+          21
+        </td>
+        <td>
+          782
+        </td>
+        <td>
+          949
+          -
+          986
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply(&quot;ruleSetId&quot;, org.apache.spark.sql.types.IntegerType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          21
+        </td>
+        <td>
+          778
+        </td>
+        <td>
+          961
+          -
+          972
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;ruleSetId&quot;
+        </td>
+      </tr><tr>
+        <td>
+          21
+        </td>
+        <td>
+          781
+        </td>
+        <td>
+          949
+          -
+          949
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          21
+        </td>
+        <td>
+          780
+        </td>
+        <td>
+          949
+          -
+          949
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          22
+        </td>
+        <td>
+          783
+        </td>
+        <td>
+          1004
+          -
+          1020
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;ruleSetVersion&quot;
+        </td>
+      </tr><tr>
+        <td>
+          22
+        </td>
+        <td>
+          786
+        </td>
+        <td>
+          992
+          -
+          992
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          22
+        </td>
+        <td>
+          785
+        </td>
+        <td>
+          992
+          -
+          992
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          22
+        </td>
+        <td>
+          784
+        </td>
+        <td>
+          1022
+          -
+          1033
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.IntegerType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.IntegerType
+        </td>
+      </tr><tr>
+        <td>
+          22
+        </td>
+        <td>
+          787
+        </td>
+        <td>
+          992
+          -
+          1034
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply(&quot;ruleSetVersion&quot;, org.apache.spark.sql.types.IntegerType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          23
+        </td>
+        <td>
+          792
+        </td>
+        <td>
+          1040
+          -
+          1074
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply(&quot;ruleId&quot;, org.apache.spark.sql.types.IntegerType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          23
+        </td>
+        <td>
+          788
+        </td>
+        <td>
+          1052
+          -
+          1060
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;ruleId&quot;
+        </td>
+      </tr><tr>
+        <td>
+          23
+        </td>
+        <td>
+          791
+        </td>
+        <td>
+          1040
+          -
+          1040
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          23
+        </td>
+        <td>
+          790
+        </td>
+        <td>
+          1040
+          -
+          1040
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          23
+        </td>
+        <td>
+          789
+        </td>
+        <td>
+          1062
+          -
+          1073
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.IntegerType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.IntegerType
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          795
+        </td>
+        <td>
+          1080
+          -
+          1080
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          797
+        </td>
+        <td>
+          1080
+          -
+          1119
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply(&quot;ruleVersion&quot;, org.apache.spark.sql.types.IntegerType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          794
+        </td>
+        <td>
+          1107
+          -
+          1118
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.IntegerType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.IntegerType
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          793
+        </td>
+        <td>
+          1092
+          -
+          1105
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;ruleVersion&quot;
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          796
+        </td>
+        <td>
+          1080
+          -
+          1080
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          801
+        </td>
+        <td>
+          1125
+          -
+          1125
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          800
+        </td>
+        <td>
+          1125
+          -
+          1125
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          802
+        </td>
+        <td>
+          1125
+          -
+          1163
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply(&quot;ruleResult&quot;, org.apache.spark.sql.types.IntegerType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          799
+        </td>
+        <td>
+          1151
+          -
+          1162
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.IntegerType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.IntegerType
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          798
+        </td>
+        <td>
+          1137
+          -
+          1149
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;ruleResult&quot;
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          806
+        </td>
+        <td>
+          1385
+          -
+          1385
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.encoders.ExpressionEncoder.resolveAndBind$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.resolveAndBind$default$1
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          809
+        </td>
+        <td>
+          1305
+          -
+          1414
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.encoders.ExpressionEncoder.deserializer
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  &lt;artifact&gt; val qual$1: org.apache.spark.sql.catalyst.encoders.ExpressionEncoder[com.sparkutils.quality.RuleSuiteResult] @scala.reflect.internal.annotations.uncheckedBounds = Encoders.ruleSuiteResultExpEnc.asInstanceOf[org.apache.spark.sql.catalyst.encoders.ExpressionEncoder[com.sparkutils.quality.RuleSuiteResult]];
+  &lt;artifact&gt; val x$1: Seq[org.apache.spark.sql.catalyst.expressions.Attribute] @scala.reflect.internal.annotations.uncheckedBounds = qual$1.resolveAndBind$default$1;
+  &lt;artifact&gt; val x$2: org.apache.spark.sql.catalyst.analysis.Analyzer = qual$1.resolveAndBind$default$2;
+  qual$1.resolveAndBind(x$1, x$2)
+}.deserializer
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          805
+        </td>
+        <td>
+          1305
+          -
+          1384
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          Encoders.ruleSuiteResultExpEnc.asInstanceOf[org.apache.spark.sql.catalyst.encoders.ExpressionEncoder[com.sparkutils.quality.RuleSuiteResult]]
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          808
+        </td>
+        <td>
+          1305
+          -
+          1401
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.encoders.ExpressionEncoder.resolveAndBind
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.resolveAndBind(x$1, x$2)
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          807
+        </td>
+        <td>
+          1385
+          -
+          1385
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.encoders.ExpressionEncoder.resolveAndBind$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.resolveAndBind$default$2
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          810
+        </td>
+        <td>
+          2074
+          -
+          2086
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.FlattenResultsExpression.deserializer
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          FlattenResultsExpression.this.deserializer
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          812
+        </td>
+        <td>
+          2056
+          -
+          2087
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ExpressionWrapper.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.ExpressionWrapper.apply(FlattenResultsExpression.this.deserializer, com.sparkutils.quality.ExpressionWrapper.apply$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          811
+        </td>
+        <td>
+          2056
+          -
+          2056
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ExpressionWrapper.apply$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.ExpressionWrapper.apply$default$2
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          813
+        </td>
+        <td>
+          2177
+          -
+          2206
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          col.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow]
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          814
+        </td>
+        <td>
+          2150
+          -
+          2237
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          FlattenResultsExpression.this.deserializerW.internalEval(col.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow]).asInstanceOf[com.sparkutils.quality.RuleSuiteResult]
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          815
+        </td>
+        <td>
+          2258
+          -
+          2282
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.utils.Serializing.flatten
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.utils.Serializing.flatten(res)
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          828
+        </td>
+        <td>
+          2287
+          -
+          2607
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.GenericArrayData.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.sql.catalyst.util.GenericArrayData(flattened.map[org.apache.spark.sql.catalyst.InternalRow, Iterable[org.apache.spark.sql.catalyst.InternalRow]](((row: com.sparkutils.quality.RuleResultRow) =&gt; {
+  import row._;
+  org.apache.spark.sql.catalyst.InternalRow.apply(row.ruleSuiteId, row.ruleSuiteVersion, row.ruleSuiteResult, row.ruleSetResult, row.ruleSetId, row.ruleSetVersion, row.ruleId, row.ruleVersion, row.ruleResult)
+}))(collection.this.Iterable.canBuildFrom[org.apache.spark.sql.catalyst.InternalRow]))
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          827
+        </td>
+        <td>
+          2308
+          -
+          2606
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          flattened.map[org.apache.spark.sql.catalyst.InternalRow, Iterable[org.apache.spark.sql.catalyst.InternalRow]](((row: com.sparkutils.quality.RuleResultRow) =&gt; {
+  import row._;
+  org.apache.spark.sql.catalyst.InternalRow.apply(row.ruleSuiteId, row.ruleSuiteVersion, row.ruleSuiteResult, row.ruleSetResult, row.ruleSetId, row.ruleSetVersion, row.ruleId, row.ruleVersion, row.ruleResult)
+}))(collection.this.Iterable.canBuildFrom[org.apache.spark.sql.catalyst.InternalRow])
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          826
+        </td>
+        <td>
+          2322
+          -
+          2322
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Iterable.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Iterable.canBuildFrom[org.apache.spark.sql.catalyst.InternalRow]
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          825
+        </td>
+        <td>
+          2366
+          -
+          2600
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.InternalRow.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.InternalRow.apply(row.ruleSuiteId, row.ruleSuiteVersion, row.ruleSuiteResult, row.ruleSetResult, row.ruleSetId, row.ruleSetVersion, row.ruleId, row.ruleVersion, row.ruleResult)
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          816
+        </td>
+        <td>
+          2389
+          -
+          2400
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleResultRow.ruleSuiteId
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          row.ruleSuiteId
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          817
+        </td>
+        <td>
+          2412
+          -
+          2428
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleResultRow.ruleSuiteVersion
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          row.ruleSuiteVersion
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          818
+        </td>
+        <td>
+          2440
+          -
+          2455
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleResultRow.ruleSuiteResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          row.ruleSuiteResult
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          819
+        </td>
+        <td>
+          2467
+          -
+          2480
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleResultRow.ruleSetResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          row.ruleSetResult
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          820
+        </td>
+        <td>
+          2492
+          -
+          2501
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleResultRow.ruleSetId
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          row.ruleSetId
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          821
+        </td>
+        <td>
+          2513
+          -
+          2527
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleResultRow.ruleSetVersion
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          row.ruleSetVersion
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          822
+        </td>
+        <td>
+          2539
+          -
+          2545
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleResultRow.ruleId
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          row.ruleId
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          823
+        </td>
+        <td>
+          2557
+          -
+          2568
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleResultRow.ruleVersion
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          row.ruleVersion
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          824
+        </td>
+        <td>
+          2580
+          -
+          2590
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleResultRow.ruleResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          row.ruleResult
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          829
+        </td>
+        <td>
+          2648
+          -
+          2653
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          831
+        </td>
+        <td>
+          2691
+          -
+          2724
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.ArrayType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.ArrayType.apply(FlattenStruct.dataType)
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          830
+        </td>
+        <td>
+          2701
+          -
+          2723
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.FlattenStruct.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          FlattenStruct.dataType
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          833
+        </td>
+        <td>
+          2782
+          -
+          2806
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.Seq.apply[org.apache.spark.sql.types.StructType](com.sparkutils.quality.`package`.ruleSuiteResultType)
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          832
+        </td>
+        <td>
+          2786
+          -
+          2805
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleSparkTypes.ruleSuiteResultType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.`package`.ruleSuiteResultType
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          834
+        </td>
+        <td>
+          2778
+          -
+          2807
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.Seq.apply[Seq[org.apache.spark.sql.types.StructType]](scala.collection.Seq.apply[org.apache.spark.sql.types.StructType](com.sparkutils.quality.`package`.ruleSuiteResultType))
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          836
+        </td>
+        <td>
+          2882
+          -
+          2904
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.FlattenResultsExpression.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          FlattenResultsExpression.this.copy(newChild, FlattenResultsExpression.this.copy$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          835
+        </td>
+        <td>
+          2882
+          -
+          2882
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.FlattenResultsExpression.copy$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          FlattenResultsExpression.this.copy$default$2
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          837
+        </td>
+        <td>
+          3603
+          -
+          3615
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.FlattenRulesResultsExpression.deserializer
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          FlattenRulesResultsExpression.this.deserializer
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          839
+        </td>
+        <td>
+          3585
+          -
+          3616
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ExpressionWrapper.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.ExpressionWrapper.apply(FlattenRulesResultsExpression.this.deserializer, com.sparkutils.quality.ExpressionWrapper.apply$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          838
+        </td>
+        <td>
+          3585
+          -
+          3585
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ExpressionWrapper.apply$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.ExpressionWrapper.apply$default$2
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          840
+        </td>
+        <td>
+          3683
+          -
+          3726
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          FlattenRulesResultsExpression.this.child.eval(input).asInstanceOf[org.apache.spark.sql.catalyst.InternalRow]
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          842
+        </td>
+        <td>
+          3781
+          -
+          3823
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleSparkTypes.ruleSuiteResultType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.`package`.ruleSuiteResultType
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          844
+        </td>
+        <td>
+          3741
+          -
+          3881
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          FlattenRulesResultsExpression.this.deserializerW.internalEval(field.get(0, com.sparkutils.quality.`package`.ruleSuiteResultType).asInstanceOf[org.apache.spark.sql.catalyst.InternalRow]).asInstanceOf[com.sparkutils.quality.RuleSuiteResult]
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          841
+        </td>
+        <td>
+          3778
+          -
+          3779
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          843
+        </td>
+        <td>
+          3768
+          -
+          3850
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          field.get(0, com.sparkutils.quality.`package`.ruleSuiteResultType).asInstanceOf[org.apache.spark.sql.catalyst.InternalRow]
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          845
+        </td>
+        <td>
+          3902
+          -
+          3926
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.utils.Serializing.flatten
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.utils.Serializing.flatten(res)
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          863
+        </td>
+        <td>
+          3931
+          -
+          4335
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.GenericArrayData.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.sql.catalyst.util.GenericArrayData(flattened.map[org.apache.spark.sql.catalyst.InternalRow, Iterable[org.apache.spark.sql.catalyst.InternalRow]](((row: com.sparkutils.quality.RuleResultRow) =&gt; {
+  import row._;
+  org.apache.spark.sql.catalyst.InternalRow.apply(row.ruleSuiteId, row.ruleSuiteVersion, row.ruleSuiteResult, row.ruleSetResult, row.ruleSetId, row.ruleSetVersion, row.ruleId, row.ruleVersion, row.ruleResult, field.get(1, com.sparkutils.quality.`package`.fullRuleIdType), field.get(2, FlattenRulesResultsExpression.this.ruleProductType))
+}))(collection.this.Iterable.canBuildFrom[org.apache.spark.sql.catalyst.InternalRow]))
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          862
+        </td>
+        <td>
+          3952
+          -
+          4334
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          flattened.map[org.apache.spark.sql.catalyst.InternalRow, Iterable[org.apache.spark.sql.catalyst.InternalRow]](((row: com.sparkutils.quality.RuleResultRow) =&gt; {
+  import row._;
+  org.apache.spark.sql.catalyst.InternalRow.apply(row.ruleSuiteId, row.ruleSuiteVersion, row.ruleSuiteResult, row.ruleSetResult, row.ruleSetId, row.ruleSetVersion, row.ruleId, row.ruleVersion, row.ruleResult, field.get(1, com.sparkutils.quality.`package`.fullRuleIdType), field.get(2, FlattenRulesResultsExpression.this.ruleProductType))
+}))(collection.this.Iterable.canBuildFrom[org.apache.spark.sql.catalyst.InternalRow])
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          861
+        </td>
+        <td>
+          3966
+          -
+          3966
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Iterable.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Iterable.canBuildFrom[org.apache.spark.sql.catalyst.InternalRow]
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          860
+        </td>
+        <td>
+          4010
+          -
+          4328
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.InternalRow.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.InternalRow.apply(row.ruleSuiteId, row.ruleSuiteVersion, row.ruleSuiteResult, row.ruleSetResult, row.ruleSetId, row.ruleSetVersion, row.ruleId, row.ruleVersion, row.ruleResult, field.get(1, com.sparkutils.quality.`package`.fullRuleIdType), field.get(2, FlattenRulesResultsExpression.this.ruleProductType))
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          846
+        </td>
+        <td>
+          4033
+          -
+          4044
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleResultRow.ruleSuiteId
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          row.ruleSuiteId
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          847
+        </td>
+        <td>
+          4056
+          -
+          4072
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleResultRow.ruleSuiteVersion
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          row.ruleSuiteVersion
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          848
+        </td>
+        <td>
+          4084
+          -
+          4099
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleResultRow.ruleSuiteResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          row.ruleSuiteResult
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          849
+        </td>
+        <td>
+          4111
+          -
+          4124
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleResultRow.ruleSetResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          row.ruleSetResult
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          850
+        </td>
+        <td>
+          4136
+          -
+          4145
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleResultRow.ruleSetId
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          row.ruleSetId
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          851
+        </td>
+        <td>
+          4157
+          -
+          4171
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleResultRow.ruleSetVersion
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          row.ruleSetVersion
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          852
+        </td>
+        <td>
+          4183
+          -
+          4189
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleResultRow.ruleId
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          row.ruleId
+        </td>
+      </tr><tr>
+        <td>
+          116
+        </td>
+        <td>
+          853
+        </td>
+        <td>
+          4201
+          -
+          4212
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleResultRow.ruleVersion
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          row.ruleVersion
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          855
+        </td>
+        <td>
+          4246
+          -
+          4247
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          857
+        </td>
+        <td>
+          4236
+          -
+          4287
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.SpecializedGetters.get
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          field.get(1, com.sparkutils.quality.`package`.fullRuleIdType)
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          854
+        </td>
+        <td>
+          4224
+          -
+          4234
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleResultRow.ruleResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          row.ruleResult
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          856
+        </td>
+        <td>
+          4249
+          -
+          4286
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleSparkTypes.fullRuleIdType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.`package`.fullRuleIdType
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          859
+        </td>
+        <td>
+          4289
+          -
+          4318
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.SpecializedGetters.get
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          field.get(2, FlattenRulesResultsExpression.this.ruleProductType)
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          858
+        </td>
+        <td>
+          4299
+          -
+          4300
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          2
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          864
+        </td>
+        <td>
+          4376
+          -
+          4381
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          878
+        </td>
+        <td>
+          4419
+          -
+          4615
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.ArrayType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.ArrayType.apply(FlattenStruct.dataType.copy(scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](FlattenStruct.dataType.fields).:+[org.apache.spark.sql.types.StructField](org.apache.spark.sql.types.StructField.apply(&quot;salientRule&quot;, com.sparkutils.quality.`package`.fullRuleIdType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4))((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField]))).:+[org.apache.spark.sql.types.StructField](org.apache.spark.sql.types.StructField.apply(&quot;result&quot;, FlattenRulesResultsExpression.this.ruleProductType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4))((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField]))))
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          877
+        </td>
+        <td>
+          4429
+          -
+          4614
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          FlattenStruct.dataType.copy(scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](FlattenStruct.dataType.fields).:+[org.apache.spark.sql.types.StructField](org.apache.spark.sql.types.StructField.apply(&quot;salientRule&quot;, com.sparkutils.quality.`package`.fullRuleIdType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4))((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField]))).:+[org.apache.spark.sql.types.StructField](org.apache.spark.sql.types.StructField.apply(&quot;result&quot;, FlattenRulesResultsExpression.this.ruleProductType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4))((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField])))
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          871
+        </td>
+        <td>
+          4467
+          -
+          4569
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.mutable.ArrayOps.:+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](FlattenStruct.dataType.fields).:+[org.apache.spark.sql.types.StructField](org.apache.spark.sql.types.StructField.apply(&quot;salientRule&quot;, com.sparkutils.quality.`package`.fullRuleIdType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4))((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField]))
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          865
+        </td>
+        <td>
+          4467
+          -
+          4496
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.fields
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          FlattenStruct.dataType.fields
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          873
+        </td>
+        <td>
+          4574
+          -
+          4574
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          872
+        </td>
+        <td>
+          4586
+          -
+          4594
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;result&quot;
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          866
+        </td>
+        <td>
+          4516
+          -
+          4529
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;salientRule&quot;
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          875
+        </td>
+        <td>
+          4574
+          -
+          4612
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply(&quot;result&quot;, FlattenRulesResultsExpression.this.ruleProductType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          869
+        </td>
+        <td>
+          4504
+          -
+          4504
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          874
+        </td>
+        <td>
+          4574
+          -
+          4574
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          868
+        </td>
+        <td>
+          4504
+          -
+          4504
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          867
+        </td>
+        <td>
+          4531
+          -
+          4568
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleSparkTypes.fullRuleIdType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.`package`.fullRuleIdType
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          876
+        </td>
+        <td>
+          4466
+          -
+          4612
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.mutable.ArrayOps.:+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](FlattenStruct.dataType.fields).:+[org.apache.spark.sql.types.StructField](org.apache.spark.sql.types.StructField.apply(&quot;salientRule&quot;, com.sparkutils.quality.`package`.fullRuleIdType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4))((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField]))).:+[org.apache.spark.sql.types.StructField](org.apache.spark.sql.types.StructField.apply(&quot;result&quot;, FlattenRulesResultsExpression.this.ruleProductType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4))((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField]))
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          870
+        </td>
+        <td>
+          4504
+          -
+          4569
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply(&quot;salientRule&quot;, com.sparkutils.quality.`package`.fullRuleIdType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          880
+        </td>
+        <td>
+          4690
+          -
+          4712
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.FlattenRulesResultsExpression.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          FlattenRulesResultsExpression.this.copy(newChild, FlattenRulesResultsExpression.this.copy$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          879
+        </td>
+        <td>
+          4690
+          -
+          4690
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.FlattenRulesResultsExpression.copy$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          FlattenRulesResultsExpression.this.copy$default$2
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          882
+        </td>
+        <td>
+          5504
+          -
+          5504
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ExpressionWrapper.apply$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.ExpressionWrapper.apply$default$2
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          881
+        </td>
+        <td>
+          5522
+          -
+          5534
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.FlattenFolderResultsExpression.deserializer
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          FlattenFolderResultsExpression.this.deserializer
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          883
+        </td>
+        <td>
+          5504
+          -
+          5535
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ExpressionWrapper.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.ExpressionWrapper.apply(FlattenFolderResultsExpression.this.deserializer, com.sparkutils.quality.ExpressionWrapper.apply$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          884
+        </td>
+        <td>
+          5602
+          -
+          5645
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          FlattenFolderResultsExpression.this.child.eval(input).asInstanceOf[org.apache.spark.sql.catalyst.InternalRow]
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          887
+        </td>
+        <td>
+          5687
+          -
+          5769
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          field.get(0, com.sparkutils.quality.`package`.ruleSuiteResultType).asInstanceOf[org.apache.spark.sql.catalyst.InternalRow]
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          886
+        </td>
+        <td>
+          5700
+          -
+          5742
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleSparkTypes.ruleSuiteResultType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.`package`.ruleSuiteResultType
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          885
+        </td>
+        <td>
+          5697
+          -
+          5698
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          888
+        </td>
+        <td>
+          5660
+          -
+          5800
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          FlattenFolderResultsExpression.this.deserializerW.internalEval(field.get(0, com.sparkutils.quality.`package`.ruleSuiteResultType).asInstanceOf[org.apache.spark.sql.catalyst.InternalRow]).asInstanceOf[com.sparkutils.quality.RuleSuiteResult]
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          889
+        </td>
+        <td>
+          5821
+          -
+          5845
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.utils.Serializing.flatten
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.utils.Serializing.flatten(res)
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          902
+        </td>
+        <td>
+          5885
+          -
+          5885
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Iterable.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Iterable.canBuildFrom[org.apache.spark.sql.catalyst.InternalRow]
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          904
+        </td>
+        <td>
+          5850
+          -
+          6201
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.GenericArrayData.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.sql.catalyst.util.GenericArrayData(flattened.map[org.apache.spark.sql.catalyst.InternalRow, Iterable[org.apache.spark.sql.catalyst.InternalRow]](((row: com.sparkutils.quality.RuleResultRow) =&gt; {
+  import row._;
+  org.apache.spark.sql.catalyst.InternalRow.apply(row.ruleSuiteId, row.ruleSuiteVersion, row.ruleSuiteResult, row.ruleSetResult, row.ruleSetId, row.ruleSetVersion, row.ruleId, row.ruleVersion, row.ruleResult, field.get(1, FlattenFolderResultsExpression.this.ruleProductType))
+}))(collection.this.Iterable.canBuildFrom[org.apache.spark.sql.catalyst.InternalRow]))
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          903
+        </td>
+        <td>
+          5871
+          -
+          6200
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          flattened.map[org.apache.spark.sql.catalyst.InternalRow, Iterable[org.apache.spark.sql.catalyst.InternalRow]](((row: com.sparkutils.quality.RuleResultRow) =&gt; {
+  import row._;
+  org.apache.spark.sql.catalyst.InternalRow.apply(row.ruleSuiteId, row.ruleSuiteVersion, row.ruleSuiteResult, row.ruleSetResult, row.ruleSetId, row.ruleSetVersion, row.ruleId, row.ruleVersion, row.ruleResult, field.get(1, FlattenFolderResultsExpression.this.ruleProductType))
+}))(collection.this.Iterable.canBuildFrom[org.apache.spark.sql.catalyst.InternalRow])
+        </td>
+      </tr><tr>
+        <td>
+          162
+        </td>
+        <td>
+          901
+        </td>
+        <td>
+          5929
+          -
+          6194
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.InternalRow.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.InternalRow.apply(row.ruleSuiteId, row.ruleSuiteVersion, row.ruleSuiteResult, row.ruleSetResult, row.ruleSetId, row.ruleSetVersion, row.ruleId, row.ruleVersion, row.ruleResult, field.get(1, FlattenFolderResultsExpression.this.ruleProductType))
+        </td>
+      </tr><tr>
+        <td>
+          163
+        </td>
+        <td>
+          890
+        </td>
+        <td>
+          5952
+          -
+          5963
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleResultRow.ruleSuiteId
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          row.ruleSuiteId
+        </td>
+      </tr><tr>
+        <td>
+          164
+        </td>
+        <td>
+          891
+        </td>
+        <td>
+          5975
+          -
+          5991
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleResultRow.ruleSuiteVersion
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          row.ruleSuiteVersion
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          892
+        </td>
+        <td>
+          6003
+          -
+          6018
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleResultRow.ruleSuiteResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          row.ruleSuiteResult
+        </td>
+      </tr><tr>
+        <td>
+          166
+        </td>
+        <td>
+          893
+        </td>
+        <td>
+          6030
+          -
+          6043
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleResultRow.ruleSetResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          row.ruleSetResult
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          894
+        </td>
+        <td>
+          6055
+          -
+          6064
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleResultRow.ruleSetId
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          row.ruleSetId
+        </td>
+      </tr><tr>
+        <td>
+          168
+        </td>
+        <td>
+          895
+        </td>
+        <td>
+          6076
+          -
+          6090
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleResultRow.ruleSetVersion
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          row.ruleSetVersion
+        </td>
+      </tr><tr>
+        <td>
+          169
+        </td>
+        <td>
+          896
+        </td>
+        <td>
+          6102
+          -
+          6108
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleResultRow.ruleId
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          row.ruleId
+        </td>
+      </tr><tr>
+        <td>
+          170
+        </td>
+        <td>
+          897
+        </td>
+        <td>
+          6120
+          -
+          6131
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleResultRow.ruleVersion
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          row.ruleVersion
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          899
+        </td>
+        <td>
+          6165
+          -
+          6166
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          898
+        </td>
+        <td>
+          6143
+          -
+          6153
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleResultRow.ruleResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          row.ruleResult
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          900
+        </td>
+        <td>
+          6155
+          -
+          6184
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.SpecializedGetters.get
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          field.get(1, FlattenFolderResultsExpression.this.ruleProductType)
+        </td>
+      </tr><tr>
+        <td>
+          176
+        </td>
+        <td>
+          905
+        </td>
+        <td>
+          6242
+          -
+          6247
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          178
+        </td>
+        <td>
+          911
+        </td>
+        <td>
+          6333
+          -
+          6408
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.mutable.ArrayOps.:+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](FlattenStruct.dataType.fields).:+[org.apache.spark.sql.types.StructField](org.apache.spark.sql.types.StructField.apply(&quot;result&quot;, FlattenFolderResultsExpression.this.ruleProductType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4))((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField]))
+        </td>
+      </tr><tr>
+        <td>
+          178
+        </td>
+        <td>
+          913
+        </td>
+        <td>
+          6285
+          -
+          6412
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.ArrayType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.ArrayType.apply(FlattenStruct.dataType.copy(scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](FlattenStruct.dataType.fields).:+[org.apache.spark.sql.types.StructField](org.apache.spark.sql.types.StructField.apply(&quot;result&quot;, FlattenFolderResultsExpression.this.ruleProductType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4))((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField]))))
+        </td>
+      </tr><tr>
+        <td>
+          178
+        </td>
+        <td>
+          912
+        </td>
+        <td>
+          6295
+          -
+          6411
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          FlattenStruct.dataType.copy(scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](FlattenStruct.dataType.fields).:+[org.apache.spark.sql.types.StructField](org.apache.spark.sql.types.StructField.apply(&quot;result&quot;, FlattenFolderResultsExpression.this.ruleProductType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4))((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField])))
+        </td>
+      </tr><tr>
+        <td>
+          178
+        </td>
+        <td>
+          906
+        </td>
+        <td>
+          6333
+          -
+          6362
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.fields
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          FlattenStruct.dataType.fields
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          908
+        </td>
+        <td>
+          6370
+          -
+          6370
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          907
+        </td>
+        <td>
+          6382
+          -
+          6390
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;result&quot;
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          910
+        </td>
+        <td>
+          6370
+          -
+          6408
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply(&quot;result&quot;, FlattenFolderResultsExpression.this.ruleProductType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          909
+        </td>
+        <td>
+          6370
+          -
+          6370
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          181
+        </td>
+        <td>
+          914
+        </td>
+        <td>
+          6487
+          -
+          6487
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.FlattenFolderResultsExpression.copy$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          FlattenFolderResultsExpression.this.copy$default$2
+        </td>
+      </tr><tr>
+        <td>
+          181
+        </td>
+        <td>
+          915
+        </td>
+        <td>
+          6487
+          -
+          6509
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.FlattenFolderResultsExpression.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          FlattenFolderResultsExpression.this.copy(newChild, FlattenFolderResultsExpression.this.copy$default$2)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

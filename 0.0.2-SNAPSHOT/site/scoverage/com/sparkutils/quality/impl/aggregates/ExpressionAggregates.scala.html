@@ -1,0 +1,1556 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/sparkutils/quality/impl/aggregates/ExpressionAggregates.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality.impl.aggregates
+</span>2 <span style=''>
+</span>3 <span style=''>import com.sparkutils.quality.QualityException.qualityException
+</span>4 <span style=''>import org.apache.spark.sql.QualitySparkUtils
+</span>5 <span style=''>import org.apache.spark.sql.QualitySparkUtils.cast
+</span>6 <span style=''>import org.apache.spark.sql.catalyst.dsl.expressions._
+</span>7 <span style=''>import org.apache.spark.sql.catalyst.expressions.aggregate.DeclarativeAggregate
+</span>8 <span style=''>import org.apache.spark.sql.catalyst.expressions.{AttributeReference, Cast, Expression, If, LambdaFunction, Literal, NamedLambdaVariable}
+</span>9 <span style=''>import org.apache.spark.sql.qualityFunctions._
+</span>10 <span style=''>import org.apache.spark.sql.types.{DataType, DecimalType, MapType}
+</span>11 <span style=''>import org.apache.spark.sql.QualitySparkUtils.{cast =&gt; castf}
+</span>12 <span style=''>
+</span>13 <span style=''>object AggregateExpressions {
+</span>14 <span style=''>
+</span>15 <span style=''>  /**
+</span>16 <span style=''>   * Should only be created from within the RuleRunnerObject functions, not doing so will lead to unresolved functions and lambda variables - use sql strings only to construct.
+</span>17 <span style=''>   * @param sumType when non-null it triggers a rewrite of both sum and evaluate expressions to set their parameter types to sumType, otherwise it takes those specified in the expressions already
+</span>18 <span style=''>   * @param ifExpr count if true/1 etc.
+</span>19 <span style=''>   * @param sum called lambda expression when ifExpr is true, with the current sum value and returns the new sum value (e.g. current -&gt; current + col2 would total all col2's)
+</span>20 <span style=''>   * @param evaluate combines the count and overall result of combinations in lambda to provide the overall results (e.g. (current, count) -&gt; current / count)
+</span>21 <span style=''>   * @param zero lookup function to get the zero value for the sum type
+</span>22 <span style=''>   */
+</span>23 <span style=''>  def apply(sumType: DataType, ifExpr: Expression, sum: Expression, evaluate: Expression, zero: DataType =&gt; Option[Any], add: DataType =&gt; Option[( Expression, Expression ) =&gt; Expression] ): Expression = {
+</span>24 <span style=''>    /*
+</span>25 <span style=''>     * in the case of decimal's being used the DecimalPrecision analysis can change the types such that the
+</span>26 <span style=''>     * precision is ignored e.g.
+</span>27 <span style=''>     * sumWith('DECIMAL(38,18)', entry -&gt; entry + field)
+</span>28 <span style=''>     * may end up with 38,17 for the lambda despite 38,17 being the input as such this must be casted.
+</span>29 <span style=''>     */
+</span>30 <span style=''>
+</span>31 <span style=''>    def transformSumType(function: Expression, param: NamedLambdaVariable, newDT: DataType = sumType) =
+</span>32 <span style=''>      </span><span style='background: #AEF1AE'>function.transform {
+</span>33 <span style=''></span><span style='background: #AEF1AE'>        case n: NamedLambdaVariable if n.exprId == param.exprId =&gt;
+</span>34 <span style=''></span><span style='background: #AEF1AE'>          n.copy(dataType = newDT)
+</span>35 <span style=''></span><span style='background: #AEF1AE'>        // spark for decimals already gets the type wrong for 0.7.1 syntax type and double wraps it (only checking single breaks deprecated syntax), so
+</span>36 <span style=''></span><span style='background: #AEF1AE'>        // ugly workarounds for types not matching.. see above comment
+</span>37 <span style=''></span><span style='background: #AEF1AE'>        case cast: Cast if cast.child.isInstanceOf[Cast] &amp;&amp; cast.child.asInstanceOf[Cast].child.isInstanceOf[NamedLambdaVariable] =&gt;
+</span>38 <span style=''></span><span style='background: #AEF1AE'>          val nvl = cast.child.asInstanceOf[Cast].child.asInstanceOf[NamedLambdaVariable]
+</span>39 <span style=''></span><span style='background: #AEF1AE'>          if (nvl.exprId == param.exprId)
+</span>40 <span style=''></span><span style='background: #AEF1AE'>            castf(castf(nvl.copy(dataType = newDT), newDT), cast.dataType)
+</span>41 <span style=''></span><span style='background: #AEF1AE'>          else
+</span>42 <span style=''></span><span style='background: #AEF1AE'>            </span><span style='background: #F0ADAD'>cast</span><span style='background: #AEF1AE'>
+</span>43 <span style=''></span><span style='background: #AEF1AE'>        // for dbr &gt; 11.2, the cast is on the variable not the expression
+</span>44 <span style=''></span><span style='background: #AEF1AE'>        case cast: Cast if cast.child.isInstanceOf[NamedLambdaVariable] =&gt;
+</span>45 <span style=''></span><span style='background: #AEF1AE'>          val nvl = cast.child.asInstanceOf[NamedLambdaVariable]
+</span>46 <span style=''></span><span style='background: #AEF1AE'>          if (nvl.exprId == param.exprId)
+</span>47 <span style=''></span><span style='background: #AEF1AE'>            castf( child = cast.child.asInstanceOf[NamedLambdaVariable].
+</span>48 <span style=''></span><span style='background: #AEF1AE'>              copy(dataType = newDT), newDT)
+</span>49 <span style=''></span><span style='background: #AEF1AE'>          else
+</span>50 <span style=''></span><span style='background: #AEF1AE'>            cast
+</span>51 <span style=''></span><span style='background: #AEF1AE'>
+</span>52 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>53 <span style=''>
+</span>54 <span style=''>    lazy val correctedSum =
+</span>55 <span style=''>      sum match {
+</span>56 <span style=''>        // re-pack with new type
+</span>57 <span style=''>
+</span>58 <span style=''>        // for sumWith
+</span>59 <span style=''>        case FunN(Seq(RefExpression(_, nullable, _)),
+</span>60 <span style=''>          LambdaFunction(fun, Seq(param: NamedLambdaVariable), hidden),
+</span>61 <span style=''>          name, _, _) =&gt;
+</span>62 <span style=''>
+</span>63 <span style=''>          val correctedFunction = transformSumType(fun, param)
+</span>64 <span style=''>
+</span>65 <span style=''>          FunN(Seq(RefExpression(sumType, nullable)),
+</span>66 <span style=''>            LambdaFunction(cast(correctedFunction, sumType), // see above comment for cast justification
+</span>67 <span style=''>              Seq(param.copy(dataType = sumType)), hidden), name)
+</span>68 <span style=''>
+</span>69 <span style=''>        // for mapWith
+</span>70 <span style=''>        case MapTransform(r: RefExpression, key, LambdaFunction(function, Seq(param: NamedLambdaVariable), hidden), zeroF) =&gt;
+</span>71 <span style=''>
+</span>72 <span style=''>          val MapType(_, valueType, _) = sumType
+</span>73 <span style=''>
+</span>74 <span style=''>          val correctedFunction = transformSumType(function, param, valueType)
+</span>75 <span style=''>
+</span>76 <span style=''>          MapTransform( RefExpression(sumType, r.nullable), key,
+</span>77 <span style=''>            LambdaFunction(cast(correctedFunction, valueType), // see above comment for cast justification
+</span>78 <span style=''>              Seq(param.copy(dataType = valueType)), hidden), zeroF)
+</span>79 <span style=''>
+</span>80 <span style=''>        // when we partially apply the lambda is further down
+</span>81 <span style=''>        case FunForward(Seq(RefExpression(_, nullable, paramIndex)) :+ (
+</span>82 <span style=''>          i @ FunN(funparams, LambdaFunction(function, params, hidden), _, _, _)
+</span>83 <span style=''>          )) =&gt;
+</span>84 <span style=''>          // params can be longer and not 1:1 due to placeholders
+</span>85 <span style=''>          val sparam = params(paramIndex).asInstanceOf[NamedLambdaVariable]
+</span>86 <span style=''>          val correctedFunction = transformSumType(function, sparam)
+</span>87 <span style=''>
+</span>88 <span style=''>          FunForward( Seq(RefExpression(sumType, nullable, paramIndex)) :+
+</span>89 <span style=''>            i.copy(function = LambdaFunction(cast(correctedFunction, sumType), // see above comment for cast justification
+</span>90 <span style=''>              sparam.copy(dataType = sumType) +: params.drop(1), hidden),
+</span>91 <span style=''>              arguments = funparams.updated(paramIndex,
+</span>92 <span style=''>                funparams(paramIndex).asInstanceOf[RefExpression].copy( dataType = sumType )
+</span>93 <span style=''>              ) ))
+</span>94 <span style=''>
+</span>95 <span style=''>        case _ =&gt; sum // not expected but better errors will come form Spark
+</span>96 <span style=''>      }
+</span>97 <span style=''>
+</span>98 <span style=''>    lazy val correctedEvaluate = evaluate match {
+</span>99 <span style=''>      case FunN(Seq(RefExpression(_, nullable, _), cref),
+</span>100 <span style=''>        LambdaFunction(function, Seq(sparam: NamedLambdaVariable, cparam: NamedLambdaVariable), hidden),
+</span>101 <span style=''>        name, _, _) =&gt;
+</span>102 <span style=''>
+</span>103 <span style=''>        val correctedFunction = transformSumType(function, sparam)
+</span>104 <span style=''>
+</span>105 <span style=''>        FunN(Seq(RefExpression(sumType, nullable), cref),
+</span>106 <span style=''>          LambdaFunction(correctedFunction,
+</span>107 <span style=''>            Seq(sparam.copy(dataType = sumType), cparam), hidden), name)
+</span>108 <span style=''>
+</span>109 <span style=''>      // when we partially apply the lambda is further down
+</span>110 <span style=''>      case FunForward(Seq(RefExpression(_, nullable, paramIndex), cref) :+ (
+</span>111 <span style=''>        i @ FunN(funparams, LambdaFunction(function, params, hidden), _, _, _)
+</span>112 <span style=''>        )) =&gt;
+</span>113 <span style=''>        // params can be longer and not 1:1 due to placeholders
+</span>114 <span style=''>        val sparam = params(paramIndex).asInstanceOf[NamedLambdaVariable]
+</span>115 <span style=''>        val correctedFunction = transformSumType(function, sparam)
+</span>116 <span style=''>
+</span>117 <span style=''>        FunForward( Seq(RefExpression(sumType, nullable, paramIndex), cref) :+
+</span>118 <span style=''>          i.copy(function = LambdaFunction(correctedFunction,
+</span>119 <span style=''>            sparam.copy(dataType = sumType) +: params.drop(1), hidden),
+</span>120 <span style=''>            arguments = funparams.updated(paramIndex,
+</span>121 <span style=''>              funparams(paramIndex).asInstanceOf[RefExpression].copy( dataType = sumType )
+</span>122 <span style=''>          ) ))
+</span>123 <span style=''>
+</span>124 <span style=''>      case _ =&gt; evaluate // shouldn't happen but better from spark than a match error
+</span>125 <span style=''>   }
+</span>126 <span style=''>
+</span>127 <span style=''>    val (SeqArgs(sum1 +: _, _), SeqArgs(Seq(sum2, count), _), useSum, useEvaluate) =
+</span>128 <span style=''>      if (sumType eq null)
+</span>129 <span style=''>        (sum, evaluate, sum, evaluate)
+</span>130 <span style=''>      else {
+</span>131 <span style=''>        val temp = (correctedSum, correctedEvaluate, correctedSum, correctedEvaluate)
+</span>132 <span style=''>        temp
+</span>133 <span style=''>      }
+</span>134 <span style=''>
+</span>135 <span style=''>    </span><span style='background: #AEF1AE'>ExpressionAggregates(Seq(count, sum1, sum2, ifExpr, useSum, useEvaluate), zero, add).toAggregateExpression()</span><span style=''>
+</span>136 <span style=''>  }
+</span>137 <span style=''>}
+</span>138 <span style=''>
+</span>139 <span style=''>/**
+</span>140 <span style=''> * Represents an aggregation expression built from a filter function, a sum lambda and an evaluate lambda which uses the
+</span>141 <span style=''> * count of filter hits and the sum as parameters.
+</span>142 <span style=''> * @param children
+</span>143 <span style=''> */
+</span>144 <span style=''>case class ExpressionAggregates(override val children: Seq[Expression], zero: DataType =&gt; Option[Any], addF: DataType =&gt; Option[( Expression, Expression ) =&gt; Expression]) extends DeclarativeAggregate {
+</span>145 <span style=''>  // extending higherorder fun is needed otherwise case other =&gt; other.failAnalysis( is thrown in analysis/higherOrderFunctions
+</span>146 <span style=''>  lazy val Seq(countLeaf: RefExpression, sumLeaf: RefExpression, evalSumLeaf: RefExpression, ifExpr, sumWith, evaluate) = children
+</span>147 <span style=''>
+</span>148 <span style=''>  lazy val sumRef = AttributeReference(&quot;sum&quot;, sumLeaf.dataType, true)()
+</span>149 <span style=''>  lazy val countRef = AttributeReference(&quot;count&quot;, countLeaf.dataType)()
+</span>150 <span style=''>
+</span>151 <span style=''>  lazy val sum = RefSetterExpression(Seq(sumLeaf, sumRef))
+</span>152 <span style=''>  lazy val sumEval = RefSetterExpression(Seq(evalSumLeaf, sumRef))
+</span>153 <span style=''>  lazy val count = RefSetterExpression(Seq(countLeaf, countRef))
+</span>154 <span style=''>
+</span>155 <span style=''>  lazy val runEvaluate = RunAllReturnLast(Seq(sumEval, count, evaluate))
+</span>156 <span style=''>  lazy val sumWithEvaluate = RunAllReturnLast(Seq(sum, sumWith))
+</span>157 <span style=''>
+</span>158 <span style=''>  lazy val add = addF(sumWith.dataType).getOrElse(qualityException(s&quot;Cannot find the monoidal add for type ${sumWith.dataType}&quot;))
+</span>159 <span style=''>
+</span>160 <span style=''>  override lazy val initialValues: Seq[Expression] = Seq(
+</span>161 <span style=''>    Literal(0L), // count
+</span>162 <span style=''>    {
+</span>163 <span style=''>      val dt = sumLeaf.dataType
+</span>164 <span style=''>      val zeroE = zero(dt).getOrElse(qualityException(s&quot;Could not find zero for type ${dt}&quot;))
+</span>165 <span style=''>      Literal(zeroE, dt)
+</span>166 <span style=''>    }
+</span>167 <span style=''>  )
+</span>168 <span style=''>
+</span>169 <span style=''>  override lazy val updateExpressions: Seq[Expression] = Seq(
+</span>170 <span style=''>    If(ifExpr, count + 1L, count),
+</span>171 <span style=''>    If(ifExpr, sumWithEvaluate, sum)
+</span>172 <span style=''>  )
+</span>173 <span style=''>
+</span>174 <span style=''>  override lazy val mergeExpressions: Seq[Expression] = Seq(
+</span>175 <span style=''>    count.left + count.right,
+</span>176 <span style=''>    sumLeaf.dataType match {
+</span>177 <span style=''>      case _: DecimalType =&gt; QualitySparkUtils.cast(add(sum.left, sum.right), sumLeaf.dataType) // extra protection against SPARK-39316
+</span>178 <span style=''>      case _ =&gt; add(sum.left, sum.right)
+</span>179 <span style=''>    }
+</span>180 <span style=''>  )
+</span>181 <span style=''>
+</span>182 <span style=''>  override lazy val evaluateExpression: Expression = runEvaluate
+</span>183 <span style=''>
+</span>184 <span style=''>  override lazy val aggBufferAttributes: Seq[AttributeReference] = Seq(countRef, sumRef)
+</span>185 <span style=''>
+</span>186 <span style=''>  override def dataType: DataType = </span><span style='background: #AEF1AE'>evaluate.dataType</span><span style=''>
+</span>187 <span style=''>
+</span>188 <span style=''>  override def nullable: Boolean = </span><span style='background: #AEF1AE'>false</span><span style=''>
+</span>189 <span style=''>
+</span>190 <span style=''>  implicit class RichAttribute(a: RefSetterExpression) {
+</span>191 <span style=''>    /** Represents this attribute at the mutable buffer side. */
+</span>192 <span style=''>    def left: RefSetterExpression = </span><span style='background: #AEF1AE'>a</span><span style=''>
+</span>193 <span style=''>
+</span>194 <span style=''>    /** Represents this attribute at the input buffer side (the data value is read-only). */
+</span>195 <span style=''>    def right: AttributeReference = </span><span style='background: #AEF1AE'>inputAggBufferAttributes(aggBufferAttributes.indexOf(a.from))</span><span style=''>
+</span>196 <span style=''>  }
+</span>197 <span style=''>
+</span>198 <span style=''>  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = </span><span style='background: #AEF1AE'>copy(children = newChildren)</span><span style=''>
+</span>199 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          2983
+        </td>
+        <td>
+          2153
+          -
+          3285
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.trees.TreeNode.transform
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          function.transform(({
+  @SerialVersionUID(value = 0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: org.apache.spark.sql.catalyst.expressions.Expression =&gt; org.apache.spark.sql.catalyst.expressions.Expression&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: org.apache.spark.sql.catalyst.expressions.Expression, B1 &gt;: org.apache.spark.sql.catalyst.expressions.Expression](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (n @ (_: org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable)) if n.exprId.==(param.exprId) =&gt; {
+        &lt;artifact&gt; val x$1: org.apache.spark.sql.types.DataType = newDT;
+        &lt;artifact&gt; val x$2: String = n.copy$default$1;
+        &lt;artifact&gt; val x$3: Boolean = n.copy$default$3;
+        &lt;artifact&gt; val x$4: org.apache.spark.sql.catalyst.expressions.ExprId = n.copy$default$4;
+        &lt;artifact&gt; val x$5: java.util.concurrent.atomic.AtomicReference[Any] @scala.reflect.internal.annotations.uncheckedBounds = n.copy$default$5;
+        n.copy(x$2, x$1, x$3, x$4, x$5)
+      }
+      case (cast @ (_: org.apache.spark.sql.catalyst.expressions.Cast)) if cast.child.isInstanceOf[org.apache.spark.sql.catalyst.expressions.Cast].&amp;&amp;(cast.child.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Cast].child.isInstanceOf[org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable]) =&gt; {
+        val nvl: org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable = cast.child.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Cast].child.asInstanceOf[org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable];
+        if (nvl.exprId.==(param.exprId))
+          org.apache.spark.sql.QualitySparkUtils.cast(org.apache.spark.sql.QualitySparkUtils.cast({
+            &lt;artifact&gt; val x$6: org.apache.spark.sql.types.DataType = newDT;
+            &lt;artifact&gt; val x$7: String = nvl.copy$default$1;
+            &lt;artifact&gt; val x$8: Boolean = nvl.copy$default$3;
+            &lt;artifact&gt; val x$9: org.apache.spark.sql.catalyst.expressions.ExprId = nvl.copy$default$4;
+            &lt;artifact&gt; val x$10: java.util.concurrent.atomic.AtomicReference[Any] @scala.reflect.internal.annotations.uncheckedBounds = nvl.copy$default$5;
+            nvl.copy(x$7, x$6, x$8, x$9, x$10)
+          }, newDT), cast.dataType)
+        else
+          cast
+      }
+      case (cast @ (_: org.apache.spark.sql.catalyst.expressions.Cast)) if cast.child.isInstanceOf[org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable] =&gt; {
+        val nvl: org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable = cast.child.asInstanceOf[org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable];
+        if (nvl.exprId.==(param.exprId))
+          org.apache.spark.sql.QualitySparkUtils.cast({
+            &lt;artifact&gt; val qual$1: org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable = cast.child.asInstanceOf[org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable];
+            &lt;artifact&gt; val x$11: org.apache.spark.sql.types.DataType = newDT;
+            &lt;artifact&gt; val x$12: String = qual$1.copy$default$1;
+            &lt;artifact&gt; val x$13: Boolean = qual$1.copy$default$3;
+            &lt;artifact&gt; val x$14: org.apache.spark.sql.catalyst.expressions.ExprId = qual$1.copy$default$4;
+            &lt;artifact&gt; val x$15: java.util.concurrent.atomic.AtomicReference[Any] @scala.reflect.internal.annotations.uncheckedBounds = qual$1.copy$default$5;
+            qual$1.copy(x$12, x$11, x$13, x$14, x$15)
+          }, newDT)
+        else
+          cast
+      }
+      case (defaultCase$ @ _) =&gt; default.apply(x1)
+    };
+    final def isDefinedAt(x1: org.apache.spark.sql.catalyst.expressions.Expression): Boolean = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (n @ (_: org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable)) if n.exprId.==(param.exprId) =&gt; true
+      case (cast @ (_: org.apache.spark.sql.catalyst.expressions.Cast)) if cast.child.isInstanceOf[org.apache.spark.sql.catalyst.expressions.Cast].&amp;&amp;(cast.child.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Cast].child.isInstanceOf[org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable]) =&gt; true
+      case (cast @ (_: org.apache.spark.sql.catalyst.expressions.Cast)) if cast.child.isInstanceOf[org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable] =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression]))
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          2982
+        </td>
+        <td>
+          2172
+          -
+          2172
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.aggregates.AggregateExpressions.$anonfun.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          2948
+        </td>
+        <td>
+          2213
+          -
+          2237
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          n.exprId.==(param.exprId)
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          2947
+        </td>
+        <td>
+          2225
+          -
+          2237
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable.exprId
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          param.exprId
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          2951
+        </td>
+        <td>
+          2253
+          -
+          2253
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable.copy$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          n.copy$default$4
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          2953
+        </td>
+        <td>
+          2251
+          -
+          2275
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          n.copy(x$2, x$1, x$3, x$4, x$5)
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          2950
+        </td>
+        <td>
+          2253
+          -
+          2253
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable.copy$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          n.copy$default$3
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          2949
+        </td>
+        <td>
+          2253
+          -
+          2253
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable.copy$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          n.copy$default$1
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          2952
+        </td>
+        <td>
+          2253
+          -
+          2253
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable.copy$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          n.copy$default$5
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          2954
+        </td>
+        <td>
+          2559
+          -
+          2628
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.isInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cast.child.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Cast].child.isInstanceOf[org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable]
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          2955
+        </td>
+        <td>
+          2526
+          -
+          2628
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cast.child.isInstanceOf[org.apache.spark.sql.catalyst.expressions.Cast].&amp;&amp;(cast.child.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Cast].child.isInstanceOf[org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable])
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          2956
+        </td>
+        <td>
+          2652
+          -
+          2721
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cast.child.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Cast].child.asInstanceOf[org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable]
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          2957
+        </td>
+        <td>
+          2750
+          -
+          2762
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable.exprId
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          param.exprId
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          2958
+        </td>
+        <td>
+          2736
+          -
+          2762
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          nvl.exprId.==(param.exprId)
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          2963
+        </td>
+        <td>
+          2788
+          -
+          2814
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          nvl.copy(x$7, x$6, x$8, x$9, x$10)
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          2966
+        </td>
+        <td>
+          2776
+          -
+          2838
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.QualitySparkUtils.cast
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.QualitySparkUtils.cast(org.apache.spark.sql.QualitySparkUtils.cast({
+  &lt;artifact&gt; val x$6: org.apache.spark.sql.types.DataType = newDT;
+  &lt;artifact&gt; val x$7: String = nvl.copy$default$1;
+  &lt;artifact&gt; val x$8: Boolean = nvl.copy$default$3;
+  &lt;artifact&gt; val x$9: org.apache.spark.sql.catalyst.expressions.ExprId = nvl.copy$default$4;
+  &lt;artifact&gt; val x$10: java.util.concurrent.atomic.AtomicReference[Any] @scala.reflect.internal.annotations.uncheckedBounds = nvl.copy$default$5;
+  nvl.copy(x$7, x$6, x$8, x$9, x$10)
+}, newDT), cast.dataType)
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          2960
+        </td>
+        <td>
+          2792
+          -
+          2792
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable.copy$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          nvl.copy$default$3
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          2962
+        </td>
+        <td>
+          2792
+          -
+          2792
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable.copy$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          nvl.copy$default$5
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          2965
+        </td>
+        <td>
+          2824
+          -
+          2837
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Cast.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cast.dataType
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          2959
+        </td>
+        <td>
+          2792
+          -
+          2792
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable.copy$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          nvl.copy$default$1
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          2967
+        </td>
+        <td>
+          2776
+          -
+          2838
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.QualitySparkUtils.cast
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.QualitySparkUtils.cast(org.apache.spark.sql.QualitySparkUtils.cast({
+  &lt;artifact&gt; val x$6: org.apache.spark.sql.types.DataType = newDT;
+  &lt;artifact&gt; val x$7: String = nvl.copy$default$1;
+  &lt;artifact&gt; val x$8: Boolean = nvl.copy$default$3;
+  &lt;artifact&gt; val x$9: org.apache.spark.sql.catalyst.expressions.ExprId = nvl.copy$default$4;
+  &lt;artifact&gt; val x$10: java.util.concurrent.atomic.AtomicReference[Any] @scala.reflect.internal.annotations.uncheckedBounds = nvl.copy$default$5;
+  nvl.copy(x$7, x$6, x$8, x$9, x$10)
+}, newDT), cast.dataType)
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          2961
+        </td>
+        <td>
+          2792
+          -
+          2792
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable.copy$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          nvl.copy$default$4
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          2964
+        </td>
+        <td>
+          2782
+          -
+          2822
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.QualitySparkUtils.cast
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.QualitySparkUtils.cast({
+  &lt;artifact&gt; val x$6: org.apache.spark.sql.types.DataType = newDT;
+  &lt;artifact&gt; val x$7: String = nvl.copy$default$1;
+  &lt;artifact&gt; val x$8: Boolean = nvl.copy$default$3;
+  &lt;artifact&gt; val x$9: org.apache.spark.sql.catalyst.expressions.ExprId = nvl.copy$default$4;
+  &lt;artifact&gt; val x$10: java.util.concurrent.atomic.AtomicReference[Any] @scala.reflect.internal.annotations.uncheckedBounds = nvl.copy$default$5;
+  nvl.copy(x$7, x$6, x$8, x$9, x$10)
+}, newDT)
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          2968
+        </td>
+        <td>
+          2866
+          -
+          2870
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.sparkutils.quality.impl.aggregates.AggregateExpressions.$anonfun.cast
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          cast
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          2969
+        </td>
+        <td>
+          2972
+          -
+          3016
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.isInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cast.child.isInstanceOf[org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable]
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          2970
+        </td>
+        <td>
+          3040
+          -
+          3084
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cast.child.asInstanceOf[org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable]
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          2972
+        </td>
+        <td>
+          3099
+          -
+          3125
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          nvl.exprId.==(param.exprId)
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          2971
+        </td>
+        <td>
+          3113
+          -
+          3125
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable.exprId
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          param.exprId
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          2980
+        </td>
+        <td>
+          3139
+          -
+          3244
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.QualitySparkUtils.cast
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.QualitySparkUtils.cast({
+  &lt;artifact&gt; val qual$1: org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable = cast.child.asInstanceOf[org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable];
+  &lt;artifact&gt; val x$11: org.apache.spark.sql.types.DataType = newDT;
+  &lt;artifact&gt; val x$12: String = qual$1.copy$default$1;
+  &lt;artifact&gt; val x$13: Boolean = qual$1.copy$default$3;
+  &lt;artifact&gt; val x$14: org.apache.spark.sql.catalyst.expressions.ExprId = qual$1.copy$default$4;
+  &lt;artifact&gt; val x$15: java.util.concurrent.atomic.AtomicReference[Any] @scala.reflect.internal.annotations.uncheckedBounds = qual$1.copy$default$5;
+  qual$1.copy(x$12, x$11, x$13, x$14, x$15)
+}, newDT)
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          2979
+        </td>
+        <td>
+          3139
+          -
+          3244
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.QualitySparkUtils.cast
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.QualitySparkUtils.cast({
+  &lt;artifact&gt; val qual$1: org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable = cast.child.asInstanceOf[org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable];
+  &lt;artifact&gt; val x$11: org.apache.spark.sql.types.DataType = newDT;
+  &lt;artifact&gt; val x$12: String = qual$1.copy$default$1;
+  &lt;artifact&gt; val x$13: Boolean = qual$1.copy$default$3;
+  &lt;artifact&gt; val x$14: org.apache.spark.sql.catalyst.expressions.ExprId = qual$1.copy$default$4;
+  &lt;artifact&gt; val x$15: java.util.concurrent.atomic.AtomicReference[Any] @scala.reflect.internal.annotations.uncheckedBounds = qual$1.copy$default$5;
+  qual$1.copy(x$12, x$11, x$13, x$14, x$15)
+}, newDT)
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          2973
+        </td>
+        <td>
+          3154
+          -
+          3198
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cast.child.asInstanceOf[org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable]
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          2975
+        </td>
+        <td>
+          3214
+          -
+          3214
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable.copy$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$3
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          2978
+        </td>
+        <td>
+          3154
+          -
+          3236
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy(x$12, x$11, x$13, x$14, x$15)
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          2977
+        </td>
+        <td>
+          3214
+          -
+          3214
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable.copy$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$5
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          2974
+        </td>
+        <td>
+          3214
+          -
+          3214
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable.copy$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$1
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          2976
+        </td>
+        <td>
+          3214
+          -
+          3214
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable.copy$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$4
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          2981
+        </td>
+        <td>
+          3272
+          -
+          3276
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.sparkutils.quality.impl.aggregates.AggregateExpressions.$anonfun.cast
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cast
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          2984
+        </td>
+        <td>
+          6725
+          -
+          6725
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple5._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$3._1
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          2987
+        </td>
+        <td>
+          6770
+          -
+          6770
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple5._4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$3._4
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          2986
+        </td>
+        <td>
+          6758
+          -
+          6758
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple5._3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$3._3
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          2985
+        </td>
+        <td>
+          6752
+          -
+          6752
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple5._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$3._2
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          2988
+        </td>
+        <td>
+          6778
+          -
+          6778
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple5._5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$3._5
+        </td>
+      </tr><tr>
+        <td>
+          135
+        </td>
+        <td>
+          2989
+        </td>
+        <td>
+          6984
+          -
+          7092
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.aggregate.AggregateFunction.toAggregateExpression
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ExpressionAggregates.apply(scala.collection.Seq.apply[org.apache.spark.sql.catalyst.expressions.Expression](count, sum1, sum2, ifExpr, useSum, useEvaluate), zero, add).toAggregateExpression()
+        </td>
+      </tr><tr>
+        <td>
+          186
+        </td>
+        <td>
+          2990
+        </td>
+        <td>
+          9259
+          -
+          9276
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ExpressionAggregates.this.evaluate.dataType
+        </td>
+      </tr><tr>
+        <td>
+          188
+        </td>
+        <td>
+          2991
+        </td>
+        <td>
+          9313
+          -
+          9318
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          192
+        </td>
+        <td>
+          2992
+        </td>
+        <td>
+          9478
+          -
+          9479
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.aggregates.ExpressionAggregates.RichAttribute.a
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RichAttribute.this.a
+        </td>
+      </tr><tr>
+        <td>
+          195
+        </td>
+        <td>
+          2993
+        </td>
+        <td>
+          9635
+          -
+          9670
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.GenSeqLike.indexOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ExpressionAggregates.this.aggBufferAttributes.indexOf[org.apache.spark.sql.catalyst.expressions.Expression](RichAttribute.this.a.from)
+        </td>
+      </tr><tr>
+        <td>
+          195
+        </td>
+        <td>
+          2994
+        </td>
+        <td>
+          9610
+          -
+          9671
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqLike.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ExpressionAggregates.this.inputAggBufferAttributes.apply(ExpressionAggregates.this.aggBufferAttributes.indexOf[org.apache.spark.sql.catalyst.expressions.Expression](RichAttribute.this.a.from))
+        </td>
+      </tr><tr>
+        <td>
+          198
+        </td>
+        <td>
+          2996
+        </td>
+        <td>
+          9768
+          -
+          9768
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.aggregates.ExpressionAggregates.copy$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ExpressionAggregates.this.copy$default$3
+        </td>
+      </tr><tr>
+        <td>
+          198
+        </td>
+        <td>
+          2995
+        </td>
+        <td>
+          9768
+          -
+          9768
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.aggregates.ExpressionAggregates.copy$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ExpressionAggregates.this.copy$default$2
+        </td>
+      </tr><tr>
+        <td>
+          198
+        </td>
+        <td>
+          2997
+        </td>
+        <td>
+          9768
+          -
+          9796
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.aggregates.ExpressionAggregates.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ExpressionAggregates.this.copy(newChildren, ExpressionAggregates.this.copy$default$2, ExpressionAggregates.this.copy$default$3)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
