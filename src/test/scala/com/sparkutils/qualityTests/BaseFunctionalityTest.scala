@@ -171,7 +171,12 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
           test =>
             assert(msg.contains(test) ||
               // 3.4 uses the expression not the name
-              msg.contains(test.replaceAll("overallResult","flattenresultsexpression(1)")))
+              msg.contains(test.replaceAll("overallResult","flattenresultsexpression(1)")) ||
+              // 3.4 rc4 changes type syntax
+              msg.contains(test.replaceAll("requires","requires the")) ||
+              msg.contains(test.replaceAll("however,","however").replaceAll("type","").
+                replaceAll("is of","has the type").trim())
+            )
         }
     }
     if (failed) {

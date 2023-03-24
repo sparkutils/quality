@@ -4,7 +4,7 @@ import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.impl.MapUtils
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
-import org.apache.spark.sql.catalyst.expressions.{Expression, HigherOrderFunction, LambdaFunction, Literal, NamedLambdaVariable}
+import org.apache.spark.sql.catalyst.expressions.{Expression, HigherOrderFunction, HigherOrderFunctionLike, LambdaFunction, Literal, NamedLambdaVariable}
 import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, GenericArrayData, MapData}
 import org.apache.spark.sql.types.{AbstractDataType, DataType, LongType, MapType}
 
@@ -21,7 +21,7 @@ object MapTransform {
  * @param key expr for key
  * @param function value to value transformation for that key entry
  */
-case class MapTransform(argument: Expression, key: Expression, function: Expression, zeroF: DataType => Option[Any]) extends HigherOrderFunction with CodegenFallback with SeqArgs {
+case class MapTransform(argument: Expression, key: Expression, function: Expression, zeroF: DataType => Option[Any]) extends HigherOrderFunctionLike with CodegenFallback with SeqArgs {
 
   lazy val zero = {
     val MapType(_, valueType, _) = argument.dataType
@@ -48,7 +48,7 @@ case class MapTransform(argument: Expression, key: Expression, function: Express
 
   override def functionTypes: Seq[AbstractDataType] = Seq(function.dataType)
 
-  override def bind(f: (Expression, Seq[(DataType, Boolean)]) => LambdaFunction): MapTransform =
+  protected def bindInternal(f: (Expression, Seq[(DataType, Boolean)]) => LambdaFunction): HigherOrderFunction =
     copy(function = f(function,
       Seq((valueType, argument.nullable))))
 
