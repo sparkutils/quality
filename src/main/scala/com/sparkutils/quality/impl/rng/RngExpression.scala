@@ -1,9 +1,10 @@
 package com.sparkutils.quality.impl.rng
 
+import com.sparkutils.quality.impl.StatefulLike
 import org.apache.commons.rng.simple.RandomSource
 import org.apache.spark.sql.Column
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionWithRandomSeed, LeafExpression, Literal, Rand, StatefulLike}
+import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionWithRandomSeed, LeafExpression, Literal, Rand}
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
 import org.apache.spark.sql.types.{BinaryType, DataType, LongType, StructField, StructType}
 

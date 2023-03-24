@@ -1,12 +1,12 @@
 package org.apache.spark.sql.qualityFunctions
 
 import com.sparkutils.quality.QualityException.qualityException
-import com.sparkutils.quality.impl.MapUtils
+import com.sparkutils.quality.impl.{MapUtils, HigherOrderFunctionLike}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
-import org.apache.spark.sql.catalyst.expressions.{Expression, HigherOrderFunction, HigherOrderFunctionLike, LambdaFunction, Literal, NamedLambdaVariable}
+import org.apache.spark.sql.catalyst.expressions.{Expression, HigherOrderFunction, LambdaFunction, Literal, NamedLambdaVariable}
 import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, GenericArrayData, MapData}
-import org.apache.spark.sql.types.{AbstractDataType, DataType, LongType, MapType}
+import org.apache.spark.sql.types.{AbstractDataType, DataType, MapType}
 
 object MapTransform {
   def create(arguement: Expression, key: Expression, function: Expression, zero: DataType => Option[Any]): MapTransform = {

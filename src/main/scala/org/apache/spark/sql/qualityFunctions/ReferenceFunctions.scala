@@ -1,12 +1,12 @@
 package org.apache.spark.sql.qualityFunctions
 
+import com.sparkutils.quality.impl.HigherOrderFunctionLike
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
-import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodeGenerator, CodegenContext, CodegenFallback, ExprCode, SimpleExprValue}
-import org.apache.spark.sql.catalyst.expressions.{Expression, HigherOrderFunction, HigherOrderFunctionLike, LambdaFunction, LeafExpression, NamedLambdaVariable, NullIntolerant}
-import org.apache.spark.sql.types.{AbstractDataType, DataType}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
-import org.apache.spark.sql.catalyst.expressions.objects.LambdaVariable
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode}
+import org.apache.spark.sql.catalyst.expressions.{Expression, HigherOrderFunction, LambdaFunction, LeafExpression, NamedLambdaVariable}
+import org.apache.spark.sql.types.{AbstractDataType, DataType}
 
 /**
  * Wraps other expressions and stores the result in an RefExpression -
