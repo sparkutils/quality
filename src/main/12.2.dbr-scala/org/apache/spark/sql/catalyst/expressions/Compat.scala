@@ -1,13 +1,12 @@
 package org.apache.spark.sql.catalyst.expressions
 
-import org.apache.spark.sql.types.DataType
+trait StatefulLike extends Nondeterministic {
+  /**
+   * Return a fresh uninitialized copy of the stateful expression.
+   */
+  def freshCopy(): StatefulLike
 
-trait StatefulLike extends Stateful {
 }
 
-trait HigherOrderFunctionLike extends HigherOrderFunction {
-  override def bind(f: (Expression, Seq[(DataType, Boolean)]) => LambdaFunction): HigherOrderFunction =
-    bindInternal(f)
+trait HigherOrderFunctionLike extends HigherOrderFunction {}
 
-  protected def bindInternal(f: (Expression, Seq[(DataType, Boolean)]) => LambdaFunction): HigherOrderFunction
-}

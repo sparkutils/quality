@@ -217,8 +217,8 @@ object QualitySparkUtils {
         ResolveGroupingAnalytics ::
         ResolvePivot ::
         ResolveOrdinalInOrderByAndGroupBy ::
-        ResolveAggAliasInGroupBy ::
-        ResolveMissingReferences ::
+        //ResolveAggAliasInGroupBy ::
+        //ResolveMissingReferences ::
         ExtractGenerator ::
         ResolveGenerate ::
         ResolveFunctions ::
