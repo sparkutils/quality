@@ -79,7 +79,9 @@ The full list of supported runtimes is below:
 | 3.2.1 | 3.2 | 3.2.1.oss_ | 2.12 | 
 | 3.2.1 | 3.2 | 10.4.dbr_ | 2.12 | 
 | 3.3.0 | 3.3 | 3.3.0.oss_ | 2.12 | 
-| 3.3.0 | 3.3 | 11.3.dbr_ | 2.12 | 
+| 3.3.0 | 3.3 | 11.3.dbr_ | 2.12 |
+| 3.3.0 | 3.3 | 12.2.dbr_ | 2.12 |
+| 3.4.0 | 3.4 | | 2.12 |
 
 ### Developing for a Databricks Runtime
 
