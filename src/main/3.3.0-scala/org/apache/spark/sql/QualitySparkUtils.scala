@@ -2,10 +2,11 @@ package org.apache.spark.sql
 
 import com.sparkutils.quality.impl.{RuleEngineRunner, RuleFolderRunner, RuleRunner, ShowParams}
 import com.sparkutils.quality.debugTime
+import com.sparkutils.quality.utils.Comparison.compareToOrdering
 import com.sparkutils.quality.utils.PassThrough
-import org.apache.spark.sql.catalyst.CatalystTypeConverters
+import org.apache.spark.sql.catalyst.{CatalystTypeConverters, InternalRow}
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, FunctionRegistry, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCoercion, UnresolvedFunction}
-import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Attribute, BindReferences, Cast, EqualNullSafe, Expression, ExpressionSet, LambdaFunction, Literal}
+import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Attribute, BindReferences, BoundReference, Cast, EqualNullSafe, Expression, ExpressionSet, LambdaFunction, Literal}
 import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, UnaryNode}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.SparkSqlParser
@@ -45,6 +46,60 @@ object QualitySparkUtils {
    */
   def add(left: Expression, right: Expression, dataType: DataType): Expression =
     Add(left, right)
+
+  private val noopCompare = (dt: DataType) => None
+
+  def defaultCompare(dataType: DataType, extension: DataType => Option[(Any, Any) => Int] = noopCompare): Option[(Any, Any) => Int] =
+    dataType match {
+      case mt: MapType => {
+        val kt = defaultCompare(mt.keyType, extension).
+          getOrElse(sys.error(s"Could not find compare function for map key type ${mt.keyType}"))
+        val vt = defaultCompare(mt.valueType, extension).
+          getOrElse(sys.error(s"Could not find compare function for map value type ${mt.valueType}"))
+
+        val kr = BoundReference(0, mt.keyType, nullable = true)
+        val vr = BoundReference(1, mt.valueType, nullable = true)
+
+        // actual field is in a key val struct
+        Some((left, right) => {
+          val lkv = kr.eval(left.asInstanceOf[InternalRow])
+          val rkv = kr.eval(right.asInstanceOf[InternalRow])
+          val lvv = vr.eval(left.asInstanceOf[InternalRow])
+          val rvv = vr.eval(right.asInstanceOf[InternalRow])
+
+          val r = kt(lkv, rkv)
+          if (r != 0)
+            r
+          else
+            vt(lvv, rvv)
+        })
+      }
+      case dt: AtomicType => Some(compareToOrdering(dt.ordering))
+      case arrayType: ArrayType => defaultCompare(arrayType.elementType, extension)
+      case structType: StructType =>
+        val allFields = structType.fields.zipWithIndex.map{
+          case (f, index) =>
+            defaultCompare( f.dataType, extension).map(cf => (BoundReference(index, f.dataType, nullable = true), cf)).
+              getOrElse(sys.error(s"Could not find compare function for ${f.dataType} in struct $structType"))
+        }
+        Some(
+          // fail early for any non 0
+          (left, right) => {
+            var i = 0
+            var res = 0
+            while (i < allFields.size && res == 0) {
+              val leftV = allFields(i)._1.eval(left.asInstanceOf[InternalRow])
+              val rightV = allFields(i)._1.eval(right.asInstanceOf[InternalRow])
+              res = allFields(i)._2(leftV, rightV)
+              i += 1
+            }
+            res
+          }
+        )
+      case _ => extension(dataType).orElse(
+        sys.error(s"Could not find compare function for ${dataType}")
+      )
+    }
 
   /**
    * Dbr 11.2 broke the contract for add and cast

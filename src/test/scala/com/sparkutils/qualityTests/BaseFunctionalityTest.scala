@@ -289,6 +289,37 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     assertAdd()
   }
 
+  @Test
+  def comparableResultsTest: Unit = //evalCodeGensNoResolve {
+  forceInterpreted {
+    val rules = genRules(27, 27)
+    val rulecount = rules.ruleSets.map( s => s.rules.size).sum
+
+    val toWrite = 1 // writeRows
+
+    val df = taddDataQuality(dataFrameLong(toWrite, 27, ruleSuiteResultType, null), rules).cache()
+    val df2 = taddDataQuality(dataFrameLong(toWrite, 27, ruleSuiteResultType, null), rules).cache()
+
+    // should fail
+    try {
+      (df union df2 distinct).show
+      fail("Is assumed to fail as spark doesn't order maps")
+    } catch {
+      case t: Throwable =>
+        assert(t.getMessage.contains("map type"))
+    }
+
+    // can't resolve DataQuality here, manages quite nicely on it's own
+    val comparable = df.selectExpr("*", "comparableMaps(DataQuality) compDQ").drop("DataQuality")
+    //val comparable2 = df2.selectExpr("*", "comparableMaps(DataQuality) compDQ").drop("DataQuality")
+
+    comparable.show
+    //val unioned = comparable union comparable2 distinct
+
+    //unioned.show
+    //assert(unioned.count == df.count)
+  }
+
 }
 
 object Holder {

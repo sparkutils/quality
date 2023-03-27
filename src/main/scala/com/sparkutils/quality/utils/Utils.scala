@@ -3,10 +3,12 @@ package com.sparkutils.quality.utils
 import com.sparkutils.quality._
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
-import org.apache.spark.sql.catalyst.expressions.{Expression, Literal, Unevaluable}
+import org.apache.spark.sql.catalyst.expressions.{Expression, Literal, Unevaluable, UnsafeArrayData}
 import org.apache.spark.sql.types.{BooleanType, DataType, StructType}
-
 import java.util.concurrent.atomic.AtomicBoolean
+
+import org.apache.spark.sql.catalyst.util.ArrayData
+
 import scala.annotation.tailrec
 
 /**
@@ -157,4 +159,61 @@ object Testing {
   }
 
   def testing = testingFlag.get
+}
+
+object Comparison {
+
+  /**
+   * Forwards to compareTo, allows for compareTo[Type] syntax with internal casts
+   * @param left
+   * @param right
+   * @tparam T
+   * @return
+   */
+  def compareTo[T <: Comparable[T]](left: Any, right: Any): Int =
+    left.asInstanceOf[T].compareTo( right.asInstanceOf[T])
+
+  /**
+   * Forwards to compare, allows for compareToOrdering(ordering) syntax with internal casts
+   * @param left
+   * @param right
+   * @tparam T
+   * @return
+   */
+  def compareToOrdering[T](ordering: Ordering[T])(left: Any, right: Any): Int =
+    ordering.compare(left.asInstanceOf[T], right.asInstanceOf[T])
+
+}
+
+object Arrays {
+  /**
+   * UnsafeArrayData doesn't allow calling .array, foreach when needed and for others use array
+   *
+   * @param array
+   * @param dataType
+   * @param f
+   * @return
+   */
+  def mapArray(array: ArrayData, dataType: DataType, f: Any => Any): Array[Any] =
+    array match {
+      case _: UnsafeArrayData =>
+        val res = Array.ofDim[Any](array.numElements())
+        array.foreach(dataType, (i, v) => res.update(i, f(v)))
+        res
+      case _ => array.array.map(f)
+    }
+
+  /**
+   * gets an array out of UnsafeArrayData or others
+   * @param array
+   * @param dataType
+   * @return
+   */
+  def toArray(array: ArrayData, dataType: DataType): Array[Any] =
+    array match {
+      case _: UnsafeArrayData =>
+        mapArray(array, dataType, identity)
+      case _ => array.array
+    }
+
 }
