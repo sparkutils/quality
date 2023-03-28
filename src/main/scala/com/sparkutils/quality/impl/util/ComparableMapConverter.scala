@@ -18,10 +18,10 @@ object ComparableMapConverter {
     ), false),
       {
         case theMap: MapData =>
-          // for the key type
-          lazy val comparisonOrdering: Ordering[Any] = compareF(key._1).getOrElse(
+          // for the key type, expanded for 2.4, scala 2.11 support
+          lazy val comparisonOrdering: Ordering[Any] = (left: Any, right: Any) => compareF(key._1).getOrElse(
             sys.error(s"Could not identify the comparison function for type ${key._1} to order keys")
-          )(_, _)
+          )(left, right)
 
           // maps are already converted all the way down before trying to sort
           val sorted = Arrays.toArray(theMap.keyArray(), key._1).zipWithIndex.sortBy(_._1)(comparisonOrdering)
