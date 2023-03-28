@@ -1,6 +1,7 @@
 package com.sparkutils.qualityTests
 
 import java.util.UUID
+
 import com.sparkutils.quality._
 import com.sparkutils.quality.utils.PrintCode
 import org.apache.spark.sql.SaveMode
@@ -310,7 +311,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
     // can't resolve DataQuality here, manages quite nicely on it's own
     val comparable = df.selectExpr("*", "comparableMaps(DataQuality) compDQ").drop("DataQuality")
-    val comparable2 = df2.selectExpr("*", "comparableMaps(DataQuality) compDQ").drop("DataQuality")
+    val comparable2 = df2.select(expr("*"), comparableMaps(col("DataQuality")).as("compDQ")).drop("DataQuality")
 
     //comparable.show
     val unioned = comparable union comparable2 distinct
@@ -378,6 +379,12 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     val sorted = comparable.sort("seq").selectExpr("reverseComparableMaps(seq) seq").as[MapArray]
     sorted.show
     sorted.collect().zipWithIndex.foreach{
+      case (map,index) =>
+        assert(map.seq(0) == maps(index)) // because all 4 are identical
+    }
+
+    val sorted2 = comparable.sort("seq").select(reverseComparableMaps(col("seq")).as("seq")).as[MapArray]
+    sorted2.collect().zipWithIndex.foreach{
       case (map,index) =>
         assert(map.seq(0) == maps(index)) // because all 4 are identical
     }

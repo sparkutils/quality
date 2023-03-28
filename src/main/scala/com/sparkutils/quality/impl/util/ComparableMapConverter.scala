@@ -1,16 +1,28 @@
 package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality.utils.Arrays
+import org.apache.spark.sql.Column
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
 import org.apache.spark.sql.catalyst.expressions.{BoundReference, Expression, UnaryExpression}
 import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, ArrayData, MapData}
 import org.apache.spark.sql.catalyst.{InternalRow, util}
+import org.apache.spark.sql.qualityFunctions.utils
 import org.apache.spark.sql.types._
 
+trait ComparableMapsImports {
+  def comparableMaps(child: Column, compareF: DataType => Option[(Any, Any) => Int] = (dataType: DataType) => utils.defaultMapCompare(dataType)): Column =
+    ComparableMapConverter(child,compareF)
+
+  def reverseComparableMaps(child: Column): Column =
+    new Column(ComparableMapReverser(child.expr))
+}
 /**
  * Convert maps to sorted arrays of key value structs to allow comparison
  */
 object ComparableMapConverter {
+
+  def apply(child: Column, compareF: DataType => Option[(Any, Any) => Int] = (dataType: DataType) => utils.defaultMapCompare(dataType)): Column =
+    new Column(ComparableMapConverter(child.expr, compareF))
 
   def deMapStruct(key: (DataType, Any => Any), value: (DataType, Any => Any), compareF: DataType => Option[(Any, Any) => Int]): (DataType, Any => Any) =
     (ArrayType(StructType(
@@ -19,10 +31,12 @@ object ComparableMapConverter {
       {
         case theMap: MapData =>
           // for the key type, expanded for 2.4, scala 2.11 support
-          lazy val comparisonOrdering: Ordering[Any] = (left: Any, right: Any) => compareF(key._1).getOrElse(
-            sys.error(s"Could not identify the comparison function for type ${key._1} to order keys")
-          )(left, right)
-
+          lazy val comparisonOrdering: Ordering[Any] = new Ordering[Any] {
+            override def compare(x: Any, y: Any): Int = compareF(key._1).getOrElse(
+              sys.error(s"Could not identify the comparison function for type ${key._1} to order keys")
+            )(x, y)
+          }
+          
           // maps are already converted all the way down before trying to sort
           val sorted = Arrays.toArray(theMap.keyArray(), key._1).zipWithIndex.sortBy(_._1)(comparisonOrdering)
           val vals = Arrays.toArray(theMap.valueArray(), value._1)
@@ -156,6 +170,12 @@ case class ComparableMapConverter(child: Expression, compareF: DataType => Optio
   protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
 }
 
+object ComparableMapReverser {
+
+  def apply(child: Column): Column =
+    new Column(ComparableMapReverser(child.expr))
+
+}
 /**
  * Reverts the ComparableMapConverter
  *
