@@ -1,6 +1,7 @@
 package com.sparkutils.qualityTests
 
 import java.util.UUID
+
 import com.sparkutils.quality._
 import com.sparkutils.quality.utils.PrintCode
 import org.apache.spark.sql.SaveMode
@@ -171,7 +172,12 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
           test =>
             assert(msg.contains(test) ||
               // 3.4 uses the expression not the name
-              msg.contains(test.replaceAll("overallResult","flattenresultsexpression(1)")))
+              msg.contains(test.replaceAll("overallResult","flattenresultsexpression(1)")) ||
+              // 3.4 rc4 changes type syntax
+              msg.contains(test.replaceAll("requires","requires the")) ||
+              msg.contains(test.replaceAll("however,","however").replaceAll("type","").
+                replaceAll("is of","has the type").trim())
+            )
         }
     }
     if (failed) {
@@ -284,11 +290,113 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     assertAdd()
   }
 
+  @Test
+  def testComparableResults: Unit = evalCodeGensNoResolve {
+    val rules = genRules(27, 27)
+    val rulecount = rules.ruleSets.map( s => s.rules.size).sum
+
+    val toWrite = 1 // writeRows
+
+    val df = taddDataQuality(dataFrameLong(toWrite, 27, ruleSuiteResultType, null), rules).cache()
+    val df2 = taddDataQuality(dataFrameLong(toWrite, 27, ruleSuiteResultType, null), rules).cache()
+
+    // should fail
+    try {
+      (df union df2 distinct).show
+      fail("Is assumed to fail as spark doesn't order maps")
+    } catch {
+      case t: Throwable =>
+        assert(t.getMessage.contains("map type"))
+    }
+
+    // can't resolve DataQuality here, manages quite nicely on it's own
+    val comparable = df.selectExpr("*", "comparableMaps(DataQuality) compDQ").drop("DataQuality")
+    val comparable2 = df2.select(expr("*"), comparableMaps(col("DataQuality")).as("compDQ")).drop("DataQuality")
+
+    //comparable.show
+    val unioned = comparable union comparable2 distinct
+
+    unioned.show
+    assert(unioned.count == df.count)
+  }
+
+  @Test
+  def testCompareWithArrays: Unit = evalCodeGensNoResolve {
+    // testComparableResult does a test against the DQ results so hits nested maps and structs,
+    // but there aren't arrays there so that code isn't tested
+
+    val map = Map(1 -> 1, 2 -> 2, 3 -> 3, 4 -> 4)
+
+    val ma1 = MapArray(Seq(map))
+    val ma2 = MapArray(Seq(map))
+    import sparkSession.implicits._
+    val ds1 = Seq(ma1, ma2).toDS()
+    val ds2 = Seq(ma1, ma2).toDS()
+
+    // should fail
+    try {
+      (ds1 union ds2 distinct).show
+      fail("Is assumed to fail as spark doesn't order maps")
+    } catch {
+      case t: Throwable =>
+        assert(t.getMessage.contains("map type"))
+    }
+
+    // can't resolve DataQuality here, manages quite nicely on it's own
+    val comparable = ds1.toDF.selectExpr("comparableMaps(seq) comp").drop("seq")
+    val comparable2 = ds2.toDF.selectExpr("comparableMaps(seq) comp").drop("seq")
+
+    //comparable.show
+    val unioned = comparable union comparable2 distinct
+
+    unioned.show
+    assert(unioned.count == 1) // because all 4 are identical
+  }
+
+  @Test
+  def testCompareWithArraysOrderingAndReverse: Unit = evalCodeGensNoResolve {
+    // verifies it works in a sort
+
+    val map = Map(1 -> 1, 2 -> 2, 3 -> 3, 4 -> 4)
+    val maps = (0 to 4).map(i => map.mapValues(_ * i))
+
+    import sparkSession.implicits._
+    val ds = maps.reverse.map(m => MapArray(Seq(m))).toDS()
+    ds.show
+
+    // should fail
+    try {
+      ds.sort("seq").show
+      fail("Is assumed to fail as spark doesn't order maps")
+    } catch {
+      case t: Throwable =>
+        assert(t.getMessage.contains("data type mismatch"))
+    }
+
+    // can't resolve DataQuality here, manages quite nicely on it's own
+    val comparable = ds.toDF.selectExpr("comparableMaps(seq) seq")
+
+    val sorted = comparable.sort("seq").selectExpr("reverseComparableMaps(seq) seq").as[MapArray]
+    sorted.show
+    sorted.collect().zipWithIndex.foreach{
+      case (map,index) =>
+        assert(map.seq(0) == maps(index)) // because all 4 are identical
+    }
+
+    val sorted2 = comparable.sort("seq").select(reverseComparableMaps(col("seq")).as("seq")).as[MapArray]
+    sorted2.collect().zipWithIndex.foreach{
+      case (map,index) =>
+        assert(map.seq(0) == maps(index)) // because all 4 are identical
+    }
+  }
+
 }
 
 object Holder {
   var res: String = ""
 }
+
+case class MapArray(seq: Seq[Map[Int, Int]])
 
 case class TestIdLeft(left_lower: Long, left_higher: Long)
 case class TestIdRight(right_lower: Long, right_higher: Long)

@@ -3,7 +3,8 @@ import com.sparkutils.quality._
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions.expr
 import org.apache.spark.sql.types.{DataType, LongType}
-import org.codehaus.janino.InternalCompilerException
+import org.junit.Ignore
+// 3.4 drops this import org.codehaus.janino.InternalCompilerException
 import org.junit.Assert.fail
 import org.junit.Test
 
@@ -13,6 +14,7 @@ import org.junit.Test
  *
  * Alas it adds another minute to the testing, but worth it.  It will add more when engine is codegen'd ...
  */
+//@Ignore
 class CodeGenTest extends RowTools with TestUtils {
 
   def readGen[T](func: (Int, Int, DataFrame) => DataFrame, dataType: DataType, startValue: T)  = {
@@ -59,7 +61,7 @@ class CodeGenTest extends RowTools with TestUtils {
     } catch {
       case e: Throwable if e.getCause ne null =>
         e.getCause match {
-          case ice: InternalCompilerException if ice.getMessage.contains("grows beyond 64 KB")=> () // ok
+          case ice: Exception /*InternalCompilerException*/ if ice.getMessage.contains("grows beyond 64 KB")=> () // ok
           case _ => fail("Cause was not an ICE but "+e.getCause.getClass.getName)
         }
       case t: Throwable => {

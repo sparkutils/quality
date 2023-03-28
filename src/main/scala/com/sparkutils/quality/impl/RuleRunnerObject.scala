@@ -3,7 +3,7 @@ package com.sparkutils.quality.impl
 import com.sparkutils.quality.{ExprLogic, RuleSuite}
 import com.sparkutils.quality.impl.id.model
 import com.sparkutils.quality.impl.rng.RandomLongs
-import com.sparkutils.quality.utils.StructFunctions
+import com.sparkutils.quality.utils.{Comparison, PrintCode, StructFunctions}
 import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.impl.aggregates.AggregateExpressions
 import com.sparkutils.quality.impl.bloom.{BucketedArrayParquetAggregator, ParquetAggregator}
@@ -11,7 +11,8 @@ import com.sparkutils.quality.impl.hash.{HashFunctionFactory, HashFunctionsExpre
 import com.sparkutils.quality.impl.id.{GenericLongBasedIDExpression, GuaranteedUniqueID, GuaranteedUniqueIdIDExpression, model}
 import com.sparkutils.quality.impl.rng.{RandLongsWithJump, RandomBytes, RandomLongs}
 import com.sparkutils.quality.impl.longPair.{LongPairExpression, PrefixedToLongPair}
-import com.sparkutils.quality.utils.{PrintCode, StructFunctions}
+import com.sparkutils.quality.impl.util.{ComparableMapConverter, ComparableMapReverser}
+import com.sparkutils.quality.utils.Comparison.compareTo
 import com.sparkutils.quality.{ExprLogic, RuleSuite, impl}
 import org.apache.commons.rng.simple.RandomSource
 import org.apache.spark.sql.QualitySparkUtils.add
@@ -90,11 +91,15 @@ trait RuleRunnerFunctionsImport {
   def registerQualityFunctions(parseTypes: String => Option[DataType] = defaultParseTypes _,
                                zero: DataType => Option[Any] = defaultZero _,
                                add: DataType => Option[(Expression, Expression) => Expression] = (dataType: DataType) => defaultAdd(dataType),
+                               mapCompare: DataType => Option[(Any, Any) => Int] = (dataType: DataType) => utils.defaultMapCompare(dataType),
                                writer: String => Unit = println(_)
                        ) {
     val funcReg = SparkSession.getActiveSession.get.sessionState.functionRegistry
     val register = QualitySparkUtils.registerFunction(funcReg) _
-    
+
+    register("comparableMaps", exps => ComparableMapConverter(exps(0), mapCompare))
+    register("reverseComparableMaps", exps => ComparableMapReverser(exps(0)))
+
     val f = (exps: Seq[Expression]) => ProbabilityExpr(exps.head)
     register("probability", f)
     val ff = (exps: Seq[Expression]) => FlattenResultsExpression(exps.head, FlattenStruct.ruleSuiteDeserializer)
@@ -499,5 +504,5 @@ object RuleRunnerFunctions {
     "mapLookup","mapContains","saferLongPair","hashWith","hashWithStruct","zaHashWith", "zaHashLongsWith",
     "hashFieldBasedID","zaLongsFieldBasedID","zaHashLongsWithStruct", "zaHashWithStruct", "zaFieldBasedID", "prefixedToLongPair",
     "coalesceIfAttributesMissing", "coalesceIfAttributesMissingDisable", "updateField", LambdaFunctions.PlaceHolder,
-    LambdaFunctions.Lambda, LambdaFunctions.CallFun, "printExpr", "printCode")
+    LambdaFunctions.Lambda, LambdaFunctions.CallFun, "printExpr", "printCode", "comparableMaps", "reverseComparableMaps")
 }
