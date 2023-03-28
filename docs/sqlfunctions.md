@@ -223,6 +223,15 @@ functions:
     description: "mapContains(expr, 'mapid') returns true if there is an item in the map"
     tags:
       - map
+  comparableMaps:
+    description: | 
+      comparableMaps(struct | array | map) converts any maps in the input param into sorted arrays of a key, value struct.
+      
+      This allows developers to perform sorts, distincts, group bys and union set operations with Maps, currently not supported by Spark sql as of 3.4.
+            
+      The sorting behaviour uses Sparks existing odering logic but allows for extension during the calls to the registerQualityFunctions via the mapCompare parameter and the defaultMapCompare function.
+    tags:
+      - map    
   saferLongPair:
     description: "deprecated use uniqueId - saferLongPair(expr, 'bloomid') Prefer to use uniqueID, this 'safer' rng repeatedly calls the expr rng function until there is no matching entry in the bloom id.  It returns lower and higher longs."
     tags:

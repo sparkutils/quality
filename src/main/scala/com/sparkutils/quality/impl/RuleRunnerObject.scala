@@ -91,13 +91,13 @@ trait RuleRunnerFunctionsImport {
   def registerQualityFunctions(parseTypes: String => Option[DataType] = defaultParseTypes _,
                                zero: DataType => Option[Any] = defaultZero _,
                                add: DataType => Option[(Expression, Expression) => Expression] = (dataType: DataType) => defaultAdd(dataType),
-                               compare: DataType => Option[(Any, Any) => Int] = (dataType: DataType) => QualitySparkUtils.defaultCompare(dataType),
+                               mapCompare: DataType => Option[(Any, Any) => Int] = (dataType: DataType) => utils.defaultMapCompare(dataType),
                                writer: String => Unit = println(_)
                        ) {
     val funcReg = SparkSession.getActiveSession.get.sessionState.functionRegistry
     val register = QualitySparkUtils.registerFunction(funcReg) _
 
-    register("comparableMaps", exps => ComparableMapConverter(exps(0), compare))
+    register("comparableMaps", exps => ComparableMapConverter(exps(0), mapCompare))
 
     val f = (exps: Seq[Expression]) => ProbabilityExpr(exps.head)
     register("probability", f)
@@ -503,5 +503,5 @@ object RuleRunnerFunctions {
     "mapLookup","mapContains","saferLongPair","hashWith","hashWithStruct","zaHashWith", "zaHashLongsWith",
     "hashFieldBasedID","zaLongsFieldBasedID","zaHashLongsWithStruct", "zaHashWithStruct", "zaFieldBasedID", "prefixedToLongPair",
     "coalesceIfAttributesMissing", "coalesceIfAttributesMissingDisable", "updateField", LambdaFunctions.PlaceHolder,
-    LambdaFunctions.Lambda, LambdaFunctions.CallFun, "printExpr", "printCode")
+    LambdaFunctions.Lambda, LambdaFunctions.CallFun, "printExpr", "printCode", "comparableMaps")
 }
