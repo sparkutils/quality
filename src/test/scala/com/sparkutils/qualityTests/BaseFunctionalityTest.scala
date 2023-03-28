@@ -353,7 +353,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
   }
 
   @Test
-  def testCompareWithArraysOrdering: Unit = evalCodeGensNoResolve {
+  def testCompareWithArraysOrderingAndReverse: Unit = evalCodeGensNoResolve {
     // verifies it works in a sort
 
     val map = Map(1 -> 1, 2 -> 2, 3 -> 3, 4 -> 4)
@@ -375,12 +375,12 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     // can't resolve DataQuality here, manages quite nicely on it's own
     val comparable = ds.toDF.selectExpr("comparableMaps(seq) seq")
 
-    val sorted = comparable.sort("seq")//.as[MapArray]
+    val sorted = comparable.sort("seq").selectExpr("reverseComparableMaps(seq) seq").as[MapArray]
     sorted.show
-/*    sorted.collect().zipWithIndex.foreach{
+    sorted.collect().zipWithIndex.foreach{
       case (map,index) =>
-        assert(map == maps(index)) // because all 4 are identical
-    }*/
+        assert(map.seq(0) == maps(index)) // because all 4 are identical
+    }
   }
 
 }

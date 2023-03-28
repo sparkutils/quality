@@ -11,7 +11,7 @@ import com.sparkutils.quality.impl.hash.{HashFunctionFactory, HashFunctionsExpre
 import com.sparkutils.quality.impl.id.{GenericLongBasedIDExpression, GuaranteedUniqueID, GuaranteedUniqueIdIDExpression, model}
 import com.sparkutils.quality.impl.rng.{RandLongsWithJump, RandomBytes, RandomLongs}
 import com.sparkutils.quality.impl.longPair.{LongPairExpression, PrefixedToLongPair}
-import com.sparkutils.quality.impl.util.ComparableMapConverter
+import com.sparkutils.quality.impl.util.{ComparableMapConverter, ComparableMapReverser}
 import com.sparkutils.quality.utils.Comparison.compareTo
 import com.sparkutils.quality.{ExprLogic, RuleSuite, impl}
 import org.apache.commons.rng.simple.RandomSource
@@ -98,6 +98,7 @@ trait RuleRunnerFunctionsImport {
     val register = QualitySparkUtils.registerFunction(funcReg) _
 
     register("comparableMaps", exps => ComparableMapConverter(exps(0), mapCompare))
+    register("reverseComparableMaps", exps => ComparableMapReverser(exps(0)))
 
     val f = (exps: Seq[Expression]) => ProbabilityExpr(exps.head)
     register("probability", f)
@@ -503,5 +504,5 @@ object RuleRunnerFunctions {
     "mapLookup","mapContains","saferLongPair","hashWith","hashWithStruct","zaHashWith", "zaHashLongsWith",
     "hashFieldBasedID","zaLongsFieldBasedID","zaHashLongsWithStruct", "zaHashWithStruct", "zaFieldBasedID", "prefixedToLongPair",
     "coalesceIfAttributesMissing", "coalesceIfAttributesMissingDisable", "updateField", LambdaFunctions.PlaceHolder,
-    LambdaFunctions.Lambda, LambdaFunctions.CallFun, "printExpr", "printCode", "comparableMaps")
+    LambdaFunctions.Lambda, LambdaFunctions.CallFun, "printExpr", "printCode", "comparableMaps", "reverseComparableMaps")
 }
