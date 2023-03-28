@@ -36,7 +36,7 @@ object ComparableMapConverter {
               sys.error(s"Could not identify the comparison function for type ${key._1} to order keys")
             )(x, y)
           }
-          
+
           // maps are already converted all the way down before trying to sort
           val sorted = Arrays.toArray(theMap.keyArray(), key._1).zipWithIndex.sortBy(_._1)(comparisonOrdering)
           val vals = Arrays.toArray(theMap.valueArray(), value._1)

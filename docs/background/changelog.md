@@ -1,4 +1,9 @@
-### 0.0.1-SNAPSHOT <small>5th March, 2023</small>
+### 0.0.2 <small>28th March, 2023</small>
+
+#5 - DBR 12.2 LTS support (provisional 3.4 support based on rc4)
+#4 - comparableMaps / reverseComparableMaps functions, allowing map comparison / set operations (e.g. sort, distinct etc.)
+
+### 0.0.1 <small>8th March, 2023</small>
 
 Initial OSS version.
 
