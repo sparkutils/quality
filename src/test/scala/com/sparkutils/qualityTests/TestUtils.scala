@@ -184,6 +184,12 @@ trait TestUtils {
     if (sparkVersion != "2.4") thunk
 
   /**
+   * Don't run this test on 3.4 - gc's on code gen
+   */
+  def not3_4(thunk: => Unit) =
+    if (sparkVersion != "3.4") thunk
+
+  /**
    * Only run this on 2.4
    * @param thunk
    */
@@ -208,4 +214,19 @@ trait TestUtils {
    */
   def not_Databricks(thunk: => Unit) =
     if (!onDatabricks) thunk
+
+  /**
+   * Checks for an exception, then it's cause(s) for f being true
+   * @param t
+   * @param f
+   * @return
+   */
+  def anyCauseHas(t: Throwable, f: Throwable => Boolean): Boolean =
+    if (f(t))
+      true
+    else
+      if (t.getCause ne null)
+        anyCauseHas(t.getCause, f)
+      else
+        false
 }
