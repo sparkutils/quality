@@ -296,7 +296,7 @@ functions:
     description: |
       updateField(structure_expr, 'field.subfield', replaceWith, 'fieldN', replaceWithN) processes structures allowing you to replace sub items (think lens in functional programming) using the structure fields path name.
 
-      This is wrapped and almost verbatim version of [Make Structs Easier' AddFields](https://raw.githubusercontent.com/fqaiser94/mse/master/src/main/scala/org/apache/spark/sql/catalyst/expressions/AddFields.scala)
+      This is wrapped an almost verbatim version of [Make Structs Easier' AddFields](https://raw.githubusercontent.com/fqaiser94/mse/master/src/main/scala/org/apache/spark/sql/catalyst/expressions/AddFields.scala)
     tags:
       - struct
   \_:

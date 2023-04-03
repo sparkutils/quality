@@ -85,6 +85,9 @@ The full list of supported runtimes is below:
 
 2.4 support is deprecated and will be removed in a future version.
 
+!!! note "Databricks 12.2 is experimental - pending Frameless 3.4 support"
+    12.2 LTS is a mix of 3.3.0 and 3.4.0, as such until Frameless supports 3.4 [see here](https://github.com/typelevel/frameless/issues/698).  This does not affect the sql function extensions.
+
 ### Developing for a Databricks Runtime
 
 As there are many compatibility issues that Quality works around between the various Spark runtimes and their Databricks equivalents you will need to use two different runtimes when you do local testing (and of course you _should_ do that):
@@ -135,8 +138,38 @@ spark.sql.extensions=com.sparkutils.quality.impl.extension.QualitySparkExtension
 
 when starting your cluster, with the appropriate compatible Quality runtime jars - the test Shade jar can also be used -, will automatically register the additional SQL functions from Quality.
 
-!!! note
-    2.4 is not supported as Spark doesn't provide for SQL extensions in this version.  Blooms and map's cannot be constructed via pure sql, so the functionality of these on Thrift/Hive servers is limited. 
+!!! note "Spark 2.4 runtimes are not supported"
+    2.4 is not supported as Spark doesn't provide for SQL extensions in this version.
+      
+!!! note "Pure SQL only"    
+    Lambdas, blooms and map's cannot be constructed via pure sql, so the functionality of these on Thrift/Hive servers is limited. 
+
+### Configuring on Databricks runtimes
+
+In order to register the extensions on Databricks runtimes you need to additionally create a cluster init script much like:
+
+```bash
+#!/bin/bash
+
+cp /dbfs/FileStore/XXXX-quality_testshade_12_2_ver.jar /databricks/jars/quality_testshade_12_2_ver.jar
+```
+
+where the first path is your uploaded jar location.  You can create this script via a notebook on running cluster in the same workspace with throwaway code much like this:
+
+```scala
+val scriptName = "/dbfs/add_quality_plugin.sh"
+val script = s"""
+#!/bin/bash
+
+cp /dbfs/FileStore/XXXX-quality_testshade_12_2_ver.jar /databricks/jars/quality_testshade_12_2_ver.jar
+"""
+import java.io._
+
+new File(scriptName).createNewFile
+new PrintWriter(scriptName) {write(script); close}
+```
+
+You must still register the Spark config extension attribute, but also make sure the Init script has the same path as the file you created in the above snippet.
 
 ## 2.4 Support requires 2.4.6 or Janino 3.0.16
 
