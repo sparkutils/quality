@@ -83,16 +83,16 @@ trait RuleRunnerFunctionsImport {
    * @param zero override zero creation for aggExpr (defaults to defaultZero)
    * @param add override the "add" function for aggExpr types (defaults to defaultAdd(dataType))
    * @param writer override the printCode and printExpr print writing function (defaults to println)
+   * @param register function to register the sql extensions
    */
   def registerQualityFunctions(parseTypes: String => Option[DataType] = defaultParseTypes _,
                                zero: DataType => Option[Any] = defaultZero _,
                                add: DataType => Option[(Expression, Expression) => Expression] = (dataType: DataType) => defaultAdd(dataType),
                                mapCompare: DataType => Option[(Any, Any) => Int] = (dataType: DataType) => utils.defaultMapCompare(dataType),
-                               writer: String => Unit = println(_)
+                               writer: String => Unit = println(_),
+                               register: (String, Seq[Expression] => Expression) => Unit =
+                                  QualitySparkUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
                        ) {
-    val funcReg = SparkSession.getActiveSession.get.sessionState.functionRegistry
-    val register = QualitySparkUtils.registerFunction(funcReg) _
-
     register("comparableMaps", exps => ComparableMapConverter(exps(0), mapCompare))
     register("reverseComparableMaps", exps => ComparableMapReverser(exps(0)))
 

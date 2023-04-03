@@ -431,7 +431,8 @@ class IDTests extends FunSuite with RowTools with TestUtils {
 import org.scalameter.api._
 
 object SumIdGenTest extends Bench.OfflineReport with RowTools {
-  import sparkSession.implicits._
+  val stable = sparkSessionF
+  import stable.implicits._
 
   import scala.collection.JavaConverters._
 
@@ -461,7 +462,7 @@ object SumIdGenTest extends Bench.OfflineReport with RowTools {
 
   def evaluate(func: (DataFrame) => DataFrame, colname: String)(param: Int) = {
     // the extra fields are added so performance of the other alternatives can be managed
-    val df = sparkSession.range(0, param).selectExpr("id", "id || '_field' as f1", "id || '_field2' as f2", "id || '_field3' as f3")
+    val df = sparkSessionF.range(0, param).selectExpr("id", "id || '_field' as f1", "id || '_field2' as f2", "id || '_field3' as f3")
 
     val ndf = func(df)
 

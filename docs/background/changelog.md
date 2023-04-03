@@ -1,5 +1,7 @@
 ### 0.0.2 <small>28th March, 2023</small>
 
+#7 - SparkSessionExtension to auto register Quality functions - does not work in 2.4, starting with this release 2.4 support is deprecated
+#6 - Simple as_uuid function
 #5 - DBR 12.2 LTS support
 #4 - comparableMaps / reverseComparableMaps functions, allowing map comparison / set operations (e.g. sort, distinct etc.)
 

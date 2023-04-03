@@ -2,14 +2,18 @@ package com.sparkutils.qualityTests
 
 import com.sparkutils.quality
 import com.sparkutils.quality.{RuleSuite, ruleRunner}
-import org.apache.spark.sql.{Dataset, Row}
+import org.apache.spark.sql.{Dataset, Row, SQLContext, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.{CodegenObjectFactoryMode, Expression}
 import org.apache.spark.sql.internal.SQLConf
 import org.junit.Before
-
 import java.io.File
 
 trait TestUtils {
+  def sparkSessionF: SparkSession
+  def sqlContextF: SQLContext
+
+  val sparkSession = sparkSessionF
+  val sqlContext = sqlContextF
 
   val outputDir = SparkTestUtils.ouputDir
 

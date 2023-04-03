@@ -113,7 +113,6 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 //    val log = LogManager.getLogger("Dummy")
 //    log.error("OIOIOIO")
 
-
     val orig = UUID.randomUUID()
     val uuid = orig.toString
     val ModifiedString = new UUID(orig.getMostSignificantBits, orig.getLeastSignificantBits + 1).toString
