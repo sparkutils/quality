@@ -283,11 +283,15 @@ functions:
       - Hash      
   prefixedToLongPair:
     description: |
-      prefixedToLongPair('prefix', field) converts a 128bit longpair field with the given prefix into a higher and lower long pair without prefix.
+      prefixedToLongPair(field, 'prefix') converts a 128bit longpair field with the given prefix into a higher and lower long pair without prefix.
   
       This is suitable for converting provided id's into uuids for example via a further call to rngUUID.   
     tags:
-      - ID, longs      
+      - ID, longs
+  as_uuid:
+    description: "as_uuid(lower_long, higher_long) converts two longs into a uuid, equivalent to rngUUID(longPair(lower, higher))"
+    tags:
+      - longs
   updateField:
     description: |
       updateField(structure_expr, 'field.subfield', replaceWith, 'fieldN', replaceWithN) processes structures allowing you to replace sub items (think lens in functional programming) using the structure fields path name.

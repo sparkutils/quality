@@ -3,6 +3,7 @@ package com.sparkutils.qualityTests
 import java.util.UUID
 
 import com.sparkutils.quality._
+import com.sparkutils.quality.impl.longPair.AsUUID
 import com.sparkutils.quality.utils.PrintCode
 import org.apache.spark.sql.SaveMode
 import org.apache.spark.sql.functions._
@@ -124,13 +125,16 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     val starter = sparkSession.range(1,500).selectExpr("cast(id as int) as id").selectExpr("*","failed() * id as a", "passed() * id as b", "softFailed() * 1 as c", "disabledRule() as dis")
     val df = starter.selectExpr("*", "packInts(1024 * id, 9084 * id) as d", "softFail( (1 * id) > 2 ) as e", s"longPairFromUUID('$uuid') as fparts").
       selectExpr("*", "rngUUID(longPairFromUUID(uuid())) throwaway").
-      selectExpr("*", "rngUUID(named_struct('lower', fparts.lower + id, 'higher', fparts.higher)) as f"," longPair(`id` + 0L, `id` + 1L) as rowid", "unpack(d) as g", "probability(1000) as prob")
+      selectExpr("*", "rngUUID(named_struct('lower', fparts.lower + id, 'higher', fparts.higher)) as f"," longPair(`id` + 0L, `id` + 1L) as rowid", "unpack(d) as g", "probability(1000) as prob",
+        "as_uuid(fparts.lower + id, fparts.higher) as asUUIDExpr"
+      ).select(expr("*"), AsUUID(expr("fparts.lower + id"), expr("fparts.higher")).as("asUUIDCol"))
+
     df.write.mode(SaveMode.Overwrite).parquet(outputDir + "/simpleExprs")
     val re = sparkSession.read.parquet(outputDir + "/simpleExprs")
     import sparkSession.implicits._
     val res = re.as[SimpleRes].orderBy(col("id").asc).head()
     assert(res match {
-      case SimpleRes(1, FailedInt, PassedInt, SoftFailedInt, Packed, SoftFailedInt, DisabledRuleInt, ModifiedString, _, TestId, id, 0.01) => true
+      case SimpleRes(1, FailedInt, PassedInt, SoftFailedInt, Packed, SoftFailedInt, DisabledRuleInt, ModifiedString, _, TestId, id, 0.01, ModifiedString, ModifiedString) => true
       case _ => false
     })
   }
@@ -401,4 +405,4 @@ case class MapArray(seq: Seq[Map[Int, Int]])
 case class TestIdLeft(left_lower: Long, left_higher: Long)
 case class TestIdRight(right_lower: Long, right_higher: Long)
 
-case class SimpleRes(id: Int, a: Int, b: Int, c: Int, d: Long, e: Int, dis: Int, f: String, throwaway: String, rowId: RowId, g: Id, prob: Double)
+case class SimpleRes(id: Int, a: Int, b: Int, c: Int, d: Long, e: Int, dis: Int, f: String, throwaway: String, rowId: RowId, g: Id, prob: Double, asUUIDExpr: String, asUUIDCol: String)
