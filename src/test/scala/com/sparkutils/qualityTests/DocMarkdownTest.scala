@@ -6,7 +6,7 @@ import com.sparkutils.quality.{ExpressionRule, Id, LambdaFunction, OutputExpress
 import org.apache.commons.io.IOUtils
 import org.junit.Test
 
-class DocMarkdownTest extends RowTools {
+class DocMarkdownTest extends RowTools with TestUtils { // test utils to force spark session before register is called
 
   /**
    * doesn't test anything but it's helpfully bootstrapped

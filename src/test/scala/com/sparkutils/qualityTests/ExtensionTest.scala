@@ -5,14 +5,19 @@ import java.util.UUID
 import com.sparkutils.quality.impl.extension.QualitySparkExtension
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.{SQLContext, SparkSession}
-import org.junit.Test
+import org.junit.{Before, Test}
 import org.scalatest.FunSuite
 
 // including rowtools so standalone tests behave as if all of them are running and for verify compatibility
-class ExtensionTest extends FunSuite with RowTools {
+class ExtensionTest extends FunSuite with RowTools with TestUtils {
+
+  @Before
+  override def setup(): Unit = {
+    // nothing from TestUtils is needed
+  }
 
   @Test
-  def testExtension(): Unit ={
+  def testExtension(): Unit = not2_4 { not_Databricks { // will never work on 2.4 and Databricks has a fixed session
     var tsparkSession: SparkSession = null
     var sqlContext: SQLContext = null
 
@@ -46,5 +51,5 @@ class ExtensionTest extends FunSuite with RowTools {
         }
       } finally {}
     }
-  }
+  }}
 }
