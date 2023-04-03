@@ -83,6 +83,8 @@ The full list of supported runtimes is below:
 | 3.3.0 | 3.3 | 12.2.dbr_ | 2.12 |
 | 3.4.0 | 3.4 | | 2.12 |
 
+2.4 support is deprecated and will be removed in a future version.
+
 ### Developing for a Databricks Runtime
 
 As there are many compatibility issues that Quality works around between the various Spark runtimes and their Databricks equivalents you will need to use two different runtimes when you do local testing (and of course you _should_ do that):
@@ -123,6 +125,18 @@ The known combinations requiring this approach is below:
 | 3.2.1 | 3.2 | 3.2.1.oss_ | 10.4.dbr_ | 2.12 | 
 | 3.3.0 | 3.3 | 3.3.0.oss_ | 11.0.dbr_ | 2.12 | 
 
+## Using the SQL functions on Spark Thrift (Hive) servers
+
+Using the configuration option:
+
+```
+spark.sql.extensions=com.sparkutils.quality.impl.extension.QualitySparkExtension
+```
+
+when starting your cluster, with the appropriate compatible Quality runtime jars - the test Shade jar can also be used -, will automatically register the additional SQL functions from Quality.
+
+!!! note
+    2.4 is not supported as Spark doesn't provide for SQL extensions in this version.  Blooms and map's cannot be constructed via pure sql, so the functionality of these on Thrift/Hive servers is limited. 
 
 ## 2.4 Support requires 2.4.6 or Janino 3.0.16
 

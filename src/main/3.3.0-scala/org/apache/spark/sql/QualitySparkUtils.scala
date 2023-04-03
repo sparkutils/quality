@@ -300,6 +300,6 @@ object QualitySparkUtils {
    * @param builder
    */
   def registerFunctionViaExtension(extensions: SparkSessionExtensions)(name: String, builder: Seq[Expression] => Expression) =
-    extensions.injectFunction( (FunctionIdentifier(name), new ExpressionInfo(name, "", name, s"see https://sparkutils.github.io/quality/latest/sqlfunctions/#{${name.toLowerCase}}", "", "", "", "", "", "", "") , builder) )
+    extensions.injectFunction( (FunctionIdentifier(name), new ExpressionInfo(name, name) , builder) )
 
 }
