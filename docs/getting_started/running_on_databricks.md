@@ -64,12 +64,12 @@ Ideally at the end of your runs you'll see - after 10 minutes or so and some std
 ```
 Time: 682.626
 
-OK (210 tests)
+OK (214 tests)
 
-Finished. Result: Failures: 0. Ignored: 0. Tests run: 210. Time: 682626ms.
+Finished. Result: Failures: 0. Ignored: 0. Tests run: 214. Time: 682626ms.
 import com.sparkutils.quality.tests.TestSuite
 import com.sparkutils.qualityTests.SparkTestUtils
 fileLoc: String = /dbfs/databricks/quality_test
 ```
 
-NB: _due to no 3.4 frameless yet being available as of 14th March 23 the test counts are now expected to be 206 passed instead of 210_
+NB: _due to no 3.4 frameless yet being available as of 14th March 23 the test counts are now expected to be 206 passed instead of 214_

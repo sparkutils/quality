@@ -5,6 +5,7 @@ import java.util.UUID
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.longPair.AsUUID
 import com.sparkutils.quality.utils.PrintCode
+import org.apache.spark.sql.QualitySparkUtils.newParser
 import org.apache.spark.sql.SaveMode
 import org.apache.spark.sql.functions._
 import org.junit.Test

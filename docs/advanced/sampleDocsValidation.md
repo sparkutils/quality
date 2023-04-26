@@ -3,8 +3,7 @@
 ## Errors Summary
 |Type|Count|
 |---|---:|
-      | __SparkFunctionNameError__ Name mapLookup is missing | 1 |
-| __RuleNameError__ Name nonExistentFielda is missing | 1 |
+      | __RuleNameError__ Name nonExistentFielda is missing | 1 |
 | __RuleNameError__ Name nonExistentFieldb is missing | 1 |
 | __SparkFunctionNameError__ Name nonExistentFunction is missing | 1 |
 
@@ -15,16 +14,6 @@
 | __ExtraDocParameter__ Parameter fielda is not found in the lambda expression | 1 |
 
 ## Errors Identified for RuleSuite - Id 0, 1 <a name="ruleSuiteErrors_0_1"></a>
-
-### Id 5, 1 <a name="Errors_0_1"></a>
-
-__SparkFunctionNameError__ Name mapLookup is missing occurred when processing id Id(5,1) against <a href="../sampleDocsOutput/#rule_5_1">expression</a>
-
-```sql
-mapLookup(fielda, fieldb) and test(fieldb)
-```
-
-
 
 ### Id 16, 1 <a name="Errors_0_1"></a>
 

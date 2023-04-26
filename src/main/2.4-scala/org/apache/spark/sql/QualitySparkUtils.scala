@@ -21,6 +21,16 @@ import org.apache.spark.util.Utils
  * Set of utilities to reach in to private functions
  */
 object QualitySparkUtils {
+
+  implicit class UnresolvedFunctionOps(unresolvedFunction: UnresolvedFunction) {
+
+    def theArguments: Seq[Expression] =
+      unresolvedFunction.children
+
+    def withArguments(children: Seq[Expression]): UnresolvedFunction =
+      unresolvedFunction.copy(children = children)
+  }
+
   def isPrimitive(dataType: DataType) =
     dataType match {
       case BooleanType => true

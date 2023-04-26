@@ -20,6 +20,15 @@ import org.apache.spark.util.Utils
  */
 object QualitySparkUtils {
 
+  implicit class UnresolvedFunctionOps(unresolvedFunction: UnresolvedFunction) {
+
+    def theArguments: Seq[Expression] =
+      unresolvedFunction.arguments
+
+    def withArguments(children: Seq[Expression]): UnresolvedFunction =
+      unresolvedFunction.copy(arguments = children)
+  }
+
   def isPrimitive(dataType: DataType) = CatalystTypeConverters.isPrimitive(dataType)
 
   /**
