@@ -24,495 +24,551 @@
           <div class="tab-pane active" id="codegrid">
             <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality
 </span>2 <span style=''>
-</span>3 <span style=''>import org.apache.spark.sql.catalyst.InternalRow
-</span>4 <span style=''>import org.apache.spark.sql.catalyst.expressions.Expression
-</span>5 <span style=''>import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext}
-</span>6 <span style=''>import org.apache.spark.sql.qualityFunctions.{FunN, LambdaFunctions, RefExpressionLazyType}
-</span>7 <span style=''>import org.apache.spark.sql.types.Decimal
-</span>8 <span style=''>import org.apache.spark.sql.{QualitySparkUtils, SparkSession}
-</span>9 <span style=''>
-</span>10 <span style=''>import scala.collection.mutable
+</span>3 <span style=''>import org.apache.spark.internal.Logging
+</span>4 <span style=''>import org.apache.spark.sql.catalyst.InternalRow
+</span>5 <span style=''>import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedFunction}
+</span>6 <span style=''>import org.apache.spark.sql.catalyst.expressions.{EqualTo, Expression, Literal, UnresolvedNamedLambdaVariable, LambdaFunction =&gt; SparkLambdaFunction}
+</span>7 <span style=''>import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext}
+</span>8 <span style=''>import org.apache.spark.sql.qualityFunctions.{FunN, LambdaFunctions, RefExpressionLazyType}
+</span>9 <span style=''>import org.apache.spark.sql.types.Decimal
+</span>10 <span style=''>import org.apache.spark.sql.{QualitySparkUtils, SparkSession}
 </span>11 <span style=''>
-</span>12 <span style=''>/**
-</span>13 <span style=''>  * base for storage of rule or ruleset ids, must be a trait to force frameless to use lookup and stop any
-</span>14 <span style=''>  * accidental auto product treatment
-</span>15 <span style=''>  */
-</span>16 <span style=''>sealed trait VersionedId extends Serializable {
-</span>17 <span style=''>  val id, version: Int
-</span>18 <span style=''>}
-</span>19 <span style=''>
-</span>20 <span style=''>/**
-</span>21 <span style=''>  * A versioned rule ID - note the name is never persisted in results, the id and version are sufficient to retrieve the name
-</span>22 <span style=''>  * @param id a unique ID to identify this rule
-</span>23 <span style=''>  * @param version the version of the rule - again tied to ID
-</span>24 <span style=''>  */
-</span>25 <span style=''>case class Id(id: Int, version: Int) extends VersionedId
-</span>26 <span style=''>
-</span>27 <span style=''>// requires a unique name, otherwise janino can't find the function
-</span>28 <span style=''>object RuleLogicUtils {
-</span>29 <span style=''>
-</span>30 <span style=''>  /**
-</span>31 <span style=''>   * Maps a given ruleSuite calling f for each rule allowing transformations
-</span>32 <span style=''>   * @param ruleSuite
-</span>33 <span style=''>   * @param f
-</span>34 <span style=''>   * @return
-</span>35 <span style=''>   */
-</span>36 <span style=''>  def mapRules(ruleSuite: RuleSuite)(f: Rule =&gt; Rule) =
-</span>37 <span style=''>    </span><span style='background: #AEF1AE'>ruleSuite.copy(ruleSets = ruleSuite.ruleSets.map(
-</span>38 <span style=''></span><span style='background: #AEF1AE'>      ruleSet =&gt;
-</span>39 <span style=''></span><span style='background: #AEF1AE'>        ruleSet.copy( rules = ruleSet.rules.map(
-</span>40 <span style=''></span><span style='background: #AEF1AE'>          rule =&gt;
-</span>41 <span style=''></span><span style='background: #AEF1AE'>            f(rule)
-</span>42 <span style=''></span><span style='background: #AEF1AE'>        ))
-</span>43 <span style=''></span><span style='background: #AEF1AE'>    ))</span><span style=''>
-</span>44 <span style=''>
-</span>45 <span style=''>  /**
-</span>46 <span style=''>   * Same as functions.expr without the wrapping Column
-</span>47 <span style=''>   * @param rule
-</span>48 <span style=''>   * @return
-</span>49 <span style=''>   */
-</span>50 <span style=''>  def expr(rule: String) = {
-</span>51 <span style=''>    val parser = </span><span style='background: #AEF1AE'>SparkSession.getActiveSession.map(_.sessionState.sqlParser).getOrElse {
-</span>52 <span style=''></span><span style='background: #AEF1AE'>      </span><span style='background: #F0ADAD'>QualitySparkUtils.newParser()</span><span style='background: #AEF1AE'>
-</span>53 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
-</span>54 <span style=''>    val rawExpr = </span><span style='background: #AEF1AE'>parser.parseExpression(rule)</span><span style=''>
-</span>55 <span style=''>    rawExpr
-</span>56 <span style=''>  }
-</span>57 <span style=''>
-</span>58 <span style=''>  def anyToRuleResult(any: Any): RuleResult =
-</span>59 <span style=''>    any match {
-</span>60 <span style=''>      case b: Boolean =&gt; if (b) </span><span style='background: #AEF1AE'>Passed</span><span style=''> else </span><span style='background: #AEF1AE'>Failed</span><span style=''>
-</span>61 <span style=''>      case 0 | 0.0 =&gt; Failed
-</span>62 <span style=''>      case 1 | 1.0 =&gt; Passed
-</span>63 <span style=''>      case -1 | -1.0 | &quot;softfail&quot; | &quot;maybe&quot; | &quot;SoftFail&quot; | &quot;softFail&quot; | &quot;Softfail&quot; | &quot;Maybe&quot; =&gt; SoftFailed
-</span>64 <span style=''>      case -2  | -2.0 | &quot;disabledrule&quot; | &quot;disabled&quot; | &quot;DisabledRule&quot; | &quot;disabledRule&quot; | &quot;Disabledrule&quot; =&gt; DisabledRule
-</span>65 <span style=''>      case d: Double =&gt; </span><span style='background: #AEF1AE'>Probability(d)</span><span style=''> // only spark 2 unless configured to behave like spark 2
-</span>66 <span style=''>      case d: Decimal =&gt; </span><span style='background: #AEF1AE'>Probability(d.toDouble)</span><span style=''>
-</span>67 <span style=''>      case &quot;Passed&quot; | &quot;true&quot; | &quot;True&quot; | &quot;passed&quot; | &quot;Pass&quot;| &quot;pass&quot; | &quot;Yes&quot; | &quot;yes&quot; | &quot;1&quot; | &quot;1.0&quot; =&gt; Passed
-</span>68 <span style=''>      case &quot;Failed&quot; | &quot;false&quot; | &quot;False&quot; | &quot;failed&quot; | &quot;Fail&quot;| &quot;fail&quot; | &quot;No&quot; | &quot;no&quot; | &quot;0&quot; | &quot;0.0&quot; =&gt; Failed
-</span>69 <span style=''>      case _ =&gt; Failed // anything else is a fail
-</span>70 <span style=''>    }
-</span>71 <span style=''>
-</span>72 <span style=''>  // typically just from compilation
-</span>73 <span style=''>  def anyToRuleResultInt(any: Any): Int =
-</span>74 <span style=''>    any match {
-</span>75 <span style=''>      case b: Boolean =&gt; if (b) </span><span style='background: #AEF1AE'>PassedInt</span><span style=''> else </span><span style='background: #AEF1AE'>FailedInt</span><span style=''>
-</span>76 <span style=''>      case 0 | 0.0 =&gt; </span><span style='background: #F0ADAD'>FailedInt</span><span style=''>
-</span>77 <span style=''>      case 1 | 1.0 =&gt; </span><span style='background: #F0ADAD'>PassedInt</span><span style=''>
-</span>78 <span style=''>      case -1 | -1.0 | &quot;softfail&quot; | &quot;maybe&quot; | &quot;SoftFail&quot; | &quot;softFail&quot; | &quot;Softfail&quot; | &quot;Maybe&quot; =&gt; </span><span style='background: #F0ADAD'>SoftFailedInt</span><span style=''>
-</span>79 <span style=''>      case -2  | -2.0 | &quot;disabledrule&quot; | &quot;disabled&quot; | &quot;DisabledRule&quot; | &quot;disabledRule&quot; | &quot;Disabledrule&quot; =&gt; </span><span style='background: #AEF1AE'>DisabledRuleInt</span><span style=''>
-</span>80 <span style=''>      case d: Double =&gt; (</span><span style='background: #AEF1AE'>d * PassedInt).toInt</span><span style=''>
-</span>81 <span style=''>      case d: Decimal =&gt; (</span><span style='background: #AEF1AE'>d.toDouble * PassedInt).toInt</span><span style=''>
-</span>82 <span style=''>      case &quot;Passed&quot; | &quot;true&quot; | &quot;True&quot; | &quot;passed&quot; | &quot;Pass&quot;| &quot;pass&quot; | &quot;Yes&quot; | &quot;yes&quot; | &quot;1&quot; | &quot;1.0&quot; =&gt; </span><span style='background: #F0ADAD'>PassedInt</span><span style=''>
-</span>83 <span style=''>      case &quot;Failed&quot; | &quot;false&quot; | &quot;False&quot; | &quot;failed&quot; | &quot;Fail&quot;| &quot;fail&quot; | &quot;No&quot; | &quot;no&quot; | &quot;0&quot; | &quot;0.0&quot; =&gt; </span><span style='background: #F0ADAD'>FailedInt</span><span style=''>
-</span>84 <span style=''>      case _ =&gt; </span><span style='background: #AEF1AE'>FailedInt</span><span style=''> // anything else is a fail
-</span>85 <span style=''>    }
-</span>86 <span style=''>
-</span>87 <span style=''>}
+</span>12 <span style=''>import scala.collection.mutable
+</span>13 <span style=''>
+</span>14 <span style=''>/**
+</span>15 <span style=''>  * base for storage of rule or ruleset ids, must be a trait to force frameless to use lookup and stop any
+</span>16 <span style=''>  * accidental auto product treatment
+</span>17 <span style=''>  */
+</span>18 <span style=''>sealed trait VersionedId extends Serializable {
+</span>19 <span style=''>  val id, version: Int
+</span>20 <span style=''>}
+</span>21 <span style=''>
+</span>22 <span style=''>/**
+</span>23 <span style=''>  * A versioned rule ID - note the name is never persisted in results, the id and version are sufficient to retrieve the name
+</span>24 <span style=''>  * @param id a unique ID to identify this rule
+</span>25 <span style=''>  * @param version the version of the rule - again tied to ID
+</span>26 <span style=''>  */
+</span>27 <span style=''>case class Id(id: Int, version: Int) extends VersionedId
+</span>28 <span style=''>
+</span>29 <span style=''>// requires a unique name, otherwise janino can't find the function
+</span>30 <span style=''>object RuleLogicUtils {
+</span>31 <span style=''>
+</span>32 <span style=''>  /**
+</span>33 <span style=''>   * Maps a given ruleSuite calling f for each rule allowing transformations
+</span>34 <span style=''>   * @param ruleSuite
+</span>35 <span style=''>   * @param f
+</span>36 <span style=''>   * @return
+</span>37 <span style=''>   */
+</span>38 <span style=''>  def mapRules(ruleSuite: RuleSuite)(f: Rule =&gt; Rule) =
+</span>39 <span style=''>    </span><span style='background: #AEF1AE'>ruleSuite.copy(ruleSets = ruleSuite.ruleSets.map(
+</span>40 <span style=''></span><span style='background: #AEF1AE'>      ruleSet =&gt;
+</span>41 <span style=''></span><span style='background: #AEF1AE'>        ruleSet.copy( rules = ruleSet.rules.map(
+</span>42 <span style=''></span><span style='background: #AEF1AE'>          rule =&gt;
+</span>43 <span style=''></span><span style='background: #AEF1AE'>            f(rule)
+</span>44 <span style=''></span><span style='background: #AEF1AE'>        ))
+</span>45 <span style=''></span><span style='background: #AEF1AE'>    ))</span><span style=''>
+</span>46 <span style=''>
+</span>47 <span style=''>  /**
+</span>48 <span style=''>   * Same as functions.expr without the wrapping Column
+</span>49 <span style=''>   * @param rule
+</span>50 <span style=''>   * @return
+</span>51 <span style=''>   */
+</span>52 <span style=''>  def expr(rule: String) = {
+</span>53 <span style=''>    val parser = </span><span style='background: #AEF1AE'>SparkSession.getActiveSession.map(_.sessionState.sqlParser).getOrElse {
+</span>54 <span style=''></span><span style='background: #AEF1AE'>      </span><span style='background: #F0ADAD'>QualitySparkUtils.newParser()</span><span style='background: #AEF1AE'>
+</span>55 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>56 <span style=''>    val rawExpr = </span><span style='background: #AEF1AE'>parser.parseExpression(rule)</span><span style=''>
+</span>57 <span style=''>    rawExpr
+</span>58 <span style=''>  }
+</span>59 <span style=''>
+</span>60 <span style=''>  def anyToRuleResult(any: Any): RuleResult =
+</span>61 <span style=''>    any match {
+</span>62 <span style=''>      case b: Boolean =&gt; if (b) </span><span style='background: #AEF1AE'>Passed</span><span style=''> else </span><span style='background: #AEF1AE'>Failed</span><span style=''>
+</span>63 <span style=''>      case 0 | 0.0 =&gt; Failed
+</span>64 <span style=''>      case 1 | 1.0 =&gt; Passed
+</span>65 <span style=''>      case -1 | -1.0 | &quot;softfail&quot; | &quot;maybe&quot; | &quot;SoftFail&quot; | &quot;softFail&quot; | &quot;Softfail&quot; | &quot;Maybe&quot; =&gt; SoftFailed
+</span>66 <span style=''>      case -2  | -2.0 | &quot;disabledrule&quot; | &quot;disabled&quot; | &quot;DisabledRule&quot; | &quot;disabledRule&quot; | &quot;Disabledrule&quot; =&gt; DisabledRule
+</span>67 <span style=''>      case d: Double =&gt; </span><span style='background: #AEF1AE'>Probability(d)</span><span style=''> // only spark 2 unless configured to behave like spark 2
+</span>68 <span style=''>      case d: Decimal =&gt; </span><span style='background: #AEF1AE'>Probability(d.toDouble)</span><span style=''>
+</span>69 <span style=''>      case &quot;Passed&quot; | &quot;true&quot; | &quot;True&quot; | &quot;passed&quot; | &quot;Pass&quot;| &quot;pass&quot; | &quot;Yes&quot; | &quot;yes&quot; | &quot;1&quot; | &quot;1.0&quot; =&gt; Passed
+</span>70 <span style=''>      case &quot;Failed&quot; | &quot;false&quot; | &quot;False&quot; | &quot;failed&quot; | &quot;Fail&quot;| &quot;fail&quot; | &quot;No&quot; | &quot;no&quot; | &quot;0&quot; | &quot;0.0&quot; =&gt; Failed
+</span>71 <span style=''>      case _ =&gt; Failed // anything else is a fail
+</span>72 <span style=''>    }
+</span>73 <span style=''>
+</span>74 <span style=''>  // typically just from compilation
+</span>75 <span style=''>  def anyToRuleResultInt(any: Any): Int =
+</span>76 <span style=''>    any match {
+</span>77 <span style=''>      case b: Boolean =&gt; if (b) </span><span style='background: #AEF1AE'>PassedInt</span><span style=''> else </span><span style='background: #AEF1AE'>FailedInt</span><span style=''>
+</span>78 <span style=''>      case 0 | 0.0 =&gt; </span><span style='background: #F0ADAD'>FailedInt</span><span style=''>
+</span>79 <span style=''>      case 1 | 1.0 =&gt; </span><span style='background: #F0ADAD'>PassedInt</span><span style=''>
+</span>80 <span style=''>      case -1 | -1.0 | &quot;softfail&quot; | &quot;maybe&quot; | &quot;SoftFail&quot; | &quot;softFail&quot; | &quot;Softfail&quot; | &quot;Maybe&quot; =&gt; </span><span style='background: #F0ADAD'>SoftFailedInt</span><span style=''>
+</span>81 <span style=''>      case -2  | -2.0 | &quot;disabledrule&quot; | &quot;disabled&quot; | &quot;DisabledRule&quot; | &quot;disabledRule&quot; | &quot;Disabledrule&quot; =&gt; </span><span style='background: #AEF1AE'>DisabledRuleInt</span><span style=''>
+</span>82 <span style=''>      case d: Double =&gt; (</span><span style='background: #AEF1AE'>d * PassedInt).toInt</span><span style=''>
+</span>83 <span style=''>      case d: Decimal =&gt; (</span><span style='background: #AEF1AE'>d.toDouble * PassedInt).toInt</span><span style=''>
+</span>84 <span style=''>      case &quot;Passed&quot; | &quot;true&quot; | &quot;True&quot; | &quot;passed&quot; | &quot;Pass&quot;| &quot;pass&quot; | &quot;Yes&quot; | &quot;yes&quot; | &quot;1&quot; | &quot;1.0&quot; =&gt; </span><span style='background: #F0ADAD'>PassedInt</span><span style=''>
+</span>85 <span style=''>      case &quot;Failed&quot; | &quot;false&quot; | &quot;False&quot; | &quot;failed&quot; | &quot;Fail&quot;| &quot;fail&quot; | &quot;No&quot; | &quot;no&quot; | &quot;0&quot; | &quot;0.0&quot; =&gt; </span><span style='background: #F0ADAD'>FailedInt</span><span style=''>
+</span>86 <span style=''>      case _ =&gt; </span><span style='background: #AEF1AE'>FailedInt</span><span style=''> // anything else is a fail
+</span>87 <span style=''>    }
 </span>88 <span style=''>
-</span>89 <span style=''>
-</span>90 <span style=''>/**
-</span>91 <span style=''> * Lambda functions are for re-use across rules. (param: Type, paramN: Type) -&gt; logicResult .
-</span>92 <span style=''> *
-</span>93 <span style=''> * @param name
-</span>94 <span style=''> * @param rule
-</span>95 <span style=''> * @param id
-</span>96 <span style=''> */
-</span>97 <span style=''>trait LambdaFunction extends HasRuleText with HasExpr {
-</span>98 <span style=''>  val name: String
-</span>99 <span style=''>  val id: Id
-</span>100 <span style=''>  def parsed: LambdaFunctionParsed
-</span>101 <span style=''>}
-</span>102 <span style=''>
-</span>103 <span style=''>object LambdaFunction {
-</span>104 <span style=''>  def apply(name: String, rule: String, id: Id): LambdaFunction = </span><span style='background: #AEF1AE'>LambdaFunctionImpl(name, rule, id)</span><span style=''>
-</span>105 <span style=''>}
-</span>106 <span style=''>
-</span>107 <span style=''>case class LambdaFunctionImpl(name: String, rule: String, id: Id) extends LambdaFunction {
-</span>108 <span style=''>  override def expr: Expression = </span><span style='background: #AEF1AE'>RuleLogicUtils.expr(rule)</span><span style=''>
-</span>109 <span style=''>
-</span>110 <span style=''>  def parsed: LambdaFunctionParsed = </span><span style='background: #AEF1AE'>LambdaFunctionParsed(name, rule, id, expr)</span><span style=''>
-</span>111 <span style=''>}
-</span>112 <span style=''>
-</span>113 <span style=''>case class LambdaFunctionParsed(name: String, rule: String, id: Id, expr: Expression) extends LambdaFunction {
-</span>114 <span style=''>  def parsed: LambdaFunctionParsed = this
-</span>115 <span style=''>}
-</span>116 <span style=''>
-</span>117 <span style=''>trait LambdaFunctions {
-</span>118 <span style=''>  /**
-</span>119 <span style=''>   * This function is for use with directly loading lambda functions to use within normal spark apps.
-</span>120 <span style=''>   *
-</span>121 <span style=''>   * Please be aware loading rules via ruleRunner, addOverallResultsAndDetails or addDataQuality will also load any
-</span>122 <span style=''>   * registered rules applicable for that ruleSuite and may override other registered rules.  You should not use this directly
-</span>123 <span style=''>   * and RuleSuites for that reason (otherwise your results will not be reproducible).
-</span>124 <span style=''>   *
-</span>125 <span style=''>   * @param functions
-</span>126 <span style=''>   */
-</span>127 <span style=''>  def registerLambdaFunctions(functions: Seq[LambdaFunction]): Unit =
-</span>128 <span style=''>    </span><span style='background: #AEF1AE'>LambdaFunctions.registerLambdaFunctions(functions)</span><span style=''>
-</span>129 <span style=''>
-</span>130 <span style=''>  type IdTriple = (Id, Id, Id)
-</span>131 <span style=''>}
-</span>132 <span style=''>
-</span>133 <span style=''>trait RuleLogic extends Serializable {
-</span>134 <span style=''>  def internalEval(internalRow: InternalRow): Any
-</span>135 <span style=''>
-</span>136 <span style=''>  def eval(internalRow: InternalRow): RuleResult = {
-</span>137 <span style=''>    val res = </span><span style='background: #AEF1AE'>internalEval(internalRow)</span><span style=''>
-</span>138 <span style=''>    </span><span style='background: #AEF1AE'>RuleLogicUtils.anyToRuleResult(res)</span><span style=''>
-</span>139 <span style=''>  }
-</span>140 <span style=''>}
-</span>141 <span style=''>
-</span>142 <span style=''>trait HasExpr {
-</span>143 <span style=''>  def expr: Expression
-</span>144 <span style=''>}
-</span>145 <span style=''>
-</span>146 <span style=''>trait ExprLogic extends RuleLogic with HasExpr {
-</span>147 <span style=''>  override def internalEval(internalRow: org.apache.spark.sql.catalyst.InternalRow) =
-</span>148 <span style=''>    </span><span style='background: #AEF1AE'>expr.eval(internalRow)</span><span style=''>
-</span>149 <span style=''>}
-</span>150 <span style=''>
-</span>151 <span style=''>trait HasRuleText {
-</span>152 <span style=''>  val rule: String
-</span>153 <span style=''>}
-</span>154 <span style=''>
-</span>155 <span style=''>/**
-</span>156 <span style=''> * The result of serializing or loading rules
-</span>157 <span style=''> * @param rule
-</span>158 <span style=''> */
-</span>159 <span style=''>case class ExpressionRule( rule: String ) extends ExprLogic with HasRuleText {
-</span>160 <span style=''>  lazy override val expr = RuleLogicUtils.expr(rule)
-</span>161 <span style=''>}
-</span>162 <span style=''>
-</span>163 <span style=''>/**
-</span>164 <span style=''> * Used in load postprocessing, e.g. coalesce removal, to keep the rule text around
-</span>165 <span style=''> * @param rule
-</span>166 <span style=''> * @param expr
-</span>167 <span style=''> */
-</span>168 <span style=''>case class ExpressionRuleExpr( rule: String, expr: Expression ) extends ExprLogic with HasRuleText {
-</span>169 <span style=''>}
-</span>170 <span style=''>
-</span>171 <span style=''>trait ExpressionCompiler extends HasExpr {
-</span>172 <span style=''>  lazy val codegen = {
-</span>173 <span style=''>    val ctx = new CodegenContext()
-</span>174 <span style=''>    val eval = expr.genCode(ctx)
-</span>175 <span style=''>    val javaType = CodeGenerator.javaType(expr.dataType)
-</span>176 <span style=''>
-</span>177 <span style=''>    val codeBody = s&quot;&quot;&quot;
-</span>178 <span style=''>      public scala.Function1&lt;InternalRow, Object&gt; generate(Object[] references) {
-</span>179 <span style=''>        return new ExpressionWrapperEvalImpl(references);
-</span>180 <span style=''>      }
-</span>181 <span style=''>
-</span>182 <span style=''>      class ExpressionWrapperEvalImpl extends scala.runtime.AbstractFunction1&lt;InternalRow, Object&gt; {
-</span>183 <span style=''>        private final Object[] references;
-</span>184 <span style=''>        ${ctx.declareMutableStates()}
-</span>185 <span style=''>        ${ctx.declareAddedFunctions()}
-</span>186 <span style=''>
-</span>187 <span style=''>        public ExpressionWrapperEvalImpl(Object[] references) {
-</span>188 <span style=''>          this.references = references;
-</span>189 <span style=''>          ${ctx.initMutableStates()}
-</span>190 <span style=''>        }
-</span>191 <span style=''>
-</span>192 <span style=''>        public java.lang.Object apply(Object z) {
-</span>193 <span style=''>          InternalRow ${ctx.INPUT_ROW} = (InternalRow) z;
-</span>194 <span style=''>          ${eval.code}
-</span>195 <span style=''>          $javaType temptmep = ${eval.value}; // temp needed for negative values to work, janino gets upset with -  Expression &quot;java.lang.Object&quot; is not an rvalue
-</span>196 <span style=''>
-</span>197 <span style=''>          return ${eval.isNull} ? null : ((Object) temptmep);
-</span>198 <span style=''>        }
-</span>199 <span style=''>      }
-</span>200 <span style=''>    &quot;&quot;&quot;
-</span>201 <span style=''>
-</span>202 <span style=''>    val code = CodeFormatter.stripOverlappingComments(
-</span>203 <span style=''>      new CodeAndComment(codeBody, ctx.getPlaceHolderToComments()))
-</span>204 <span style=''>
-</span>205 <span style=''>    val (clazz, _) = CodeGenerator.compile(code)
-</span>206 <span style=''>    val codegen = clazz.generate(ctx.references.toArray).asInstanceOf[InternalRow =&gt; AnyRef]
-</span>207 <span style=''>
-</span>208 <span style=''>    codegen
-</span>209 <span style=''>  }
-</span>210 <span style=''>}
-</span>211 <span style=''>
-</span>212 <span style=''>
-</span>213 <span style=''>/**
-</span>214 <span style=''>  * Rewritten children at eval will be swapped out
-</span>215 <span style=''>  * @param expr
-</span>216 <span style=''>  */
-</span>217 <span style=''>case class ExpressionWrapper( expr: Expression, compileEval: Boolean = true) extends ExprLogic with ExpressionCompiler {
-</span>218 <span style=''>  override def internalEval(internalRow: InternalRow): Any = {
-</span>219 <span style=''>    if (</span><span style='background: #AEF1AE'>compileEval</span><span style=''>)
-</span>220 <span style=''>      </span><span style='background: #AEF1AE'>codegen(internalRow)</span><span style=''>
-</span>221 <span style=''>    else
-</span>222 <span style=''>      </span><span style='background: #AEF1AE'>super.internalEval(internalRow)</span><span style=''>
-</span>223 <span style=''>  }
-</span>224 <span style=''>}
-</span>225 <span style=''>
-</span>226 <span style=''>trait OutputExprLogic extends HasExpr {
-</span>227 <span style=''>  def eval(internalRow: org.apache.spark.sql.catalyst.InternalRow) =
-</span>228 <span style=''>    </span><span style='background: #AEF1AE'>expr.eval(internalRow)</span><span style=''>
-</span>229 <span style=''>}
-</span>230 <span style=''>
-</span>231 <span style=''>/**
-</span>232 <span style=''> * Used as a result of serializing
-</span>233 <span style=''> * @param rule
-</span>234 <span style=''> */
-</span>235 <span style=''>case class OutputExpression( rule: String ) extends OutputExprLogic with HasRuleText {
-</span>236 <span style=''>  lazy override val expr = RuleLogicUtils.expr(rule)
-</span>237 <span style=''>}
-</span>238 <span style=''>
-</span>239 <span style=''>/**
-</span>240 <span style=''> * Used in post serializing processing to keep the rule around
-</span>241 <span style=''> * @param expr
-</span>242 <span style=''> */
-</span>243 <span style=''>case class OutputExpressionExpr( rule: String, expr: Expression) extends OutputExprLogic with HasRuleText {
-</span>244 <span style=''>}
-</span>245 <span style=''>
-</span>246 <span style=''>case class OutputExpressionWrapper( expr: Expression, compileEval: Boolean = true) extends OutputExprLogic with ExpressionCompiler {
-</span>247 <span style=''>  override def eval(internalRow: org.apache.spark.sql.catalyst.InternalRow) =
-</span>248 <span style=''>    if (</span><span style='background: #AEF1AE'>compileEval</span><span style=''>)
-</span>249 <span style=''>      </span><span style='background: #AEF1AE'>codegen(internalRow)</span><span style=''>
-</span>250 <span style=''>    else
-</span>251 <span style=''>      </span><span style='background: #AEF1AE'>super.eval(internalRow)</span><span style=''>
-</span>252 <span style=''>}
-</span>253 <span style=''>
-</span>254 <span style=''>trait RunOnPassProcessor extends Serializable {
-</span>255 <span style=''>  def salience: Int
-</span>256 <span style=''>  def id: Id
-</span>257 <span style=''>  def rule: String
-</span>258 <span style=''>  def returnIfPassed: OutputExprLogic
-</span>259 <span style=''>  def withExpr(expr: OutputExpression): RunOnPassProcessor
-</span>260 <span style=''>  def withExpr(expr: OutputExprLogic): RunOnPassProcessor
-</span>261 <span style=''>}
-</span>262 <span style=''>
-</span>263 <span style=''>object RunOnPassProcessor {
-</span>264 <span style=''>  def apply(salience: Int, id: Id, e: OutputExpression) =
-</span>265 <span style=''>    </span><span style='background: #AEF1AE'>RunOnPassProcessorImpl(salience, id, e.rule, e)</span><span style=''>
-</span>266 <span style=''>}
-</span>267 <span style=''>
-</span>268 <span style=''>
-</span>269 <span style=''>/**
-</span>270 <span style=''> * Generates a result upon a pass, it is not evaluated otherwise and only evaluated if no other rule has higher salience.
-</span>271 <span style=''> * It is not possible to have more than one rule evaluate the returnIfPassed.
-</span>272 <span style=''> */
-</span>273 <span style=''>case class RunOnPassProcessorImpl(salience: Int, id: Id, rule: String, returnIfPassed: OutputExprLogic) extends RunOnPassProcessor with Serializable {
-</span>274 <span style=''>  override def withExpr(expr: OutputExpression): RunOnPassProcessor =
-</span>275 <span style=''>    </span><span style='background: #F0ADAD'>copy(rule = expr.rule, returnIfPassed = expr)</span><span style=''>
-</span>276 <span style=''>
-</span>277 <span style=''>  def withExpr(expr: OutputExprLogic): RunOnPassProcessor =
-</span>278 <span style=''>    </span><span style='background: #AEF1AE'>copy(returnIfPassed = expr)</span><span style=''>
-</span>279 <span style=''>}
-</span>280 <span style=''>
-</span>281 <span style=''>case class HolderUsedInsteadIfImpl(id: Id) extends
-</span>282 <span style=''>  RuntimeException(s&quot;An OutputExpression $id has either not been correctly linked in your rules or you have not called withExpr.&quot;)
-</span>283 <span style=''>
-</span>284 <span style=''>/**
-</span>285 <span style=''> * Until output expressions are re-integrated this will throw unimplemented
-</span>286 <span style=''> * @param salience
-</span>287 <span style=''> * @param id
-</span>288 <span style=''> */
-</span>289 <span style=''>case class RunOnPassProcessorHolder(salience: Int, id: Id) extends RunOnPassProcessor with Serializable {
-</span>290 <span style=''>  def returnIfPassed: OutputExprLogic = </span><span style='background: #F0ADAD'>throw HolderUsedInsteadIfImpl(id)</span><span style=''>
-</span>291 <span style=''>  def rule: String = </span><span style='background: #F0ADAD'>throw HolderUsedInsteadIfImpl(id)</span><span style=''>
-</span>292 <span style=''>  override def withExpr(expr: OutputExpression): RunOnPassProcessor =
-</span>293 <span style=''>    </span><span style='background: #AEF1AE'>RunOnPassProcessorImpl(salience, id, expr.rule, expr)</span><span style=''>
+</span>89 <span style=''>}
+</span>90 <span style=''>
+</span>91 <span style=''>
+</span>92 <span style=''>/**
+</span>93 <span style=''> * Lambda functions are for re-use across rules. (param: Type, paramN: Type) -&gt; logicResult .
+</span>94 <span style=''> *
+</span>95 <span style=''> * @param name
+</span>96 <span style=''> * @param rule
+</span>97 <span style=''> * @param id
+</span>98 <span style=''> */
+</span>99 <span style=''>trait LambdaFunction extends HasRuleText with HasExpr {
+</span>100 <span style=''>  val name: String
+</span>101 <span style=''>  val id: Id
+</span>102 <span style=''>  def parsed: LambdaFunctionParsed
+</span>103 <span style=''>}
+</span>104 <span style=''>
+</span>105 <span style=''>object LambdaFunction {
+</span>106 <span style=''>  def apply(name: String, rule: String, id: Id): LambdaFunction = </span><span style='background: #AEF1AE'>LambdaFunctionImpl(name, rule, id)</span><span style=''>
+</span>107 <span style=''>}
+</span>108 <span style=''>
+</span>109 <span style=''>case class LambdaFunctionImpl(name: String, rule: String, id: Id) extends LambdaFunction {
+</span>110 <span style=''>  override def expr: Expression = </span><span style='background: #AEF1AE'>RuleLogicUtils.expr(rule)</span><span style=''>
+</span>111 <span style=''>
+</span>112 <span style=''>  def parsed: LambdaFunctionParsed = </span><span style='background: #AEF1AE'>LambdaFunctionParsed(name, rule, id, expr)</span><span style=''>
+</span>113 <span style=''>}
+</span>114 <span style=''>
+</span>115 <span style=''>case class LambdaFunctionParsed(name: String, rule: String, id: Id, expr: Expression) extends LambdaFunction {
+</span>116 <span style=''>  def parsed: LambdaFunctionParsed = this
+</span>117 <span style=''>}
+</span>118 <span style=''>
+</span>119 <span style=''>trait LambdaFunctions {
+</span>120 <span style=''>  /**
+</span>121 <span style=''>   * This function is for use with directly loading lambda functions to use within normal spark apps.
+</span>122 <span style=''>   *
+</span>123 <span style=''>   * Please be aware loading rules via ruleRunner, addOverallResultsAndDetails or addDataQuality will also load any
+</span>124 <span style=''>   * registered rules applicable for that ruleSuite and may override other registered rules.  You should not use this directly
+</span>125 <span style=''>   * and RuleSuites for that reason (otherwise your results will not be reproducible).
+</span>126 <span style=''>   *
+</span>127 <span style=''>   * @param functions
+</span>128 <span style=''>   */
+</span>129 <span style=''>  def registerLambdaFunctions(functions: Seq[LambdaFunction]): Unit =
+</span>130 <span style=''>    </span><span style='background: #AEF1AE'>LambdaFunctions.registerLambdaFunctions(functions)</span><span style=''>
+</span>131 <span style=''>
+</span>132 <span style=''>  type IdTriple = (Id, Id, Id)
+</span>133 <span style=''>}
+</span>134 <span style=''>
+</span>135 <span style=''>trait RuleLogic extends Serializable {
+</span>136 <span style=''>  def internalEval(internalRow: InternalRow): Any
+</span>137 <span style=''>
+</span>138 <span style=''>  def eval(internalRow: InternalRow): RuleResult = {
+</span>139 <span style=''>    val res = </span><span style='background: #AEF1AE'>internalEval(internalRow)</span><span style=''>
+</span>140 <span style=''>    </span><span style='background: #AEF1AE'>RuleLogicUtils.anyToRuleResult(res)</span><span style=''>
+</span>141 <span style=''>  }
+</span>142 <span style=''>}
+</span>143 <span style=''>
+</span>144 <span style=''>trait HasExpr {
+</span>145 <span style=''>  def expr: Expression
+</span>146 <span style=''>}
+</span>147 <span style=''>
+</span>148 <span style=''>trait ExprLogic extends RuleLogic with HasExpr {
+</span>149 <span style=''>  override def internalEval(internalRow: org.apache.spark.sql.catalyst.InternalRow) =
+</span>150 <span style=''>    </span><span style='background: #AEF1AE'>expr.eval(internalRow)</span><span style=''>
+</span>151 <span style=''>}
+</span>152 <span style=''>
+</span>153 <span style=''>trait HasRuleText {
+</span>154 <span style=''>  val rule: String
+</span>155 <span style=''>}
+</span>156 <span style=''>
+</span>157 <span style=''>/**
+</span>158 <span style=''> * The result of serializing or loading rules
+</span>159 <span style=''> * @param rule
+</span>160 <span style=''> */
+</span>161 <span style=''>case class ExpressionRule( rule: String ) extends ExprLogic with HasRuleText {
+</span>162 <span style=''>  lazy override val expr = RuleLogicUtils.expr(rule)
+</span>163 <span style=''>}
+</span>164 <span style=''>
+</span>165 <span style=''>/**
+</span>166 <span style=''> * Used in load postprocessing, e.g. coalesce removal, to keep the rule text around
+</span>167 <span style=''> * @param rule
+</span>168 <span style=''> * @param expr
+</span>169 <span style=''> */
+</span>170 <span style=''>case class ExpressionRuleExpr( rule: String, expr: Expression ) extends ExprLogic with HasRuleText {
+</span>171 <span style=''>}
+</span>172 <span style=''>
+</span>173 <span style=''>trait ExpressionCompiler extends HasExpr {
+</span>174 <span style=''>  lazy val codegen = {
+</span>175 <span style=''>    val ctx = new CodegenContext()
+</span>176 <span style=''>    val eval = expr.genCode(ctx)
+</span>177 <span style=''>    val javaType = CodeGenerator.javaType(expr.dataType)
+</span>178 <span style=''>
+</span>179 <span style=''>    val codeBody = s&quot;&quot;&quot;
+</span>180 <span style=''>      public scala.Function1&lt;InternalRow, Object&gt; generate(Object[] references) {
+</span>181 <span style=''>        return new ExpressionWrapperEvalImpl(references);
+</span>182 <span style=''>      }
+</span>183 <span style=''>
+</span>184 <span style=''>      class ExpressionWrapperEvalImpl extends scala.runtime.AbstractFunction1&lt;InternalRow, Object&gt; {
+</span>185 <span style=''>        private final Object[] references;
+</span>186 <span style=''>        ${ctx.declareMutableStates()}
+</span>187 <span style=''>        ${ctx.declareAddedFunctions()}
+</span>188 <span style=''>
+</span>189 <span style=''>        public ExpressionWrapperEvalImpl(Object[] references) {
+</span>190 <span style=''>          this.references = references;
+</span>191 <span style=''>          ${ctx.initMutableStates()}
+</span>192 <span style=''>        }
+</span>193 <span style=''>
+</span>194 <span style=''>        public java.lang.Object apply(Object z) {
+</span>195 <span style=''>          InternalRow ${ctx.INPUT_ROW} = (InternalRow) z;
+</span>196 <span style=''>          ${eval.code}
+</span>197 <span style=''>          $javaType temptmep = ${eval.value}; // temp needed for negative values to work, janino gets upset with -  Expression &quot;java.lang.Object&quot; is not an rvalue
+</span>198 <span style=''>
+</span>199 <span style=''>          return ${eval.isNull} ? null : ((Object) temptmep);
+</span>200 <span style=''>        }
+</span>201 <span style=''>      }
+</span>202 <span style=''>    &quot;&quot;&quot;
+</span>203 <span style=''>
+</span>204 <span style=''>    val code = CodeFormatter.stripOverlappingComments(
+</span>205 <span style=''>      new CodeAndComment(codeBody, ctx.getPlaceHolderToComments()))
+</span>206 <span style=''>
+</span>207 <span style=''>    val (clazz, _) = CodeGenerator.compile(code)
+</span>208 <span style=''>    val codegen = clazz.generate(ctx.references.toArray).asInstanceOf[InternalRow =&gt; AnyRef]
+</span>209 <span style=''>
+</span>210 <span style=''>    codegen
+</span>211 <span style=''>  }
+</span>212 <span style=''>}
+</span>213 <span style=''>
+</span>214 <span style=''>
+</span>215 <span style=''>/**
+</span>216 <span style=''>  * Rewritten children at eval will be swapped out
+</span>217 <span style=''>  * @param expr
+</span>218 <span style=''>  */
+</span>219 <span style=''>case class ExpressionWrapper( expr: Expression, compileEval: Boolean = true) extends ExprLogic with ExpressionCompiler {
+</span>220 <span style=''>  override def internalEval(internalRow: InternalRow): Any = {
+</span>221 <span style=''>    if (</span><span style='background: #AEF1AE'>compileEval</span><span style=''>)
+</span>222 <span style=''>      </span><span style='background: #AEF1AE'>codegen(internalRow)</span><span style=''>
+</span>223 <span style=''>    else
+</span>224 <span style=''>      </span><span style='background: #AEF1AE'>super.internalEval(internalRow)</span><span style=''>
+</span>225 <span style=''>  }
+</span>226 <span style=''>}
+</span>227 <span style=''>
+</span>228 <span style=''>trait OutputExprLogic extends HasExpr {
+</span>229 <span style=''>  def eval(internalRow: org.apache.spark.sql.catalyst.InternalRow) =
+</span>230 <span style=''>    </span><span style='background: #AEF1AE'>expr.eval(internalRow)</span><span style=''>
+</span>231 <span style=''>}
+</span>232 <span style=''>
+</span>233 <span style=''>object UpdateFolderExpression {
+</span>234 <span style=''>  val currentResult = </span><span style='background: #AEF1AE'>&quot;currentResult&quot;</span><span style=''>
+</span>235 <span style=''>
+</span>236 <span style=''>  import QualitySparkUtils.UnresolvedFunctionOps
+</span>237 <span style=''>
+</span>238 <span style=''>  /**
+</span>239 <span style=''>   * Uses the template to add the arguments to the underlying updateField, replacing any currentResult's found with the correct
+</span>240 <span style=''>   * UnresolvedNamedLambdaVariable type.
+</span>241 <span style=''>   * @param args
+</span>242 <span style=''>   * @return
+</span>243 <span style=''>   */
+</span>244 <span style=''>  def withArgsAndSubstitutedLambdaVariable(args: Seq[Expression]): Expression =
+</span>245 <span style=''>    </span><span style='background: #AEF1AE'>template.copy(function =
+</span>246 <span style=''></span><span style='background: #AEF1AE'>      oFunc.withArguments(
+</span>247 <span style=''></span><span style='background: #AEF1AE'>        oFunc.theArguments ++ args)).transform{
+</span>248 <span style=''></span><span style='background: #AEF1AE'>      case a: UnresolvedAttribute if a.nameParts.head == currentResult =&gt;
+</span>249 <span style=''></span><span style='background: #AEF1AE'>        UnresolvedNamedLambdaVariable(a.nameParts)
+</span>250 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>251 <span style=''>
+</span>252 <span style=''>  lazy val template = RuleLogicUtils.expr(s&quot;$currentResult -&gt; updateField(currentResult)&quot;).asInstanceOf[SparkLambdaFunction]
+</span>253 <span style=''>  lazy val oFunc = template.function.asInstanceOf[UnresolvedFunction]
+</span>254 <span style=''>
+</span>255 <span style=''>}
+</span>256 <span style=''>
+</span>257 <span style=''>/**
+</span>258 <span style=''> * Used as a result of serializing
+</span>259 <span style=''> * @param rule
+</span>260 <span style=''> */
+</span>261 <span style=''>case class OutputExpression( rule: String ) extends OutputExprLogic with HasRuleText with Logging {
+</span>262 <span style=''>  lazy override val expr = {
+</span>263 <span style=''>    val parsed = RuleLogicUtils.expr(rule)
+</span>264 <span style=''>    // output expressions can be:
+</span>265 <span style=''>    // 1. simple expressions for ruleEngine
+</span>266 <span style=''>    // 2. single argument lambda's returning the same type as the arg for folder
+</span>267 <span style=''>    // 3. as of 0.0.2 #8 set( attribute = valueExpression, attribute = valueExpression) converted to the form of 2 with an updateField call
+</span>268 <span style=''>    parsed match {
+</span>269 <span style=''>      case uf: UnresolvedFunction if VariablesLookup.toName(uf) == &quot;set&quot; =&gt;
+</span>270 <span style=''>        // case 3
+</span>271 <span style=''>        val args = QualitySparkUtils.arguments(uf)
+</span>272 <span style=''>        val paired =
+</span>273 <span style=''>          args.flatMap {
+</span>274 <span style=''>            case EqualTo(name: UnresolvedAttribute, right) =&gt;
+</span>275 <span style=''>              // updateField takes paired args of field names to expression
+</span>276 <span style=''>              Some(Seq(Literal(name.name), right))
+</span>277 <span style=''>            case a =&gt;
+</span>278 <span style=''>              logInfo(s&quot;Attempt to convert set OutputExpression argument $a failed as types do not match expected EqualTo(attribute, expression), will default to full expression&quot;)
+</span>279 <span style=''>              None
+</span>280 <span style=''>          }
+</span>281 <span style=''>
+</span>282 <span style=''>        if (paired.size != args.size)
+</span>283 <span style=''>          // one of the args didn't match type
+</span>284 <span style=''>          parsed
+</span>285 <span style=''>        else
+</span>286 <span style=''>          // need to keep first arg
+</span>287 <span style=''>          UpdateFolderExpression.withArgsAndSubstitutedLambdaVariable(paired.flatten)
+</span>288 <span style=''>      case _ =&gt;
+</span>289 <span style=''>        // for everything else (1+2) it's already good enough
+</span>290 <span style=''>        parsed
+</span>291 <span style=''>    }
+</span>292 <span style=''>  }
+</span>293 <span style=''>}
 </span>294 <span style=''>
-</span>295 <span style=''>  // should not be called
-</span>296 <span style=''>  def withExpr(expr: OutputExprLogic): RunOnPassProcessor = </span><span style='background: #F0ADAD'>throw HolderUsedInsteadIfImpl(id)</span><span style=''>
-</span>297 <span style=''>}
-</span>298 <span style=''>
-</span>299 <span style=''>object NoOpRunOnPassProcessor {
-</span>300 <span style=''>  val noOpId = </span><span style='background: #AEF1AE'>Id(Int.MinValue, Int.MinValue)</span><span style=''>
-</span>301 <span style=''>  val noOp = </span><span style='background: #AEF1AE'>RunOnPassProcessorImpl(Int.MaxValue, noOpId, &quot;&quot;, OutputExpression(&quot;&quot;))</span><span style=''>
-</span>302 <span style=''>}
-</span>303 <span style=''>
-</span>304 <span style=''>/**
-</span>305 <span style=''>  * A rule to run over a row
-</span>306 <span style=''>  * @param id
-</span>307 <span style=''>  * @param expression
-</span>308 <span style=''>  */
-</span>309 <span style=''>case class Rule(id: Id, expression: RuleLogic, runOnPassProcessor: RunOnPassProcessor = NoOpRunOnPassProcessor.noOp) extends Serializable
-</span>310 <span style=''>
-</span>311 <span style=''>case class RuleSet(id: Id, rules: Seq[Rule]) extends Serializable
-</span>312 <span style=''>
-</span>313 <span style=''>/**
-</span>314 <span style=''> * Represents a versioned collection of RuleSet's
-</span>315 <span style=''> * @param id
-</span>316 <span style=''> * @param ruleSets
-</span>317 <span style=''> * @param lambdaFunctions
-</span>318 <span style=''> * @param probablePass override to specify a different percentage for treating probability results as passes - defaults to 80% (0.8)
-</span>319 <span style=''> */
-</span>320 <span style=''>case class RuleSuite(id: Id, ruleSets: Seq[RuleSet], lambdaFunctions: Seq[LambdaFunction] = Seq.empty, probablePass: Double = 0.8) extends Serializable {
-</span>321 <span style=''>  def eval(internalRow: InternalRow): RuleSuiteResult = {
-</span>322 <span style=''>    val rawRuleSets =
-</span>323 <span style=''>      </span><span style='background: #AEF1AE'>ruleSets.map { rs =&gt;
-</span>324 <span style=''></span><span style='background: #AEF1AE'>        val ruleSetRawRes = rs.rules.map { r =&gt;
-</span>325 <span style=''></span><span style='background: #AEF1AE'>          val ruleResult = r.expression.eval(internalRow)
-</span>326 <span style=''></span><span style='background: #AEF1AE'>          r.id -&gt; ruleResult
-</span>327 <span style=''></span><span style='background: #AEF1AE'>        }
-</span>328 <span style=''></span><span style='background: #AEF1AE'>        val overall = ruleSetRawRes.foldLeft(OverallResult(probablePass)){
-</span>329 <span style=''></span><span style='background: #AEF1AE'>          (ov, pair) =&gt;
-</span>330 <span style=''></span><span style='background: #AEF1AE'>            ov.process(pair._2)
-</span>331 <span style=''></span><span style='background: #AEF1AE'>        }
-</span>332 <span style=''></span><span style='background: #AEF1AE'>        rs.id -&gt; RuleSetResult(overall.currentResult, ruleSetRawRes.toMap)
-</span>333 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
-</span>334 <span style=''>    val overall = </span><span style='background: #AEF1AE'>rawRuleSets.foldLeft(OverallResult(probablePass)){
-</span>335 <span style=''></span><span style='background: #AEF1AE'>      (ov, pair) =&gt;
-</span>336 <span style=''></span><span style='background: #AEF1AE'>        ov.process(pair._2.overallResult)
-</span>337 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
-</span>338 <span style=''>
-</span>339 <span style=''>    </span><span style='background: #AEF1AE'>RuleSuiteResult(id, overall.currentResult, rawRuleSets.toMap)</span><span style=''>
-</span>340 <span style=''>  }
-</span>341 <span style=''>
-</span>342 <span style=''>  /**
-</span>343 <span style=''>   *
-</span>344 <span style=''>   * @param internalRow
-</span>345 <span style=''>   * @return the rulesuiteresult for either archiving (recommended) or discarding and the expression to run to produce the results.
-</span>346 <span style=''>   */
-</span>347 <span style=''>  def evalWithProcessors(internalRow: InternalRow, debugMode: Boolean): (RuleSuiteResult, IdTriple, Any) = {
-</span>348 <span style=''>    // spark 3 definitely better to use sortedmap, stick with cross compilation until it's decided to do the work
-</span>349 <span style=''>    val runOnPassProcessors =
-</span>350 <span style=''>      if (debugMode)
-</span>351 <span style=''>        </span><span style='background: #AEF1AE'>mutable.ArrayBuffer.empty[(IdTriple, Int, OutputExprLogic)]</span><span style=''>
-</span>352 <span style=''>      else
-</span>353 <span style=''>        </span><span style='background: #AEF1AE'>null</span><span style=''>
-</span>354 <span style=''>    var lowest = </span><span style='background: #AEF1AE'>(null: IdTriple, Integer.MAX_VALUE, null: OutputExprLogic)</span><span style=''>
-</span>355 <span style=''>
-</span>356 <span style=''>    val rawRuleSets =
-</span>357 <span style=''>      </span><span style='background: #AEF1AE'>ruleSets.map { rs =&gt;
-</span>358 <span style=''></span><span style='background: #AEF1AE'>        val ruleSetRawRes = rs.rules.map { r =&gt;
-</span>359 <span style=''></span><span style='background: #AEF1AE'>          val ruleResult = r.expression.eval(internalRow)
-</span>360 <span style=''></span><span style='background: #AEF1AE'>
-</span>361 <span style=''></span><span style='background: #AEF1AE'>          val onPass = ((id, rs.id, r.id), r.runOnPassProcessor.salience, r.runOnPassProcessor.returnIfPassed)
-</span>362 <span style=''></span><span style='background: #AEF1AE'>          // only add passed
-</span>363 <span style=''></span><span style='background: #AEF1AE'>          if (ruleResult == Passed){
-</span>364 <span style=''></span><span style='background: #AEF1AE'>            if (debugMode)
-</span>365 <span style=''></span><span style='background: #AEF1AE'>              runOnPassProcessors += (onPass)
-</span>366 <span style=''></span><span style='background: #AEF1AE'>            else
-</span>367 <span style=''></span><span style='background: #AEF1AE'>              if (r.runOnPassProcessor.salience &lt; lowest._2) {
-</span>368 <span style=''></span><span style='background: #AEF1AE'>                lowest = onPass
-</span>369 <span style=''></span><span style='background: #AEF1AE'>              }
-</span>370 <span style=''></span><span style='background: #AEF1AE'>          }
-</span>371 <span style=''></span><span style='background: #AEF1AE'>
-</span>372 <span style=''></span><span style='background: #AEF1AE'>          r.id -&gt; ruleResult
-</span>373 <span style=''></span><span style='background: #AEF1AE'>        }
-</span>374 <span style=''></span><span style='background: #AEF1AE'>        val overall = ruleSetRawRes.foldLeft(OverallResult(probablePass)){
-</span>375 <span style=''></span><span style='background: #AEF1AE'>          (ov, pair) =&gt;
-</span>376 <span style=''></span><span style='background: #AEF1AE'>            ov.process(pair._2)
-</span>377 <span style=''></span><span style='background: #AEF1AE'>        }
-</span>378 <span style=''></span><span style='background: #AEF1AE'>        rs.id -&gt; RuleSetResult(overall.currentResult, ruleSetRawRes.toMap)
-</span>379 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
-</span>380 <span style=''>    val overall = </span><span style='background: #AEF1AE'>rawRuleSets.foldLeft(OverallResult(probablePass)){
-</span>381 <span style=''></span><span style='background: #AEF1AE'>      (ov, pair) =&gt;
-</span>382 <span style=''></span><span style='background: #AEF1AE'>        ov.process(pair._2.overallResult)
-</span>383 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
-</span>384 <span style=''>
-</span>385 <span style=''>    val (rule, result) =
-</span>386 <span style=''>      if (!debugMode)
-</span>387 <span style=''>        if (lowest._3 ne null)
-</span>388 <span style=''>          (lowest._1, lowest._3.eval(internalRow))
-</span>389 <span style=''>        else
-</span>390 <span style=''>          (null, null)
-</span>391 <span style=''>      else {
-</span>392 <span style=''>        val sorted = runOnPassProcessors.sortBy(_._2)
-</span>393 <span style=''>
-</span>394 <span style=''>        if (runOnPassProcessors.isEmpty)
-</span>395 <span style=''>          (null, null)
-</span>396 <span style=''>        else
-</span>397 <span style=''>          (null, new org.apache.spark.sql.catalyst.util.GenericArrayData(sorted.map(p =&gt;
-</span>398 <span style=''>            InternalRow(p._2, p._3.eval(internalRow))
-</span>399 <span style=''>          ).toArray))
-</span>400 <span style=''>      }
-</span>401 <span style=''>
-</span>402 <span style=''>    </span><span style='background: #AEF1AE'>(RuleSuiteResult(id, overall.currentResult, rawRuleSets.toMap), rule, result)</span><span style=''>
-</span>403 <span style=''>  }
-</span>404 <span style=''>
-</span>405 <span style=''>  /**
-</span>406 <span style=''>   *
-</span>407 <span style=''>   * @param inputRow
-</span>408 <span style=''>   * @return the rulesuiteresult for either archiving (recommended) or discarding and the expression to run to produce the results.
-</span>409 <span style=''>   */
-</span>410 <span style=''>  def foldWithProcessors(inputRow: InternalRow, starter: InternalRow, debugMode: Boolean): (RuleSuiteResult, Any) = {
-</span>411 <span style=''>    val runOnPassProcessors =
-</span>412 <span style=''>      </span><span style='background: #AEF1AE'>mutable.ArrayBuffer.empty[(IdTriple, Int, OutputExprLogic)]</span><span style=''>
-</span>413 <span style=''>
-</span>414 <span style=''>    var row = starter
-</span>415 <span style=''>    /*val results =
-</span>416 <span style=''>
-</span>417 <span style=''>
-</span>418 <span style=''>    if (debugMode)
-</span>419 <span style=''>
-</span>420 <span style=''>    lazy val foldedOnSalience: Seq[(IdTriple, Rule)] =
-</span>421 <span style=''>      ruleSets.flatMap( rs =&gt; rs.rules.map(r =&gt; r.runOnPassProcessor.salience -&gt; ((id, rs.id, r.id), r))).
-</span>422 <span style=''>        sortBy(_._1).map(_._2)
-</span>423 <span style=''>
-</span>424 <span style=''>    */
-</span>425 <span style=''>    val rawRuleSets =
-</span>426 <span style=''>      </span><span style='background: #AEF1AE'>ruleSets.map { rs =&gt;
-</span>427 <span style=''></span><span style='background: #AEF1AE'>        val ruleSetRawRes = rs.rules.map { r =&gt;
-</span>428 <span style=''></span><span style='background: #AEF1AE'>          val ruleResult = r.expression.eval(inputRow)
-</span>429 <span style=''></span><span style='background: #AEF1AE'>
-</span>430 <span style=''></span><span style='background: #AEF1AE'>          val onPass = ((id, rs.id, r.id), r.runOnPassProcessor.salience, r.runOnPassProcessor.returnIfPassed)
-</span>431 <span style=''></span><span style='background: #AEF1AE'>          // only add passed
-</span>432 <span style=''></span><span style='background: #AEF1AE'>          if (ruleResult == Passed){
-</span>433 <span style=''></span><span style='background: #AEF1AE'>            runOnPassProcessors += (onPass)
-</span>434 <span style=''></span><span style='background: #AEF1AE'>          }
-</span>435 <span style=''></span><span style='background: #AEF1AE'>
-</span>436 <span style=''></span><span style='background: #AEF1AE'>          r.id -&gt; ruleResult
-</span>437 <span style=''></span><span style='background: #AEF1AE'>        }
-</span>438 <span style=''></span><span style='background: #AEF1AE'>        val overall = ruleSetRawRes.foldLeft(OverallResult(probablePass)){
-</span>439 <span style=''></span><span style='background: #AEF1AE'>          (ov, pair) =&gt;
-</span>440 <span style=''></span><span style='background: #AEF1AE'>            ov.process(pair._2)
-</span>441 <span style=''></span><span style='background: #AEF1AE'>        }
-</span>442 <span style=''></span><span style='background: #AEF1AE'>        rs.id -&gt; RuleSetResult(overall.currentResult, ruleSetRawRes.toMap)
-</span>443 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
-</span>444 <span style=''>    val overall = </span><span style='background: #AEF1AE'>rawRuleSets.foldLeft(OverallResult(probablePass)){
-</span>445 <span style=''></span><span style='background: #AEF1AE'>      (ov, pair) =&gt;
-</span>446 <span style=''></span><span style='background: #AEF1AE'>        ov.process(pair._2.overallResult)
-</span>447 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
-</span>448 <span style=''>
-</span>449 <span style=''>    // sort applicable by salience - we don't reset original ordering here - surprising? TODO decide if it is too much surprise
-</span>450 <span style=''>    val sorted = </span><span style='background: #AEF1AE'>runOnPassProcessors.sortBy(_._2)</span><span style=''>
-</span>451 <span style=''>
-</span>452 <span style=''>    // for each of the output
-</span>453 <span style=''>    // debug copys, non-debug does not
-</span>454 <span style=''>    val res = </span><span style='background: #AEF1AE'>sorted.foldLeft(Seq.empty[(Int, InternalRow)]){ case (seq, (triple, salience, rule)) =&gt;
-</span>455 <span style=''></span><span style='background: #AEF1AE'>      // only accept row - should probably throw something specific when it's not
-</span>456 <span style=''></span><span style='background: #AEF1AE'>      // get the lambda's variable to set the current struct
-</span>457 <span style=''></span><span style='background: #AEF1AE'>      val FunN(Seq(arg: RefExpressionLazyType), _, _, _, _) = rule.expr
-</span>458 <span style=''></span><span style='background: #AEF1AE'>
-</span>459 <span style=''></span><span style='background: #AEF1AE'>      arg.value = row
-</span>460 <span style=''></span><span style='background: #AEF1AE'>      row =  rule.eval(
-</span>461 <span style=''></span><span style='background: #AEF1AE'>        inputRow
-</span>462 <span style=''></span><span style='background: #AEF1AE'>      ).asInstanceOf[InternalRow]
-</span>463 <span style=''></span><span style='background: #AEF1AE'>
-</span>464 <span style=''></span><span style='background: #AEF1AE'>      seq :+ (salience, if (debugMode)
-</span>465 <span style=''></span><span style='background: #AEF1AE'>        row.copy
-</span>466 <span style=''></span><span style='background: #AEF1AE'>      else
-</span>467 <span style=''></span><span style='background: #AEF1AE'>        row)
-</span>468 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>295 <span style=''>/**
+</span>296 <span style=''> * Used in post serializing processing to keep the rule around
+</span>297 <span style=''> * @param expr
+</span>298 <span style=''> */
+</span>299 <span style=''>case class OutputExpressionExpr( rule: String, expr: Expression) extends OutputExprLogic with HasRuleText {
+</span>300 <span style=''>}
+</span>301 <span style=''>
+</span>302 <span style=''>case class OutputExpressionWrapper( expr: Expression, compileEval: Boolean = true) extends OutputExprLogic with ExpressionCompiler {
+</span>303 <span style=''>  override def eval(internalRow: org.apache.spark.sql.catalyst.InternalRow) =
+</span>304 <span style=''>    if (</span><span style='background: #AEF1AE'>compileEval</span><span style=''>)
+</span>305 <span style=''>      </span><span style='background: #AEF1AE'>codegen(internalRow)</span><span style=''>
+</span>306 <span style=''>    else
+</span>307 <span style=''>      </span><span style='background: #AEF1AE'>super.eval(internalRow)</span><span style=''>
+</span>308 <span style=''>}
+</span>309 <span style=''>
+</span>310 <span style=''>trait RunOnPassProcessor extends Serializable {
+</span>311 <span style=''>  def salience: Int
+</span>312 <span style=''>  def id: Id
+</span>313 <span style=''>  def rule: String
+</span>314 <span style=''>  def returnIfPassed: OutputExprLogic
+</span>315 <span style=''>  def withExpr(expr: OutputExpression): RunOnPassProcessor
+</span>316 <span style=''>  def withExpr(expr: OutputExprLogic): RunOnPassProcessor
+</span>317 <span style=''>}
+</span>318 <span style=''>
+</span>319 <span style=''>object RunOnPassProcessor {
+</span>320 <span style=''>  def apply(salience: Int, id: Id, e: OutputExpression) =
+</span>321 <span style=''>    </span><span style='background: #AEF1AE'>RunOnPassProcessorImpl(salience, id, e.rule, e)</span><span style=''>
+</span>322 <span style=''>}
+</span>323 <span style=''>
+</span>324 <span style=''>
+</span>325 <span style=''>/**
+</span>326 <span style=''> * Generates a result upon a pass, it is not evaluated otherwise and only evaluated if no other rule has higher salience.
+</span>327 <span style=''> * It is not possible to have more than one rule evaluate the returnIfPassed.
+</span>328 <span style=''> */
+</span>329 <span style=''>case class RunOnPassProcessorImpl(salience: Int, id: Id, rule: String, returnIfPassed: OutputExprLogic) extends RunOnPassProcessor with Serializable {
+</span>330 <span style=''>  override def withExpr(expr: OutputExpression): RunOnPassProcessor =
+</span>331 <span style=''>    </span><span style='background: #F0ADAD'>copy(rule = expr.rule, returnIfPassed = expr)</span><span style=''>
+</span>332 <span style=''>
+</span>333 <span style=''>  def withExpr(expr: OutputExprLogic): RunOnPassProcessor =
+</span>334 <span style=''>    </span><span style='background: #AEF1AE'>copy(returnIfPassed = expr)</span><span style=''>
+</span>335 <span style=''>}
+</span>336 <span style=''>
+</span>337 <span style=''>case class HolderUsedInsteadIfImpl(id: Id) extends
+</span>338 <span style=''>  RuntimeException(s&quot;An OutputExpression $id has either not been correctly linked in your rules or you have not called withExpr.&quot;)
+</span>339 <span style=''>
+</span>340 <span style=''>/**
+</span>341 <span style=''> * Until output expressions are re-integrated this will throw unimplemented
+</span>342 <span style=''> * @param salience
+</span>343 <span style=''> * @param id
+</span>344 <span style=''> */
+</span>345 <span style=''>case class RunOnPassProcessorHolder(salience: Int, id: Id) extends RunOnPassProcessor with Serializable {
+</span>346 <span style=''>  def returnIfPassed: OutputExprLogic = </span><span style='background: #F0ADAD'>throw HolderUsedInsteadIfImpl(id)</span><span style=''>
+</span>347 <span style=''>  def rule: String = </span><span style='background: #F0ADAD'>throw HolderUsedInsteadIfImpl(id)</span><span style=''>
+</span>348 <span style=''>  override def withExpr(expr: OutputExpression): RunOnPassProcessor =
+</span>349 <span style=''>    </span><span style='background: #AEF1AE'>RunOnPassProcessorImpl(salience, id, expr.rule, expr)</span><span style=''>
+</span>350 <span style=''>
+</span>351 <span style=''>  // should not be called
+</span>352 <span style=''>  def withExpr(expr: OutputExprLogic): RunOnPassProcessor = </span><span style='background: #F0ADAD'>throw HolderUsedInsteadIfImpl(id)</span><span style=''>
+</span>353 <span style=''>}
+</span>354 <span style=''>
+</span>355 <span style=''>object NoOpRunOnPassProcessor {
+</span>356 <span style=''>  val noOpId = </span><span style='background: #AEF1AE'>Id(Int.MinValue, Int.MinValue)</span><span style=''>
+</span>357 <span style=''>  val noOp = </span><span style='background: #AEF1AE'>RunOnPassProcessorImpl(Int.MaxValue, noOpId, &quot;&quot;, OutputExpression(&quot;&quot;))</span><span style=''>
+</span>358 <span style=''>}
+</span>359 <span style=''>
+</span>360 <span style=''>/**
+</span>361 <span style=''>  * A rule to run over a row
+</span>362 <span style=''>  * @param id
+</span>363 <span style=''>  * @param expression
+</span>364 <span style=''>  */
+</span>365 <span style=''>case class Rule(id: Id, expression: RuleLogic, runOnPassProcessor: RunOnPassProcessor = NoOpRunOnPassProcessor.noOp) extends Serializable
+</span>366 <span style=''>
+</span>367 <span style=''>case class RuleSet(id: Id, rules: Seq[Rule]) extends Serializable
+</span>368 <span style=''>
+</span>369 <span style=''>/**
+</span>370 <span style=''> * Represents a versioned collection of RuleSet's
+</span>371 <span style=''> * @param id
+</span>372 <span style=''> * @param ruleSets
+</span>373 <span style=''> * @param lambdaFunctions
+</span>374 <span style=''> * @param probablePass override to specify a different percentage for treating probability results as passes - defaults to 80% (0.8)
+</span>375 <span style=''> */
+</span>376 <span style=''>case class RuleSuite(id: Id, ruleSets: Seq[RuleSet], lambdaFunctions: Seq[LambdaFunction] = Seq.empty, probablePass: Double = 0.8) extends Serializable {
+</span>377 <span style=''>  def eval(internalRow: InternalRow): RuleSuiteResult = {
+</span>378 <span style=''>    val rawRuleSets =
+</span>379 <span style=''>      </span><span style='background: #AEF1AE'>ruleSets.map { rs =&gt;
+</span>380 <span style=''></span><span style='background: #AEF1AE'>        val ruleSetRawRes = rs.rules.map { r =&gt;
+</span>381 <span style=''></span><span style='background: #AEF1AE'>          val ruleResult = r.expression.eval(internalRow)
+</span>382 <span style=''></span><span style='background: #AEF1AE'>          r.id -&gt; ruleResult
+</span>383 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>384 <span style=''></span><span style='background: #AEF1AE'>        val overall = ruleSetRawRes.foldLeft(OverallResult(probablePass)){
+</span>385 <span style=''></span><span style='background: #AEF1AE'>          (ov, pair) =&gt;
+</span>386 <span style=''></span><span style='background: #AEF1AE'>            ov.process(pair._2)
+</span>387 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>388 <span style=''></span><span style='background: #AEF1AE'>        rs.id -&gt; RuleSetResult(overall.currentResult, ruleSetRawRes.toMap)
+</span>389 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>390 <span style=''>    val overall = </span><span style='background: #AEF1AE'>rawRuleSets.foldLeft(OverallResult(probablePass)){
+</span>391 <span style=''></span><span style='background: #AEF1AE'>      (ov, pair) =&gt;
+</span>392 <span style=''></span><span style='background: #AEF1AE'>        ov.process(pair._2.overallResult)
+</span>393 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>394 <span style=''>
+</span>395 <span style=''>    </span><span style='background: #AEF1AE'>RuleSuiteResult(id, overall.currentResult, rawRuleSets.toMap)</span><span style=''>
+</span>396 <span style=''>  }
+</span>397 <span style=''>
+</span>398 <span style=''>  /**
+</span>399 <span style=''>   *
+</span>400 <span style=''>   * @param internalRow
+</span>401 <span style=''>   * @return the rulesuiteresult for either archiving (recommended) or discarding and the expression to run to produce the results.
+</span>402 <span style=''>   */
+</span>403 <span style=''>  def evalWithProcessors(internalRow: InternalRow, debugMode: Boolean): (RuleSuiteResult, IdTriple, Any) = {
+</span>404 <span style=''>    // spark 3 definitely better to use sortedmap, stick with cross compilation until it's decided to do the work
+</span>405 <span style=''>    val runOnPassProcessors =
+</span>406 <span style=''>      if (debugMode)
+</span>407 <span style=''>        </span><span style='background: #AEF1AE'>mutable.ArrayBuffer.empty[(IdTriple, Int, OutputExprLogic)]</span><span style=''>
+</span>408 <span style=''>      else
+</span>409 <span style=''>        </span><span style='background: #AEF1AE'>null</span><span style=''>
+</span>410 <span style=''>    var lowest = </span><span style='background: #AEF1AE'>(null: IdTriple, Integer.MAX_VALUE, null: OutputExprLogic)</span><span style=''>
+</span>411 <span style=''>
+</span>412 <span style=''>    val rawRuleSets =
+</span>413 <span style=''>      </span><span style='background: #AEF1AE'>ruleSets.map { rs =&gt;
+</span>414 <span style=''></span><span style='background: #AEF1AE'>        val ruleSetRawRes = rs.rules.map { r =&gt;
+</span>415 <span style=''></span><span style='background: #AEF1AE'>          val ruleResult = r.expression.eval(internalRow)
+</span>416 <span style=''></span><span style='background: #AEF1AE'>
+</span>417 <span style=''></span><span style='background: #AEF1AE'>          val onPass = ((id, rs.id, r.id), r.runOnPassProcessor.salience, r.runOnPassProcessor.returnIfPassed)
+</span>418 <span style=''></span><span style='background: #AEF1AE'>          // only add passed
+</span>419 <span style=''></span><span style='background: #AEF1AE'>          if (ruleResult == Passed){
+</span>420 <span style=''></span><span style='background: #AEF1AE'>            if (debugMode)
+</span>421 <span style=''></span><span style='background: #AEF1AE'>              runOnPassProcessors += (onPass)
+</span>422 <span style=''></span><span style='background: #AEF1AE'>            else
+</span>423 <span style=''></span><span style='background: #AEF1AE'>              if (r.runOnPassProcessor.salience &lt; lowest._2) {
+</span>424 <span style=''></span><span style='background: #AEF1AE'>                lowest = onPass
+</span>425 <span style=''></span><span style='background: #AEF1AE'>              }
+</span>426 <span style=''></span><span style='background: #AEF1AE'>          }
+</span>427 <span style=''></span><span style='background: #AEF1AE'>
+</span>428 <span style=''></span><span style='background: #AEF1AE'>          r.id -&gt; ruleResult
+</span>429 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>430 <span style=''></span><span style='background: #AEF1AE'>        val overall = ruleSetRawRes.foldLeft(OverallResult(probablePass)){
+</span>431 <span style=''></span><span style='background: #AEF1AE'>          (ov, pair) =&gt;
+</span>432 <span style=''></span><span style='background: #AEF1AE'>            ov.process(pair._2)
+</span>433 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>434 <span style=''></span><span style='background: #AEF1AE'>        rs.id -&gt; RuleSetResult(overall.currentResult, ruleSetRawRes.toMap)
+</span>435 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>436 <span style=''>    val overall = </span><span style='background: #AEF1AE'>rawRuleSets.foldLeft(OverallResult(probablePass)){
+</span>437 <span style=''></span><span style='background: #AEF1AE'>      (ov, pair) =&gt;
+</span>438 <span style=''></span><span style='background: #AEF1AE'>        ov.process(pair._2.overallResult)
+</span>439 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>440 <span style=''>
+</span>441 <span style=''>    val (rule, result) =
+</span>442 <span style=''>      if (!debugMode)
+</span>443 <span style=''>        if (lowest._3 ne null)
+</span>444 <span style=''>          (lowest._1, lowest._3.eval(internalRow))
+</span>445 <span style=''>        else
+</span>446 <span style=''>          (null, null)
+</span>447 <span style=''>      else {
+</span>448 <span style=''>        val sorted = runOnPassProcessors.sortBy(_._2)
+</span>449 <span style=''>
+</span>450 <span style=''>        if (runOnPassProcessors.isEmpty)
+</span>451 <span style=''>          (null, null)
+</span>452 <span style=''>        else
+</span>453 <span style=''>          (null, new org.apache.spark.sql.catalyst.util.GenericArrayData(sorted.map(p =&gt;
+</span>454 <span style=''>            InternalRow(p._2, p._3.eval(internalRow))
+</span>455 <span style=''>          ).toArray))
+</span>456 <span style=''>      }
+</span>457 <span style=''>
+</span>458 <span style=''>    </span><span style='background: #AEF1AE'>(RuleSuiteResult(id, overall.currentResult, rawRuleSets.toMap), rule, result)</span><span style=''>
+</span>459 <span style=''>  }
+</span>460 <span style=''>
+</span>461 <span style=''>  /**
+</span>462 <span style=''>   *
+</span>463 <span style=''>   * @param inputRow
+</span>464 <span style=''>   * @return the rulesuiteresult for either archiving (recommended) or discarding and the expression to run to produce the results.
+</span>465 <span style=''>   */
+</span>466 <span style=''>  def foldWithProcessors(inputRow: InternalRow, starter: InternalRow, debugMode: Boolean): (RuleSuiteResult, Any) = {
+</span>467 <span style=''>    val runOnPassProcessors =
+</span>468 <span style=''>      </span><span style='background: #AEF1AE'>mutable.ArrayBuffer.empty[(IdTriple, Int, OutputExprLogic)]</span><span style=''>
 </span>469 <span style=''>
-</span>470 <span style=''>    val result =
-</span>471 <span style=''>      if (debugMode)
-</span>472 <span style=''>        </span><span style='background: #AEF1AE'>new org.apache.spark.sql.catalyst.util.GenericArrayData(res.map(p =&gt;
-</span>473 <span style=''></span><span style='background: #AEF1AE'>          InternalRow(p._1, p._2)
-</span>474 <span style=''></span><span style='background: #AEF1AE'>        ).toArray)</span><span style=''>
-</span>475 <span style=''>      else {
-</span>476 <span style=''>        </span><span style='background: #AEF1AE'>if (res.isEmpty)
-</span>477 <span style=''></span><span style='background: #AEF1AE'>          null
-</span>478 <span style=''></span><span style='background: #AEF1AE'>        else
-</span>479 <span style=''></span><span style='background: #AEF1AE'>          res.last._2</span><span style=''>
-</span>480 <span style=''>      }
-</span>481 <span style=''>
-</span>482 <span style=''>    </span><span style='background: #AEF1AE'>(RuleSuiteResult(id, overall.currentResult, rawRuleSets.toMap), result)</span><span style=''>
-</span>483 <span style=''>  }
-</span>484 <span style=''>
-</span>485 <span style=''>  /**
-</span>486 <span style=''>   * Use a different probable pass value for this RuleSuite
-</span>487 <span style=''>   * @param probablePass
-</span>488 <span style=''>   * @return
-</span>489 <span style=''>   */
-</span>490 <span style=''>  def withProbablePass(probablePass: Double) = </span><span style='background: #AEF1AE'>copy(probablePass = probablePass)</span><span style=''>
-</span>491 <span style=''>}
+</span>470 <span style=''>    var row = starter
+</span>471 <span style=''>    /*val results =
+</span>472 <span style=''>
+</span>473 <span style=''>
+</span>474 <span style=''>    if (debugMode)
+</span>475 <span style=''>
+</span>476 <span style=''>    lazy val foldedOnSalience: Seq[(IdTriple, Rule)] =
+</span>477 <span style=''>      ruleSets.flatMap( rs =&gt; rs.rules.map(r =&gt; r.runOnPassProcessor.salience -&gt; ((id, rs.id, r.id), r))).
+</span>478 <span style=''>        sortBy(_._1).map(_._2)
+</span>479 <span style=''>
+</span>480 <span style=''>    */
+</span>481 <span style=''>    val rawRuleSets =
+</span>482 <span style=''>      </span><span style='background: #AEF1AE'>ruleSets.map { rs =&gt;
+</span>483 <span style=''></span><span style='background: #AEF1AE'>        val ruleSetRawRes = rs.rules.map { r =&gt;
+</span>484 <span style=''></span><span style='background: #AEF1AE'>          val ruleResult = r.expression.eval(inputRow)
+</span>485 <span style=''></span><span style='background: #AEF1AE'>
+</span>486 <span style=''></span><span style='background: #AEF1AE'>          val onPass = ((id, rs.id, r.id), r.runOnPassProcessor.salience, r.runOnPassProcessor.returnIfPassed)
+</span>487 <span style=''></span><span style='background: #AEF1AE'>          // only add passed
+</span>488 <span style=''></span><span style='background: #AEF1AE'>          if (ruleResult == Passed){
+</span>489 <span style=''></span><span style='background: #AEF1AE'>            runOnPassProcessors += (onPass)
+</span>490 <span style=''></span><span style='background: #AEF1AE'>          }
+</span>491 <span style=''></span><span style='background: #AEF1AE'>
+</span>492 <span style=''></span><span style='background: #AEF1AE'>          r.id -&gt; ruleResult
+</span>493 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>494 <span style=''></span><span style='background: #AEF1AE'>        val overall = ruleSetRawRes.foldLeft(OverallResult(probablePass)){
+</span>495 <span style=''></span><span style='background: #AEF1AE'>          (ov, pair) =&gt;
+</span>496 <span style=''></span><span style='background: #AEF1AE'>            ov.process(pair._2)
+</span>497 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>498 <span style=''></span><span style='background: #AEF1AE'>        rs.id -&gt; RuleSetResult(overall.currentResult, ruleSetRawRes.toMap)
+</span>499 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>500 <span style=''>    val overall = </span><span style='background: #AEF1AE'>rawRuleSets.foldLeft(OverallResult(probablePass)){
+</span>501 <span style=''></span><span style='background: #AEF1AE'>      (ov, pair) =&gt;
+</span>502 <span style=''></span><span style='background: #AEF1AE'>        ov.process(pair._2.overallResult)
+</span>503 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>504 <span style=''>
+</span>505 <span style=''>    // sort applicable by salience - we don't reset original ordering here - surprising? TODO decide if it is too much surprise
+</span>506 <span style=''>    val sorted = </span><span style='background: #AEF1AE'>runOnPassProcessors.sortBy(_._2)</span><span style=''>
+</span>507 <span style=''>
+</span>508 <span style=''>    // for each of the output
+</span>509 <span style=''>    // debug copys, non-debug does not
+</span>510 <span style=''>    val res = </span><span style='background: #AEF1AE'>sorted.foldLeft(Seq.empty[(Int, InternalRow)]){ case (seq, (triple, salience, rule)) =&gt;
+</span>511 <span style=''></span><span style='background: #AEF1AE'>      // only accept row - should probably throw something specific when it's not
+</span>512 <span style=''></span><span style='background: #AEF1AE'>      // get the lambda's variable to set the current struct
+</span>513 <span style=''></span><span style='background: #AEF1AE'>      val FunN(Seq(arg: RefExpressionLazyType), _, _, _, _) = rule.expr
+</span>514 <span style=''></span><span style='background: #AEF1AE'>
+</span>515 <span style=''></span><span style='background: #AEF1AE'>      arg.value = row
+</span>516 <span style=''></span><span style='background: #AEF1AE'>      row =  rule.eval(
+</span>517 <span style=''></span><span style='background: #AEF1AE'>        inputRow
+</span>518 <span style=''></span><span style='background: #AEF1AE'>      ).asInstanceOf[InternalRow]
+</span>519 <span style=''></span><span style='background: #AEF1AE'>
+</span>520 <span style=''></span><span style='background: #AEF1AE'>      seq :+ (salience, if (debugMode)
+</span>521 <span style=''></span><span style='background: #AEF1AE'>        row.copy
+</span>522 <span style=''></span><span style='background: #AEF1AE'>      else
+</span>523 <span style=''></span><span style='background: #AEF1AE'>        row)
+</span>524 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>525 <span style=''>
+</span>526 <span style=''>    val result =
+</span>527 <span style=''>      if (debugMode)
+</span>528 <span style=''>        </span><span style='background: #AEF1AE'>new org.apache.spark.sql.catalyst.util.GenericArrayData(res.map(p =&gt;
+</span>529 <span style=''></span><span style='background: #AEF1AE'>          InternalRow(p._1, p._2)
+</span>530 <span style=''></span><span style='background: #AEF1AE'>        ).toArray)</span><span style=''>
+</span>531 <span style=''>      else {
+</span>532 <span style=''>        </span><span style='background: #AEF1AE'>if (res.isEmpty)
+</span>533 <span style=''></span><span style='background: #AEF1AE'>          null
+</span>534 <span style=''></span><span style='background: #AEF1AE'>        else
+</span>535 <span style=''></span><span style='background: #AEF1AE'>          res.last._2</span><span style=''>
+</span>536 <span style=''>      }
+</span>537 <span style=''>
+</span>538 <span style=''>    </span><span style='background: #AEF1AE'>(RuleSuiteResult(id, overall.currentResult, rawRuleSets.toMap), result)</span><span style=''>
+</span>539 <span style=''>  }
+</span>540 <span style=''>
+</span>541 <span style=''>  /**
+</span>542 <span style=''>   * Use a different probable pass value for this RuleSuite
+</span>543 <span style=''>   * @param probablePass
+</span>544 <span style=''>   * @return
+</span>545 <span style=''>   */
+</span>546 <span style=''>  def withProbablePass(probablePass: Double) = </span><span style='background: #AEF1AE'>copy(probablePass = probablePass)</span><span style=''>
+</span>547 <span style=''>}
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -527,39 +583,15 @@
         <th>Code</th>
       </tr><tr>
         <td>
-          37
+          39
         </td>
         <td>
-          451
+          460
         </td>
         <td>
-          1361
+          1542
           -
-          1361
-        </td>
-        <td>
-          TypeApply
-        </td>
-        <td>
-          scala.collection.Seq.canBuildFrom
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          collection.this.Seq.canBuildFrom[com.sparkutils.quality.RuleSet]
-        </td>
-      </tr><tr>
-        <td>
-          37
-        </td>
-        <td>
-          454
-        </td>
-        <td>
-          1323
-          -
-          1323
+          1542
         </td>
         <td>
           Select
@@ -575,39 +607,39 @@
         </td>
       </tr><tr>
         <td>
-          37
+          39
         </td>
         <td>
-          456
+          457
         </td>
         <td>
-          1313
+          1580
           -
-          1484
+          1580
         </td>
         <td>
-          Apply
+          TypeApply
         </td>
         <td>
-          com.sparkutils.quality.RuleSuite.copy
+          scala.collection.Seq.canBuildFrom
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          ruleSuite.copy(x$4, x$3, x$5, x$6)
+          collection.this.Seq.canBuildFrom[com.sparkutils.quality.RuleSet]
         </td>
       </tr><tr>
         <td>
-          37
+          39
         </td>
         <td>
-          453
+          459
         </td>
         <td>
-          1323
+          1542
           -
-          1323
+          1542
         </td>
         <td>
           Select
@@ -623,15 +655,63 @@
         </td>
       </tr><tr>
         <td>
-          37
+          39
         </td>
         <td>
-          452
+          462
         </td>
         <td>
-          1339
+          1532
           -
-          1483
+          1703
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuite.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuite.copy(x$4, x$3, x$5, x$6)
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          461
+        </td>
+        <td>
+          1542
+          -
+          1542
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuite.copy$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuite.copy$default$4
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          458
+        </td>
+        <td>
+          1558
+          -
+          1702
         </td>
         <td>
           ApplyToImplicitArgs
@@ -651,39 +731,15 @@
         </td>
       </tr><tr>
         <td>
-          37
+          41
         </td>
         <td>
-          455
+          454
         </td>
         <td>
-          1323
+          1629
           -
-          1323
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.RuleSuite.copy$default$4
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ruleSuite.copy$default$4
-        </td>
-      </tr><tr>
-        <td>
-          39
-        </td>
-        <td>
-          448
-        </td>
-        <td>
-          1410
-          -
-          1476
+          1695
         </td>
         <td>
           ApplyToImplicitArgs
@@ -699,39 +755,15 @@
         </td>
       </tr><tr>
         <td>
-          39
+          41
         </td>
         <td>
-          447
+          456
         </td>
         <td>
-          1427
+          1607
           -
-          1427
-        </td>
-        <td>
-          TypeApply
-        </td>
-        <td>
-          scala.collection.Seq.canBuildFrom
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          collection.this.Seq.canBuildFrom[com.sparkutils.quality.Rule]
-        </td>
-      </tr><tr>
-        <td>
-          39
-        </td>
-        <td>
-          450
-        </td>
-        <td>
-          1388
-          -
-          1477
+          1696
         </td>
         <td>
           Apply
@@ -747,15 +779,39 @@
         </td>
       </tr><tr>
         <td>
-          39
+          41
         </td>
         <td>
-          449
+          453
         </td>
         <td>
-          1396
+          1646
           -
-          1396
+          1646
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[com.sparkutils.quality.Rule]
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          455
+        </td>
+        <td>
+          1615
+          -
+          1615
         </td>
         <td>
           Select
@@ -771,15 +827,15 @@
         </td>
       </tr><tr>
         <td>
-          41
+          43
         </td>
         <td>
-          446
+          452
         </td>
         <td>
-          1459
+          1678
           -
-          1466
+          1685
         </td>
         <td>
           Apply
@@ -795,15 +851,15 @@
         </td>
       </tr><tr>
         <td>
-          51
+          53
         </td>
         <td>
-          457
+          463
         </td>
         <td>
-          1664
+          1883
           -
-          1688
+          1907
         </td>
         <td>
           Select
@@ -819,15 +875,15 @@
         </td>
       </tr><tr>
         <td>
-          51
+          53
         </td>
         <td>
-          459
+          465
         </td>
         <td>
-          1630
+          1849
           -
-          1743
+          1962
         </td>
         <td>
           Apply
@@ -843,15 +899,15 @@
         </td>
       </tr><tr>
         <td>
-          52
+          54
         </td>
         <td>
-          458
+          464
         </td>
         <td>
-          1708
+          1927
           -
-          1737
+          1956
         </td>
         <td>
           Apply
@@ -867,15 +923,15 @@
         </td>
       </tr><tr>
         <td>
-          54
+          56
         </td>
         <td>
-          460
+          466
         </td>
         <td>
-          1762
+          1981
           -
-          1790
+          2009
         </td>
         <td>
           Apply
@@ -891,15 +947,15 @@
         </td>
       </tr><tr>
         <td>
-          60
+          62
         </td>
         <td>
-          462
+          468
         </td>
         <td>
-          1914
+          2133
           -
-          1920
+          2139
         </td>
         <td>
           Ident
@@ -915,15 +971,15 @@
         </td>
       </tr><tr>
         <td>
-          60
+          62
         </td>
         <td>
-          461
+          467
         </td>
         <td>
-          1902
+          2121
           -
-          1908
+          2127
         </td>
         <td>
           Ident
@@ -939,15 +995,15 @@
         </td>
       </tr><tr>
         <td>
-          65
+          67
         </td>
         <td>
-          463
+          469
         </td>
         <td>
-          2229
+          2448
           -
-          2243
+          2462
         </td>
         <td>
           Apply
@@ -963,15 +1019,15 @@
         </td>
       </tr><tr>
         <td>
-          66
+          68
         </td>
         <td>
-          465
+          471
         </td>
         <td>
-          2326
+          2545
           -
-          2349
+          2568
         </td>
         <td>
           Apply
@@ -987,15 +1043,15 @@
         </td>
       </tr><tr>
         <td>
-          66
+          68
         </td>
         <td>
-          464
+          470
         </td>
         <td>
-          2338
+          2557
           -
-          2348
+          2567
         </td>
         <td>
           Select
@@ -1011,87 +1067,15 @@
         </td>
       </tr><tr>
         <td>
-          75
+          77
         </td>
         <td>
-          469
+          472
         </td>
         <td>
-          2761
+          2965
           -
-          2770
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          com.sparkutils.quality.impl.RuleRunnerImports.FailedInt
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          quality.this.`package`.FailedInt
-        </td>
-      </tr><tr>
-        <td>
-          75
-        </td>
-        <td>
-          468
-        </td>
-        <td>
-          2761
-          -
-          2770
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.RuleRunnerImports.FailedInt
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          quality.this.`package`.FailedInt
-        </td>
-      </tr><tr>
-        <td>
-          75
-        </td>
-        <td>
-          467
-        </td>
-        <td>
-          2746
-          -
-          2755
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          com.sparkutils.quality.impl.RuleRunnerImports.PassedInt
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          quality.this.`package`.PassedInt
-        </td>
-      </tr><tr>
-        <td>
-          75
-        </td>
-        <td>
-          466
-        </td>
-        <td>
-          2746
-          -
-          2755
+          2974
         </td>
         <td>
           Select
@@ -1107,15 +1091,15 @@
         </td>
       </tr><tr>
         <td>
-          76
+          77
         </td>
         <td>
-          470
+          474
         </td>
         <td>
-          2793
+          2980
           -
-          2802
+          2989
         </td>
         <td>
           Select
@@ -1126,7 +1110,7 @@
         <td>
           
         </td>
-        <td style="background: #F0ADAD">
+        <td style="background: #AEF1AE">
           quality.this.`package`.FailedInt
         </td>
       </tr><tr>
@@ -1134,12 +1118,84 @@
           77
         </td>
         <td>
-          471
+          473
         </td>
         <td>
-          2825
+          2965
           -
-          2834
+          2974
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunnerImports.PassedInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          quality.this.`package`.PassedInt
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          475
+        </td>
+        <td>
+          2980
+          -
+          2989
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunnerImports.FailedInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          quality.this.`package`.FailedInt
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          476
+        </td>
+        <td>
+          3012
+          -
+          3021
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunnerImports.FailedInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          quality.this.`package`.FailedInt
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          477
+        </td>
+        <td>
+          3044
+          -
+          3053
         </td>
         <td>
           Select
@@ -1155,15 +1211,15 @@
         </td>
       </tr><tr>
         <td>
-          78
+          80
         </td>
         <td>
-          472
+          478
         </td>
         <td>
-          2931
+          3150
           -
-          2944
+          3163
         </td>
         <td>
           Select
@@ -1179,15 +1235,15 @@
         </td>
       </tr><tr>
         <td>
-          79
+          81
         </td>
         <td>
-          473
+          479
         </td>
         <td>
-          3051
+          3270
           -
-          3066
+          3285
         </td>
         <td>
           Select
@@ -1203,39 +1259,15 @@
         </td>
       </tr><tr>
         <td>
-          80
+          82
         </td>
         <td>
-          474
+          481
         </td>
         <td>
-          3096
+          3311
           -
-          3105
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.RuleRunnerImports.PassedInt
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          quality.this.`package`.PassedInt
-        </td>
-      </tr><tr>
-        <td>
-          80
-        </td>
-        <td>
-          475
-        </td>
-        <td>
-          3092
-          -
-          3112
+          3331
         </td>
         <td>
           Select
@@ -1251,15 +1283,39 @@
         </td>
       </tr><tr>
         <td>
-          81
+          82
         </td>
         <td>
-          477
+          480
         </td>
         <td>
-          3139
+          3315
           -
-          3168
+          3324
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunnerImports.PassedInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          quality.this.`package`.PassedInt
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          483
+        </td>
+        <td>
+          3358
+          -
+          3387
         </td>
         <td>
           Select
@@ -1275,15 +1331,15 @@
         </td>
       </tr><tr>
         <td>
-          81
+          83
         </td>
         <td>
-          476
+          482
         </td>
         <td>
-          3152
+          3371
           -
-          3161
+          3380
         </td>
         <td>
           Select
@@ -1296,66 +1352,66 @@
         </td>
         <td style="background: #AEF1AE">
           quality.this.`package`.PassedInt
-        </td>
-      </tr><tr>
-        <td>
-          82
-        </td>
-        <td>
-          478
-        </td>
-        <td>
-          3268
-          -
-          3277
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.RuleRunnerImports.PassedInt
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          quality.this.`package`.PassedInt
-        </td>
-      </tr><tr>
-        <td>
-          83
-        </td>
-        <td>
-          479
-        </td>
-        <td>
-          3377
-          -
-          3386
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.RuleRunnerImports.FailedInt
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          quality.this.`package`.FailedInt
         </td>
       </tr><tr>
         <td>
           84
         </td>
         <td>
-          480
+          484
         </td>
         <td>
-          3403
+          3487
           -
-          3412
+          3496
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunnerImports.PassedInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          quality.this.`package`.PassedInt
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          485
+        </td>
+        <td>
+          3596
+          -
+          3605
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunnerImports.FailedInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          quality.this.`package`.FailedInt
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          486
+        </td>
+        <td>
+          3622
+          -
+          3631
         </td>
         <td>
           Select
@@ -1371,15 +1427,15 @@
         </td>
       </tr><tr>
         <td>
-          104
+          106
         </td>
         <td>
-          481
+          487
         </td>
         <td>
-          3815
+          4034
           -
-          3849
+          4068
         </td>
         <td>
           Apply
@@ -1395,15 +1451,15 @@
         </td>
       </tr><tr>
         <td>
-          108
+          110
         </td>
         <td>
-          483
+          489
         </td>
         <td>
-          3978
+          4197
           -
-          4003
+          4222
         </td>
         <td>
           Apply
@@ -1419,111 +1475,15 @@
         </td>
       </tr><tr>
         <td>
-          108
-        </td>
-        <td>
-          482
-        </td>
-        <td>
-          3998
-          -
-          4002
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.LambdaFunctionImpl.rule
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          LambdaFunctionImpl.this.rule
-        </td>
-      </tr><tr>
-        <td>
-          110
-        </td>
-        <td>
-          487
-        </td>
-        <td>
-          4079
-          -
-          4083
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.LambdaFunctionImpl.expr
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          LambdaFunctionImpl.this.expr
-        </td>
-      </tr><tr>
-        <td>
-          110
-        </td>
-        <td>
-          486
-        </td>
-        <td>
-          4075
-          -
-          4077
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.LambdaFunctionImpl.id
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          LambdaFunctionImpl.this.id
-        </td>
-      </tr><tr>
-        <td>
           110
         </td>
         <td>
           488
         </td>
         <td>
-          4042
+          4217
           -
-          4084
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.LambdaFunctionParsed.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          LambdaFunctionParsed.apply(LambdaFunctionImpl.this.name, LambdaFunctionImpl.this.rule, LambdaFunctionImpl.this.id, LambdaFunctionImpl.this.expr)
-        </td>
-      </tr><tr>
-        <td>
-          110
-        </td>
-        <td>
-          485
-        </td>
-        <td>
-          4069
-          -
-          4073
+          4221
         </td>
         <td>
           Select
@@ -1539,15 +1499,15 @@
         </td>
       </tr><tr>
         <td>
-          110
+          112
         </td>
         <td>
-          484
+          490
         </td>
         <td>
-          4063
+          4282
           -
-          4067
+          4286
         </td>
         <td>
           Select
@@ -1563,15 +1523,111 @@
         </td>
       </tr><tr>
         <td>
-          128
+          112
         </td>
         <td>
-          489
+          492
         </td>
         <td>
-          4818
+          4294
           -
-          4868
+          4296
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.LambdaFunctionImpl.id
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          LambdaFunctionImpl.this.id
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          491
+        </td>
+        <td>
+          4288
+          -
+          4292
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.LambdaFunctionImpl.rule
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          LambdaFunctionImpl.this.rule
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          494
+        </td>
+        <td>
+          4261
+          -
+          4303
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.LambdaFunctionParsed.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          LambdaFunctionParsed.apply(LambdaFunctionImpl.this.name, LambdaFunctionImpl.this.rule, LambdaFunctionImpl.this.id, LambdaFunctionImpl.this.expr)
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          493
+        </td>
+        <td>
+          4298
+          -
+          4302
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.LambdaFunctionImpl.expr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          LambdaFunctionImpl.this.expr
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          495
+        </td>
+        <td>
+          5037
+          -
+          5087
         </td>
         <td>
           Apply
@@ -1587,15 +1643,15 @@
         </td>
       </tr><tr>
         <td>
-          137
+          139
         </td>
         <td>
-          490
+          496
         </td>
         <td>
-          5061
+          5280
           -
-          5086
+          5305
         </td>
         <td>
           Apply
@@ -1611,15 +1667,15 @@
         </td>
       </tr><tr>
         <td>
-          138
+          140
         </td>
         <td>
-          491
+          497
         </td>
         <td>
-          5091
+          5310
           -
-          5126
+          5345
         </td>
         <td>
           Apply
@@ -1635,15 +1691,15 @@
         </td>
       </tr><tr>
         <td>
-          148
+          150
         </td>
         <td>
-          492
+          498
         </td>
         <td>
-          5315
+          5534
           -
-          5337
+          5556
         </td>
         <td>
           Apply
@@ -1659,15 +1715,15 @@
         </td>
       </tr><tr>
         <td>
-          219
+          221
         </td>
         <td>
-          493
+          499
         </td>
         <td>
-          7491
+          7710
           -
-          7502
+          7721
         </td>
         <td>
           Select
@@ -1683,15 +1739,15 @@
         </td>
       </tr><tr>
         <td>
-          220
+          222
         </td>
         <td>
-          495
+          501
         </td>
         <td>
-          7510
+          7729
           -
-          7530
+          7749
         </td>
         <td>
           Block
@@ -1707,15 +1763,15 @@
         </td>
       </tr><tr>
         <td>
-          220
+          222
         </td>
         <td>
-          494
+          500
         </td>
         <td>
-          7510
+          7729
           -
-          7530
+          7749
         </td>
         <td>
           Apply
@@ -1731,39 +1787,15 @@
         </td>
       </tr><tr>
         <td>
-          222
+          224
         </td>
         <td>
-          496
+          503
         </td>
         <td>
-          7546
+          7765
           -
-          7577
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.ExprLogic.internalEval
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ExpressionWrapper.super.internalEval(internalRow)
-        </td>
-      </tr><tr>
-        <td>
-          222
-        </td>
-        <td>
-          497
-        </td>
-        <td>
-          7546
-          -
-          7577
+          7796
         </td>
         <td>
           Block
@@ -1779,15 +1811,39 @@
         </td>
       </tr><tr>
         <td>
-          228
+          224
         </td>
         <td>
-          498
+          502
         </td>
         <td>
-          7698
+          7765
           -
-          7720
+          7796
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ExprLogic.internalEval
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ExpressionWrapper.super.internalEval(internalRow)
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          504
+        </td>
+        <td>
+          7917
+          -
+          7939
         </td>
         <td>
           Apply
@@ -1803,15 +1859,319 @@
         </td>
       </tr><tr>
         <td>
+          234
+        </td>
+        <td>
+          505
+        </td>
+        <td>
+          7997
+          -
+          8012
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;currentResult&quot;
+        </td>
+      </tr><tr>
+        <td>
+          245
+        </td>
+        <td>
+          510
+        </td>
+        <td>
+          8368
+          -
+          8368
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.LambdaFunction.copy$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          UpdateFolderExpression.this.template.copy$default$3
+        </td>
+      </tr><tr>
+        <td>
+          245
+        </td>
+        <td>
+          509
+        </td>
+        <td>
+          8368
+          -
+          8368
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.LambdaFunction.copy$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          UpdateFolderExpression.this.template.copy$default$2
+        </td>
+      </tr><tr>
+        <td>
+          246
+        </td>
+        <td>
+          508
+        </td>
+        <td>
+          8390
+          -
+          8446
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.QualitySparkUtils.UnresolvedFunctionOps.withArguments
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.QualitySparkUtils.UnresolvedFunctionOps(UpdateFolderExpression.this.oFunc).withArguments(org.apache.spark.sql.QualitySparkUtils.UnresolvedFunctionOps(UpdateFolderExpression.this.oFunc).theArguments.++[org.apache.spark.sql.catalyst.expressions.Expression, Seq[org.apache.spark.sql.catalyst.expressions.Expression]](args)(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression]))
+        </td>
+      </tr><tr>
+        <td>
+          247
+        </td>
+        <td>
+          516
+        </td>
+        <td>
+          8359
+          -
+          8589
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.trees.TreeNode.transform
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          UpdateFolderExpression.this.template.copy(org.apache.spark.sql.QualitySparkUtils.UnresolvedFunctionOps(UpdateFolderExpression.this.oFunc).withArguments(org.apache.spark.sql.QualitySparkUtils.UnresolvedFunctionOps(UpdateFolderExpression.this.oFunc).theArguments.++[org.apache.spark.sql.catalyst.expressions.Expression, Seq[org.apache.spark.sql.catalyst.expressions.Expression]](args)(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression])), UpdateFolderExpression.this.template.copy$default$2, UpdateFolderExpression.this.template.copy$default$3).transform(({
+  @SerialVersionUID(value = 0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: org.apache.spark.sql.catalyst.expressions.Expression =&gt; org.apache.spark.sql.catalyst.expressions.Expression&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: org.apache.spark.sql.catalyst.expressions.Expression, B1 &gt;: org.apache.spark.sql.catalyst.expressions.Expression](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (a @ (_: org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute)) if a.nameParts.head.==(UpdateFolderExpression.this.currentResult) =&gt; org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable.apply(a.nameParts)
+      case (defaultCase$ @ _) =&gt; default.apply(x1)
+    };
+    final def isDefinedAt(x1: org.apache.spark.sql.catalyst.expressions.Expression): Boolean = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (a @ (_: org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute)) if a.nameParts.head.==(UpdateFolderExpression.this.currentResult) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression]))
+        </td>
+      </tr><tr>
+        <td>
+          247
+        </td>
+        <td>
+          507
+        </td>
+        <td>
+          8419
+          -
+          8445
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.++
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.QualitySparkUtils.UnresolvedFunctionOps(UpdateFolderExpression.this.oFunc).theArguments.++[org.apache.spark.sql.catalyst.expressions.Expression, Seq[org.apache.spark.sql.catalyst.expressions.Expression]](args)(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression])
+        </td>
+      </tr><tr>
+        <td>
+          247
+        </td>
+        <td>
+          506
+        </td>
+        <td>
+          8438
+          -
+          8438
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression]
+        </td>
+      </tr><tr>
+        <td>
+          247
+        </td>
+        <td>
+          515
+        </td>
+        <td>
+          8457
+          -
+          8457
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.UpdateFolderExpression.$anonfun.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
           248
         </td>
         <td>
-          499
+          512
         </td>
         <td>
-          8341
+          8496
           -
-          8352
+          8529
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          a.nameParts.head.==(UpdateFolderExpression.this.currentResult)
+        </td>
+      </tr><tr>
+        <td>
+          248
+        </td>
+        <td>
+          511
+        </td>
+        <td>
+          8516
+          -
+          8529
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.UpdateFolderExpression.currentResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          UpdateFolderExpression.this.currentResult
+        </td>
+      </tr><tr>
+        <td>
+          249
+        </td>
+        <td>
+          514
+        </td>
+        <td>
+          8541
+          -
+          8583
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable.apply(a.nameParts)
+        </td>
+      </tr><tr>
+        <td>
+          249
+        </td>
+        <td>
+          513
+        </td>
+        <td>
+          8571
+          -
+          8582
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute.nameParts
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          a.nameParts
+        </td>
+      </tr><tr>
+        <td>
+          304
+        </td>
+        <td>
+          517
+        </td>
+        <td>
+          10711
+          -
+          10722
         </td>
         <td>
           Select
@@ -1827,15 +2187,15 @@
         </td>
       </tr><tr>
         <td>
-          249
+          305
         </td>
         <td>
-          501
+          519
         </td>
         <td>
-          8360
+          10730
           -
-          8380
+          10750
         </td>
         <td>
           Block
@@ -1851,15 +2211,15 @@
         </td>
       </tr><tr>
         <td>
-          249
+          305
         </td>
         <td>
-          500
+          518
         </td>
         <td>
-          8360
+          10730
           -
-          8380
+          10750
         </td>
         <td>
           Apply
@@ -1875,15 +2235,15 @@
         </td>
       </tr><tr>
         <td>
-          251
+          307
         </td>
         <td>
-          503
+          521
         </td>
         <td>
-          8396
+          10766
           -
-          8419
+          10789
         </td>
         <td>
           Block
@@ -1899,15 +2259,15 @@
         </td>
       </tr><tr>
         <td>
-          251
+          307
         </td>
         <td>
-          502
+          520
         </td>
         <td>
-          8396
+          10766
           -
-          8419
+          10789
         </td>
         <td>
           Apply
@@ -1923,15 +2283,15 @@
         </td>
       </tr><tr>
         <td>
-          265
+          321
         </td>
         <td>
-          505
+          523
         </td>
         <td>
-          8771
+          11141
           -
-          8818
+          11188
         </td>
         <td>
           Apply
@@ -1947,15 +2307,15 @@
         </td>
       </tr><tr>
         <td>
-          265
+          321
         </td>
         <td>
-          504
+          522
         </td>
         <td>
-          8808
+          11178
           -
-          8814
+          11184
         </td>
         <td>
           Select
@@ -1971,39 +2331,15 @@
         </td>
       </tr><tr>
         <td>
-          275
+          331
         </td>
         <td>
-          508
+          525
         </td>
         <td>
-          9256
+          11626
           -
-          9256
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.RunOnPassProcessorImpl.copy$default$2
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          RunOnPassProcessorImpl.this.copy$default$2
-        </td>
-      </tr><tr>
-        <td>
-          275
-        </td>
-        <td>
-          507
-        </td>
-        <td>
-          9256
-          -
-          9256
+          11626
         </td>
         <td>
           Select
@@ -2019,15 +2355,15 @@
         </td>
       </tr><tr>
         <td>
-          275
+          331
         </td>
         <td>
-          506
+          524
         </td>
         <td>
-          9268
+          11638
           -
-          9277
+          11647
         </td>
         <td>
           Select
@@ -2043,15 +2379,15 @@
         </td>
       </tr><tr>
         <td>
-          275
+          331
         </td>
         <td>
-          509
+          527
         </td>
         <td>
-          9256
+          11626
           -
-          9301
+          11671
         </td>
         <td>
           Apply
@@ -2067,15 +2403,39 @@
         </td>
       </tr><tr>
         <td>
-          278
+          331
         </td>
         <td>
-          510
+          526
         </td>
         <td>
-          9367
+          11626
           -
-          9367
+          11626
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RunOnPassProcessorImpl.copy$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          RunOnPassProcessorImpl.this.copy$default$2
+        </td>
+      </tr><tr>
+        <td>
+          334
+        </td>
+        <td>
+          528
+        </td>
+        <td>
+          11737
+          -
+          11737
         </td>
         <td>
           Select
@@ -2091,15 +2451,15 @@
         </td>
       </tr><tr>
         <td>
-          278
+          334
         </td>
         <td>
-          513
+          531
         </td>
         <td>
-          9367
+          11737
           -
-          9394
+          11764
         </td>
         <td>
           Apply
@@ -2115,15 +2475,15 @@
         </td>
       </tr><tr>
         <td>
-          278
+          334
         </td>
         <td>
-          512
+          530
         </td>
         <td>
-          9367
+          11737
           -
-          9367
+          11737
         </td>
         <td>
           Select
@@ -2139,15 +2499,15 @@
         </td>
       </tr><tr>
         <td>
-          278
+          334
         </td>
         <td>
-          511
+          529
         </td>
         <td>
-          9367
+          11737
           -
-          9367
+          11737
         </td>
         <td>
           Select
@@ -2163,15 +2523,15 @@
         </td>
       </tr><tr>
         <td>
-          290
+          346
         </td>
         <td>
-          514
+          532
         </td>
         <td>
-          9843
+          12213
           -
-          9876
+          12246
         </td>
         <td>
           Throw
@@ -2187,15 +2547,15 @@
         </td>
       </tr><tr>
         <td>
-          291
+          347
         </td>
         <td>
-          515
+          533
         </td>
         <td>
-          9898
+          12268
           -
-          9931
+          12301
         </td>
         <td>
           Throw
@@ -2211,39 +2571,15 @@
         </td>
       </tr><tr>
         <td>
-          293
+          349
         </td>
         <td>
-          517
+          534
         </td>
         <td>
-          10039
+          12399
           -
-          10041
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.RunOnPassProcessorHolder.id
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          RunOnPassProcessorHolder.this.id
-        </td>
-      </tr><tr>
-        <td>
-          293
-        </td>
-        <td>
-          516
-        </td>
-        <td>
-          10029
-          -
-          10037
+          12407
         </td>
         <td>
           Select
@@ -2259,15 +2595,15 @@
         </td>
       </tr><tr>
         <td>
-          293
+          349
         </td>
         <td>
-          519
+          537
         </td>
         <td>
-          10006
+          12376
           -
-          10059
+          12429
         </td>
         <td>
           Apply
@@ -2283,15 +2619,15 @@
         </td>
       </tr><tr>
         <td>
-          293
+          349
         </td>
         <td>
-          518
+          536
         </td>
         <td>
-          10043
+          12413
           -
-          10052
+          12422
         </td>
         <td>
           Select
@@ -2307,15 +2643,39 @@
         </td>
       </tr><tr>
         <td>
-          296
+          349
         </td>
         <td>
-          520
+          535
         </td>
         <td>
-          10147
+          12409
           -
-          10180
+          12411
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RunOnPassProcessorHolder.id
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RunOnPassProcessorHolder.this.id
+        </td>
+      </tr><tr>
+        <td>
+          352
+        </td>
+        <td>
+          538
+        </td>
+        <td>
+          12517
+          -
+          12550
         </td>
         <td>
           Throw
@@ -2331,15 +2691,15 @@
         </td>
       </tr><tr>
         <td>
-          300
+          356
         </td>
         <td>
-          521
+          539
         </td>
         <td>
-          10231
+          12601
           -
-          10261
+          12631
         </td>
         <td>
           Apply
@@ -2355,15 +2715,15 @@
         </td>
       </tr><tr>
         <td>
-          301
+          357
         </td>
         <td>
-          523
+          541
         </td>
         <td>
-          10312
+          12682
           -
-          10318
+          12688
         </td>
         <td>
           Select
@@ -2379,39 +2739,15 @@
         </td>
       </tr><tr>
         <td>
-          301
+          357
         </td>
         <td>
-          525
+          540
         </td>
         <td>
-          10324
+          12668
           -
-          10344
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.OutputExpression.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          OutputExpression.apply(&quot;&quot;)
-        </td>
-      </tr><tr>
-        <td>
-          301
-        </td>
-        <td>
-          522
-        </td>
-        <td>
-          10298
-          -
-          10310
+          12680
         </td>
         <td>
           Literal
@@ -2427,15 +2763,39 @@
         </td>
       </tr><tr>
         <td>
-          301
+          357
         </td>
         <td>
-          524
+          543
         </td>
         <td>
-          10320
+          12694
           -
-          10322
+          12714
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.OutputExpression.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          OutputExpression.apply(&quot;&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          357
+        </td>
+        <td>
+          542
+        </td>
+        <td>
+          12690
+          -
+          12692
         </td>
         <td>
           Literal
@@ -2451,15 +2811,15 @@
         </td>
       </tr><tr>
         <td>
-          301
+          357
         </td>
         <td>
-          526
+          544
         </td>
         <td>
-          10275
+          12645
           -
-          10345
+          12715
         </td>
         <td>
           Apply
@@ -2475,15 +2835,15 @@
         </td>
       </tr><tr>
         <td>
-          323
+          379
         </td>
         <td>
-          543
+          561
         </td>
         <td>
-          11131
+          13501
           -
-          11131
+          13501
         </td>
         <td>
           TypeApply
@@ -2499,15 +2859,15 @@
         </td>
       </tr><tr>
         <td>
-          323
+          379
         </td>
         <td>
-          544
+          562
         </td>
         <td>
-          11118
+          13488
           -
-          11507
+          13877
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2530,15 +2890,15 @@
         </td>
       </tr><tr>
         <td>
-          324
+          380
         </td>
         <td>
-          530
+          548
         </td>
         <td>
-          11167
+          13537
           -
-          11283
+          13653
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2557,15 +2917,15 @@
         </td>
       </tr><tr>
         <td>
-          324
+          380
         </td>
         <td>
-          529
+          547
         </td>
         <td>
-          11180
+          13550
           -
-          11180
+          13550
         </td>
         <td>
           TypeApply
@@ -2581,15 +2941,15 @@
         </td>
       </tr><tr>
         <td>
-          325
+          381
         </td>
         <td>
-          527
+          545
         </td>
         <td>
-          11214
+          13584
           -
-          11244
+          13614
         </td>
         <td>
           Apply
@@ -2605,15 +2965,15 @@
         </td>
       </tr><tr>
         <td>
-          326
+          382
         </td>
         <td>
-          528
+          546
         </td>
         <td>
-          11255
+          13625
           -
-          11273
+          13643
         </td>
         <td>
           Apply
@@ -2629,15 +2989,15 @@
         </td>
       </tr><tr>
         <td>
-          328
+          384
         </td>
         <td>
-          532
+          550
         </td>
         <td>
-          11329
+          13699
           -
-          11329
+          13699
         </td>
         <td>
           Select
@@ -2653,15 +3013,15 @@
         </td>
       </tr><tr>
         <td>
-          328
+          384
         </td>
         <td>
-          531
+          549
         </td>
         <td>
-          11343
+          13713
           -
-          11355
+          13725
         </td>
         <td>
           Select
@@ -2677,15 +3037,15 @@
         </td>
       </tr><tr>
         <td>
-          328
+          384
         </td>
         <td>
-          533
+          551
         </td>
         <td>
-          11329
+          13699
           -
-          11356
+          13726
         </td>
         <td>
           Apply
@@ -2701,15 +3061,15 @@
         </td>
       </tr><tr>
         <td>
-          328
+          384
         </td>
         <td>
-          536
+          554
         </td>
         <td>
-          11306
+          13676
           -
-          11424
+          13794
         </td>
         <td>
           Apply
@@ -2725,15 +3085,15 @@
         </td>
       </tr><tr>
         <td>
-          330
+          386
         </td>
         <td>
-          534
+          552
         </td>
         <td>
-          11406
+          13776
           -
-          11413
+          13783
         </td>
         <td>
           Select
@@ -2749,15 +3109,15 @@
         </td>
       </tr><tr>
         <td>
-          330
+          386
         </td>
         <td>
-          535
+          553
         </td>
         <td>
-          11395
+          13765
           -
-          11414
+          13784
         </td>
         <td>
           Apply
@@ -2773,15 +3133,15 @@
         </td>
       </tr><tr>
         <td>
-          332
+          388
         </td>
         <td>
-          541
+          559
         </td>
         <td>
-          11442
+          13812
           -
-          11499
+          13869
         </td>
         <td>
           Apply
@@ -2797,15 +3157,15 @@
         </td>
       </tr><tr>
         <td>
-          332
+          388
         </td>
         <td>
-          540
+          558
         </td>
         <td>
-          11479
+          13849
           -
-          11498
+          13868
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2821,15 +3181,15 @@
         </td>
       </tr><tr>
         <td>
-          332
+          388
         </td>
         <td>
-          537
+          555
         </td>
         <td>
-          11433
+          13803
           -
-          11438
+          13808
         </td>
         <td>
           Select
@@ -2845,15 +3205,15 @@
         </td>
       </tr><tr>
         <td>
-          332
+          388
         </td>
         <td>
-          539
+          557
         </td>
         <td>
-          11493
+          13863
           -
-          11493
+          13863
         </td>
         <td>
           TypeApply
@@ -2869,15 +3229,15 @@
         </td>
       </tr><tr>
         <td>
-          332
+          388
         </td>
         <td>
-          542
+          560
         </td>
         <td>
-          11433
+          13803
           -
-          11499
+          13869
         </td>
         <td>
           Apply
@@ -2893,15 +3253,15 @@
         </td>
       </tr><tr>
         <td>
-          332
+          388
         </td>
         <td>
-          538
+          556
         </td>
         <td>
-          11456
+          13826
           -
-          11477
+          13847
         </td>
         <td>
           Select
@@ -2917,15 +3277,15 @@
         </td>
       </tr><tr>
         <td>
-          334
+          390
         </td>
         <td>
-          550
+          568
         </td>
         <td>
-          11526
+          13896
           -
-          11644
+          14014
         </td>
         <td>
           Apply
@@ -2941,15 +3301,15 @@
         </td>
       </tr><tr>
         <td>
-          334
+          390
         </td>
         <td>
-          546
+          564
         </td>
         <td>
-          11547
+          13917
           -
-          11547
+          13917
         </td>
         <td>
           Select
@@ -2965,15 +3325,15 @@
         </td>
       </tr><tr>
         <td>
-          334
+          390
         </td>
         <td>
-          545
+          563
         </td>
         <td>
-          11561
+          13931
           -
-          11573
+          13943
         </td>
         <td>
           Select
@@ -2989,15 +3349,15 @@
         </td>
       </tr><tr>
         <td>
-          334
+          390
         </td>
         <td>
-          547
+          565
         </td>
         <td>
-          11547
+          13917
           -
-          11574
+          13944
         </td>
         <td>
           Apply
@@ -3013,15 +3373,15 @@
         </td>
       </tr><tr>
         <td>
-          336
+          392
         </td>
         <td>
-          549
+          567
         </td>
         <td>
-          11605
+          13975
           -
-          11638
+          14008
         </td>
         <td>
           Apply
@@ -3037,15 +3397,15 @@
         </td>
       </tr><tr>
         <td>
-          336
+          392
         </td>
         <td>
-          548
+          566
         </td>
         <td>
-          11616
+          13986
           -
-          11637
+          14007
         </td>
         <td>
           Select
@@ -3061,15 +3421,15 @@
         </td>
       </tr><tr>
         <td>
-          339
+          395
         </td>
         <td>
-          552
+          570
         </td>
         <td>
-          11670
+          14040
           -
-          11691
+          14061
         </td>
         <td>
           Select
@@ -3085,15 +3445,15 @@
         </td>
       </tr><tr>
         <td>
-          339
+          395
         </td>
         <td>
-          555
+          573
         </td>
         <td>
-          11650
+          14020
           -
-          11711
+          14081
         </td>
         <td>
           Apply
@@ -3109,39 +3469,15 @@
         </td>
       </tr><tr>
         <td>
-          339
+          395
         </td>
         <td>
-          551
+          572
         </td>
         <td>
-          11666
+          14063
           -
-          11668
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.RuleSuite.id
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          RuleSuite.this.id
-        </td>
-      </tr><tr>
-        <td>
-          339
-        </td>
-        <td>
-          554
-        </td>
-        <td>
-          11693
-          -
-          11710
+          14080
         </td>
         <td>
           ApplyToImplicitArgs
@@ -3157,15 +3493,39 @@
         </td>
       </tr><tr>
         <td>
-          339
+          395
         </td>
         <td>
-          553
+          569
         </td>
         <td>
-          11705
+          14036
           -
-          11705
+          14038
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuite.id
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuite.this.id
+        </td>
+      </tr><tr>
+        <td>
+          395
+        </td>
+        <td>
+          571
+        </td>
+        <td>
+          14075
+          -
+          14075
         </td>
         <td>
           TypeApply
@@ -3181,15 +3541,15 @@
         </td>
       </tr><tr>
         <td>
-          351
+          407
         </td>
         <td>
-          557
+          575
         </td>
         <td>
-          12172
+          14542
           -
-          12231
+          14601
         </td>
         <td>
           Block
@@ -3205,15 +3565,15 @@
         </td>
       </tr><tr>
         <td>
-          351
+          407
         </td>
         <td>
-          556
+          574
         </td>
         <td>
-          12172
+          14542
           -
-          12231
+          14601
         </td>
         <td>
           TypeApply
@@ -3229,15 +3589,15 @@
         </td>
       </tr><tr>
         <td>
-          353
+          409
         </td>
         <td>
-          559
+          577
         </td>
         <td>
-          12251
+          14621
           -
-          12255
+          14625
         </td>
         <td>
           Block
@@ -3253,15 +3613,15 @@
         </td>
       </tr><tr>
         <td>
-          353
+          409
         </td>
         <td>
-          558
+          576
         </td>
         <td>
-          12251
+          14621
           -
-          12255
+          14625
         </td>
         <td>
           Literal
@@ -3277,15 +3637,15 @@
         </td>
       </tr><tr>
         <td>
-          354
+          410
         </td>
         <td>
-          561
+          579
         </td>
         <td>
-          12290
+          14660
           -
-          12307
+          14677
         </td>
         <td>
           Literal
@@ -3301,15 +3661,15 @@
         </td>
       </tr><tr>
         <td>
-          354
+          410
         </td>
         <td>
-          563
+          581
         </td>
         <td>
-          12273
+          14643
           -
-          12331
+          14701
         </td>
         <td>
           Apply
@@ -3325,15 +3685,15 @@
         </td>
       </tr><tr>
         <td>
-          354
+          410
         </td>
         <td>
-          560
+          578
         </td>
         <td>
-          12274
+          14644
           -
-          12278
+          14648
         </td>
         <td>
           Literal
@@ -3349,15 +3709,15 @@
         </td>
       </tr><tr>
         <td>
-          354
+          410
         </td>
         <td>
-          562
+          580
         </td>
         <td>
-          12309
+          14679
           -
-          12313
+          14683
         </td>
         <td>
           Literal
@@ -3373,15 +3733,15 @@
         </td>
       </tr><tr>
         <td>
-          357
+          413
         </td>
         <td>
-          600
+          618
         </td>
         <td>
-          12361
+          14731
           -
-          13142
+          15512
         </td>
         <td>
           ApplyToImplicitArgs
@@ -3415,15 +3775,15 @@
         </td>
       </tr><tr>
         <td>
-          357
+          413
         </td>
         <td>
-          599
+          617
         </td>
         <td>
-          12374
+          14744
           -
-          12374
+          14744
         </td>
         <td>
           TypeApply
@@ -3439,15 +3799,15 @@
         </td>
       </tr><tr>
         <td>
-          358
+          414
         </td>
         <td>
-          585
+          603
         </td>
         <td>
-          12423
+          14793
           -
-          12423
+          14793
         </td>
         <td>
           TypeApply
@@ -3463,15 +3823,15 @@
         </td>
       </tr><tr>
         <td>
-          358
+          414
         </td>
         <td>
-          586
+          604
         </td>
         <td>
-          12410
+          14780
           -
-          12918
+          15288
         </td>
         <td>
           ApplyToImplicitArgs
@@ -3501,15 +3861,15 @@
         </td>
       </tr><tr>
         <td>
-          359
+          415
         </td>
         <td>
-          564
+          582
         </td>
         <td>
-          12457
+          14827
           -
-          12487
+          14857
         </td>
         <td>
           Apply
@@ -3525,39 +3885,15 @@
         </td>
       </tr><tr>
         <td>
-          361
+          417
         </td>
         <td>
-          568
+          585
         </td>
         <td>
-          12513
+          14895
           -
-          12530
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Tuple3.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.Tuple3.apply[com.sparkutils.quality.Id, com.sparkutils.quality.Id, com.sparkutils.quality.Id](RuleSuite.this.id, rs.id, r.id)
-        </td>
-      </tr><tr>
-        <td>
-          361
-        </td>
-        <td>
-          567
-        </td>
-        <td>
-          12525
-          -
-          12529
+          14899
         </td>
         <td>
           Select
@@ -3573,15 +3909,15 @@
         </td>
       </tr><tr>
         <td>
-          361
+          417
         </td>
         <td>
-          570
+          588
         </td>
         <td>
-          12563
+          14933
           -
-          12598
+          14968
         </td>
         <td>
           Select
@@ -3597,15 +3933,15 @@
         </td>
       </tr><tr>
         <td>
-          361
+          417
         </td>
         <td>
-          566
+          584
         </td>
         <td>
-          12518
+          14888
           -
-          12523
+          14893
         </td>
         <td>
           Select
@@ -3621,15 +3957,15 @@
         </td>
       </tr><tr>
         <td>
-          361
+          417
         </td>
         <td>
-          569
+          587
         </td>
         <td>
-          12532
+          14902
           -
-          12561
+          14931
         </td>
         <td>
           Select
@@ -3645,15 +3981,39 @@
         </td>
       </tr><tr>
         <td>
-          361
+          417
         </td>
         <td>
-          571
+          586
         </td>
         <td>
-          12512
+          14883
           -
-          12599
+          14900
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple3.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple3.apply[com.sparkutils.quality.Id, com.sparkutils.quality.Id, com.sparkutils.quality.Id](RuleSuite.this.id, rs.id, r.id)
+        </td>
+      </tr><tr>
+        <td>
+          417
+        </td>
+        <td>
+          589
+        </td>
+        <td>
+          14882
+          -
+          14969
         </td>
         <td>
           Apply
@@ -3669,15 +4029,15 @@
         </td>
       </tr><tr>
         <td>
-          361
+          417
         </td>
         <td>
-          565
+          583
         </td>
         <td>
-          12514
+          14884
           -
-          12516
+          14886
         </td>
         <td>
           Select
@@ -3693,15 +4053,15 @@
         </td>
       </tr><tr>
         <td>
-          363
+          419
         </td>
         <td>
-          582
+          600
         </td>
         <td>
-          12639
+          15009
           -
-          12639
+          15009
         </td>
         <td>
           Literal
@@ -3717,15 +4077,15 @@
         </td>
       </tr><tr>
         <td>
-          363
+          419
         </td>
         <td>
-          572
+          590
         </td>
         <td>
-          12643
+          15013
           -
-          12663
+          15033
         </td>
         <td>
           Apply
@@ -3741,15 +4101,15 @@
         </td>
       </tr><tr>
         <td>
-          363
+          419
         </td>
         <td>
-          583
+          601
         </td>
         <td>
-          12639
+          15009
           -
-          12639
+          15009
         </td>
         <td>
           Block
@@ -3765,15 +4125,15 @@
         </td>
       </tr><tr>
         <td>
-          364
+          420
         </td>
         <td>
-          581
+          599
         </td>
         <td>
-          12678
+          15048
           -
-          12866
+          15236
         </td>
         <td>
           If
@@ -3795,15 +4155,15 @@ else
         </td>
       </tr><tr>
         <td>
-          365
+          421
         </td>
         <td>
-          573
+          591
         </td>
         <td>
-          12707
+          15077
           -
-          12738
+          15108
         </td>
         <td>
           Apply
@@ -3819,15 +4179,15 @@ else
         </td>
       </tr><tr>
         <td>
-          365
+          421
         </td>
         <td>
-          574
+          592
         </td>
         <td>
-          12707
+          15077
           -
-          12738
+          15108
         </td>
         <td>
           Block
@@ -3843,15 +4203,15 @@ else
         </td>
       </tr><tr>
         <td>
-          367
+          423
         </td>
         <td>
-          576
+          594
         </td>
         <td>
-          12774
+          15144
           -
-          12815
+          15185
         </td>
         <td>
           Apply
@@ -3867,15 +4227,15 @@ else
         </td>
       </tr><tr>
         <td>
-          367
+          423
         </td>
         <td>
-          579
+          597
         </td>
         <td>
-          12770
+          15140
           -
-          12770
+          15140
         </td>
         <td>
           Block
@@ -3891,15 +4251,15 @@ else
         </td>
       </tr><tr>
         <td>
-          367
+          423
         </td>
         <td>
-          575
+          593
         </td>
         <td>
-          12806
+          15176
           -
-          12815
+          15185
         </td>
         <td>
           Select
@@ -3915,15 +4275,15 @@ else
         </td>
       </tr><tr>
         <td>
-          367
+          423
         </td>
         <td>
-          578
+          596
         </td>
         <td>
-          12770
+          15140
           -
-          12770
+          15140
         </td>
         <td>
           Literal
@@ -3939,15 +4299,15 @@ else
         </td>
       </tr><tr>
         <td>
-          367
+          423
         </td>
         <td>
-          580
+          598
         </td>
         <td>
-          12770
+          15140
           -
-          12866
+          15236
         </td>
         <td>
           If
@@ -3966,15 +4326,15 @@ else
         </td>
       </tr><tr>
         <td>
-          368
+          424
         </td>
         <td>
-          577
+          595
         </td>
         <td>
-          12835
+          15205
           -
-          12850
+          15220
         </td>
         <td>
           Assign
@@ -3990,15 +4350,15 @@ else
         </td>
       </tr><tr>
         <td>
-          372
+          428
         </td>
         <td>
-          584
+          602
         </td>
         <td>
-          12890
+          15260
           -
-          12908
+          15278
         </td>
         <td>
           Apply
@@ -4014,15 +4374,15 @@ else
         </td>
       </tr><tr>
         <td>
-          374
+          430
         </td>
         <td>
-          588
+          606
         </td>
         <td>
-          12964
+          15334
           -
-          12964
+          15334
         </td>
         <td>
           Select
@@ -4038,15 +4398,15 @@ else
         </td>
       </tr><tr>
         <td>
-          374
+          430
         </td>
         <td>
-          587
+          605
         </td>
         <td>
-          12978
+          15348
           -
-          12990
+          15360
         </td>
         <td>
           Select
@@ -4062,15 +4422,15 @@ else
         </td>
       </tr><tr>
         <td>
-          374
+          430
         </td>
         <td>
-          589
+          607
         </td>
         <td>
-          12964
+          15334
           -
-          12991
+          15361
         </td>
         <td>
           Apply
@@ -4086,15 +4446,15 @@ else
         </td>
       </tr><tr>
         <td>
-          374
+          430
         </td>
         <td>
-          592
+          610
         </td>
         <td>
-          12941
+          15311
           -
-          13059
+          15429
         </td>
         <td>
           Apply
@@ -4110,15 +4470,15 @@ else
         </td>
       </tr><tr>
         <td>
-          376
+          432
         </td>
         <td>
-          591
+          609
         </td>
         <td>
-          13030
+          15400
           -
-          13049
+          15419
         </td>
         <td>
           Apply
@@ -4134,15 +4494,15 @@ else
         </td>
       </tr><tr>
         <td>
-          376
+          432
         </td>
         <td>
-          590
+          608
         </td>
         <td>
-          13041
+          15411
           -
-          13048
+          15418
         </td>
         <td>
           Select
@@ -4158,15 +4518,15 @@ else
         </td>
       </tr><tr>
         <td>
-          378
+          434
         </td>
         <td>
-          594
+          612
         </td>
         <td>
-          13091
+          15461
           -
-          13112
+          15482
         </td>
         <td>
           Select
@@ -4182,15 +4542,15 @@ else
         </td>
       </tr><tr>
         <td>
-          378
+          434
         </td>
         <td>
-          597
+          615
         </td>
         <td>
-          13077
+          15447
           -
-          13134
+          15504
         </td>
         <td>
           Apply
@@ -4206,15 +4566,15 @@ else
         </td>
       </tr><tr>
         <td>
-          378
+          434
         </td>
         <td>
-          593
+          611
         </td>
         <td>
-          13068
+          15438
           -
-          13073
+          15443
         </td>
         <td>
           Select
@@ -4230,15 +4590,15 @@ else
         </td>
       </tr><tr>
         <td>
-          378
+          434
         </td>
         <td>
-          596
+          614
         </td>
         <td>
-          13114
+          15484
           -
-          13133
+          15503
         </td>
         <td>
           ApplyToImplicitArgs
@@ -4254,15 +4614,15 @@ else
         </td>
       </tr><tr>
         <td>
-          378
+          434
         </td>
         <td>
-          595
+          613
         </td>
         <td>
-          13128
+          15498
           -
-          13128
+          15498
         </td>
         <td>
           TypeApply
@@ -4278,15 +4638,15 @@ else
         </td>
       </tr><tr>
         <td>
-          378
+          434
         </td>
         <td>
-          598
+          616
         </td>
         <td>
-          13068
+          15438
           -
-          13134
+          15504
         </td>
         <td>
           Apply
@@ -4302,15 +4662,15 @@ else
         </td>
       </tr><tr>
         <td>
-          380
+          436
         </td>
         <td>
-          603
+          621
         </td>
         <td>
-          13182
+          15552
           -
-          13209
+          15579
         </td>
         <td>
           Apply
@@ -4326,15 +4686,15 @@ else
         </td>
       </tr><tr>
         <td>
-          380
+          436
         </td>
         <td>
-          606
+          624
         </td>
         <td>
-          13161
+          15531
           -
-          13279
+          15649
         </td>
         <td>
           Apply
@@ -4350,15 +4710,15 @@ else
         </td>
       </tr><tr>
         <td>
-          380
+          436
         </td>
         <td>
-          602
+          620
         </td>
         <td>
-          13182
+          15552
           -
-          13182
+          15552
         </td>
         <td>
           Select
@@ -4374,15 +4734,15 @@ else
         </td>
       </tr><tr>
         <td>
-          380
+          436
         </td>
         <td>
-          601
+          619
         </td>
         <td>
-          13196
+          15566
           -
-          13208
+          15578
         </td>
         <td>
           Select
@@ -4398,15 +4758,15 @@ else
         </td>
       </tr><tr>
         <td>
-          382
+          438
         </td>
         <td>
-          605
+          623
         </td>
         <td>
-          13240
+          15610
           -
-          13273
+          15643
         </td>
         <td>
           Apply
@@ -4422,15 +4782,15 @@ else
         </td>
       </tr><tr>
         <td>
-          382
+          438
         </td>
         <td>
-          604
+          622
         </td>
         <td>
-          13251
+          15621
           -
-          13272
+          15642
         </td>
         <td>
           Select
@@ -4446,15 +4806,15 @@ else
         </td>
       </tr><tr>
         <td>
-          385
+          441
         </td>
         <td>
-          608
+          626
         </td>
         <td>
-          13296
+          15666
           -
-          13296
+          15666
         </td>
         <td>
           Select
@@ -4470,15 +4830,15 @@ else
         </td>
       </tr><tr>
         <td>
-          385
+          441
         </td>
         <td>
-          607
+          625
         </td>
         <td>
-          13290
+          15660
           -
-          13290
+          15660
         </td>
         <td>
           Select
@@ -4494,15 +4854,15 @@ else
         </td>
       </tr><tr>
         <td>
-          402
+          458
         </td>
         <td>
-          609
+          627
         </td>
         <td>
-          13786
+          16156
           -
-          13788
+          16158
         </td>
         <td>
           Select
@@ -4518,15 +4878,15 @@ else
         </td>
       </tr><tr>
         <td>
-          402
+          458
         </td>
         <td>
-          612
+          630
         </td>
         <td>
-          13813
+          16183
           -
-          13830
+          16200
         </td>
         <td>
           ApplyToImplicitArgs
@@ -4542,39 +4902,15 @@ else
         </td>
       </tr><tr>
         <td>
-          402
+          458
         </td>
         <td>
-          611
+          632
         </td>
         <td>
-          13825
+          16139
           -
-          13825
-        </td>
-        <td>
-          TypeApply
-        </td>
-        <td>
-          scala.Predef.$conforms
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.Predef.$conforms[(com.sparkutils.quality.Id, com.sparkutils.quality.RuleSetResult)]
-        </td>
-      </tr><tr>
-        <td>
-          402
-        </td>
-        <td>
-          614
-        </td>
-        <td>
-          13769
-          -
-          13846
+          16216
         </td>
         <td>
           Apply
@@ -4590,15 +4926,39 @@ else
         </td>
       </tr><tr>
         <td>
-          402
+          458
         </td>
         <td>
-          613
+          629
         </td>
         <td>
-          13770
+          16195
           -
-          13831
+          16195
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.$conforms[(com.sparkutils.quality.Id, com.sparkutils.quality.RuleSetResult)]
+        </td>
+      </tr><tr>
+        <td>
+          458
+        </td>
+        <td>
+          631
+        </td>
+        <td>
+          16140
+          -
+          16201
         </td>
         <td>
           Apply
@@ -4614,15 +4974,15 @@ else
         </td>
       </tr><tr>
         <td>
-          402
+          458
         </td>
         <td>
-          610
+          628
         </td>
         <td>
-          13790
+          16160
           -
-          13811
+          16181
         </td>
         <td>
           Select
@@ -4638,15 +4998,15 @@ else
         </td>
       </tr><tr>
         <td>
-          412
+          468
         </td>
         <td>
-          615
+          633
         </td>
         <td>
-          14176
+          16546
           -
-          14235
+          16605
         </td>
         <td>
           TypeApply
@@ -4662,15 +5022,15 @@ else
         </td>
       </tr><tr>
         <td>
-          426
+          482
         </td>
         <td>
-          645
+          663
         </td>
         <td>
-          14530
+          16900
           -
-          15151
+          17521
         </td>
         <td>
           ApplyToImplicitArgs
@@ -4698,15 +5058,15 @@ else
         </td>
       </tr><tr>
         <td>
-          426
+          482
         </td>
         <td>
-          644
+          662
         </td>
         <td>
-          14543
+          16913
           -
-          14543
+          16913
         </td>
         <td>
           TypeApply
@@ -4722,15 +5082,15 @@ else
         </td>
       </tr><tr>
         <td>
-          427
+          483
         </td>
         <td>
-          630
+          648
         </td>
         <td>
-          14592
+          16962
           -
-          14592
+          16962
         </td>
         <td>
           TypeApply
@@ -4746,15 +5106,15 @@ else
         </td>
       </tr><tr>
         <td>
-          427
+          483
         </td>
         <td>
-          631
+          649
         </td>
         <td>
-          14579
+          16949
           -
-          14927
+          17297
         </td>
         <td>
           ApplyToImplicitArgs
@@ -4778,15 +5138,15 @@ else
         </td>
       </tr><tr>
         <td>
-          428
+          484
         </td>
         <td>
-          616
+          634
         </td>
         <td>
-          14626
+          16996
           -
-          14653
+          17023
         </td>
         <td>
           Apply
@@ -4802,15 +5162,15 @@ else
         </td>
       </tr><tr>
         <td>
-          430
+          486
         </td>
         <td>
-          618
+          636
         </td>
         <td>
-          14684
+          17054
           -
-          14689
+          17059
         </td>
         <td>
           Select
@@ -4826,15 +5186,15 @@ else
         </td>
       </tr><tr>
         <td>
-          430
+          486
         </td>
         <td>
-          621
+          639
         </td>
         <td>
-          14698
+          17068
           -
-          14727
+          17097
         </td>
         <td>
           Select
@@ -4850,15 +5210,15 @@ else
         </td>
       </tr><tr>
         <td>
-          430
+          486
         </td>
         <td>
-          623
+          641
         </td>
         <td>
-          14678
+          17048
           -
-          14765
+          17135
         </td>
         <td>
           Apply
@@ -4874,15 +5234,15 @@ else
         </td>
       </tr><tr>
         <td>
-          430
+          486
         </td>
         <td>
-          617
+          635
         </td>
         <td>
-          14680
+          17050
           -
-          14682
+          17052
         </td>
         <td>
           Select
@@ -4898,15 +5258,15 @@ else
         </td>
       </tr><tr>
         <td>
-          430
+          486
         </td>
         <td>
-          620
+          638
         </td>
         <td>
-          14679
+          17049
           -
-          14696
+          17066
         </td>
         <td>
           Apply
@@ -4922,15 +5282,15 @@ else
         </td>
       </tr><tr>
         <td>
-          430
+          486
         </td>
         <td>
-          622
+          640
         </td>
         <td>
-          14729
+          17099
           -
-          14764
+          17134
         </td>
         <td>
           Select
@@ -4946,15 +5306,15 @@ else
         </td>
       </tr><tr>
         <td>
-          430
+          486
         </td>
         <td>
-          619
+          637
         </td>
         <td>
-          14691
+          17061
           -
-          14695
+          17065
         </td>
         <td>
           Select
@@ -4970,15 +5330,15 @@ else
         </td>
       </tr><tr>
         <td>
-          432
+          488
         </td>
         <td>
-          627
+          645
         </td>
         <td>
-          14805
+          17175
           -
-          14805
+          17175
         </td>
         <td>
           Literal
@@ -4994,15 +5354,15 @@ else
         </td>
       </tr><tr>
         <td>
-          432
+          488
         </td>
         <td>
-          624
+          642
         </td>
         <td>
-          14809
+          17179
           -
-          14829
+          17199
         </td>
         <td>
           Apply
@@ -5018,15 +5378,15 @@ else
         </td>
       </tr><tr>
         <td>
-          432
+          488
         </td>
         <td>
-          628
+          646
         </td>
         <td>
-          14805
+          17175
           -
-          14805
+          17175
         </td>
         <td>
           Block
@@ -5042,15 +5402,15 @@ else
         </td>
       </tr><tr>
         <td>
-          433
+          489
         </td>
         <td>
-          626
+          644
         </td>
         <td>
-          14844
+          17214
           -
-          14875
+          17245
         </td>
         <td>
           Block
@@ -5066,15 +5426,15 @@ else
         </td>
       </tr><tr>
         <td>
-          433
+          489
         </td>
         <td>
-          625
+          643
         </td>
         <td>
-          14844
+          17214
           -
-          14875
+          17245
         </td>
         <td>
           Apply
@@ -5090,15 +5450,15 @@ else
         </td>
       </tr><tr>
         <td>
-          436
+          492
         </td>
         <td>
-          629
+          647
         </td>
         <td>
-          14899
+          17269
           -
-          14917
+          17287
         </td>
         <td>
           Apply
@@ -5114,15 +5474,15 @@ else
         </td>
       </tr><tr>
         <td>
-          438
+          494
         </td>
         <td>
-          633
+          651
         </td>
         <td>
-          14973
+          17343
           -
-          14973
+          17343
         </td>
         <td>
           Select
@@ -5138,15 +5498,15 @@ else
         </td>
       </tr><tr>
         <td>
-          438
+          494
         </td>
         <td>
-          632
+          650
         </td>
         <td>
-          14987
+          17357
           -
-          14999
+          17369
         </td>
         <td>
           Select
@@ -5162,39 +5522,15 @@ else
         </td>
       </tr><tr>
         <td>
-          438
+          494
         </td>
         <td>
-          634
+          655
         </td>
         <td>
-          14973
+          17320
           -
-          15000
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.OverallResult.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          OverallResult.apply(RuleSuite.this.probablePass, OverallResult.apply$default$2)
-        </td>
-      </tr><tr>
-        <td>
-          438
-        </td>
-        <td>
-          637
-        </td>
-        <td>
-          14950
-          -
-          15068
+          17438
         </td>
         <td>
           Apply
@@ -5210,207 +5546,15 @@ else
         </td>
       </tr><tr>
         <td>
-          440
+          494
         </td>
         <td>
-          636
+          652
         </td>
         <td>
-          15039
+          17343
           -
-          15058
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.OverallResult.process
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ov.process(pair._2)
-        </td>
-      </tr><tr>
-        <td>
-          440
-        </td>
-        <td>
-          635
-        </td>
-        <td>
-          15050
-          -
-          15057
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.Tuple2._2
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          pair._2
-        </td>
-      </tr><tr>
-        <td>
-          442
-        </td>
-        <td>
-          639
-        </td>
-        <td>
-          15100
-          -
-          15121
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.OverallResult.currentResult
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          overall.currentResult
-        </td>
-      </tr><tr>
-        <td>
-          442
-        </td>
-        <td>
-          642
-        </td>
-        <td>
-          15086
-          -
-          15143
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.RuleSetResult.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          RuleSetResult.apply(overall.currentResult, ruleSetRawRes.toMap[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleResult](scala.Predef.$conforms[(com.sparkutils.quality.Id, com.sparkutils.quality.RuleResult)]))
-        </td>
-      </tr><tr>
-        <td>
-          442
-        </td>
-        <td>
-          641
-        </td>
-        <td>
-          15123
-          -
-          15142
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          scala.collection.TraversableOnce.toMap
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ruleSetRawRes.toMap[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleResult](scala.Predef.$conforms[(com.sparkutils.quality.Id, com.sparkutils.quality.RuleResult)])
-        </td>
-      </tr><tr>
-        <td>
-          442
-        </td>
-        <td>
-          638
-        </td>
-        <td>
-          15077
-          -
-          15082
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.RuleSet.id
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          rs.id
-        </td>
-      </tr><tr>
-        <td>
-          442
-        </td>
-        <td>
-          640
-        </td>
-        <td>
-          15137
-          -
-          15137
-        </td>
-        <td>
-          TypeApply
-        </td>
-        <td>
-          scala.Predef.$conforms
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.Predef.$conforms[(com.sparkutils.quality.Id, com.sparkutils.quality.RuleResult)]
-        </td>
-      </tr><tr>
-        <td>
-          442
-        </td>
-        <td>
-          643
-        </td>
-        <td>
-          15077
-          -
-          15143
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Predef.ArrowAssoc.-&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.Predef.ArrowAssoc[com.sparkutils.quality.Id](rs.id).-&gt;[com.sparkutils.quality.RuleSetResult](RuleSetResult.apply(overall.currentResult, ruleSetRawRes.toMap[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleResult](scala.Predef.$conforms[(com.sparkutils.quality.Id, com.sparkutils.quality.RuleResult)])))
-        </td>
-      </tr><tr>
-        <td>
-          444
-        </td>
-        <td>
-          648
-        </td>
-        <td>
-          15191
-          -
-          15218
+          17370
         </td>
         <td>
           Apply
@@ -5426,15 +5570,207 @@ else
         </td>
       </tr><tr>
         <td>
-          444
+          496
         </td>
         <td>
-          651
+          654
         </td>
         <td>
-          15170
+          17409
           -
-          15288
+          17428
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.OverallResult.process
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ov.process(pair._2)
+        </td>
+      </tr><tr>
+        <td>
+          496
+        </td>
+        <td>
+          653
+        </td>
+        <td>
+          17420
+          -
+          17427
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          pair._2
+        </td>
+      </tr><tr>
+        <td>
+          498
+        </td>
+        <td>
+          660
+        </td>
+        <td>
+          17456
+          -
+          17513
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetResult.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSetResult.apply(overall.currentResult, ruleSetRawRes.toMap[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleResult](scala.Predef.$conforms[(com.sparkutils.quality.Id, com.sparkutils.quality.RuleResult)]))
+        </td>
+      </tr><tr>
+        <td>
+          498
+        </td>
+        <td>
+          657
+        </td>
+        <td>
+          17470
+          -
+          17491
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.OverallResult.currentResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          overall.currentResult
+        </td>
+      </tr><tr>
+        <td>
+          498
+        </td>
+        <td>
+          659
+        </td>
+        <td>
+          17493
+          -
+          17512
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSetRawRes.toMap[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleResult](scala.Predef.$conforms[(com.sparkutils.quality.Id, com.sparkutils.quality.RuleResult)])
+        </td>
+      </tr><tr>
+        <td>
+          498
+        </td>
+        <td>
+          656
+        </td>
+        <td>
+          17447
+          -
+          17452
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSet.id
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          rs.id
+        </td>
+      </tr><tr>
+        <td>
+          498
+        </td>
+        <td>
+          658
+        </td>
+        <td>
+          17507
+          -
+          17507
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.$conforms[(com.sparkutils.quality.Id, com.sparkutils.quality.RuleResult)]
+        </td>
+      </tr><tr>
+        <td>
+          498
+        </td>
+        <td>
+          661
+        </td>
+        <td>
+          17447
+          -
+          17513
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.ArrowAssoc[com.sparkutils.quality.Id](rs.id).-&gt;[com.sparkutils.quality.RuleSetResult](RuleSetResult.apply(overall.currentResult, ruleSetRawRes.toMap[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleResult](scala.Predef.$conforms[(com.sparkutils.quality.Id, com.sparkutils.quality.RuleResult)])))
+        </td>
+      </tr><tr>
+        <td>
+          500
+        </td>
+        <td>
+          669
+        </td>
+        <td>
+          17540
+          -
+          17658
         </td>
         <td>
           Apply
@@ -5450,15 +5786,39 @@ else
         </td>
       </tr><tr>
         <td>
-          444
+          500
         </td>
         <td>
-          647
+          666
         </td>
         <td>
-          15191
+          17561
           -
-          15191
+          17588
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.OverallResult.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          OverallResult.apply(RuleSuite.this.probablePass, OverallResult.apply$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          500
+        </td>
+        <td>
+          665
+        </td>
+        <td>
+          17561
+          -
+          17561
         </td>
         <td>
           Select
@@ -5474,15 +5834,15 @@ else
         </td>
       </tr><tr>
         <td>
-          444
+          500
         </td>
         <td>
-          646
+          664
         </td>
         <td>
-          15205
+          17575
           -
-          15217
+          17587
         </td>
         <td>
           Select
@@ -5498,15 +5858,15 @@ else
         </td>
       </tr><tr>
         <td>
-          446
+          502
         </td>
         <td>
-          650
+          668
         </td>
         <td>
-          15249
+          17619
           -
-          15282
+          17652
         </td>
         <td>
           Apply
@@ -5522,15 +5882,15 @@ else
         </td>
       </tr><tr>
         <td>
-          446
+          502
         </td>
         <td>
-          649
+          667
         </td>
         <td>
-          15260
+          17630
           -
-          15281
+          17651
         </td>
         <td>
           Select
@@ -5546,15 +5906,15 @@ else
         </td>
       </tr><tr>
         <td>
-          450
+          506
         </td>
         <td>
-          654
+          672
         </td>
         <td>
-          15435
+          17805
           -
-          15467
+          17837
         </td>
         <td>
           ApplyToImplicitArgs
@@ -5570,15 +5930,15 @@ else
         </td>
       </tr><tr>
         <td>
-          450
+          506
         </td>
         <td>
-          653
+          671
         </td>
         <td>
-          15461
+          17831
           -
-          15461
+          17831
         </td>
         <td>
           Select
@@ -5594,15 +5954,15 @@ else
         </td>
       </tr><tr>
         <td>
-          450
+          506
         </td>
         <td>
-          652
+          670
         </td>
         <td>
-          15462
+          17832
           -
-          15466
+          17836
         </td>
         <td>
           Select
@@ -5618,15 +5978,15 @@ else
         </td>
       </tr><tr>
         <td>
-          454
+          510
         </td>
         <td>
-          665
+          683
         </td>
         <td>
-          15552
+          17922
           -
-          16039
+          18409
         </td>
         <td>
           Apply
@@ -5654,15 +6014,15 @@ else
         </td>
       </tr><tr>
         <td>
-          454
+          510
         </td>
         <td>
-          655
+          673
         </td>
         <td>
-          15568
+          17938
           -
-          15597
+          17967
         </td>
         <td>
           TypeApply
@@ -5678,15 +6038,15 @@ else
         </td>
       </tr><tr>
         <td>
-          457
+          513
         </td>
         <td>
-          656
+          674
         </td>
         <td>
-          15845
+          18215
           -
-          15854
+          18224
         </td>
         <td>
           Select
@@ -5702,15 +6062,15 @@ else
         </td>
       </tr><tr>
         <td>
-          459
+          515
         </td>
         <td>
-          657
+          675
         </td>
         <td>
-          15862
+          18232
           -
-          15877
+          18247
         </td>
         <td>
           Apply
@@ -5726,15 +6086,15 @@ else
         </td>
       </tr><tr>
         <td>
-          462
+          518
         </td>
         <td>
-          658
+          676
         </td>
         <td>
-          15891
+          18261
           -
-          15952
+          18322
         </td>
         <td>
           TypeApply
@@ -5750,15 +6110,15 @@ else
         </td>
       </tr><tr>
         <td>
-          464
+          520
         </td>
         <td>
-          663
+          681
         </td>
         <td>
-          15964
+          18334
           -
-          15964
+          18334
         </td>
         <td>
           TypeApply
@@ -5774,15 +6134,15 @@ else
         </td>
       </tr><tr>
         <td>
-          464
+          520
         </td>
         <td>
-          662
+          680
         </td>
         <td>
-          15960
+          18330
           -
-          16033
+          18403
         </td>
         <td>
           Apply
@@ -5801,15 +6161,15 @@ else
         </td>
       </tr><tr>
         <td>
-          464
+          520
         </td>
         <td>
-          664
+          682
         </td>
         <td>
-          15960
+          18330
           -
-          16033
+          18403
         </td>
         <td>
           ApplyToImplicitArgs
@@ -5828,15 +6188,15 @@ else
         </td>
       </tr><tr>
         <td>
-          465
+          521
         </td>
         <td>
-          660
+          678
         </td>
         <td>
-          16001
+          18371
           -
-          16009
+          18379
         </td>
         <td>
           Block
@@ -5852,15 +6212,15 @@ else
         </td>
       </tr><tr>
         <td>
-          465
+          521
         </td>
         <td>
-          659
+          677
         </td>
         <td>
-          16001
+          18371
           -
-          16009
+          18379
         </td>
         <td>
           Apply
@@ -5876,15 +6236,15 @@ else
         </td>
       </tr><tr>
         <td>
-          467
+          523
         </td>
         <td>
-          661
+          679
         </td>
         <td>
-          16029
+          18399
           -
-          16032
+          18402
         </td>
         <td>
           Ident
@@ -5900,15 +6260,15 @@ else
         </td>
       </tr><tr>
         <td>
-          472
+          528
         </td>
         <td>
-          669
+          687
         </td>
         <td>
-          16150
+          18520
           -
-          16150
+          18520
         </td>
         <td>
           TypeApply
@@ -5924,15 +6284,15 @@ else
         </td>
       </tr><tr>
         <td>
-          472
+          528
         </td>
         <td>
-          672
+          690
         </td>
         <td>
-          16087
+          18457
           -
-          16208
+          18578
         </td>
         <td>
           Block
@@ -5948,15 +6308,15 @@ else
         </td>
       </tr><tr>
         <td>
-          472
+          528
         </td>
         <td>
-          671
+          689
         </td>
         <td>
-          16087
+          18457
           -
-          16208
+          18578
         </td>
         <td>
           Apply
@@ -5972,15 +6332,15 @@ else
         </td>
       </tr><tr>
         <td>
-          473
+          529
         </td>
         <td>
-          666
+          684
         </td>
         <td>
-          16178
+          18548
           -
-          16182
+          18552
         </td>
         <td>
           Select
@@ -5996,15 +6356,15 @@ else
         </td>
       </tr><tr>
         <td>
-          473
+          529
         </td>
         <td>
-          668
+          686
         </td>
         <td>
-          16166
+          18536
           -
-          16189
+          18559
         </td>
         <td>
           Apply
@@ -6020,15 +6380,15 @@ else
         </td>
       </tr><tr>
         <td>
-          473
+          529
         </td>
         <td>
-          667
+          685
         </td>
         <td>
-          16184
+          18554
           -
-          16188
+          18558
         </td>
         <td>
           Select
@@ -6044,15 +6404,15 @@ else
         </td>
       </tr><tr>
         <td>
-          474
+          530
         </td>
         <td>
-          670
+          688
         </td>
         <td>
-          16143
+          18513
           -
-          16207
+          18577
         </td>
         <td>
           ApplyToImplicitArgs
@@ -6068,15 +6428,15 @@ else
         </td>
       </tr><tr>
         <td>
-          476
+          532
         </td>
         <td>
-          678
+          696
         </td>
         <td>
-          16230
+          18600
           -
-          16296
+          18666
         </td>
         <td>
           If
@@ -6095,15 +6455,15 @@ else
         </td>
       </tr><tr>
         <td>
-          476
+          532
         </td>
         <td>
-          673
+          691
         </td>
         <td>
-          16234
+          18604
           -
-          16245
+          18615
         </td>
         <td>
           Select
@@ -6119,15 +6479,15 @@ else
         </td>
       </tr><tr>
         <td>
-          477
+          533
         </td>
         <td>
-          675
+          693
         </td>
         <td>
-          16257
+          18627
           -
-          16261
+          18631
         </td>
         <td>
           Block
@@ -6143,15 +6503,15 @@ else
         </td>
       </tr><tr>
         <td>
-          477
+          533
         </td>
         <td>
-          674
+          692
         </td>
         <td>
-          16257
+          18627
           -
-          16261
+          18631
         </td>
         <td>
           Literal
@@ -6167,15 +6527,15 @@ else
         </td>
       </tr><tr>
         <td>
-          479
+          535
         </td>
         <td>
-          677
+          695
         </td>
         <td>
-          16285
+          18655
           -
-          16296
+          18666
         </td>
         <td>
           Block
@@ -6191,15 +6551,15 @@ else
         </td>
       </tr><tr>
         <td>
-          479
+          535
         </td>
         <td>
-          676
+          694
         </td>
         <td>
-          16285
+          18655
           -
-          16296
+          18666
         </td>
         <td>
           Select
@@ -6215,15 +6575,15 @@ else
         </td>
       </tr><tr>
         <td>
-          482
+          538
         </td>
         <td>
-          681
+          699
         </td>
         <td>
-          16366
+          18736
           -
-          16366
+          18736
         </td>
         <td>
           TypeApply
@@ -6239,15 +6599,15 @@ else
         </td>
       </tr><tr>
         <td>
-          482
+          538
         </td>
         <td>
-          684
+          702
         </td>
         <td>
-          16310
+          18680
           -
-          16381
+          18751
         </td>
         <td>
           Apply
@@ -6263,15 +6623,15 @@ else
         </td>
       </tr><tr>
         <td>
-          482
+          538
         </td>
         <td>
-          683
+          701
         </td>
         <td>
-          16311
+          18681
           -
-          16372
+          18742
         </td>
         <td>
           Apply
@@ -6287,15 +6647,15 @@ else
         </td>
       </tr><tr>
         <td>
-          482
+          538
         </td>
         <td>
-          680
+          698
         </td>
         <td>
-          16331
+          18701
           -
-          16352
+          18722
         </td>
         <td>
           Select
@@ -6311,39 +6671,15 @@ else
         </td>
       </tr><tr>
         <td>
-          482
+          538
         </td>
         <td>
-          682
+          697
         </td>
         <td>
-          16354
+          18697
           -
-          16371
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          scala.collection.TraversableOnce.toMap
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          rawRuleSets.toMap[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetResult](scala.Predef.$conforms[(com.sparkutils.quality.Id, com.sparkutils.quality.RuleSetResult)])
-        </td>
-      </tr><tr>
-        <td>
-          482
-        </td>
-        <td>
-          679
-        </td>
-        <td>
-          16327
-          -
-          16329
+          18699
         </td>
         <td>
           Select
@@ -6359,15 +6695,39 @@ else
         </td>
       </tr><tr>
         <td>
-          490
+          538
         </td>
         <td>
-          687
+          700
         </td>
         <td>
-          16544
+          18724
           -
-          16544
+          18741
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          rawRuleSets.toMap[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetResult](scala.Predef.$conforms[(com.sparkutils.quality.Id, com.sparkutils.quality.RuleSetResult)])
+        </td>
+      </tr><tr>
+        <td>
+          546
+        </td>
+        <td>
+          705
+        </td>
+        <td>
+          18914
+          -
+          18914
         </td>
         <td>
           Select
@@ -6383,15 +6743,15 @@ else
         </td>
       </tr><tr>
         <td>
-          490
+          546
         </td>
         <td>
-          686
+          704
         </td>
         <td>
-          16544
+          18914
           -
-          16544
+          18914
         </td>
         <td>
           Select
@@ -6407,39 +6767,15 @@ else
         </td>
       </tr><tr>
         <td>
-          490
+          546
         </td>
         <td>
-          685
+          706
         </td>
         <td>
-          16544
+          18914
           -
-          16544
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.RuleSuite.copy$default$1
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          RuleSuite.this.copy$default$1
-        </td>
-      </tr><tr>
-        <td>
-          490
-        </td>
-        <td>
-          688
-        </td>
-        <td>
-          16544
-          -
-          16577
+          18947
         </td>
         <td>
           Apply
@@ -6452,6 +6788,30 @@ else
         </td>
         <td style="background: #AEF1AE">
           RuleSuite.this.copy(x$2, x$3, x$4, x$1)
+        </td>
+      </tr><tr>
+        <td>
+          546
+        </td>
+        <td>
+          703
+        </td>
+        <td>
+          18914
+          -
+          18914
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuite.copy$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuite.this.copy$default$1
         </td>
       </tr>
     </table>
