@@ -18,6 +18,7 @@ Write rules using simple SQL or create re-usable functions via SQL Lambdas
 Your rules are just versioned data, store them wherever convenient, use them by simply defining a column.
 
 * :new:{.pulseABit} - [comparableMaps](sqlfunctions.md#comparablemaps) - allow unions or sorting with map columns without json serialising and parsing overhead
+* :new:{.pulseABit} - [set syntax](advanced/ruleFolder.md#set) - simplified syntax for updating and defaulting
 
 Rules are evaluated lazily during Spark actions, such as writing a row, with results saved in a single predicatable and extensible column.
 

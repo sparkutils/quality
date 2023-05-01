@@ -29,17 +29,7 @@ RuleSuites are built per the normal DQ rules however a RuleResultProcessor is su
   val outdf = testDataDF.withColumn("together", rer).selectExpr("*", "together.result")
 ```
 
-You may use multiple path, expression combinations, to change multiple fields at once - this will be faster than nesting results.
-
-The use of lambda expressions allows you full control of your output expression - but it can be a bit verbose.  The common use case of defaulting is supported however e.g. the following are equivalent:
-
-```sql
-thecurrent -> updateField(thecurrent, 'account', concat(thecurrent.account, '_suffix') )
-set( account, concat(currentResult.account, '_suffix') )
-```
-
-The set syntax defaults the name of the lambda variable to "currentResult" and removes the odd looking quotes around the variables. 
-
+You may use multiple path and expression combinations in the same call, allowing the change of multiple fields at once - this will be faster than nesting calls to updateField.
 
 ??? warning "Don't use 'current' for a variable on 2.4"
     It may be tempting to use 'current' as your lambda variable name, but this causes problems on 2.4 - every other version doesn't care.
@@ -49,6 +39,26 @@ The set syntax defaults the name of the lambda variable to "currentResult" and r
 
 ??? warning "Don't use select(*, ruleFolderRunner)"
     Spark will not NPE using withColumn but will using select(expr("*"), ruleFolderRunner(ruleSuite)).  In order to thread the types through the resolving needs an additional projection, if you must avoid withColumn (e.g for performance reasons) then you may specify the DDL via the useType parameter.
+
+## Set 
+
+Although the use of lambda expressions allows you full control of your output expression it can be a bit verbose.  The common use case of defaulting is more easily expressed via the following syntax:
+
+```sql
+set( variable.path = expression to assign, variable2 = other expression, variable3 = expression using currentResult )
+```
+
+Only valid variable names and paths, followed by equal and valid expressions (however complex) are allowed.
+
+The following two folder expressions are equivalent, indeed the set call is translated into the lambda:
+
+```sql
+set( account = concat(currentResult.account, '_suffix'), ammount = 5 )
+
+currentResult -> updateField(currentResult, 'account', concat(currentResult.account, '_suffix'), 'ammount', 5 )
+```
+
+The set syntax defaults the name of the lambda variable to "currentResult" and removes the odd looking quotes around the variable names. 
 
 ## flattenFolderResults
 
