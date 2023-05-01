@@ -65,17 +65,21 @@ object utils {
         Some(
           genArrayCompare(keyValueType(mt.keyType, mt.valueType),
             (left, right) => {
-            val lkv = kr.eval(left.asInstanceOf[InternalRow])
-            val rkv = kr.eval(right.asInstanceOf[InternalRow])
-            val lvv = vr.eval(left.asInstanceOf[InternalRow])
-            val rvv = vr.eval(right.asInstanceOf[InternalRow])
+              val lkv = kr.eval(left.asInstanceOf[InternalRow])
+              val rkv = kr.eval(right.asInstanceOf[InternalRow])
 
-            val r = kt(lkv, rkv)
-            if (r != 0)
-              r
-            else
-              vt(lvv, rvv)
-          })
+              val r = kt(lkv, rkv)
+              if (r != 0)
+                r
+              else {
+                /* shouldn't happen unless MapData is created directly and it's not
+                   actually a map checking on key uniqueness, here for completeness */
+                val lvv = vr.eval(left.asInstanceOf[InternalRow])
+                val rvv = vr.eval(right.asInstanceOf[InternalRow])
+
+                vt(lvv, rvv)
+              }
+            })
         )
       }
       case dt: AtomicType => Some(compareToOrdering(dt.ordering))
