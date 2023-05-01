@@ -350,7 +350,7 @@ functions:
 {% set tag = None %}
 {% set class %}{% if descs.tags and descs.tags|length > 0 %}{% for tag in descs.tags %}{{ tag }} {% endfor %}{% endif %}{% endset %}
 
-##{{ ref }}
+## {{ ref }}
 {{ descs.description }}
 {% if descs.alternatives and descs.alternatives|length > 0 %}
 __Alternatives:__

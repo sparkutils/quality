@@ -55,11 +55,8 @@ object utils {
       case mt: MapType => {
         val kt = defaultMapCompare(mt.keyType, extension).
           getOrElse(sys.error(s"Could not find compare function for map key type ${mt.keyType}"))
-        val vt = defaultMapCompare(mt.valueType, extension).
-          getOrElse(sys.error(s"Could not find compare function for map value type ${mt.valueType}"))
 
         val kr = BoundReference(0, mt.keyType, nullable = true)
-        val vr = BoundReference(1, mt.valueType, nullable = true)
 
         // actual field is in a key val struct
         Some(
@@ -74,6 +71,10 @@ object utils {
               else {
                 /* shouldn't happen unless MapData is created directly and it's not
                    actually a map checking on key uniqueness, here for completeness */
+                val vt = defaultMapCompare(mt.valueType, extension).
+                  getOrElse(sys.error(s"Could not find compare function for map value type ${mt.valueType}"))
+                val vr = BoundReference(1, mt.valueType, nullable = true)
+
                 val lvv = vr.eval(left.asInstanceOf[InternalRow])
                 val rvv = vr.eval(right.asInstanceOf[InternalRow])
 
