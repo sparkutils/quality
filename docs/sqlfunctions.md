@@ -277,8 +277,8 @@ functions:
       
       Valid hashes: MURMUR3_32, MURMUR3_128, MD5, SHA-1, SHA-256, SHA-512, ADLER32, CRC32, SIPHASH24. When an invalid HASH name is provided MURMUR3_128 will be chosen.
       
-      ??? warning "Open source Spark 3.1.2 issues"
-          On Spark 3.1.2 open source this may get resolver errors due to a downgrade on guava version - 15.0 is used on Databricks, open source 3.0.3 uses 16.0.1, 3.1.2 drops this to 11 and misses crc32, sipHash24 and adler32.
+      ??? warning "Open source Spark 3.1.2/3 issues"
+          On Spark 3.1.2/3 open source this may get resolver errors due to a downgrade on guava version - 15.0 is used on Databricks, open source 3.0.3 uses 16.0.1, 3.1.2 drops this to 11 and misses crc32, sipHash24 and adler32.
     tags:
       - Hash      
   prefixedToLongPair:

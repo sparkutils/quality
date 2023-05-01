@@ -4,7 +4,7 @@ import com.sparkutils.quality.impl.{RuleEngineRunner, RuleFolderRunner, RuleRunn
 import com.sparkutils.quality.debugTime
 import com.sparkutils.quality.utils.PassThrough
 import org.apache.spark.sql.catalyst.{CatalystTypeConverters, FunctionIdentifier}
-import org.apache.spark.sql.catalyst.analysis.{Analyzer, FunctionRegistry, ResolveCatalogs, ResolveCreateNamedStruct, ResolveHigherOrderFunctions, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTableValuedFunctions, ResolveTimeZone, ResolveUnion, TimeWindowing, TypeCoercion, UnresolvedFunction}
+import org.apache.spark.sql.catalyst.analysis.{Analyzer, FunctionRegistry, ResolveCatalogs, ResolveHigherOrderFunctions, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTableValuedFunctions, ResolveTimeZone, ResolveUnion, TimeWindowing, TypeCoercion, UnresolvedFunction}
 import org.apache.spark.sql.catalyst.catalog.SessionCatalog
 import org.apache.spark.sql.catalyst.errors.TreeNodeException
 import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Attribute, BindReferences, Cast, EqualNullSafe, Expression, ExpressionInfo, ExpressionSet, Literal}
@@ -179,7 +179,6 @@ object QualitySparkUtils {
         ResolvePartitionSpec ::
         AddMetadataColumns ::
         ResolveReferences ::
-        ResolveCreateNamedStruct ::
         ResolveDeserializer ::
         ResolveNewInstance ::
         ResolveUpCast ::

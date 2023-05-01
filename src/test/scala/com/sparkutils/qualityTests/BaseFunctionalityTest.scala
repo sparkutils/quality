@@ -359,16 +359,20 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     }
 
     // arrays
-    doCheck(Seq(Holder(Map(Seq(1,2) -> 1 )), Holder(Map(Seq(2,1) -> 1 ))))
-    doCheck(Seq(Holder(Map(Seq(1,2) -> 1 )), Holder(Map(Seq(1,2) -> 1 ))), true)
+    doCheck(Seq(Holder(Map(Seq(1,2) -> 1, Seq(2,1) -> 2 )), Holder(Map(Seq(2,1) -> 1, Seq(3,1) -> 1 ))))
+    doCheck(Seq(Holder(Map(Seq(1,2) -> 1, Seq(2,1) -> 1 )), Holder(Map(Seq(2,1) -> 1, Seq(1,2) -> 1 ))), true)
+    doCheck(Seq(Holder(Map(Seq(1,2) -> 1, Seq(2) -> 2 )), Holder(Map(Seq(2) -> 1, Seq(3,1) -> 1 ))))
     // maps
+    doCheck(Seq(Holder(Map(Map(1 -> 2, 2 -> 2) -> 1, Map(3 -> 2, 4 -> 2) -> 1)), Holder(Map(Map(2 -> 1, 1 -> 2) -> 1)))) // 2 -> 2 is different
     doCheck(Seq(Holder(Map(Map(1 -> 2, 2 -> 2) -> 1)), Holder(Map(Map(2 -> 1, 1 -> 2) -> 1)))) // 2 -> 2 is different
     doCheck(Seq(Holder(Map(Map(1 -> 2, 2 -> 1) -> 1)), Holder(Map(Map(2 -> 1, 1 -> 2) -> 1))), true)
+
     // map value
     doCheck(Seq(Holder(Map(1 -> Map(1 -> 2, 2 -> 2))), Holder(Map(1 -> Map(2 -> 1, 1 -> 2))))) // 2 -> 2 is different
     doCheck(Seq(Holder(Map(1 -> Map(1 -> 2, 2 -> 1))), Holder(Map(1 -> Map(2 -> 1, 1 -> 2)))), true)
     // structs
     doCheck(Seq(Holder(Map(TestIdLeft(1, 2) -> 1)), Holder(Map(TestIdLeft(2, 1) -> 1))))
+    doCheck(Seq(Holder(Map(TestIdLeft(1, 2) -> 1, TestIdLeft(2, 2) -> 1)), Holder(Map(TestIdLeft(2, 1) -> 1, TestIdLeft(3, 2) -> 1))))
     doCheck(Seq(Holder(Map(TestIdLeft(1, 2) -> 1)), Holder(Map(TestIdLeft(1, 2) -> 1))), true)
     // struct with map
     val map = Map(1 -> 1, 2 -> 2, 3 -> 3, 4 -> 4)
@@ -481,10 +485,13 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
   @Test
   def mapArrays(): Unit = {
-    // the toArray generic is tested above
     val ar = ArrayData.toArrayData(Seq(0, 1,2,3,4)) // Force GenericArrayData instead of UnsafeArrayData
     val nar = Arrays.mapArray(ar, IntegerType, _.asInstanceOf[Integer] + 1)
     assert((0 until 5).forall(i => nar(i) == i + 1))
+
+    // verify with simple toArray
+    val nar2 = Arrays.toArray(ar, IntegerType)
+    assert((0 until 5).forall(i => nar2(i) == i))
   }
 
 }

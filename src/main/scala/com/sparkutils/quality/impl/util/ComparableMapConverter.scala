@@ -7,6 +7,7 @@ import org.apache.spark.sql.catalyst.expressions.{BoundReference, Expression, Un
 import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, ArrayData, MapData}
 import org.apache.spark.sql.catalyst.{InternalRow, util}
 import org.apache.spark.sql.qualityFunctions.utils
+import org.apache.spark.sql.qualityFunctions.utils.{KeyValueArray, keyValueType}
 import org.apache.spark.sql.types._
 
 trait ComparableMapsImports {
@@ -25,36 +26,36 @@ object ComparableMapConverter {
     new Column(ComparableMapConverter(child.expr, compareF))
 
   def deMapStruct(key: (DataType, Any => Any), value: (DataType, Any => Any), compareLookup: DataType => Option[(Any, Any) => Int]): (DataType, Any => Any) =
-    (ArrayType(StructType(
-      Seq(StructField("key", key._1, false), StructField("value", value._1, false))
-    ), false), {
+    (keyValueType(key._1, value._1), {
       def ensureType(dataType: DataType) =
         dataType match {
           // it it's our converted type we need to "extract" via MapType
           case KeyValueArray(key, value) => MapType(key, value, false)
           case _ => dataType
         }
+
       val actualKeyType = ensureType(key._1)
       val actualValueType = ensureType(value._1)
 
+      val compareF = compareLookup(actualKeyType).getOrElse(
+        sys.error(s"Could not identify the comparison function for type $actualKeyType to order keys")
+      )
+      // for the key type, expanded for 2.4, scala 2.11 support
+      val comparisonOrdering: Ordering[Any] = new Ordering[Any] {
+        override def compare(x: Any, y: Any): Int = compareF(x, y)
+      }
+
       {
         case theMap: MapData =>
-          val compareF = compareLookup(actualKeyType).getOrElse(
-            sys.error(s"Could not identify the comparison function for type $actualKeyType to order keys")
-          )
-          // for the key type, expanded for 2.4, scala 2.11 support
-          val comparisonOrdering: Ordering[Any] = new Ordering[Any] {
-            override def compare(x: Any, y: Any): Int = compareF(x, y)
-          }
 
-          // maps are already converted all the way down before trying to sort
-          val sorted = Arrays.toArray(theMap.keyArray(), actualKeyType).zipWithIndex.sortBy(_._1)(comparisonOrdering)
+          // maps are already converted all the way down before trying to sort by key._2
+          val sorted = Arrays.mapArray(theMap.keyArray(), actualKeyType, key._2).zipWithIndex.sortBy(_._1)(comparisonOrdering)
           val vals = Arrays.toArray(theMap.valueArray(), actualValueType)
 
           // now re-pack as structs
           ArrayData.toArrayData(sorted.map {
             case (tkey, index) =>
-              InternalRow(key._2(tkey), value._2(vals(index)))
+              InternalRow(tkey, value._2(vals(index)))
           })
       }
     }
@@ -93,19 +94,6 @@ object ComparableMapConverter {
         )
       case _ => (dataType, identity)
     }
-
-  object KeyValueArray {
-    def unapply(dataType: DataType): Option[(DataType, DataType)] =
-      dataType match {
-        case arrayType: ArrayType =>
-          arrayType.elementType match {
-            case s : StructType if s.fields.size == 2 && s.fields(0).name == "key" && s.fields(1).name == "value" =>
-              Some((s.fields(0).dataType, s.fields(1).dataType))
-            case _ => None
-          }
-        case _ => None
-      }
-  }
 
   def mapStruct(key: (DataType, Any => Any), value: (DataType, Any => Any)): (DataType, Any => Any) =
     (MapType(key._1, value._1, false),

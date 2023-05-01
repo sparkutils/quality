@@ -37,7 +37,7 @@ The uber test jar artefact starts with 'quality_testshade_' instead of just 'qua
 
 As with any local Spark development, in order to run the tests you must have the vcredist 2010 and winutils packages installed, for Spark 2.4.6 and 3.0 it can be downloaded from [here]().
 
-If you are using 3.1.2 or 3.2 download both the dll and exe from [here](https://github.com/cdarlint/winutils/tree/master/hadoop-3.2.0/bin) and ensure that not only is the HADOOP_HOME defined but that the bin directory within it is on the PATH, you may need to restart Intellij.
+If you are using 3.1.3 or 3.2 download both the dll and exe from [here](https://github.com/cdarlint/winutils/tree/master/hadoop-3.2.0/bin) and ensure that not only is the HADOOP_HOME defined but that the bin directory within it is on the PATH, you may need to restart Intellij.
 
 Also ensure only the correct target Maven profile and source directories are enabled in your IDE of choice. 
 
@@ -70,20 +70,20 @@ The build poms generate those variables via maven profiles, but you are advised 
 The full list of supported runtimes is below:
 
 | Spark Version | sparkShortVersion | qualityRuntime | scalaCompatVersion |
-| - | - | - | - |
-| 2.4.6 | 2.4 | | 2.11 | 
-| 3.0.3 | 3.0 | | 2.12 | 
-| 3.1.2 | 3.1 | | 2.12 | 
-| 3.1.2 | 3.1 | 9.1.dbr_ | 2.12 | 
-| 3.2.0 | 3.2 | | 2.12 | 
-| 3.2.1 | 3.2 | 3.2.1.oss_ | 2.12 | 
-| 3.2.1 | 3.2 | 10.4.dbr_ | 2.12 | 
-| 3.3.0 | 3.3 | 3.3.0.oss_ | 2.12 | 
-| 3.3.0 | 3.3 | 11.3.dbr_ | 2.12 |
-| 3.3.0 | 3.3 | 12.2.dbr_ | 2.12 |
-| 3.4.0 | 3.4 | | 2.12 |
+|---------------| - | - | - |
+| 2.4.6         | 2.4 | | 2.11 | 
+| 3.0.3         | 3.0 | | 2.12 | 
+| 3.1.3         | 3.1 | | 2.12 | 
+| 3.1.3         | 3.1 | 9.1.dbr_ | 2.12 | 
+| 3.2.0         | 3.2 | | 2.12 | 
+| 3.2.1         | 3.2 | 3.2.1.oss_ | 2.12 | 
+| 3.2.1         | 3.2 | 10.4.dbr_ | 2.12 | 
+| 3.3.0         | 3.3 | 3.3.0.oss_ | 2.12 | 
+| 3.3.0         | 3.3 | 11.3.dbr_ | 2.12 |
+| 3.3.0         | 3.3 | 12.2.dbr_ | 2.12 |
+| 3.4.0         | 3.4 | | 2.12 |
 
-2.4 support is deprecated and will be removed in a future version.
+2.4 support is deprecated and will be removed in a future version.  3.1.2 support is replaced by 3.1.3 due to interpreted encoder issues. 
 
 !!! note "Databricks 12.2 is experimental - pending Frameless 3.4 support"
     12.2 LTS is a mix of 3.3.0 and 3.4.0, as such until Frameless supports 3.4 [see here](https://github.com/typelevel/frameless/issues/698).  This _should_ not affect the sql function extensions.
