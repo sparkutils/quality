@@ -1,7 +1,9 @@
 package com.sparkutils.quality
 
+import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.Expression
+import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedFunction}
+import org.apache.spark.sql.catalyst.expressions.{EqualTo, Expression, Literal, UnresolvedNamedLambdaVariable, LambdaFunction => SparkLambdaFunction}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext}
 import org.apache.spark.sql.qualityFunctions.{FunN, LambdaFunctions, RefExpressionLazyType}
 import org.apache.spark.sql.types.Decimal
@@ -228,12 +230,66 @@ trait OutputExprLogic extends HasExpr {
     expr.eval(internalRow)
 }
 
+object UpdateFolderExpression {
+  val currentResult = "currentResult"
+
+  import QualitySparkUtils.UnresolvedFunctionOps
+
+  /**
+   * Uses the template to add the arguments to the underlying updateField, replacing any currentResult's found with the correct
+   * UnresolvedNamedLambdaVariable type.
+   * @param args
+   * @return
+   */
+  def withArgsAndSubstitutedLambdaVariable(args: Seq[Expression]): Expression =
+    template.copy(function =
+      oFunc.withArguments(
+        oFunc.theArguments ++ args)).transform{
+      case a: UnresolvedAttribute if a.nameParts.head == currentResult =>
+        UnresolvedNamedLambdaVariable(a.nameParts)
+    }
+
+  lazy val template = RuleLogicUtils.expr(s"$currentResult -> updateField(currentResult)").asInstanceOf[SparkLambdaFunction]
+  lazy val oFunc = template.function.asInstanceOf[UnresolvedFunction]
+
+}
+
 /**
  * Used as a result of serializing
  * @param rule
  */
-case class OutputExpression( rule: String ) extends OutputExprLogic with HasRuleText {
-  lazy override val expr = RuleLogicUtils.expr(rule)
+case class OutputExpression( rule: String ) extends OutputExprLogic with HasRuleText with Logging {
+  lazy override val expr = {
+    val parsed = RuleLogicUtils.expr(rule)
+    // output expressions can be:
+    // 1. simple expressions for ruleEngine
+    // 2. single argument lambda's returning the same type as the arg for folder
+    // 3. as of 0.0.2 #8 set( attribute = valueExpression, attribute = valueExpression) converted to the form of 2 with an updateField call
+    parsed match {
+      case uf: UnresolvedFunction if VariablesLookup.toName(uf) == "set" =>
+        // case 3
+        val args = QualitySparkUtils.arguments(uf)
+        val paired =
+          args.flatMap {
+            case EqualTo(name: UnresolvedAttribute, right) =>
+              // updateField takes paired args of field names to expression
+              Some(Seq(Literal(name.name), right))
+            case a =>
+              logInfo(s"Attempt to convert set OutputExpression argument $a failed as types do not match expected EqualTo(attribute, expression), will default to full expression")
+              None
+          }
+
+        if (paired.size != args.size)
+          // one of the args didn't match type
+          parsed
+        else
+          // need to keep first arg
+          UpdateFolderExpression.withArgsAndSubstitutedLambdaVariable(paired.flatten)
+      case _ =>
+        // for everything else (1+2) it's already good enough
+        parsed
+    }
+  }
 }
 
 /**

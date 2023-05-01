@@ -252,8 +252,10 @@ class BloomTests extends FunSuite with RowTools with TestUtils {
       case t: Throwable =>
         val spark2_and_3 = t.getMessage.contains("Should have been Short, Long or Integer but was: a UTF8String")
         val spark32 = t.getMessage.contains(" however, ''a'' is of string type")
-        val spark34 = t.getMessage.contains(" however, \"a\" is of \"STRING\" type")
-        assert(spark2_and_3 || spark32 || spark34)
+        // orig spark 3.4 rc1'ish and dbr 11/12
+        val early_spark34_dbr11_n_12 = t.getMessage.contains(" however, \"a\" is of \"STRING\" type")
+        val spark34 = t.getMessage.contains("however \"a\" has the type \"STRING\".")
+        assert(spark2_and_3 || spark32 || spark34 || early_spark34_dbr11_n_12)
     }
     try {
       val interim = orig.select(expr(s"bigBloom(id, 1, 1,'superBloom') as bloom")).head.getAs[Array[Byte]](0)
@@ -262,8 +264,10 @@ class BloomTests extends FunSuite with RowTools with TestUtils {
       case t: Throwable =>
         val spark2_and_3 = t.getMessage.contains("Should have been Double or Decimal but was: 1 Integer")
         val spark32 = t.getMessage.contains(" however, '1' is of int type")
-        val spark34 = t.getMessage.contains(" however, \"1\" is of \"INT\" type")
-        assert(spark2_and_3 || spark32 || spark34)
+        // orig spark 3.4 rc1'ish and dbr 11/12
+        val early_spark34_dbr11_n_12 = t.getMessage.contains(" however, \"1\" is of \"INT\" type")
+        val spark34 = t.getMessage.contains("however \"1\" has the type \"INT\".")
+        assert(spark2_and_3 || spark32 || spark34 || early_spark34_dbr11_n_12)
     }
   }
 }

@@ -223,6 +223,19 @@ functions:
     description: "mapContains(expr, 'mapid') returns true if there is an item in the map"
     tags:
       - map
+  comparableMaps:
+    description: | 
+      comparableMaps(struct | array | map) converts any maps in the input param into sorted arrays of a key, value struct.
+      
+      This allows developers to perform sorts, distincts, group bys and union set operations with Maps, currently not supported by Spark sql as of 3.4.
+            
+      The sorting behaviour uses Sparks existing odering logic but allows for extension during the calls to the registerQualityFunctions via the mapCompare parameter and the defaultMapCompare function.
+    tags:
+      - map
+  reverseComparableMaps:
+    description: "reverses a call to comparableMaps"
+    tags:
+      - map
   saferLongPair:
     description: "deprecated use uniqueId - saferLongPair(expr, 'bloomid') Prefer to use uniqueID, this 'safer' rng repeatedly calls the expr rng function until there is no matching entry in the bloom id.  It returns lower and higher longs."
     tags:
@@ -264,22 +277,26 @@ functions:
       
       Valid hashes: MURMUR3_32, MURMUR3_128, MD5, SHA-1, SHA-256, SHA-512, ADLER32, CRC32, SIPHASH24. When an invalid HASH name is provided MURMUR3_128 will be chosen.
       
-      ??? warning "Open source Spark 3.1.2 issues"
-          On Spark 3.1.2 open source this may get resolver errors due to a downgrade on guava version - 15.0 is used on Databricks, open source 3.0.3 uses 16.0.1, 3.1.2 drops this to 11 and misses crc32, sipHash24 and adler32.
+      ??? warning "Open source Spark 3.1.2/3 issues"
+          On Spark 3.1.2/3 open source this may get resolver errors due to a downgrade on guava version - 15.0 is used on Databricks, open source 3.0.3 uses 16.0.1, 3.1.2 drops this to 11 and misses crc32, sipHash24 and adler32.
     tags:
       - Hash      
   prefixedToLongPair:
     description: |
-      prefixedToLongPair('prefix', field) converts a 128bit longpair field with the given prefix into a higher and lower long pair without prefix.
+      prefixedToLongPair(field, 'prefix') converts a 128bit longpair field with the given prefix into a higher and lower long pair without prefix.
   
       This is suitable for converting provided id's into uuids for example via a further call to rngUUID.   
     tags:
-      - ID, longs      
+      - ID, longs
+  as_uuid:
+    description: "as_uuid(lower_long, higher_long) converts two longs into a uuid, equivalent to rngUUID(longPair(lower, higher))"
+    tags:
+      - longs
   updateField:
     description: |
       updateField(structure_expr, 'field.subfield', replaceWith, 'fieldN', replaceWithN) processes structures allowing you to replace sub items (think lens in functional programming) using the structure fields path name.
 
-      This is wrapped and almost verbatim version of [Make Structs Easier' AddFields](https://raw.githubusercontent.com/fqaiser94/mse/master/src/main/scala/org/apache/spark/sql/catalyst/expressions/AddFields.scala)
+      This is wrapped an almost verbatim version of [Make Structs Easier' AddFields](https://raw.githubusercontent.com/fqaiser94/mse/master/src/main/scala/org/apache/spark/sql/catalyst/expressions/AddFields.scala)
     tags:
       - struct
   \_:
@@ -333,7 +350,7 @@ functions:
 {% set tag = None %}
 {% set class %}{% if descs.tags and descs.tags|length > 0 %}{% for tag in descs.tags %}{{ tag }} {% endfor %}{% endif %}{% endset %}
 
-##{{ ref }}
+## {{ ref }}
 {{ descs.description }}
 {% if descs.alternatives and descs.alternatives|length > 0 %}
 __Alternatives:__

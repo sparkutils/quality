@@ -3,11 +3,11 @@ package org.apache.spark.sql
 import com.sparkutils.quality.impl.{RuleEngineRunner, RuleFolderRunner, RuleRunner, ShowParams}
 import com.sparkutils.quality.debugTime
 import com.sparkutils.quality.utils.PassThrough
-import org.apache.spark.sql.catalyst.CatalystTypeConverters
-import org.apache.spark.sql.catalyst.analysis.{Analyzer, FunctionRegistry, ResolveCatalogs, ResolveCreateNamedStruct, ResolveHigherOrderFunctions, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTableValuedFunctions, ResolveTimeZone, ResolveUnion, TimeWindowing, TypeCoercion, UnresolvedFunction}
+import org.apache.spark.sql.catalyst.{CatalystTypeConverters, FunctionIdentifier}
+import org.apache.spark.sql.catalyst.analysis.{Analyzer, FunctionRegistry, ResolveCatalogs, ResolveHigherOrderFunctions, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTableValuedFunctions, ResolveTimeZone, ResolveUnion, TimeWindowing, TypeCoercion, UnresolvedFunction}
 import org.apache.spark.sql.catalyst.catalog.SessionCatalog
 import org.apache.spark.sql.catalyst.errors.TreeNodeException
-import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Attribute, BindReferences, Cast, EqualNullSafe, Expression, ExpressionSet, Literal}
+import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Attribute, BindReferences, Cast, EqualNullSafe, Expression, ExpressionInfo, ExpressionSet, Literal}
 import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, UnaryNode}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.SparkSqlParser
@@ -21,6 +21,16 @@ import org.apache.spark.util.Utils
  * Set of utilities to reach in to private functions
  */
 object QualitySparkUtils {
+
+  implicit class UnresolvedFunctionOps(unresolvedFunction: UnresolvedFunction) {
+
+    def theArguments: Seq[Expression] =
+      unresolvedFunction.arguments
+
+    def withArguments(children: Seq[Expression]): UnresolvedFunction =
+      unresolvedFunction.copy(arguments = children)
+  }
+
   def isPrimitive(dataType: DataType) = CatalystTypeConverters.isPrimitive(dataType)
 
   /**
@@ -169,7 +179,6 @@ object QualitySparkUtils {
         ResolvePartitionSpec ::
         AddMetadataColumns ::
         ResolveReferences ::
-        ResolveCreateNamedStruct ::
         ResolveDeserializer ::
         ResolveNewInstance ::
         ResolveUpCast ::
@@ -288,5 +297,14 @@ object QualitySparkUtils {
 
   def toString(dataFrame: DataFrame, showParams: ShowParams = ShowParams()) =
     dataFrame.showString(showParams.numRows, showParams.truncate, showParams.vertical)
+
+  /**
+   * Used by the SparkSessionExtensions mechanism
+   * @param extensions
+   * @param name
+   * @param builder
+   */
+  def registerFunctionViaExtension(extensions: SparkSessionExtensions)(name: String, builder: Seq[Expression] => Expression) =
+    extensions.injectFunction( (FunctionIdentifier(name), new ExpressionInfo(name, name) , builder) )
 
 }

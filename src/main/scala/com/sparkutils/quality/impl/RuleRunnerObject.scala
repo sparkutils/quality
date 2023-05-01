@@ -1,17 +1,14 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality.{ExprLogic, RuleSuite}
-import com.sparkutils.quality.impl.id.model
-import com.sparkutils.quality.impl.rng.RandomLongs
-import com.sparkutils.quality.utils.StructFunctions
+import com.sparkutils.quality.utils.{PrintCode, StructFunctions}
 import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.impl.aggregates.AggregateExpressions
 import com.sparkutils.quality.impl.bloom.{BucketedArrayParquetAggregator, ParquetAggregator}
 import com.sparkutils.quality.impl.hash.{HashFunctionFactory, HashFunctionsExpression, MessageDigestFactory, ZALongHashFunctionFactory, ZALongTupleHashFunctionFactory}
 import com.sparkutils.quality.impl.id.{GenericLongBasedIDExpression, GuaranteedUniqueID, GuaranteedUniqueIdIDExpression, model}
 import com.sparkutils.quality.impl.rng.{RandLongsWithJump, RandomBytes, RandomLongs}
-import com.sparkutils.quality.impl.longPair.{LongPairExpression, PrefixedToLongPair}
-import com.sparkutils.quality.utils.{PrintCode, StructFunctions}
+import com.sparkutils.quality.impl.longPair.{AsUUID, LongPairExpression, PrefixedToLongPair}
+import com.sparkutils.quality.impl.util.{ComparableMapConverter, ComparableMapReverser}
 import com.sparkutils.quality.{ExprLogic, RuleSuite, impl}
 import org.apache.commons.rng.simple.RandomSource
 import org.apache.spark.sql.QualitySparkUtils.add
@@ -86,15 +83,19 @@ trait RuleRunnerFunctionsImport {
    * @param zero override zero creation for aggExpr (defaults to defaultZero)
    * @param add override the "add" function for aggExpr types (defaults to defaultAdd(dataType))
    * @param writer override the printCode and printExpr print writing function (defaults to println)
+   * @param register function to register the sql extensions
    */
   def registerQualityFunctions(parseTypes: String => Option[DataType] = defaultParseTypes _,
                                zero: DataType => Option[Any] = defaultZero _,
                                add: DataType => Option[(Expression, Expression) => Expression] = (dataType: DataType) => defaultAdd(dataType),
-                               writer: String => Unit = println(_)
+                               mapCompare: DataType => Option[(Any, Any) => Int] = (dataType: DataType) => utils.defaultMapCompare(dataType),
+                               writer: String => Unit = println(_),
+                               register: (String, Seq[Expression] => Expression) => Unit =
+                                  QualitySparkUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
                        ) {
-    val funcReg = SparkSession.getActiveSession.get.sessionState.functionRegistry
-    val register = QualitySparkUtils.registerFunction(funcReg) _
-    
+    register("comparableMaps", exps => ComparableMapConverter(exps(0), mapCompare))
+    register("reverseComparableMaps", exps => ComparableMapReverser(exps(0)))
+
     val f = (exps: Seq[Expression]) => ProbabilityExpr(exps.head)
     register("probability", f)
     val ff = (exps: Seq[Expression]) => FlattenResultsExpression(exps.head, FlattenStruct.ruleSuiteDeserializer)
@@ -327,6 +328,8 @@ trait RuleRunnerFunctionsImport {
     }
     register("idEqual", idEqual)
 
+    register("as_uuid", exps => AsUUID(exps(0), exps(1)))
+
     register("ruleSuiteResultDetails", (exps: Seq[Expression]) => impl.RuleSuiteResultDetails(exps(0)))
 
     register("digestToLongsStruct", digestToLongs(true))
@@ -499,5 +502,5 @@ object RuleRunnerFunctions {
     "mapLookup","mapContains","saferLongPair","hashWith","hashWithStruct","zaHashWith", "zaHashLongsWith",
     "hashFieldBasedID","zaLongsFieldBasedID","zaHashLongsWithStruct", "zaHashWithStruct", "zaFieldBasedID", "prefixedToLongPair",
     "coalesceIfAttributesMissing", "coalesceIfAttributesMissingDisable", "updateField", LambdaFunctions.PlaceHolder,
-    LambdaFunctions.Lambda, LambdaFunctions.CallFun, "printExpr", "printCode")
+    LambdaFunctions.Lambda, LambdaFunctions.CallFun, "printExpr", "printCode", "comparableMaps", "reverseComparableMaps", "as_uuid")
 }

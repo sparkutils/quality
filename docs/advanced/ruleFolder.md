@@ -31,6 +31,16 @@ RuleSuites are built per the normal DQ rules however a RuleResultProcessor is su
 
 You may use multiple path, expression combinations, to change multiple fields at once - this will be faster than nesting results.
 
+The use of lambda expressions allows you full control of your output expression - but it can be a bit verbose.  The common use case of defaulting is supported however e.g. the following are equivalent:
+
+```sql
+thecurrent -> updateField(thecurrent, 'account', concat(thecurrent.account, '_suffix') )
+set( account, concat(currentResult.account, '_suffix') )
+```
+
+The set syntax defaults the name of the lambda variable to "currentResult" and removes the odd looking quotes around the variables. 
+
+
 ??? warning "Don't use 'current' for a variable on 2.4"
     It may be tempting to use 'current' as your lambda variable name, but this causes problems on 2.4 - every other version doesn't care.
 

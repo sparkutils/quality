@@ -1,12 +1,12 @@
 package org.apache.spark.sql.qualityFunctions
 
+import com.sparkutils.quality.impl.HigherOrderFunctionLike
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
-import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodeGenerator, CodegenContext, CodegenFallback, ExprCode, SimpleExprValue}
-import org.apache.spark.sql.catalyst.expressions.{Expression, HigherOrderFunction, LambdaFunction, LeafExpression, NamedLambdaVariable, NullIntolerant}
-import org.apache.spark.sql.types.{AbstractDataType, DataType}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
-import org.apache.spark.sql.catalyst.expressions.objects.LambdaVariable
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode}
+import org.apache.spark.sql.catalyst.expressions.{Expression, HigherOrderFunction, LambdaFunction, LeafExpression, NamedLambdaVariable}
+import org.apache.spark.sql.types.{AbstractDataType, DataType}
 
 /**
  * Wraps other expressions and stores the result in an RefExpression -
@@ -169,7 +169,7 @@ case class FunForward(children: Seq[Expression])
  */
 case class FunN(arguments: Seq[Expression], function: Expression, name: Option[String] = None,
                 processed: Boolean = false, attemptCodeGen: Boolean = false)
-  extends HigherOrderFunction with CodegenFallback with SeqArgs with FunDoGenCode {
+  extends HigherOrderFunctionLike with CodegenFallback with SeqArgs with FunDoGenCode {
 
   override def prettyName: String = name.getOrElse(super.prettyName)
 
@@ -179,7 +179,7 @@ case class FunN(arguments: Seq[Expression], function: Expression, name: Option[S
 
   override def functionTypes: Seq[AbstractDataType] = Seq(function.dataType)
 
-  override def bind(f: (Expression, Seq[(DataType, Boolean)]) => LambdaFunction): FunN =
+  protected def bindInternal(f: (Expression, Seq[(DataType, Boolean)]) => LambdaFunction): HigherOrderFunction =
     copy(function = f(function,
       arguments.map(e => (e.dataType, e.nullable))))
 

@@ -37,7 +37,7 @@ The uber test jar artefact starts with 'quality_testshade_' instead of just 'qua
 
 As with any local Spark development, in order to run the tests you must have the vcredist 2010 and winutils packages installed, for Spark 2.4.6 and 3.0 it can be downloaded from [here]().
 
-If you are using 3.1.2 or 3.2 download both the dll and exe from [here](https://github.com/cdarlint/winutils/tree/master/hadoop-3.2.0/bin) and ensure that not only is the HADOOP_HOME defined but that the bin directory within it is on the PATH, you may need to restart Intellij.
+If you are using 3.1.3 or 3.2 download both the dll and exe from [here](https://github.com/cdarlint/winutils/tree/master/hadoop-3.2.0/bin) and ensure that not only is the HADOOP_HOME defined but that the bin directory within it is on the PATH, you may need to restart Intellij.
 
 Also ensure only the correct target Maven profile and source directories are enabled in your IDE of choice. 
 
@@ -70,16 +70,23 @@ The build poms generate those variables via maven profiles, but you are advised 
 The full list of supported runtimes is below:
 
 | Spark Version | sparkShortVersion | qualityRuntime | scalaCompatVersion |
-| - | - | - | - |
-| 2.4.6 | 2.4 | | 2.11 | 
-| 3.0.3 | 3.0 | | 2.12 | 
-| 3.1.2 | 3.1 | | 2.12 | 
-| 3.1.2 | 3.1 | 9.1.dbr_ | 2.12 | 
-| 3.2.0 | 3.2 | | 2.12 | 
-| 3.2.1 | 3.2 | 3.2.1.oss_ | 2.12 | 
-| 3.2.1 | 3.2 | 10.4.dbr_ | 2.12 | 
-| 3.3.0 | 3.3 | 3.3.0.oss_ | 2.12 | 
-| 3.3.0 | 3.3 | 11.3.dbr_ | 2.12 | 
+|---------------| - | - | - |
+| 2.4.6         | 2.4 | | 2.11 | 
+| 3.0.3         | 3.0 | | 2.12 | 
+| 3.1.3         | 3.1 | | 2.12 | 
+| 3.1.3         | 3.1 | 9.1.dbr_ | 2.12 | 
+| 3.2.0         | 3.2 | | 2.12 | 
+| 3.2.1         | 3.2 | 3.2.1.oss_ | 2.12 | 
+| 3.2.1         | 3.2 | 10.4.dbr_ | 2.12 | 
+| 3.3.0         | 3.3 | 3.3.0.oss_ | 2.12 | 
+| 3.3.0         | 3.3 | 11.3.dbr_ | 2.12 |
+| 3.3.0         | 3.3 | 12.2.dbr_ | 2.12 |
+| 3.4.0         | 3.4 | | 2.12 |
+
+2.4 support is deprecated and will be removed in a future version.  3.1.2 support is replaced by 3.1.3 due to interpreted encoder issues. 
+
+!!! note "Databricks 12.2 is experimental - pending Frameless 3.4 support"
+    12.2 LTS is a mix of 3.3.0 and 3.4.0, as such until Frameless supports 3.4 [see here](https://github.com/typelevel/frameless/issues/698).  This _should_ not affect the sql function extensions.
 
 ### Developing for a Databricks Runtime
 
@@ -121,6 +128,48 @@ The known combinations requiring this approach is below:
 | 3.2.1 | 3.2 | 3.2.1.oss_ | 10.4.dbr_ | 2.12 | 
 | 3.3.0 | 3.3 | 3.3.0.oss_ | 11.0.dbr_ | 2.12 | 
 
+## Using the SQL functions on Spark Thrift (Hive) servers
+
+Using the configuration option:
+
+```
+spark.sql.extensions=com.sparkutils.quality.impl.extension.QualitySparkExtension
+```
+
+when starting your cluster, with the appropriate compatible Quality runtime jars - the test Shade jar can also be used -, will automatically register the additional SQL functions from Quality.
+
+!!! note "Spark 2.4 runtimes are not supported"
+    2.4 is not supported as Spark doesn't provide for SQL extensions in this version.
+      
+!!! note "Pure SQL only"    
+    Lambdas, blooms and map's cannot be constructed via pure sql, so the functionality of these on Thrift/Hive servers is limited. 
+
+### Configuring on Databricks runtimes
+
+In order to register the extensions on Databricks runtimes you need to additionally create a cluster init script much like:
+
+```bash
+#!/bin/bash
+
+cp /dbfs/FileStore/XXXX-quality_testshade_12_2_ver.jar /databricks/jars/quality_testshade_12_2_ver.jar
+```
+
+where the first path is your uploaded jar location.  You can create this script via a notebook on running cluster in the same workspace with throwaway code much like this:
+
+```scala
+val scriptName = "/dbfs/add_quality_plugin.sh"
+val script = s"""
+#!/bin/bash
+
+cp /dbfs/FileStore/XXXX-quality_testshade_12_2_ver.jar /databricks/jars/quality_testshade_12_2_ver.jar
+"""
+import java.io._
+
+new File(scriptName).createNewFile
+new PrintWriter(scriptName) {write(script); close}
+```
+
+You must still register the Spark config extension attribute, but also make sure the Init script has the same path as the file you created in the above snippet.
 
 ## 2.4 Support requires 2.4.6 or Janino 3.0.16
 

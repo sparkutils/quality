@@ -17,8 +17,7 @@ Write rules using simple SQL or create re-usable functions via SQL Lambdas
 
 Your rules are just versioned data, store them wherever convenient, use them by simply defining a column.
 
-* :new:{.pulseABit} - [Simplified aggExpr](advanced/aggregations.md) - control the types once and handles decimal precision issues
-* :new:{.pulseABit} - [Higher Order Functions](advanced/userFunctions.md#higher-order-functions) - pass lambdas to lambdas, partially apply them, return them and use them in Spark sql functions
+* :new:{.pulseABit} - [comparableMaps](sqlfunctions.md#comparablemaps) - allow unions or sorting with map columns without json serialising and parsing overhead
 
 Rules are evaluated lazily during Spark actions, such as writing a row, with results saved in a single predicatable and extensible column.
 

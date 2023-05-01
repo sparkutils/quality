@@ -2,14 +2,18 @@ package com.sparkutils.qualityTests
 
 import com.sparkutils.quality
 import com.sparkutils.quality.{RuleSuite, ruleRunner}
-import org.apache.spark.sql.{Dataset, Row}
+import org.apache.spark.sql.{Dataset, Row, SQLContext, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.{CodegenObjectFactoryMode, Expression}
 import org.apache.spark.sql.internal.SQLConf
 import org.junit.Before
-
 import java.io.File
 
 trait TestUtils {
+  def sparkSessionF: SparkSession
+  def sqlContextF: SQLContext
+
+  val sparkSession = sparkSessionF
+  val sqlContext = sqlContextF
 
   val outputDir = SparkTestUtils.ouputDir
 
@@ -184,6 +188,12 @@ trait TestUtils {
     if (sparkVersion != "2.4") thunk
 
   /**
+   * Don't run this test on 3.4 - gc's on code gen
+   */
+  def not3_4(thunk: => Unit) =
+    if (sparkVersion != "3.4") thunk
+
+  /**
    * Only run this on 2.4
    * @param thunk
    */
@@ -208,4 +218,19 @@ trait TestUtils {
    */
   def not_Databricks(thunk: => Unit) =
     if (!onDatabricks) thunk
+
+  /**
+   * Checks for an exception, then it's cause(s) for f being true
+   * @param t
+   * @param f
+   * @return
+   */
+  def anyCauseHas(t: Throwable, f: Throwable => Boolean): Boolean =
+    if (f(t))
+      true
+    else
+      if (t.getCause ne null)
+        anyCauseHas(t.getCause, f)
+      else
+        false
 }
