@@ -40,10 +40,21 @@ abstract class AsymmetricFilterExpressions extends Rule[LogicalPlan]
   object Transformer {
     def unapply(plan: LogicalPlan): Option[(Expression, LogicalPlan)] =
       plan match {
-        case Filter(EqualTo(lhs, rhs), child) =>
-          reWriteExpression(lhs, rhs).orElse(
-            reWriteExpression(rhs, lhs)
-          ).map((_,child))
+        case Filter(expr, child) =>
+          var found = false
+          // attempt to find / replace any part of the filter tree
+          val r =
+            expr.transform {
+              case e @ EqualTo(lhs, rhs) =>
+                // flip the sides as needed
+                reWriteExpression(lhs, rhs).orElse(
+                  reWriteExpression(rhs, lhs)
+                ).map{e => found = true; e}.getOrElse(e)
+            }
+          if (found)
+            Some((r, child))
+          else
+            None
         case _ => None
       }
   }
@@ -51,15 +62,6 @@ abstract class AsymmetricFilterExpressions extends Rule[LogicalPlan]
   def apply(plan: LogicalPlan): LogicalPlan = plan transform {
     case Transformer(resulting, child) =>
       Filter(resulting, child)
-    /*case filter @ Filter(condition, child) =>
-      println(s"<--------  did actually get here with $filter")
-      val newFilters = filter.constraints --
-        (child.constraints ++ splitConjunctivePredicates(condition))
-      if (newFilters.nonEmpty) {
-        Filter(And(newFilters.reduce(And), condition), child)
-      } else {
-        filter
-      }*/
   }
 
 }

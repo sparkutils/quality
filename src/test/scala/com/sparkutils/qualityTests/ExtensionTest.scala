@@ -8,7 +8,7 @@ import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.FileSourceScanExec
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.{SQLContext, SparkSession}
+import org.apache.spark.sql.{DataFrame, SQLContext, SparkSession}
 import org.junit.{Before, Test}
 import org.scalatest.FunSuite
 
@@ -92,12 +92,21 @@ class ExtensionTest extends FunSuite with RowTools with TestUtils {
   +--------------------+-------------------+--------------------+
    */
 
+
+  val theuuid = "123e4567-e89b-12d3-a456-42661417400"
+
   @Test
-  def testAsymmetricFilterPlan(): Unit = not2_4 { not_Databricks { // will never work on 2.4 and Databricks has a fixed session
+  def testAsymmetricFilterPlan(): Unit =
+    doTestAsymmetricFilterPlan(Seq(
+      (s" '${theuuid + 6}' = context", theuuid + "6", "expr_rhs"),
+      (s" context = '${theuuid + 6}'", theuuid + "6", "expr_lhs"),
+      (s" '${theuuid + 6}' = context and lower > 0", theuuid + "6", "expr_rhs with further filter"),
+      (s" context = '${theuuid + 6}' and lower > 0", theuuid + "6", "expr_lhs with further filter")
+    ))
+
+  def doTestAsymmetricFilterPlan(filters: Seq[(String, String, String)]): Unit = not2_4 { not_Databricks { // will never work on 2.4 and Databricks has a fixed session
     wrapWithExtension { tsparkSession =>
       import tsparkSession.implicits._
-
-      val theuuid = "123e4567-e89b-12d3-a456-42661417400"
 
       val therows = for (i <- 0 until 10) yield {
         val uuid = theuuid + i
@@ -113,23 +122,24 @@ class ExtensionTest extends FunSuite with RowTools with TestUtils {
       val reread = tsparkSession.read.parquet(outputDir + "/asymfilter")
       val withcontext = reread.selectExpr("*", "as_uuid(lower, higher) as context")
 
-      val ds = withcontext.filter(s"'${theuuid + 6}' = context")
+      filters.foreach{ case (filter, expectedUUID, hint) =>
+        val ds = withcontext.filter(filter)
 
-      val pushdowns = ds.queryExecution.executedPlan.collect {
-        case fs: FileSourceScanExec => fs.metadata.find(pair => pair._1 == "PushedFilters")
-      }.flatten
-      if (pushdowns.isEmpty) {
-        ds.explain(true)
+        val pushdowns = ds.queryExecution.executedPlan.collect {
+          case fs: FileSourceScanExec => fs.metadata.find(pair => pair._1 == "PushedFilters")
+        }.flatten
+        if (pushdowns.isEmpty) {
+          ds.explain(true)
+        }
+        assert(pushdowns.size == 1, hint)
+        val pusheddown = pushdowns.head._2
+        println(s"pushed down $pusheddown")
+        assert(pusheddown != "[]", s"$hint - The predicates were not pushed down")
+
+        val uu = java.util.UUID.fromString(expectedUUID)
+        assert(pusheddown.indexOf(uu.getLeastSignificantBits.toString) > -1, s"$hint - did not have lower uuid predicate")
+        assert(pusheddown.indexOf(uu.getMostSignificantBits.toString) > -1, s"$hint - did not have higher uuid predicate")
       }
-      assert(pushdowns.size == 1)
-      val pusheddown = pushdowns.head._2
-      println(s"pushed down $pusheddown")
-      assert(pusheddown != "[]", "The predicates were not pushed down")
-
-      val uu = java.util.UUID.fromString(theuuid + "6")
-      assert(pusheddown.indexOf(uu.getLeastSignificantBits.toString) > -1)
-      assert(pusheddown.indexOf(uu.getMostSignificantBits.toString) > -1)
-
     }
   }}
 }
