@@ -35,7 +35,7 @@ The uber test jar artefact starts with 'quality_testshade_' instead of just 'qua
 
 ## Running the tests
 
-As with any local Spark development, in order to run the tests you must have the vcredist 2010 and winutils packages installed, for Spark 2.4.6 and 3.0 it can be downloaded from [here]().
+As with any local Spark development, in order to run the tests you must have the vcredist 2010 and winutils packages installed, for Spark 2.4.6 and 3.0 it can be downloaded from [here](https://github.com/cdarlint/winutils/blob/master/hadoop-2.7.7/bin/winutils.exe).
 
 If you are using 3.1.3 or 3.2 download both the dll and exe from [here](https://github.com/cdarlint/winutils/tree/master/hadoop-3.2.0/bin) and ensure that not only is the HADOOP_HOME defined but that the bin directory within it is on the PATH, you may need to restart Intellij.
 

@@ -4,7 +4,8 @@ import com.sparkutils.quality
 
 import java.util.UUID
 import com.sparkutils.quality.impl.extension.{AsUUIDFilter, QualitySparkExtension}
-import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
+import org.apache.spark.sql.catalyst.expressions.{Attribute, EqualTo, And}
+import org.apache.spark.sql.catalyst.plans.logical.{Join, LogicalPlan}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.FileSourceScanExec
 import org.apache.spark.sql.internal.SQLConf
@@ -62,83 +63,101 @@ class ExtensionTest extends FunSuite with RowTools with TestUtils {
     }
   }}
 
-  /*  og is:
-  == Parsed Logical Plan ==
-  'Filter ('context = 123e4567-e89b-12d3-a456-426614174006)
-  +- Project [lower#9L, higher#10L, asuuid(lower#9L, higher#10L) AS context#13]
-     +- Relation[lower#9L,higher#10L] parquet
-
-  == Analyzed Logical Plan ==
-  lower: bigint, higher: bigint, context: string
-  Filter (context#13 = 123e4567-e89b-12d3-a456-426614174006)
-  +- Project [lower#9L, higher#10L, asuuid(lower#9L, higher#10L) AS context#13]
-     +- Relation[lower#9L,higher#10L] parquet
-
-  == Optimized Logical Plan ==
-  Project [lower#9L, higher#10L, asuuid(lower#9L, higher#10L) AS context#13]
-  +- Filter (asuuid(lower#9L, higher#10L) = 123e4567-e89b-12d3-a456-426614174006)
-     +- Relation[lower#9L,higher#10L] parquet
-
-  == Physical Plan ==
-  *(1) Project [lower#9L, higher#10L, asuuid(lower#9L, higher#10L) AS context#13]
-  +- *(1) Filter (asuuid(lower#9L, higher#10L) = 123e4567-e89b-12d3-a456-426614174006)
-     +- *(1) ColumnarToRow
-        +- FileScan parquet [lower#9L,higher#10L] Batched: true, DataFilters: [(asuuid(lower#9L, higher#10L) = 123e4567-e89b-12d3-a456-426614174006)], Format: Parquet, Location: InMemoryFileIndex[file:/C:/Dev/git/quality/target/testData/asymfilter], PartitionFilters: [], PushedFilters: [], ReadSchema: struct<lower:bigint,higher:bigint>
-
-  +--------------------+-------------------+--------------------+
-  |               lower|             higher|             context|
-  +--------------------+-------------------+--------------------+
-  |-6605018797301088250|1314564453825188563|123e4567-e89b-12d...|
-  +--------------------+-------------------+--------------------+
-   */
-
-
   val theuuid = "123e4567-e89b-12d3-a456-42661417400"
 
   @Test
   def testAsymmetricFilterPlan(): Unit =
-    doTestAsymmetricFilterPlan(Seq(
+    doTestAsymmetricFilterPlan(uuidPairsWithContext(""), Seq(
       (s" '${theuuid + 6}' = context", theuuid + "6", "expr_rhs"),
       (s" context = '${theuuid + 6}'", theuuid + "6", "expr_lhs"),
       (s" '${theuuid + 6}' = context and lower > 0", theuuid + "6", "expr_rhs with further filter"),
       (s" context = '${theuuid + 6}' and lower > 0", theuuid + "6", "expr_lhs with further filter")
     ))
 
-  def doTestAsymmetricFilterPlan(filters: Seq[(String, String, String)]): Unit = not2_4 { not_Databricks { // will never work on 2.4 and Databricks has a fixed session
+  val uuidPairsWithContext = (prefix: String) => (tsparkSession: SparkSession) => {
+    import tsparkSession.implicits._
+
+    val therows = for (i <- 0 until 10) yield {
+      val uuid = theuuid + i
+      val uuidobj = java.util.UUID.fromString(uuid)
+      val lower = uuidobj.getLeastSignificantBits
+      val higher = uuidobj.getMostSignificantBits
+      TestPair(lower, higher)
+    }
+
+    // if this is not read from file a LocalRelation will be used and there is no Filter to be pushed down
+    therows.toDS.selectExpr(s"lower as ${prefix}lower", s"higher as ${prefix}higher").write.parquet(outputDir + s"/${prefix}asymfilter")
+
+    val reread = tsparkSession.read.parquet(outputDir + s"/${prefix}asymfilter")
+    val withcontext = reread.selectExpr("*", s"as_uuid(${prefix}lower, ${prefix}higher) as ${prefix}context")
+    withcontext
+  }
+
+  @Test
+  def testAsymmetricFilterPlanJoin(): Unit =
+    doTestAsymmetricFilterPlan(viaJoinOnContext, Seq(
+      (s" '${theuuid + 6}' = acontext", theuuid + "6", "expr_rhs"),
+      (s" acontext = '${theuuid + 6}'", theuuid + "6", "expr_lhs"),
+      (s" '${theuuid + 6}' = acontext and alower > 0", theuuid + "6", "expr_rhs with further filter"),
+      (s" acontext = '${theuuid + 6}' and alower > 0", theuuid + "6", "expr_lhs with further filter")
+    ), true)
+
+  val viaJoinOnContext = (tsparkSession: SparkSession) => {
+    val aWithContext = uuidPairsWithContext("a")(tsparkSession)
+    val bWithContext = uuidPairsWithContext("b")(tsparkSession)
+    import tsparkSession.implicits._
+    aWithContext.join(bWithContext, $"acontext" === $"bcontext")
+  }
+
+  def doTestAsymmetricFilterPlan(withContextF: SparkSession => DataFrame, filters: Seq[(String, String, String)], joinTest: Boolean = false): Unit = not2_4 { not_Databricks { // will never work on 2.4 and Databricks has a fixed session
     wrapWithExtension { tsparkSession =>
-      import tsparkSession.implicits._
-
-      val therows = for (i <- 0 until 10) yield {
-        val uuid = theuuid + i
-        val uuidobj = java.util.UUID.fromString(uuid)
-        val lower = uuidobj.getLeastSignificantBits
-        val higher = uuidobj.getMostSignificantBits
-        TestPair(lower, higher)
-      }
-
-      // if this is not read from file a LocalRelation will be used and there is no Filter to be pushed down
-      therows.toDS.write.parquet(outputDir + "/asymfilter")
-
-      val reread = tsparkSession.read.parquet(outputDir + "/asymfilter")
-      val withcontext = reread.selectExpr("*", "as_uuid(lower, higher) as context")
+      val withcontext = withContextF(tsparkSession)
 
       filters.foreach{ case (filter, expectedUUID, hint) =>
         val ds = withcontext.filter(filter)
 
-        val pushdowns = ds.queryExecution.executedPlan.collect {
-          case fs: FileSourceScanExec => fs.metadata.find(pair => pair._1 == "PushedFilters")
-        }.flatten
+        val pushdowns = SparkTestUtils.getPushDowns( ds.queryExecution.executedPlan )
         if (pushdowns.isEmpty) {
           ds.explain(true)
         }
-        assert(pushdowns.size == 1, hint)
-        val pusheddown = pushdowns.head._2
-        println(s"pushed down $pusheddown")
-        assert(pusheddown != "[]", s"$hint - The predicates were not pushed down")
 
-        val uu = java.util.UUID.fromString(expectedUUID)
-        assert(pusheddown.indexOf(uu.getLeastSignificantBits.toString) > -1, s"$hint - did not have lower uuid predicate")
-        assert(pusheddown.indexOf(uu.getMostSignificantBits.toString) > -1, s"$hint - did not have higher uuid predicate")
+        def verify(pusheddown: String): Unit = {
+          //println(s"pushed down $pusheddown")
+          //assert(pusheddown != "[]", s"$hint - The predicates were not pushed down")
+
+          val uu = java.util.UUID.fromString(expectedUUID)
+          assert(pusheddown.indexOf(uu.getLeastSignificantBits.toString) > -1, s"$hint - did not have lower uuid predicate")
+          assert(pusheddown.indexOf(uu.getMostSignificantBits.toString) > -1, s"$hint - did not have higher uuid predicate")
+        }
+
+        // although we are only testing for one side in the join test spark will propagate the filter to both sides
+        if (joinTest) {
+          // verify that the join itself was re-written
+          /*
+          == Optimized Logical Plan ==
+          Join Inner, ((alower#13L = blower#34L) AND (ahigher#14L = bhigher#35L))
+           */
+
+          val res =
+            ds.queryExecution.optimizedPlan.collect {
+              case j: Join =>
+                j.condition.flatMap{
+                  case And(EqualTo(alower: Attribute, blower: Attribute),EqualTo(ahigher: Attribute, bhigher: Attribute))
+                    if alower.name == "alower" && blower.name == "blower" &&
+                      ahigher.name == "ahigher" && bhigher.name == "bhigher"
+                  =>
+                    Some(true)
+                  case _ => None
+                }
+            }.flatten
+          assert(res.nonEmpty, s"$hint - did not have re-written join")
+
+          // both sides should have pushdown
+          assert(pushdowns.size == 2, hint)
+        } else
+          assert(pushdowns.size == 1, hint)
+
+        pushdowns.foreach(p => verify(p))
       }
     }
   }}
