@@ -4,6 +4,7 @@ import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.FunctionIdentifier
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.execution.{FileSourceScanExec, SparkPlan}
+import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanExec
 import org.apache.spark.sql.internal.SQLConf
 
 import java.util.concurrent.atomic.AtomicReference
@@ -43,8 +44,13 @@ object SparkTestUtils {
     Some(sparkSession.sessionState.catalog.lookupFunction(FunctionIdentifier(name), exps))
 
   def getPushDowns(sparkPlan: SparkPlan): Seq[String] =
-    sparkPlan.collect {
+    (if (sparkPlan.children.isEmpty)
+    // assume it's AQE
+      sparkPlan.asInstanceOf[AdaptiveSparkPlanExec].initialPlan
+    else
+      sparkPlan).collect {
       case fs: FileSourceScanExec =>
         fs.metadata.collect { case ("PushedFilters", value) if value != "[]" => value }
     }.flatten
+
 }
