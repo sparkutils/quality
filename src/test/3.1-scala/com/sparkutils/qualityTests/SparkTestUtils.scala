@@ -43,10 +43,13 @@ object SparkTestUtils {
   def resolveBuiltinOrTempFunction(sparkSession: SparkSession)(name: String, exps: Seq[Expression]): Option[Expression] =
     Some(sparkSession.sessionState.catalog.lookupFunction(FunctionIdentifier(name), exps))
 
+  val field = classOf[AdaptiveSparkPlanExec].getDeclaredField("initialPlan")
+  field.setAccessible(true)
+
   def getPushDowns(sparkPlan: SparkPlan): Seq[String] =
     (if (sparkPlan.children.isEmpty)
     // assume it's AQE
-      sparkPlan.asInstanceOf[AdaptiveSparkPlanExec].initialPlan
+      (field.get(sparkPlan).asInstanceOf[SparkPlan])
     else
       sparkPlan).collect {
       case fs: FileSourceScanExec =>
