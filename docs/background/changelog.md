@@ -1,5 +1,7 @@
 ### 0.0.2 <small>28th March, 2023</small>
 
+#9 - Add AsymmetricFilterExpressions with AsUUID implementation, allows expressions used in field selects to be reversed, support added for optimiser rules through the SparkExtension 
+
 #8 - Add set syntax for easier defaulting sql, removing duplicative cruft from intention
 
 #7 - SparkSessionExtension to auto register Quality functions - does not work in 2.4, starting with this release 2.4 support is deprecated

@@ -4,7 +4,8 @@ import com.sparkutils.quality
 
 import java.util.UUID
 import com.sparkutils.quality.impl.extension.{AsUUIDFilter, QualitySparkExtension}
-import org.apache.spark.sql.catalyst.expressions.{Attribute, EqualTo, And}
+import com.sparkutils.quality.registerQualityFunctions
+import org.apache.spark.sql.catalyst.expressions.{And, Attribute, EqualTo}
 import org.apache.spark.sql.catalyst.plans.logical.{Join, LogicalPlan}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.FileSourceScanExec
@@ -65,14 +66,29 @@ class ExtensionTest extends FunSuite with RowTools with TestUtils {
 
   val theuuid = "123e4567-e89b-12d3-a456-42661417400"
 
+  // pretty much only for databricks
+  def wrapWithExistingSession(thunk: SparkSession => Unit): Unit = {
+    val tsparkSession = sparkSessionF
+    thunk(tsparkSession)
+  }
+
   @Test
-  def testAsymmetricFilterPlan(): Unit =
+  def testAsymmetricFilterPlan(): Unit = not_Databricks { // will never work on 2.4 and Databricks has a fixed session
+    doAsymmetricFilterPlanCall()
+  }
+
+  @Test
+  def testAsymmetricFilterPlanViaExistingSession(): Unit = onlyWithExtension {
+    doAsymmetricFilterPlanCall(wrapWithExistingSession _)
+  }
+
+  def doAsymmetricFilterPlanCall(viaExtension: (SparkSession => Unit) => Unit = wrapWithExtension _): Unit =
     doTestAsymmetricFilterPlan(uuidPairsWithContext(""), Seq(
       (s" '${theuuid + 6}' = context", theuuid + "6", "expr_rhs"),
       (s" context = '${theuuid + 6}'", theuuid + "6", "expr_lhs"),
       (s" '${theuuid + 6}' = context and lower > 0", theuuid + "6", "expr_rhs with further filter"),
       (s" context = '${theuuid + 6}' and lower > 0", theuuid + "6", "expr_lhs with further filter")
-    ))
+    ), viaExtension = viaExtension)
 
   val uuidPairsWithContext = (prefix: String) => (tsparkSession: SparkSession) => {
     import tsparkSession.implicits._
@@ -94,13 +110,22 @@ class ExtensionTest extends FunSuite with RowTools with TestUtils {
   }
 
   @Test
-  def testAsymmetricFilterPlanJoin(): Unit =
+  def testAsymmetricFilterPlanJoin(): Unit = not_Databricks {
+    doTestAsymmetricFilterPlanJoin()
+  }
+
+  @Test
+  def testAsymmetricFilterPlanJoinViaExistingSession(): Unit = onlyWithExtension {
+    doTestAsymmetricFilterPlanJoin(wrapWithExistingSession _)
+  }
+
+  def doTestAsymmetricFilterPlanJoin(viaExtension: (SparkSession => Unit) => Unit = wrapWithExtension _): Unit =
     doTestAsymmetricFilterPlan(viaJoinOnContext, Seq(
       (s" '${theuuid + 6}' = acontext", theuuid + "6", "expr_rhs"),
       (s" acontext = '${theuuid + 6}'", theuuid + "6", "expr_lhs"),
       (s" '${theuuid + 6}' = acontext and alower > 0", theuuid + "6", "expr_rhs with further filter"),
       (s" acontext = '${theuuid + 6}' and alower > 0", theuuid + "6", "expr_lhs with further filter")
-    ), true)
+    ), true, viaExtension = viaExtension)
 
   val viaJoinOnContext = (tsparkSession: SparkSession) => {
     val aWithContext = uuidPairsWithContext("a")(tsparkSession)
@@ -109,8 +134,9 @@ class ExtensionTest extends FunSuite with RowTools with TestUtils {
     aWithContext.join(bWithContext, $"acontext" === $"bcontext")
   }
 
-  def doTestAsymmetricFilterPlan(withContextF: SparkSession => DataFrame, filters: Seq[(String, String, String)], joinTest: Boolean = false): Unit = not2_4 { not_Databricks { // will never work on 2.4 and Databricks has a fixed session
-    wrapWithExtension { tsparkSession =>
+  def doTestAsymmetricFilterPlan(withContextF: SparkSession => DataFrame, filters: Seq[(String, String, String)],
+                                 joinTest: Boolean = false, viaExtension: (SparkSession => Unit) => Unit = wrapWithExtension _): Unit = not2_4 {
+    viaExtension { tsparkSession: SparkSession =>
       val withcontext = withContextF(tsparkSession)
 
       filters.foreach{ case (filter, expectedUUID, hint) =>
@@ -160,7 +186,7 @@ class ExtensionTest extends FunSuite with RowTools with TestUtils {
         pushdowns.foreach(p => verify(p))
       }
     }
-  }}
+  }
 }
 
 case class TestPair(lower: Long, higher: Long)

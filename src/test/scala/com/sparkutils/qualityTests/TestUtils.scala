@@ -224,6 +224,16 @@ trait TestUtils {
     if (!onDatabricks) thunk
 
   /**
+   * Only run when the extension is enabled
+   */
+  def onlyWithExtension(thunk: => Unit) = {
+    val extensions = sparkSession.sparkContext.getConf.get("spark.sql.extensions","")
+    if (extensions.indexOf("com.sparkutils.quality.impl.extension.QualitySparkExtension") > -1) {
+      thunk
+    }
+  }
+
+  /**
    * Checks for an exception, then it's cause(s) for f being true
    * @param t
    * @param f
