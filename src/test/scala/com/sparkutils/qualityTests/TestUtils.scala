@@ -29,11 +29,15 @@ trait TestUtils {
     sys.props.put("spark.testing","yes yes it is")
   }
 
-  @Before
-  def setup(): Unit = {
+  def cleanupOutput(): Unit = {
     import scala.reflect.io.Directory
     val outdir = new Directory(new java.io.File(outputDir))
     outdir.deleteRecursively()
+  }
+
+  @Before
+  def setup(): Unit = {
+    cleanupOutput()
     quality.registerQualityFunctions()
   }
 
