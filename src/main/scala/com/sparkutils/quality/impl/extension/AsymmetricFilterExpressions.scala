@@ -29,21 +29,29 @@ abstract class AsymmetricFilterExpressions extends Rule[LogicalPlan]
   with PredicateHelper with ConstraintHelper {
 
   /**
-   * The generating expression used by an alias or directly to match on
-   * @return
-   */
-  def matchOnExpression: PartialFunction[Expression, Expression]
-
-  /**
    * Should the matchOnExpression be defined in a filter provide the rewrite.
+   *
    * @param comparedTo can be used transparently, irrespective of usage (NamedExpression, Expression etc.)
    * @param generating the underlying expression which is generating either an Alias or the direct expression itself
-   * @return a rewritten expression tree, logically the opposite of the generating expression
+   * @return a rewritten expression tree, logically the opposite of the generating expression or None where generating does not match
    */
-  def reWriteExpression(generating: Expression, comparedTo: Expression): Expression
+  def reWriteExpression(generating: Expression, comparedTo: Expression): Option[Expression]
+
+  object Transformer {
+    def unapply(plan: LogicalPlan): Option[(Expression, LogicalPlan)] =
+      plan match {
+        case Filter(EqualTo(lhs, rhs), child) =>
+          reWriteExpression(lhs, rhs).orElse(
+            reWriteExpression(rhs, lhs)
+          ).map((_,child))
+        case _ => None
+      }
+  }
 
   def apply(plan: LogicalPlan): LogicalPlan = plan transform {
-    case filter @ Filter(condition, child) =>
+    case Transformer(resulting, child) =>
+      Filter(resulting, child)
+    /*case filter @ Filter(condition, child) =>
       println(s"<--------  did actually get here with $filter")
       val newFilters = filter.constraints --
         (child.constraints ++ splitConjunctivePredicates(condition))
@@ -51,7 +59,7 @@ abstract class AsymmetricFilterExpressions extends Rule[LogicalPlan]
         Filter(And(newFilters.reduce(And), condition), child)
       } else {
         filter
-      }
+      }*/
   }
 
 }
@@ -60,25 +68,12 @@ abstract class AsymmetricFilterExpressions extends Rule[LogicalPlan]
  * Optimises as_uuid usage for filters on the generated value, swapping out for long lookups
  */
 object AsUUIDFilter extends AsymmetricFilterExpressions {
-  /**
-   * The generating expression used by an alias or directly to match on
-   *
-   * @return
-   */
-  override def matchOnExpression: PartialFunction[Expression, Expression] = {
-    case a@ AsUUID(lower, higher) =>
-      a
-  }
 
-  /**
-   * Should the matchOnExpression be defined in a filter provide the rewrite.
-   *
-   * @param comparedTo can be used transparently, irrespective of usage (NamedExpression, Expression etc.)
-   * @param generating the underlying expression which is generating either an Alias or the direct expression itself
-   * @return a rewritten expression tree, logically the opposite of the generating expression
-   */
-  override def reWriteExpression(generating: Expression, comparedTo: Expression): Expression = generating match {
+  override def reWriteExpression(generating: Expression, comparedTo: Expression): Option[Expression] = generating match {
     case a@AsUUID(lower, higher) =>
-      And( EqualTo( GetStructField( UUIDToLongsExpression(comparedTo), 0) , lower), EqualTo( GetStructField( UUIDToLongsExpression(comparedTo), 1 ), higher) )
+      Some(
+        And( EqualTo( GetStructField( UUIDToLongsExpression(comparedTo), 0) , lower), EqualTo( GetStructField( UUIDToLongsExpression(comparedTo), 1 ), higher) )
+      )
+    case _ => None
   }
 }
