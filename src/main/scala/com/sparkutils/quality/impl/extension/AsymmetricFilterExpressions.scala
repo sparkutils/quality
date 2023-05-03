@@ -129,7 +129,7 @@ object AsUUIDFilter extends AsymmetricFilterExpressions {
 
   override def reWriteExpression(generating: Expression, comparedTo: Object,
                                  filter: Expression): Option[Expression] = {
-    val create = AsymmetricFilterExpressions.create(filter,_,_)
+    val create = AsymmetricFilterExpressions.create(filter,_: Expression,_: Expression)
     (generating, comparedTo, filter) match {
       // join case (possibly a filter)
       case (AsUUID(alower, ahigher), AsUUID(blower, bhigher), Equality(_,_) ) =>
@@ -153,7 +153,7 @@ object AsUUIDFilter extends AsymmetricFilterExpressions {
         Some(
           And( In(struct(lower, higher), l.map(structg _)),
             And( In(lower, l.map(t => GetStructField(UUIDToLongsExpression(t), 0))),
-              In(higher, l.map(t => GetStructField(UUIDToLongsExpression(t), 1))),
+              In(higher, l.map(t => GetStructField(UUIDToLongsExpression(t), 1)))
             ))
         )
       // join + filter
