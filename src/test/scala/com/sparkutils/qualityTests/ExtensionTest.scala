@@ -1,18 +1,13 @@
 package com.sparkutils.qualityTests
 
-import com.sparkutils.quality
-
-import java.util.UUID
-import com.sparkutils.quality.impl.extension.{AsUUIDFilter, QualitySparkExtension}
-import com.sparkutils.quality.registerQualityFunctions
-import org.apache.spark.sql.catalyst.expressions.{And, Attribute, EqualTo}
-import org.apache.spark.sql.catalyst.plans.logical.{Join, LogicalPlan}
-import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.sql.execution.FileSourceScanExec
-import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.{DataFrame, SQLContext, SparkSession}
+import com.sparkutils.quality.impl.extension.QualitySparkExtension
+import org.apache.spark.sql.catalyst.expressions.{And, Attribute, BinaryComparison, EqualTo, Equality, Or}
+import org.apache.spark.sql.catalyst.plans.logical.Join
+import org.apache.spark.sql.{Column, DataFrame, SparkSession}
 import org.junit.{Before, Test}
 import org.scalatest.FunSuite
+
+import java.util.UUID
 
 // including rowtools so standalone tests behave as if all of them are running and for verify compatibility
 class ExtensionTest extends FunSuite with RowTools with TestUtils {
@@ -113,28 +108,81 @@ class ExtensionTest extends FunSuite with RowTools with TestUtils {
   }
 
   @Test
-  def testAsymmetricFilterPlanJoin(): Unit = not_Databricks {
-    doTestAsymmetricFilterPlanJoin()
+  def testAsymmetricFilterPlanJoinEq(): Unit = not_Databricks {
+    doTestAsymmetricFilterPlanJoin(wrapWithExtension _, "eq", (l, r) => l.===(r))
   }
 
   @Test
-  def testAsymmetricFilterPlanJoinViaExistingSession(): Unit = onlyWithExtension {
-    doTestAsymmetricFilterPlanJoin(wrapWithExistingSession _)
+  def testAsymmetricFilterPlanJoinEqViaExistingSession(): Unit = onlyWithExtension {
+    doTestAsymmetricFilterPlanJoin(wrapWithExistingSession _, "eq", (l, r) => l.===(r))
   }
 
-  def doTestAsymmetricFilterPlanJoin(viaExtension: (SparkSession => Unit) => Unit = wrapWithExtension _): Unit =
-    doTestAsymmetricFilterPlan(viaJoinOnContext, Seq(
-      (s" '${theuuid + 6}' = acontext", theuuid + "6", "expr_rhs"),
-      (s" acontext = '${theuuid + 6}'", theuuid + "6", "expr_lhs"),
-      (s" '${theuuid + 6}' = acontext and bhigher > 0", theuuid + "6", "expr_rhs with further filter"),
-      (s" acontext = '${theuuid + 6}' and bhigher > 0", theuuid + "6", "expr_lhs with further filter")
+  @Test
+  def testAsymmetricFilterPlanJoinEQN(): Unit = not_Databricks {
+    doTestAsymmetricFilterPlanJoin(wrapWithExtension _, "eqn", (l, r) => l.<=>(r))
+  }
+
+  @Test
+  def testAsymmetricFilterPlanJoinEQNViaExistingSession(): Unit = onlyWithExtension {
+    doTestAsymmetricFilterPlanJoin(wrapWithExistingSession _, "eqn", (l, r) => l.<=>(r))
+  }
+
+  @Test
+  def testAsymmetricFilterPlanJoinLt(): Unit = not_Databricks {
+    doTestAsymmetricFilterPlanJoin(wrapWithExtension _, "lt", (l, r) => l.<(r))
+  }
+
+  @Test
+  def testAsymmetricFilterPlanJoinLtViaExistingSession(): Unit = onlyWithExtension {
+    doTestAsymmetricFilterPlanJoin(wrapWithExistingSession _, "lt", (l, r) => l.<(r))
+  }
+
+  @Test
+  def testAsymmetricFilterPlanJoinLte(): Unit = not_Databricks {
+    doTestAsymmetricFilterPlanJoin(wrapWithExtension _, "lte", (l, r) => l.<=(r))
+  }
+
+  @Test
+  def testAsymmetricFilterPlanJoinLteViaExistingSession(): Unit = onlyWithExtension {
+    doTestAsymmetricFilterPlanJoin(wrapWithExistingSession _, "lte", (l, r) => l.<=(r))
+  }
+
+  @Test
+  def testAsymmetricFilterPlanJoinGt(): Unit = not_Databricks {
+    doTestAsymmetricFilterPlanJoin(wrapWithExtension _, "gt", (l, r) => l.>(r))
+  }
+
+  @Test
+  def testAsymmetricFilterPlanJoinGtViaExistingSession(): Unit = onlyWithExtension {
+    doTestAsymmetricFilterPlanJoin(wrapWithExistingSession _, "gt", (l, r) => l.>(r))
+  }
+
+
+  @Test
+  def testAsymmetricFilterPlanJoinGte(): Unit = not_Databricks {
+    doTestAsymmetricFilterPlanJoin(wrapWithExtension _, "gte", (l, r) => l.>=(r))
+  }
+
+  @Test
+  def testAsymmetricFilterPlanJoinGteViaExistingSession(): Unit = onlyWithExtension {
+    doTestAsymmetricFilterPlanJoin(wrapWithExistingSession _, "gte", (l, r) => l.>=(r))
+  }
+
+  def doTestAsymmetricFilterPlanJoin(viaExtension: (SparkSession => Unit) => Unit, hint: String,
+                                     joinOp: (Column, Column) => Column): Unit =
+    doTestAsymmetricFilterPlan(viaJoinOnContext(joinOp), Seq(
+      (s" '${theuuid + 6}' = acontext", theuuid + "6", s"expr_rhs $hint"),
+      (s" acontext = '${theuuid + 6}'", theuuid + "6", s"expr_lhs $hint"),
+      (s" '${theuuid + 6}' = acontext and bhigher > 0", theuuid + "6", s"expr_rhs with further filter $hint"),
+      (s" acontext = '${theuuid + 6}' and bhigher > 0", theuuid + "6", s"expr_lhs with further filter $hint"),
+      (s" acontext > '${theuuid + 6}' and bhigher > 0", theuuid + "6", s"expr_lhs gt with further filter $hint")
     ), true, viaExtension = viaExtension)
 
-  val viaJoinOnContext = (tsparkSession: SparkSession) => {
+  val viaJoinOnContext = (comp: (Column, Column) => Column) => (tsparkSession: SparkSession) => {
     val aWithContext = uuidPairsWithContext("a")(tsparkSession)
     val bWithContext = uuidPairsWithContext("b")(tsparkSession)
     import tsparkSession.implicits._
-    aWithContext.join(bWithContext, $"acontext" === $"bcontext")
+    aWithContext.join(bWithContext, comp($"acontext" , $"bcontext"))
   }
 
   def doTestAsymmetricFilterPlan(withContextF: SparkSession => DataFrame, filters: Seq[(String, String, String)],
@@ -145,18 +193,24 @@ class ExtensionTest extends FunSuite with RowTools with TestUtils {
       filters.foreach{ case (filter, expectedUUID, hint) =>
         val ds = withcontext.filter(filter)
 
+        def assertWithPlan(condition: Boolean, hint: Any) = {
+          if (!condition) {
+            println(s"<---- filter was $filter")
+            ds.explain(true)
+          }
+          assert(condition, hint)
+        }
+
         val pushdowns = SparkTestUtils.getPushDowns( ds.queryExecution.executedPlan )
         if (pushdowns.isEmpty) {
           ds.explain(true)
         }
 
-        def verify(pusheddown: String): Unit = {
-          //println(s"pushed down $pusheddown")
-          //assert(pusheddown != "[]", s"$hint - The predicates were not pushed down")
-
+        def verify(pusheddown: String): Boolean = {
           val uu = java.util.UUID.fromString(expectedUUID)
-          assert(pusheddown.indexOf(uu.getLeastSignificantBits.toString) > -1, s"$hint - did not have lower uuid predicate")
-          assert(pusheddown.indexOf(uu.getMostSignificantBits.toString) > -1, s"$hint - did not have higher uuid predicate")
+          // for equals
+          pusheddown.indexOf(uu.getLeastSignificantBits.toString) > -1 &&
+          pusheddown.indexOf(uu.getMostSignificantBits.toString) > -1
         }
 
         // although we are only testing for one side in the join test spark will propagate the filter to both sides
@@ -165,28 +219,36 @@ class ExtensionTest extends FunSuite with RowTools with TestUtils {
           /*
           == Optimized Logical Plan ==
           Join Inner, ((alower#13L = blower#34L) AND (ahigher#14L = bhigher#35L))
+          or for > than
+          (((ahigher#14L = bhigher#36L) AND (alower#13L > blower#35L)) OR (ahigher#14L > bhigher#36L))
            */
 
           val res =
             ds.queryExecution.optimizedPlan.collect {
               case j: Join =>
                 j.condition.flatMap{
-                  case And(EqualTo(alower: Attribute, blower: Attribute),EqualTo(ahigher: Attribute, bhigher: Attribute))
+                  case And(Equality(alower: Attribute, blower: Attribute),Equality(ahigher: Attribute, bhigher: Attribute))
                     if alower.name == "alower" && blower.name == "blower" &&
-                      ahigher.name == "ahigher" && bhigher.name == "bhigher"
-                  =>
+                      ahigher.name == "ahigher" && bhigher.name == "bhigher" =>
+                    Some(true)
+                  case Or(And(EqualTo(achigher: Attribute, bchigher: Attribute),
+                    a@BinaryComparison(alower: Attribute, blower: Attribute)), b@BinaryComparison(ahigher: Attribute, bhigher: Attribute))
+                    if alower.name == "alower" && blower.name == "blower" &&
+                      ahigher.name == "ahigher" && bhigher.name == "bhigher" &&
+                      achigher.name == "ahigher" && bchigher.name == "bhigher" &&
+                      a.getClass.getName == b.getClass.getName =>
                     Some(true)
                   case _ => None
                 }
             }.flatten
-          assert(res.nonEmpty, s"$hint - did not have re-written join")
+          assertWithPlan(res.nonEmpty, s"$hint - did not have re-written join")
 
-          // both sides should have pushdown
-          assert(pushdowns.size == 2, hint)
+          // both sides should have pushdown for equals, but for gt,lt etc. it'll be one sided for some, not for others
+          assertWithPlan(pushdowns.nonEmpty, hint)
         } else
-          assert(pushdowns.size == 1, hint)
+          assertWithPlan(pushdowns.size == 1, hint)
 
-        pushdowns.foreach(p => verify(p))
+        assertWithPlan(pushdowns.exists(p => verify(p)), s"$hint - did not have a pushdown with the lower and higher uuid predicates but $pushdowns")
       }
     }
   }
