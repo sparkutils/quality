@@ -114,7 +114,6 @@ object AsymmetricFilterExpressions {
   def create(expressionTemplate: Expression, left: Expression, right: Expression): Expression = expressionTemplate match {
     case a:EqualTo => EqualTo(left, right)
     case a:EqualNullSafe => EqualNullSafe(left, right)
-    case a:EqualNullSafe => EqualNullSafe(left, right)
     case a:LessThan => LessThan(left, right)
     case a:LessThanOrEqual => LessThanOrEqual(left, right)
     case a:GreaterThan => GreaterThan(left, right)
