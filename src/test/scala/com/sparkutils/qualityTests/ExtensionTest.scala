@@ -1,14 +1,14 @@
 package com.sparkutils.qualityTests
 
-import com.sparkutils.quality.impl.extension.{AsUUIDFilter, QualitySparkExtension}
+import com.sparkutils.quality.impl.extension.{AsUUIDFilter, ExtensionTesting, QualitySparkExtension}
 import com.sparkutils.quality.impl.extension.QualitySparkExtension.disableRulesConf
+import com.sparkutils.quality.utils.Testing
 import org.apache.spark.sql.catalyst.expressions.{And, Attribute, BinaryComparison, EqualTo, Equality, Or}
 import org.apache.spark.sql.catalyst.plans.logical.Join
 import org.apache.spark.sql.{Column, DataFrame, SparkSession}
 import org.junit.{Before, Test}
 import org.scalatest.FunSuite
 
-import java.io.{ByteArrayOutputStream, PrintStream}
 import java.util.UUID
 
 // including rowtools so standalone tests behave as if all of them are running and for verify compatibility
@@ -66,30 +66,13 @@ class ExtensionTest extends FunSuite with RowTools with TestUtils {
     }
   }}
 
-  def grabStdOut(thunk: => Unit): String = {
-    val oout = System.out
-    try {
-      val baos = new ByteArrayOutputStream();
-      System.setOut(new PrintStream(baos));
-      thunk
-      val str = baos.toString()
-      str
-    } catch {
-      case _:Throwable => ""
-    } finally {
-      System.setOut(oout)
-    }
-  }
-
   @Test
   def testExtensionDisableSpecific(): Unit = not2_4 {
     not_Databricks { // will never work on 2.4 and Databricks has a fixed session
-      val str =
-        grabStdOut {
-          wrapWithExtensionT(tsparkSession => {
-
-          }, AsUUIDFilter.getClass.getName)
-        }
+      Testing.test {
+        wrapWithExtensionT(tsparkSession => { }, AsUUIDFilter.getClass.getName)
+      }
+      val str = ExtensionTesting.disableRuleResult
       assert(str.indexOf(s"${disableRulesConf} = Set(${AsUUIDFilter.getClass.getName}) leaving List() remaining" ) > -1, s"str didn't have the expected contents, got $str")
     }
   }
@@ -97,12 +80,10 @@ class ExtensionTest extends FunSuite with RowTools with TestUtils {
   @Test
   def testExtensionDisableStar(): Unit = not2_4 {
     not_Databricks { // will never work on 2.4 and Databricks has a fixed session
-      val str =
-        grabStdOut {
-          wrapWithExtensionT(tsparkSession => {
-
-          }, "*")
-        }
+      Testing.test {
+        wrapWithExtensionT(tsparkSession => {}, "*")
+      }
+      val str = ExtensionTesting.disableRuleResult
       assert(str.indexOf(s"${disableRulesConf} = ") == -1, s"str did have an entry, should not have been logged, got $str")
     }
   }

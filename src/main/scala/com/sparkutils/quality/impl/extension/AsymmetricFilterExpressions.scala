@@ -11,15 +11,15 @@ import org.apache.spark.sql.types.StringType
 /**
  * Replaces any attributes aliased by an expression which is then used in select filters / constraints wth
  * constituent predicates that can be pushed down.  A simple example is:
- *
+ * {{{
  *     select as_uuid(lower, higher) as context
  *     where context = 'string'
-
+ * }}}
  * this would be replaced with:
- *
+ * {{{
  *     select as_uuid(lower, higher) as context
  *     where (lower = longPairFromUUID('string').lower and higher = longPairFromUUID('string').higher)
- *
+ * }}}
  * in the case of the string being a constant, constant folding should replace both of these with simple lookups that are easy to push down.
  *
  * *NB.* Pushdown predicates based on constant folding only work via the SparkExtension approach, the use of experimental.extraOptimizations does provide this as it happens too late in the plans

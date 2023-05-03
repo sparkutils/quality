@@ -1,6 +1,7 @@
 package com.sparkutils.quality.impl.extension
 
 import com.sparkutils.quality.impl.extension.QualitySparkExtension.disableRulesConf
+import com.sparkutils.quality.utils.Testing
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.{QualitySparkUtils, SparkSession, SparkSessionExtensions}
 import org.apache.spark.sql.catalyst.expressions.Expression
@@ -43,15 +44,25 @@ class QualitySparkExtension extends ((SparkSessionExtensions) => Unit) with Logg
       register = QualitySparkUtils.registerFunctionViaExtension(extensions) _
     )
 
+    if (Testing.testing) {
+      ExtensionTesting.disableRuleResult = ""
+    }
     val disableConf = com.sparkutils.quality.getConfig(disableRulesConf)
     if (disableConf != "*") {
       val disabledRules = disableConf.split(",").map(_.trim).toSet
       val filteredRules = optimiserRules.filterNot(p => disabledRules.contains(p._1.trim))
       val str = s"$disableRulesConf = $disabledRules leaving ${filteredRules.map(_._1)} remaining"
       logInfo(str)
-      println(str) // for testing
+      if (Testing.testing) {
+        ExtensionTesting.disableRuleResult = str
+      }
       filteredRules.map(_._2).foreach(extensions.injectOptimizerRule _)
     }
   }
 
+}
+
+private[sparkutils] object ExtensionTesting {
+  // whilst clearly not threadsafe it should only be called during single threaded 'driver' testing
+  var disableRuleResult: String = ""
 }
