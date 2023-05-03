@@ -82,13 +82,16 @@ class ExtensionTest extends FunSuite with RowTools with TestUtils {
     doAsymmetricFilterPlanCall(wrapWithExistingSession _)
   }
 
-  def doAsymmetricFilterPlanCall(viaExtension: (SparkSession => Unit) => Unit = wrapWithExtension _): Unit =
+  def doAsymmetricFilterPlanCall(viaExtension: (SparkSession => Unit) => Unit = wrapWithExtension _): Unit = {
+    val uu = java.util.UUID.fromString(theuuid + 6)
     doTestAsymmetricFilterPlan(uuidPairsWithContext(""), Seq(
       (s" '${theuuid + 6}' = context", theuuid + "6", "expr_rhs"),
       (s" context = '${theuuid + 6}'", theuuid + "6", "expr_lhs"),
       (s" '${theuuid + 6}' = context and lower < 0", theuuid + "6", "expr_rhs with further filter"),
-      (s" context = '${theuuid + 6}' and lower < 0", theuuid + "6", "expr_lhs with further filter")
+      (s" context = '${theuuid + 6}' and lower < 0", theuuid + "6", "expr_lhs with further filter"),
+      (s" context in ('${theuuid + 6}', '${theuuid + 4}')", theuuid + "6", "with in")
     ), viaExtension = viaExtension)
+  }
 
   val uuidPairsWithContext = (prefix: String) => (tsparkSession: SparkSession) => {
     import tsparkSession.implicits._

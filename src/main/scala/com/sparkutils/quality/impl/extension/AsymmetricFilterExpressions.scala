@@ -2,10 +2,11 @@ package com.sparkutils.quality.impl.extension
 
 import com.sparkutils.quality.PredicateHelperPlus
 import com.sparkutils.quality.impl.UUIDToLongsExpression
-import com.sparkutils.quality.impl.longPair.AsUUID
-import org.apache.spark.sql.catalyst.expressions.{And, EqualTo, Expression, GetStructField}
+import com.sparkutils.quality.impl.longPair.{AsUUID, LongPair}
+import org.apache.spark.sql.catalyst.expressions.{And, CreateNamedStruct, CreateStruct, EqualTo, Expression, GetStructField, In, Literal}
 import org.apache.spark.sql.catalyst.plans.logical.{ConstraintHelper, Filter, Join, LogicalPlan}
 import org.apache.spark.sql.catalyst.rules.Rule
+import org.apache.spark.sql.types.StringType
 
 /**
  * Replaces any attributes aliased by an expression which is then used in select filters / constraints wth
@@ -30,16 +31,21 @@ abstract class AsymmetricFilterExpressions extends Rule[LogicalPlan]
    * Should the matchOnExpression be defined in a filter provide the rewrite.  It's possible for joins that both comparedTo AND generating are the
    * same expression type, this should be explicitly checked for.
    *
-   * @param comparedTo can be used transparently, irrespective of usage (NamedExpression, Expression etc.)
    * @param generating the underlying expression which is generating either an Alias or the direct expression itself
+   * @param comparedTo either an Expression for BinaryComparison where it can be used transparently, irrespective of usage (NamedExpression, Expression etc.), or Seq[Expression] for In's.
+   *                   Where In's are used and the re-write involves structures you should aim to repeat the constituent parts as separate In's in order to get predicate push down
    * @return a rewritten expression tree, logically the opposite of the generating expression or None where generating does not match
    */
-  def reWriteExpression(generating: Expression, comparedTo: Expression): Option[Expression]
+  def reWriteExpression(generating: Expression, comparedTo: Object): Option[Expression]
 
   // attempt to find / replace any part of the filter tree
   def transform(expr: Expression, topPlan: LogicalPlan): (Expression, Boolean) = {
     var found = false
     (expr.transform {
+      case i@In(expr, list) =>
+        findRootExpression(expr, topPlan).map { lhs =>
+          reWriteExpression(lhs, list).map { e => found = true; e }.getOrElse(i)
+        }.getOrElse(i)
       case e@EqualTo(elhs, erhs) =>
         findRootExpression(elhs, topPlan).flatMap{ a =>
           val rhs = findRootExpression(erhs, topPlan)
@@ -103,16 +109,31 @@ abstract class AsymmetricFilterExpressions extends Rule[LogicalPlan]
  */
 object AsUUIDFilter extends AsymmetricFilterExpressions {
 
-  override def reWriteExpression(generating: Expression, comparedTo: Expression): Option[Expression] = (generating, comparedTo) match {
-    // join case
+  override def reWriteExpression(generating: Expression, comparedTo: Object): Option[Expression] = (generating, comparedTo) match {
+    // join case (possibly a filter)
     case (AsUUID(alower, ahigher), AsUUID(blower, bhigher)) =>
       Some(
         And(EqualTo(alower, blower), EqualTo(ahigher, bhigher))
       )
-    // filter case
-    case (AsUUID(lower, higher), _) =>
+    // filter case's
+    case (AsUUID(lower, higher), c: Expression) if c.dataType == StringType =>
       Some(
-        And( EqualTo( GetStructField( UUIDToLongsExpression(comparedTo), 0) , lower), EqualTo( GetStructField( UUIDToLongsExpression(comparedTo), 1 ), higher) )
+        And( EqualTo( GetStructField( UUIDToLongsExpression(c), 0) , lower), EqualTo( GetStructField( UUIDToLongsExpression(c), 1 ), higher) )
+      )
+    // In verifies the rest of the seq are the same type
+    case (a@AsUUID(lower, higher), l: Seq[Expression]) if l.headOption.exists(_.dataType == StringType) =>
+      def struct(lower: Expression, higher: Expression): Expression =
+        CreateNamedStruct(Seq(Literal("lower"), lower,
+          Literal("higher"), higher))
+
+      def structg(expr: Expression): Expression =
+        struct( GetStructField(UUIDToLongsExpression(expr), 0), GetStructField(UUIDToLongsExpression(expr), 1))
+
+      Some(
+        And( In(struct(lower, higher), l.map(structg _)),
+          And( In(lower, l.map(t => GetStructField(UUIDToLongsExpression(t), 0))),
+            In(higher, l.map(t => GetStructField(UUIDToLongsExpression(t), 1))),
+          ))
       )
     case _ => None
   }
