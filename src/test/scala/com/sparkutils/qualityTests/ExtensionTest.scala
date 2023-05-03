@@ -1,12 +1,14 @@
 package com.sparkutils.qualityTests
 
-import com.sparkutils.quality.impl.extension.QualitySparkExtension
+import com.sparkutils.quality.impl.extension.{AsUUIDFilter, QualitySparkExtension}
+import com.sparkutils.quality.impl.extension.QualitySparkExtension.disableRulesConf
 import org.apache.spark.sql.catalyst.expressions.{And, Attribute, BinaryComparison, EqualTo, Equality, Or}
 import org.apache.spark.sql.catalyst.plans.logical.Join
 import org.apache.spark.sql.{Column, DataFrame, SparkSession}
 import org.junit.{Before, Test}
 import org.scalatest.FunSuite
 
+import java.io.{ByteArrayOutputStream, PrintStream}
 import java.util.UUID
 
 // including rowtools so standalone tests behave as if all of them are running and for verify compatibility
@@ -17,7 +19,9 @@ class ExtensionTest extends FunSuite with RowTools with TestUtils {
     cleanupOutput()
   }
 
-  def wrapWithExtension(thunk: SparkSession => Unit): Unit = {
+  def wrapWithExtension(thunk: SparkSession => Unit): Unit = wrapWithExtensionT(thunk)
+
+  def wrapWithExtensionT(thunk: SparkSession => Unit, disableConf: String = ""): Unit = {
     var tsparkSession: SparkSession = null
 
     try {
@@ -26,6 +30,7 @@ class ExtensionTest extends FunSuite with RowTools with TestUtils {
       } catch {
         case t: Throwable => fail("Could not shut down the wrapping spark", t)
       }
+      System.setProperty(QualitySparkExtension.disableRulesConf, disableConf)
       // attempt to create a new session
       tsparkSession = SparkSession.builder().config("spark.master", s"local[$hostMode]").config("spark.ui.enabled", false).
         config("spark.sql.extensions", classOf[QualitySparkExtension].getName())
@@ -39,7 +44,9 @@ class ExtensionTest extends FunSuite with RowTools with TestUtils {
         if (tsparkSession ne null) {
           tsparkSession.close()
         }
-      } finally {}
+      } finally {
+        System.clearProperty(QualitySparkExtension.disableRulesConf)
+      }
     }
 
   }
@@ -58,6 +65,47 @@ class ExtensionTest extends FunSuite with RowTools with TestUtils {
       assert(sres == uuid)
     }
   }}
+
+  def grabStdOut(thunk: => Unit): String = {
+    val oout = System.out
+    try {
+      val baos = new ByteArrayOutputStream();
+      System.setOut(new PrintStream(baos));
+      thunk
+      val str = baos.toString()
+      str
+    } catch {
+      case _:Throwable => ""
+    } finally {
+      System.setOut(oout)
+    }
+  }
+
+  @Test
+  def testExtensionDisableSpecific(): Unit = not2_4 {
+    not_Databricks { // will never work on 2.4 and Databricks has a fixed session
+      val str =
+        grabStdOut {
+          wrapWithExtensionT(tsparkSession => {
+
+          }, AsUUIDFilter.getClass.getName)
+        }
+      assert(str.indexOf(s"${disableRulesConf} = Set(${AsUUIDFilter.getClass.getName}) leaving List() remaining" ) > -1, s"str didn't have the expected contents, got $str")
+    }
+  }
+
+  @Test
+  def testExtensionDisableStar(): Unit = not2_4 {
+    not_Databricks { // will never work on 2.4 and Databricks has a fixed session
+      val str =
+        grabStdOut {
+          wrapWithExtensionT(tsparkSession => {
+
+          }, "*")
+        }
+      assert(str.indexOf(s"${disableRulesConf} = ") == -1, s"str did have an entry, should not have been logged, got $str")
+    }
+  }
 
   val theuuid = "123e4567-e89b-12d3-a456-42661417400"
 

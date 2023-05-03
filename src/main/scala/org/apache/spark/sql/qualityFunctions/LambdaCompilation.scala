@@ -123,18 +123,7 @@ object LambdaCompilationUtils {
 
   val lambdaENV = "quality.lambdaHandlers"
 
-  def getLambdaEnv = {
-    val res = System.getenv(lambdaENV)
-    if (res ne null)
-      res
-    else {
-      val sp = System.getProperty(lambdaENV)
-      if (sp ne null)
-        sp
-      else
-        SQLConf.get.getConfString(lambdaENV, "")
-    }
-  }
+  def getLambdaEnv = com.sparkutils.quality.getConfig(lambdaENV)
 
   /**
    * Parses lambda handlers from the quality.lambdaHandlers environment variable as a comma separated lambda|fqn=fqn pair.
