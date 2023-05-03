@@ -86,8 +86,8 @@ class ExtensionTest extends FunSuite with RowTools with TestUtils {
     doTestAsymmetricFilterPlan(uuidPairsWithContext(""), Seq(
       (s" '${theuuid + 6}' = context", theuuid + "6", "expr_rhs"),
       (s" context = '${theuuid + 6}'", theuuid + "6", "expr_lhs"),
-      (s" '${theuuid + 6}' = context and lower > 0", theuuid + "6", "expr_rhs with further filter"),
-      (s" context = '${theuuid + 6}' and lower > 0", theuuid + "6", "expr_lhs with further filter")
+      (s" '${theuuid + 6}' = context and lower < 0", theuuid + "6", "expr_rhs with further filter"),
+      (s" context = '${theuuid + 6}' and lower < 0", theuuid + "6", "expr_lhs with further filter")
     ), viaExtension = viaExtension)
 
   val uuidPairsWithContext = (prefix: String) => (tsparkSession: SparkSession) => {
@@ -123,8 +123,8 @@ class ExtensionTest extends FunSuite with RowTools with TestUtils {
     doTestAsymmetricFilterPlan(viaJoinOnContext, Seq(
       (s" '${theuuid + 6}' = acontext", theuuid + "6", "expr_rhs"),
       (s" acontext = '${theuuid + 6}'", theuuid + "6", "expr_lhs"),
-      (s" '${theuuid + 6}' = acontext and alower > 0", theuuid + "6", "expr_rhs with further filter"),
-      (s" acontext = '${theuuid + 6}' and alower > 0", theuuid + "6", "expr_lhs with further filter")
+      (s" '${theuuid + 6}' = acontext and bhigher > 0", theuuid + "6", "expr_rhs with further filter"),
+      (s" acontext = '${theuuid + 6}' and bhigher > 0", theuuid + "6", "expr_lhs with further filter")
     ), true, viaExtension = viaExtension)
 
   val viaJoinOnContext = (tsparkSession: SparkSession) => {

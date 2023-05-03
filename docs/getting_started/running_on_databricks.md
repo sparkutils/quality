@@ -64,9 +64,9 @@ Ideally at the end of your runs you'll see - after 10 minutes or so and some std
 ```
 Time: 682.626
 
-OK (214 tests)
+OK (228 tests)
 
-Finished. Result: Failures: 0. Ignored: 0. Tests run: 214. Time: 682626ms.
+Finished. Result: Failures: 0. Ignored: 0. Tests run: 228. Time: 682626ms.
 import com.sparkutils.quality.tests.TestSuite
 import com.sparkutils.qualityTests.SparkTestUtils
 fileLoc: String = /dbfs/databricks/quality_test

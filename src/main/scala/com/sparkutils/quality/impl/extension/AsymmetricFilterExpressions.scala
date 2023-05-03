@@ -2,13 +2,10 @@ package com.sparkutils.quality.impl.extension
 
 import com.sparkutils.quality.PredicateHelperPlus
 import com.sparkutils.quality.impl.UUIDToLongsExpression
-import com.sparkutils.quality.impl.longPair.{AsUUID, LongPair}
-import org.apache.spark.sql.catalyst.expressions.{And, BoundReference, EqualTo, Expression, ExpressionSet, GetStructField, Literal, PredicateHelper}
-import org.apache.spark.sql.catalyst.optimizer.InferFiltersFromConstraints.{constructIsNotNullConstraints, inferAdditionalConstraints, splitConjunctivePredicates}
-import org.apache.spark.sql.catalyst.plans.{InnerLike, LeftAnti, LeftOuter, LeftSemi, RightOuter}
+import com.sparkutils.quality.impl.longPair.AsUUID
+import org.apache.spark.sql.catalyst.expressions.{And, EqualTo, Expression, GetStructField}
 import org.apache.spark.sql.catalyst.plans.logical.{ConstraintHelper, Filter, Join, LogicalPlan}
 import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.sql.internal.SQLConf
 
 /**
  * Replaces any attributes aliased by an expression which is then used in select filters / constraints wth
