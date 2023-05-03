@@ -26,29 +26,29 @@
 </span>2 <span style=''>
 </span>3 <span style=''>import com.sparkutils.quality.PredicateHelperPlus
 </span>4 <span style=''>import com.sparkutils.quality.impl.UUIDToLongsExpression
-</span>5 <span style=''>import com.sparkutils.quality.impl.longPair.{AsUUID, LongPair}
-</span>6 <span style=''>import org.apache.spark.sql.catalyst.expressions.{And, BoundReference, EqualTo, Expression, ExpressionSet, GetStructField, Literal, PredicateHelper}
-</span>7 <span style=''>import org.apache.spark.sql.catalyst.optimizer.InferFiltersFromConstraints.{constructIsNotNullConstraints, inferAdditionalConstraints, splitConjunctivePredicates}
-</span>8 <span style=''>import org.apache.spark.sql.catalyst.plans.{InnerLike, LeftAnti, LeftOuter, LeftSemi, RightOuter}
-</span>9 <span style=''>import org.apache.spark.sql.catalyst.plans.logical.{ConstraintHelper, Filter, Join, LogicalPlan}
-</span>10 <span style=''>import org.apache.spark.sql.catalyst.rules.Rule
-</span>11 <span style=''>import org.apache.spark.sql.internal.SQLConf
-</span>12 <span style=''>
-</span>13 <span style=''>/**
-</span>14 <span style=''> * Replaces any attributes aliased by an expression which is then used in select filters / constraints wth
-</span>15 <span style=''> * constituent predicates that can be pushed down.  A simple example is:
-</span>16 <span style=''> * ```
-</span>17 <span style=''> *   select as_uuid(lower, higher) as context
-</span>18 <span style=''> *   where context = 'string'
-</span>19 <span style=''> * ```
-</span>20 <span style=''> * this would be replaced with:
-</span>21 <span style=''> * ```
-</span>22 <span style=''> *   select as_uuid(lower, higher) as context
-</span>23 <span style=''> *   where (lower = longPairFromUUID('string').lower and higher = longPairFromUUID('string').higher)
-</span>24 <span style=''> * ```
-</span>25 <span style=''> * in the case of the string being a constant, constant folding should replace both of these with simple lookups that are easy to push down.
+</span>5 <span style=''>import com.sparkutils.quality.impl.longPair.AsUUID
+</span>6 <span style=''>import org.apache.spark.sql.catalyst.expressions.{And, BinaryComparison, CreateNamedStruct, EqualNullSafe, EqualTo, Equality, Expression, GetStructField, GreaterThan, GreaterThanOrEqual, In, LessThan, LessThanOrEqual, Literal, Or}
+</span>7 <span style=''>import org.apache.spark.sql.catalyst.plans.logical.{ConstraintHelper, Filter, Join, LogicalPlan}
+</span>8 <span style=''>import org.apache.spark.sql.catalyst.rules.Rule
+</span>9 <span style=''>import org.apache.spark.sql.types.StringType
+</span>10 <span style=''>
+</span>11 <span style=''>/**
+</span>12 <span style=''> * Replaces any attributes aliased by an expression which is then used in select filters / constraints wth
+</span>13 <span style=''> * constituent predicates that can be pushed down.  A simple example is:
+</span>14 <span style=''> *
+</span>15 <span style=''> *     select as_uuid(lower, higher) as context
+</span>16 <span style=''> *     where context = 'string'
+</span>17 <span style=''>
+</span>18 <span style=''> * this would be replaced with:
+</span>19 <span style=''> *
+</span>20 <span style=''> *     select as_uuid(lower, higher) as context
+</span>21 <span style=''> *     where (lower = longPairFromUUID('string').lower and higher = longPairFromUUID('string').higher)
+</span>22 <span style=''> *
+</span>23 <span style=''> * in the case of the string being a constant, constant folding should replace both of these with simple lookups that are easy to push down.
+</span>24 <span style=''> *
+</span>25 <span style=''> * *NB.* Pushdown predicates based on constant folding only work via the SparkExtension approach, the use of experimental.extraOptimizations does provide this as it happens too late in the plans
 </span>26 <span style=''> *
-</span>27 <span style=''> * Only EqualTo is supported currently and expressions not used in select (i.e. as_uuid(lower ,higher) = 'uuid-string'
+</span>27 <span style=''> * Only In and BinaryComparison's are supported currently
 </span>28 <span style=''> */
 </span>29 <span style=''>abstract class AsymmetricFilterExpressions extends Rule[LogicalPlan]
 </span>30 <span style=''>  with PredicateHelperPlus with ConstraintHelper {
@@ -57,94 +57,147 @@
 </span>33 <span style=''>   * Should the matchOnExpression be defined in a filter provide the rewrite.  It's possible for joins that both comparedTo AND generating are the
 </span>34 <span style=''>   * same expression type, this should be explicitly checked for.
 </span>35 <span style=''>   *
-</span>36 <span style=''>   * @param comparedTo can be used transparently, irrespective of usage (NamedExpression, Expression etc.)
-</span>37 <span style=''>   * @param generating the underlying expression which is generating either an Alias or the direct expression itself
-</span>38 <span style=''>   * @return a rewritten expression tree, logically the opposite of the generating expression or None where generating does not match
-</span>39 <span style=''>   */
-</span>40 <span style=''>  def reWriteExpression(generating: Expression, comparedTo: Expression): Option[Expression]
-</span>41 <span style=''>
-</span>42 <span style=''>  // attempt to find / replace any part of the filter tree
-</span>43 <span style=''>  def transform(expr: Expression, topPlan: LogicalPlan): (Expression, Boolean) = {
-</span>44 <span style=''>    var found = </span><span style='background: #AEF1AE'>false</span><span style=''>
-</span>45 <span style=''>    </span><span style='background: #AEF1AE'>(expr.transform {
-</span>46 <span style=''></span><span style='background: #AEF1AE'>      case e@EqualTo(elhs, erhs) =&gt;
-</span>47 <span style=''></span><span style='background: #AEF1AE'>        findRootExpression(elhs, topPlan).flatMap{ a =&gt;
-</span>48 <span style=''></span><span style='background: #AEF1AE'>          val rhs = findRootExpression(erhs, topPlan)
-</span>49 <span style=''></span><span style='background: #AEF1AE'>          rhs.map( b =&gt; (a, b) )
-</span>50 <span style=''></span><span style='background: #AEF1AE'>        }.map {
-</span>51 <span style=''></span><span style='background: #AEF1AE'>          case (lhs, rhs) =&gt;
-</span>52 <span style=''></span><span style='background: #AEF1AE'>            // flip the sides as needed
-</span>53 <span style=''></span><span style='background: #AEF1AE'>            reWriteExpression(lhs, rhs).orElse(
-</span>54 <span style=''></span><span style='background: #AEF1AE'>              reWriteExpression(rhs, lhs)
-</span>55 <span style=''></span><span style='background: #AEF1AE'>            ).map { e =&gt; found = true; e }.getOrElse(e)
-</span>56 <span style=''></span><span style='background: #AEF1AE'>        }.getOrElse(e)
-</span>57 <span style=''></span><span style='background: #AEF1AE'>    }, found)</span><span style=''>
-</span>58 <span style=''>  }
-</span>59 <span style=''>
-</span>60 <span style=''>  class FilterTransformer(topPlan: LogicalPlan) {
-</span>61 <span style=''>    def unapply(plan: LogicalPlan): Option[(Expression, LogicalPlan)] =
-</span>62 <span style=''>      plan match {
-</span>63 <span style=''>        case Filter(expr, child) =&gt;
-</span>64 <span style=''>          val (r, found) = transform(expr, topPlan)
-</span>65 <span style=''>          if (found)
-</span>66 <span style=''>            </span><span style='background: #AEF1AE'>Some((r, child))</span><span style=''>
-</span>67 <span style=''>          else
-</span>68 <span style=''>            </span><span style='background: #AEF1AE'>None</span><span style=''>
-</span>69 <span style=''>        case _ =&gt; </span><span style='background: #AEF1AE'>None</span><span style=''>
-</span>70 <span style=''>      }
-</span>71 <span style=''>  }
-</span>72 <span style=''>
-</span>73 <span style=''>  class JoinTransformer(topPlan: LogicalPlan) {
-</span>74 <span style=''>    def unapply(plan: LogicalPlan): Option[Join] =
-</span>75 <span style=''>      plan match {
-</span>76 <span style=''>        case j: Join =&gt;
-</span>77 <span style=''>          // attempt re-write for join
-</span>78 <span style=''>          </span><span style='background: #AEF1AE'>j.condition.flatMap { condition =&gt;
-</span>79 <span style=''></span><span style='background: #AEF1AE'>
-</span>80 <span style=''></span><span style='background: #AEF1AE'>            val (r, found) = transform(condition, topPlan)
-</span>81 <span style=''></span><span style='background: #AEF1AE'>
-</span>82 <span style=''></span><span style='background: #AEF1AE'>            if (found)
-</span>83 <span style=''></span><span style='background: #AEF1AE'>              Some(j.copy(condition = Some(r)))
-</span>84 <span style=''></span><span style='background: #AEF1AE'>            else
-</span>85 <span style=''></span><span style='background: #AEF1AE'>              None
-</span>86 <span style=''></span><span style='background: #AEF1AE'>          }</span><span style=''>
-</span>87 <span style=''>        case _ =&gt; </span><span style='background: #AEF1AE'>None</span><span style=''>
-</span>88 <span style=''>      }
-</span>89 <span style=''>  }
-</span>90 <span style=''>
-</span>91 <span style=''>  def apply(plan: LogicalPlan): LogicalPlan = {
-</span>92 <span style=''>    val FilterT = </span><span style='background: #AEF1AE'>new FilterTransformer(plan)</span><span style=''>
-</span>93 <span style=''>    val JoinT = </span><span style='background: #AEF1AE'>new JoinTransformer(plan)</span><span style=''>
-</span>94 <span style=''>    </span><span style='background: #AEF1AE'>plan transform {
-</span>95 <span style=''></span><span style='background: #AEF1AE'>      case FilterT(resulting, child) =&gt;
-</span>96 <span style=''></span><span style='background: #AEF1AE'>        Filter(resulting, child)
-</span>97 <span style=''></span><span style='background: #AEF1AE'>      case JoinT(join) =&gt;
-</span>98 <span style=''></span><span style='background: #AEF1AE'>        join
-</span>99 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
-</span>100 <span style=''>  }
-</span>101 <span style=''>
-</span>102 <span style=''>}
-</span>103 <span style=''>
-</span>104 <span style=''>/**
-</span>105 <span style=''> * Optimises as_uuid usage for filters on the generated value, swapping out for long lookups
-</span>106 <span style=''> */
-</span>107 <span style=''>object AsUUIDFilter extends AsymmetricFilterExpressions {
-</span>108 <span style=''>
-</span>109 <span style=''>  override def reWriteExpression(generating: Expression, comparedTo: Expression): Option[Expression] = (generating, comparedTo) match {
-</span>110 <span style=''>    // join case
-</span>111 <span style=''>    case (AsUUID(alower, ahigher), AsUUID(blower, bhigher)) =&gt;
-</span>112 <span style=''>      </span><span style='background: #AEF1AE'>Some(
-</span>113 <span style=''></span><span style='background: #AEF1AE'>        And(EqualTo(alower, blower), EqualTo(ahigher, bhigher))
-</span>114 <span style=''></span><span style='background: #AEF1AE'>      )</span><span style=''>
-</span>115 <span style=''>    // filter case
-</span>116 <span style=''>    case (AsUUID(lower, higher), _) =&gt;
-</span>117 <span style=''>      </span><span style='background: #AEF1AE'>Some(
-</span>118 <span style=''></span><span style='background: #AEF1AE'>        And( EqualTo( GetStructField( UUIDToLongsExpression(comparedTo), 0) , lower), EqualTo( GetStructField( UUIDToLongsExpression(comparedTo), 1 ), higher) )
-</span>119 <span style=''></span><span style='background: #AEF1AE'>      )</span><span style=''>
-</span>120 <span style=''>    case _ =&gt; </span><span style='background: #AEF1AE'>None</span><span style=''>
-</span>121 <span style=''>  }
-</span>122 <span style=''>
+</span>36 <span style=''>   * @param generating the underlying expression which is generating either an Alias or the direct expression itself
+</span>37 <span style=''>   * @param comparedTo either an Expression for BinaryComparison where it can be used transparently, irrespective of usage (NamedExpression, Expression etc.), or Seq[Expression] for In's.
+</span>38 <span style=''>   *                   Where In's are used and the re-write involves structures you should aim to repeat the constituent parts as separate In's in order to get predicate push down
+</span>39 <span style=''>   * @param filter the Expression used in the filter e.g. EqualTo, In, GreaterThan etc.
+</span>40 <span style=''>   * @return a rewritten expression tree, logically the opposite of the generating expression or None where generating does not match
+</span>41 <span style=''>   */
+</span>42 <span style=''>  def reWriteExpression(generating: Expression, comparedTo: Object, filter: Expression): Option[Expression]
+</span>43 <span style=''>
+</span>44 <span style=''>  // attempt to find / replace any part of the filter tree
+</span>45 <span style=''>  def transform(expr: Expression, topPlan: LogicalPlan): (Expression, Boolean) = {
+</span>46 <span style=''>    var found = </span><span style='background: #AEF1AE'>false</span><span style=''>
+</span>47 <span style=''>    </span><span style='background: #AEF1AE'>(expr.transform {
+</span>48 <span style=''></span><span style='background: #AEF1AE'>      case i@In(expr, list) =&gt;
+</span>49 <span style=''></span><span style='background: #AEF1AE'>        findRootExpression(expr, topPlan).map { lhs =&gt;
+</span>50 <span style=''></span><span style='background: #AEF1AE'>          reWriteExpression(lhs, list, i).map { e =&gt; found = true; e }.getOrElse(i)
+</span>51 <span style=''></span><span style='background: #AEF1AE'>        }.getOrElse(i)
+</span>52 <span style=''></span><span style='background: #AEF1AE'>      case e@BinaryComparison(elhs, erhs) =&gt;
+</span>53 <span style=''></span><span style='background: #AEF1AE'>        findRootExpression(elhs, topPlan).flatMap{ a =&gt;
+</span>54 <span style=''></span><span style='background: #AEF1AE'>          val rhs = findRootExpression(erhs, topPlan)
+</span>55 <span style=''></span><span style='background: #AEF1AE'>          rhs.map( b =&gt; (a, b) )
+</span>56 <span style=''></span><span style='background: #AEF1AE'>        }.map {
+</span>57 <span style=''></span><span style='background: #AEF1AE'>          case (lhs, rhs) =&gt;
+</span>58 <span style=''></span><span style='background: #AEF1AE'>            // flip the sides as needed
+</span>59 <span style=''></span><span style='background: #AEF1AE'>            reWriteExpression(lhs, rhs, e).orElse(
+</span>60 <span style=''></span><span style='background: #AEF1AE'>              reWriteExpression(rhs, lhs, e)
+</span>61 <span style=''></span><span style='background: #AEF1AE'>            ).map { e =&gt; found = true; e }.getOrElse(e)
+</span>62 <span style=''></span><span style='background: #AEF1AE'>        }.getOrElse(e)
+</span>63 <span style=''></span><span style='background: #AEF1AE'>    }, found)</span><span style=''>
+</span>64 <span style=''>  }
+</span>65 <span style=''>
+</span>66 <span style=''>  class FilterTransformer(topPlan: LogicalPlan) {
+</span>67 <span style=''>    def unapply(plan: LogicalPlan): Option[(Expression, LogicalPlan)] =
+</span>68 <span style=''>      plan match {
+</span>69 <span style=''>        case Filter(expr, child) =&gt;
+</span>70 <span style=''>          val (r, found) = transform(expr, topPlan)
+</span>71 <span style=''>          if (found)
+</span>72 <span style=''>            </span><span style='background: #AEF1AE'>Some((r, child))</span><span style=''>
+</span>73 <span style=''>          else
+</span>74 <span style=''>            </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>75 <span style=''>        case _ =&gt; </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>76 <span style=''>      }
+</span>77 <span style=''>  }
+</span>78 <span style=''>
+</span>79 <span style=''>  class JoinTransformer(topPlan: LogicalPlan) {
+</span>80 <span style=''>    def unapply(plan: LogicalPlan): Option[Join] =
+</span>81 <span style=''>      plan match {
+</span>82 <span style=''>        case j: Join =&gt;
+</span>83 <span style=''>          // attempt re-write for join
+</span>84 <span style=''>          </span><span style='background: #AEF1AE'>j.condition.flatMap { condition =&gt;
+</span>85 <span style=''></span><span style='background: #AEF1AE'>
+</span>86 <span style=''></span><span style='background: #AEF1AE'>            val (r, found) = transform(condition, topPlan)
+</span>87 <span style=''></span><span style='background: #AEF1AE'>
+</span>88 <span style=''></span><span style='background: #AEF1AE'>            if (found)
+</span>89 <span style=''></span><span style='background: #AEF1AE'>              Some(j.copy(condition = Some(r)))
+</span>90 <span style=''></span><span style='background: #AEF1AE'>            else
+</span>91 <span style=''></span><span style='background: #AEF1AE'>              None
+</span>92 <span style=''></span><span style='background: #AEF1AE'>          }</span><span style=''>
+</span>93 <span style=''>        case _ =&gt; </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>94 <span style=''>      }
+</span>95 <span style=''>  }
+</span>96 <span style=''>
+</span>97 <span style=''>  def apply(plan: LogicalPlan): LogicalPlan = {
+</span>98 <span style=''>    val FilterT = </span><span style='background: #AEF1AE'>new FilterTransformer(plan)</span><span style=''>
+</span>99 <span style=''>    val JoinT = </span><span style='background: #AEF1AE'>new JoinTransformer(plan)</span><span style=''>
+</span>100 <span style=''>    </span><span style='background: #AEF1AE'>plan transform {
+</span>101 <span style=''></span><span style='background: #AEF1AE'>      case FilterT(resulting, child) =&gt;
+</span>102 <span style=''></span><span style='background: #AEF1AE'>        Filter(resulting, child)
+</span>103 <span style=''></span><span style='background: #AEF1AE'>      case JoinT(join) =&gt;
+</span>104 <span style=''></span><span style='background: #AEF1AE'>        join
+</span>105 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>106 <span style=''>  }
+</span>107 <span style=''>
+</span>108 <span style=''>}
+</span>109 <span style=''>
+</span>110 <span style=''>object AsymmetricFilterExpressions {
+</span>111 <span style=''>  /**
+</span>112 <span style=''>   * TODO When 2.4 is dropped move this to withChildren
+</span>113 <span style=''>   */
+</span>114 <span style=''>  def create(expressionTemplate: Expression, left: Expression, right: Expression): Expression = expressionTemplate match {
+</span>115 <span style=''>    case a:EqualTo =&gt; </span><span style='background: #AEF1AE'>EqualTo(left, right)</span><span style=''>
+</span>116 <span style=''>    case a:EqualNullSafe =&gt; </span><span style='background: #AEF1AE'>EqualNullSafe(left, right)</span><span style=''>
+</span>117 <span style=''>    case a:EqualNullSafe =&gt; </span><span style='background: #F0ADAD'>EqualNullSafe(left, right)</span><span style=''>
+</span>118 <span style=''>    case a:LessThan =&gt; </span><span style='background: #AEF1AE'>LessThan(left, right)</span><span style=''>
+</span>119 <span style=''>    case a:LessThanOrEqual =&gt; </span><span style='background: #AEF1AE'>LessThanOrEqual(left, right)</span><span style=''>
+</span>120 <span style=''>    case a:GreaterThan =&gt; </span><span style='background: #AEF1AE'>GreaterThan(left, right)</span><span style=''>
+</span>121 <span style=''>    case a:GreaterThanOrEqual =&gt; </span><span style='background: #AEF1AE'>GreaterThanOrEqual(left, right)</span><span style=''>
+</span>122 <span style=''>  }
 </span>123 <span style=''>}
+</span>124 <span style=''>
+</span>125 <span style=''>/**
+</span>126 <span style=''> * Optimises as_uuid usage for filters on the generated value, swapping out for long lookups
+</span>127 <span style=''> */
+</span>128 <span style=''>object AsUUIDFilter extends AsymmetricFilterExpressions {
+</span>129 <span style=''>
+</span>130 <span style=''>  override def reWriteExpression(generating: Expression, comparedTo: Object,
+</span>131 <span style=''>                                 filter: Expression): Option[Expression] = {
+</span>132 <span style=''>    val create = </span><span style='background: #AEF1AE'>AsymmetricFilterExpressions.create(filter,_,_)</span><span style=''>
+</span>133 <span style=''>    (generating, comparedTo, filter) match {
+</span>134 <span style=''>      // join case (possibly a filter)
+</span>135 <span style=''>      case (AsUUID(alower, ahigher), AsUUID(blower, bhigher), Equality(_,_) ) =&gt;
+</span>136 <span style=''>        </span><span style='background: #AEF1AE'>Some(
+</span>137 <span style=''></span><span style='background: #AEF1AE'>          And( create(alower, blower), create(ahigher, bhigher))
+</span>138 <span style=''></span><span style='background: #AEF1AE'>        )</span><span style=''>
+</span>139 <span style=''>      // filter case's
+</span>140 <span style=''>      case (AsUUID(lower, higher), c: Expression, Equality(_,_)) if </span><span style='background: #AEF1AE'>c.dataType == StringType</span><span style=''> =&gt;
+</span>141 <span style=''>        </span><span style='background: #AEF1AE'>Some(
+</span>142 <span style=''></span><span style='background: #AEF1AE'>          And( create( GetStructField( UUIDToLongsExpression(c), 0) , lower), create( GetStructField( UUIDToLongsExpression(c), 1 ), higher) )
+</span>143 <span style=''></span><span style='background: #AEF1AE'>        )</span><span style=''>
+</span>144 <span style=''>      // In verifies the rest of the seq are the same type
+</span>145 <span style=''>      case (a@AsUUID(lower, higher), l: Seq[Expression], i: In) if </span><span style='background: #AEF1AE'>l.headOption.exists(_.dataType == StringType)</span><span style=''> =&gt;
+</span>146 <span style=''>        def struct(lower: Expression, higher: Expression): Expression =
+</span>147 <span style=''>          </span><span style='background: #AEF1AE'>CreateNamedStruct(Seq(Literal(&quot;lower&quot;), lower,
+</span>148 <span style=''></span><span style='background: #AEF1AE'>            Literal(&quot;higher&quot;), higher))</span><span style=''>
+</span>149 <span style=''>
+</span>150 <span style=''>        def structg(expr: Expression): Expression =
+</span>151 <span style=''>          </span><span style='background: #AEF1AE'>struct( GetStructField(UUIDToLongsExpression(expr), 0), GetStructField(UUIDToLongsExpression(expr), 1))</span><span style=''>
+</span>152 <span style=''>
+</span>153 <span style=''>        </span><span style='background: #AEF1AE'>Some(
+</span>154 <span style=''></span><span style='background: #AEF1AE'>          And( In(struct(lower, higher), l.map(structg _)),
+</span>155 <span style=''></span><span style='background: #AEF1AE'>            And( In(lower, l.map(t =&gt; GetStructField(UUIDToLongsExpression(t), 0))),
+</span>156 <span style=''></span><span style='background: #AEF1AE'>              In(higher, l.map(t =&gt; GetStructField(UUIDToLongsExpression(t), 1))),
+</span>157 <span style=''></span><span style='background: #AEF1AE'>            ))
+</span>158 <span style=''></span><span style='background: #AEF1AE'>        )</span><span style=''>
+</span>159 <span style=''>      // join + filter
+</span>160 <span style=''>      case (AsUUID(alower, ahigher), AsUUID(blower, bhigher), _: LessThan | _: LessThanOrEqual | _: GreaterThan | _: GreaterThanOrEqual) =&gt;
+</span>161 <span style=''>        </span><span style='background: #AEF1AE'>Some(
+</span>162 <span style=''></span><span style='background: #AEF1AE'>          Or(And(EqualTo(ahigher, bhigher), create(alower, blower)), create(ahigher, bhigher))
+</span>163 <span style=''></span><span style='background: #AEF1AE'>        )</span><span style=''>
+</span>164 <span style=''>      // filter case's
+</span>165 <span style=''>      case (AsUUID(lower, higher), c: Expression, _: LessThan | _: LessThanOrEqual | _: GreaterThan | _: GreaterThanOrEqual) if </span><span style='background: #AEF1AE'>c.dataType == StringType</span><span style=''> =&gt;
+</span>166 <span style=''>        val blower = </span><span style='background: #AEF1AE'>GetStructField(UUIDToLongsExpression(c), 0)</span><span style=''>
+</span>167 <span style=''>        val bhigher = </span><span style='background: #AEF1AE'>GetStructField(UUIDToLongsExpression(c), 1)</span><span style=''>
+</span>168 <span style=''>
+</span>169 <span style=''>        </span><span style='background: #AEF1AE'>Some(
+</span>170 <span style=''></span><span style='background: #AEF1AE'>          Or(And(EqualTo(higher, bhigher), create(lower, blower)), create(higher, bhigher))
+</span>171 <span style=''></span><span style='background: #AEF1AE'>        )</span><span style=''>
+</span>172 <span style=''>      case _ =&gt; </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>173 <span style=''>    }
+</span>174 <span style=''>  }
+</span>175 <span style=''>
+</span>176 <span style=''>}
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -159,15 +212,15 @@
         <th>Code</th>
       </tr><tr>
         <td>
-          44
+          46
         </td>
         <td>
           3778
         </td>
         <td>
-          2512
+          2813
           -
-          2517
+          2818
         </td>
         <td>
           Literal
@@ -183,63 +236,15 @@
         </td>
       </tr><tr>
         <td>
-          45
+          47
         </td>
         <td>
           3782
         </td>
         <td>
-          2522
+          2824
           -
-          2986
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Tuple2.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.Tuple2.apply[org.apache.spark.sql.catalyst.expressions.Expression, Boolean](expr.transform(({
-  @SerialVersionUID(value = 0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression] with Serializable {
-    def &lt;init&gt;(): &lt;$anon: org.apache.spark.sql.catalyst.expressions.Expression =&gt; org.apache.spark.sql.catalyst.expressions.Expression&gt; = {
-      $anonfun.super.&lt;init&gt;();
-      ()
-    };
-    final override def applyOrElse[A1 &lt;: org.apache.spark.sql.catalyst.expressions.Expression, B1 &gt;: org.apache.spark.sql.catalyst.expressions.Expression](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
-      case (e @ (left: org.apache.spark.sql.catalyst.expressions.Expression, right: org.apache.spark.sql.catalyst.expressions.Expression)org.apache.spark.sql.catalyst.expressions.EqualTo((elhs @ _), (erhs @ _))) =&gt; AsymmetricFilterExpressions.this.findRootExpression(elhs, topPlan).flatMap[(org.apache.spark.sql.catalyst.expressions.Expression, org.apache.spark.sql.catalyst.expressions.Expression)](((a: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; {
-  val rhs: Option[org.apache.spark.sql.catalyst.expressions.Expression] = AsymmetricFilterExpressions.this.findRootExpression(erhs, topPlan);
-  rhs.map[(org.apache.spark.sql.catalyst.expressions.Expression, org.apache.spark.sql.catalyst.expressions.Expression)](((b: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; scala.Tuple2.apply[org.apache.spark.sql.catalyst.expressions.Expression, org.apache.spark.sql.catalyst.expressions.Expression](a, b)))
-})).map[org.apache.spark.sql.catalyst.expressions.Expression](((x0$1: (org.apache.spark.sql.catalyst.expressions.Expression, org.apache.spark.sql.catalyst.expressions.Expression)) =&gt; x0$1 match {
-  case (_1: org.apache.spark.sql.catalyst.expressions.Expression, _2: org.apache.spark.sql.catalyst.expressions.Expression)(org.apache.spark.sql.catalyst.expressions.Expression, org.apache.spark.sql.catalyst.expressions.Expression)((lhs @ _), (rhs @ _)) =&gt; AsymmetricFilterExpressions.this.reWriteExpression(lhs, rhs).orElse[org.apache.spark.sql.catalyst.expressions.Expression](AsymmetricFilterExpressions.this.reWriteExpression(rhs, lhs)).map[org.apache.spark.sql.catalyst.expressions.Expression](((e: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; {
-  found = true;
-  e
-})).getOrElse[org.apache.spark.sql.catalyst.expressions.Expression](e)
-})).getOrElse[org.apache.spark.sql.catalyst.expressions.Expression](e)
-      case (defaultCase$ @ _) =&gt; default.apply(x1)
-    };
-    final def isDefinedAt(x1: org.apache.spark.sql.catalyst.expressions.Expression): Boolean = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
-      case (e @ (left: org.apache.spark.sql.catalyst.expressions.Expression, right: org.apache.spark.sql.catalyst.expressions.Expression)org.apache.spark.sql.catalyst.expressions.EqualTo((elhs @ _), (erhs @ _))) =&gt; true
-      case (defaultCase$ @ _) =&gt; false
-    }
-  };
-  new $anonfun()
-}: PartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression])), found)
-        </td>
-      </tr><tr>
-        <td>
-          45
-        </td>
-        <td>
-          3781
-        </td>
-        <td>
-          2523
-          -
-          2978
+          3487
         </td>
         <td>
           Apply
@@ -258,11 +263,15 @@
       ()
     };
     final override def applyOrElse[A1 &lt;: org.apache.spark.sql.catalyst.expressions.Expression, B1 &gt;: org.apache.spark.sql.catalyst.expressions.Expression](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
-      case (e @ (left: org.apache.spark.sql.catalyst.expressions.Expression, right: org.apache.spark.sql.catalyst.expressions.Expression)org.apache.spark.sql.catalyst.expressions.EqualTo((elhs @ _), (erhs @ _))) =&gt; AsymmetricFilterExpressions.this.findRootExpression(elhs, topPlan).flatMap[(org.apache.spark.sql.catalyst.expressions.Expression, org.apache.spark.sql.catalyst.expressions.Expression)](((a: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; {
+      case (i @ (value: org.apache.spark.sql.catalyst.expressions.Expression, list: Seq[org.apache.spark.sql.catalyst.expressions.Expression])org.apache.spark.sql.catalyst.expressions.In((expr @ _), (list @ _))) =&gt; AsymmetricFilterExpressions.this.findRootExpression(expr, topPlan).map[org.apache.spark.sql.catalyst.expressions.Expression](((lhs: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; AsymmetricFilterExpressions.this.reWriteExpression(lhs, list, i).map[org.apache.spark.sql.catalyst.expressions.Expression](((e: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; {
+  found = true;
+  e
+})).getOrElse[org.apache.spark.sql.catalyst.expressions.Expression](i))).getOrElse[org.apache.spark.sql.catalyst.expressions.Expression](i)
+      case (e @ org.apache.spark.sql.catalyst.expressions.BinaryComparison.unapply(&lt;unapply-selector&gt;) &lt;unapply&gt; ((elhs @ _), (erhs @ _))) =&gt; AsymmetricFilterExpressions.this.findRootExpression(elhs, topPlan).flatMap[(org.apache.spark.sql.catalyst.expressions.Expression, org.apache.spark.sql.catalyst.expressions.Expression)](((a: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; {
   val rhs: Option[org.apache.spark.sql.catalyst.expressions.Expression] = AsymmetricFilterExpressions.this.findRootExpression(erhs, topPlan);
   rhs.map[(org.apache.spark.sql.catalyst.expressions.Expression, org.apache.spark.sql.catalyst.expressions.Expression)](((b: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; scala.Tuple2.apply[org.apache.spark.sql.catalyst.expressions.Expression, org.apache.spark.sql.catalyst.expressions.Expression](a, b)))
 })).map[org.apache.spark.sql.catalyst.expressions.Expression](((x0$1: (org.apache.spark.sql.catalyst.expressions.Expression, org.apache.spark.sql.catalyst.expressions.Expression)) =&gt; x0$1 match {
-  case (_1: org.apache.spark.sql.catalyst.expressions.Expression, _2: org.apache.spark.sql.catalyst.expressions.Expression)(org.apache.spark.sql.catalyst.expressions.Expression, org.apache.spark.sql.catalyst.expressions.Expression)((lhs @ _), (rhs @ _)) =&gt; AsymmetricFilterExpressions.this.reWriteExpression(lhs, rhs).orElse[org.apache.spark.sql.catalyst.expressions.Expression](AsymmetricFilterExpressions.this.reWriteExpression(rhs, lhs)).map[org.apache.spark.sql.catalyst.expressions.Expression](((e: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; {
+  case (_1: org.apache.spark.sql.catalyst.expressions.Expression, _2: org.apache.spark.sql.catalyst.expressions.Expression)(org.apache.spark.sql.catalyst.expressions.Expression, org.apache.spark.sql.catalyst.expressions.Expression)((lhs @ _), (rhs @ _)) =&gt; AsymmetricFilterExpressions.this.reWriteExpression(lhs, rhs, e).orElse[org.apache.spark.sql.catalyst.expressions.Expression](AsymmetricFilterExpressions.this.reWriteExpression(rhs, lhs, e)).map[org.apache.spark.sql.catalyst.expressions.Expression](((e: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; {
   found = true;
   e
 })).getOrElse[org.apache.spark.sql.catalyst.expressions.Expression](e)
@@ -270,7 +279,8 @@
       case (defaultCase$ @ _) =&gt; default.apply(x1)
     };
     final def isDefinedAt(x1: org.apache.spark.sql.catalyst.expressions.Expression): Boolean = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
-      case (e @ (left: org.apache.spark.sql.catalyst.expressions.Expression, right: org.apache.spark.sql.catalyst.expressions.Expression)org.apache.spark.sql.catalyst.expressions.EqualTo((elhs @ _), (erhs @ _))) =&gt; true
+      case (i @ (value: org.apache.spark.sql.catalyst.expressions.Expression, list: Seq[org.apache.spark.sql.catalyst.expressions.Expression])org.apache.spark.sql.catalyst.expressions.In((expr @ _), (list @ _))) =&gt; true
+      case (e @ org.apache.spark.sql.catalyst.expressions.BinaryComparison.unapply(&lt;unapply-selector&gt;) &lt;unapply&gt; ((elhs @ _), (erhs @ _))) =&gt; true
       case (defaultCase$ @ _) =&gt; false
     }
   };
@@ -279,15 +289,15 @@
         </td>
       </tr><tr>
         <td>
-          45
+          47
         </td>
         <td>
-          3780
+          3781
         </td>
         <td>
-          2538
+          2839
           -
-          2538
+          2839
         </td>
         <td>
           Apply
@@ -303,15 +313,95 @@
         </td>
       </tr><tr>
         <td>
-          56
+          47
+        </td>
+        <td>
+          3783
+        </td>
+        <td>
+          2823
+          -
+          3495
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[org.apache.spark.sql.catalyst.expressions.Expression, Boolean](expr.transform(({
+  @SerialVersionUID(value = 0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: org.apache.spark.sql.catalyst.expressions.Expression =&gt; org.apache.spark.sql.catalyst.expressions.Expression&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: org.apache.spark.sql.catalyst.expressions.Expression, B1 &gt;: org.apache.spark.sql.catalyst.expressions.Expression](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (i @ (value: org.apache.spark.sql.catalyst.expressions.Expression, list: Seq[org.apache.spark.sql.catalyst.expressions.Expression])org.apache.spark.sql.catalyst.expressions.In((expr @ _), (list @ _))) =&gt; AsymmetricFilterExpressions.this.findRootExpression(expr, topPlan).map[org.apache.spark.sql.catalyst.expressions.Expression](((lhs: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; AsymmetricFilterExpressions.this.reWriteExpression(lhs, list, i).map[org.apache.spark.sql.catalyst.expressions.Expression](((e: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; {
+  found = true;
+  e
+})).getOrElse[org.apache.spark.sql.catalyst.expressions.Expression](i))).getOrElse[org.apache.spark.sql.catalyst.expressions.Expression](i)
+      case (e @ org.apache.spark.sql.catalyst.expressions.BinaryComparison.unapply(&lt;unapply-selector&gt;) &lt;unapply&gt; ((elhs @ _), (erhs @ _))) =&gt; AsymmetricFilterExpressions.this.findRootExpression(elhs, topPlan).flatMap[(org.apache.spark.sql.catalyst.expressions.Expression, org.apache.spark.sql.catalyst.expressions.Expression)](((a: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; {
+  val rhs: Option[org.apache.spark.sql.catalyst.expressions.Expression] = AsymmetricFilterExpressions.this.findRootExpression(erhs, topPlan);
+  rhs.map[(org.apache.spark.sql.catalyst.expressions.Expression, org.apache.spark.sql.catalyst.expressions.Expression)](((b: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; scala.Tuple2.apply[org.apache.spark.sql.catalyst.expressions.Expression, org.apache.spark.sql.catalyst.expressions.Expression](a, b)))
+})).map[org.apache.spark.sql.catalyst.expressions.Expression](((x0$1: (org.apache.spark.sql.catalyst.expressions.Expression, org.apache.spark.sql.catalyst.expressions.Expression)) =&gt; x0$1 match {
+  case (_1: org.apache.spark.sql.catalyst.expressions.Expression, _2: org.apache.spark.sql.catalyst.expressions.Expression)(org.apache.spark.sql.catalyst.expressions.Expression, org.apache.spark.sql.catalyst.expressions.Expression)((lhs @ _), (rhs @ _)) =&gt; AsymmetricFilterExpressions.this.reWriteExpression(lhs, rhs, e).orElse[org.apache.spark.sql.catalyst.expressions.Expression](AsymmetricFilterExpressions.this.reWriteExpression(rhs, lhs, e)).map[org.apache.spark.sql.catalyst.expressions.Expression](((e: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; {
+  found = true;
+  e
+})).getOrElse[org.apache.spark.sql.catalyst.expressions.Expression](e)
+})).getOrElse[org.apache.spark.sql.catalyst.expressions.Expression](e)
+      case (defaultCase$ @ _) =&gt; default.apply(x1)
+    };
+    final def isDefinedAt(x1: org.apache.spark.sql.catalyst.expressions.Expression): Boolean = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (i @ (value: org.apache.spark.sql.catalyst.expressions.Expression, list: Seq[org.apache.spark.sql.catalyst.expressions.Expression])org.apache.spark.sql.catalyst.expressions.In((expr @ _), (list @ _))) =&gt; true
+      case (e @ org.apache.spark.sql.catalyst.expressions.BinaryComparison.unapply(&lt;unapply-selector&gt;) &lt;unapply&gt; ((elhs @ _), (erhs @ _))) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression])), found)
+        </td>
+      </tr><tr>
+        <td>
+          51
         </td>
         <td>
           3779
         </td>
         <td>
-          2584
+          2880
           -
-          2972
+          3033
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AsymmetricFilterExpressions.this.findRootExpression(expr, topPlan).map[org.apache.spark.sql.catalyst.expressions.Expression](((lhs: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; AsymmetricFilterExpressions.this.reWriteExpression(lhs, list, i).map[org.apache.spark.sql.catalyst.expressions.Expression](((e: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; {
+  found = true;
+  e
+})).getOrElse[org.apache.spark.sql.catalyst.expressions.Expression](i))).getOrElse[org.apache.spark.sql.catalyst.expressions.Expression](i)
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          3780
+        </td>
+        <td>
+          3087
+          -
+          3481
         </td>
         <td>
           Apply
@@ -327,7 +417,7 @@
   val rhs: Option[org.apache.spark.sql.catalyst.expressions.Expression] = AsymmetricFilterExpressions.this.findRootExpression(erhs, topPlan);
   rhs.map[(org.apache.spark.sql.catalyst.expressions.Expression, org.apache.spark.sql.catalyst.expressions.Expression)](((b: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; scala.Tuple2.apply[org.apache.spark.sql.catalyst.expressions.Expression, org.apache.spark.sql.catalyst.expressions.Expression](a, b)))
 })).map[org.apache.spark.sql.catalyst.expressions.Expression](((x0$1: (org.apache.spark.sql.catalyst.expressions.Expression, org.apache.spark.sql.catalyst.expressions.Expression)) =&gt; x0$1 match {
-  case (_1: org.apache.spark.sql.catalyst.expressions.Expression, _2: org.apache.spark.sql.catalyst.expressions.Expression)(org.apache.spark.sql.catalyst.expressions.Expression, org.apache.spark.sql.catalyst.expressions.Expression)((lhs @ _), (rhs @ _)) =&gt; AsymmetricFilterExpressions.this.reWriteExpression(lhs, rhs).orElse[org.apache.spark.sql.catalyst.expressions.Expression](AsymmetricFilterExpressions.this.reWriteExpression(rhs, lhs)).map[org.apache.spark.sql.catalyst.expressions.Expression](((e: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; {
+  case (_1: org.apache.spark.sql.catalyst.expressions.Expression, _2: org.apache.spark.sql.catalyst.expressions.Expression)(org.apache.spark.sql.catalyst.expressions.Expression, org.apache.spark.sql.catalyst.expressions.Expression)((lhs @ _), (rhs @ _)) =&gt; AsymmetricFilterExpressions.this.reWriteExpression(lhs, rhs, e).orElse[org.apache.spark.sql.catalyst.expressions.Expression](AsymmetricFilterExpressions.this.reWriteExpression(rhs, lhs, e)).map[org.apache.spark.sql.catalyst.expressions.Expression](((e: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; {
   found = true;
   e
 })).getOrElse[org.apache.spark.sql.catalyst.expressions.Expression](e)
@@ -335,15 +425,15 @@
         </td>
       </tr><tr>
         <td>
-          64
+          70
         </td>
         <td>
-          3784
+          3785
         </td>
         <td>
-          3187
+          3696
           -
-          3187
+          3696
         </td>
         <td>
           Select
@@ -359,15 +449,15 @@
         </td>
       </tr><tr>
         <td>
-          64
+          70
         </td>
         <td>
-          3783
+          3784
         </td>
         <td>
-          3184
+          3693
           -
-          3184
+          3693
         </td>
         <td>
           Select
@@ -383,15 +473,63 @@
         </td>
       </tr><tr>
         <td>
-          66
+          72
         </td>
         <td>
-          3785
+          3788
         </td>
         <td>
-          3259
+          3763
           -
-          3269
+          3779
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[(org.apache.spark.sql.catalyst.expressions.Expression, org.apache.spark.sql.catalyst.plans.logical.LogicalPlan)](scala.Tuple2.apply[org.apache.spark.sql.catalyst.expressions.Expression, org.apache.spark.sql.catalyst.plans.logical.LogicalPlan](r, child))
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          3787
+        </td>
+        <td>
+          3763
+          -
+          3779
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[(org.apache.spark.sql.catalyst.expressions.Expression, org.apache.spark.sql.catalyst.plans.logical.LogicalPlan)](scala.Tuple2.apply[org.apache.spark.sql.catalyst.expressions.Expression, org.apache.spark.sql.catalyst.plans.logical.LogicalPlan](r, child))
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          3786
+        </td>
+        <td>
+          3768
+          -
+          3778
         </td>
         <td>
           Apply
@@ -407,111 +545,39 @@
         </td>
       </tr><tr>
         <td>
-          66
-        </td>
-        <td>
-          3787
-        </td>
-        <td>
-          3254
-          -
-          3270
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          scala.Some.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.Some.apply[(org.apache.spark.sql.catalyst.expressions.Expression, org.apache.spark.sql.catalyst.plans.logical.LogicalPlan)](scala.Tuple2.apply[org.apache.spark.sql.catalyst.expressions.Expression, org.apache.spark.sql.catalyst.plans.logical.LogicalPlan](r, child))
-        </td>
-      </tr><tr>
-        <td>
-          66
-        </td>
-        <td>
-          3786
-        </td>
-        <td>
-          3254
-          -
-          3270
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Some.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.Some.apply[(org.apache.spark.sql.catalyst.expressions.Expression, org.apache.spark.sql.catalyst.plans.logical.LogicalPlan)](scala.Tuple2.apply[org.apache.spark.sql.catalyst.expressions.Expression, org.apache.spark.sql.catalyst.plans.logical.LogicalPlan](r, child))
-        </td>
-      </tr><tr>
-        <td>
-          68
-        </td>
-        <td>
-          3788
-        </td>
-        <td>
-          3298
-          -
-          3302
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.None
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.None
-        </td>
-      </tr><tr>
-        <td>
-          68
-        </td>
-        <td>
-          3789
-        </td>
-        <td>
-          3298
-          -
-          3302
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          scala.None
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.None
-        </td>
-      </tr><tr>
-        <td>
-          69
+          74
         </td>
         <td>
           3790
         </td>
         <td>
-          3321
+          3807
           -
-          3325
+          3811
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          3789
+        </td>
+        <td>
+          3807
+          -
+          3811
         </td>
         <td>
           Select
@@ -527,15 +593,39 @@
         </td>
       </tr><tr>
         <td>
-          78
+          75
         </td>
         <td>
-          3803
+          3791
         </td>
         <td>
-          3530
+          3830
           -
-          3744
+          3834
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          3804
+        </td>
+        <td>
+          4039
+          -
+          4253
         </td>
         <td>
           Apply
@@ -568,39 +658,15 @@
         </td>
       </tr><tr>
         <td>
-          80
+          86
         </td>
         <td>
-          3791
+          3793
         </td>
         <td>
-          3583
+          4095
           -
-          3583
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.Tuple2._1
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          x$2._1
-        </td>
-      </tr><tr>
-        <td>
-          80
-        </td>
-        <td>
-          3792
-        </td>
-        <td>
-          3586
-          -
-          3586
+          4095
         </td>
         <td>
           Select
@@ -616,94 +682,39 @@
         </td>
       </tr><tr>
         <td>
-          83
+          86
+        </td>
+        <td>
+          3792
+        </td>
+        <td>
+          4092
+          -
+          4092
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$2._1
+        </td>
+      </tr><tr>
+        <td>
+          89
         </td>
         <td>
           3794
         </td>
         <td>
-          3670
+          4196
           -
-          3670
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          org.apache.spark.sql.catalyst.plans.logical.Join.copy$default$1
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          j.copy$default$1
-        </td>
-      </tr><tr>
-        <td>
-          83
-        </td>
-        <td>
-          3797
-        </td>
-        <td>
-          3670
-          -
-          3670
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          org.apache.spark.sql.catalyst.plans.logical.Join.copy$default$5
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          j.copy$default$5
-        </td>
-      </tr><tr>
-        <td>
-          83
-        </td>
-        <td>
-          3800
-        </td>
-        <td>
-          3663
-          -
-          3696
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          scala.Some.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.Some.apply[org.apache.spark.sql.catalyst.plans.logical.Join]({
-  &lt;artifact&gt; val x$1: Some[org.apache.spark.sql.catalyst.expressions.Expression] @scala.reflect.internal.annotations.uncheckedBounds = scala.Some.apply[org.apache.spark.sql.catalyst.expressions.Expression](r);
-  &lt;artifact&gt; val x$2: org.apache.spark.sql.catalyst.plans.logical.LogicalPlan = j.copy$default$1;
-  &lt;artifact&gt; val x$3: org.apache.spark.sql.catalyst.plans.logical.LogicalPlan = j.copy$default$2;
-  &lt;artifact&gt; val x$4: org.apache.spark.sql.catalyst.plans.JoinType = j.copy$default$3;
-  &lt;artifact&gt; val x$5: org.apache.spark.sql.catalyst.plans.logical.JoinHint = j.copy$default$5;
-  j.copy(x$2, x$3, x$4, x$1, x$5)
-})
-        </td>
-      </tr><tr>
-        <td>
-          83
-        </td>
-        <td>
-          3793
-        </td>
-        <td>
-          3687
-          -
-          3694
+          4203
         </td>
         <td>
           Apply
@@ -719,15 +730,15 @@
         </td>
       </tr><tr>
         <td>
-          83
+          89
         </td>
         <td>
-          3796
+          3797
         </td>
         <td>
-          3670
+          4179
           -
-          3670
+          4179
         </td>
         <td>
           Select
@@ -743,15 +754,15 @@
         </td>
       </tr><tr>
         <td>
-          83
+          89
         </td>
         <td>
-          3799
+          3800
         </td>
         <td>
-          3663
+          4172
           -
-          3696
+          4205
         </td>
         <td>
           Apply
@@ -774,39 +785,15 @@
         </td>
       </tr><tr>
         <td>
-          83
+          89
         </td>
         <td>
-          3798
+          3796
         </td>
         <td>
-          3668
+          4179
           -
-          3695
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.apache.spark.sql.catalyst.plans.logical.Join.copy
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          j.copy(x$2, x$3, x$4, x$1, x$5)
-        </td>
-      </tr><tr>
-        <td>
-          83
-        </td>
-        <td>
-          3795
-        </td>
-        <td>
-          3670
-          -
-          3670
+          4179
         </td>
         <td>
           Select
@@ -822,15 +809,118 @@
         </td>
       </tr><tr>
         <td>
-          85
+          89
         </td>
         <td>
-          3802
+          3799
         </td>
         <td>
-          3728
+          4177
           -
-          3732
+          4204
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.plans.logical.Join.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          j.copy(x$2, x$3, x$4, x$1, x$5)
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          3798
+        </td>
+        <td>
+          4179
+          -
+          4179
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.plans.logical.Join.copy$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          j.copy$default$5
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          3801
+        </td>
+        <td>
+          4172
+          -
+          4205
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[org.apache.spark.sql.catalyst.plans.logical.Join]({
+  &lt;artifact&gt; val x$1: Some[org.apache.spark.sql.catalyst.expressions.Expression] @scala.reflect.internal.annotations.uncheckedBounds = scala.Some.apply[org.apache.spark.sql.catalyst.expressions.Expression](r);
+  &lt;artifact&gt; val x$2: org.apache.spark.sql.catalyst.plans.logical.LogicalPlan = j.copy$default$1;
+  &lt;artifact&gt; val x$3: org.apache.spark.sql.catalyst.plans.logical.LogicalPlan = j.copy$default$2;
+  &lt;artifact&gt; val x$4: org.apache.spark.sql.catalyst.plans.JoinType = j.copy$default$3;
+  &lt;artifact&gt; val x$5: org.apache.spark.sql.catalyst.plans.logical.JoinHint = j.copy$default$5;
+  j.copy(x$2, x$3, x$4, x$1, x$5)
+})
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          3795
+        </td>
+        <td>
+          4179
+          -
+          4179
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.plans.logical.Join.copy$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          j.copy$default$1
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          3803
+        </td>
+        <td>
+          4237
+          -
+          4241
         </td>
         <td>
           Block
@@ -846,15 +936,15 @@
         </td>
       </tr><tr>
         <td>
-          85
+          91
         </td>
         <td>
-          3801
+          3802
         </td>
         <td>
-          3728
+          4237
           -
-          3732
+          4241
         </td>
         <td>
           Select
@@ -870,39 +960,39 @@
         </td>
       </tr><tr>
         <td>
-          87
-        </td>
-        <td>
-          3804
-        </td>
-        <td>
-          3763
-          -
-          3767
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.None
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.None
-        </td>
-      </tr><tr>
-        <td>
-          92
+          93
         </td>
         <td>
           3805
         </td>
         <td>
-          3847
+          4272
           -
-          3874
+          4276
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          3806
+        </td>
+        <td>
+          4356
+          -
+          4383
         </td>
         <td>
           Apply
@@ -918,15 +1008,15 @@
         </td>
       </tr><tr>
         <td>
-          93
+          99
         </td>
         <td>
-          3806
+          3807
         </td>
         <td>
-          3891
+          4400
           -
-          3916
+          4425
         </td>
         <td>
           Apply
@@ -942,15 +1032,39 @@
         </td>
       </tr><tr>
         <td>
-          94
+          100
         </td>
         <td>
           3809
         </td>
         <td>
-          3921
+          4445
           -
-          4055
+          4445
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.extension.AsymmetricFilterExpressions.$anonfun.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          3810
+        </td>
+        <td>
+          4430
+          -
+          4564
         </td>
         <td>
           Apply
@@ -984,39 +1098,15 @@
         </td>
       </tr><tr>
         <td>
-          94
+          102
         </td>
         <td>
           3808
         </td>
         <td>
-          3936
+          4495
           -
-          3936
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.extension.AsymmetricFilterExpressions.$anonfun.&lt;init&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          new $anonfun()
-        </td>
-      </tr><tr>
-        <td>
-          96
-        </td>
-        <td>
-          3807
-        </td>
-        <td>
-          3986
-          -
-          4010
+          4519
         </td>
         <td>
           Apply
@@ -1032,15 +1122,207 @@
         </td>
       </tr><tr>
         <td>
-          112
+          115
+        </td>
+        <td>
+          3811
+        </td>
+        <td>
+          4823
+          -
+          4843
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.EqualTo.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.EqualTo.apply(left, right)
+        </td>
+      </tr><tr>
+        <td>
+          116
+        </td>
+        <td>
+          3812
+        </td>
+        <td>
+          4872
+          -
+          4898
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.EqualNullSafe.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.EqualNullSafe.apply(left, right)
+        </td>
+      </tr><tr>
+        <td>
+          117
         </td>
         <td>
           3813
         </td>
         <td>
-          4446
+          4927
           -
-          4523
+          4953
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.EqualNullSafe.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.catalyst.expressions.EqualNullSafe.apply(left, right)
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          3814
+        </td>
+        <td>
+          4977
+          -
+          4998
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.LessThan.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.LessThan.apply(left, right)
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          3815
+        </td>
+        <td>
+          5029
+          -
+          5057
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.LessThanOrEqual.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.LessThanOrEqual.apply(left, right)
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          3816
+        </td>
+        <td>
+          5084
+          -
+          5108
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.GreaterThan.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.GreaterThan.apply(left, right)
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          3817
+        </td>
+        <td>
+          5142
+          -
+          5173
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.GreaterThanOrEqual.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.GreaterThanOrEqual.apply(left, right)
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          3818
+        </td>
+        <td>
+          5512
+          -
+          5558
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.extension.AsymmetricFilterExpressions.create
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AsymmetricFilterExpressions.create(filter, x$3, x$4)
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          3822
+        </td>
+        <td>
+          5732
+          -
+          5812
         </td>
         <td>
           Apply
@@ -1052,19 +1334,19 @@
           
         </td>
         <td style="background: #AEF1AE">
-          scala.Some.apply[org.apache.spark.sql.catalyst.expressions.And](org.apache.spark.sql.catalyst.expressions.And.apply(org.apache.spark.sql.catalyst.expressions.EqualTo.apply(alower, blower), org.apache.spark.sql.catalyst.expressions.EqualTo.apply(ahigher, bhigher)))
+          scala.Some.apply[org.apache.spark.sql.catalyst.expressions.And](org.apache.spark.sql.catalyst.expressions.And.apply(create.apply(alower, blower), create.apply(ahigher, bhigher)))
         </td>
       </tr><tr>
         <td>
-          113
+          137
         </td>
         <td>
-          3812
+          3821
         </td>
         <td>
-          4460
+          5748
           -
-          4515
+          5802
         </td>
         <td>
           Apply
@@ -1076,67 +1358,115 @@
           
         </td>
         <td style="background: #AEF1AE">
-          org.apache.spark.sql.catalyst.expressions.And.apply(org.apache.spark.sql.catalyst.expressions.EqualTo.apply(alower, blower), org.apache.spark.sql.catalyst.expressions.EqualTo.apply(ahigher, bhigher))
+          org.apache.spark.sql.catalyst.expressions.And.apply(create.apply(alower, blower), create.apply(ahigher, bhigher))
         </td>
       </tr><tr>
         <td>
-          113
+          137
         </td>
         <td>
-          3811
+          3820
         </td>
         <td>
-          4489
+          5777
           -
-          4514
+          5801
         </td>
         <td>
           Apply
         </td>
         <td>
-          org.apache.spark.sql.catalyst.expressions.EqualTo.apply
+          scala.Function2.apply
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          org.apache.spark.sql.catalyst.expressions.EqualTo.apply(ahigher, bhigher)
+          create.apply(ahigher, bhigher)
         </td>
       </tr><tr>
         <td>
-          113
+          137
         </td>
         <td>
-          3810
+          3819
         </td>
         <td>
-          4464
+          5753
           -
-          4487
+          5775
         </td>
         <td>
           Apply
         </td>
         <td>
-          org.apache.spark.sql.catalyst.expressions.EqualTo.apply
+          scala.Function2.apply
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          org.apache.spark.sql.catalyst.expressions.EqualTo.apply(alower, blower)
+          create.apply(alower, blower)
         </td>
       </tr><tr>
         <td>
-          117
+          140
         </td>
         <td>
-          3825
+          3824
         </td>
         <td>
-          4588
+          5904
           -
-          4762
+          5928
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          c.dataType.==(org.apache.spark.sql.types.StringType)
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          3823
+        </td>
+        <td>
+          5918
+          -
+          5928
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StringType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StringType
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          3836
+        </td>
+        <td>
+          5940
+          -
+          6098
         </td>
         <td>
           Apply
@@ -1148,19 +1478,67 @@
           
         </td>
         <td style="background: #AEF1AE">
-          scala.Some.apply[org.apache.spark.sql.catalyst.expressions.And](org.apache.spark.sql.catalyst.expressions.And.apply(org.apache.spark.sql.catalyst.expressions.EqualTo.apply(org.apache.spark.sql.catalyst.expressions.GetStructField.apply(com.sparkutils.quality.impl.UUIDToLongsExpression.apply(comparedTo), 0, org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3), lower), org.apache.spark.sql.catalyst.expressions.EqualTo.apply(org.apache.spark.sql.catalyst.expressions.GetStructField.apply(com.sparkutils.quality.impl.UUIDToLongsExpression.apply(comparedTo), 1, org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3), higher)))
+          scala.Some.apply[org.apache.spark.sql.catalyst.expressions.And](org.apache.spark.sql.catalyst.expressions.And.apply(create.apply(org.apache.spark.sql.catalyst.expressions.GetStructField.apply(com.sparkutils.quality.impl.UUIDToLongsExpression.apply(c), 0, org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3), lower), create.apply(org.apache.spark.sql.catalyst.expressions.GetStructField.apply(com.sparkutils.quality.impl.UUIDToLongsExpression.apply(c), 1, org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3), higher)))
         </td>
       </tr><tr>
         <td>
-          118
+          142
         </td>
         <td>
-          3821
+          3830
         </td>
         <td>
-          4689
+          6048
           -
-          4689
+          6072
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.UUIDToLongsExpression.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.UUIDToLongsExpression.apply(c)
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          3833
+        </td>
+        <td>
+          6032
+          -
+          6077
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.GetStructField.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.GetStructField.apply(com.sparkutils.quality.impl.UUIDToLongsExpression.apply(c), 1, org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          3827
+        </td>
+        <td>
+          5969
+          -
+          5969
         </td>
         <td>
           Select
@@ -1176,39 +1554,15 @@
         </td>
       </tr><tr>
         <td>
-          118
+          142
         </td>
         <td>
-          3824
+          3826
         </td>
         <td>
-          4602
+          6011
           -
-          4754
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.apache.spark.sql.catalyst.expressions.And.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          org.apache.spark.sql.catalyst.expressions.And.apply(org.apache.spark.sql.catalyst.expressions.EqualTo.apply(org.apache.spark.sql.catalyst.expressions.GetStructField.apply(com.sparkutils.quality.impl.UUIDToLongsExpression.apply(comparedTo), 0, org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3), lower), org.apache.spark.sql.catalyst.expressions.EqualTo.apply(org.apache.spark.sql.catalyst.expressions.GetStructField.apply(com.sparkutils.quality.impl.UUIDToLongsExpression.apply(comparedTo), 1, org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3), higher))
-        </td>
-      </tr><tr>
-        <td>
-          118
-        </td>
-        <td>
-          3815
-        </td>
-        <td>
-          4667
-          -
-          4668
+          6012
         </td>
         <td>
           Literal
@@ -1224,135 +1578,63 @@
         </td>
       </tr><tr>
         <td>
-          118
+          142
         </td>
         <td>
-          3818
+          3835
         </td>
         <td>
-          4607
+          5956
           -
-          4678
+          6088
         </td>
         <td>
           Apply
         </td>
         <td>
-          org.apache.spark.sql.catalyst.expressions.EqualTo.apply
+          org.apache.spark.sql.catalyst.expressions.And.apply
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          org.apache.spark.sql.catalyst.expressions.EqualTo.apply(org.apache.spark.sql.catalyst.expressions.GetStructField.apply(com.sparkutils.quality.impl.UUIDToLongsExpression.apply(comparedTo), 0, org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3), lower)
+          org.apache.spark.sql.catalyst.expressions.And.apply(create.apply(org.apache.spark.sql.catalyst.expressions.GetStructField.apply(com.sparkutils.quality.impl.UUIDToLongsExpression.apply(c), 0, org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3), lower), create.apply(org.apache.spark.sql.catalyst.expressions.GetStructField.apply(com.sparkutils.quality.impl.UUIDToLongsExpression.apply(c), 1, org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3), higher))
         </td>
       </tr><tr>
         <td>
-          118
+          142
         </td>
         <td>
-          3817
+          3829
         </td>
         <td>
-          4616
+          5961
           -
-          4669
+          6022
         </td>
         <td>
           Apply
         </td>
         <td>
-          org.apache.spark.sql.catalyst.expressions.GetStructField.apply
+          scala.Function2.apply
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          org.apache.spark.sql.catalyst.expressions.GetStructField.apply(com.sparkutils.quality.impl.UUIDToLongsExpression.apply(comparedTo), 0, org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3)
+          create.apply(org.apache.spark.sql.catalyst.expressions.GetStructField.apply(com.sparkutils.quality.impl.UUIDToLongsExpression.apply(c), 0, org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3), lower)
         </td>
       </tr><tr>
         <td>
-          118
+          142
         </td>
         <td>
-          3820
+          3832
         </td>
         <td>
-          4740
+          6032
           -
-          4741
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          1
-        </td>
-      </tr><tr>
-        <td>
-          118
-        </td>
-        <td>
-          3823
-        </td>
-        <td>
-          4680
-          -
-          4752
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.apache.spark.sql.catalyst.expressions.EqualTo.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          org.apache.spark.sql.catalyst.expressions.EqualTo.apply(org.apache.spark.sql.catalyst.expressions.GetStructField.apply(com.sparkutils.quality.impl.UUIDToLongsExpression.apply(comparedTo), 1, org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3), higher)
-        </td>
-      </tr><tr>
-        <td>
-          118
-        </td>
-        <td>
-          3814
-        </td>
-        <td>
-          4632
-          -
-          4665
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.UUIDToLongsExpression.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          com.sparkutils.quality.impl.UUIDToLongsExpression.apply(comparedTo)
-        </td>
-      </tr><tr>
-        <td>
-          118
-        </td>
-        <td>
-          3816
-        </td>
-        <td>
-          4616
-          -
-          4616
+          6032
         </td>
         <td>
           Select
@@ -1368,15 +1650,39 @@
         </td>
       </tr><tr>
         <td>
-          118
+          142
         </td>
         <td>
-          3819
+          3831
         </td>
         <td>
-          4705
+          6074
           -
-          4738
+          6075
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          3825
+        </td>
+        <td>
+          5985
+          -
+          6009
         </td>
         <td>
           Apply
@@ -1388,19 +1694,43 @@
           
         </td>
         <td style="background: #AEF1AE">
-          com.sparkutils.quality.impl.UUIDToLongsExpression.apply(comparedTo)
+          com.sparkutils.quality.impl.UUIDToLongsExpression.apply(c)
         </td>
       </tr><tr>
         <td>
-          118
+          142
         </td>
         <td>
-          3822
+          3834
         </td>
         <td>
-          4689
+          6024
           -
-          4743
+          6086
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          create.apply(org.apache.spark.sql.catalyst.expressions.GetStructField.apply(com.sparkutils.quality.impl.UUIDToLongsExpression.apply(c), 1, org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3), higher)
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          3828
+        </td>
+        <td>
+          5969
+          -
+          6013
         </td>
         <td>
           Apply
@@ -1412,19 +1742,1467 @@
           
         </td>
         <td style="background: #AEF1AE">
-          org.apache.spark.sql.catalyst.expressions.GetStructField.apply(com.sparkutils.quality.impl.UUIDToLongsExpression.apply(comparedTo), 1, org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3)
+          org.apache.spark.sql.catalyst.expressions.GetStructField.apply(com.sparkutils.quality.impl.UUIDToLongsExpression.apply(c), 0, org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3)
         </td>
       </tr><tr>
         <td>
-          120
+          145
         </td>
         <td>
-          3826
+          3839
         </td>
         <td>
-          4777
+          6225
           -
-          4781
+          6270
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.exists
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          l.headOption.exists(((x$5: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; x$5.dataType.==(org.apache.spark.sql.types.StringType)))
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          3838
+        </td>
+        <td>
+          6245
+          -
+          6269
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$5.dataType.==(org.apache.spark.sql.types.StringType)
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          3837
+        </td>
+        <td>
+          6259
+          -
+          6269
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StringType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StringType
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          3842
+        </td>
+        <td>
+          6374
+          -
+          6441
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.Seq.apply[org.apache.spark.sql.catalyst.expressions.Expression](org.apache.spark.sql.catalyst.expressions.Literal.apply(&quot;lower&quot;), lower, org.apache.spark.sql.catalyst.expressions.Literal.apply(&quot;higher&quot;), higher)
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          3840
+        </td>
+        <td>
+          6378
+          -
+          6394
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Literal.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.Literal.apply(&quot;lower&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          3843
+        </td>
+        <td>
+          6356
+          -
+          6442
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.CreateNamedStruct.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.CreateNamedStruct.apply(scala.collection.Seq.apply[org.apache.spark.sql.catalyst.expressions.Expression](org.apache.spark.sql.catalyst.expressions.Literal.apply(&quot;lower&quot;), lower, org.apache.spark.sql.catalyst.expressions.Literal.apply(&quot;higher&quot;), higher))
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          3841
+        </td>
+        <td>
+          6415
+          -
+          6432
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Literal.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.Literal.apply(&quot;higher&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          3845
+        </td>
+        <td>
+          6558
+          -
+          6559
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          3848
+        </td>
+        <td>
+          6577
+          -
+          6604
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.UUIDToLongsExpression.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.UUIDToLongsExpression.apply(expr)
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          3851
+        </td>
+        <td>
+          6562
+          -
+          6608
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.GetStructField.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.GetStructField.apply(com.sparkutils.quality.impl.UUIDToLongsExpression.apply(expr), 1, org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          3844
+        </td>
+        <td>
+          6529
+          -
+          6556
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.UUIDToLongsExpression.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.UUIDToLongsExpression.apply(expr)
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          3847
+        </td>
+        <td>
+          6514
+          -
+          6560
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.GetStructField.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.GetStructField.apply(com.sparkutils.quality.impl.UUIDToLongsExpression.apply(expr), 0, org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          3850
+        </td>
+        <td>
+          6562
+          -
+          6562
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          3849
+        </td>
+        <td>
+          6606
+          -
+          6607
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          3852
+        </td>
+        <td>
+          6506
+          -
+          6609
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.extension.AsUUIDFilter.struct
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          struct(org.apache.spark.sql.catalyst.expressions.GetStructField.apply(com.sparkutils.quality.impl.UUIDToLongsExpression.apply(expr), 0, org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3), org.apache.spark.sql.catalyst.expressions.GetStructField.apply(com.sparkutils.quality.impl.UUIDToLongsExpression.apply(expr), 1, org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3))
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          3846
+        </td>
+        <td>
+          6514
+          -
+          6514
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          3874
+        </td>
+        <td>
+          6619
+          -
+          6877
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[org.apache.spark.sql.catalyst.expressions.And](org.apache.spark.sql.catalyst.expressions.And.apply(org.apache.spark.sql.catalyst.expressions.In.apply(struct(lower, higher), l.map[org.apache.spark.sql.catalyst.expressions.Expression, Seq[org.apache.spark.sql.catalyst.expressions.Expression]]({
+  ((expr: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; structg(expr))
+})(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression])), org.apache.spark.sql.catalyst.expressions.And.apply(org.apache.spark.sql.catalyst.expressions.In.apply(lower, l.map[org.apache.spark.sql.catalyst.expressions.GetStructField, Seq[org.apache.spark.sql.catalyst.expressions.Expression]](((t: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; org.apache.spark.sql.catalyst.expressions.GetStructField.apply(com.sparkutils.quality.impl.UUIDToLongsExpression.apply(t), 0, org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3)))(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.GetStructField])), org.apache.spark.sql.catalyst.expressions.In.apply(higher, l.map[org.apache.spark.sql.catalyst.expressions.GetStructField, Seq[org.apache.spark.sql.catalyst.expressions.Expression]](((t: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; org.apache.spark.sql.catalyst.expressions.GetStructField.apply(com.sparkutils.quality.impl.UUIDToLongsExpression.apply(t), 1, org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3)))(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.GetStructField])))))
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          3854
+        </td>
+        <td>
+          6672
+          -
+          6679
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.extension.AsUUIDFilter.structg
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          structg(expr)
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          3857
+        </td>
+        <td>
+          6640
+          -
+          6683
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.In.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.In.apply(struct(lower, higher), l.map[org.apache.spark.sql.catalyst.expressions.Expression, Seq[org.apache.spark.sql.catalyst.expressions.Expression]]({
+  ((expr: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; structg(expr))
+})(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression]))
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          3853
+        </td>
+        <td>
+          6643
+          -
+          6664
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.extension.AsUUIDFilter.struct
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          struct(lower, higher)
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          3856
+        </td>
+        <td>
+          6666
+          -
+          6682
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          l.map[org.apache.spark.sql.catalyst.expressions.Expression, Seq[org.apache.spark.sql.catalyst.expressions.Expression]]({
+  ((expr: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; structg(expr))
+})(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression])
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          3855
+        </td>
+        <td>
+          6671
+          -
+          6671
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression]
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          3873
+        </td>
+        <td>
+          6635
+          -
+          6867
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.And.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.And.apply(org.apache.spark.sql.catalyst.expressions.In.apply(struct(lower, higher), l.map[org.apache.spark.sql.catalyst.expressions.Expression, Seq[org.apache.spark.sql.catalyst.expressions.Expression]]({
+  ((expr: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; structg(expr))
+})(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression])), org.apache.spark.sql.catalyst.expressions.And.apply(org.apache.spark.sql.catalyst.expressions.In.apply(lower, l.map[org.apache.spark.sql.catalyst.expressions.GetStructField, Seq[org.apache.spark.sql.catalyst.expressions.Expression]](((t: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; org.apache.spark.sql.catalyst.expressions.GetStructField.apply(com.sparkutils.quality.impl.UUIDToLongsExpression.apply(t), 0, org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3)))(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.GetStructField])), org.apache.spark.sql.catalyst.expressions.In.apply(higher, l.map[org.apache.spark.sql.catalyst.expressions.GetStructField, Seq[org.apache.spark.sql.catalyst.expressions.Expression]](((t: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; org.apache.spark.sql.catalyst.expressions.GetStructField.apply(com.sparkutils.quality.impl.UUIDToLongsExpression.apply(t), 1, org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3)))(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.GetStructField]))))
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          3863
+        </td>
+        <td>
+          6712
+          -
+          6767
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          l.map[org.apache.spark.sql.catalyst.expressions.GetStructField, Seq[org.apache.spark.sql.catalyst.expressions.Expression]](((t: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; org.apache.spark.sql.catalyst.expressions.GetStructField.apply(com.sparkutils.quality.impl.UUIDToLongsExpression.apply(t), 0, org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3)))(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.GetStructField])
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          3872
+        </td>
+        <td>
+          6697
+          -
+          6866
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.And.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.And.apply(org.apache.spark.sql.catalyst.expressions.In.apply(lower, l.map[org.apache.spark.sql.catalyst.expressions.GetStructField, Seq[org.apache.spark.sql.catalyst.expressions.Expression]](((t: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; org.apache.spark.sql.catalyst.expressions.GetStructField.apply(com.sparkutils.quality.impl.UUIDToLongsExpression.apply(t), 0, org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3)))(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.GetStructField])), org.apache.spark.sql.catalyst.expressions.In.apply(higher, l.map[org.apache.spark.sql.catalyst.expressions.GetStructField, Seq[org.apache.spark.sql.catalyst.expressions.Expression]](((t: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; org.apache.spark.sql.catalyst.expressions.GetStructField.apply(com.sparkutils.quality.impl.UUIDToLongsExpression.apply(t), 1, org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3)))(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.GetStructField])))
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          3860
+        </td>
+        <td>
+          6723
+          -
+          6723
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          3862
+        </td>
+        <td>
+          6717
+          -
+          6717
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.GetStructField]
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          3859
+        </td>
+        <td>
+          6764
+          -
+          6765
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          3858
+        </td>
+        <td>
+          6738
+          -
+          6762
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.UUIDToLongsExpression.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.UUIDToLongsExpression.apply(t)
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          3861
+        </td>
+        <td>
+          6723
+          -
+          6766
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.GetStructField.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.GetStructField.apply(com.sparkutils.quality.impl.UUIDToLongsExpression.apply(t), 0, org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          3864
+        </td>
+        <td>
+          6702
+          -
+          6768
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.In.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.In.apply(lower, l.map[org.apache.spark.sql.catalyst.expressions.GetStructField, Seq[org.apache.spark.sql.catalyst.expressions.Expression]](((t: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; org.apache.spark.sql.catalyst.expressions.GetStructField.apply(com.sparkutils.quality.impl.UUIDToLongsExpression.apply(t), 0, org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3)))(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.GetStructField]))
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          3866
+        </td>
+        <td>
+          6847
+          -
+          6848
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          3869
+        </td>
+        <td>
+          6800
+          -
+          6800
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.GetStructField]
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          3868
+        </td>
+        <td>
+          6806
+          -
+          6849
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.GetStructField.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.GetStructField.apply(com.sparkutils.quality.impl.UUIDToLongsExpression.apply(t), 1, org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          3871
+        </td>
+        <td>
+          6784
+          -
+          6851
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.In.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.In.apply(higher, l.map[org.apache.spark.sql.catalyst.expressions.GetStructField, Seq[org.apache.spark.sql.catalyst.expressions.Expression]](((t: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; org.apache.spark.sql.catalyst.expressions.GetStructField.apply(com.sparkutils.quality.impl.UUIDToLongsExpression.apply(t), 1, org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3)))(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.GetStructField]))
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          3865
+        </td>
+        <td>
+          6821
+          -
+          6845
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.UUIDToLongsExpression.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.UUIDToLongsExpression.apply(t)
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          3867
+        </td>
+        <td>
+          6806
+          -
+          6806
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          3870
+        </td>
+        <td>
+          6795
+          -
+          6850
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          l.map[org.apache.spark.sql.catalyst.expressions.GetStructField, Seq[org.apache.spark.sql.catalyst.expressions.Expression]](((t: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; org.apache.spark.sql.catalyst.expressions.GetStructField.apply(com.sparkutils.quality.impl.UUIDToLongsExpression.apply(t), 1, org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3)))(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.GetStructField])
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          3880
+        </td>
+        <td>
+          7049
+          -
+          7159
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[org.apache.spark.sql.catalyst.expressions.Or](org.apache.spark.sql.catalyst.expressions.Or.apply(org.apache.spark.sql.catalyst.expressions.And.apply(org.apache.spark.sql.catalyst.expressions.EqualTo.apply(ahigher, bhigher), create.apply(alower, blower)), create.apply(ahigher, bhigher)))
+        </td>
+      </tr><tr>
+        <td>
+          162
+        </td>
+        <td>
+          3875
+        </td>
+        <td>
+          7072
+          -
+          7097
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.EqualTo.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.EqualTo.apply(ahigher, bhigher)
+        </td>
+      </tr><tr>
+        <td>
+          162
+        </td>
+        <td>
+          3878
+        </td>
+        <td>
+          7124
+          -
+          7148
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          create.apply(ahigher, bhigher)
+        </td>
+      </tr><tr>
+        <td>
+          162
+        </td>
+        <td>
+          3877
+        </td>
+        <td>
+          7068
+          -
+          7122
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.And.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.And.apply(org.apache.spark.sql.catalyst.expressions.EqualTo.apply(ahigher, bhigher), create.apply(alower, blower))
+        </td>
+      </tr><tr>
+        <td>
+          162
+        </td>
+        <td>
+          3876
+        </td>
+        <td>
+          7099
+          -
+          7121
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          create.apply(alower, blower)
+        </td>
+      </tr><tr>
+        <td>
+          162
+        </td>
+        <td>
+          3879
+        </td>
+        <td>
+          7065
+          -
+          7149
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Or.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.Or.apply(org.apache.spark.sql.catalyst.expressions.And.apply(org.apache.spark.sql.catalyst.expressions.EqualTo.apply(ahigher, bhigher), create.apply(alower, blower)), create.apply(ahigher, bhigher))
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          3881
+        </td>
+        <td>
+          7325
+          -
+          7335
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StringType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StringType
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          3882
+        </td>
+        <td>
+          7311
+          -
+          7335
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          c.dataType.==(org.apache.spark.sql.types.StringType)
+        </td>
+      </tr><tr>
+        <td>
+          166
+        </td>
+        <td>
+          3884
+        </td>
+        <td>
+          7401
+          -
+          7402
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          166
+        </td>
+        <td>
+          3886
+        </td>
+        <td>
+          7360
+          -
+          7403
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.GetStructField.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.GetStructField.apply(com.sparkutils.quality.impl.UUIDToLongsExpression.apply(c), 0, org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          166
+        </td>
+        <td>
+          3883
+        </td>
+        <td>
+          7375
+          -
+          7399
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.UUIDToLongsExpression.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.UUIDToLongsExpression.apply(c)
+        </td>
+      </tr><tr>
+        <td>
+          166
+        </td>
+        <td>
+          3885
+        </td>
+        <td>
+          7360
+          -
+          7360
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          3890
+        </td>
+        <td>
+          7426
+          -
+          7469
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.GetStructField.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.GetStructField.apply(com.sparkutils.quality.impl.UUIDToLongsExpression.apply(c), 1, org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          3887
+        </td>
+        <td>
+          7441
+          -
+          7465
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.UUIDToLongsExpression.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.UUIDToLongsExpression.apply(c)
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          3889
+        </td>
+        <td>
+          7426
+          -
+          7426
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.GetStructField.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          3888
+        </td>
+        <td>
+          7467
+          -
+          7468
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          169
+        </td>
+        <td>
+          3896
+        </td>
+        <td>
+          7479
+          -
+          7586
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[org.apache.spark.sql.catalyst.expressions.Or](org.apache.spark.sql.catalyst.expressions.Or.apply(org.apache.spark.sql.catalyst.expressions.And.apply(org.apache.spark.sql.catalyst.expressions.EqualTo.apply(higher, bhigher), create.apply(lower, blower)), create.apply(higher, bhigher)))
+        </td>
+      </tr><tr>
+        <td>
+          170
+        </td>
+        <td>
+          3893
+        </td>
+        <td>
+          7498
+          -
+          7550
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.And.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.And.apply(org.apache.spark.sql.catalyst.expressions.EqualTo.apply(higher, bhigher), create.apply(lower, blower))
+        </td>
+      </tr><tr>
+        <td>
+          170
+        </td>
+        <td>
+          3895
+        </td>
+        <td>
+          7495
+          -
+          7576
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Or.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.Or.apply(org.apache.spark.sql.catalyst.expressions.And.apply(org.apache.spark.sql.catalyst.expressions.EqualTo.apply(higher, bhigher), create.apply(lower, blower)), create.apply(higher, bhigher))
+        </td>
+      </tr><tr>
+        <td>
+          170
+        </td>
+        <td>
+          3892
+        </td>
+        <td>
+          7528
+          -
+          7549
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          create.apply(lower, blower)
+        </td>
+      </tr><tr>
+        <td>
+          170
+        </td>
+        <td>
+          3891
+        </td>
+        <td>
+          7502
+          -
+          7526
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.EqualTo.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.EqualTo.apply(higher, bhigher)
+        </td>
+      </tr><tr>
+        <td>
+          170
+        </td>
+        <td>
+          3894
+        </td>
+        <td>
+          7552
+          -
+          7575
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          create.apply(higher, bhigher)
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          3897
+        </td>
+        <td>
+          7603
+          -
+          7607
         </td>
         <td>
           Select
