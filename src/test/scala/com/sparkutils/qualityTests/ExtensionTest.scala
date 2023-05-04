@@ -84,7 +84,7 @@ class ExtensionTest extends FunSuite with RowTools with TestUtils {
         wrapWithExtensionT(tsparkSession => {}, "*")
       }
       val str = ExtensionTesting.disableRuleResult
-      assert(str.indexOf(s"${disableRulesConf} = ") == -1, s"str did have an entry, should not have been logged, got $str")
+      assert(str.isEmpty, s"should have been empty, got $str")
     }
   }
 

@@ -53,10 +53,15 @@ class QualitySparkExtension extends ((SparkSessionExtensions) => Unit) with Logg
       val filteredRules = optimiserRules.filterNot(p => disabledRules.contains(p._1.trim))
       val str = s"$disableRulesConf = $disabledRules leaving ${filteredRules.map(_._1)} remaining"
       logInfo(str)
+      println(s"Quality SparkExtensions: $str")
       if (Testing.testing) {
         ExtensionTesting.disableRuleResult = str
       }
       filteredRules.map(_._2).foreach(extensions.injectOptimizerRule _)
+    } else {
+      val str = s"All optimiser rules are disabled via $disableRulesConf"
+      logInfo(str)
+      println(s"Quality SparkExtensions: $str")
     }
   }
 
