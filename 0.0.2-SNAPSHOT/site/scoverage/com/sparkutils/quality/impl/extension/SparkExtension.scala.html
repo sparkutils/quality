@@ -35,66 +35,69 @@
 </span>11 <span style=''>import org.apache.spark.sql.types.DataType
 </span>12 <span style=''>
 </span>13 <span style=''>object QualitySparkExtension {
-</span>14 <span style=''>  val disableRulesConf = </span><span style='background: #AEF1AE'>&quot;quality.disable.optimiser.rules&quot;</span><span style=''>
-</span>15 <span style=''>}
-</span>16 <span style=''>
-</span>17 <span style=''>/**
-</span>18 <span style=''> * Registers Quality sql functions using the defaults for registerQualityFunctions, these can be overridden without having to subclass DriverPlugin.
-</span>19 <span style=''> *
-</span>20 <span style=''> * It also registers plan optimiser rule's such as AsUUIDFilter, which rewrites filters with variables backed by as_uuid.
-</span>21 <span style=''> *
-</span>22 <span style=''> * Optimiser rules can be disabled via the quality.disable.optimiser.rules system environment variable. &quot;*&quot; disables all rules, otherwise a comma separated list of fqn class names may be used.
-</span>23 <span style=''> */
-</span>24 <span style=''>class QualitySparkExtension extends ((SparkSessionExtensions) =&gt; Unit) with Logging {
-</span>25 <span style=''>
-</span>26 <span style=''>  def parseTypes: String =&gt; Option[DataType] = </span><span style='background: #F0ADAD'>com.sparkutils.quality.defaultParseTypes</span><span style=''> _
-</span>27 <span style=''>  def zero: DataType =&gt; Option[Any] = </span><span style='background: #F0ADAD'>com.sparkutils.quality.defaultZero</span><span style=''> _
-</span>28 <span style=''>  def add: DataType =&gt; Option[(Expression, Expression) =&gt; Expression] = (dataType: DataType) =&gt; </span><span style='background: #F0ADAD'>com.sparkutils.quality.defaultAdd(dataType)</span><span style=''>
-</span>29 <span style=''>  def mapCompare: DataType =&gt; Option[(Any, Any) =&gt; Int] = (dataType: DataType) =&gt; </span><span style='background: #F0ADAD'>utils.defaultMapCompare(dataType)</span><span style=''>
-</span>30 <span style=''>  def writer: String =&gt; Unit = </span><span style='background: #F0ADAD'>println(_)</span><span style=''>
-</span>31 <span style=''>
-</span>32 <span style=''>  /**
-</span>33 <span style=''>   * Adds AsymmetricFilterExpressions for AsUUID
-</span>34 <span style=''>   * Derived implementations should also call super.
-</span>35 <span style=''>   * These are registered after resolution is done.
-</span>36 <span style=''>   * The first String should be the fqn classname / rule name for the rule
-</span>37 <span style=''>   * @param sparkSession
-</span>38 <span style=''>   * @return
-</span>39 <span style=''>   */
-</span>40 <span style=''>  def optimiserRules: Seq[(String, SparkSession =&gt; Rule[LogicalPlan])] = </span><span style='background: #AEF1AE'>Seq((AsUUIDFilter.getClass.getName, _ =&gt; AsUUIDFilter))</span><span style=''>
-</span>41 <span style=''>
-</span>42 <span style=''>  override def apply(extensions: SparkSessionExtensions): Unit = {
-</span>43 <span style=''>    </span><span style='background: #AEF1AE'>com.sparkutils.quality.registerQualityFunctions(parseTypes, zero, add, mapCompare, writer,
-</span>44 <span style=''></span><span style='background: #AEF1AE'>      register = QualitySparkUtils.registerFunctionViaExtension(extensions) _
-</span>45 <span style=''></span><span style='background: #AEF1AE'>    )</span><span style=''>
-</span>46 <span style=''>
-</span>47 <span style=''>    if (</span><span style='background: #AEF1AE'>Testing.testing</span><span style=''>) {
-</span>48 <span style=''>      </span><span style='background: #AEF1AE'>ExtensionTesting.disableRuleResult = &quot;&quot;</span><span style=''>
-</span>49 <span style=''>    }
-</span>50 <span style=''>    val disableConf = </span><span style='background: #AEF1AE'>com.sparkutils.quality.getConfig(disableRulesConf)</span><span style=''>
-</span>51 <span style=''>    if (</span><span style='background: #AEF1AE'>disableConf != &quot;*&quot;</span><span style=''>) </span><span style='background: #AEF1AE'>{
-</span>52 <span style=''></span><span style='background: #AEF1AE'>      val disabledRules = disableConf.split(&quot;,&quot;).map(_.trim).toSet
-</span>53 <span style=''></span><span style='background: #AEF1AE'>      val filteredRules = optimiserRules.filterNot(p =&gt; disabledRules.contains(p._1.trim))
-</span>54 <span style=''></span><span style='background: #AEF1AE'>      val str = s&quot;$disableRulesConf = $disabledRules leaving ${filteredRules.map(_._1)} remaining&quot;
-</span>55 <span style=''></span><span style='background: #AEF1AE'>      logInfo(str)
-</span>56 <span style=''></span><span style='background: #AEF1AE'>      println(s&quot;Quality SparkExtensions: $str&quot;)
-</span>57 <span style=''></span><span style='background: #AEF1AE'>      if (Testing.testing) {
-</span>58 <span style=''></span><span style='background: #AEF1AE'>        ExtensionTesting.disableRuleResult = str
-</span>59 <span style=''></span><span style='background: #AEF1AE'>      }
-</span>60 <span style=''></span><span style='background: #AEF1AE'>      filteredRules.map(_._2).foreach(extensions.injectOptimizerRule _)
-</span>61 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''> else </span><span style='background: #AEF1AE'>{
-</span>62 <span style=''></span><span style='background: #AEF1AE'>      val str = s&quot;All optimiser rules are disabled via $disableRulesConf&quot;
-</span>63 <span style=''></span><span style='background: #AEF1AE'>      logInfo(str)
-</span>64 <span style=''></span><span style='background: #AEF1AE'>      println(s&quot;Quality SparkExtensions: $str&quot;)
-</span>65 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
-</span>66 <span style=''>  }
-</span>67 <span style=''>
-</span>68 <span style=''>}
-</span>69 <span style=''>
-</span>70 <span style=''>private[sparkutils] object ExtensionTesting {
-</span>71 <span style=''>  // whilst clearly not threadsafe it should only be called during single threaded 'driver' testing
-</span>72 <span style=''>  var disableRuleResult: String = </span><span style='background: #AEF1AE'>&quot;&quot;</span><span style=''>
-</span>73 <span style=''>}
+</span>14 <span style=''>  /**
+</span>15 <span style=''>   * underscores as . isn't valid in an env name and only env / system property is available when apply is called
+</span>16 <span style=''>   */
+</span>17 <span style=''>  val disableRulesConf = </span><span style='background: #AEF1AE'>&quot;quality_disable_optimiser_rules&quot;</span><span style=''>
+</span>18 <span style=''>}
+</span>19 <span style=''>
+</span>20 <span style=''>/**
+</span>21 <span style=''> * Registers Quality sql functions using the defaults for registerQualityFunctions, these can be overridden without having to subclass DriverPlugin.
+</span>22 <span style=''> *
+</span>23 <span style=''> * It also registers plan optimiser rule's such as AsUUIDFilter, which rewrites filters with variables backed by as_uuid.
+</span>24 <span style=''> *
+</span>25 <span style=''> * Optimiser rules can be disabled via the quality_disable_optimiser_rules system environment variable. &quot;*&quot; disables all rules, otherwise a comma separated list of fqn class names may be used.
+</span>26 <span style=''> */
+</span>27 <span style=''>class QualitySparkExtension extends ((SparkSessionExtensions) =&gt; Unit) with Logging {
+</span>28 <span style=''>
+</span>29 <span style=''>  def parseTypes: String =&gt; Option[DataType] = </span><span style='background: #F0ADAD'>com.sparkutils.quality.defaultParseTypes</span><span style=''> _
+</span>30 <span style=''>  def zero: DataType =&gt; Option[Any] = </span><span style='background: #F0ADAD'>com.sparkutils.quality.defaultZero</span><span style=''> _
+</span>31 <span style=''>  def add: DataType =&gt; Option[(Expression, Expression) =&gt; Expression] = (dataType: DataType) =&gt; </span><span style='background: #F0ADAD'>com.sparkutils.quality.defaultAdd(dataType)</span><span style=''>
+</span>32 <span style=''>  def mapCompare: DataType =&gt; Option[(Any, Any) =&gt; Int] = (dataType: DataType) =&gt; </span><span style='background: #F0ADAD'>utils.defaultMapCompare(dataType)</span><span style=''>
+</span>33 <span style=''>  def writer: String =&gt; Unit = </span><span style='background: #F0ADAD'>println(_)</span><span style=''>
+</span>34 <span style=''>
+</span>35 <span style=''>  /**
+</span>36 <span style=''>   * Adds AsymmetricFilterExpressions for AsUUID
+</span>37 <span style=''>   * Derived implementations should also call super.
+</span>38 <span style=''>   * These are registered after resolution is done.
+</span>39 <span style=''>   * The first String should be the fqn classname / rule name for the rule
+</span>40 <span style=''>   * @param sparkSession
+</span>41 <span style=''>   * @return
+</span>42 <span style=''>   */
+</span>43 <span style=''>  def optimiserRules: Seq[(String, SparkSession =&gt; Rule[LogicalPlan])] = </span><span style='background: #AEF1AE'>Seq((AsUUIDFilter.getClass.getName, _ =&gt; AsUUIDFilter))</span><span style=''>
+</span>44 <span style=''>
+</span>45 <span style=''>  override def apply(extensions: SparkSessionExtensions): Unit = {
+</span>46 <span style=''>    </span><span style='background: #AEF1AE'>com.sparkutils.quality.registerQualityFunctions(parseTypes, zero, add, mapCompare, writer,
+</span>47 <span style=''></span><span style='background: #AEF1AE'>      register = QualitySparkUtils.registerFunctionViaExtension(extensions) _
+</span>48 <span style=''></span><span style='background: #AEF1AE'>    )</span><span style=''>
+</span>49 <span style=''>
+</span>50 <span style=''>    if (</span><span style='background: #AEF1AE'>Testing.testing</span><span style=''>) {
+</span>51 <span style=''>      </span><span style='background: #AEF1AE'>ExtensionTesting.disableRuleResult = &quot;&quot;</span><span style=''>
+</span>52 <span style=''>    }
+</span>53 <span style=''>    val disableConf = </span><span style='background: #AEF1AE'>com.sparkutils.quality.getConfig(disableRulesConf)</span><span style=''>
+</span>54 <span style=''>    if (</span><span style='background: #AEF1AE'>disableConf != &quot;*&quot;</span><span style=''>) </span><span style='background: #AEF1AE'>{
+</span>55 <span style=''></span><span style='background: #AEF1AE'>      val disabledRules = disableConf.split(&quot;,&quot;).map(_.trim).toSet
+</span>56 <span style=''></span><span style='background: #AEF1AE'>      val filteredRules = optimiserRules.filterNot(p =&gt; disabledRules.contains(p._1.trim))
+</span>57 <span style=''></span><span style='background: #AEF1AE'>      val str = s&quot;$disableRulesConf = $disabledRules leaving ${filteredRules.map(_._1)} remaining&quot;
+</span>58 <span style=''></span><span style='background: #AEF1AE'>      logInfo(str)
+</span>59 <span style=''></span><span style='background: #AEF1AE'>      println(s&quot;Quality SparkExtensions: $str&quot;)
+</span>60 <span style=''></span><span style='background: #AEF1AE'>      if (Testing.testing) {
+</span>61 <span style=''></span><span style='background: #AEF1AE'>        ExtensionTesting.disableRuleResult = str
+</span>62 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>63 <span style=''></span><span style='background: #AEF1AE'>      filteredRules.map(_._2).foreach(extensions.injectOptimizerRule _)
+</span>64 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''> else </span><span style='background: #AEF1AE'>{
+</span>65 <span style=''></span><span style='background: #AEF1AE'>      val str = s&quot;All optimiser rules are disabled via $disableRulesConf&quot;
+</span>66 <span style=''></span><span style='background: #AEF1AE'>      logInfo(str)
+</span>67 <span style=''></span><span style='background: #AEF1AE'>      println(s&quot;Quality SparkExtensions: $str&quot;)
+</span>68 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>69 <span style=''>  }
+</span>70 <span style=''>
+</span>71 <span style=''>}
+</span>72 <span style=''>
+</span>73 <span style=''>private[sparkutils] object ExtensionTesting {
+</span>74 <span style=''>  // whilst clearly not threadsafe it should only be called during single threaded 'driver' testing
+</span>75 <span style=''>  var disableRuleResult: String = </span><span style='background: #AEF1AE'>&quot;&quot;</span><span style=''>
+</span>76 <span style=''>}
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -109,15 +112,15 @@
         <th>Code</th>
       </tr><tr>
         <td>
-          14
+          17
         </td>
         <td>
           3897
         </td>
         <td>
-          624
+          750
           -
-          657
+          783
         </td>
         <td>
           Literal
@@ -129,19 +132,19 @@
           
         </td>
         <td style="background: #AEF1AE">
-          &quot;quality.disable.optimiser.rules&quot;
+          &quot;quality_disable_optimiser_rules&quot;
         </td>
       </tr><tr>
         <td>
-          26
+          29
         </td>
         <td>
           3898
         </td>
         <td>
-          1273
+          1399
           -
-          1313
+          1439
         </td>
         <td>
           Apply
@@ -157,15 +160,15 @@
         </td>
       </tr><tr>
         <td>
-          27
+          30
         </td>
         <td>
           3899
         </td>
         <td>
-          1354
+          1480
           -
-          1388
+          1514
         </td>
         <td>
           Apply
@@ -181,15 +184,15 @@
         </td>
       </tr><tr>
         <td>
-          28
+          31
         </td>
         <td>
           3901
         </td>
         <td>
-          1487
+          1613
           -
-          1530
+          1656
         </td>
         <td>
           Apply
@@ -205,15 +208,15 @@
         </td>
       </tr><tr>
         <td>
-          28
+          31
         </td>
         <td>
           3900
         </td>
         <td>
-          1510
+          1636
           -
-          1510
+          1636
         </td>
         <td>
           Select
@@ -229,15 +232,15 @@
         </td>
       </tr><tr>
         <td>
-          29
+          32
         </td>
         <td>
           3902
         </td>
         <td>
-          1619
+          1745
           -
-          1619
+          1745
         </td>
         <td>
           Select
@@ -253,15 +256,15 @@
         </td>
       </tr><tr>
         <td>
-          29
+          32
         </td>
         <td>
           3903
         </td>
         <td>
-          1613
+          1739
           -
-          1646
+          1772
         </td>
         <td>
           Apply
@@ -277,15 +280,15 @@
         </td>
       </tr><tr>
         <td>
-          30
+          33
         </td>
         <td>
           3904
         </td>
         <td>
-          1678
+          1804
           -
-          1688
+          1814
         </td>
         <td>
           Apply
@@ -301,15 +304,15 @@
         </td>
       </tr><tr>
         <td>
-          40
+          43
         </td>
         <td>
           3905
         </td>
         <td>
-          2047
+          2173
           -
-          2076
+          2202
         </td>
         <td>
           Apply
@@ -325,15 +328,15 @@
         </td>
       </tr><tr>
         <td>
-          40
+          43
         </td>
         <td>
           3907
         </td>
         <td>
-          2042
+          2168
           -
-          2097
+          2223
         </td>
         <td>
           Apply
@@ -349,15 +352,15 @@
         </td>
       </tr><tr>
         <td>
-          40
+          43
         </td>
         <td>
           3906
         </td>
         <td>
-          2046
+          2172
           -
-          2096
+          2222
         </td>
         <td>
           Apply
@@ -373,15 +376,15 @@
         </td>
       </tr><tr>
         <td>
-          43
+          46
         </td>
         <td>
           3914
         </td>
         <td>
-          2170
+          2296
           -
-          2344
+          2470
         </td>
         <td>
           Apply
@@ -399,15 +402,15 @@
         </td>
       </tr><tr>
         <td>
-          43
+          46
         </td>
         <td>
           3908
         </td>
         <td>
-          2218
+          2344
           -
-          2228
+          2354
         </td>
         <td>
           Select
@@ -423,15 +426,15 @@
         </td>
       </tr><tr>
         <td>
-          43
+          46
         </td>
         <td>
           3911
         </td>
         <td>
-          2241
+          2367
           -
-          2251
+          2377
         </td>
         <td>
           Select
@@ -447,15 +450,15 @@
         </td>
       </tr><tr>
         <td>
-          43
+          46
         </td>
         <td>
           3910
         </td>
         <td>
-          2236
+          2362
           -
-          2239
+          2365
         </td>
         <td>
           Select
@@ -471,15 +474,15 @@
         </td>
       </tr><tr>
         <td>
-          43
+          46
         </td>
         <td>
           3909
         </td>
         <td>
-          2230
+          2356
           -
-          2234
+          2360
         </td>
         <td>
           Select
@@ -495,15 +498,15 @@
         </td>
       </tr><tr>
         <td>
-          43
+          46
         </td>
         <td>
           3912
         </td>
         <td>
-          2253
+          2379
           -
-          2259
+          2385
         </td>
         <td>
           Select
@@ -519,15 +522,15 @@
         </td>
       </tr><tr>
         <td>
-          44
+          47
         </td>
         <td>
           3913
         </td>
         <td>
-          2278
+          2404
           -
-          2336
+          2462
         </td>
         <td>
           Apply
@@ -543,15 +546,15 @@
         </td>
       </tr><tr>
         <td>
-          47
+          50
         </td>
         <td>
           3919
         </td>
         <td>
-          2350
+          2476
           -
-          2350
+          2476
         </td>
         <td>
           Block
@@ -567,15 +570,15 @@
         </td>
       </tr><tr>
         <td>
-          47
+          50
         </td>
         <td>
           3918
         </td>
         <td>
-          2350
+          2476
           -
-          2350
+          2476
         </td>
         <td>
           Literal
@@ -591,15 +594,15 @@
         </td>
       </tr><tr>
         <td>
-          47
+          50
         </td>
         <td>
           3915
         </td>
         <td>
-          2354
+          2480
           -
-          2369
+          2495
         </td>
         <td>
           Select
@@ -615,15 +618,15 @@
         </td>
       </tr><tr>
         <td>
-          48
+          51
         </td>
         <td>
           3917
         </td>
         <td>
-          2379
+          2505
           -
-          2418
+          2544
         </td>
         <td>
           Block
@@ -639,15 +642,15 @@
         </td>
       </tr><tr>
         <td>
-          48
+          51
         </td>
         <td>
           3916
         </td>
         <td>
-          2379
+          2505
           -
-          2418
+          2544
         </td>
         <td>
           Apply
@@ -663,15 +666,15 @@
         </td>
       </tr><tr>
         <td>
-          50
+          53
         </td>
         <td>
           3920
         </td>
         <td>
-          2480
+          2606
           -
-          2496
+          2622
         </td>
         <td>
           Select
@@ -687,15 +690,15 @@
         </td>
       </tr><tr>
         <td>
-          50
+          53
         </td>
         <td>
           3921
         </td>
         <td>
-          2447
+          2573
           -
-          2497
+          2623
         </td>
         <td>
           Apply
@@ -711,15 +714,15 @@
         </td>
       </tr><tr>
         <td>
-          51
+          54
         </td>
         <td>
           3922
         </td>
         <td>
-          2506
+          2632
           -
-          2524
+          2650
         </td>
         <td>
           Apply
@@ -735,15 +738,15 @@
         </td>
       </tr><tr>
         <td>
-          51
+          54
         </td>
         <td>
           3952
         </td>
         <td>
-          2526
+          2652
           -
-          3015
+          3141
         </td>
         <td>
           Block
@@ -772,15 +775,15 @@
         </td>
       </tr><tr>
         <td>
-          52
+          55
         </td>
         <td>
           3923
         </td>
         <td>
-          2554
+          2680
           -
-          2576
+          2702
         </td>
         <td>
           Apply
@@ -796,15 +799,15 @@
         </td>
       </tr><tr>
         <td>
-          52
+          55
         </td>
         <td>
           3926
         </td>
         <td>
-          2554
+          2680
           -
-          2588
+          2714
         </td>
         <td>
           ApplyToImplicitArgs
@@ -820,15 +823,15 @@
         </td>
       </tr><tr>
         <td>
-          52
+          55
         </td>
         <td>
           3925
         </td>
         <td>
-          2580
+          2706
           -
-          2580
+          2706
         </td>
         <td>
           ApplyToImplicitArgs
@@ -844,15 +847,15 @@
         </td>
       </tr><tr>
         <td>
-          52
+          55
         </td>
         <td>
           3927
         </td>
         <td>
-          2554
+          2680
           -
-          2594
+          2720
         </td>
         <td>
           TypeApply
@@ -868,15 +871,15 @@
         </td>
       </tr><tr>
         <td>
-          52
+          55
         </td>
         <td>
           3924
         </td>
         <td>
-          2581
+          2707
           -
-          2587
+          2713
         </td>
         <td>
           Apply
@@ -892,15 +895,15 @@
         </td>
       </tr><tr>
         <td>
-          53
+          56
         </td>
         <td>
           3929
         </td>
         <td>
-          2651
+          2777
           -
-          2684
+          2810
         </td>
         <td>
           Apply
@@ -916,15 +919,15 @@
         </td>
       </tr><tr>
         <td>
-          53
+          56
         </td>
         <td>
           3928
         </td>
         <td>
-          2674
+          2800
           -
-          2683
+          2809
         </td>
         <td>
           Apply
@@ -940,15 +943,15 @@
         </td>
       </tr><tr>
         <td>
-          53
+          56
         </td>
         <td>
           3930
         </td>
         <td>
-          2621
+          2747
           -
-          2685
+          2811
         </td>
         <td>
           Apply
@@ -964,15 +967,15 @@
         </td>
       </tr><tr>
         <td>
-          54
+          57
         </td>
         <td>
           3932
         </td>
         <td>
-          2721
+          2847
           -
-          2725
+          2851
         </td>
         <td>
           Literal
@@ -988,15 +991,15 @@
         </td>
       </tr><tr>
         <td>
-          54
+          57
         </td>
         <td>
           3935
         </td>
         <td>
-          2705
+          2831
           -
-          2721
+          2847
         </td>
         <td>
           Select
@@ -1012,15 +1015,15 @@
         </td>
       </tr><tr>
         <td>
-          54
+          57
         </td>
         <td>
           3938
         </td>
         <td>
-          2749
+          2875
           -
-          2772
+          2898
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1036,15 +1039,15 @@
         </td>
       </tr><tr>
         <td>
-          54
+          57
         </td>
         <td>
           3937
         </td>
         <td>
-          2766
+          2892
           -
-          2766
+          2892
         </td>
         <td>
           TypeApply
@@ -1060,15 +1063,15 @@
         </td>
       </tr><tr>
         <td>
-          54
+          57
         </td>
         <td>
           3931
         </td>
         <td>
-          2704
+          2830
           -
-          2705
+          2831
         </td>
         <td>
           Literal
@@ -1084,15 +1087,15 @@
         </td>
       </tr><tr>
         <td>
-          54
+          57
         </td>
         <td>
           3934
         </td>
         <td>
-          2773
+          2899
           -
-          2784
+          2910
         </td>
         <td>
           Literal
@@ -1108,15 +1111,15 @@
         </td>
       </tr><tr>
         <td>
-          54
+          57
         </td>
         <td>
           3936
         </td>
         <td>
-          2767
+          2893
           -
-          2771
+          2897
         </td>
         <td>
           Select
@@ -1132,15 +1135,15 @@
         </td>
       </tr><tr>
         <td>
-          54
+          57
         </td>
         <td>
           3939
         </td>
         <td>
-          2702
+          2828
           -
-          2784
+          2910
         </td>
         <td>
           Apply
@@ -1156,15 +1159,15 @@
         </td>
       </tr><tr>
         <td>
-          54
+          57
         </td>
         <td>
           3933
         </td>
         <td>
-          2738
+          2864
           -
-          2748
+          2874
         </td>
         <td>
           Literal
@@ -1180,15 +1183,15 @@
         </td>
       </tr><tr>
         <td>
-          55
+          58
         </td>
         <td>
           3940
         </td>
         <td>
-          2791
+          2917
           -
-          2803
+          2929
         </td>
         <td>
           Apply
@@ -1204,15 +1207,15 @@
         </td>
       </tr><tr>
         <td>
-          56
+          59
         </td>
         <td>
           3941
         </td>
         <td>
-          2818
+          2944
           -
-          2850
+          2976
         </td>
         <td>
           Apply
@@ -1228,15 +1231,15 @@
         </td>
       </tr><tr>
         <td>
-          56
+          59
         </td>
         <td>
           3942
         </td>
         <td>
-          2810
+          2936
           -
-          2851
+          2977
         </td>
         <td>
           Apply
@@ -1252,15 +1255,15 @@
         </td>
       </tr><tr>
         <td>
-          57
+          60
         </td>
         <td>
           3947
         </td>
         <td>
-          2858
+          2984
           -
-          2858
+          2984
         </td>
         <td>
           Block
@@ -1276,15 +1279,15 @@
         </td>
       </tr><tr>
         <td>
-          57
+          60
         </td>
         <td>
           3946
         </td>
         <td>
-          2858
+          2984
           -
-          2858
+          2984
         </td>
         <td>
           Literal
@@ -1300,15 +1303,15 @@
         </td>
       </tr><tr>
         <td>
-          57
+          60
         </td>
         <td>
           3943
         </td>
         <td>
-          2862
+          2988
           -
-          2877
+          3003
         </td>
         <td>
           Select
@@ -1324,15 +1327,15 @@
         </td>
       </tr><tr>
         <td>
-          58
+          61
         </td>
         <td>
           3944
         </td>
         <td>
-          2889
+          3015
           -
-          2929
+          3055
         </td>
         <td>
           Apply
@@ -1348,15 +1351,15 @@
         </td>
       </tr><tr>
         <td>
-          58
+          61
         </td>
         <td>
           3945
         </td>
         <td>
-          2889
+          3015
           -
-          2929
+          3055
         </td>
         <td>
           Block
@@ -1372,15 +1375,15 @@
         </td>
       </tr><tr>
         <td>
-          60
+          63
         </td>
         <td>
           3950
         </td>
         <td>
-          2976
+          3102
           -
-          3006
+          3132
         </td>
         <td>
           Apply
@@ -1396,15 +1399,15 @@
         </td>
       </tr><tr>
         <td>
-          60
+          63
         </td>
         <td>
           3949
         </td>
         <td>
-          2961
+          3087
           -
-          2961
+          3087
         </td>
         <td>
           TypeApply
@@ -1420,15 +1423,15 @@
         </td>
       </tr><tr>
         <td>
-          60
+          63
         </td>
         <td>
           3951
         </td>
         <td>
-          2944
+          3070
           -
-          3009
+          3135
         </td>
         <td>
           Apply
@@ -1446,15 +1449,15 @@
         </td>
       </tr><tr>
         <td>
-          60
+          63
         </td>
         <td>
           3948
         </td>
         <td>
-          2962
+          3088
           -
-          2966
+          3092
         </td>
         <td>
           Select
@@ -1470,15 +1473,15 @@
         </td>
       </tr><tr>
         <td>
-          61
+          64
         </td>
         <td>
           3960
         </td>
         <td>
-          3021
+          3147
           -
-          3169
+          3295
         </td>
         <td>
           Block
@@ -1498,15 +1501,15 @@
         </td>
       </tr><tr>
         <td>
-          62
+          65
         </td>
         <td>
           3953
         </td>
         <td>
-          3041
+          3167
           -
-          3079
+          3205
         </td>
         <td>
           Literal
@@ -1522,15 +1525,15 @@
         </td>
       </tr><tr>
         <td>
-          62
+          65
         </td>
         <td>
           3956
         </td>
         <td>
-          3039
+          3165
           -
-          3096
+          3222
         </td>
         <td>
           Apply
@@ -1546,15 +1549,15 @@
         </td>
       </tr><tr>
         <td>
-          62
+          65
         </td>
         <td>
           3955
         </td>
         <td>
-          3079
+          3205
           -
-          3095
+          3221
         </td>
         <td>
           Select
@@ -1570,15 +1573,15 @@
         </td>
       </tr><tr>
         <td>
-          62
+          65
         </td>
         <td>
           3954
         </td>
         <td>
-          3095
+          3221
           -
-          3096
+          3222
         </td>
         <td>
           Literal
@@ -1594,15 +1597,15 @@
         </td>
       </tr><tr>
         <td>
-          63
+          66
         </td>
         <td>
           3957
         </td>
         <td>
-          3103
+          3229
           -
-          3115
+          3241
         </td>
         <td>
           Apply
@@ -1618,15 +1621,15 @@
         </td>
       </tr><tr>
         <td>
-          64
+          67
         </td>
         <td>
           3959
         </td>
         <td>
-          3122
+          3248
           -
-          3163
+          3289
         </td>
         <td>
           Apply
@@ -1642,15 +1645,15 @@
         </td>
       </tr><tr>
         <td>
-          64
+          67
         </td>
         <td>
           3958
         </td>
         <td>
-          3130
+          3256
           -
-          3162
+          3288
         </td>
         <td>
           Apply
@@ -1666,15 +1669,15 @@
         </td>
       </tr><tr>
         <td>
-          72
+          75
         </td>
         <td>
           3961
         </td>
         <td>
-          3358
+          3484
           -
-          3360
+          3486
         </td>
         <td>
           Literal
