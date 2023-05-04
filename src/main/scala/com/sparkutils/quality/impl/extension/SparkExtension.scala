@@ -11,7 +11,10 @@ import org.apache.spark.sql.qualityFunctions.utils
 import org.apache.spark.sql.types.DataType
 
 object QualitySparkExtension {
-  val disableRulesConf = "quality.disable.optimiser.rules"
+  /**
+   * underscores as . isn't valid in an env name and only env / system property is available when apply is called
+   */
+  val disableRulesConf = "quality_disable_optimiser_rules"
 }
 
 /**
@@ -19,7 +22,7 @@ object QualitySparkExtension {
  *
  * It also registers plan optimiser rule's such as AsUUIDFilter, which rewrites filters with variables backed by as_uuid.
  *
- * Optimiser rules can be disabled via the quality.disable.optimiser.rules system environment variable. "*" disables all rules, otherwise a comma separated list of fqn class names may be used.
+ * Optimiser rules can be disabled via the quality_disable_optimiser_rules system environment variable. "*" disables all rules, otherwise a comma separated list of fqn class names may be used.
  */
 class QualitySparkExtension extends ((SparkSessionExtensions) => Unit) with Logging {
 
