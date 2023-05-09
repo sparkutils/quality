@@ -9,6 +9,14 @@ functions:
     description: "uniqueID('prefix') Generates a 160bit guaranteed unique id (requires MAC address uniqueness) with contiguous higher values within a partition and overflow with timestamp ms., prefix is used with the _base, _i0 and _i1 fields in the resulting structure"
     tags:
       - ID
+  id_size:
+    description: "id_size(base64) Given a base64 from id_base64 returns the number of _i long fields"
+    tags:
+      - ID
+  id_base64:
+    description: "id_base64(id_struct) id_base64(base, i0, i1, ix) Generates a base64 encoded representation of the id, either the single struct field or the individual parts"
+    tags:
+      - ID
   rngID:
     description: "rngID('prefix') Generates a 160bit random id using XO_RO_SHI_RO_128_PP, prefix is used with the _base, _i0 and _i1 fields in the resulting structure"
     alternatives:

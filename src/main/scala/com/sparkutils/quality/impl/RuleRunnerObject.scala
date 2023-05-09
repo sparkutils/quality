@@ -5,7 +5,7 @@ import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.impl.aggregates.AggregateExpressions
 import com.sparkutils.quality.impl.bloom.{BucketedArrayParquetAggregator, ParquetAggregator}
 import com.sparkutils.quality.impl.hash.{HashFunctionFactory, HashFunctionsExpression, MessageDigestFactory, ZALongHashFunctionFactory, ZALongTupleHashFunctionFactory}
-import com.sparkutils.quality.impl.id.{GenericLongBasedIDExpression, GuaranteedUniqueID, GuaranteedUniqueIdIDExpression, model}
+import com.sparkutils.quality.impl.id.{AsBase64Fields, AsBase64Struct, GenericLongBasedIDExpression, GuaranteedUniqueID, GuaranteedUniqueIdIDExpression, SizeOfIDString, model}
 import com.sparkutils.quality.impl.rng.{RandLongsWithJump, RandomBytes, RandomLongs}
 import com.sparkutils.quality.impl.longPair.{AsUUID, LongPairExpression, PrefixedToLongPair}
 import com.sparkutils.quality.impl.util.{ComparableMapConverter, ComparableMapReverser}
@@ -403,6 +403,12 @@ trait RuleRunnerFunctionsImport {
     }
     register("uniqueID", uniqueID)
 
+    register("id_size", exps => SizeOfIDString(exps.head))
+    register("id_base64", {
+      case Seq(e) => AsBase64Struct(e)
+      case s => AsBase64Fields(s)
+    })
+
     val Murmur3_128_64 = (exps: Seq[Expression]) => {
       val (prefix) =
         exps.size match {
@@ -502,5 +508,7 @@ object RuleRunnerFunctions {
     "mapLookup","mapContains","saferLongPair","hashWith","hashWithStruct","zaHashWith", "zaHashLongsWith",
     "hashFieldBasedID","zaLongsFieldBasedID","zaHashLongsWithStruct", "zaHashWithStruct", "zaFieldBasedID", "prefixedToLongPair",
     "coalesceIfAttributesMissing", "coalesceIfAttributesMissingDisable", "updateField", LambdaFunctions.PlaceHolder,
-    LambdaFunctions.Lambda, LambdaFunctions.CallFun, "printExpr", "printCode", "comparableMaps", "reverseComparableMaps", "as_uuid")
+    LambdaFunctions.Lambda, LambdaFunctions.CallFun, "printExpr", "printCode", "comparableMaps", "reverseComparableMaps", "as_uuid",
+    "id_size", "id_base64"
+  )
 }
