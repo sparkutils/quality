@@ -1,12 +1,14 @@
 package org.apache.spark.sql
 
+import java.util.Locale
+
 import com.sparkutils.quality.impl.{RuleEngineRunner, RuleFolderRunner, RuleRunner, ShowParams}
 import com.sparkutils.quality.debugTime
 import com.sparkutils.quality.utils.PassThrough
 import org.apache.spark.sql.catalyst.{CatalystTypeConverters, FunctionIdentifier}
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, FunctionRegistry, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCoercion, UnresolvedFunction}
 import org.apache.spark.sql.catalyst.catalog.SessionCatalog
-import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Attribute, BinaryOperator, BindReferences, Cast, EqualNullSafe, Expression, ExpressionInfo, ExpressionSet, LambdaFunction, Literal}
+import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Attribute, BinaryOperator, BindReferences, Cast, EqualNullSafe, Expression, ExpressionInfo, ExpressionSet, GetArrayStructFields, GetStructField, LambdaFunction, Literal, PrettyAttribute}
 import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, UnaryNode}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.catalyst.trees.TreeNode
@@ -14,15 +16,13 @@ import org.apache.spark.sql.execution.SparkSqlParser
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.qualityFunctions.{Digest, InterpretedHashLongsFunction}
 import org.apache.spark.sql.types._
-import org.apache.spark.unsafe.types.CalendarInterval
+import org.apache.spark.unsafe.types.{CalendarInterval, UTF8String}
 import org.apache.spark.util.Utils
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
 import org.apache.spark.sql.catalyst.util.TypeUtils
 import org.apache.spark.sql.types.{AbstractDataType, DataType, DecimalType}
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
 import TypeCheckResult.DataTypeMismatch
-import org.apache.spark.sql.catalyst.expressions.Cast.{toSQLValue => stoSQLValue}
-import org.apache.spark.sql.catalyst.expressions.ExpectsInputTypes.{toSQLExpr => stoSQLExpr, toSQLType => stoSQLType}
 
 /**
  * 3.4 backport present on databricks 11.3 lts
@@ -368,7 +368,48 @@ object QualitySparkUtils {
       messageParameters = messageParameters
     )
 
-  def toSQLType(dataType: DataType): String = stoSQLType(dataType)
-  def toSQLExpr(value: Expression): String = stoSQLExpr(value)
-  def toSQLValue(value: Any, dataType: DataType): String = stoSQLValue(value, dataType)
+  def toSQLType(t: AbstractDataType): String = t match {
+    case TypeCollection(types) => types.map(toSQLType).mkString("(", " or ", ")")
+    case dt: DataType => quoteByDefault(dt.sql)
+    case at => quoteByDefault(at.simpleString.toUpperCase(Locale.ROOT))
+  }
+  def toSQLExpr(e: Expression): String = {
+    quoteByDefault(toPrettySQL(e))
+  }
+
+  def usePrettyExpression(e: Expression): Expression = e transform {
+    case a: Attribute => new PrettyAttribute(a)
+    case Literal(s: UTF8String, StringType) => PrettyAttribute(s.toString, StringType)
+    case Literal(v, t: NumericType) if v != null => PrettyAttribute(v.toString, t)
+    case Literal(null, dataType) => PrettyAttribute("NULL", dataType)
+    case e: GetStructField =>
+      val name = e.name.getOrElse(e.childSchema(e.ordinal).name)
+      PrettyAttribute(usePrettyExpression(e.child).sql + "." + name, e.dataType)
+    case e: GetArrayStructFields =>
+      PrettyAttribute(usePrettyExpression(e.child) + "." + e.field.name, e.dataType)
+    case c: Cast =>
+      PrettyAttribute(usePrettyExpression(c.child).sql, c.dataType)
+  }
+
+  def toPrettySQL(e: Expression): String = usePrettyExpression(e).sql
+  // Converts an error class parameter to its SQL representation
+  def toSQLValue(v: Any, t: DataType): String = Literal.create(v, t) match {
+    case Literal(null, _) => "NULL"
+    case Literal(v: Float, FloatType) =>
+      if (v.isNaN) "NaN"
+      else if (v.isPosInfinity) "Infinity"
+      else if (v.isNegInfinity) "-Infinity"
+      else v.toString
+    case l @ Literal(v: Double, DoubleType) =>
+      if (v.isNaN) "NaN"
+      else if (v.isPosInfinity) "Infinity"
+      else if (v.isNegInfinity) "-Infinity"
+      else l.sql
+    case l => l.sql
+  }
+
+  private def quoteByDefault(elem: String): String = {
+    "\"" + elem + "\""
+  }
+
 }
