@@ -14,9 +14,17 @@ functions:
     tags:
       - ID
   id_base64:
-    description: "id_base64(id_struct) id_base64(base, i0, i1, ix) Generates a base64 encoded representation of the id, either the single struct field or the individual parts"
+    description: "id_base64(base, i0, i1, ix) Generates a base64 encoded representation of the id, either the single struct field or the individual parts"
+    alternatives:
+      - "id_base64(id_struct) Uses an id field to generate"         
     tags:
-      - ID
+      - ID      
+  id_from_base64:
+    description: "id_from_base64(base64) Parses the base64 string with an expected default long size of two i.e. an 160bit ID, any string which is not of the correct size will return null"
+    alternatives:
+      - "id_from_base64(base64f, size) Uses a size, which must be literal, to specify the type"
+    tags:
+      - ID      
   rngID:
     description: "rngID('prefix') Generates a 160bit random id using XO_RO_SHI_RO_128_PP, prefix is used with the _base, _i0 and _i1 fields in the resulting structure"
     alternatives:

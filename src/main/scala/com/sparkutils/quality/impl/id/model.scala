@@ -124,10 +124,7 @@ sealed trait BaseWithLongs extends ID {
    * Spark representation, typically these are also exploded, use dataType function to get exploding prefixes
    * @return
    */
-  override def rawDataType: StructType = StructType(
-    ( StructField(name = "base", dataType = IntegerType) +:
-      (0 until array.length).map(i => StructField(name = "i"+i, dataType = LongType)) ).toArray
-  )
+  override def rawDataType: StructType = model.rawType(array.size)
 
   /**
    * BitSet representation of the ID
@@ -147,7 +144,7 @@ sealed trait BaseWithLongs extends ID {
    *
    * @return
    */
-  override def bitLength: Int = 32 + (array.length * 64)
+  override def bitLength: Int = model.bitLength(array)
 
   /**
    * base64 representation - matches the factory function in ID
@@ -340,8 +337,18 @@ case class InvalidIDType(idType: Byte) extends RuntimeException(s"Invalid ID Typ
  * Model for ID handling
  */
 object model {
+
+  def bitLength(array: Array[Long]): Int = bitLength(array.length)
+  def bitLength(size: Int): Int = 32 + (size * 64)
+
+  def rawType(size: Int): StructType =  StructType(
+    ( StructField(name = "base", dataType = IntegerType) +:
+      (0 until size).map(i => StructField(name = "i"+i, dataType = LongType)) ).toArray
+  )
+
   /**
    * Provides the host's MAC address
+   *
    * @return
    */
   val localMAC = {

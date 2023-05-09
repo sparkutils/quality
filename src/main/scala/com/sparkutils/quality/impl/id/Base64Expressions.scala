@@ -2,7 +2,7 @@ package com.sparkutils.quality.impl.id
 
 import java.util.Base64
 
-import com.sparkutils.quality.impl.id.model.{GuaranteedUniqueIDType}
+import com.sparkutils.quality.impl.id.model.GuaranteedUniqueIDType
 import org.apache.spark.sql.InputTypeChecks
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
@@ -10,7 +10,7 @@ import org.apache.spark.sql.catalyst.analysis.TypeCheckResult.DataTypeMismatch
 import org.apache.spark.sql.catalyst.expressions.Cast.toSQLValue
 import org.apache.spark.sql.catalyst.expressions.ExpectsInputTypes.{toSQLExpr, toSQLType}
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
-import org.apache.spark.sql.catalyst.expressions.{Expression, UnaryExpression}
+import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression, UnaryExpression}
 import org.apache.spark.sql.types.{DataType, IntegerType, LongType, StringType, StructType}
 import org.apache.spark.unsafe.types.UTF8String
 
@@ -51,7 +51,7 @@ case class AsBase64Struct(child: Expression) extends UnaryExpression with InputT
     val struct = input.asInstanceOf[InternalRow]
     val base = struct.getInt(0)
     val longs = (1 to size).map(i => struct.getLong(i)).toArray
-    UTF8String.fromString( model.base64(160, base, longs) )
+    UTF8String.fromString( model.base64( model.bitLength(size), base, longs) )
   }
 
   override def dataType: DataType = StringType
@@ -91,7 +91,7 @@ case class AsBase64Fields(children: Seq[Expression]) extends Expression with Inp
     if (base == null || longs.exists(_ == null))
       null
     else
-      UTF8String.fromString( model.base64(160, base.asInstanceOf[Int], longs.map(_.asInstanceOf[Long])) )
+      UTF8String.fromString( model.base64(model.bitLength(size), base.asInstanceOf[Int], longs.map(_.asInstanceOf[Long])) )
   }
 
   override def dataType: DataType = StringType
@@ -136,4 +136,32 @@ case class AsBase64Fields(children: Seq[Expression]) extends Expression with Inp
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
 
   override def inputDataTypes: Seq[Seq[DataType]] = Seq()
+}
+
+/**
+ * Generates an unprefixed 'raw' id structure of a given size.  Note that size is fixed, the type can't change on the plan during the plan.
+ *
+ * @param child the base64 strings that must have the same size, will return null if it's not the right size, or cannot parse it.
+ * @param size the size for the number of longs to have, 2 longs is 160 bit and the default
+ */
+case class IDFromBase64(child: Expression, size: Int) extends UnaryExpression with InputTypeChecks with CodegenFallback {
+
+  override def nullSafeEval(child: Any): Any =  try {
+    val id = model.parseID(child.toString).asInstanceOf[BaseWithLongs]
+    val ar = id.array
+    if (ar.length != size)
+      null
+    else
+      InternalRow.fromSeq(id.base +: ar.toSeq)
+  } catch {
+    case _: Throwable => null
+  }
+
+  override def nullable: Boolean = true
+
+  override def dataType: DataType = model.rawType(size)
+
+  override def inputDataTypes: Seq[Seq[DataType]] = Seq(Seq(StringType))
+
+  protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
 }
