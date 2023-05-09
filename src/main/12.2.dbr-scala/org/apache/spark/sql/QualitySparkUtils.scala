@@ -19,6 +19,10 @@ import org.apache.spark.util.Utils
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
 import org.apache.spark.sql.catalyst.util.TypeUtils
 import org.apache.spark.sql.types.{AbstractDataType, DataType, DecimalType}
+import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
+import TypeCheckResult.DataTypeMismatch
+import org.apache.spark.sql.catalyst.expressions.Cast.{toSQLValue => stoSQLValue}
+import org.apache.spark.sql.catalyst.expressions.ExpectsInputTypes.{toSQLExpr => stoSQLExpr, toSQLType => stoSQLType}
 
 /**
  * 3.4 backport present on databricks 11.3 lts
@@ -352,4 +356,19 @@ object QualitySparkUtils {
   def registerFunctionViaExtension(extensions: SparkSessionExtensions)(name: String, builder: Seq[Expression] => Expression) =
     extensions.injectFunction( (FunctionIdentifier(name), new ExpressionInfo(name, name) , builder) )
 
+  /**
+   * Type signature changed for 3.4 to more detailed setup, 12.2 already uses it
+   * @param errorSubClass
+   * @param messageParameters
+   * @return
+   */
+  def mismatch(errorSubClass: String, messageParameters: Map[String, String]): TypeCheckResult =
+    DataTypeMismatch(
+      errorSubClass = errorSubClass,
+      messageParameters = messageParameters
+    )
+
+  def toSQLType(dataType: DataType): String = stoSQLType(dataType)
+  def toSQLExpr(value: Expression): String = stoSQLExpr(value)
+  def toSQLValue(value: Any, dataType: DataType): String = stoSQLValue(value, dataType)
 }

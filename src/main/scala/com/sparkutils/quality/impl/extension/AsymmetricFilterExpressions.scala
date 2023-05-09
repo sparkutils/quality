@@ -141,7 +141,7 @@ object AsUUIDFilter extends AsymmetricFilterExpressions {
           And( create( GetStructField( UUIDToLongsExpression(c), 0) , lower), create( GetStructField( UUIDToLongsExpression(c), 1 ), higher) )
         )
       // In verifies the rest of the seq are the same type
-      case (a@AsUUID(lower, higher), l: Seq[Expression], i: In) if l.headOption.exists(_.dataType == StringType) =>
+      case (a@AsUUID(lower, higher), l: Seq[Expression], _) if l.headOption.exists(_.dataType == StringType) =>
         def struct(lower: Expression, higher: Expression): Expression =
           CreateNamedStruct(Seq(Literal("lower"), lower,
             Literal("higher"), higher))

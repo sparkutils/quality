@@ -3,14 +3,13 @@ package com.sparkutils.quality.impl.id
 import java.util.Base64
 
 import com.sparkutils.quality.impl.id.model.GuaranteedUniqueIDType
+import org.apache.spark.sql.QualitySparkUtils.{toSQLExpr, toSQLType, mismatch, toSQLValue}
 import org.apache.spark.sql.InputTypeChecks
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
-import org.apache.spark.sql.catalyst.analysis.TypeCheckResult.DataTypeMismatch
-import org.apache.spark.sql.catalyst.expressions.Cast.toSQLValue
-import org.apache.spark.sql.catalyst.expressions.ExpectsInputTypes.{toSQLExpr, toSQLType}
+import org.apache.spark.sql.catalyst.analysis.TypeCheckResult.TypeCheckSuccess
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
-import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression, UnaryExpression}
+import org.apache.spark.sql.catalyst.expressions.{Expression, UnaryExpression}
 import org.apache.spark.sql.types.{DataType, IntegerType, LongType, StringType, StructType}
 import org.apache.spark.unsafe.types.UTF8String
 
@@ -59,8 +58,8 @@ case class AsBase64Struct(child: Expression) extends UnaryExpression with InputT
   override def checkInputDataTypes(): TypeCheckResult = child.dataType match {
     case StructType(fields) if fields.head.name.endsWith("_base") && fields.head.dataType == IntegerType &&
       fields.drop(1).zipWithIndex.forall{ case (f, i) => f.name.endsWith(s"_i$i") && f.dataType == LongType } =>
-      TypeCheckResult.TypeCheckSuccess
-    case _ => DataTypeMismatch(
+      TypeCheckSuccess
+    case _ => mismatch(
       errorSubClass = "UNEXPECTED_INPUT_TYPE",
       messageParameters = Map(
         "paramIndex" -> "1",
@@ -98,7 +97,7 @@ case class AsBase64Fields(children: Seq[Expression]) extends Expression with Inp
 
   override def checkInputDataTypes(): TypeCheckResult = children.map(_.dataType) match {
     case s: Seq[DataType] if s.size < 3 =>
-      DataTypeMismatch(
+      mismatch(
         errorSubClass = "VALUE_OUT_OF_RANGE",
         messageParameters = Map(
           "exprName" -> "arguments",
@@ -108,8 +107,8 @@ case class AsBase64Fields(children: Seq[Expression]) extends Expression with Inp
       )
     case IntegerType +: tail =>
       tail.zipWithIndex.map{
-        case (t, _) if t == LongType => TypeCheckResult.TypeCheckSuccess
-        case (t, i) => DataTypeMismatch(
+        case (t, _) if t == LongType => TypeCheckSuccess
+        case (t, i) => mismatch(
           errorSubClass = "UNEXPECTED_INPUT_TYPE",
           messageParameters = Map(
             "paramIndex" -> (i + 2).toString, // 1 is first param
@@ -118,9 +117,9 @@ case class AsBase64Fields(children: Seq[Expression]) extends Expression with Inp
             "inputType" -> toSQLType(t)
           )
         )
-      }.find{ case _: DataTypeMismatch => true case _ => false }.getOrElse(TypeCheckResult.TypeCheckSuccess)
+      }.find(_.isFailure).getOrElse(TypeCheckSuccess)
 
-    case _ => DataTypeMismatch(
+    case _ => mismatch(
       errorSubClass = "UNEXPECTED_INPUT_TYPE",
       messageParameters = Map(
         "paramIndex" -> "1",
