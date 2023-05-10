@@ -198,7 +198,7 @@ object IDBase64Filter extends AsymmetricFilterExpressions {
 
     def orAndFields(useSize: Int): Expression =
       if (useSize > 1)
-        Or(And(andFields(useSize - 2, leftF, rightF, (a, b) => EqualTo(a, b)), create(leftF(useSize-1), rightF(useSize-1))),
+        Or(And(andFields(useSize - 2, leftF, rightF, EqualTo(_: Expression, _: Expression)), create(leftF(useSize-1), rightF(useSize-1))),
           orAndFields(useSize - 1) )
       else
         create(leftF(0), rightF(0))
@@ -215,7 +215,7 @@ object IDBase64Filter extends AsymmetricFilterExpressions {
   def inComp(size: Int, left: Expression, l: Seq[Expression]) =
     Some(
       And( In( left, l.map(IDFromBase64( _, size))),
-        andFields(size, GetStructField(left, _), i => l.map(t => GetStructField(IDFromBase64(t, size), i)), (a, b) => In(a,b))
+        andFields(size, GetStructField(left, _), i => l.map(t => GetStructField(IDFromBase64(t, size), i)), In(_: Expression,_:Seq[Expression]))
       )
     )
 
