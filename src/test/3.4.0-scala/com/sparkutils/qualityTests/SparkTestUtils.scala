@@ -5,7 +5,7 @@ import java.util.concurrent.atomic.AtomicReference
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.execution.{FileSourceScanExec, SparkPlan}
+import org.apache.spark.sql.execution.{FileSourceScanExec, LocalTableScanExec, SparkPlan}
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanExec
 
 case class AnalysisException(message: String) extends Exception(message)
@@ -44,7 +44,10 @@ object SparkTestUtils {
   def getPushDowns(sparkPlan: SparkPlan): Seq[String] =
     (if (sparkPlan.children.isEmpty)
     // assume it's AQE
-      sparkPlan.asInstanceOf[AdaptiveSparkPlanExec].initialPlan
+      sparkPlan match {
+        case aq: AdaptiveSparkPlanExec => aq.initialPlan
+        case _ => sparkPlan
+      }
     else
       sparkPlan).collect {
       case fs: FileSourceScanExec =>

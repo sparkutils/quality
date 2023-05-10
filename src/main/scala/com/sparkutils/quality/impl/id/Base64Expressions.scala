@@ -20,40 +20,27 @@ import org.apache.spark.unsafe.types.UTF8String
 case class SizeOfIDString(child: Expression) extends UnaryExpression with InputTypeChecks with CodegenFallback {
   protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
 
-  override def nullSafeEval(input: Any): Any = {
+  override def nullSafeEval(input: Any): Any = try {
     val bytes = Base64.getDecoder.decode(input.toString)
     model.idTypeOf(bytes(0)) match {
       case GuaranteedUniqueIDType => 2
       case _ =>
         model.lengthOfID(bytes)
     }
+  } catch {
+    case _: Throwable => null
   }
+
+  override def nullable: Boolean = true
 
   override def dataType: DataType = IntegerType
 
   override def inputDataTypes: Seq[Seq[DataType]] = Seq(Seq(StringType))
 }
 
-/**
- * For an id structure generates a string
- * @param child
- */
-case class AsBase64Struct(child: Expression) extends UnaryExpression with InputTypeChecks with CodegenFallback {
-  protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
+trait IDStructChecker extends InputTypeChecks {
 
-  /**
-   * used with SizeOfIDString to verify strings are comparable
-   */
-  lazy val size = child.dataType.asInstanceOf[StructType].fields.size - 1
-
-  override def nullSafeEval(input: Any): Any = {
-    val struct = input.asInstanceOf[InternalRow]
-    val base = struct.getInt(0)
-    val longs = (1 to size).map(i => struct.getLong(i)).toArray
-    UTF8String.fromString( model.base64( model.bitLength(size), base, longs) )
-  }
-
-  override def dataType: DataType = StringType
+  def child: Expression
 
   override def checkInputDataTypes(): TypeCheckResult = child.dataType match {
     case StructType(fields) if fields.head.name.endsWith("_base") && fields.head.dataType == IntegerType &&
@@ -71,6 +58,30 @@ case class AsBase64Struct(child: Expression) extends UnaryExpression with InputT
   }
 
   override def inputDataTypes: Seq[Seq[DataType]] = Seq()
+
+}
+
+
+/**
+ * For an id structure generates a string
+ * @param child
+ */
+case class AsBase64Struct(child: Expression) extends UnaryExpression with IDStructChecker with CodegenFallback {
+  protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
+
+  /**
+   * used with SizeOfIDString to verify strings are comparable
+   */
+  lazy val size = child.dataType.asInstanceOf[StructType].fields.size - 1
+
+  override def nullSafeEval(input: Any): Any = {
+    val struct = input.asInstanceOf[InternalRow]
+    val base = struct.getInt(0)
+    val longs = (1 to size).map(i => struct.getLong(i)).toArray
+    UTF8String.fromString( model.base64( model.bitLength(size), base, longs) )
+  }
+
+  override def dataType: DataType = StringType
 }
 
 /**
@@ -161,6 +172,21 @@ case class IDFromBase64(child: Expression, size: Int) extends UnaryExpression wi
   override def dataType: DataType = model.rawType(size)
 
   override def inputDataTypes: Seq[Seq[DataType]] = Seq(Seq(StringType))
+
+  protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
+}
+
+/**
+ * Converts any prefixed id back to rawType (base, i0, i1 etc.)
+ * @param child
+ */
+case class IDToRawIDDataType(child: Expression) extends UnaryExpression with IDStructChecker with CodegenFallback {
+
+  override def nullSafeEval(child: Any): Any = child
+
+  override def nullable: Boolean = true
+
+  override def dataType: DataType = model.rawType(child.dataType.asInstanceOf[StructType].fields.length - 1)
 
   protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
 }

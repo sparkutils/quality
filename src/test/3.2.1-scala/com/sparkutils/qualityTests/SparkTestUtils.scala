@@ -47,7 +47,10 @@ object SparkTestUtils {
   def getPushDowns(sparkPlan: SparkPlan): Seq[String] =
     (if (sparkPlan.children.isEmpty)
     // assume it's AQE
-      sparkPlan.asInstanceOf[AdaptiveSparkPlanExec].initialPlan
+    sparkPlan match {
+      case aq: AdaptiveSparkPlanExec => aq.initialPlan
+      case _ => sparkPlan
+    }
     else
       sparkPlan).collect {
       case fs: FileSourceScanExec =>

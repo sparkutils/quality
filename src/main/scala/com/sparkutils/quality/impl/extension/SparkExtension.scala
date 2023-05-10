@@ -39,7 +39,8 @@ class QualitySparkExtension extends ((SparkSessionExtensions) => Unit) with Logg
    * The first String should be the fqn classname / rule name for the rule
    * @return
    */
-  def optimiserRules: Seq[(String, SparkSession => Rule[LogicalPlan])] = Seq((AsUUIDFilter.getClass.getName, _ => AsUUIDFilter))
+  def optimiserRules: Seq[(String, SparkSession => Rule[LogicalPlan])] =
+    Seq((AsUUIDFilter.getClass.getName, _ => AsUUIDFilter), (IDBase64Filter.getClass.getName, _ => IDBase64Filter))
 
   override def apply(extensions: SparkSessionExtensions): Unit = {
     com.sparkutils.quality.registerQualityFunctions(parseTypes, zero, add, mapCompare, writer,

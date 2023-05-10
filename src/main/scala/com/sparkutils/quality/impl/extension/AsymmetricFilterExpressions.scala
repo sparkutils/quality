@@ -2,8 +2,9 @@ package com.sparkutils.quality.impl.extension
 
 import com.sparkutils.quality.PredicateHelperPlus
 import com.sparkutils.quality.impl.UUIDToLongsExpression
+import com.sparkutils.quality.impl.id.{AsBase64Fields, AsBase64Struct, IDFromBase64, IDToRawIDDataType, SizeOfIDString}
 import com.sparkutils.quality.impl.longPair.AsUUID
-import org.apache.spark.sql.catalyst.expressions.{And, BinaryComparison, CreateNamedStruct, EqualNullSafe, EqualTo, Equality, Expression, GetStructField, GreaterThan, GreaterThanOrEqual, In, LessThan, LessThanOrEqual, Literal, Or}
+import org.apache.spark.sql.catalyst.expressions.{And, BinaryComparison, CreateNamedStruct, CreateStruct, EqualNullSafe, EqualTo, Equality, Expression, GetStructField, GreaterThan, GreaterThanOrEqual, If, In, LessThan, LessThanOrEqual, Literal, Or}
 import org.apache.spark.sql.catalyst.plans.logical.{ConstraintHelper, Filter, Join, LogicalPlan}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.types.StringType
@@ -32,6 +33,8 @@ abstract class AsymmetricFilterExpressions extends Rule[LogicalPlan]
   /**
    * Should the matchOnExpression be defined in a filter provide the rewrite.  It's possible for joins that both comparedTo AND generating are the
    * same expression type, this should be explicitly checked for.
+   *
+   * Implementations must return None for any expression they cannot handle, not doing so can lead to MatchErrors.
    *
    * @param generating the underlying expression which is generating either an Alias or the direct expression itself
    * @param comparedTo either an Expression for BinaryComparison where it can be used transparently, irrespective of usage (NamedExpression, Expression etc.), or Seq[Expression] for In's.
@@ -112,12 +115,12 @@ object AsymmetricFilterExpressions {
    * TODO When 2.4 is dropped move this to withChildren
    */
   def create(expressionTemplate: Expression, left: Expression, right: Expression): Expression = expressionTemplate match {
-    case a:EqualTo => EqualTo(left, right)
-    case a:EqualNullSafe => EqualNullSafe(left, right)
-    case a:LessThan => LessThan(left, right)
-    case a:LessThanOrEqual => LessThanOrEqual(left, right)
-    case a:GreaterThan => GreaterThan(left, right)
-    case a:GreaterThanOrEqual => GreaterThanOrEqual(left, right)
+    case _:EqualTo => EqualTo(left, right)
+    case _:EqualNullSafe => EqualNullSafe(left, right)
+    case _:LessThan => LessThan(left, right)
+    case _:LessThanOrEqual => LessThanOrEqual(left, right)
+    case _:GreaterThan => GreaterThan(left, right)
+    case _:GreaterThanOrEqual => GreaterThanOrEqual(left, right)
   }
 }
 
@@ -168,6 +171,138 @@ object AsUUIDFilter extends AsymmetricFilterExpressions {
         Some(
           Or(And(EqualTo(higher, bhigher), create(lower, blower)), create(higher, bhigher))
         )
+      case _ => None
+    }
+  }
+
+}
+
+
+/**
+ * Optimises id_base64 usage for filters on the generated base64 value, swapping out for int / long lookups
+ */
+object IDBase64Filter extends AsymmetricFilterExpressions {
+
+  def andFields[T](size: Int, leftF: Int => Expression, rightF: Int => T, create: (Expression, T) => Expression ): Expression = {
+    val useSize = size + 1
+    def andFields(i: Int): Expression =
+      if (i < useSize)
+        And(create(leftF(i), rightF(i)), andFields(i + 1))
+      else
+        Literal.TrueLiteral
+
+    andFields(0)
+  }
+
+  def orAndFields(size: Int, leftF: Int => Expression, rightF: Int => Expression, create: (Expression, Expression) => Expression ): Expression = {
+
+    def orAndFields(useSize: Int): Expression =
+      if (useSize > 1)
+        Or(And(andFields(useSize - 2, leftF, rightF, EqualTo(_,_)), create(leftF(useSize-1), rightF(useSize-1))),
+          orAndFields(useSize - 1) )
+      else
+        create(leftF(0), rightF(0))
+
+    orAndFields(size + 1)
+  }
+
+  def wrapSizeCheck(size: Int, c: Expression, andFields: Expression): Expression =
+    If(EqualTo(Literal(size), SizeOfIDString(c)), // don't compare if the sizes aren't the same
+      andFields,
+      Literal.FalseLiteral
+    )
+
+  def inComp(size: Int, left: Expression, field: Int => Expression, l: Seq[Expression]) =
+    Some(
+      And( In( left, l.map(IDFromBase64( _, size))),
+        andFields(size, GetStructField(left, _), i => l.map(t => GetStructField(IDFromBase64(t, size), i)), In(_, _))
+      )
+    )
+
+  override def reWriteExpression(generating: Expression, comparedTo: Object,
+                                 filter: Expression): Option[Expression] = {
+    val create = AsymmetricFilterExpressions.create(filter,_: Expression,_: Expression)
+    (generating, comparedTo, filter) match {
+      // join case (possibly a filter)
+      case (a@ AsBase64Struct(left), b@ AsBase64Struct(right), Equality(_,_) ) =>
+        if (a.size != b.size) None // TODO - should it throw?
+        else
+          Some(
+            andFields(a.size, GetStructField(left, _), GetStructField(right, _), create)
+          )
+      case (a@ AsBase64Fields(leftFields), b@ AsBase64Struct(right), Equality(_,_) ) =>
+        if (a.size != b.size) None // TODO - should it throw?
+        else
+          Some(
+            andFields(a.size, leftFields(_), GetStructField(right, _), create)
+          )
+      case (a@ AsBase64Fields(leftFields), b@ AsBase64Fields(rightFields), Equality(_,_) ) =>
+        if (a.size != b.size) None // TODO - should it throw?
+        else
+          Some(
+            andFields(a.size, leftFields(_), rightFields(_), create)
+          )
+      // filter case's
+      case (a @ AsBase64Fields(leftFields), c: Expression, Equality(_,_)) if c.dataType == StringType =>
+        val id = IDFromBase64(c, a.size)
+        Some(
+          wrapSizeCheck(a.size, c,
+            andFields(a.size, leftFields(_), GetStructField(id, _), create))
+        )
+      case (a @ AsBase64Struct(left), c: Expression, Equality(_,_)) if c.dataType == StringType =>
+        val id = IDFromBase64(c, a.size)
+        Some(
+          wrapSizeCheck(a.size, c,
+            andFields(a.size, GetStructField(left, _), GetStructField(id, _), create))
+        )
+
+      // In verifies the rest of the seq are the same type
+      case (a@AsBase64Struct(left), l: Seq[Expression], _) if l.headOption.exists(_.dataType == StringType) =>
+        inComp(a.size, left, GetStructField(left, _), l)
+
+      case (a@AsBase64Fields(left), l: Seq[Expression], _) if l.headOption.exists(_.dataType == StringType) =>
+        inComp(a.size, CreateStruct(left), left(_), l)
+
+      // join + filter
+      case (a@AsBase64Fields(left), b@AsBase64Fields(right), _: LessThan | _: LessThanOrEqual | _: GreaterThan | _: GreaterThanOrEqual) =>
+        if (a.size != b.size)
+          None
+        else
+          Some(
+            orAndFields(a.size, left(_), right(_), create)
+          )
+
+      case (a@AsBase64Fields(left), b@AsBase64Struct(right), _: LessThan | _: LessThanOrEqual | _: GreaterThan | _: GreaterThanOrEqual) =>
+        if (a.size != b.size)
+          None
+        else
+          Some(
+            orAndFields(a.size, left(_), GetStructField(right, _), create)
+          )
+
+      case (a@AsBase64Struct(left), b@AsBase64Struct(right), _: LessThan | _: LessThanOrEqual | _: GreaterThan | _: GreaterThanOrEqual) =>
+        if (a.size != b.size)
+          None
+        else
+          Some(
+            orAndFields(a.size, GetStructField(left, _), GetStructField(right, _), create)
+          )
+
+      // filter case's
+      case (a@AsBase64Struct(left), c: Expression, _: LessThan | _: LessThanOrEqual | _: GreaterThan | _: GreaterThanOrEqual) if c.dataType == StringType =>
+        val id = IDFromBase64(c, a.size)
+        Some(
+          wrapSizeCheck(a.size, c,
+            orAndFields(a.size, GetStructField(left, _), GetStructField(id, _), create))
+        )
+
+      case (a@AsBase64Fields(left), c: Expression, _: LessThan | _: LessThanOrEqual | _: GreaterThan | _: GreaterThanOrEqual) if c.dataType == StringType =>
+        val id = IDFromBase64(c, a.size)
+        Some(
+          wrapSizeCheck(a.size, c,
+            orAndFields(a.size, left(_), GetStructField(id, _), create))
+        )
+
       case _ => None
     }
   }

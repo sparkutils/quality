@@ -24,7 +24,11 @@ functions:
     alternatives:
       - "id_from_base64(base64f, size) Uses a size, which must be literal, to specify the type"
     tags:
-      - ID      
+      - ID
+  id_rawtype:
+    description: "id_rawtype(idstruct) Given a prefixed id returns the fields without their prefix"
+    tags:
+      - ID            
   rngID:
     description: "rngID('prefix') Generates a 160bit random id using XO_RO_SHI_RO_128_PP, prefix is used with the _base, _i0 and _i1 fields in the resulting structure"
     alternatives:

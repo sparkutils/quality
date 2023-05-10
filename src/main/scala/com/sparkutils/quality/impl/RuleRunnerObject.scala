@@ -5,7 +5,7 @@ import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.impl.aggregates.AggregateExpressions
 import com.sparkutils.quality.impl.bloom.{BucketedArrayParquetAggregator, ParquetAggregator}
 import com.sparkutils.quality.impl.hash.{HashFunctionFactory, HashFunctionsExpression, MessageDigestFactory, ZALongHashFunctionFactory, ZALongTupleHashFunctionFactory}
-import com.sparkutils.quality.impl.id.{AsBase64Fields, AsBase64Struct, GenericLongBasedIDExpression, GuaranteedUniqueID, GuaranteedUniqueIdIDExpression, IDFromBase64, SizeOfIDString, model}
+import com.sparkutils.quality.impl.id.{AsBase64Fields, AsBase64Struct, GenericLongBasedIDExpression, GuaranteedUniqueID, GuaranteedUniqueIdIDExpression, IDFromBase64, IDToRawIDDataType, SizeOfIDString, model}
 import com.sparkutils.quality.impl.rng.{RandLongsWithJump, RandomBytes, RandomLongs}
 import com.sparkutils.quality.impl.longPair.{AsUUID, LongPairExpression, PrefixedToLongPair}
 import com.sparkutils.quality.impl.util.{ComparableMapConverter, ComparableMapReverser}
@@ -412,6 +412,7 @@ trait RuleRunnerFunctionsImport {
       case Seq(e) => IDFromBase64(e, 2) // default assumption
       case Seq(e, s) => IDFromBase64(e, getInteger(s))
     })
+    register("id_rawtype", exps => IDToRawIDDataType(exps.head))
 
     val Murmur3_128_64 = (exps: Seq[Expression]) => {
       val (prefix) =
@@ -518,6 +519,6 @@ object RuleRunnerFunctions {
     "hashFieldBasedID","zaLongsFieldBasedID","zaHashLongsWithStruct", "zaHashWithStruct", "zaFieldBasedID", "prefixedToLongPair",
     "coalesceIfAttributesMissing", "coalesceIfAttributesMissingDisable", "updateField", LambdaFunctions.PlaceHolder,
     LambdaFunctions.Lambda, LambdaFunctions.CallFun, "printExpr", "printCode", "comparableMaps", "reverseComparableMaps", "as_uuid",
-    "id_size", "id_base64", "id_from_base64"
+    "id_size", "id_base64", "id_from_base64", "id_rawtype"
   )
 }

@@ -1,6 +1,6 @@
 package com.sparkutils.qualityTests
 
-import com.sparkutils.quality.impl.extension.{AsUUIDFilter, ExtensionTesting, QualitySparkExtension}
+import com.sparkutils.quality.impl.extension.{AsUUIDFilter, ExtensionTesting, IDBase64Filter, QualitySparkExtension}
 import com.sparkutils.quality.impl.extension.QualitySparkExtension.disableRulesConf
 import com.sparkutils.quality.utils.Testing
 import org.apache.spark.sql.catalyst.expressions.{And, Attribute, BinaryComparison, EqualTo, Equality, Or}
@@ -8,7 +8,6 @@ import org.apache.spark.sql.catalyst.plans.logical.Join
 import org.apache.spark.sql.{Column, DataFrame, SparkSession}
 import org.junit.{Before, Test}
 import org.scalatest.FunSuite
-
 import java.util.UUID
 
 // including rowtools so standalone tests behave as if all of them are running and for verify compatibility
@@ -73,7 +72,7 @@ class ExtensionTest extends FunSuite with RowTools with TestUtils {
         wrapWithExtensionT(tsparkSession => { }, AsUUIDFilter.getClass.getName)
       }
       val str = ExtensionTesting.disableRuleResult
-      assert(str.indexOf(s"${disableRulesConf} = Set(${AsUUIDFilter.getClass.getName}) leaving List() remaining" ) > -1, s"str didn't have the expected contents, got $str")
+      assert(str.indexOf(s"${disableRulesConf} = Set(${AsUUIDFilter.getClass.getName}) leaving List(${IDBase64Filter.getClass.getName}) remaining" ) > -1, s"str didn't have the expected contents, got $str")
     }
   }
 
@@ -214,12 +213,47 @@ class ExtensionTest extends FunSuite with RowTools with TestUtils {
     aWithContext.join(bWithContext, comp($"acontext" , $"bcontext"))
   }
 
+  def verifyUUID(pusheddown: String, expectedContent: String): Boolean = {
+    val uu = java.util.UUID.fromString(expectedContent)
+    // for equals
+    pusheddown.indexOf(uu.getLeastSignificantBits.toString) > -1 &&
+      pusheddown.indexOf(uu.getMostSignificantBits.toString) > -1
+  }
+
+  /*
+  == Optimized Logical Plan ==
+  Join Inner, ((alower#13L = blower#34L) AND (ahigher#14L = bhigher#35L))
+  or for > than
+  (((ahigher#14L = bhigher#36L) AND (alower#13L > blower#35L)) OR (ahigher#14L > bhigher#36L))
+   */
+  def verifyJoinPlanUUID(ds: DataFrame): Boolean =
+    ds.queryExecution.optimizedPlan.collect {
+      case j: Join =>
+        j.condition.flatMap{
+          case And(Equality(alower: Attribute, blower: Attribute),Equality(ahigher: Attribute, bhigher: Attribute))
+            if alower.name == "alower" && blower.name == "blower" &&
+              ahigher.name == "ahigher" && bhigher.name == "bhigher" =>
+            Some(true)
+          case Or(And(EqualTo(achigher: Attribute, bchigher: Attribute),
+          a@BinaryComparison(alower: Attribute, blower: Attribute)), b@BinaryComparison(ahigher: Attribute, bhigher: Attribute))
+            if alower.name == "alower" && blower.name == "blower" &&
+              ahigher.name == "ahigher" && bhigher.name == "bhigher" &&
+              achigher.name == "ahigher" && bchigher.name == "bhigher" &&
+              a.getClass.getName == b.getClass.getName =>
+            Some(true)
+          case _ => None
+        }
+    }.flatten.nonEmpty
+
   def doTestAsymmetricFilterPlan(withContextF: SparkSession => DataFrame, filters: Seq[(String, String, String)],
-                                 joinTest: Boolean = false, viaExtension: (SparkSession => Unit) => Unit = wrapWithExtension _): Unit = not2_4 {
+                                 joinTest: Boolean = false, viaExtension: (SparkSession => Unit) => Unit = wrapWithExtension _,
+                                 verify: (String, String) => Boolean = verifyUUID(_,_),
+                                 verifyJoinPlan: DataFrame => Boolean = verifyJoinPlanUUID(_)
+                                ): Unit = not2_4 {
     viaExtension { tsparkSession: SparkSession =>
       val withcontext = withContextF(tsparkSession)
 
-      filters.foreach{ case (filter, expectedUUID, hint) =>
+      filters.foreach{ case (filter, expectedString, hint) =>
         val ds = withcontext.filter(filter)
 
         def assertWithPlan(condition: Boolean, hint: Any) = {
@@ -235,52 +269,233 @@ class ExtensionTest extends FunSuite with RowTools with TestUtils {
           ds.explain(true)
         }
 
-        def verify(pusheddown: String): Boolean = {
-          val uu = java.util.UUID.fromString(expectedUUID)
-          // for equals
-          pusheddown.indexOf(uu.getLeastSignificantBits.toString) > -1 &&
-          pusheddown.indexOf(uu.getMostSignificantBits.toString) > -1
-        }
-
         // although we are only testing for one side in the join test spark will propagate the filter to both sides
         if (joinTest) {
           // verify that the join itself was re-written
-          /*
-          == Optimized Logical Plan ==
-          Join Inner, ((alower#13L = blower#34L) AND (ahigher#14L = bhigher#35L))
-          or for > than
-          (((ahigher#14L = bhigher#36L) AND (alower#13L > blower#35L)) OR (ahigher#14L > bhigher#36L))
-           */
-
-          val res =
-            ds.queryExecution.optimizedPlan.collect {
-              case j: Join =>
-                j.condition.flatMap{
-                  case And(Equality(alower: Attribute, blower: Attribute),Equality(ahigher: Attribute, bhigher: Attribute))
-                    if alower.name == "alower" && blower.name == "blower" &&
-                      ahigher.name == "ahigher" && bhigher.name == "bhigher" =>
-                    Some(true)
-                  case Or(And(EqualTo(achigher: Attribute, bchigher: Attribute),
-                    a@BinaryComparison(alower: Attribute, blower: Attribute)), b@BinaryComparison(ahigher: Attribute, bhigher: Attribute))
-                    if alower.name == "alower" && blower.name == "blower" &&
-                      ahigher.name == "ahigher" && bhigher.name == "bhigher" &&
-                      achigher.name == "ahigher" && bchigher.name == "bhigher" &&
-                      a.getClass.getName == b.getClass.getName =>
-                    Some(true)
-                  case _ => None
-                }
-            }.flatten
-          assertWithPlan(res.nonEmpty, s"$hint - did not have re-written join")
+          assertWithPlan(verifyJoinPlan(ds), s"$hint - did not have re-written join")
 
           // both sides should have pushdown for equals, but for gt,lt etc. it'll be one sided for some, not for others
-          assertWithPlan(pushdowns.nonEmpty, hint)
+          assertWithPlan(pushdowns.nonEmpty, s"$hint - did not have any pushed down filters")
         } else
-          assertWithPlan(pushdowns.size == 1, hint)
+          assertWithPlan(pushdowns.size == 1, s"$hint - did not have exactly one pushed down filter")
 
-        assertWithPlan(pushdowns.exists(p => verify(p)), s"$hint - did not have a pushdown with the lower and higher uuid predicates but $pushdowns")
+        assertWithPlan(pushdowns.exists(p => verify(p, expectedString)), s"$hint - did not have a pushdown with the correct predicates but $pushdowns")
       }
     }
   }
+
+
+  def verifyID(pusheddown: String, expectedContent: String): Boolean =
+    // for equals
+    pusheddown.indexOf(expectedContent) > -1
+
+  /*
+  Spark thankfully removes all the superfluous And(trues)
+   */
+  def verifyJoinPlanID(ds: DataFrame): Boolean =
+    ds.queryExecution.optimizedPlan.collect {
+      case j: Join =>
+        j.condition.flatMap{
+          case And(And(Equality(abase: Attribute, bbase: Attribute),Equality(ai0: Attribute, bi0: Attribute)),Equality(ai1: Attribute, bi1: Attribute))
+            if abase.name == "abase" && bbase.name == "bbase" &&
+              ai0.name == "ai0" && bi0.name == "bi0" &&
+              ai1.name == "ai1" && bi1.name == "bi1" =>
+            Some(true)
+          case Or(And(And(EqualTo(abase: Attribute, bbase: Attribute), EqualTo(ai0: Attribute, bi0: Attribute)), a@BinaryComparison(ai1: Attribute, bi1: Attribute)),
+            Or(And(EqualTo(abase1: Attribute, bbase1: Attribute), b@BinaryComparison(ai01: Attribute, bi01: Attribute)), c@BinaryComparison(abase2: Attribute, bbase2: Attribute)))
+            if abase.name == "abase" && bbase.name == "bbase" &&
+              ai0.name == "ai0" && bi0.name == "bi0" &&
+              ai1.name == "ai1" && bi1.name == "bi1" &&
+              abase1.name == "abase" && bbase1.name == "bbase" &&
+              ai01.name == "ai0" && bi01.name == "bi0" &&
+              abase2.name == "abase" && bbase2.name == "bbase" &&
+              a.getClass.getName == b.getClass.getName &&
+              a.getClass.getName == c.getClass.getName =>
+            Some(true)
+          case _ => None
+        }
+    }.flatten.nonEmpty
+
+  val theSixthIDString = "AbRr/ChS6QAAAAAMA/hChwAAAAY="
+  val testI1= "286051723926044678"
+  val theSeventhIDString = "AbRr/ChS6QAAAAAMA/hChwAAAAc="
+  val threeLongIDString = "AAAAAwAAAAAAAAB7AAAAAAAAMEQAAAAC39vnuA=="
+
+  def doAsymmetricFilterPlanCallIdsFields(generator: SparkSession => DataFrame, viaExtension: (SparkSession => Unit) => Unit = wrapWithExtension _): Unit =
+    doTestAsymmetricFilterPlan(generator, Seq(
+      (s" '$theSixthIDString' = id", testI1, "expr_rhs"),
+      (s" id = '$theSixthIDString'", testI1, "expr_lhs"),
+      (s" '$theSixthIDString' = id and i1 > 286051723926044673L", testI1, "expr_rhs with further filter"),
+      (s" id = '$theSixthIDString' and i1 > 286051723926044673L", testI1, "expr_lhs with further filter"),
+      (s" id in ('$theSixthIDString', '$theSeventhIDString')", testI1, "with in")
+    ), viaExtension = viaExtension, verify = verifyID(_, _),verifyJoinPlan = verifyJoinPlanID(_))
+/*
++--------+-------------------+------------------+
+|pre_base|             pre_i0|            pre_i1|
++--------+-------------------+------------------+
+|28601340|2905640895816663052|286051723926044673|
++--------+-------------------+------------------+
+ */
+
+  val id_base = 28601340
+  val id_i0 = 2905640895816663052L
+  val id_i1 = 286051723926044673L
+
+  val baseID = TestID(id_base, id_i0, id_i1)
+
+  def genBase64(select: String, prefix: String, tsparkSession: SparkSession): DataFrame = {
+    import tsparkSession.implicits._
+
+    val therows = for (i <- 0 until 10) yield {
+      baseID.copy( i1 = baseID.i1 + i)
+    }
+
+    // if this is not read from file a LocalRelation will be used and there is no Filter to be pushed down
+    therows.toDS.selectExpr(s"base as ${prefix}base", s"i0 as ${prefix}i0", s"i1 as ${prefix}i1").write.parquet(outputDir + s"/${prefix}asymfilter")
+
+    val reread = tsparkSession.read.parquet(outputDir + s"/${prefix}asymfilter")
+    val withcontext = reread.selectExpr("*", select)
+    withcontext
+  }
+
+  val idsWithContextFields = (prefix: String) => (tsparkSession: SparkSession) =>
+    genBase64(s"id_base64(${prefix}base, ${prefix}i0, ${prefix}i1) as ${prefix}id", prefix, tsparkSession)
+
+  @Test
+  def testAsymmetricFilterPlanIdCallFieldsViaExistingSession(): Unit = not_Databricks {
+    doAsymmetricFilterPlanCallIdsFields( idsWithContextFields(""), wrapWithExtension _)
+  }
+
+  val idsWithContextStruct = (prefix: String) => (tsparkSession: SparkSession) =>
+    genBase64(s"id_base64(named_struct('pre_base', ${prefix}base, 'pre_i0', ${prefix}i0, 'pre_i1',  ${prefix}i1)) as ${prefix}id", prefix, tsparkSession)
+
+  val viaJoinIDStructs = (comp: (Column, Column) => Column) => (tsparkSession: SparkSession) => {
+    val aWithContext = idsWithContextStruct("a")(tsparkSession)
+    val bWithContext = idsWithContextStruct("b")(tsparkSession)
+    import tsparkSession.implicits._
+    aWithContext.join(bWithContext, comp($"aid" , $"bid"))
+  }
+
+  val viaJoinIDFields = (comp: (Column, Column) => Column) => (tsparkSession: SparkSession) => {
+    val aWithContext = idsWithContextFields("a")(tsparkSession)
+    val bWithContext = idsWithContextFields("b")(tsparkSession)
+    import tsparkSession.implicits._
+    aWithContext.join(bWithContext, comp($"aid" , $"bid"))
+  }
+
+  val viaJoinIDsMixed = (comp: (Column, Column) => Column) => (tsparkSession: SparkSession) => {
+    val aWithContext = idsWithContextFields("a")(tsparkSession)
+    val bWithContext = idsWithContextStruct("b")(tsparkSession)
+    import tsparkSession.implicits._
+    aWithContext.join(bWithContext, comp($"aid" , $"bid"))
+  }
+
+  @Test
+  def testAsymmetricFilterPlanIdCallStructsViaExistingSession(): Unit = not_Databricks {
+    doAsymmetricFilterPlanCallIdsFields( idsWithContextStruct(""), wrapWithExtension _)
+  }
+
+  @Test
+  def testDifferentLengthsId(): Unit = not_Databricks{
+    // will trigger the IF clause and return false, so no records are found and, given no broken down part equals, no pushed down predicates either.
+    try {
+      doTestAsymmetricFilterPlan(idsWithContextStruct(""), Seq(
+        (s" '$threeLongIDString' = id", testI1, "expr_rhs")
+      ), viaExtension = wrapWithExtension _, verify = verifyID(_, _), verifyJoinPlan = verifyJoinPlanID(_))
+    } catch {
+      case t: Throwable if anyCauseHas(t, _.getMessage().indexOf("expr_rhs - did not have exactly one pushed down filter") > -1)=> ()
+    }
+  }
+
+  def doTestAsymmetricFilterPlanJoinIDS(viaExtension: (SparkSession => Unit) => Unit, hint: String,
+                                     joinOp: (Column, Column) => Column, generator: ((Column, Column) => Column) => SparkSession => DataFrame): Unit =
+    doTestAsymmetricFilterPlan(generator(joinOp), Seq(
+      (s" '$theSixthIDString' = aid", testI1, s"expr_rhs $hint"),
+      (s" aid = '$theSixthIDString'", testI1, s"expr_lhs $hint"),
+      (s" '$theSixthIDString' = aid and ai1 > 286051723926044673L", testI1, s"expr_rhs with further filter $hint"),
+      (s" aid = '$theSixthIDString' and ai1 > 286051723926044673L", testI1, s"expr_lhs with further filter $hint"),
+      (s" aid > '$theSixthIDString' and ai1 > 286051723926044673L", testI1, s"expr_lhs gt with further filter $hint")
+    ), true, viaExtension = viaExtension, verify = verifyID(_, _),verifyJoinPlan = verifyJoinPlanID(_))
+
+  @Test
+  def testAsymmetricFilterPlanJoinFieldsEq(): Unit = not_Databricks {
+    doTestAsymmetricFilterPlanJoinIDS(wrapWithExtension _, "eq", (l, r) => l.===(r), viaJoinIDFields)
+  }
+  @Test
+  def testAsymmetricFilterPlanJoinStructEq(): Unit = not_Databricks {
+    doTestAsymmetricFilterPlanJoinIDS(wrapWithExtension _, "eq", (l, r) => l.===(r), viaJoinIDStructs)
+  }
+  @Test
+  def testAsymmetricFilterPlanJoinMixedEq(): Unit = not_Databricks {
+    doTestAsymmetricFilterPlanJoinIDS(wrapWithExtension _, "eq", (l, r) => l.===(r), viaJoinIDsMixed)
+  }
+
+  @Test
+  def testAsymmetricFilterPlanJoinFieldsEqn(): Unit = not_Databricks {
+    doTestAsymmetricFilterPlanJoinIDS(wrapWithExtension _, "eqn", (l, r) => l.<=>(r), viaJoinIDFields)
+  }
+  @Test
+  def testAsymmetricFilterPlanJoinStructEqn(): Unit = not_Databricks {
+    doTestAsymmetricFilterPlanJoinIDS(wrapWithExtension _, "eqn", (l, r) => l.<=>(r), viaJoinIDStructs)
+  }
+  @Test
+  def testAsymmetricFilterPlanJoinMixedEqn(): Unit = not_Databricks {
+    doTestAsymmetricFilterPlanJoinIDS(wrapWithExtension _, "eqn", (l, r) => l.<=>(r), viaJoinIDsMixed)
+  }
+
+  @Test
+  def testAsymmetricFilterPlanJoinFieldsLt(): Unit = not_Databricks {
+    doTestAsymmetricFilterPlanJoinIDS(wrapWithExtension _, "lt", (l, r) => l.<(r), viaJoinIDFields)
+  }
+  @Test
+  def testAsymmetricFilterPlanJoinStructLt(): Unit = not_Databricks {
+    doTestAsymmetricFilterPlanJoinIDS(wrapWithExtension _, "lt", (l, r) => l.<(r), viaJoinIDStructs)
+  }
+  @Test
+  def testAsymmetricFilterPlanJoinMixedLt(): Unit = not_Databricks {
+    doTestAsymmetricFilterPlanJoinIDS(wrapWithExtension _, "lt", (l, r) => l.<(r), viaJoinIDsMixed)
+  }
+
+  @Test
+  def testAsymmetricFilterPlanJoinFieldsLtEq(): Unit = not_Databricks {
+    doTestAsymmetricFilterPlanJoinIDS(wrapWithExtension _, "lte", (l, r) => l.<=(r), viaJoinIDFields)
+  }
+  @Test
+  def testAsymmetricFilterPlanJoinStructLtEq(): Unit = not_Databricks {
+    doTestAsymmetricFilterPlanJoinIDS(wrapWithExtension _, "lte", (l, r) => l.<=(r), viaJoinIDStructs)
+  }
+  @Test
+  def testAsymmetricFilterPlanJoinMixedLtEq(): Unit = not_Databricks {
+    doTestAsymmetricFilterPlanJoinIDS(wrapWithExtension _, "lte", (l, r) => l.<=(r), viaJoinIDsMixed)
+  }
+
+  @Test
+  def testAsymmetricFilterPlanJoinFieldsGt(): Unit = not_Databricks {
+    doTestAsymmetricFilterPlanJoinIDS(wrapWithExtension _, "gt", (l, r) => l.>(r), viaJoinIDFields)
+  }
+  @Test
+  def testAsymmetricFilterPlanJoinStructGt(): Unit = not_Databricks {
+    doTestAsymmetricFilterPlanJoinIDS(wrapWithExtension _, "gt", (l, r) => l.>(r), viaJoinIDStructs)
+  }
+  @Test
+  def testAsymmetricFilterPlanJoinMixedGt(): Unit = not_Databricks {
+    doTestAsymmetricFilterPlanJoinIDS(wrapWithExtension _, "gt", (l, r) => l.>(r), viaJoinIDsMixed)
+  }
+
+  @Test
+  def testAsymmetricFilterPlanJoinFieldsGtEq(): Unit = not_Databricks {
+    doTestAsymmetricFilterPlanJoinIDS(wrapWithExtension _, "gte", (l, r) => l.>=(r), viaJoinIDFields)
+  }
+  @Test
+  def testAsymmetricFilterPlanJoinStructGtEq(): Unit = not_Databricks {
+    doTestAsymmetricFilterPlanJoinIDS(wrapWithExtension _, "gte", (l, r) => l.>=(r), viaJoinIDStructs)
+  }
+  @Test
+  def testAsymmetricFilterPlanJoinMixedGtEq(): Unit = not_Databricks {
+    doTestAsymmetricFilterPlanJoinIDS(wrapWithExtension _, "gte", (l, r) => l.>=(r), viaJoinIDsMixed)
+  }
+
 }
 
 case class TestPair(lower: Long, higher: Long)
+case class TestID(base: Int, i0: Long, i1: Long)

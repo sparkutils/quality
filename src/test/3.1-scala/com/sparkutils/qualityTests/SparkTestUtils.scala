@@ -49,8 +49,12 @@ object SparkTestUtils {
   def getPushDowns(sparkPlan: SparkPlan): Seq[String] =
     (if (sparkPlan.children.isEmpty)
     // assume it's AQE
+    try {
       (field.get(sparkPlan).asInstanceOf[SparkPlan])
-    else
+    } catch {
+      case _: Throwable => sparkPlan
+    }
+      else
       sparkPlan).collect {
       case fs: FileSourceScanExec =>
         fs.metadata.collect { case ("PushedFilters", value) if value != "[]" => value }
