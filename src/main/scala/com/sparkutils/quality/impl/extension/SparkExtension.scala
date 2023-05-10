@@ -34,10 +34,9 @@ class QualitySparkExtension extends ((SparkSessionExtensions) => Unit) with Logg
 
   /**
    * Adds AsymmetricFilterExpressions for AsUUID
-   * Derived implementations should also call super.
+   * Derived implementations should also call super if they wish to register the default rules (or specify both as extensions).
    * These are registered after resolution is done.
    * The first String should be the fqn classname / rule name for the rule
-   * @param sparkSession
    * @return
    */
   def optimiserRules: Seq[(String, SparkSession => Rule[LogicalPlan])] = Seq((AsUUIDFilter.getClass.getName, _ => AsUUIDFilter))

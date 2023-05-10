@@ -34,7 +34,11 @@ Use the 11.3.dbr build / profile, the artefact name will also end with _11.3.dbr
 
 ## Running on Databricks Runtime 12.2 LTS
 
-DBR 12.2 backports at least [SPARK-41049](https://issues.apache.org/jira/browse/SPARK-41049) from 3.4 so the base build is closer to 3.4 than the advertised 3.3.2.  Building/Testing against 3.3.0 is the preferred approach for maximum compatibility.  As of the 14th March 23 the tests run against 12.2. 
+DBR 12.2 backports at least [SPARK-41049](https://issues.apache.org/jira/browse/SPARK-41049) from 3.4 so the base build is closer to 3.4 than the advertised 3.3.2.  Building/Testing against 3.3.0 is the preferred approach for maximum compatibility.  As of the 14th March 23 the tests run against 12.2, barring one frameless related failure. 
+
+## Running on Databricks Runtime 13.x
+
+As of 10th May 2023 0.0.2 run against the 12.2 LTS build works.    
 
 ## Testing out Quality via Notebooks
 
@@ -64,12 +68,12 @@ Ideally at the end of your runs you'll see - after 10 minutes or so and some std
 ```
 Time: 682.626
 
-OK (228 tests)
+OK (241 tests)
 
-Finished. Result: Failures: 0. Ignored: 0. Tests run: 228. Time: 682626ms.
+Finished. Result: Failures: 0. Ignored: 0. Tests run: 241. Time: 682626ms.
 import com.sparkutils.quality.tests.TestSuite
 import com.sparkutils.qualityTests.SparkTestUtils
 fileLoc: String = /dbfs/databricks/quality_test
 ```
 
-NB: _due to no 3.4 frameless yet being available as of 14th March 23 the test counts are now expected to be 206 passed instead of 214_
+NB: _due to no 3.4 frameless yet being available as of 14th March 23 the test counts are now expected to be 240 passed instead of 241 on 12.2 and 13.0_

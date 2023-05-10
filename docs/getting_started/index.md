@@ -87,6 +87,7 @@ The full list of supported runtimes is below:
 
 !!! note "Databricks 12.2 is experimental - pending Frameless 3.4 support"
     12.2 LTS is a mix of 3.3.0 and 3.4.0, as such until Frameless supports 3.4 [see here](https://github.com/typelevel/frameless/issues/698).  This _should_ not affect the sql function extensions.
+    13.0 also works on the 12.2.dbr_ build as of 10th May 2023.
 
 ### Developing for a Databricks Runtime
 
