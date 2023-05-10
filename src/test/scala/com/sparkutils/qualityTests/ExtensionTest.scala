@@ -373,7 +373,7 @@ class ExtensionTest extends FunSuite with RowTools with TestUtils {
 
 
   val idsWithContextStruct = (prefix: String) => (tsparkSession: SparkSession) =>
-    genBase64(s"id_base64(named_struct('pre_base', ${prefix}base, 'pre_i0', ${prefix}i0, 'pre_i1',  ${prefix}i1)) as ${prefix}id", prefix, tsparkSession)
+    genBase64(s"idbase64(named_struct('pre_base', ${prefix}base, 'pre_i0', ${prefix}i0, 'pre_i1',  ${prefix}i1)) as ${prefix}id", prefix, tsparkSession)
 
   val viaJoinIDStructs = (comp: (Column, Column) => Column) => (tsparkSession: SparkSession) => {
     val aWithContext = idsWithContextStruct("a")(tsparkSession)

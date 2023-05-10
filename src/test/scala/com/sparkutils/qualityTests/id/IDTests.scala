@@ -419,7 +419,8 @@ class IDTests extends FunSuite with RowTools with TestUtils {
     val tester = sparkSession.sql("select uniqueid('pref') id").
       selectExpr(" id_base64(id) baseOfStruct"," id_base64(id.pref_base, id.pref_i0, id.pref_i1) baseOfFields", "id").
       selectExpr("id_size(baseOfStruct) size", "*", "id_from_base64(baseOfStruct) idtwo", "id_from_base64(null, 2) nullString",
-      "id_from_base64(id_base64(named_struct('f_base', 0, 'f_i0', 0L, 'f_i1', 1L, 'f_i2', 2L))) wrongSize", "id_from_base64('3423jkojojo3') junkString")
+      "id_from_base64(id_base64(named_struct('f_base', 0, 'f_i0', 0L, 'f_i1', 1L, 'f_i2', 2L))) wrongSize", "id_from_base64('3423jkojojo3') junkString",
+      "id_raw_type(id) rawType")
       .as[IdBaseTester].collect().head
 
     assert(tester.size == 2)
@@ -427,6 +428,9 @@ class IDTests extends FunSuite with RowTools with TestUtils {
     val id = model.parseID(tester.baseOfStruct).asInstanceOf[BaseWithLongs]
     assert(id.base == tester.id.pref_base)
     assert(id.array.toSeq == Seq(tester.id.pref_i0, tester.id.pref_i1))
+
+    assert(id.base == tester.rawType.base)
+    assert(id.array.toSeq == Seq(tester.rawType.i0, tester.rawType.i1))
 
     assert(id.base == tester.idtwo.base)
     assert(id.array.toSeq == Seq(tester.idtwo.i0, tester.idtwo.i1))
@@ -540,4 +544,4 @@ class TwoByteDigest extends MessageDigest("TwoByte") with Cloneable {
 case class IdTester(pref_base: Int, pref_i0: Long, pref_i1: Long)
 case class IdTester2(base: Int, i0: Long, i1: Long)
 case class IdBaseTester(size: Int, baseOfStruct: String, baseOfFields: String, id: IdTester,
-                        idtwo: IdTester2, nullString: Option[IdTester2], wrongSize: Option[IdTester2], junkString: Option[IdTester2])
+                        idtwo: IdTester2, rawType: IdTester2, nullString: Option[IdTester2], wrongSize: Option[IdTester2], junkString: Option[IdTester2])

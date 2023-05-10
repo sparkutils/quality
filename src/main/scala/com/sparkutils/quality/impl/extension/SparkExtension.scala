@@ -44,7 +44,7 @@ class QualitySparkExtension extends ((SparkSessionExtensions) => Unit) with Logg
 
   override def apply(extensions: SparkSessionExtensions): Unit = {
     com.sparkutils.quality.registerQualityFunctions(parseTypes, zero, add, mapCompare, writer,
-      register = QualitySparkUtils.registerFunctionViaExtension(extensions) _
+      registerFunction = QualitySparkUtils.registerFunctionViaExtension(extensions) _
     )
 
     if (Testing.testing) {
