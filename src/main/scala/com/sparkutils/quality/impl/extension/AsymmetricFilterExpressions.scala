@@ -198,7 +198,7 @@ object IDBase64Filter extends AsymmetricFilterExpressions {
 
     def orAndFields(useSize: Int): Expression =
       if (useSize > 1)
-        Or(And(andFields(useSize - 2, leftF, rightF, EqualTo(_,_)), create(leftF(useSize-1), rightF(useSize-1))),
+        Or(And(andFields(useSize - 2, leftF, rightF, (a, b) => EqualTo(a, b)), create(leftF(useSize-1), rightF(useSize-1))),
           orAndFields(useSize - 1) )
       else
         create(leftF(0), rightF(0))
@@ -212,10 +212,10 @@ object IDBase64Filter extends AsymmetricFilterExpressions {
       Literal.FalseLiteral
     )
 
-  def inComp(size: Int, left: Expression, field: Int => Expression, l: Seq[Expression]) =
+  def inComp(size: Int, left: Expression, l: Seq[Expression]) =
     Some(
       And( In( left, l.map(IDFromBase64( _, size))),
-        andFields(size, GetStructField(left, _), i => l.map(t => GetStructField(IDFromBase64(t, size), i)), In(_, _))
+        andFields(size, GetStructField(left, _), i => l.map(t => GetStructField(IDFromBase64(t, size), i)), (a, b) => In(a,b))
       )
     )
 
@@ -258,10 +258,10 @@ object IDBase64Filter extends AsymmetricFilterExpressions {
 
       // In verifies the rest of the seq are the same type
       case (a@AsBase64Struct(left), l: Seq[Expression], _) if l.headOption.exists(_.dataType == StringType) =>
-        inComp(a.size, left, GetStructField(left, _), l)
+        inComp(a.size, left, l)
 
       case (a@AsBase64Fields(left), l: Seq[Expression], _) if l.headOption.exists(_.dataType == StringType) =>
-        inComp(a.size, CreateStruct(left), left(_), l)
+        inComp(a.size, CreateStruct(left), l)
 
       // join + filter
       case (a@AsBase64Fields(left), b@AsBase64Fields(right), _: LessThan | _: LessThanOrEqual | _: GreaterThan | _: GreaterThanOrEqual) =>
