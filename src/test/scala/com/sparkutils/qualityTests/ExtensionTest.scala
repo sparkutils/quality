@@ -362,9 +362,15 @@ class ExtensionTest extends FunSuite with RowTools with TestUtils {
     genBase64(s"id_base64(${prefix}base, ${prefix}i0, ${prefix}i1) as ${prefix}id", prefix, tsparkSession)
 
   @Test
-  def testAsymmetricFilterPlanIdCallFieldsViaExistingSession(): Unit = not_Databricks {
+  def testAsymmetricFilterPlanIdCallFields(): Unit = not_Databricks {
     doAsymmetricFilterPlanCallIdsFields( idsWithContextFields(""), wrapWithExtension _)
   }
+
+  @Test
+  def testAsymmetricFilterPlanIdCallFieldsViaExistingSession(): Unit = onlyWithExtension {
+    doAsymmetricFilterPlanCallIdsFields( idsWithContextFields(""), wrapWithExistingSession _)
+  }
+
 
   val idsWithContextStruct = (prefix: String) => (tsparkSession: SparkSession) =>
     genBase64(s"id_base64(named_struct('pre_base', ${prefix}base, 'pre_i0', ${prefix}i0, 'pre_i1',  ${prefix}i1)) as ${prefix}id", prefix, tsparkSession)
@@ -391,8 +397,13 @@ class ExtensionTest extends FunSuite with RowTools with TestUtils {
   }
 
   @Test
-  def testAsymmetricFilterPlanIdCallStructsViaExistingSession(): Unit = not_Databricks {
+  def testAsymmetricFilterPlanIdCallStructs(): Unit = not_Databricks {
     doAsymmetricFilterPlanCallIdsFields( idsWithContextStruct(""), wrapWithExtension _)
+  }
+
+  @Test
+  def testAsymmetricFilterPlanIdCallStructsViaExistingSession(): Unit = onlyWithExtension {
+    doAsymmetricFilterPlanCallIdsFields( idsWithContextStruct(""), wrapWithExistingSession _)
   }
 
   @Test
@@ -493,6 +504,85 @@ class ExtensionTest extends FunSuite with RowTools with TestUtils {
   @Test
   def testAsymmetricFilterPlanJoinMixedGtEq(): Unit = not_Databricks {
     doTestAsymmetricFilterPlanJoinIDS(wrapWithExtension _, "gte", (l, r) => l.>=(r), viaJoinIDsMixed)
+  }
+
+
+  @Test
+  def testAsymmetricFilterPlanJoinFieldsEqViaExistingSession(): Unit = onlyWithExtension {
+    doTestAsymmetricFilterPlanJoinIDS(wrapWithExistingSession _, "eq", (l, r) => l.===(r), viaJoinIDFields)
+  }
+  @Test
+  def testAsymmetricFilterPlanJoinStructEqViaExistingSession(): Unit = onlyWithExtension {
+    doTestAsymmetricFilterPlanJoinIDS(wrapWithExistingSession _, "eq", (l, r) => l.===(r), viaJoinIDStructs)
+  }
+  @Test
+  def testAsymmetricFilterPlanJoinMixedEqViaExistingSession(): Unit = onlyWithExtension {
+    doTestAsymmetricFilterPlanJoinIDS(wrapWithExistingSession _, "eq", (l, r) => l.===(r), viaJoinIDsMixed)
+  }
+
+  @Test
+  def testAsymmetricFilterPlanJoinFieldsEqnViaExistingSession(): Unit = onlyWithExtension {
+    doTestAsymmetricFilterPlanJoinIDS(wrapWithExistingSession _, "eqn", (l, r) => l.<=>(r), viaJoinIDFields)
+  }
+  @Test
+  def testAsymmetricFilterPlanJoinStructEqnViaExistingSession(): Unit = onlyWithExtension {
+    doTestAsymmetricFilterPlanJoinIDS(wrapWithExistingSession _, "eqn", (l, r) => l.<=>(r), viaJoinIDStructs)
+  }
+  @Test
+  def testAsymmetricFilterPlanJoinMixedEqnViaExistingSession(): Unit = onlyWithExtension {
+    doTestAsymmetricFilterPlanJoinIDS(wrapWithExistingSession _, "eqn", (l, r) => l.<=>(r), viaJoinIDsMixed)
+  }
+
+  @Test
+  def testAsymmetricFilterPlanJoinFieldsLtViaExistingSession(): Unit = onlyWithExtension {
+    doTestAsymmetricFilterPlanJoinIDS(wrapWithExistingSession _, "lt", (l, r) => l.<(r), viaJoinIDFields)
+  }
+  @Test
+  def testAsymmetricFilterPlanJoinStructLtViaExistingSession(): Unit = onlyWithExtension {
+    doTestAsymmetricFilterPlanJoinIDS(wrapWithExistingSession _, "lt", (l, r) => l.<(r), viaJoinIDStructs)
+  }
+  @Test
+  def testAsymmetricFilterPlanJoinMixedLtViaExistingSession(): Unit = onlyWithExtension {
+    doTestAsymmetricFilterPlanJoinIDS(wrapWithExistingSession _, "lt", (l, r) => l.<(r), viaJoinIDsMixed)
+  }
+
+  @Test
+  def testAsymmetricFilterPlanJoinFieldsLtEqViaExistingSession(): Unit = onlyWithExtension {
+    doTestAsymmetricFilterPlanJoinIDS(wrapWithExistingSession _, "lte", (l, r) => l.<=(r), viaJoinIDFields)
+  }
+  @Test
+  def testAsymmetricFilterPlanJoinStructLtEqViaExistingSession(): Unit = onlyWithExtension {
+    doTestAsymmetricFilterPlanJoinIDS(wrapWithExistingSession _, "lte", (l, r) => l.<=(r), viaJoinIDStructs)
+  }
+  @Test
+  def testAsymmetricFilterPlanJoinMixedLtEqViaExistingSession(): Unit = onlyWithExtension {
+    doTestAsymmetricFilterPlanJoinIDS(wrapWithExistingSession _, "lte", (l, r) => l.<=(r), viaJoinIDsMixed)
+  }
+
+  @Test
+  def testAsymmetricFilterPlanJoinFieldsGtViaExistingSession(): Unit = onlyWithExtension {
+    doTestAsymmetricFilterPlanJoinIDS(wrapWithExistingSession _, "gt", (l, r) => l.>(r), viaJoinIDFields)
+  }
+  @Test
+  def testAsymmetricFilterPlanJoinStructGtViaExistingSession(): Unit = onlyWithExtension {
+    doTestAsymmetricFilterPlanJoinIDS(wrapWithExistingSession _, "gt", (l, r) => l.>(r), viaJoinIDStructs)
+  }
+  @Test
+  def testAsymmetricFilterPlanJoinMixedGtViaExistingSession(): Unit = onlyWithExtension {
+    doTestAsymmetricFilterPlanJoinIDS(wrapWithExistingSession _, "gt", (l, r) => l.>(r), viaJoinIDsMixed)
+  }
+
+  @Test
+  def testAsymmetricFilterPlanJoinFieldsGtEqViaExistingSession(): Unit = onlyWithExtension {
+    doTestAsymmetricFilterPlanJoinIDS(wrapWithExistingSession _, "gte", (l, r) => l.>=(r), viaJoinIDFields)
+  }
+  @Test
+  def testAsymmetricFilterPlanJoinStructGtEqViaExistingSession(): Unit = onlyWithExtension {
+    doTestAsymmetricFilterPlanJoinIDS(wrapWithExistingSession _, "gte", (l, r) => l.>=(r), viaJoinIDStructs)
+  }
+  @Test
+  def testAsymmetricFilterPlanJoinMixedGtEqViaExistingSession(): Unit = onlyWithExtension {
+    doTestAsymmetricFilterPlanJoinIDS(wrapWithExistingSession _, "gte", (l, r) => l.>=(r), viaJoinIDsMixed)
   }
 
 }
