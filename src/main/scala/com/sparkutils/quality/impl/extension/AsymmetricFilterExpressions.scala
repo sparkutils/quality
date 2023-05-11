@@ -225,19 +225,19 @@ object IDBase64Filter extends AsymmetricFilterExpressions {
     (generating, comparedTo, filter) match {
       // join case (possibly a filter)
       case (a@ AsBase64Struct(left), b@ AsBase64Struct(right), Equality(_,_) ) =>
-        if (a.size != b.size) None // TODO - should it throw?
+        if (a.size != b.size) None
         else
           Some(
             andFields(a.size, GetStructField(left, _), GetStructField(right, _), create)
           )
       case (a@ AsBase64Fields(leftFields), b@ AsBase64Struct(right), Equality(_,_) ) =>
-        if (a.size != b.size) None // TODO - should it throw?
+        if (a.size != b.size) None
         else
           Some(
             andFields(a.size, leftFields(_), GetStructField(right, _), create)
           )
       case (a@ AsBase64Fields(leftFields), b@ AsBase64Fields(rightFields), Equality(_,_) ) =>
-        if (a.size != b.size) None // TODO - should it throw?
+        if (a.size != b.size) None
         else
           Some(
             andFields(a.size, leftFields(_), rightFields(_), create)

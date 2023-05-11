@@ -1,6 +1,10 @@
 ### 0.0.2 <small>28th March, 2023</small>
 
-#9 - Add AsymmetricFilterExpressions with AsUUID implementation, allows expressions used in field selects to be reversed, support added for optimiser rules through the SparkExtension 
+#12 - Introduce the use of underscores instead of relying on camel case for function sql names, inline with Spark built-in functions
+
+#10 - Base64 functions added for RowID encoding and decoding via base64 (more suitable for BI tools)
+
+#9 - Add AsymmetricFilterExpressions with AsUUID and IDBase64 implementation, allows expressions used in field selects to be reversed, support added for optimiser rules through the SparkExtension 
 
 #8 - Add set syntax for easier defaulting sql, removing duplicative cruft from intention
 

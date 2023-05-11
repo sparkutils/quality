@@ -127,7 +127,8 @@ The known combinations requiring this approach is below:
 | Spark Version | sparkShortVersion | qualityTestPrefix | qualityDatabricksPrefix | scalaCompatVersion |
 | - | - | - | - | - |
 | 3.2.1 | 3.2 | 3.2.1.oss_ | 10.4.dbr_ | 2.12 | 
-| 3.3.0 | 3.3 | 3.3.0.oss_ | 11.0.dbr_ | 2.12 | 
+| 3.3.0 | 3.3 | 3.3.0.oss_ | 11.3.dbr_ | 2.12 | 
+| 3.3.0 | 3.3 | 3.3.0.oss_ | 12.2.dbr_ | 2.12 | 
 
 ## Using the SQL functions on Spark Thrift (Hive) servers
 
@@ -144,6 +145,14 @@ when starting your cluster, with the appropriate compatible Quality runtime jars
       
 !!! note "Pure SQL only"    
     Lambdas, blooms and map's cannot be constructed via pure sql, so the functionality of these on Thrift/Hive servers is limited. 
+
+### Query Optimisations
+
+The Quality SparkExtension also provides query plan optimisers that re-write as_uuid and id_base64 usage when compared to strings.  This allows BI tools to use the results of view containing as_uuid or id_base64 strings in dashboards.  When the BI tool filters or selects on these strings passed down to the **same view**, the string is converted back into its underlying parts.  This allows for predicate pushdowns and other optimisations against the underlying parts instead of forcing conversions to string.
+
+These two currently existing optimisations are applied to joins and filters against =, <=>, >, >=, <, <= and "in".
+
+In order to use the query optimisations within normal job / calculator writing you must still register via spark.sql.extensions but you'll also be able to continue using the rest of the Quality functionality.  
 
 ### Configuring on Databricks runtimes
 

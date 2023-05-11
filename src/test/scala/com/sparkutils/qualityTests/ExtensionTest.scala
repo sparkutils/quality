@@ -371,9 +371,13 @@ class ExtensionTest extends FunSuite with RowTools with TestUtils {
     doAsymmetricFilterPlanCallIdsFields( idsWithContextFields(""), wrapWithExistingSession _)
   }
 
-
   val idsWithContextStruct = (prefix: String) => (tsparkSession: SparkSession) =>
     genBase64(s"idbase64(named_struct('pre_base', ${prefix}base, 'pre_i0', ${prefix}i0, 'pre_i1',  ${prefix}i1)) as ${prefix}id", prefix, tsparkSession)
+
+  val idsWithContextStructLarger = (prefix: String) => (tsparkSession: SparkSession) =>
+    genBase64(s"idbase64(named_struct('pre_base', ${prefix}base, 'pre_i0', ${prefix}i0, 'pre_i1',  ${prefix}i1, 'pre_i2', 20033L)) as ${prefix}id", prefix, tsparkSession)
+  val idsWithContextFieldsLarger = (prefix: String) => (tsparkSession: SparkSession) =>
+    genBase64(s"id_base64(${prefix}base, ${prefix}i0, ${prefix}i1, 20033L) as ${prefix}id", prefix, tsparkSession)
 
   val viaJoinIDStructs = (comp: (Column, Column) => Column) => (tsparkSession: SparkSession) => {
     val aWithContext = idsWithContextStruct("a")(tsparkSession)
@@ -394,6 +398,75 @@ class ExtensionTest extends FunSuite with RowTools with TestUtils {
     val bWithContext = idsWithContextStruct("b")(tsparkSession)
     import tsparkSession.implicits._
     aWithContext.join(bWithContext, comp($"aid" , $"bid"))
+  }
+
+  val viaJoinIDStructsLarger = (comp: (Column, Column) => Column) => (tsparkSession: SparkSession) => {
+    val aWithContext = idsWithContextStruct("a")(tsparkSession)
+    val bWithContext = idsWithContextStructLarger("b")(tsparkSession)
+    import tsparkSession.implicits._
+    aWithContext.join(bWithContext, comp($"aid" , $"bid"))
+  }
+
+  val viaJoinIDFieldsLarger = (comp: (Column, Column) => Column) => (tsparkSession: SparkSession) => {
+    val aWithContext = idsWithContextFields("a")(tsparkSession)
+    val bWithContext = idsWithContextFieldsLarger("b")(tsparkSession)
+    import tsparkSession.implicits._
+    aWithContext.join(bWithContext, comp($"aid" , $"bid"))
+  }
+
+  val viaJoinIDsMixedLarger = (comp: (Column, Column) => Column) => (tsparkSession: SparkSession) => {
+    val aWithContext = idsWithContextFields("a")(tsparkSession)
+    val bWithContext = idsWithContextStructLarger("b")(tsparkSession)
+    import tsparkSession.implicits._
+    aWithContext.join(bWithContext, comp($"aid" , $"bid"))
+  }
+
+  def doTestDifferentLengthsIdJoin(viaExtension: (SparkSession => Unit) => Unit, hint: String, generator: ((Column, Column) => Column) => SparkSession => DataFrame, joinOp: (Column, Column) => Column): Unit =
+  // will trigger the IF clause and return false, so no records are found and, given no broken down part equals, no pushed down predicates either.
+    try {doTestAsymmetricFilterPlan(generator(joinOp), Seq(
+      (s" '$theSixthIDString' = aid", testI1, s"expr_rhs $hint")
+    ), true, viaExtension = viaExtension, verify = verifyID(_, _),verifyJoinPlan = verifyJoinPlanID(_))
+    } catch {
+      case t: Throwable if anyCauseHas(t, _.getMessage().indexOf(" different sizes - did not have re-written join") > -1)=> ()
+    }
+
+  def doTestDifferentLengthsIdJoinAndFilter(viaExtension: (SparkSession => Unit) => Unit, hint: String, generator: ((Column, Column) => Column) => SparkSession => DataFrame): Unit =
+  // will trigger the IF clause and return false, so no records are found and, given no broken down part equals, no pushed down predicates either.
+    try {doTestAsymmetricFilterPlan(generator((l, r) => l.===(r)), Seq(
+      (s" '$theSixthIDString' = aid", testI1, s"expr_rhs $hint")
+    ), true, viaExtension = viaExtension, verify = verifyID(_, _),verifyJoinPlan = verifyJoinPlanID(_))
+    } catch {
+      case t: Throwable if anyCauseHas(t, _.getMessage().indexOf(" different sizes - did not have re-written join") > -1)=> ()
+    }
+
+  @Test
+  def testAsymmetricFilterPlanIdJoinDifferentSizeStruct(): Unit = not_Databricks {
+    doTestDifferentLengthsIdJoin(wrapWithExtension _, "structs different sizes",  viaJoinIDStructsLarger, (l, r) => l.===(r) )
+  }
+
+  @Test
+  def testAsymmetricFilterPlanIdJoinDifferentSizeFields(): Unit = not_Databricks {
+    doTestDifferentLengthsIdJoin(wrapWithExtension _, "fields different sizes",  viaJoinIDFieldsLarger, (l, r) => l.===(r) )
+  }
+
+  @Test
+  def testAsymmetricFilterPlanIdJoinDifferentSizeMixed(): Unit = not_Databricks {
+    doTestDifferentLengthsIdJoin(wrapWithExtension _, "mixed different sizes",  viaJoinIDsMixedLarger, (l, r) => l.===(r) )
+  }
+
+  @Test
+  def testAsymmetricFilterPlanIdJoinDifferentSizeStructLT(): Unit = not_Databricks {
+    doTestDifferentLengthsIdJoin(wrapWithExtension _, "structs different sizes",  viaJoinIDStructsLarger, (l, r) => l.<(r) )
+  }
+
+  @Test
+  def testAsymmetricFilterPlanIdJoinDifferentSizeFieldsLT(): Unit = not_Databricks {
+    doTestDifferentLengthsIdJoin(wrapWithExtension _, "fields different sizes",  viaJoinIDFieldsLarger, (l, r) => l.<(r) )
+  }
+
+  @Test
+  def testAsymmetricFilterPlanIdJoinDifferentSizeMixedLT(): Unit = not_Databricks {
+    doTestDifferentLengthsIdJoin(wrapWithExtension _, "mixed different sizes",  viaJoinIDsMixedLarger, (l, r) => l.<(r) )
   }
 
   @Test
