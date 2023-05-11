@@ -15,7 +15,7 @@ class ExtensionTest extends FunSuite with RowTools with TestUtils {
 
   @Before
   override def setup(): Unit = {
-    cleanupOutput()
+    cleanupOutput() // wierdly doesn't always run on databricks so we have test failures as a result.
   }
 
   def wrapWithExtension(thunk: SparkSession => Unit): Unit = wrapWithExtensionT(thunk)
@@ -128,7 +128,7 @@ class ExtensionTest extends FunSuite with RowTools with TestUtils {
     }
 
     // if this is not read from file a LocalRelation will be used and there is no Filter to be pushed down
-    therows.toDS.selectExpr(s"lower as ${prefix}lower", s"higher as ${prefix}higher").write.parquet(outputDir + s"/${prefix}asymfilter")
+    therows.toDS.selectExpr(s"lower as ${prefix}lower", s"higher as ${prefix}higher").write.mode("overwrite").parquet(outputDir + s"/${prefix}asymfilter")
 
     val reread = tsparkSession.read.parquet(outputDir + s"/${prefix}asymfilter")
     val withcontext = reread.selectExpr("*", s"as_uuid(${prefix}lower, ${prefix}higher) as ${prefix}context")
@@ -351,7 +351,7 @@ class ExtensionTest extends FunSuite with RowTools with TestUtils {
     }
 
     // if this is not read from file a LocalRelation will be used and there is no Filter to be pushed down
-    therows.toDS.selectExpr(s"base as ${prefix}base", s"i0 as ${prefix}i0", s"i1 as ${prefix}i1").write.parquet(outputDir + s"/${prefix}asymfilter")
+    therows.toDS.selectExpr(s"base as ${prefix}base", s"i0 as ${prefix}i0", s"i1 as ${prefix}i1").write.mode("overwrite").parquet(outputDir + s"/${prefix}asymfilter")
 
     val reread = tsparkSession.read.parquet(outputDir + s"/${prefix}asymfilter")
     val withcontext = reread.selectExpr("*", select)
