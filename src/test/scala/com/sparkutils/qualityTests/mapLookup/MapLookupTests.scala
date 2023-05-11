@@ -134,4 +134,22 @@ class MapLookupTests extends FunSuite with RowTools with TestUtils {
       filter("doesCountryExist = false")
     assert(res.count == df.count,"all of the rows should be false" )
   }
+
+  @Test
+  def multiKey: Unit = evalCodeGensNoResolve {
+    import sparkSession.implicits._
+
+    val lookups = mapLookupsFromDFs(Map(
+      "multi" -> ( () => {
+        val df = countryCodeCCY.toDF("country", "funnycheck", "ccy")
+        (df, functions.expr("struct(country, funnycheck)"), functions.expr("ccy"))
+      } )
+    ))
+
+    registerMapLookupsAndFunction(lookups)
+
+    val res = sparkSession.sql("select mapLookup('multi', struct('GB', 2)) res").as[String].collect()
+    assert(res.length == 1,"should have found a single match" )
+    assert(res.head == "GBP", "should have got the pound")
+  }
 }
