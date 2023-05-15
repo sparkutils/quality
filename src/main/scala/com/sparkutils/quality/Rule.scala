@@ -44,6 +44,9 @@ object RuleLogicUtils {
         ))
     ))
 
+  def cleanExprs(ruleSuite: RuleSuite) =
+    mapRules(ruleSuite){f => f.expression.reset(); f}
+
   /**
    * Same as functions.expr without the wrapping Column
    * @param rule
@@ -92,9 +95,6 @@ object RuleLogicUtils {
 /**
  * Lambda functions are for re-use across rules. (param: Type, paramN: Type) -> logicResult .
  *
- * @param name
- * @param rule
- * @param id
  */
 trait LambdaFunction extends HasRuleText with HasExpr {
   val name: String
@@ -112,7 +112,7 @@ case class LambdaFunctionImpl(name: String, rule: String, id: Id) extends Lambda
   def parsed: LambdaFunctionParsed = LambdaFunctionParsed(name, rule, id, expr)
 }
 
-case class LambdaFunctionParsed(name: String, rule: String, id: Id, expr: Expression) extends LambdaFunction {
+case class LambdaFunctionParsed(name: String, rule: String, id: Id, override val expr: Expression) extends LambdaFunction {
   def parsed: LambdaFunctionParsed = this
 }
 
@@ -139,6 +139,11 @@ trait RuleLogic extends Serializable {
     val res = internalEval(internalRow)
     RuleLogicUtils.anyToRuleResult(res)
   }
+
+  /**
+   * Allows implementations to clear out underlying expressions
+   */
+  def reset(): Unit = {}
 }
 
 trait HasExpr {
@@ -150,8 +155,24 @@ trait ExprLogic extends RuleLogic with HasExpr {
     expr.eval(internalRow)
 }
 
-trait HasRuleText {
+trait HasRuleText extends HasExpr {
   val rule: String
+
+  // doesn't need to be serialized, done by RuleRunners
+  @volatile
+  private[quality] var exprI: Expression = _
+  private[quality] def expression(): Expression = {
+    if (exprI eq null) {
+      exprI = RuleLogicUtils.expr(rule)
+    }
+    exprI
+  }
+
+  def reset(): Unit = {
+    exprI = null
+  }
+
+  override def expr = expression()
 }
 
 /**
@@ -159,7 +180,7 @@ trait HasRuleText {
  * @param rule
  */
 case class ExpressionRule( rule: String ) extends ExprLogic with HasRuleText {
-  lazy override val expr = RuleLogicUtils.expr(rule)
+  override def reset(): Unit = super[HasRuleText].reset()
 }
 
 /**
@@ -167,7 +188,8 @@ case class ExpressionRule( rule: String ) extends ExprLogic with HasRuleText {
  * @param rule
  * @param expr
  */
-case class ExpressionRuleExpr( rule: String, expr: Expression ) extends ExprLogic with HasRuleText {
+case class ExpressionRuleExpr( rule: String, override val expr: Expression ) extends ExprLogic with HasRuleText {
+  override def reset(): Unit = super[HasRuleText].reset()
 }
 
 trait ExpressionCompiler extends HasExpr {
@@ -296,7 +318,7 @@ case class OutputExpression( rule: String ) extends OutputExprLogic with HasRule
  * Used in post serializing processing to keep the rule around
  * @param expr
  */
-case class OutputExpressionExpr( rule: String, expr: Expression) extends OutputExprLogic with HasRuleText {
+case class OutputExpressionExpr( rule: String, override val expr: Expression) extends OutputExprLogic with HasRuleText {
 }
 
 case class OutputExpressionWrapper( expr: Expression, compileEval: Boolean = true) extends OutputExprLogic with ExpressionCompiler {
