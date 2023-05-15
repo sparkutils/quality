@@ -1,12 +1,15 @@
 package com.sparkutils.qualityTests
 
 import java.util.UUID
+
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.longPair.AsUUID
 import com.sparkutils.quality.utils.{Arrays, PrintCode}
 import org.apache.spark.sql.QualitySparkUtils.newParser
+import org.apache.spark.sql.catalyst.expressions.{Expression, SubqueryExpression}
+import org.apache.spark.sql.catalyst.plans.logical.Project
 import org.apache.spark.sql.catalyst.util.ArrayData
-import org.apache.spark.sql.{Encoder, SaveMode}
+import org.apache.spark.sql.{Column, Encoder, SaveMode}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.IntegerType
 import org.junit.Test
@@ -485,13 +488,79 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
   @Test
   def mapArrays(): Unit = {
-    val ar = ArrayData.toArrayData(Seq(0, 1,2,3,4)) // Force GenericArrayData instead of UnsafeArrayData
+    val ar = ArrayData.toArrayData(Seq(0,1,2,3,4)) // Force GenericArrayData instead of UnsafeArrayData
     val nar = Arrays.mapArray(ar, IntegerType, _.asInstanceOf[Integer] + 1)
     assert((0 until 5).forall(i => nar(i) == i + 1))
 
     // verify with simple toArray
     val nar2 = Arrays.toArray(ar, IntegerType)
     assert((0 until 5).forall(i => nar2(i) == i))
+  }
+
+  @Test
+  def scalarSubqueryEquivalent(): Unit = {
+    // assert that using a join to test with is fine even when nested
+    import sparkSession.implicits._
+    val seq = Seq(0,1,2,3,4)
+    val df = seq.toDF("i") // Force GenericArrayData instead of UnsafeArrayData
+    val tableName = "the_I_s_Have_It"
+    df.createOrReplaceTempView(tableName)
+
+    // this won't work directly as it's not serializable, it must be a 'top-level' field.
+    def sub(comp: String = "> 2", tableSuffix: String = "") = s"(select first(0) from $tableName i_s$tableSuffix where i_s$tableSuffix.i $comp)"
+
+    val baseline = sparkSession.sql(s"select struct(${sub()}).col1 is not null")
+    baseline.show
+    assert(!baseline.isEmpty)
+    assert(baseline.as[Boolean].head())
+
+    val rs = RuleSuite(Id(1,1), Seq(
+      RuleSet(Id(50, 1), Seq(
+        Rule(Id(100, 1), ExpressionRule("_q_join_expr_fields.col1")) // pass it through, colX has been the syntax from CreateStruct for 7 years (as of 3.4 15th May 23)
+        //Rule(Id(101, 1), ExpressionRule(sub("> main.i", "1")))
+      ))
+    ))
+    val testDF = seq.toDF("i").as("main").selectExpr("*", s"struct(${sub("> main.i")}) _q_join_expr_fields")
+    testDF.show
+    testDF.collect()
+    val resdf = addDataQuality(testDF, rs)
+    try {
+      val res = resdf.selectExpr("DataQuality.overallResult").as[Int].collect()
+      assert(res.filterNot(_ == PassedInt).length == 1)
+    } catch {
+      case t: Throwable =>
+        throw t
+    }
+    /*
+    Lessons learned:
+    Scalar subqueries (correlated or not) aren't serializable
+    When using any subqueries we need to throw unless they have been replaced in a transformer
+    The lookup "joins" need views, joining otherwise invites row explosion
+    They need moving to top level _AND_ unprefixed variables used in the moved rules need prefixing (requires the main table to be prefixed) - e.g. changing main.i above will cause the rules to fail silently
+    No obvious way to see if SubqueryAlias can be autodetected or if it will cause grief otherwise, can't think of a scenario for this but still....
+
+    although exists and in work with subquery sqlParser.parseExpression the same is not true of first etc. - those are plans...
+     */
+  }
+
+  def isSubQuery(exp: Expression): Boolean =
+    exp collect {
+      case t: SubqueryExpression => t
+    } nonEmpty
+
+  def isSubQuery(exp: Column): Boolean = isSubQuery(exp.expr)
+  def isSubQuery(str: String): Boolean = isSubQuery(expr(str))
+
+  @Test
+  def subQueryCheck(): Unit = {
+
+    assert(isSubQuery("exists(select 0 from tablename where i > 0)"))
+    assert(isSubQuery("a in (select i from tablename)"))
+    val p = sparkSession.sessionState.sqlParser.parsePlan("select first(i) f from tablename where i > 0")
+    assert(isSubQuery("(select first(i) f from tablename where i > 0).f"))
+    true
+
+
   }
 
 }
