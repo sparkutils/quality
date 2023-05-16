@@ -70,20 +70,24 @@ object RuleLogicUtils {
      */
     val rawExpr =
       try {
-        try {
-          parser.parseExpression(rule)
-        } catch {
-          case t: Throwable => // e.g. suitable for output expressions
-            ScalarSubquery(parser.parsePlan(rule))
-        }
+        parser.parseExpression(rule)
       } catch {
-        case t: Throwable => // quite possibly a lambda using a subquery so try and force it via the struct(( sub )).col1 trick
-          val r = rule.split("->")
-          if (r.size == 2) {
-            val wrapped = s"${r(0)} -> struct(( ${r(1)} )).col1"
-            parser.parseExpression(wrapped)
-          } else
-            throw t
+        case ot: Throwable => // e.g. suitable for output expressions
+          try {
+            ScalarSubquery(parser.parsePlan(rule))
+          } catch {
+            case t: Throwable => // quite possibly a lambda using a subquery so try and force it via the struct(( sub )).col1 trick
+              val r = rule.split("->")
+              if (r.size == 2) {
+                val wrapped = s"${r(0)} -> struct(( ${r(1)} )).col1"
+                try {
+                  parser.parseExpression(wrapped)
+                } catch {
+                  case _: Throwable => throw ot // if this didn't work return the original error
+                }
+              } else
+                throw ot // if this didn't work return the original error
+          }
       }
 
     val res =

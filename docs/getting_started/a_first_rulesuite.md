@@ -43,6 +43,21 @@ withEvaluatedRulesDF.write. ... // or show, or count, or some other action
 
 Your expressions used, in dq/triggers, output expressions (for Rules and Folder) and lambda functions can contain any valid SQL that does not include Nondeterministic functions such as rand(), uuid() or indeed the Quality random and unique_id() functions.
 
+??? info "3.4 & Sub queries"
+    Prior to 3.4 exists, in, and scalar subqueries (correlated or not) could not be used in any Quality rule SQL snippets.
+     
+    3.4 has allowed the use of most sub query patterns, such as checking foreign keys via an exists in a dq rule where the data is to large for maps, or selecting the maximum matching value in an output expression.  There are some oddities like you must use an alias on the input dataframe if a correlated subquery also has the same field names, not doing so results in silent failure.  
+    
+    Lambdas however introduce some complications, 3.4 quite reasonably had no intention of supporting the kind of thing Quality is doing, so there is code making it work for the obvious use case of DRY using row attributes.  Attempting to use a lambda with parameters that are not attributes will result in an error e.g. given genMax:
+    
+    ```scala
+    LambdaFunction("genMax", "ii -> select max(i_s.i) from tableName i_s where i_s.i > ii", Id(2404,1)))
+    ```
+    
+    Calling with genMax(i) where i is an column attribute will work, calling with genMax(i * 1) will throw a QualityException. 
+    
+    This applies equally to Databricks 12.2 which back-ported this awesome functionality.
+
 ## withColumn is BAD - how else can I add columns?
 
 I understand repeatedly calling withColumn/withColumnRenamed can cause performance issues due to excessive projections but how else can I add a RuleSuite in Spark?
