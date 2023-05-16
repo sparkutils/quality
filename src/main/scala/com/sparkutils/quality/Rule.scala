@@ -3,7 +3,7 @@ package com.sparkutils.quality
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedFunction}
-import org.apache.spark.sql.catalyst.expressions.{EqualTo, Expression, Literal, UnresolvedNamedLambdaVariable, LambdaFunction => SparkLambdaFunction}
+import org.apache.spark.sql.catalyst.expressions.{EqualTo, Expression, Literal, OuterReference, ScalarSubquery, SubqueryExpression, UnresolvedNamedLambdaVariable, LambdaFunction => SparkLambdaFunction}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext}
 import org.apache.spark.sql.qualityFunctions.{FunN, LambdaFunctions, RefExpressionLazyType}
 import org.apache.spark.sql.types.Decimal
@@ -44,8 +44,16 @@ object RuleLogicUtils {
         ))
     ))
 
-  def cleanExprs(ruleSuite: RuleSuite) =
-    mapRules(ruleSuite){f => f.expression.reset(); f}
+  /**
+   * Removes all parsed Expressions.  Subqueries, supported under 3.4 oss / 12.2 dbr v0.0.2, are not serializable until
+   * after analysis, as such all expressions must be cleansed
+   * @param ruleSuite
+   * @return
+   */
+  def cleanExprs(ruleSuite: RuleSuite) = {
+    ruleSuite.lambdaFunctions.foreach(_.reset())
+    mapRules(ruleSuite){f => f.expression.reset(); f.runOnPassProcessor.returnIfPassed.reset(); f}
+  }
 
   /**
    * Same as functions.expr without the wrapping Column
@@ -56,9 +64,51 @@ object RuleLogicUtils {
     val parser = SparkSession.getActiveSession.map(_.sessionState.sqlParser).getOrElse {
       QualitySparkUtils.newParser()
     }
-    val rawExpr = parser.parseExpression(rule)
-    rawExpr
+    /*
+    attempt for a simple expression, then try a plan with exactly one output row.
+    "In" will handle ListQuery, "Exists" similarly exists, everything else will likely fail as a parser error
+     */
+    val rawExpr =
+      try {
+        try {
+          parser.parseExpression(rule)
+        } catch {
+          case t: Throwable => // e.g. suitable for output expressions
+            ScalarSubquery(parser.parsePlan(rule))
+        }
+      } catch {
+        case t: Throwable => // quite possibly a lambda using a subquery so try and force it via the struct(( sub )).col1 trick
+          val r = rule.split("->")
+          if (r.size == 2) {
+            val wrapped = s"${r(0)} -> struct(( ${r(1)} )).col1"
+            parser.parseExpression(wrapped)
+          } else
+            throw t
+      }
+
+    val res =
+    rawExpr match {
+      case l: SparkLambdaFunction if hasSubQuery(l) =>
+        // The lambda's will be parsed as UnresolvedAttributes and not the needed lambdas
+        val names = l.arguments.map(a => a.name -> a).toMap
+        l.transform {
+          case s: SubqueryExpression => s.withNewPlan( s.plan.transform{
+            case snippet =>
+              snippet.transformAllExpressions {
+                case a: UnresolvedAttribute =>
+                  names.get(a.name).map(lamVar => lamVar).getOrElse(a)
+              }
+          })
+        }
+      case _ => rawExpr
+    }
+
+    res
   }
+
+  def hasSubQuery(expression: Expression): Boolean = expression collect {
+    case _: SubqueryExpression => true
+  } nonEmpty
 
   def anyToRuleResult(any: Any): RuleResult =
     any match {
@@ -250,6 +300,11 @@ case class ExpressionWrapper( expr: Expression, compileEval: Boolean = true) ext
 trait OutputExprLogic extends HasExpr {
   def eval(internalRow: org.apache.spark.sql.catalyst.InternalRow) =
     expr.eval(internalRow)
+
+  /**
+   * Allows clearing of expressions
+   */
+  def reset(): Unit = {}
 }
 
 object UpdateFolderExpression {
@@ -281,7 +336,7 @@ object UpdateFolderExpression {
  * @param rule
  */
 case class OutputExpression( rule: String ) extends OutputExprLogic with HasRuleText with Logging {
-  lazy override val expr = {
+  private[quality] override def expression() = {
     val parsed = RuleLogicUtils.expr(rule)
     // output expressions can be:
     // 1. simple expressions for ruleEngine
@@ -312,6 +367,8 @@ case class OutputExpression( rule: String ) extends OutputExprLogic with HasRule
         parsed
     }
   }
+
+  override def reset(): Unit = super[HasRuleText].reset()
 }
 
 /**
@@ -319,6 +376,7 @@ case class OutputExpression( rule: String ) extends OutputExprLogic with HasRule
  * @param expr
  */
 case class OutputExpressionExpr( rule: String, override val expr: Expression) extends OutputExprLogic with HasRuleText {
+  override def reset(): Unit = super[HasRuleText].reset()
 }
 
 case class OutputExpressionWrapper( expr: Expression, compileEval: Boolean = true) extends OutputExprLogic with ExpressionCompiler {

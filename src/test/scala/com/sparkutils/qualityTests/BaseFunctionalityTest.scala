@@ -507,11 +507,9 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
       val tableName = "the_I_s_Have_It"
       df.createOrReplaceTempView(tableName)
 
-      // this won't work directly as it's not serializable, it must be a 'top-level' field.
       def sub(comp: String = "> 2", tableSuffix: String = "") = s"exists(select 0 from $tableName i_s$tableSuffix where i_s$tableSuffix.i $comp)"
 
       val baseline = sparkSession.sql(s"select struct(${sub()}).col1 is not null")
-      baseline.show
       assert(!baseline.isEmpty)
       assert(baseline.as[Boolean].head())
 
@@ -522,11 +520,9 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
         ))
       ))
       val testDF = seq.toDF("i").as("main")
-      testDF.show
       testDF.collect()
       val resdf = addDataQuality(testDF, rs)
       try {
-        resdf.show
         val res = resdf.selectExpr("DataQuality.overallResult").as[Int].collect()
         assert(res.filterNot(_ == PassedInt).length == 3) // 1 with just 101 above, 3 fail with 100 as well
       } catch {
