@@ -1,11 +1,12 @@
 package org.apache.spark.sql.qualityFunctions
 
+import com.sparkutils.quality.{QualityException, RuleLogicUtils}
 import com.sparkutils.quality.impl.HigherOrderFunctionLike
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
+import org.apache.spark.sql.catalyst.analysis.{TypeCheckResult, UnresolvedAttribute}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode}
-import org.apache.spark.sql.catalyst.expressions.{Expression, HigherOrderFunction, LambdaFunction, LeafExpression, NamedLambdaVariable}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression, HigherOrderFunction, LambdaFunction, LeafExpression, NamedExpression, NamedLambdaVariable, OuterReference, ScalarSubquery, SubqueryExpression, UnresolvedNamedLambdaVariable}
 import org.apache.spark.sql.types.{AbstractDataType, DataType}
 
 /**
@@ -179,9 +180,46 @@ case class FunN(arguments: Seq[Expression], function: Expression, name: Option[S
 
   override def functionTypes: Seq[AbstractDataType] = Seq(function.dataType)
 
-  protected def bindInternal(f: (Expression, Seq[(DataType, Boolean)]) => LambdaFunction): HigherOrderFunction =
-    copy(function = f(function,
-      arguments.map(e => (e.dataType, e.nullable))))
+  protected def bindInternal(f: (Expression, Seq[(DataType, Boolean)]) => LambdaFunction): HigherOrderFunction = {
+    // subqueries aren't being replaced correctly
+    val res = copy(function = f(function,
+        arguments.map(e => (e.dataType, e.nullable))))
+
+    // given XX below reject this occurrence directly.
+    if (RuleLogicUtils.hasSubQuery(res.function) && !arguments.forall(_.isInstanceOf[Attribute])) {
+      QualityException.qualityException(s"Cannot use LambdaFunctions with SubqueryExpressions and non-attribute parameters "+this)
+    }
+
+    def namedToOuterReference(index: Int, expression: NamedExpression) = arguments(index) match {
+      case n: NamedExpression => OuterReference(n) // replace the NamedLambdaVariable with the reference
+      // XX just expression will cause an exception printing the plan and showing the
+      // lambda variable is not accessible, wrapping it in OuterReference leads to a useless binding error
+      case _ => expression
+    }
+
+    val replaced =
+    function match {
+      case l: LambdaFunction if RuleLogicUtils.hasSubQuery(l) =>
+        // get the current args, they are the right ones to potentially replace
+        // resolve on the subquery doesn't work for LambdaVariables
+        val newL = res.function.asInstanceOf[LambdaFunction]
+        val indexes = l.arguments.zipWithIndex.toMap[Expression, Int]
+        val names = newL.arguments.zipWithIndex.map(a => a._1.name -> a._2).toMap
+        res.copy( function = res.function.transform{
+          case s: SubqueryExpression => s.withNewPlan( s.plan.transform{
+            case snippet => snippet.transformAllExpressions{
+              case a: UnresolvedNamedLambdaVariable =>
+                indexes.get(a).map(i => namedToOuterReference(i, newL.arguments(i))).getOrElse(a)
+              case a: UnresolvedAttribute =>
+                names.get(a.name).map(lamVar => namedToOuterReference(lamVar, newL.arguments(lamVar))).getOrElse(a)
+            }
+          })
+        })
+      case _ => res
+    }
+
+    replaced
+  }
 
   @transient lazy val LambdaFunction(lambdaFunction, elementNamedVariables, _) = function
   @transient lazy val elementVars = elementNamedVariables.map(_.asInstanceOf[NamedLambdaVariable])

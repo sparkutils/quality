@@ -1,12 +1,15 @@
 package com.sparkutils.qualityTests
 
 import java.util.UUID
+
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.longPair.AsUUID
 import com.sparkutils.quality.utils.{Arrays, PrintCode}
 import org.apache.spark.sql.QualitySparkUtils.newParser
+import org.apache.spark.sql.catalyst.expressions.{Expression, SubqueryExpression}
+import org.apache.spark.sql.catalyst.plans.logical.Project
 import org.apache.spark.sql.catalyst.util.ArrayData
-import org.apache.spark.sql.{Encoder, SaveMode}
+import org.apache.spark.sql.{Column, Encoder, SaveMode}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.IntegerType
 import org.junit.Test
@@ -485,13 +488,48 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
   @Test
   def mapArrays(): Unit = {
-    val ar = ArrayData.toArrayData(Seq(0, 1,2,3,4)) // Force GenericArrayData instead of UnsafeArrayData
+    val ar = ArrayData.toArrayData(Seq(0,1,2,3,4)) // Force GenericArrayData instead of UnsafeArrayData
     val nar = Arrays.mapArray(ar, IntegerType, _.asInstanceOf[Integer] + 1)
     assert((0 until 5).forall(i => nar(i) == i + 1))
 
     // verify with simple toArray
     val nar2 = Arrays.toArray(ar, IntegerType)
     assert((0 until 5).forall(i => nar2(i) == i))
+  }
+
+  @Test
+  def scalarSubqueryAsTrigger(): Unit = evalCodeGensNoResolve {
+    v3_4_and_above {
+      // assert that using a join to test with is fine even when nested
+      import sparkSession.implicits._
+      val seq = Seq(0, 1, 2, 3, 4)
+      val df = seq.toDF("i") // Force GenericArrayData instead of UnsafeArrayData
+      val tableName = "the_I_s_Have_It"
+      df.createOrReplaceTempView(tableName)
+
+      def sub(comp: String = "> 2", tableSuffix: String = "") = s"exists(select 0 from $tableName i_s$tableSuffix where i_s$tableSuffix.i $comp)"
+
+      val baseline = sparkSession.sql(s"select struct(${sub()}).col1 is not null")
+      assert(!baseline.isEmpty)
+      assert(baseline.as[Boolean].head())
+
+      val rs = RuleSuite(Id(1, 1), Seq(
+        RuleSet(Id(50, 1), Seq(
+          Rule(Id(100, 1), ExpressionRule(sub("> main.i and i_s.i < 3"))),
+          Rule(Id(101, 1), ExpressionRule(sub("> main.i")))
+        ))
+      ))
+      val testDF = seq.toDF("i").as("main")
+      testDF.collect()
+      val resdf = addDataQuality(testDF, rs)
+      try {
+        val res = resdf.selectExpr("DataQuality.overallResult").as[Int].collect()
+        assert(res.filterNot(_ == PassedInt).length == 3) // 1 with just 101 above, 3 fail with 100 as well
+      } catch {
+        case t: Throwable =>
+          throw t
+      }
+    }
   }
 
 }

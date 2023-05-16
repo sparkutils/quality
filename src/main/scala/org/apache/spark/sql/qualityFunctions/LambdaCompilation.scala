@@ -16,7 +16,7 @@ import org.apache.spark.sql.types.DataType
  * @param dataType
  * @param nullable
  * @param exprId
- * @param value
+ * @param valueRef
  */
 case class NamedLambdaVariableCodeGen(
                                        name: String,

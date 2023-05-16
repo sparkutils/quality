@@ -198,6 +198,13 @@ trait TestUtils {
     if (sparkVersion != "3.4") thunk
 
   /**
+   * Scalar subqueries etc. only work on 3.4 and above
+   * @param thunk
+   */
+  def v3_4_and_above(thunk: => Unit) =
+    if (sparkVersion.replace(".","").toInt >= 34) thunk
+
+  /**
    * Only run this on 2.4
    * @param thunk
    */
