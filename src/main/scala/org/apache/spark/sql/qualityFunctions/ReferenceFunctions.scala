@@ -185,29 +185,30 @@ case class FunN(arguments: Seq[Expression], function: Expression, name: Option[S
     val res = copy(function = f(function,
         arguments.map(e => (e.dataType, e.nullable))))
 
-    // given XX below reject this occurrence directly.
-    if (RuleLogicUtils.hasSubQuery(res.function) && !arguments.forall(_.isInstanceOf[Attribute])) {
-      QualityException.qualityException(s"Cannot use LambdaFunctions with SubqueryExpressions and non-attribute parameters "+this)
-    }
+    if (RuleLogicUtils.hasSubQuery(res.function)) {
+      // only possible on > 3.4 (and DBR 12.2)
+      // given XX below reject this occurrence directly.
+      if (arguments.forall(_.isInstanceOf[Attribute])) {
+        QualityException.qualityException(s"Cannot use LambdaFunctions with SubqueryExpressions and non-attribute parameters " + this)
+      }
 
-    def namedToOuterReference(index: Int, expression: NamedExpression) = arguments(index) match {
-      case n: NamedExpression => OuterReference(n) // replace the NamedLambdaVariable with the reference
-      // XX just expression will cause an exception printing the plan and showing the
-      // lambda variable is not accessible, wrapping it in OuterReference leads to a useless binding error
-      case _ => expression
-    }
+      def namedToOuterReference(index: Int, expression: NamedExpression) = arguments(index) match {
+        case n: NamedExpression => OuterReference(n) // replace the NamedLambdaVariable with the reference
+        // XX just expression will cause an exception printing the plan and showing the
+        // lambda variable is not accessible, wrapping it in OuterReference leads to a useless binding error
+        case _ => expression
+      }
+      val l = function.asInstanceOf[LambdaFunction]
 
-    val replaced =
-    function match {
-      case l: LambdaFunction if RuleLogicUtils.hasSubQuery(l) =>
+      val replaced = {
         // get the current args, they are the right ones to potentially replace
         // resolve on the subquery doesn't work for LambdaVariables
         val newL = res.function.asInstanceOf[LambdaFunction]
         val indexes = l.arguments.zipWithIndex.toMap[Expression, Int]
         val names = newL.arguments.zipWithIndex.map(a => a._1.name -> a._2).toMap
-        res.copy( function = res.function.transform{
-          case s: SubqueryExpression => s.withNewPlan( s.plan.transform{
-            case snippet => snippet.transformAllExpressions{
+        res.copy(function = res.function.transform {
+          case s: SubqueryExpression => s.withNewPlan(s.plan.transform {
+            case snippet => snippet.transformAllExpressions {
               case a: UnresolvedNamedLambdaVariable =>
                 indexes.get(a).map(i => namedToOuterReference(i, newL.arguments(i))).getOrElse(a)
               case a: UnresolvedAttribute =>
@@ -215,10 +216,11 @@ case class FunN(arguments: Seq[Expression], function: Expression, name: Option[S
             }
           })
         })
-      case _ => res
-    }
+      }
 
-    replaced
+      replaced
+    } else
+      res
   }
 
   @transient lazy val LambdaFunction(lambdaFunction, elementNamedVariables, _) = function

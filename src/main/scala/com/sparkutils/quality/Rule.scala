@@ -76,7 +76,7 @@ object RuleLogicUtils {
           try {
             ScalarSubquery(parser.parsePlan(rule))
           } catch {
-            case t: Throwable => // quite possibly a lambda using a subquery so try and force it via the struct(( sub )).col1 trick
+            case _: Throwable => // quite possibly a lambda using a subquery so try and force it via the struct(( sub )).col1 trick
               val r = rule.split("->")
               if (r.size == 2) {
                 val wrapped = s"${r(0)} -> struct(( ${r(1)} )).col1"
@@ -91,21 +91,21 @@ object RuleLogicUtils {
       }
 
     val res =
-    rawExpr match {
-      case l: SparkLambdaFunction if hasSubQuery(l) =>
-        // The lambda's will be parsed as UnresolvedAttributes and not the needed lambdas
-        val names = l.arguments.map(a => a.name -> a).toMap
-        l.transform {
-          case s: SubqueryExpression => s.withNewPlan( s.plan.transform{
-            case snippet =>
-              snippet.transformAllExpressions {
-                case a: UnresolvedAttribute =>
-                  names.get(a.name).map(lamVar => lamVar).getOrElse(a)
-              }
-          })
-        }
-      case _ => rawExpr
-    }
+      rawExpr match {
+        case l: SparkLambdaFunction if hasSubQuery(l) =>
+          // The lambda's will be parsed as UnresolvedAttributes and not the needed lambdas
+          val names = l.arguments.map(a => a.name -> a).toMap
+          l.transform {
+            case s: SubqueryExpression => s.withNewPlan( s.plan.transform{
+              case snippet =>
+                snippet.transformAllExpressions {
+                  case a: UnresolvedAttribute =>
+                    names.get(a.name).map(lamVar => lamVar).getOrElse(a)
+                }
+            })
+          }
+        case _ => rawExpr
+      }
 
     res
   }
