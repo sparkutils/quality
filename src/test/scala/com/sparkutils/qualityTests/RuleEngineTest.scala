@@ -339,7 +339,6 @@ class RuleEngineTest extends FunSuite with RowTools with TestUtils {
     }
   }
 
-
   @Test
   def scalarSubqueryAsOutputExpressionViaLambdaParam(): Unit = evalCodeGensNoResolve {
     v3_4_and_above {
@@ -373,6 +372,39 @@ class RuleEngineTest extends FunSuite with RowTools with TestUtils {
         assert(res.filter(_.isEmpty).length == 1)
         assert(res.flatten.forall(_ == 4))
       } catch {
+        case t: Throwable =>
+          throw t
+      }
+    }
+  }
+
+  @Test
+  def scalarSubqueryAsOutputExpressionViaLambdaNonAttributeParam(): Unit = evalCodeGensNoResolve {
+    v3_4_and_above {
+      // assert that using a join to test with is fine even when nested
+      import sparkSession.implicits._
+      val seq = Seq(0, 1, 2, 3, 4)
+      val df = seq.toDF("i") // Force GenericArrayData instead of UnsafeArrayData
+      val tableName = "the_I_s_Have_It"
+      df.createOrReplaceTempView(tableName)
+
+      // the struct(( sub )).col1 'trick' allows parsing
+      //      def sub(tableSuffix: String = "") = s"ii -> struct((select max(i_s$tableSuffix.i) from $tableName i_s$tableSuffix where i_s$tableSuffix.i > identity(ii))).col1"
+      def sub(tableSuffix: String = "") = s"ii -> select max(i_s$tableSuffix.i) from $tableName i_s$tableSuffix where i_s$tableSuffix.i > ii"
+
+      val rs = RuleSuite(Id(1, 1), Seq(
+        RuleSet(Id(50, 1), Seq(
+          Rule(Id(101, 1), ExpressionRule("true"), RunOnPassProcessor(1000, Id(3010, 1),
+            OutputExpression("genMax(i * 1)")))
+        ))
+      ), Seq(LambdaFunction("genMax", sub(), Id(2404,1))))
+      val testDF = seq.toDF("i").as("main")
+      testDF.collect()
+      try {
+        val resdf = testDF.transform(ruleEngineWithStructF(rs, IntegerType))
+        fail("should not have got here")
+      } catch {
+        case q: QualityException if q.getMessage.indexOf("non-attribute parameters") > -1 => ()
         case t: Throwable =>
           throw t
       }

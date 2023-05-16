@@ -75,7 +75,7 @@ trait RowTools {
     sparkSession.conf.set("spark.sql.optimizer.nestedSchemaPruning.enabled", true)
     // only a visual change
     // sparkSession.conf.set("spark.sql.legacy.castComplexTypesToString.enabled", true)
-    sparkSession.sparkContext.setLogLevel("DEBUG") // set to debug to get actual code lines etc.
+    sparkSession.sparkContext.setLogLevel("ERROR") // set to debug to get actual code lines etc.
     sparkSession
   }
   def sqlContextF = sparkSessionF.sqlContext
