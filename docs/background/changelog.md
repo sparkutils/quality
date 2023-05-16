@@ -1,5 +1,7 @@
 ### 0.0.2 <small>28th March, 2023</small>
 
+#13 - Support 3.4's sub query usage in rules/trigger, output expressions and lambdas 
+
 #12 - Introduce the use of underscores instead of relying on camel case for function sql names, inline with Spark built-in functions
 
 #10 - Base64 functions added for RowID encoding and decoding via base64 (more suitable for BI tools)
