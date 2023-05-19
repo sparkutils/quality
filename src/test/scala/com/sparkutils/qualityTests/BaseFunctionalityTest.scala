@@ -15,6 +15,8 @@ import org.apache.spark.sql.types.IntegerType
 import org.junit.Test
 import org.scalatest.FunSuite
 
+import scala.language.postfixOps
+
 class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
   @Test

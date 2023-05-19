@@ -359,7 +359,12 @@ trait Validation {
     val docsWarnings = mutable.Set[RuleWarning]()
 
     val viewErrors = ruleSuite.lambdaFunctions.flatMap { f =>
-      subQueryErrors(viewLookup, f.expr, LambdaViewError(_, f.id))
+      try {
+        subQueryErrors(viewLookup, f.expr, LambdaViewError(_, f.id))
+      } catch {
+        // Might be a parser error, skip to let the below code pick it up
+        case _: Throwable => Set.empty[LambdaViewError]
+      }
     }.toSet
 
     val (lambdaLeftExpressions, lambdaSyntaxErrors) = ruleSuite.lambdaFunctions.map { f =>
@@ -441,8 +446,8 @@ trait Validation {
 
   protected def subQueryErrors[T](lookup: String => Boolean, expression: Expression, f: String => T): Set[T] = (expression collect {
     case s: SubqueryExpression => s.plan.collect{
-      case rel: UnresolvedRelation if !lookup(rel.name) =>
-        f(rel.name)
+      case rel: UnresolvedRelation if !lookup(rel.tableName) =>
+        f(rel.tableName)
     }
   }).flatten.toSet
 

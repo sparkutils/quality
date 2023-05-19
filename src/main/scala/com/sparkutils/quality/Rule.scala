@@ -112,9 +112,9 @@ object RuleLogicUtils {
     res
   }
 
-  def hasSubQuery(expression: Expression): Boolean = expression collect {
+  def hasSubQuery(expression: Expression): Boolean = ( expression collect {
     case _: SubqueryExpression => true
-  } nonEmpty
+  } ).nonEmpty
 
   def anyToRuleResult(any: Any): RuleResult =
     any match {
