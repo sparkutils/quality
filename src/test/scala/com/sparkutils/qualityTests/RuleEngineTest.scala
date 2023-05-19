@@ -297,7 +297,7 @@ class RuleEngineTest extends FunSuite with RowTools with TestUtils {
       val resdf = testDF.transform(ruleEngineWithStructF(rs, StructType(Seq(StructField("col1",IntegerType)))))
       try {
         val res = resdf.selectExpr("ruleEngine.result.col1").as[Option[Int]].collect()
-        assert(res.filter(_.isEmpty).length == 1)
+        assert(res.count(_.isEmpty) == 1)
         assert(res.flatten.forall(_ == 4))
       } catch {
         case t: Throwable =>
@@ -330,7 +330,7 @@ class RuleEngineTest extends FunSuite with RowTools with TestUtils {
       val resdf = testDF.transform(ruleEngineWithStructF(rs, IntegerType))
       try {
         val res = resdf.selectExpr("ruleEngine.result").as[Option[Int]].collect()
-        assert(res.filter(_.isEmpty).length == 1)
+        assert(res.count(_.isEmpty) == 1)
         assert(res.flatten.forall(_ == 4))
       } catch {
         case t: Throwable =>
@@ -352,25 +352,21 @@ class RuleEngineTest extends FunSuite with RowTools with TestUtils {
       df.createOrReplaceTempView(tableName)
 
       // the struct(( sub )).col1 'trick' allows parsing
-//      def sub(tableSuffix: String = "") = s"ii -> struct((select max(i_s$tableSuffix.i) from $tableName i_s$tableSuffix where i_s$tableSuffix.i > identity(ii))).col1"
-      def sub(tableSuffix: String = "") = s"ii -> select max(i_s$tableSuffix.i) from $tableName i_s$tableSuffix where i_s$tableSuffix.i > ii"
+      def sub(tableSuffix: String = "") = s"ii -> select named_struct('themax', max(i_s$tableSuffix.i), 'thedouble', max(i_s$tableSuffix.i) * 2) from $tableName i_s$tableSuffix where i_s$tableSuffix.i > ii"
 
       val rs = RuleSuite(Id(1, 1), Seq(
         RuleSet(Id(50, 1), Seq(
           Rule(Id(101, 1), ExpressionRule("true"), RunOnPassProcessor(1000, Id(3010, 1),
-            OutputExpression("genMax(i)")))
+            OutputExpression("genMax(i).thedouble")))
         ))
       ), Seq(LambdaFunction("genMax", sub(), Id(2404,1))))
       val testDF = seq.toDF("i").as("main")
       testDF.collect()
       val resdf = testDF.transform(ruleEngineWithStructF(rs, IntegerType))
       try {
-        resdf.selectExpr("ruleEngine.result").show
-        resdf.selectExpr("ruleEngine.result").explain(true)
-
         val res = resdf.selectExpr("ruleEngine.result").as[Option[Int]].collect()
-        assert(res.filter(_.isEmpty).length == 1)
-        assert(res.flatten.forall(_ == 4))
+        assert(res.count(_.isEmpty) == 1)
+        assert(res.flatten.forall(_ == 8))
       } catch {
         case t: Throwable =>
           throw t
@@ -438,7 +434,7 @@ class RuleEngineTest extends FunSuite with RowTools with TestUtils {
       try {
         val res = resdf.selectExpr("ruleEngine.result").as[Option[Int]].collect()
         // the o.g. '4' value should return null
-        assert(res.filter(_.isEmpty).length == 1)
+        assert(res.count(_.isEmpty) == 1)
         assert(res.flatten.forall(_ == 4))
       } catch {
         case t: Throwable =>

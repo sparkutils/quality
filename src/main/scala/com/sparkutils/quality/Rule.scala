@@ -76,10 +76,12 @@ object RuleLogicUtils {
           try {
             ScalarSubquery(parser.parsePlan(rule))
           } catch {
-            case _: Throwable => // quite possibly a lambda using a subquery so try and force it via the struct(( sub )).col1 trick
+            case _: Throwable =>
+              // quite possibly a lambda using a subquery so try and force it via ( sub ) trick,
+              // but allow us to replace later after resolution
               val r = rule.split("->")
               if (r.size == 2) {
-                val wrapped = s"${r(0)} -> struct(( ${r(1)} )).col1"
+                val wrapped = s"${r(0)} -> ( ${r(1)} )"
                 try {
                   parser.parseExpression(wrapped)
                 } catch {

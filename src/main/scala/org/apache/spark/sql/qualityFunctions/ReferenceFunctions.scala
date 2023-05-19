@@ -3,11 +3,11 @@ package org.apache.spark.sql.qualityFunctions
 import com.sparkutils.quality.{QualityException, RuleLogicUtils}
 import com.sparkutils.quality.impl.HigherOrderFunctionLike
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.analysis.{TypeCheckResult, UnresolvedAttribute}
+import org.apache.spark.sql.catalyst.analysis.{TypeCheckResult, UnresolvedAttribute, UnresolvedExtractValue}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode}
-import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression, HigherOrderFunction, LambdaFunction, LeafExpression, NamedExpression, NamedLambdaVariable, OuterReference, ScalarSubquery, SubqueryExpression, UnresolvedNamedLambdaVariable}
-import org.apache.spark.sql.types.{AbstractDataType, DataType}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, CreateNamedStruct, Expression, HigherOrderFunction, LambdaFunction, LeafExpression, Literal, NamedExpression, NamedLambdaVariable, OuterReference, ScalarSubquery, SubqueryExpression, UnresolvedNamedLambdaVariable}
+import org.apache.spark.sql.types.{AbstractDataType, DataType, StringType}
 
 /**
  * Wraps other expressions and stores the result in an RefExpression -
@@ -188,7 +188,7 @@ case class FunN(arguments: Seq[Expression], function: Expression, name: Option[S
     if (RuleLogicUtils.hasSubQuery(res.function)) {
       // only possible on > 3.4 (and DBR 12.2)
       // given XX below reject this occurrence directly.
-      if (arguments.forall(_.isInstanceOf[Attribute])) {
+      if (!arguments.forall(_.isInstanceOf[Attribute])) {
         QualityException.qualityException(s"Cannot use LambdaFunctions with SubqueryExpressions and non-attribute parameters " + this)
       }
 
@@ -198,27 +198,32 @@ case class FunN(arguments: Seq[Expression], function: Expression, name: Option[S
         // lambda variable is not accessible, wrapping it in OuterReference leads to a useless binding error
         case _ => expression
       }
-      val l = function.asInstanceOf[LambdaFunction]
+      function match {
+        case l: LambdaFunction =>
 
-      val replaced = {
-        // get the current args, they are the right ones to potentially replace
-        // resolve on the subquery doesn't work for LambdaVariables
-        val newL = res.function.asInstanceOf[LambdaFunction]
-        val indexes = l.arguments.zipWithIndex.toMap[Expression, Int]
-        val names = newL.arguments.zipWithIndex.map(a => a._1.name -> a._2).toMap
-        res.copy(function = res.function.transform {
-          case s: SubqueryExpression => s.withNewPlan(s.plan.transform {
-            case snippet => snippet.transformAllExpressions {
-              case a: UnresolvedNamedLambdaVariable =>
-                indexes.get(a).map(i => namedToOuterReference(i, newL.arguments(i))).getOrElse(a)
-              case a: UnresolvedAttribute =>
-                names.get(a.name).map(lamVar => namedToOuterReference(lamVar, newL.arguments(lamVar))).getOrElse(a)
-            }
-          })
-        })
+          val replaced = {
+            // get the current args, they are the right ones to potentially replace
+            // resolve on the subquery doesn't work for LambdaVariables
+            val newL = res.function.asInstanceOf[LambdaFunction]
+            val indexes = l.arguments.zipWithIndex.toMap[Expression, Int]
+            val names = newL.arguments.zipWithIndex.map(a => a._1.name -> a._2).toMap
+            res.copy(function = res.function.transform {
+              case s: SubqueryExpression => s.withNewPlan(s.plan.transform {
+                case snippet => snippet.transformAllExpressions {
+                  case a: UnresolvedNamedLambdaVariable =>
+                    indexes.get(a).map(i => namedToOuterReference(i, newL.arguments(i))).getOrElse(a)
+                  case a: UnresolvedAttribute =>
+                    names.get(a.name).map(lamVar => namedToOuterReference(lamVar, newL.arguments(lamVar))).getOrElse(a)
+                }
+              })
+            })
+          }
+
+          replaced
+        case _ =>
+          // where there are no params in the lambda
+          res
       }
-
-      replaced
     } else
       res
   }

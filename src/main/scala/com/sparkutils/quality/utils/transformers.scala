@@ -149,7 +149,7 @@ trait AddDataFunctions {
    */
   def ruleEngineWithStruct(dataFrame: Dataset[Row], rules: RuleSuite, outputType: DataType, ruleEngineFieldName: String = "ruleEngine", debugMode: Boolean = false): Dataset[Row] = {
     import org.apache.spark.sql.functions.expr
-    dataFrame.select(expr("*"), new Column(PrintCode(ruleEngineRunner(rules, outputType, debugMode = debugMode).expr)).as(ruleEngineFieldName))
+    dataFrame.select(expr("*"), ruleEngineRunner(rules, outputType, debugMode = debugMode).as(ruleEngineFieldName))
   }
 
   /**
