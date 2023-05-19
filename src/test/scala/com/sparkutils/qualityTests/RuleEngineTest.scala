@@ -325,7 +325,7 @@ class RuleEngineTest extends FunSuite with RowTools with TestUtils {
             OutputExpression(sub("> main.i"))))
         ))
       ))
-      val testDF = seq.toDF("i").as("main")
+      val testDF = seq.toDF("i")
       testDF.collect()
       val resdf = testDF.transform(ruleEngineWithStructF(rs, IntegerType))
       try {
@@ -360,17 +360,22 @@ class RuleEngineTest extends FunSuite with RowTools with TestUtils {
             OutputExpression("genMax(i).thedouble")))
         ))
       ), Seq(LambdaFunction("genMax", sub(), Id(2404,1))))
-      val testDF = seq.toDF("i").as("main")
+      val testDF = seq.toDF("i")
       testDF.collect()
-      val resdf = testDF.transform(ruleEngineWithStructF(rs, IntegerType))
-      try {
-        val res = resdf.selectExpr("ruleEngine.result").as[Option[Int]].collect()
-        assert(res.count(_.isEmpty) == 1)
-        assert(res.flatten.forall(_ == 8))
-      } catch {
-        case t: Throwable =>
-          throw t
+      def testRes(resdf: DataFrame) {
+        try {
+          val res = resdf.selectExpr("ruleEngine.result").as[Option[Int]].collect()
+          assert(res.count(_.isEmpty) == 1)
+          assert(res.flatten.forall(_ == 8))
+        } catch {
+          case t: Throwable =>
+            throw t
+        }
       }
+
+      // test no alias paths as well
+      testRes(testDF.transform(ruleEngineWithStructF(rs, IntegerType, alias = null)))
+      testRes(testDF.transform(ruleEngineWithStructF(rs, IntegerType, alias = "")))
     }
   }
 
@@ -428,9 +433,9 @@ class RuleEngineTest extends FunSuite with RowTools with TestUtils {
             OutputExpression("genMax()")))
         ))
       ), Seq(LambdaFunction("genMax", sub(), Id(2404,1))))
-      val testDF = seq.toDF("i").as("main")
+      val testDF = seq.toDF("i")
       testDF.collect()
-      val resdf = testDF.transform(ruleEngineWithStructF(rs, IntegerType))
+      val resdf = testDF.transform(ruleEngineWithStructF(rs, IntegerType)) // uses main default
       try {
         val res = resdf.selectExpr("ruleEngine.result").as[Option[Int]].collect()
         // the o.g. '4' value should return null

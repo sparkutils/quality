@@ -145,11 +145,16 @@ trait AddDataFunctions {
    * @param rules
    * @param dataFrame the input dataframe
    * @param outputType The fields, and types, are used to call the foldRunner.  These types must match in the input fields
+   * @param ruleEngineFieldName The field name the results will be stored in, by default ruleEngine
+   * @param alias sets the alias to use for dataFrame when using subqueries to resolve ambiguities, setting to an empty string (or null) will not assign an alias
    * @return
    */
-  def ruleEngineWithStruct(dataFrame: Dataset[Row], rules: RuleSuite, outputType: DataType, ruleEngineFieldName: String = "ruleEngine", debugMode: Boolean = false): Dataset[Row] = {
+  def ruleEngineWithStruct(dataFrame: Dataset[Row], rules: RuleSuite, outputType: DataType, ruleEngineFieldName: String = "ruleEngine", alias: String = "main", debugMode: Boolean = false): Dataset[Row] = {
     import org.apache.spark.sql.functions.expr
-    dataFrame.select(expr("*"), ruleEngineRunner(rules, outputType, debugMode = debugMode).as(ruleEngineFieldName))
+    (if ( (alias eq null) || alias.isEmpty )
+      dataFrame
+    else
+      dataFrame.as(alias)).select(expr("*"), ruleEngineRunner(rules, outputType, debugMode = debugMode).as(ruleEngineFieldName))
   }
 
   /**
@@ -161,7 +166,7 @@ trait AddDataFunctions {
    * @param outputType The fields, and types, are used to call the foldRunner.  These types must match in the input fields
    * @return
    */
-  def ruleEngineWithStructF(rules: RuleSuite, outputType: DataType, ruleEngineFieldName: String = "ruleEngine", debugMode: Boolean = false): Dataset[Row] => Dataset[Row] =
-    ruleEngineWithStruct(_, rules, outputType, ruleEngineFieldName, debugMode)
+  def ruleEngineWithStructF(rules: RuleSuite, outputType: DataType, ruleEngineFieldName: String = "ruleEngine", alias: String = "main", debugMode: Boolean = false): Dataset[Row] => Dataset[Row] =
+    ruleEngineWithStruct(_, rules, outputType, ruleEngineFieldName, alias, debugMode)
 
 }

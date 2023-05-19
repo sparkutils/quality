@@ -46,7 +46,7 @@ Your expressions used, in dq/triggers, output expressions (for Rules and Folder)
 ??? info "3.4 & Sub queries"
     Prior to 3.4 exists, in, and scalar subqueries (correlated or not) could not be used in any Quality rule SQL snippets.
      
-    3.4 has allowed the use of most sub query patterns, such as checking foreign keys via an exists in a dq rule where the data is to large for maps, or selecting the maximum matching value in an output expression.  There are some oddities like you must use an alias on the input dataframe if a correlated subquery also has the same field names, not doing so results in silent failure.  
+    3.4 has allowed the use of most sub query patterns, such as checking foreign keys via an exists in a dq rule where the data is to large for maps, or selecting the maximum matching value in an output expression.  There are some oddities like you must use an alias on the input dataframe if a correlated subquery also has the same field names, not doing so results in either silent failure or at best an 'Expression "XXX" is not an rvalue' compilation error.  The ruleEngineWithStruct transformer will automatically add an alias of 'main' to the input dataframe.  
     
     Lambdas however introduce some complications, 3.4 quite reasonably had no intention of supporting the kind of thing Quality is doing, so there is code making it work for the obvious use case of DRY using row attributes.  Attempting to use a lambda with parameters that are not attributes will result in an error e.g. given genMax:
     
