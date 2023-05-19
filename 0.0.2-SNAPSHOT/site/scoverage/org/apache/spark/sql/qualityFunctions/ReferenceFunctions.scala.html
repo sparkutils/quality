@@ -27,11 +27,11 @@
 </span>3 <span style=''>import com.sparkutils.quality.{QualityException, RuleLogicUtils}
 </span>4 <span style=''>import com.sparkutils.quality.impl.HigherOrderFunctionLike
 </span>5 <span style=''>import org.apache.spark.sql.catalyst.InternalRow
-</span>6 <span style=''>import org.apache.spark.sql.catalyst.analysis.{TypeCheckResult, UnresolvedAttribute}
+</span>6 <span style=''>import org.apache.spark.sql.catalyst.analysis.{TypeCheckResult, UnresolvedAttribute, UnresolvedExtractValue}
 </span>7 <span style=''>import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 </span>8 <span style=''>import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode}
-</span>9 <span style=''>import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression, HigherOrderFunction, LambdaFunction, LeafExpression, NamedExpression, NamedLambdaVariable, OuterReference, ScalarSubquery, SubqueryExpression, UnresolvedNamedLambdaVariable}
-</span>10 <span style=''>import org.apache.spark.sql.types.{AbstractDataType, DataType}
+</span>9 <span style=''>import org.apache.spark.sql.catalyst.expressions.{Attribute, CreateNamedStruct, Expression, HigherOrderFunction, LambdaFunction, LeafExpression, Literal, NamedExpression, NamedLambdaVariable, OuterReference, ScalarSubquery, SubqueryExpression, UnresolvedNamedLambdaVariable}
+</span>10 <span style=''>import org.apache.spark.sql.types.{AbstractDataType, DataType, StringType}
 </span>11 <span style=''>
 </span>12 <span style=''>/**
 </span>13 <span style=''> * Wraps other expressions and stores the result in an RefExpression -
@@ -209,133 +209,140 @@
 </span>185 <span style=''>    val res = </span><span style='background: #AEF1AE'>copy(function = f(function,
 </span>186 <span style=''></span><span style='background: #AEF1AE'>        arguments.map(e =&gt; (e.dataType, e.nullable))))</span><span style=''>
 </span>187 <span style=''>
-</span>188 <span style=''>    // given XX below reject this occurrence directly.
-</span>189 <span style=''>    if (</span><span style='background: #AEF1AE'>RuleLogicUtils.hasSubQuery(res.function) &amp;&amp; </span><span style='background: #F0ADAD'>!arguments.forall(_.isInstanceOf[Attribute])</span><span style=''>) {
-</span>190 <span style=''>      </span><span style='background: #F0ADAD'>QualityException.qualityException(s&quot;Cannot use LambdaFunctions with SubqueryExpressions and non-attribute parameters &quot;+this)</span><span style=''>
-</span>191 <span style=''>    }
-</span>192 <span style=''>
-</span>193 <span style=''>    def namedToOuterReference(index: Int, expression: NamedExpression) = </span><span style='background: #F0ADAD'>arguments(index)</span><span style=''> match {
-</span>194 <span style=''>      case n: NamedExpression =&gt; </span><span style='background: #F0ADAD'>OuterReference(n)</span><span style=''> // replace the NamedLambdaVariable with the reference
-</span>195 <span style=''>      // XX just expression will cause an exception printing the plan and showing the
-</span>196 <span style=''>      // lambda variable is not accessible, wrapping it in OuterReference leads to a useless binding error
-</span>197 <span style=''>      case _ =&gt; expression
-</span>198 <span style=''>    }
-</span>199 <span style=''>
-</span>200 <span style=''>    val replaced =
-</span>201 <span style=''>    </span><span style='background: #AEF1AE'>function</span><span style=''> match {
-</span>202 <span style=''>      case l: LambdaFunction if </span><span style='background: #AEF1AE'>RuleLogicUtils.hasSubQuery(l)</span><span style=''> =&gt;
-</span>203 <span style=''>        // get the current args, they are the right ones to potentially replace
-</span>204 <span style=''>        // resolve on the subquery doesn't work for LambdaVariables
-</span>205 <span style=''>        val newL = </span><span style='background: #F0ADAD'>res.function.asInstanceOf[LambdaFunction]</span><span style=''>
-</span>206 <span style=''>        val indexes = </span><span style='background: #F0ADAD'>l.arguments.zipWithIndex.toMap[Expression, Int]</span><span style=''>
-</span>207 <span style=''>        val names = </span><span style='background: #F0ADAD'>newL.arguments.zipWithIndex.map(a =&gt; a._1.name -&gt; a._2).toMap</span><span style=''>
-</span>208 <span style=''>        </span><span style='background: #F0ADAD'>res.copy( function = res.function.transform{
-</span>209 <span style=''></span><span style='background: #F0ADAD'>          case s: SubqueryExpression =&gt; s.withNewPlan( s.plan.transform{
-</span>210 <span style=''></span><span style='background: #F0ADAD'>            case snippet =&gt; snippet.transformAllExpressions{
-</span>211 <span style=''></span><span style='background: #F0ADAD'>              case a: UnresolvedNamedLambdaVariable =&gt;
-</span>212 <span style=''></span><span style='background: #F0ADAD'>                indexes.get(a).map(i =&gt; namedToOuterReference(i, newL.arguments(i))).getOrElse(a)
-</span>213 <span style=''></span><span style='background: #F0ADAD'>              case a: UnresolvedAttribute =&gt;
-</span>214 <span style=''></span><span style='background: #F0ADAD'>                names.get(a.name).map(lamVar =&gt; namedToOuterReference(lamVar, newL.arguments(lamVar))).getOrElse(a)
-</span>215 <span style=''></span><span style='background: #F0ADAD'>            }
-</span>216 <span style=''></span><span style='background: #F0ADAD'>          })
-</span>217 <span style=''></span><span style='background: #F0ADAD'>        })</span><span style=''>
-</span>218 <span style=''>      case _ =&gt; res
-</span>219 <span style=''>    }
-</span>220 <span style=''>
-</span>221 <span style=''>    replaced
-</span>222 <span style=''>  }
-</span>223 <span style=''>
-</span>224 <span style=''>  @transient lazy val LambdaFunction(lambdaFunction, elementNamedVariables, _) = function
-</span>225 <span style=''>  @transient lazy val elementVars = elementNamedVariables.map(_.asInstanceOf[NamedLambdaVariable])
-</span>226 <span style=''>
-</span>227 <span style=''>  override def eval(inputRow: InternalRow): Any = {
-</span>228 <span style=''>    // set up the variable to be evaluated
-</span>229 <span style=''>    </span><span style='background: #AEF1AE'>elementVars.zip(arguments).foreach{ case (element, expr) =&gt;
-</span>230 <span style=''></span><span style='background: #AEF1AE'>      element.value.set(expr.eval(inputRow))
-</span>231 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
-</span>232 <span style=''>
-</span>233 <span style=''>    </span><span style='background: #AEF1AE'>function.eval(inputRow)</span><span style=''>
-</span>234 <span style=''>  }
-</span>235 <span style=''>
-</span>236 <span style=''>  override def checkInputDataTypes(): TypeCheckResult = </span><span style='background: #AEF1AE'>TypeCheckResult.TypeCheckSuccess</span><span style=''>
-</span>237 <span style=''>
-</span>238 <span style=''>  override def dataType: DataType = </span><span style='background: #AEF1AE'>function.dataType</span><span style=''>
+</span>188 <span style=''>    if (</span><span style='background: #AEF1AE'>RuleLogicUtils.hasSubQuery(res.function)</span><span style=''>) </span><span style='background: #F0ADAD'>{
+</span>189 <span style=''></span><span style='background: #F0ADAD'>      // only possible on &gt; 3.4 (and DBR 12.2)
+</span>190 <span style=''></span><span style='background: #F0ADAD'>      // given XX below reject this occurrence directly.
+</span>191 <span style=''></span><span style='background: #F0ADAD'>      if (!arguments.forall(_.isInstanceOf[Attribute])) {
+</span>192 <span style=''></span><span style='background: #F0ADAD'>        QualityException.qualityException(s&quot;Cannot use LambdaFunctions with SubqueryExpressions and non-attribute parameters &quot; + this)
+</span>193 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>194 <span style=''></span><span style='background: #F0ADAD'>
+</span>195 <span style=''></span><span style='background: #F0ADAD'>      def namedToOuterReference(index: Int, expression: NamedExpression) = arguments(index) match {
+</span>196 <span style=''></span><span style='background: #F0ADAD'>        case n: NamedExpression =&gt; OuterReference(n) // replace the NamedLambdaVariable with the reference
+</span>197 <span style=''></span><span style='background: #F0ADAD'>        // XX just expression will cause an exception printing the plan and showing the
+</span>198 <span style=''></span><span style='background: #F0ADAD'>        // lambda variable is not accessible, wrapping it in OuterReference leads to a useless binding error
+</span>199 <span style=''></span><span style='background: #F0ADAD'>        case _ =&gt; expression
+</span>200 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>201 <span style=''></span><span style='background: #F0ADAD'>      function match {
+</span>202 <span style=''></span><span style='background: #F0ADAD'>        case l: LambdaFunction =&gt;
+</span>203 <span style=''></span><span style='background: #F0ADAD'>
+</span>204 <span style=''></span><span style='background: #F0ADAD'>          val replaced = {
+</span>205 <span style=''></span><span style='background: #F0ADAD'>            // get the current args, they are the right ones to potentially replace
+</span>206 <span style=''></span><span style='background: #F0ADAD'>            // resolve on the subquery doesn't work for LambdaVariables
+</span>207 <span style=''></span><span style='background: #F0ADAD'>            val newL = res.function.asInstanceOf[LambdaFunction]
+</span>208 <span style=''></span><span style='background: #F0ADAD'>            val indexes = l.arguments.zipWithIndex.toMap[Expression, Int]
+</span>209 <span style=''></span><span style='background: #F0ADAD'>            val names = newL.arguments.zipWithIndex.map(a =&gt; a._1.name -&gt; a._2).toMap
+</span>210 <span style=''></span><span style='background: #F0ADAD'>            res.copy(function = res.function.transform {
+</span>211 <span style=''></span><span style='background: #F0ADAD'>              case s: SubqueryExpression =&gt; s.withNewPlan(s.plan.transform {
+</span>212 <span style=''></span><span style='background: #F0ADAD'>                case snippet =&gt; snippet.transformAllExpressions {
+</span>213 <span style=''></span><span style='background: #F0ADAD'>                  case a: UnresolvedNamedLambdaVariable =&gt;
+</span>214 <span style=''></span><span style='background: #F0ADAD'>                    indexes.get(a).map(i =&gt; namedToOuterReference(i, newL.arguments(i))).getOrElse(a)
+</span>215 <span style=''></span><span style='background: #F0ADAD'>                  case a: UnresolvedAttribute =&gt;
+</span>216 <span style=''></span><span style='background: #F0ADAD'>                    names.get(a.name).map(lamVar =&gt; namedToOuterReference(lamVar, newL.arguments(lamVar))).getOrElse(a)
+</span>217 <span style=''></span><span style='background: #F0ADAD'>                }
+</span>218 <span style=''></span><span style='background: #F0ADAD'>              })
+</span>219 <span style=''></span><span style='background: #F0ADAD'>            })
+</span>220 <span style=''></span><span style='background: #F0ADAD'>          }
+</span>221 <span style=''></span><span style='background: #F0ADAD'>
+</span>222 <span style=''></span><span style='background: #F0ADAD'>          replaced
+</span>223 <span style=''></span><span style='background: #F0ADAD'>        case _ =&gt;
+</span>224 <span style=''></span><span style='background: #F0ADAD'>          // where there are no params in the lambda
+</span>225 <span style=''></span><span style='background: #F0ADAD'>          res
+</span>226 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>227 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''> else
+</span>228 <span style=''>      </span><span style='background: #AEF1AE'>res</span><span style=''>
+</span>229 <span style=''>  }
+</span>230 <span style=''>
+</span>231 <span style=''>  @transient lazy val LambdaFunction(lambdaFunction, elementNamedVariables, _) = function
+</span>232 <span style=''>  @transient lazy val elementVars = elementNamedVariables.map(_.asInstanceOf[NamedLambdaVariable])
+</span>233 <span style=''>
+</span>234 <span style=''>  override def eval(inputRow: InternalRow): Any = {
+</span>235 <span style=''>    // set up the variable to be evaluated
+</span>236 <span style=''>    </span><span style='background: #AEF1AE'>elementVars.zip(arguments).foreach{ case (element, expr) =&gt;
+</span>237 <span style=''></span><span style='background: #AEF1AE'>      element.value.set(expr.eval(inputRow))
+</span>238 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
 </span>239 <span style=''>
-</span>240 <span style=''>  override def children: Seq[Expression] = </span><span style='background: #AEF1AE'>arguments ++ functions</span><span style=''>
-</span>241 <span style=''>  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
-</span>242 <span style=''>    </span><span style='background: #AEF1AE'>copy(newChildren.dropRight(1), newChildren.last)</span><span style=''>
-</span>243 <span style=''>
-</span>244 <span style=''>  /**
-</span>245 <span style=''>   * Called from an initial doGenCode and then by processLambda
-</span>246 <span style=''>   * @param ctx
-</span>247 <span style=''>   * @param ev
-</span>248 <span style=''>   * @param scope
-</span>249 <span style=''>   * @return
-</span>250 <span style=''>   */
-</span>251 <span style=''>  def doActualGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
-</span>252 <span style=''>    </span><span style='background: #AEF1AE'>ctx.references += this</span><span style=''>
-</span>253 <span style=''>    val funExpressionIdx = </span><span style='background: #AEF1AE'>ctx.references.size - 1</span><span style=''>
-</span>254 <span style=''>    val funClassName = </span><span style='background: #AEF1AE'>classOf[FunN].getName</span><span style=''>
-</span>255 <span style=''>    val args = </span><span style='background: #AEF1AE'>arguments.map(_.genCode(ctx))</span><span style=''>
-</span>256 <span style=''>    val fun = </span><span style='background: #AEF1AE'>lambdaFunction.genCode(ctx)</span><span style=''>
-</span>257 <span style=''>    val javaType = </span><span style='background: #AEF1AE'>CodeGenerator.javaType(lambdaFunction.dataType)</span><span style=''>
-</span>258 <span style=''>    val boxed = </span><span style='background: #AEF1AE'>CodeGenerator.boxedType(lambdaFunction.dataType)</span><span style=''>
-</span>259 <span style=''>
-</span>260 <span style=''>    val nlvClazz = </span><span style='background: #AEF1AE'>classOf[NamedLambdaVariable].getName</span><span style=''>
-</span>261 <span style=''>
-</span>262 <span style=''>    val argsetup =
-</span>263 <span style=''>      (</span><span style='background: #AEF1AE'>(elementNamedVariables.zipWithIndex) zip args).map{p =&gt;
-</span>264 <span style=''></span><span style='background: #AEF1AE'>        val ((ev, pos), arg) = p
-</span>265 <span style=''></span><span style='background: #AEF1AE'>        if (ev.isInstanceOf[NamedLambdaVariableCodeGen]) {
-</span>266 <span style=''></span><span style='background: #AEF1AE'>          // NB The CodegenFallback case can't be tested for as per this very code you are reading
-</span>267 <span style=''></span><span style='background: #AEF1AE'>          // it can be swapped out at runtime.  We can test for eval calls but given the call could be behind an
-</span>268 <span style=''></span><span style='background: #AEF1AE'>          // if way deep in the stack it's not something easy to optimise out at runtime either.
-</span>269 <span style=''></span><span style='background: #AEF1AE'>          val nlv = ev.asInstanceOf[NamedLambdaVariableCodeGen]
-</span>270 <span style=''></span><span style='background: #AEF1AE'>          s&quot;&quot;&quot;
-</span>271 <span style=''></span><span style='background: #AEF1AE'>             // gen the arg code
-</span>272 <span style=''></span><span style='background: #AEF1AE'>             ${arg.code}
-</span>273 <span style=''></span><span style='background: #AEF1AE'>             // capture the result and pass it to the lambdavariable holder ref
-</span>274 <span style=''></span><span style='background: #AEF1AE'>             if (!${arg.isNull}) {
-</span>275 <span style=''></span><span style='background: #AEF1AE'>                ${nlv.valueRef} = ${arg.value};
-</span>276 <span style=''></span><span style='background: #AEF1AE'>             } else {
-</span>277 <span style=''></span><span style='background: #AEF1AE'>                ${nlv.valueRef} = null;
-</span>278 <span style=''></span><span style='background: #AEF1AE'>             }
-</span>279 <span style=''></span><span style='background: #AEF1AE'>             // for cases when the user of the code is CodegenFallback
-</span>280 <span style=''></span><span style='background: #AEF1AE'>             ${if (nlv.haveNotGenerated)
-</span>281 <span style=''></span><span style='background: #AEF1AE'>                nlv.genCode(ctx).code
-</span>282 <span style=''></span><span style='background: #AEF1AE'>              else
-</span>283 <span style=''></span><span style='background: #AEF1AE'>                &quot;&quot;
-</span>284 <span style=''></span><span style='background: #AEF1AE'>              }
-</span>285 <span style=''></span><span style='background: #AEF1AE'>             &quot;&quot;&quot;
-</span>286 <span style=''></span><span style='background: #AEF1AE'>        } else
-</span>287 <span style=''></span><span style='background: #AEF1AE'>          s&quot;&quot;&quot;
-</span>288 <span style=''></span><span style='background: #AEF1AE'>             // nlv compat
-</span>289 <span style=''></span><span style='background: #AEF1AE'>             ${arg.code}
-</span>290 <span style=''></span><span style='background: #AEF1AE'>             (($nlvClazz)(($funClassName)references[$funExpressionIdx]).elementNamedVariables().apply($pos)).value().set(${arg.value});
-</span>291 <span style=''></span><span style='background: #AEF1AE'>             &quot;&quot;&quot;
-</span>292 <span style=''></span><span style='background: #AEF1AE'>      }.mkString(&quot;&quot;)</span><span style=''>
-</span>293 <span style=''>
-</span>294 <span style=''>    val lambdaName = </span><span style='background: #AEF1AE'>name.getOrElse(&quot;&lt;undefined&gt;&quot;)</span><span style=''>
-</span>295 <span style=''>
-</span>296 <span style=''>    // CodegenContext seems to expect
-</span>297 <span style=''>    </span><span style='background: #AEF1AE'>ev.copy(code =
-</span>298 <span style=''></span><span style='background: #AEF1AE'>      code&quot;&quot;&quot;
-</span>299 <span style=''></span><span style='background: #AEF1AE'>         // Lambda FunN - $lambdaName
-</span>300 <span style=''></span><span style='background: #AEF1AE'>         // setup the args
-</span>301 <span style=''></span><span style='background: #AEF1AE'>         ${argsetup}
-</span>302 <span style=''></span><span style='background: #AEF1AE'>         // gen the function
-</span>303 <span style=''></span><span style='background: #AEF1AE'>         ${fun.code}
-</span>304 <span style=''></span><span style='background: #AEF1AE'>
-</span>305 <span style=''></span><span style='background: #AEF1AE'>         // capture the result of the function
-</span>306 <span style=''></span><span style='background: #AEF1AE'>         $javaType ${ev.value} = ${CodeGenerator.defaultValue(dataType)};
-</span>307 <span style=''></span><span style='background: #AEF1AE'>         boolean ${ev.isNull} = ${fun.isNull};
-</span>308 <span style=''></span><span style='background: #AEF1AE'>         if (!${ev.isNull}) {
-</span>309 <span style=''></span><span style='background: #AEF1AE'>            ${ev.value} = ($boxed) ${fun.value};
-</span>310 <span style=''></span><span style='background: #AEF1AE'>         }
-</span>311 <span style=''></span><span style='background: #AEF1AE'>         // End FunN - $lambdaName
-</span>312 <span style=''></span><span style='background: #AEF1AE'>          &quot;&quot;&quot;)</span><span style=''>
-</span>313 <span style=''>  }
-</span>314 <span style=''>}
+</span>240 <span style=''>    </span><span style='background: #AEF1AE'>function.eval(inputRow)</span><span style=''>
+</span>241 <span style=''>  }
+</span>242 <span style=''>
+</span>243 <span style=''>  override def checkInputDataTypes(): TypeCheckResult = </span><span style='background: #AEF1AE'>TypeCheckResult.TypeCheckSuccess</span><span style=''>
+</span>244 <span style=''>
+</span>245 <span style=''>  override def dataType: DataType = </span><span style='background: #AEF1AE'>function.dataType</span><span style=''>
+</span>246 <span style=''>
+</span>247 <span style=''>  override def children: Seq[Expression] = </span><span style='background: #AEF1AE'>arguments ++ functions</span><span style=''>
+</span>248 <span style=''>  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
+</span>249 <span style=''>    </span><span style='background: #AEF1AE'>copy(newChildren.dropRight(1), newChildren.last)</span><span style=''>
+</span>250 <span style=''>
+</span>251 <span style=''>  /**
+</span>252 <span style=''>   * Called from an initial doGenCode and then by processLambda
+</span>253 <span style=''>   * @param ctx
+</span>254 <span style=''>   * @param ev
+</span>255 <span style=''>   * @param scope
+</span>256 <span style=''>   * @return
+</span>257 <span style=''>   */
+</span>258 <span style=''>  def doActualGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
+</span>259 <span style=''>    </span><span style='background: #AEF1AE'>ctx.references += this</span><span style=''>
+</span>260 <span style=''>    val funExpressionIdx = </span><span style='background: #AEF1AE'>ctx.references.size - 1</span><span style=''>
+</span>261 <span style=''>    val funClassName = </span><span style='background: #AEF1AE'>classOf[FunN].getName</span><span style=''>
+</span>262 <span style=''>    val args = </span><span style='background: #AEF1AE'>arguments.map(_.genCode(ctx))</span><span style=''>
+</span>263 <span style=''>    val fun = </span><span style='background: #AEF1AE'>lambdaFunction.genCode(ctx)</span><span style=''>
+</span>264 <span style=''>    val javaType = </span><span style='background: #AEF1AE'>CodeGenerator.javaType(lambdaFunction.dataType)</span><span style=''>
+</span>265 <span style=''>    val boxed = </span><span style='background: #AEF1AE'>CodeGenerator.boxedType(lambdaFunction.dataType)</span><span style=''>
+</span>266 <span style=''>
+</span>267 <span style=''>    val nlvClazz = </span><span style='background: #AEF1AE'>classOf[NamedLambdaVariable].getName</span><span style=''>
+</span>268 <span style=''>
+</span>269 <span style=''>    val argsetup =
+</span>270 <span style=''>      (</span><span style='background: #AEF1AE'>(elementNamedVariables.zipWithIndex) zip args).map{p =&gt;
+</span>271 <span style=''></span><span style='background: #AEF1AE'>        val ((ev, pos), arg) = p
+</span>272 <span style=''></span><span style='background: #AEF1AE'>        if (ev.isInstanceOf[NamedLambdaVariableCodeGen]) {
+</span>273 <span style=''></span><span style='background: #AEF1AE'>          // NB The CodegenFallback case can't be tested for as per this very code you are reading
+</span>274 <span style=''></span><span style='background: #AEF1AE'>          // it can be swapped out at runtime.  We can test for eval calls but given the call could be behind an
+</span>275 <span style=''></span><span style='background: #AEF1AE'>          // if way deep in the stack it's not something easy to optimise out at runtime either.
+</span>276 <span style=''></span><span style='background: #AEF1AE'>          val nlv = ev.asInstanceOf[NamedLambdaVariableCodeGen]
+</span>277 <span style=''></span><span style='background: #AEF1AE'>          s&quot;&quot;&quot;
+</span>278 <span style=''></span><span style='background: #AEF1AE'>             // gen the arg code
+</span>279 <span style=''></span><span style='background: #AEF1AE'>             ${arg.code}
+</span>280 <span style=''></span><span style='background: #AEF1AE'>             // capture the result and pass it to the lambdavariable holder ref
+</span>281 <span style=''></span><span style='background: #AEF1AE'>             if (!${arg.isNull}) {
+</span>282 <span style=''></span><span style='background: #AEF1AE'>                ${nlv.valueRef} = ${arg.value};
+</span>283 <span style=''></span><span style='background: #AEF1AE'>             } else {
+</span>284 <span style=''></span><span style='background: #AEF1AE'>                ${nlv.valueRef} = null;
+</span>285 <span style=''></span><span style='background: #AEF1AE'>             }
+</span>286 <span style=''></span><span style='background: #AEF1AE'>             // for cases when the user of the code is CodegenFallback
+</span>287 <span style=''></span><span style='background: #AEF1AE'>             ${if (nlv.haveNotGenerated)
+</span>288 <span style=''></span><span style='background: #AEF1AE'>                nlv.genCode(ctx).code
+</span>289 <span style=''></span><span style='background: #AEF1AE'>              else
+</span>290 <span style=''></span><span style='background: #AEF1AE'>                &quot;&quot;
+</span>291 <span style=''></span><span style='background: #AEF1AE'>              }
+</span>292 <span style=''></span><span style='background: #AEF1AE'>             &quot;&quot;&quot;
+</span>293 <span style=''></span><span style='background: #AEF1AE'>        } else
+</span>294 <span style=''></span><span style='background: #AEF1AE'>          s&quot;&quot;&quot;
+</span>295 <span style=''></span><span style='background: #AEF1AE'>             // nlv compat
+</span>296 <span style=''></span><span style='background: #AEF1AE'>             ${arg.code}
+</span>297 <span style=''></span><span style='background: #AEF1AE'>             (($nlvClazz)(($funClassName)references[$funExpressionIdx]).elementNamedVariables().apply($pos)).value().set(${arg.value});
+</span>298 <span style=''></span><span style='background: #AEF1AE'>             &quot;&quot;&quot;
+</span>299 <span style=''></span><span style='background: #AEF1AE'>      }.mkString(&quot;&quot;)</span><span style=''>
+</span>300 <span style=''>
+</span>301 <span style=''>    val lambdaName = </span><span style='background: #AEF1AE'>name.getOrElse(&quot;&lt;undefined&gt;&quot;)</span><span style=''>
+</span>302 <span style=''>
+</span>303 <span style=''>    // CodegenContext seems to expect
+</span>304 <span style=''>    </span><span style='background: #AEF1AE'>ev.copy(code =
+</span>305 <span style=''></span><span style='background: #AEF1AE'>      code&quot;&quot;&quot;
+</span>306 <span style=''></span><span style='background: #AEF1AE'>         // Lambda FunN - $lambdaName
+</span>307 <span style=''></span><span style='background: #AEF1AE'>         // setup the args
+</span>308 <span style=''></span><span style='background: #AEF1AE'>         ${argsetup}
+</span>309 <span style=''></span><span style='background: #AEF1AE'>         // gen the function
+</span>310 <span style=''></span><span style='background: #AEF1AE'>         ${fun.code}
+</span>311 <span style=''></span><span style='background: #AEF1AE'>
+</span>312 <span style=''></span><span style='background: #AEF1AE'>         // capture the result of the function
+</span>313 <span style=''></span><span style='background: #AEF1AE'>         $javaType ${ev.value} = ${CodeGenerator.defaultValue(dataType)};
+</span>314 <span style=''></span><span style='background: #AEF1AE'>         boolean ${ev.isNull} = ${fun.isNull};
+</span>315 <span style=''></span><span style='background: #AEF1AE'>         if (!${ev.isNull}) {
+</span>316 <span style=''></span><span style='background: #AEF1AE'>            ${ev.value} = ($boxed) ${fun.value};
+</span>317 <span style=''></span><span style='background: #AEF1AE'>         }
+</span>318 <span style=''></span><span style='background: #AEF1AE'>         // End FunN - $lambdaName
+</span>319 <span style=''></span><span style='background: #AEF1AE'>          &quot;&quot;&quot;)</span><span style=''>
+</span>320 <span style=''>  }
+</span>321 <span style=''>}
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -356,9 +363,9 @@
           7179
         </td>
         <td>
-          1120
+          1184
           -
-          1136
+          1200
         </td>
         <td>
           Apply
@@ -380,9 +387,9 @@
           7180
         </td>
         <td>
-          1141
+          1205
           -
-          1159
+          1223
         </td>
         <td>
           Apply
@@ -404,9 +411,9 @@
           7181
         </td>
         <td>
-          1208
+          1272
           -
-          1221
+          1285
         </td>
         <td>
           Select
@@ -428,9 +435,9 @@
           7182
         </td>
         <td>
-          1305
+          1369
           -
-          1318
+          1382
         </td>
         <td>
           Select
@@ -452,9 +459,9 @@
           7183
         </td>
         <td>
-          1411
+          1475
           -
-          1439
+          1503
         </td>
         <td>
           Apply
@@ -476,9 +483,9 @@
           7185
         </td>
         <td>
-          1812
+          1876
           -
-          1841
+          1905
         </td>
         <td>
           Apply
@@ -500,9 +507,9 @@
           7184
         </td>
         <td>
-          1827
+          1891
           -
-          1840
+          1904
         </td>
         <td>
           Apply
@@ -524,9 +531,9 @@
           7186
         </td>
         <td>
-          1847
+          1911
           -
-          1862
+          1926
         </td>
         <td>
           Apply
@@ -548,9 +555,9 @@
           7187
         </td>
         <td>
-          1903
+          1967
           -
-          1908
+          1972
         </td>
         <td>
           Literal
@@ -572,9 +579,9 @@
           7188
         </td>
         <td>
-          1992
+          2056
           -
-          2004
+          2068
         </td>
         <td>
           Select
@@ -596,9 +603,9 @@
           7189
         </td>
         <td>
-          2097
+          2161
           -
-          2125
+          2189
         </td>
         <td>
           Apply
@@ -620,9 +627,9 @@
           7190
         </td>
         <td>
-          2263
+          2327
           -
-          2284
+          2348
         </td>
         <td>
           Select
@@ -644,9 +651,9 @@
           7191
         </td>
         <td>
-          2289
+          2353
           -
-          2311
+          2375
         </td>
         <td>
           Apply
@@ -668,9 +675,9 @@
           7192
         </td>
         <td>
-          2354
+          2418
           -
-          2362
+          2426
         </td>
         <td>
           Select
@@ -692,9 +699,9 @@
           7193
         </td>
         <td>
-          2331
+          2395
           -
-          2363
+          2427
         </td>
         <td>
           Apply
@@ -716,9 +723,9 @@
           7194
         </td>
         <td>
-          2404
+          2468
           -
-          2412
+          2476
         </td>
         <td>
           Select
@@ -740,9 +747,9 @@
           7195
         </td>
         <td>
-          2380
+          2444
           -
-          2413
+          2477
         </td>
         <td>
           Apply
@@ -764,9 +771,9 @@
           7196
         </td>
         <td>
-          2431
+          2495
           -
-          2452
+          2516
         </td>
         <td>
           Apply
@@ -788,9 +795,9 @@
           7203
         </td>
         <td>
-          2460
+          2524
           -
-          2460
+          2524
         </td>
         <td>
           Select
@@ -812,9 +819,9 @@
           7202
         </td>
         <td>
-          2460
+          2524
           -
-          2460
+          2524
         </td>
         <td>
           Select
@@ -836,9 +843,9 @@
           7204
         </td>
         <td>
-          2457
+          2521
           -
-          2626
+          2690
         </td>
         <td>
           Apply
@@ -860,9 +867,9 @@
           7201
         </td>
         <td>
-          2478
+          2542
           -
-          2625
+          2689
         </td>
         <td>
           Apply
@@ -884,9 +891,9 @@
           7197
         </td>
         <td>
-          2478
+          2542
           -
-          2625
+          2689
         </td>
         <td>
           Apply
@@ -908,9 +915,9 @@
           7198
         </td>
         <td>
-          2506
+          2570
           -
-          2514
+          2578
         </td>
         <td>
           Select
@@ -932,9 +939,9 @@
           7200
         </td>
         <td>
-          2597
+          2661
           -
-          2605
+          2669
         </td>
         <td>
           Select
@@ -956,9 +963,9 @@
           7199
         </td>
         <td>
-          2582
+          2646
           -
-          2591
+          2655
         </td>
         <td>
           Select
@@ -980,9 +987,9 @@
           7205
         </td>
         <td>
-          3020
+          3084
           -
-          3025
+          3089
         </td>
         <td>
           Select
@@ -1004,9 +1011,9 @@
           7206
         </td>
         <td>
-          3462
+          3526
           -
-          3467
+          3531
         </td>
         <td>
           Select
@@ -1028,9 +1035,9 @@
           7207
         </td>
         <td>
-          3542
+          3606
           -
-          3553
+          3617
         </td>
         <td>
           Apply
@@ -1052,9 +1059,9 @@
           7209
         </td>
         <td>
-          3722
+          3786
           -
-          3732
+          3796
         </td>
         <td>
           Select
@@ -1076,9 +1083,9 @@
           7208
         </td>
         <td>
-          3709
+          3773
           -
-          3720
+          3784
         </td>
         <td>
           Select
@@ -1100,9 +1107,9 @@
           7211
         </td>
         <td>
-          3703
+          3767
           -
-          3734
+          3798
         </td>
         <td>
           Apply
@@ -1124,9 +1131,9 @@
           7210
         </td>
         <td>
-          3708
+          3772
           -
-          3733
+          3797
         </td>
         <td>
           Apply
@@ -1148,9 +1155,9 @@
           7212
         </td>
         <td>
-          3770
+          3834
           -
-          3793
+          3857
         </td>
         <td>
           Apply
@@ -1172,9 +1179,9 @@
           7215
         </td>
         <td>
-          3764
+          3828
           -
-          3812
+          3876
         </td>
         <td>
           Apply
@@ -1196,9 +1203,9 @@
           7214
         </td>
         <td>
-          3769
+          3833
           -
-          3811
+          3875
         </td>
         <td>
           Apply
@@ -1220,9 +1227,9 @@
           7213
         </td>
         <td>
-          3795
+          3859
           -
-          3810
+          3874
         </td>
         <td>
           Select
@@ -1244,9 +1251,9 @@
           7216
         </td>
         <td>
-          3829
+          3893
           -
-          3833
+          3897
         </td>
         <td>
           Select
@@ -1268,9 +1275,9 @@
           7217
         </td>
         <td>
-          4339
+          4403
           -
-          4356
+          4420
         </td>
         <td>
           Select
@@ -1292,9 +1299,9 @@
           7222
         </td>
         <td>
-          4491
+          4555
           -
-          4647
+          4711
         </td>
         <td>
           Apply
@@ -1321,9 +1328,9 @@
           7218
         </td>
         <td>
-          4535
+          4599
           -
-          4568
+          4632
         </td>
         <td>
           TypeApply
@@ -1345,9 +1352,9 @@
           7219
         </td>
         <td>
-          4580
+          4644
           -
-          4587
+          4651
         </td>
         <td>
           Select
@@ -1369,9 +1376,9 @@
           7221
         </td>
         <td>
-          4575
+          4639
           -
-          4641
+          4705
         </td>
         <td>
           Apply
@@ -1393,9 +1400,9 @@
           7220
         </td>
         <td>
-          4634
+          4698
           -
-          4641
+          4705
         </td>
         <td>
           Select
@@ -1417,9 +1424,9 @@
           7223
         </td>
         <td>
-          4653
+          4717
           -
-          4673
+          4737
         </td>
         <td>
           Apply
@@ -1441,9 +1448,9 @@
           7224
         </td>
         <td>
-          4706
+          4770
           -
-          4723
+          4787
         </td>
         <td>
           Select
@@ -1465,9 +1472,9 @@
           7225
         </td>
         <td>
-          4816
+          4880
           -
-          4844
+          4908
         </td>
         <td>
           Apply
@@ -1489,9 +1496,9 @@
           7227
         </td>
         <td>
-          5419
+          5483
           -
-          5451
+          5515
         </td>
         <td>
           Apply
@@ -1513,9 +1520,9 @@
           7226
         </td>
         <td>
-          5434
+          5498
           -
-          5450
+          5514
         </td>
         <td>
           Select
@@ -1537,9 +1544,9 @@
           7230
         </td>
         <td>
-          5507
+          5571
           -
-          5532
+          5596
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1561,9 +1568,9 @@
           7229
         </td>
         <td>
-          5520
+          5584
           -
-          5520
+          5584
         </td>
         <td>
           TypeApply
@@ -1585,9 +1592,9 @@
           7228
         </td>
         <td>
-          5521
+          5585
           -
-          5531
+          5595
         </td>
         <td>
           Select
@@ -1609,9 +1616,9 @@
           7232
         </td>
         <td>
-          5578
+          5642
           -
-          5591
+          5655
         </td>
         <td>
           Apply
@@ -1633,9 +1640,9 @@
           7231
         </td>
         <td>
-          5582
+          5646
           -
-          5590
+          5654
         </td>
         <td>
           Select
@@ -1657,9 +1664,9 @@
           7234
         </td>
         <td>
-          5647
+          5711
           -
-          5669
+          5733
         </td>
         <td>
           Apply
@@ -1681,9 +1688,9 @@
           7233
         </td>
         <td>
-          5651
+          5715
           -
-          5668
+          5732
         </td>
         <td>
           Select
@@ -1705,9 +1712,9 @@
           7243
         </td>
         <td>
-          5850
+          5914
           -
-          5850
+          5914
         </td>
         <td>
           Select
@@ -1729,9 +1736,9 @@
           7242
         </td>
         <td>
-          5850
+          5914
           -
-          5850
+          5914
         </td>
         <td>
           Select
@@ -1753,9 +1760,9 @@
           7245
         </td>
         <td>
-          5850
+          5914
           -
-          5850
+          5914
         </td>
         <td>
           Select
@@ -1777,9 +1784,9 @@
           7241
         </td>
         <td>
-          5866
+          5930
           -
-          5931
+          5995
         </td>
         <td>
           Apply
@@ -1801,9 +1808,9 @@
           7235
         </td>
         <td>
-          5868
+          5932
           -
-          5876
+          5940
         </td>
         <td>
           Select
@@ -1825,9 +1832,9 @@
           7244
         </td>
         <td>
-          5850
+          5914
           -
-          5850
+          5914
         </td>
         <td>
           Select
@@ -1849,9 +1856,9 @@
           7246
         </td>
         <td>
-          5850
+          5914
           -
-          5932
+          5996
         </td>
         <td>
           Apply
@@ -1873,9 +1880,9 @@
           7236
         </td>
         <td>
-          5906
+          5970
           -
-          5916
+          5980
         </td>
         <td>
           Select
@@ -1897,9 +1904,9 @@
           7239
         </td>
         <td>
-          5899
+          5963
           -
-          5899
+          5963
         </td>
         <td>
           TypeApply
@@ -1921,9 +1928,9 @@
           7238
         </td>
         <td>
-          5905
+          5969
           -
-          5929
+          5993
         </td>
         <td>
           Apply
@@ -1945,9 +1952,9 @@
           7237
         </td>
         <td>
-          5918
+          5982
           -
-          5928
+          5992
         </td>
         <td>
           Select
@@ -1969,9 +1976,9 @@
           7240
         </td>
         <td>
-          5886
+          5950
           -
-          5930
+          5994
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1987,63 +1994,39 @@
         </td>
       </tr><tr>
         <td>
-          189
+          188
         </td>
         <td>
           7248
         </td>
         <td>
-          6059
+          6006
           -
-          6084
+          6046
         </td>
         <td>
-          TypeApply
+          Apply
         </td>
         <td>
-          scala.Any.isInstanceOf
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          x$5.isInstanceOf[org.apache.spark.sql.catalyst.expressions.Attribute]
-        </td>
-      </tr><tr>
-        <td>
-          189
-        </td>
-        <td>
-          7257
-        </td>
-        <td>
-          5993
-          -
-          5993
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          &lt;nosymbol&gt;
+          com.sparkutils.quality.RuleLogicUtils.hasSubQuery
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          ()
+          com.sparkutils.quality.RuleLogicUtils.hasSubQuery(res.function)
         </td>
       </tr><tr>
         <td>
-          189
+          188
         </td>
         <td>
           7247
         </td>
         <td>
-          6024
+          6033
           -
-          6036
+          6045
         </td>
         <td>
           Select
@@ -2059,15 +2042,141 @@
         </td>
       </tr><tr>
         <td>
-          189
+          188
+        </td>
+        <td>
+          7286
+        </td>
+        <td>
+          6048
+          -
+          7973
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  if (FunN.this.arguments.forall(((x$5: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; x$5.isInstanceOf[org.apache.spark.sql.catalyst.expressions.Attribute])).unary_!)
+    com.sparkutils.quality.QualityException.qualityException(scala.StringContext.apply(&quot;Cannot use LambdaFunctions with SubqueryExpressions and non-attribute parameters &quot;).s().+(this), com.sparkutils.quality.QualityException.qualityException$default$2)
+  else
+    ();
+  def namedToOuterReference(index: Int, expression: org.apache.spark.sql.catalyst.expressions.NamedExpression): org.apache.spark.sql.catalyst.expressions.NamedExpression = FunN.this.arguments.apply(index) match {
+    case (n @ (_: org.apache.spark.sql.catalyst.expressions.NamedExpression)) =&gt; org.apache.spark.sql.catalyst.expressions.OuterReference.apply(n)
+    case _ =&gt; expression
+  };
+  FunN.this.function match {
+    case (l @ (_: org.apache.spark.sql.catalyst.expressions.LambdaFunction)) =&gt; {
+      val replaced: org.apache.spark.sql.qualityFunctions.FunN = {
+        val newL: org.apache.spark.sql.catalyst.expressions.LambdaFunction = res.function.asInstanceOf[org.apache.spark.sql.catalyst.expressions.LambdaFunction];
+        val indexes: scala.collection.immutable.Map[org.apache.spark.sql.catalyst.expressions.Expression,Int] = l.arguments.zipWithIndex[org.apache.spark.sql.catalyst.expressions.NamedExpression, Seq[(org.apache.spark.sql.catalyst.expressions.NamedExpression, Int)]](collection.this.Seq.canBuildFrom[(org.apache.spark.sql.catalyst.expressions.NamedExpression, Int)]).toMap[org.apache.spark.sql.catalyst.expressions.Expression, Int](scala.Predef.$conforms[(org.apache.spark.sql.catalyst.expressions.NamedExpression, Int)]);
+        val names: scala.collection.immutable.Map[String,Int] = newL.arguments.zipWithIndex[org.apache.spark.sql.catalyst.expressions.NamedExpression, Seq[(org.apache.spark.sql.catalyst.expressions.NamedExpression, Int)]](collection.this.Seq.canBuildFrom[(org.apache.spark.sql.catalyst.expressions.NamedExpression, Int)]).map[(String, Int), Seq[(String, Int)]](((a: (org.apache.spark.sql.catalyst.expressions.NamedExpression, Int)) =&gt; scala.Predef.ArrowAssoc[String](a._1.name).-&gt;[Int](a._2)))(collection.this.Seq.canBuildFrom[(String, Int)]).toMap[String, Int](scala.Predef.$conforms[(String, Int)]);
+        {
+          &lt;artifact&gt; val x$6: org.apache.spark.sql.catalyst.expressions.Expression = res.function.transform(({
+            @SerialVersionUID(value = 0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression] with Serializable {
+              def &lt;init&gt;(): &lt;$anon: org.apache.spark.sql.catalyst.expressions.Expression =&gt; org.apache.spark.sql.catalyst.expressions.Expression&gt; = {
+                $anonfun.super.&lt;init&gt;();
+                ()
+              };
+              final override def applyOrElse[A1 &lt;: org.apache.spark.sql.catalyst.expressions.Expression, B1 &gt;: org.apache.spark.sql.catalyst.expressions.Expression](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+                case (s @ (_: org.apache.spark.sql.catalyst.expressions.SubqueryExpression)) =&gt; s.withNewPlan(s.plan.transform(({
+                  @SerialVersionUID(value = 0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan,org.apache.spark.sql.catalyst.plans.logical.LogicalPlan] with Serializable {
+                    def &lt;init&gt;(): &lt;$anon: org.apache.spark.sql.catalyst.plans.logical.LogicalPlan =&gt; org.apache.spark.sql.catalyst.plans.logical.LogicalPlan&gt; = {
+                      $anonfun.super.&lt;init&gt;();
+                      ()
+                    };
+                    final override def applyOrElse[A1 &lt;: org.apache.spark.sql.catalyst.plans.logical.LogicalPlan, B1 &gt;: org.apache.spark.sql.catalyst.plans.logical.LogicalPlan](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]: org.apache.spark.sql.catalyst.plans.logical.LogicalPlan): org.apache.spark.sql.catalyst.plans.logical.LogicalPlan @unchecked) match {
+                      case (snippet @ _) =&gt; snippet.transformAllExpressions(({
+                        @SerialVersionUID(value = 0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression] with Serializable {
+                          def &lt;init&gt;(): &lt;$anon: org.apache.spark.sql.catalyst.expressions.Expression =&gt; org.apache.spark.sql.catalyst.expressions.Expression&gt; = {
+                            $anonfun.super.&lt;init&gt;();
+                            ()
+                          };
+                          final override def applyOrElse[A1 &lt;: org.apache.spark.sql.catalyst.expressions.Expression, B1 &gt;: org.apache.spark.sql.catalyst.expressions.Expression](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+                            case (a @ (_: org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable)) =&gt; indexes.get(a).map[org.apache.spark.sql.catalyst.expressions.NamedExpression](((i: Int) =&gt; namedToOuterReference(i, newL.arguments.apply(i)))).getOrElse[org.apache.spark.sql.catalyst.expressions.NamedExpression](a)
+                            case (a @ (_: org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute)) =&gt; names.get(a.name).map[org.apache.spark.sql.catalyst.expressions.NamedExpression](((lamVar: Int) =&gt; namedToOuterReference(lamVar, newL.arguments.apply(lamVar)))).getOrElse[org.apache.spark.sql.catalyst.expressions.NamedExpression](a)
+                            case (defaultCase$ @ _) =&gt; default.apply(x1)
+                          };
+                          final def isDefinedAt(x1: org.apache.spark.sql.catalyst.expressions.Expression): Boolean = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+                            case (a @ (_: org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable)) =&gt; true
+                            case (a @ (_: org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute)) =&gt; true
+                            case (defaultCase$ @ _) =&gt; false
+                          }
+                        };
+                        new $anonfun()
+                      }: PartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression]))
+                      case (defaultCase$ @ _) =&gt; default.apply(x1)
+                    };
+                    final def isDefinedAt(x1: org.apache.spark.sql.catalyst.plans.logical.LogicalPlan): Boolean = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]: org.apache.spark.sql.catalyst.plans.logical.LogicalPlan): org.apache.spark.sql.catalyst.plans.logical.LogicalPlan @unchecked) match {
+                      case (snippet @ _) =&gt; true
+                      case (defaultCase$ @ _) =&gt; false
+                    }
+                  };
+                  new $anonfun()
+                }: PartialFunction[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan,org.apache.spark.sql.catalyst.plans.logical.LogicalPlan])))
+                case (defaultCase$ @ _) =&gt; default.apply(x1)
+              };
+              final def isDefinedAt(x1: org.apache.spark.sql.catalyst.expressions.Expression): Boolean = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+                case (s @ (_: org.apache.spark.sql.catalyst.expressions.SubqueryExpression)) =&gt; true
+                case (defaultCase$ @ _) =&gt; false
+              }
+            };
+            new $anonfun()
+          }: PartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression]));
+          &lt;artifact&gt; val x$7: Seq[org.apache.spark.sql.catalyst.expressions.Expression] @scala.reflect.internal.annotations.uncheckedBounds = res.copy$default$1;
+          &lt;artifact&gt; val x$8: Option[String] @scala.reflect.internal.annotations.uncheckedBounds = res.copy$default$3;
+          &lt;artifact&gt; val x$9: Boolean = res.copy$default$4;
+          &lt;artifact&gt; val x$10: Boolean = res.copy$default$5;
+          res.copy(x$7, x$6, x$8, x$9, x$10)
+        }
+      };
+      replaced
+    }
+    case _ =&gt; res
+  }
+}
+        </td>
+      </tr><tr>
+        <td>
+          191
+        </td>
+        <td>
+          7257
+        </td>
+        <td>
+          6160
+          -
+          6160
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          191
         </td>
         <td>
           7256
         </td>
         <td>
-          5993
+          6160
           -
-          5993
+          6160
         </td>
         <td>
           Literal
@@ -2078,44 +2187,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           ()
         </td>
       </tr><tr>
         <td>
-          189
+          191
         </td>
         <td>
           7250
         </td>
         <td>
-          5997
+          6164
           -
-          6085
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Boolean.&amp;&amp;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          com.sparkutils.quality.RuleLogicUtils.hasSubQuery(res.function).&amp;&amp;(FunN.this.arguments.forall(((x$5: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; x$5.isInstanceOf[org.apache.spark.sql.catalyst.expressions.Attribute])).unary_!)
-        </td>
-      </tr><tr>
-        <td>
-          189
-        </td>
-        <td>
-          7249
-        </td>
-        <td>
-          6041
-          -
-          6085
+          6208
         </td>
         <td>
           Select
@@ -2131,15 +2216,39 @@
         </td>
       </tr><tr>
         <td>
-          190
+          191
+        </td>
+        <td>
+          7249
+        </td>
+        <td>
+          6182
+          -
+          6207
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.isInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$5.isInstanceOf[org.apache.spark.sql.catalyst.expressions.Attribute]
+        </td>
+      </tr><tr>
+        <td>
+          192
         </td>
         <td>
           7252
         </td>
         <td>
-          6129
+          6254
           -
-          6218
+          6345
         </td>
         <td>
           Apply
@@ -2155,15 +2264,15 @@
         </td>
       </tr><tr>
         <td>
-          190
+          192
         </td>
         <td>
           7251
         </td>
         <td>
-          6131
+          6256
           -
-          6213
+          6338
         </td>
         <td>
           Literal
@@ -2179,15 +2288,15 @@
         </td>
       </tr><tr>
         <td>
-          190
+          192
         </td>
         <td>
           7254
         </td>
         <td>
-          6095
+          6220
           -
-          6219
+          6346
         </td>
         <td>
           Apply
@@ -2203,15 +2312,15 @@
         </td>
       </tr><tr>
         <td>
-          190
+          192
         </td>
         <td>
           7253
         </td>
         <td>
-          6112
+          6237
           -
-          6112
+          6237
         </td>
         <td>
           Select
@@ -2227,15 +2336,15 @@
         </td>
       </tr><tr>
         <td>
-          190
+          192
         </td>
         <td>
           7255
         </td>
         <td>
-          6095
+          6220
           -
-          6219
+          6346
         </td>
         <td>
           Block
@@ -2251,15 +2360,15 @@
         </td>
       </tr><tr>
         <td>
-          193
+          195
         </td>
         <td>
           7258
         </td>
         <td>
-          6300
+          6431
           -
-          6316
+          6447
         </td>
         <td>
           Apply
@@ -2275,15 +2384,15 @@
         </td>
       </tr><tr>
         <td>
-          194
+          196
         </td>
         <td>
           7259
         </td>
         <td>
-          6358
+          6491
           -
-          6375
+          6508
         </td>
         <td>
           Apply
@@ -2305,9 +2414,9 @@
           7260
         </td>
         <td>
-          6680
+          6803
           -
-          6688
+          6811
         </td>
         <td>
           Select
@@ -2318,44 +2427,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           FunN.this.function
         </td>
       </tr><tr>
         <td>
-          202
+          207
         </td>
         <td>
           7261
         </td>
         <td>
-          6729
+          7061
           -
-          6758
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.RuleLogicUtils.hasSubQuery
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          com.sparkutils.quality.RuleLogicUtils.hasSubQuery(l)
-        </td>
-      </tr><tr>
-        <td>
-          205
-        </td>
-        <td>
-          7262
-        </td>
-        <td>
-          6929
-          -
-          6970
+          7102
         </td>
         <td>
           TypeApply
@@ -2371,63 +2456,15 @@
         </td>
       </tr><tr>
         <td>
-          206
+          208
         </td>
         <td>
           7263
         </td>
         <td>
-          7005
+          7159
           -
-          7005
-        </td>
-        <td>
-          TypeApply
-        </td>
-        <td>
-          scala.collection.Seq.canBuildFrom
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          collection.this.Seq.canBuildFrom[(org.apache.spark.sql.catalyst.expressions.NamedExpression, Int)]
-        </td>
-      </tr><tr>
-        <td>
-          206
-        </td>
-        <td>
-          7265
-        </td>
-        <td>
-          6993
-          -
-          7040
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          scala.collection.TraversableOnce.toMap
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          l.arguments.zipWithIndex[org.apache.spark.sql.catalyst.expressions.NamedExpression, Seq[(org.apache.spark.sql.catalyst.expressions.NamedExpression, Int)]](collection.this.Seq.canBuildFrom[(org.apache.spark.sql.catalyst.expressions.NamedExpression, Int)]).toMap[org.apache.spark.sql.catalyst.expressions.Expression, Int](scala.Predef.$conforms[(org.apache.spark.sql.catalyst.expressions.NamedExpression, Int)])
-        </td>
-      </tr><tr>
-        <td>
-          206
-        </td>
-        <td>
-          7264
-        </td>
-        <td>
-          7023
-          -
-          7023
+          7159
         </td>
         <td>
           TypeApply
@@ -2443,63 +2480,15 @@
         </td>
       </tr><tr>
         <td>
-          207
+          208
         </td>
         <td>
-          7269
+          7262
         </td>
         <td>
-          7098
+          7141
           -
-          7115
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Predef.ArrowAssoc.-&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          scala.Predef.ArrowAssoc[String](a._1.name).-&gt;[Int](a._2)
-        </td>
-      </tr><tr>
-        <td>
-          207
-        </td>
-        <td>
-          7272
-        </td>
-        <td>
-          7061
-          -
-          7122
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          scala.collection.TraversableOnce.toMap
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          newL.arguments.zipWithIndex[org.apache.spark.sql.catalyst.expressions.NamedExpression, Seq[(org.apache.spark.sql.catalyst.expressions.NamedExpression, Int)]](collection.this.Seq.canBuildFrom[(org.apache.spark.sql.catalyst.expressions.NamedExpression, Int)]).map[(String, Int), Seq[(String, Int)]](((a: (org.apache.spark.sql.catalyst.expressions.NamedExpression, Int)) =&gt; scala.Predef.ArrowAssoc[String](a._1.name).-&gt;[Int](a._2)))(collection.this.Seq.canBuildFrom[(String, Int)]).toMap[String, Int](scala.Predef.$conforms[(String, Int)])
-        </td>
-      </tr><tr>
-        <td>
-          207
-        </td>
-        <td>
-          7266
-        </td>
-        <td>
-          7076
-          -
-          7076
+          7141
         </td>
         <td>
           TypeApply
@@ -2515,63 +2504,39 @@
         </td>
       </tr><tr>
         <td>
-          207
+          208
         </td>
         <td>
-          7268
+          7264
         </td>
         <td>
-          7111
+          7129
           -
-          7115
+          7176
         </td>
         <td>
-          Select
+          ApplyToImplicitArgs
         </td>
         <td>
-          scala.Tuple2._2
+          scala.collection.TraversableOnce.toMap
         </td>
         <td>
           
         </td>
         <td style="background: #F0ADAD">
-          a._2
+          l.arguments.zipWithIndex[org.apache.spark.sql.catalyst.expressions.NamedExpression, Seq[(org.apache.spark.sql.catalyst.expressions.NamedExpression, Int)]](collection.this.Seq.canBuildFrom[(org.apache.spark.sql.catalyst.expressions.NamedExpression, Int)]).toMap[org.apache.spark.sql.catalyst.expressions.Expression, Int](scala.Predef.$conforms[(org.apache.spark.sql.catalyst.expressions.NamedExpression, Int)])
         </td>
       </tr><tr>
         <td>
-          207
+          209
         </td>
         <td>
-          7271
+          7269
         </td>
         <td>
-          7117
+          7232
           -
-          7117
-        </td>
-        <td>
-          TypeApply
-        </td>
-        <td>
-          scala.Predef.$conforms
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          scala.Predef.$conforms[(String, Int)]
-        </td>
-      </tr><tr>
-        <td>
-          207
-        </td>
-        <td>
-          7270
-        </td>
-        <td>
-          7092
-          -
-          7092
+          7232
         </td>
         <td>
           TypeApply
@@ -2587,15 +2552,15 @@
         </td>
       </tr><tr>
         <td>
-          207
+          209
         </td>
         <td>
-          7267
+          7266
         </td>
         <td>
-          7098
+          7238
           -
-          7107
+          7247
         </td>
         <td>
           Select
@@ -2611,15 +2576,207 @@
         </td>
       </tr><tr>
         <td>
-          208
+          209
+        </td>
+        <td>
+          7265
+        </td>
+        <td>
+          7216
+          -
+          7216
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[(org.apache.spark.sql.catalyst.expressions.NamedExpression, Int)]
+        </td>
+      </tr><tr>
+        <td>
+          209
+        </td>
+        <td>
+          7268
+        </td>
+        <td>
+          7238
+          -
+          7255
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.ArrowAssoc[String](a._1.name).-&gt;[Int](a._2)
+        </td>
+      </tr><tr>
+        <td>
+          209
+        </td>
+        <td>
+          7271
+        </td>
+        <td>
+          7201
+          -
+          7262
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          newL.arguments.zipWithIndex[org.apache.spark.sql.catalyst.expressions.NamedExpression, Seq[(org.apache.spark.sql.catalyst.expressions.NamedExpression, Int)]](collection.this.Seq.canBuildFrom[(org.apache.spark.sql.catalyst.expressions.NamedExpression, Int)]).map[(String, Int), Seq[(String, Int)]](((a: (org.apache.spark.sql.catalyst.expressions.NamedExpression, Int)) =&gt; scala.Predef.ArrowAssoc[String](a._1.name).-&gt;[Int](a._2)))(collection.this.Seq.canBuildFrom[(String, Int)]).toMap[String, Int](scala.Predef.$conforms[(String, Int)])
+        </td>
+      </tr><tr>
+        <td>
+          209
+        </td>
+        <td>
+          7270
+        </td>
+        <td>
+          7257
+          -
+          7257
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.$conforms[(String, Int)]
+        </td>
+      </tr><tr>
+        <td>
+          209
+        </td>
+        <td>
+          7267
+        </td>
+        <td>
+          7251
+          -
+          7255
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          a._2
+        </td>
+      </tr><tr>
+        <td>
+          210
         </td>
         <td>
           7281
         </td>
         <td>
-          7152
+          7279
           -
-          7660
+          7279
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.FunN.copy$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          res.copy$default$1
+        </td>
+      </tr><tr>
+        <td>
+          210
+        </td>
+        <td>
+          7284
+        </td>
+        <td>
+          7279
+          -
+          7279
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.FunN.copy$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          res.copy$default$5
+        </td>
+      </tr><tr>
+        <td>
+          210
+        </td>
+        <td>
+          7283
+        </td>
+        <td>
+          7279
+          -
+          7279
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.FunN.copy$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          res.copy$default$4
+        </td>
+      </tr><tr>
+        <td>
+          210
+        </td>
+        <td>
+          7280
+        </td>
+        <td>
+          7295
+          -
+          7841
         </td>
         <td>
           Apply
@@ -2685,87 +2842,15 @@
         </td>
       </tr><tr>
         <td>
-          208
+          210
         </td>
         <td>
-          7284
+          7279
         </td>
         <td>
-          7135
+          7318
           -
-          7135
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          org.apache.spark.sql.qualityFunctions.FunN.copy$default$4
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          res.copy$default$4
-        </td>
-      </tr><tr>
-        <td>
-          208
-        </td>
-        <td>
-          7283
-        </td>
-        <td>
-          7135
-          -
-          7135
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          org.apache.spark.sql.qualityFunctions.FunN.copy$default$3
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          res.copy$default$3
-        </td>
-      </tr><tr>
-        <td>
-          208
-        </td>
-        <td>
-          7286
-        </td>
-        <td>
-          7131
-          -
-          7661
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.apache.spark.sql.qualityFunctions.FunN.copy
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          res.copy(x$7, x$6, x$8, x$9, x$10)
-        </td>
-      </tr><tr>
-        <td>
-          208
-        </td>
-        <td>
-          7280
-        </td>
-        <td>
-          7174
-          -
-          7174
+          7318
         </td>
         <td>
           Apply
@@ -2781,145 +2866,63 @@
         </td>
       </tr><tr>
         <td>
-          208
+          210
         </td>
         <td>
           7282
         </td>
         <td>
-          7135
+          7279
           -
-          7135
+          7279
         </td>
         <td>
           Select
         </td>
         <td>
-          org.apache.spark.sql.qualityFunctions.FunN.copy$default$1
+          org.apache.spark.sql.qualityFunctions.FunN.copy$default$3
         </td>
         <td>
           
         </td>
         <td style="background: #F0ADAD">
-          res.copy$default$1
+          res.copy$default$3
         </td>
       </tr><tr>
         <td>
-          208
+          210
         </td>
         <td>
           7285
         </td>
         <td>
-          7135
+          7275
           -
-          7135
+          7842
         </td>
         <td>
-          Select
+          Apply
         </td>
         <td>
-          org.apache.spark.sql.qualityFunctions.FunN.copy$default$5
+          org.apache.spark.sql.qualityFunctions.FunN.copy
         </td>
         <td>
           
         </td>
         <td style="background: #F0ADAD">
-          res.copy$default$5
+          res.copy(x$7, x$6, x$8, x$9, x$10)
         </td>
       </tr><tr>
         <td>
-          209
+          211
         </td>
         <td>
           7278
         </td>
         <td>
-          7231
+          7364
           -
-          7649
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.apache.spark.sql.catalyst.trees.TreeNode.transform
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          s.plan.transform(({
-  @SerialVersionUID(value = 0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan,org.apache.spark.sql.catalyst.plans.logical.LogicalPlan] with Serializable {
-    def &lt;init&gt;(): &lt;$anon: org.apache.spark.sql.catalyst.plans.logical.LogicalPlan =&gt; org.apache.spark.sql.catalyst.plans.logical.LogicalPlan&gt; = {
-      $anonfun.super.&lt;init&gt;();
-      ()
-    };
-    final override def applyOrElse[A1 &lt;: org.apache.spark.sql.catalyst.plans.logical.LogicalPlan, B1 &gt;: org.apache.spark.sql.catalyst.plans.logical.LogicalPlan](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]: org.apache.spark.sql.catalyst.plans.logical.LogicalPlan): org.apache.spark.sql.catalyst.plans.logical.LogicalPlan @unchecked) match {
-      case (snippet @ _) =&gt; snippet.transformAllExpressions(({
-        @SerialVersionUID(value = 0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression] with Serializable {
-          def &lt;init&gt;(): &lt;$anon: org.apache.spark.sql.catalyst.expressions.Expression =&gt; org.apache.spark.sql.catalyst.expressions.Expression&gt; = {
-            $anonfun.super.&lt;init&gt;();
-            ()
-          };
-          final override def applyOrElse[A1 &lt;: org.apache.spark.sql.catalyst.expressions.Expression, B1 &gt;: org.apache.spark.sql.catalyst.expressions.Expression](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
-            case (a @ (_: org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable)) =&gt; indexes.get(a).map[org.apache.spark.sql.catalyst.expressions.NamedExpression](((i: Int) =&gt; namedToOuterReference(i, newL.arguments.apply(i)))).getOrElse[org.apache.spark.sql.catalyst.expressions.NamedExpression](a)
-            case (a @ (_: org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute)) =&gt; names.get(a.name).map[org.apache.spark.sql.catalyst.expressions.NamedExpression](((lamVar: Int) =&gt; namedToOuterReference(lamVar, newL.arguments.apply(lamVar)))).getOrElse[org.apache.spark.sql.catalyst.expressions.NamedExpression](a)
-            case (defaultCase$ @ _) =&gt; default.apply(x1)
-          };
-          final def isDefinedAt(x1: org.apache.spark.sql.catalyst.expressions.Expression): Boolean = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
-            case (a @ (_: org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable)) =&gt; true
-            case (a @ (_: org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute)) =&gt; true
-            case (defaultCase$ @ _) =&gt; false
-          }
-        };
-        new $anonfun()
-      }: PartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression]))
-      case (defaultCase$ @ _) =&gt; default.apply(x1)
-    };
-    final def isDefinedAt(x1: org.apache.spark.sql.catalyst.plans.logical.LogicalPlan): Boolean = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]: org.apache.spark.sql.catalyst.plans.logical.LogicalPlan): org.apache.spark.sql.catalyst.plans.logical.LogicalPlan @unchecked) match {
-      case (snippet @ _) =&gt; true
-      case (defaultCase$ @ _) =&gt; false
-    }
-  };
-  new $anonfun()
-}: PartialFunction[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan,org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]))
-        </td>
-      </tr><tr>
-        <td>
-          209
-        </td>
-        <td>
-          7277
-        </td>
-        <td>
-          7247
-          -
-          7247
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.apache.spark.sql.qualityFunctions.FunN.$anonfun.$anonfun.&lt;init&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          new $anonfun()
-        </td>
-      </tr><tr>
-        <td>
-          209
-        </td>
-        <td>
-          7279
-        </td>
-        <td>
-          7216
-          -
-          7650
+          7827
         </td>
         <td>
           Apply
@@ -2969,21 +2972,79 @@
         </td>
       </tr><tr>
         <td>
-          210
+          211
         </td>
         <td>
-          7275
+          7277
         </td>
         <td>
-          7308
+          7378
           -
-          7308
+          7826
         </td>
         <td>
           Apply
         </td>
         <td>
-          org.apache.spark.sql.qualityFunctions.FunN.$anonfun.$anonfun.$anonfun.&lt;init&gt;
+          org.apache.spark.sql.catalyst.trees.TreeNode.transform
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          s.plan.transform(({
+  @SerialVersionUID(value = 0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan,org.apache.spark.sql.catalyst.plans.logical.LogicalPlan] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: org.apache.spark.sql.catalyst.plans.logical.LogicalPlan =&gt; org.apache.spark.sql.catalyst.plans.logical.LogicalPlan&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: org.apache.spark.sql.catalyst.plans.logical.LogicalPlan, B1 &gt;: org.apache.spark.sql.catalyst.plans.logical.LogicalPlan](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]: org.apache.spark.sql.catalyst.plans.logical.LogicalPlan): org.apache.spark.sql.catalyst.plans.logical.LogicalPlan @unchecked) match {
+      case (snippet @ _) =&gt; snippet.transformAllExpressions(({
+        @SerialVersionUID(value = 0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression] with Serializable {
+          def &lt;init&gt;(): &lt;$anon: org.apache.spark.sql.catalyst.expressions.Expression =&gt; org.apache.spark.sql.catalyst.expressions.Expression&gt; = {
+            $anonfun.super.&lt;init&gt;();
+            ()
+          };
+          final override def applyOrElse[A1 &lt;: org.apache.spark.sql.catalyst.expressions.Expression, B1 &gt;: org.apache.spark.sql.catalyst.expressions.Expression](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+            case (a @ (_: org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable)) =&gt; indexes.get(a).map[org.apache.spark.sql.catalyst.expressions.NamedExpression](((i: Int) =&gt; namedToOuterReference(i, newL.arguments.apply(i)))).getOrElse[org.apache.spark.sql.catalyst.expressions.NamedExpression](a)
+            case (a @ (_: org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute)) =&gt; names.get(a.name).map[org.apache.spark.sql.catalyst.expressions.NamedExpression](((lamVar: Int) =&gt; namedToOuterReference(lamVar, newL.arguments.apply(lamVar)))).getOrElse[org.apache.spark.sql.catalyst.expressions.NamedExpression](a)
+            case (defaultCase$ @ _) =&gt; default.apply(x1)
+          };
+          final def isDefinedAt(x1: org.apache.spark.sql.catalyst.expressions.Expression): Boolean = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+            case (a @ (_: org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable)) =&gt; true
+            case (a @ (_: org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute)) =&gt; true
+            case (defaultCase$ @ _) =&gt; false
+          }
+        };
+        new $anonfun()
+      }: PartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression]))
+      case (defaultCase$ @ _) =&gt; default.apply(x1)
+    };
+    final def isDefinedAt(x1: org.apache.spark.sql.catalyst.plans.logical.LogicalPlan): Boolean = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]: org.apache.spark.sql.catalyst.plans.logical.LogicalPlan): org.apache.spark.sql.catalyst.plans.logical.LogicalPlan @unchecked) match {
+      case (snippet @ _) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan,org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]))
+        </td>
+      </tr><tr>
+        <td>
+          211
+        </td>
+        <td>
+          7276
+        </td>
+        <td>
+          7395
+          -
+          7395
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.FunN.$anonfun.$anonfun.&lt;init&gt;
         </td>
         <td>
           
@@ -2993,15 +3054,15 @@
         </td>
       </tr><tr>
         <td>
-          210
+          212
         </td>
         <td>
-          7276
+          7275
         </td>
         <td>
-          7277
+          7429
           -
-          7637
+          7810
         </td>
         <td>
           Apply
@@ -3038,12 +3099,36 @@
           212
         </td>
         <td>
-          7273
+          7274
         </td>
         <td>
-          7381
+          7461
           -
-          7462
+          7461
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.FunN.$anonfun.$anonfun.$anonfun.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          214
+        </td>
+        <td>
+          7272
+        </td>
+        <td>
+          7542
+          -
+          7623
         </td>
         <td>
           Apply
@@ -3059,15 +3144,15 @@
         </td>
       </tr><tr>
         <td>
-          214
+          216
         </td>
         <td>
-          7274
+          7273
         </td>
         <td>
-          7524
+          7693
           -
-          7623
+          7792
         </td>
         <td>
           Apply
@@ -3083,63 +3168,39 @@
         </td>
       </tr><tr>
         <td>
-          229
+          228
         </td>
         <td>
           7287
         </td>
         <td>
-          8012
+          7985
           -
-          8021
+          7988
         </td>
         <td>
-          Select
+          Ident
         </td>
         <td>
-          org.apache.spark.sql.qualityFunctions.FunN.arguments
+          org.apache.spark.sql.qualityFunctions.FunN.res
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          FunN.this.arguments
+          res
         </td>
       </tr><tr>
         <td>
-          229
+          236
         </td>
         <td>
-          7288
+          7292
         </td>
         <td>
-          8011
+          8283
           -
-          8011
-        </td>
-        <td>
-          TypeApply
-        </td>
-        <td>
-          scala.collection.Seq.canBuildFrom
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          collection.this.Seq.canBuildFrom[(org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable, org.apache.spark.sql.catalyst.expressions.Expression)]
-        </td>
-      </tr><tr>
-        <td>
-          229
-        </td>
-        <td>
-          7291
-        </td>
-        <td>
-          7996
-          -
-          8106
+          8393
         </td>
         <td>
           Apply
@@ -3157,39 +3218,63 @@
         </td>
       </tr><tr>
         <td>
-          230
-        </td>
-        <td>
-          7290
-        </td>
-        <td>
-          8062
-          -
-          8100
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          java.util.concurrent.atomic.AtomicReference.set
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          element.value.set(expr.eval(inputRow))
-        </td>
-      </tr><tr>
-        <td>
-          230
+          236
         </td>
         <td>
           7289
         </td>
         <td>
-          8080
+          8298
           -
-          8099
+          8298
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[(org.apache.spark.sql.catalyst.expressions.NamedLambdaVariable, org.apache.spark.sql.catalyst.expressions.Expression)]
+        </td>
+      </tr><tr>
+        <td>
+          236
+        </td>
+        <td>
+          7288
+        </td>
+        <td>
+          8299
+          -
+          8308
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.FunN.arguments
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          FunN.this.arguments
+        </td>
+      </tr><tr>
+        <td>
+          237
+        </td>
+        <td>
+          7290
+        </td>
+        <td>
+          8367
+          -
+          8386
         </td>
         <td>
           Apply
@@ -3205,15 +3290,39 @@
         </td>
       </tr><tr>
         <td>
-          233
+          237
         </td>
         <td>
-          7292
+          7291
         </td>
         <td>
-          8112
+          8349
           -
-          8135
+          8387
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.AtomicReference.set
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          element.value.set(expr.eval(inputRow))
+        </td>
+      </tr><tr>
+        <td>
+          240
+        </td>
+        <td>
+          7293
+        </td>
+        <td>
+          8399
+          -
+          8422
         </td>
         <td>
           Apply
@@ -3229,15 +3338,15 @@
         </td>
       </tr><tr>
         <td>
-          236
+          243
         </td>
         <td>
-          7293
+          7294
         </td>
         <td>
-          8197
+          8484
           -
-          8229
+          8516
         </td>
         <td>
           Select
@@ -3253,15 +3362,15 @@
         </td>
       </tr><tr>
         <td>
-          238
+          245
         </td>
         <td>
-          7294
+          7295
         </td>
         <td>
-          8267
+          8554
           -
-          8284
+          8571
         </td>
         <td>
           Select
@@ -3277,39 +3386,15 @@
         </td>
       </tr><tr>
         <td>
-          240
+          247
         </td>
         <td>
           7296
         </td>
         <td>
-          8339
+          8629
           -
-          8339
-        </td>
-        <td>
-          TypeApply
-        </td>
-        <td>
-          scala.collection.Seq.canBuildFrom
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression]
-        </td>
-      </tr><tr>
-        <td>
-          240
-        </td>
-        <td>
-          7295
-        </td>
-        <td>
-          8342
-          -
-          8351
+          8638
         </td>
         <td>
           Select
@@ -3325,15 +3410,15 @@
         </td>
       </tr><tr>
         <td>
-          240
+          247
         </td>
         <td>
-          7297
+          7298
         </td>
         <td>
-          8329
+          8616
           -
-          8351
+          8638
         </td>
         <td>
           ApplyToImplicitArgs
@@ -3349,63 +3434,39 @@
         </td>
       </tr><tr>
         <td>
-          242
+          247
+        </td>
+        <td>
+          7297
+        </td>
+        <td>
+          8626
+          -
+          8626
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression]
+        </td>
+      </tr><tr>
+        <td>
+          249
         </td>
         <td>
           7302
         </td>
         <td>
-          8447
+          8734
           -
-          8447
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          org.apache.spark.sql.qualityFunctions.FunN.copy$default$5
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          FunN.this.copy$default$5
-        </td>
-      </tr><tr>
-        <td>
-          242
-        </td>
-        <td>
-          7299
-        </td>
-        <td>
-          8478
-          -
-          8494
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.collection.TraversableLike.last
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          newChildren.last
-        </td>
-      </tr><tr>
-        <td>
-          242
-        </td>
-        <td>
-          7301
-        </td>
-        <td>
-          8447
-          -
-          8447
+          8734
         </td>
         <td>
           Select
@@ -3421,15 +3482,15 @@
         </td>
       </tr><tr>
         <td>
-          242
+          249
         </td>
         <td>
-          7298
+          7299
         </td>
         <td>
-          8452
+          8739
           -
-          8476
+          8763
         </td>
         <td>
           Apply
@@ -3445,15 +3506,15 @@
         </td>
       </tr><tr>
         <td>
-          242
+          249
         </td>
         <td>
-          7300
+          7301
         </td>
         <td>
-          8447
+          8734
           -
-          8447
+          8734
         </td>
         <td>
           Select
@@ -3469,15 +3530,15 @@
         </td>
       </tr><tr>
         <td>
-          242
+          249
         </td>
         <td>
-          7303
+          7304
         </td>
         <td>
-          8447
+          8734
           -
-          8495
+          8782
         </td>
         <td>
           Apply
@@ -3493,15 +3554,63 @@
         </td>
       </tr><tr>
         <td>
-          252
+          249
         </td>
         <td>
-          7304
+          7300
         </td>
         <td>
-          8710
+          8765
           -
-          8732
+          8781
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableLike.last
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          newChildren.last
+        </td>
+      </tr><tr>
+        <td>
+          249
+        </td>
+        <td>
+          7303
+        </td>
+        <td>
+          8734
+          -
+          8734
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.FunN.copy$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          FunN.this.copy$default$5
+        </td>
+      </tr><tr>
+        <td>
+          259
+        </td>
+        <td>
+          7305
+        </td>
+        <td>
+          8997
+          -
+          9019
         </td>
         <td>
           Apply
@@ -3517,15 +3626,15 @@
         </td>
       </tr><tr>
         <td>
-          253
+          260
         </td>
         <td>
-          7305
+          7306
         </td>
         <td>
-          8760
+          9047
           -
-          8783
+          9070
         </td>
         <td>
           Apply
@@ -3541,15 +3650,15 @@
         </td>
       </tr><tr>
         <td>
-          254
+          261
         </td>
         <td>
-          7306
+          7307
         </td>
         <td>
-          8807
+          9094
           -
-          8828
+          9115
         </td>
         <td>
           Apply
@@ -3565,39 +3674,15 @@
         </td>
       </tr><tr>
         <td>
-          255
+          262
         </td>
         <td>
           7308
         </td>
         <td>
-          8857
+          9145
           -
-          8857
-        </td>
-        <td>
-          TypeApply
-        </td>
-        <td>
-          scala.collection.Seq.canBuildFrom
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.codegen.ExprCode]
-        </td>
-      </tr><tr>
-        <td>
-          255
-        </td>
-        <td>
-          7307
-        </td>
-        <td>
-          8858
-          -
-          8872
+          9159
         </td>
         <td>
           Apply
@@ -3613,15 +3698,15 @@
         </td>
       </tr><tr>
         <td>
-          255
+          262
         </td>
         <td>
-          7309
+          7310
         </td>
         <td>
-          8844
+          9131
           -
-          8873
+          9160
         </td>
         <td>
           ApplyToImplicitArgs
@@ -3637,15 +3722,39 @@
         </td>
       </tr><tr>
         <td>
-          256
+          262
         </td>
         <td>
-          7310
+          7309
         </td>
         <td>
-          8888
+          9144
           -
-          8915
+          9144
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.codegen.ExprCode]
+        </td>
+      </tr><tr>
+        <td>
+          263
+        </td>
+        <td>
+          7311
+        </td>
+        <td>
+          9175
+          -
+          9202
         </td>
         <td>
           Apply
@@ -3661,39 +3770,15 @@
         </td>
       </tr><tr>
         <td>
-          257
+          264
         </td>
         <td>
-          7311
+          7313
         </td>
         <td>
-          8958
+          9222
           -
-          8981
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          org.apache.spark.sql.catalyst.expressions.Expression.dataType
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          FunN.this.lambdaFunction.dataType
-        </td>
-      </tr><tr>
-        <td>
-          257
-        </td>
-        <td>
-          7312
-        </td>
-        <td>
-          8935
-          -
-          8982
+          9269
         </td>
         <td>
           Apply
@@ -3709,39 +3794,15 @@
         </td>
       </tr><tr>
         <td>
-          258
+          264
         </td>
         <td>
-          7314
+          7312
         </td>
         <td>
-          8999
+          9245
           -
-          9047
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.boxedType
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.boxedType(FunN.this.lambdaFunction.dataType)
-        </td>
-      </tr><tr>
-        <td>
-          258
-        </td>
-        <td>
-          7313
-        </td>
-        <td>
-          9023
-          -
-          9046
+          9268
         </td>
         <td>
           Select
@@ -3757,15 +3818,63 @@
         </td>
       </tr><tr>
         <td>
-          260
+          265
+        </td>
+        <td>
+          7314
+        </td>
+        <td>
+          9310
+          -
+          9333
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          FunN.this.lambdaFunction.dataType
+        </td>
+      </tr><tr>
+        <td>
+          265
         </td>
         <td>
           7315
         </td>
         <td>
-          9068
+          9286
           -
-          9104
+          9334
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.boxedType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.boxedType(FunN.this.lambdaFunction.dataType)
+        </td>
+      </tr><tr>
+        <td>
+          267
+        </td>
+        <td>
+          7316
+        </td>
+        <td>
+          9355
+          -
+          9391
         </td>
         <td>
           Apply
@@ -3781,15 +3890,15 @@
         </td>
       </tr><tr>
         <td>
-          292
+          299
         </td>
         <td>
-          7316
+          7317
         </td>
         <td>
-          9132
+          9419
           -
-          10442
+          10729
         </td>
         <td>
           Apply
@@ -3822,15 +3931,15 @@
         </td>
       </tr><tr>
         <td>
-          294
+          301
         </td>
         <td>
-          7317
+          7318
         </td>
         <td>
-          10465
+          10752
           -
-          10494
+          10781
         </td>
         <td>
           Apply
@@ -3846,39 +3955,15 @@
         </td>
       </tr><tr>
         <td>
-          297
+          304
         </td>
         <td>
           7332
         </td>
         <td>
-          10538
+          10828
           -
-          11011
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.copy
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ev.copy(org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n         // Lambda FunN - &quot;, &quot;\n         // setup the args\n         &quot;, &quot;\n         // gen the function\n         &quot;, &quot;\n\n         // capture the result of the function\n         &quot;, &quot; &quot;, &quot; = &quot;, &quot;;\n         boolean &quot;, &quot; = &quot;, &quot;;\n         if (!&quot;, &quot;) {\n            &quot;, &quot; = (&quot;, &quot;) &quot;, &quot;;\n         }\n         // End FunN - &quot;, &quot;\n          &quot;)).code(lambdaName, argsetup, fun.code, javaType, ev.value, org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.defaultValue(FunN.this.dataType, org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.defaultValue$default$2), ev.isNull, fun.isNull, ev.isNull, ev.value, boxed, fun.value, lambdaName), ev.copy$default$2, ev.copy$default$3)
-        </td>
-      </tr><tr>
-        <td>
-          297
-        </td>
-        <td>
-          7331
-        </td>
-        <td>
-          10541
-          -
-          10541
+          10828
         </td>
         <td>
           Select
@@ -3894,15 +3979,15 @@
         </td>
       </tr><tr>
         <td>
-          297
+          304
         </td>
         <td>
-          7330
+          7331
         </td>
         <td>
-          10541
+          10828
           -
-          10541
+          10828
         </td>
         <td>
           Select
@@ -3918,39 +4003,39 @@
         </td>
       </tr><tr>
         <td>
-          298
+          304
         </td>
         <td>
-          7329
+          7333
         </td>
         <td>
-          10559
+          10825
           -
-          11010
+          11298
         </td>
         <td>
           Apply
         </td>
         <td>
-          org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper.code
+          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.copy
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n         // Lambda FunN - &quot;, &quot;\n         // setup the args\n         &quot;, &quot;\n         // gen the function\n         &quot;, &quot;\n\n         // capture the result of the function\n         &quot;, &quot; &quot;, &quot; = &quot;, &quot;;\n         boolean &quot;, &quot; = &quot;, &quot;;\n         if (!&quot;, &quot;) {\n            &quot;, &quot; = (&quot;, &quot;) &quot;, &quot;;\n         }\n         // End FunN - &quot;, &quot;\n          &quot;)).code(lambdaName, argsetup, fun.code, javaType, ev.value, org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.defaultValue(FunN.this.dataType, org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.defaultValue$default$2), ev.isNull, fun.isNull, ev.isNull, ev.value, boxed, fun.value, lambdaName)
+          ev.copy(org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n         // Lambda FunN - &quot;, &quot;\n         // setup the args\n         &quot;, &quot;\n         // gen the function\n         &quot;, &quot;\n\n         // capture the result of the function\n         &quot;, &quot; &quot;, &quot; = &quot;, &quot;;\n         boolean &quot;, &quot; = &quot;, &quot;;\n         if (!&quot;, &quot;) {\n            &quot;, &quot; = (&quot;, &quot;) &quot;, &quot;;\n         }\n         // End FunN - &quot;, &quot;\n          &quot;)).code(lambdaName, argsetup, fun.code, javaType, ev.value, org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.defaultValue(FunN.this.dataType, org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.defaultValue$default$2), ev.isNull, fun.isNull, ev.isNull, ev.value, boxed, fun.value, lambdaName), ev.copy$default$2, ev.copy$default$3)
         </td>
       </tr><tr>
         <td>
-          298
+          305
         </td>
         <td>
-          7318
+          7319
         </td>
         <td>
-          10559
+          10846
           -
-          11010
+          11297
         </td>
         <td>
           Apply
@@ -3966,15 +4051,39 @@
         </td>
       </tr><tr>
         <td>
-          303
+          305
         </td>
         <td>
-          7319
+          7330
         </td>
         <td>
-          10693
+          10846
           -
-          10701
+          11297
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper.code
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n         // Lambda FunN - &quot;, &quot;\n         // setup the args\n         &quot;, &quot;\n         // gen the function\n         &quot;, &quot;\n\n         // capture the result of the function\n         &quot;, &quot; &quot;, &quot; = &quot;, &quot;;\n         boolean &quot;, &quot; = &quot;, &quot;;\n         if (!&quot;, &quot;) {\n            &quot;, &quot; = (&quot;, &quot;) &quot;, &quot;;\n         }\n         // End FunN - &quot;, &quot;\n          &quot;)).code(lambdaName, argsetup, fun.code, javaType, ev.value, org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.defaultValue(FunN.this.dataType, org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.defaultValue$default$2), ev.isNull, fun.isNull, ev.isNull, ev.value, boxed, fun.value, lambdaName)
+        </td>
+      </tr><tr>
+        <td>
+          310
+        </td>
+        <td>
+          7320
+        </td>
+        <td>
+          10980
+          -
+          10988
         </td>
         <td>
           Select
@@ -3990,63 +4099,15 @@
         </td>
       </tr><tr>
         <td>
-          306
-        </td>
-        <td>
-          7320
-        </td>
-        <td>
-          10772
-          -
-          10780
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.value
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ev.value
-        </td>
-      </tr><tr>
-        <td>
-          306
+          313
         </td>
         <td>
           7323
         </td>
         <td>
-          10786
+          11087
           -
-          10822
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.defaultValue
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.defaultValue(FunN.this.dataType, org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.defaultValue$default$2)
-        </td>
-      </tr><tr>
-        <td>
-          306
-        </td>
-        <td>
-          7322
-        </td>
-        <td>
-          10800
-          -
-          10800
+          11087
         </td>
         <td>
           Select
@@ -4062,15 +4123,15 @@
         </td>
       </tr><tr>
         <td>
-          306
+          313
         </td>
         <td>
-          7321
+          7322
         </td>
         <td>
-          10813
+          11100
           -
-          10821
+          11108
         </td>
         <td>
           Select
@@ -4086,15 +4147,63 @@
         </td>
       </tr><tr>
         <td>
-          307
+          313
         </td>
         <td>
-          7325
+          7324
         </td>
         <td>
-          10859
+          11073
           -
-          10869
+          11109
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.defaultValue
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.defaultValue(FunN.this.dataType, org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.defaultValue$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          313
+        </td>
+        <td>
+          7321
+        </td>
+        <td>
+          11059
+          -
+          11067
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.value
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ev.value
+        </td>
+      </tr><tr>
+        <td>
+          314
+        </td>
+        <td>
+          7326
+        </td>
+        <td>
+          11146
+          -
+          11156
         </td>
         <td>
           Select
@@ -4110,15 +4219,15 @@
         </td>
       </tr><tr>
         <td>
-          307
+          314
         </td>
         <td>
-          7324
+          7325
         </td>
         <td>
-          10844
+          11131
           -
-          10853
+          11140
         </td>
         <td>
           Select
@@ -4134,15 +4243,15 @@
         </td>
       </tr><tr>
         <td>
-          308
+          315
         </td>
         <td>
-          7326
+          7327
         </td>
         <td>
-          10888
+          11175
           -
-          10897
+          11184
         </td>
         <td>
           Select
@@ -4158,15 +4267,15 @@
         </td>
       </tr><tr>
         <td>
-          309
+          316
         </td>
         <td>
-          7328
+          7329
         </td>
         <td>
-          10939
+          11226
           -
-          10948
+          11235
         </td>
         <td>
           Select
@@ -4182,15 +4291,15 @@
         </td>
       </tr><tr>
         <td>
-          309
+          316
         </td>
         <td>
-          7327
+          7328
         </td>
         <td>
-          10916
+          11203
           -
-          10924
+          11211
         </td>
         <td>
           Select
