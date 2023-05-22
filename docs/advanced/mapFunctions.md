@@ -8,7 +8,7 @@ A typical use case for processing DQ rules is that of cached value processing, r
 
 Quality's map functions reproduce the result of joining datasets but guarantees in memory operation only once they are loaded, no merges or joins required.  However for larger data lookups either [Bloom Filters](blooms.md) should be preferred or simply use joins.
 
-Similarly, for cases involving more logic than a simple equality check you must use joins. 
+Similarly, for cases involving more logic than a simple equality check you must use joins or starting in 3.4 (DBR 12.2) scalar sub queries. 
 
 ## Building the Lookup Maps
 

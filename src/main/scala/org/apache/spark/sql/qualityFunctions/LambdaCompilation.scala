@@ -31,13 +31,10 @@ case class NamedLambdaVariableCodeGen(
    */
   var value: Any = _
 
-  var haveNotGenerated = true
-
   override def eval(input: InternalRow): Any =
     value
 
   protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
-    haveNotGenerated = false
     val javaType = CodeGenerator.javaType(dataType)
     val boxed = CodeGenerator.boxedType(dataType)
     ctx.references += this

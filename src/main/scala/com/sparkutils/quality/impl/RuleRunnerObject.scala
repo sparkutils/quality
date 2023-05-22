@@ -312,7 +312,12 @@ trait RuleRunnerFunctionsImport {
 
     register("small_Bloom", (exps: Seq[Expression]) => ParquetAggregator(exps(0), exps(1), exps(2)))
 
-    register("big_Bloom", (exps: Seq[Expression]) => BucketedArrayParquetAggregator(exps(0), exps(1), exps(2), exps(3)))
+    register("big_Bloom", (exps: Seq[Expression]) => exps.size match {
+      case 4 =>
+        BucketedArrayParquetAggregator(exps(0), exps(1), exps(2), exps(3))
+      case 3 =>
+        BucketedArrayParquetAggregator(exps(0), exps(1), exps(2), Literal(java.util.UUID.randomUUID().toString))
+    })
 
     val longPairEqual = (exps: Seq[Expression]) => {
       val Seq(Literal(a, StringType), Literal(b, StringType)) = exps

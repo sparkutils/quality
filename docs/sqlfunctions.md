@@ -84,11 +84,13 @@ functions:
       - longs
   big_Bloom:
     description: |
-      big_Bloom(buildFrom, expectedSize, expectedFPP, 'bloom_id') creates an aggregated bloom filter using the buildFrom expression.  
+      big_Bloom(buildFrom, expectedSize, expectedFPP) creates an aggregated bloom filter using the buildFrom expression.  
       
-      The blooms are stored on a shared filesystem using the bloom_id, they can scale to high numbers of items whilst keeping the FPP (e.g. millions at 0.01 would imply 99% probability, you may have to cast to double in Spark 3.2).
+      The blooms are stored on a shared filesystem using a generated uuid, they can scale to high numbers of items whilst keeping the FPP (e.g. millions at 0.01 would imply 99% probability, you may have to cast to double in Spark 3.2).
       
       buildFrom can be driven by digestToLongs or hashWith functions when using multiple fields.
+    alternatives:
+      - "big_Bloom(buildFrom, expectedSize, expectedFPP, 'bloom_loc') - per above but uses a fixed string bloom_loc instead of a uuid"
     tags:
       - bloom
   small_Bloom:

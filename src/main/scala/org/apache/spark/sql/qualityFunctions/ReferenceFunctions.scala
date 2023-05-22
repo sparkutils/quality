@@ -274,7 +274,7 @@ case class FunN(arguments: Seq[Expression], function: Expression, name: Option[S
           // it can be swapped out at runtime.  We can test for eval calls but given the call could be behind an
           // if way deep in the stack it's not something easy to optimise out at runtime either.
           val nlv = ev.asInstanceOf[NamedLambdaVariableCodeGen]
-          s"""
+          val snippet = s"""
              // gen the arg code
              ${arg.code}
              // capture the result and pass it to the lambdavariable holder ref
@@ -284,12 +284,9 @@ case class FunN(arguments: Seq[Expression], function: Expression, name: Option[S
                 ${nlv.valueRef} = null;
              }
              // for cases when the user of the code is CodegenFallback
-             ${if (nlv.haveNotGenerated)
-                nlv.genCode(ctx).code
-              else
-                ""
-              }
+             ${nlv.genCode(ctx).code}
              """
+          snippet
         } else
           s"""
              // nlv compat
