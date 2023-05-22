@@ -78,17 +78,19 @@ object RuleLogicUtils {
           } catch {
             case _: Throwable =>
               // quite possibly a lambda using a subquery so try and force it via ( sub ) trick,
-              // but allow us to replace later after resolution
+              // but allow us to replace later after resolution.  DBR > 12 requires () on simple expressions as well
               val r = rule.split("->")
-              if (r.size == 2) {
-                val wrapped = s"${r(0)} -> ( ${r(1)} )"
-                try {
-                  parser.parseExpression(wrapped)
-                } catch {
-                  case _: Throwable => throw ot // if this didn't work return the original error
-                }
-              } else
-                throw ot // if this didn't work return the original error
+              val wrapped =
+                if (r.size == 2)
+                  s"${r(0)} -> ( ${r(1)} )"
+                else
+                  s"( ${r(0)} )"
+
+              try {
+                parser.parseExpression(wrapped)
+              } catch {
+                case _: Throwable => throw ot // if this didn't work return the original error
+              }
           }
       }
 
