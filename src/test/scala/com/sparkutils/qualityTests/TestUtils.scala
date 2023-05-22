@@ -8,6 +8,8 @@ import org.apache.spark.sql.internal.SQLConf
 import org.junit.Before
 import java.io.File
 
+import org.apache.spark.rdd.RDD
+
 trait TestUtils {
   def sparkSessionF: SparkSession
   def sqlContextF: SQLContext
@@ -183,7 +185,17 @@ trait TestUtils {
     assert(passed == runs, "Should have passed all of them, nothing has changed in between runs")
   }
 
-  lazy val sparkVersion = classOf[Expression].getPackage.getSpecificationVersion
+  lazy val sparkFullVersion = {
+    val pos = classOf[Expression].getPackage.getSpecificationVersion
+    if (pos eq null) // DBR 13.0 does this at least
+      SparkSession.active.version
+    else
+      pos
+  }
+
+  lazy val sparkVersion = {
+    sparkFullVersion.split('.').take(2).mkString(".")
+  }
 
   /**
    * Don't run this test on 2.4 - typically due to not being able to control code gen properly
