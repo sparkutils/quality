@@ -134,4 +134,70 @@ class MapLookupTests extends FunSuite with RowTools with TestUtils {
       filter("doesCountryExist = false")
     assert(res.count == df.count,"all of the rows should be false" )
   }
+
+  @Test
+  def multiKey: Unit = evalCodeGensNoResolve {
+    import sparkSession.implicits._
+
+    val lookups = mapLookupsFromDFs(Map(
+      "multi" -> ( () => {
+        val df = countryCodeCCY.toDF("country", "funnycheck", "ccy")
+        (df, functions.expr("struct(country, funnycheck)"), functions.expr("ccy"))
+      } )
+    ))
+
+    registerMapLookupsAndFunction(lookups)
+
+    val res = sparkSession.sql("select mapLookup('multi', struct('GB', 2)) res").as[String].collect()
+    assert(res.length == 1,"should have found a single match" )
+    assert(res.head == "GBP", "should have got the pound")
+  }
+
+  @Test
+  def taxonomyLookup: Unit = evalCodeGensNoResolve {
+    val orchid = Seq("open","difficult","prized")
+
+    // 1) if a hierarchy is not given whole term is null and default to input (null, null) key
+    // 2) if the hierarchy is not null then it forms the first part of the key with item the second part
+    // 3) if any key lookup fails the original item should be returned
+    // 4) if the item itself is null the return empty attributes
+    val data = Seq(
+      Item("flowers", "orchid", Seq("open","difficult","prized")),
+      Item("flowers", "dandelion", Seq("weed")),
+      Item("cars", "ferrari", Seq("fast","compensatory measure")),
+      Item("cars", "skoda", Seq("outdated reputation", "drives doesn't it?"))
+    )
+    import sparkSession.implicits._
+    val datadf = data.toDF("hierarchy","item","data")
+
+    val lookups = mapLookupsFromDFs(Map(
+      "hierarchy" -> ( () => {
+        (datadf, functions.expr("struct(hierarchy, item)"), functions.expr("data"))
+      } )
+    ))
+
+    registerMapLookupsAndFunction(lookups)
+
+    registerLambdaFunctions(Seq(LambdaFunction("hierarchyLookup",
+      s"( hierarchy, item) -> if(item is null, array(), nvl(mapLookup('hierarchy', struct(hierarchy, item)), array(item)))",Id(0,1))))
+
+    def orNull(what: String) =
+      if (what eq null) "null" else s"'$what'"
+
+    def testLookup(hierarchy: String, item: String): Seq[String] = {
+      val res = sparkSession.sql(s"select hierarchyLookup(${orNull(hierarchy)}, ${orNull(item)}) res").as[Seq[String]].collect()
+      assert(res.length == 1, "should have found a single match only")
+      res.head
+    }
+
+    assert(testLookup(null, "concorde") == Seq("concorde"), "Rule 1, category is null doesn't exist")
+    assert(testLookup("planes", "concorde") == Seq("concorde"), "Rule 1, category doesn't exist")
+    assert(testLookup("flowers", "rose") == Seq("rose"), "Rule 2, category exists but item doesn't")
+    assert(testLookup("flowers", "orchid") == orchid, "Rule 1, category exists but item doesn't")
+    assert(testLookup("flowers", null) == Seq(), "Rule 4")
+
+    // NB this only works as there is a struct (tuple) wrapping the fields so the lookup itself is non-null, although the values are null
+  }
 }
+
+case class Item(hierarchy: String, item: String, attributes: Seq[String])

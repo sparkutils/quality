@@ -8,6 +8,7 @@ import com.sparkutils.quality.impl.longPair.RowIDExpressionImports
 import com.sparkutils.quality.impl.util.ComparableMapsImports
 import com.sparkutils.quality.impl.{ProcessDisableIfMissingImports, RuleEngineRunnerImports, RuleFolderRunnerImports, RuleRunnerFunctionsImport, RuleRunnerImports, RuleSparkTypes, Validation}
 import com.sparkutils.quality.utils.{AddDataFunctions, LookupIdFunctions, SerializingImports}
+import org.apache.spark.sql.internal.SQLConf
 import org.slf4j.LoggerFactory
 
 /**
@@ -48,6 +49,26 @@ package object quality extends BloomFilterTypes with BucketedCreatorFunctions wi
 
       log(stop - start, what)
     }
+  }
+
+  /**
+   * first attempts to get the system env, then system java property then sqlconf
+   * @param name
+   * @return
+   */
+  def getConfig(name: String) = try {
+    val res = System.getenv(name)
+    if (res ne null)
+      res
+    else {
+      val sp = System.getProperty(name)
+      if (sp ne null)
+        sp
+      else
+        SQLConf.get.getConfString(name, "")
+    }
+  } catch {
+    case _: Throwable => ""
   }
 
 }

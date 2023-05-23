@@ -1,7 +1,9 @@
 package com.sparkutils.quality
 
+import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.Expression
+import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedFunction}
+import org.apache.spark.sql.catalyst.expressions.{EqualTo, Expression, Literal, OuterReference, ScalarSubquery, SubqueryExpression, UnresolvedNamedLambdaVariable, LambdaFunction => SparkLambdaFunction}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext}
 import org.apache.spark.sql.qualityFunctions.{FunN, LambdaFunctions, RefExpressionLazyType}
 import org.apache.spark.sql.types.Decimal
@@ -43,6 +45,17 @@ object RuleLogicUtils {
     ))
 
   /**
+   * Removes all parsed Expressions.  Subqueries, supported under 3.4 oss / 12.2 dbr v0.0.2, are not serializable until
+   * after analysis, as such all expressions must be cleansed
+   * @param ruleSuite
+   * @return
+   */
+  def cleanExprs(ruleSuite: RuleSuite) = {
+    ruleSuite.lambdaFunctions.foreach(_.reset())
+    mapRules(ruleSuite){f => f.expression.reset(); f.runOnPassProcessor.returnIfPassed.reset(); f}
+  }
+
+  /**
    * Same as functions.expr without the wrapping Column
    * @param rule
    * @return
@@ -51,9 +64,59 @@ object RuleLogicUtils {
     val parser = SparkSession.getActiveSession.map(_.sessionState.sqlParser).getOrElse {
       QualitySparkUtils.newParser()
     }
-    val rawExpr = parser.parseExpression(rule)
-    rawExpr
+    /*
+    attempt for a simple expression, then try a plan with exactly one output row.
+    "In" will handle ListQuery, "Exists" similarly exists, everything else will likely fail as a parser error
+     */
+    val rawExpr =
+      try {
+        parser.parseExpression(rule)
+      } catch {
+        case ot: Throwable => // e.g. suitable for output expressions
+          try {
+            ScalarSubquery(parser.parsePlan(rule))
+          } catch {
+            case _: Throwable =>
+              // quite possibly a lambda using a subquery so try and force it via ( sub ) trick,
+              // but allow us to replace later after resolution.  DBR > 12 requires () on simple expressions as well
+              val r = rule.split("->")
+              val wrapped =
+                if (r.size == 2)
+                  s"${r(0)} -> ( ${r(1)} )"
+                else
+                  s"( ${r(0)} )"
+
+              try {
+                parser.parseExpression(wrapped)
+              } catch {
+                case _: Throwable => throw ot // if this didn't work return the original error
+              }
+          }
+      }
+
+    val res =
+      rawExpr match {
+        case l: SparkLambdaFunction if hasSubQuery(l) =>
+          // The lambda's will be parsed as UnresolvedAttributes and not the needed lambdas
+          val names = l.arguments.map(a => a.name -> a).toMap
+          l.transform {
+            case s: SubqueryExpression => s.withNewPlan( s.plan.transform{
+              case snippet =>
+                snippet.transformAllExpressions {
+                  case a: UnresolvedAttribute =>
+                    names.get(a.name).map(lamVar => lamVar).getOrElse(a)
+                }
+            })
+          }
+        case _ => rawExpr
+      }
+
+    res
   }
+
+  def hasSubQuery(expression: Expression): Boolean = ( expression collect {
+    case _: SubqueryExpression => true
+  } ).nonEmpty
 
   def anyToRuleResult(any: Any): RuleResult =
     any match {
@@ -90,9 +153,6 @@ object RuleLogicUtils {
 /**
  * Lambda functions are for re-use across rules. (param: Type, paramN: Type) -> logicResult .
  *
- * @param name
- * @param rule
- * @param id
  */
 trait LambdaFunction extends HasRuleText with HasExpr {
   val name: String
@@ -110,7 +170,7 @@ case class LambdaFunctionImpl(name: String, rule: String, id: Id) extends Lambda
   def parsed: LambdaFunctionParsed = LambdaFunctionParsed(name, rule, id, expr)
 }
 
-case class LambdaFunctionParsed(name: String, rule: String, id: Id, expr: Expression) extends LambdaFunction {
+case class LambdaFunctionParsed(name: String, rule: String, id: Id, override val expr: Expression) extends LambdaFunction {
   def parsed: LambdaFunctionParsed = this
 }
 
@@ -137,6 +197,11 @@ trait RuleLogic extends Serializable {
     val res = internalEval(internalRow)
     RuleLogicUtils.anyToRuleResult(res)
   }
+
+  /**
+   * Allows implementations to clear out underlying expressions
+   */
+  def reset(): Unit = {}
 }
 
 trait HasExpr {
@@ -148,8 +213,24 @@ trait ExprLogic extends RuleLogic with HasExpr {
     expr.eval(internalRow)
 }
 
-trait HasRuleText {
+trait HasRuleText extends HasExpr {
   val rule: String
+
+  // doesn't need to be serialized, done by RuleRunners
+  @volatile
+  private[quality] var exprI: Expression = _
+  private[quality] def expression(): Expression = {
+    if (exprI eq null) {
+      exprI = RuleLogicUtils.expr(rule)
+    }
+    exprI
+  }
+
+  def reset(): Unit = {
+    exprI = null
+  }
+
+  override def expr = expression()
 }
 
 /**
@@ -157,7 +238,7 @@ trait HasRuleText {
  * @param rule
  */
 case class ExpressionRule( rule: String ) extends ExprLogic with HasRuleText {
-  lazy override val expr = RuleLogicUtils.expr(rule)
+  override def reset(): Unit = super[HasRuleText].reset()
 }
 
 /**
@@ -165,7 +246,8 @@ case class ExpressionRule( rule: String ) extends ExprLogic with HasRuleText {
  * @param rule
  * @param expr
  */
-case class ExpressionRuleExpr( rule: String, expr: Expression ) extends ExprLogic with HasRuleText {
+case class ExpressionRuleExpr( rule: String, override val expr: Expression ) extends ExprLogic with HasRuleText {
+  override def reset(): Unit = super[HasRuleText].reset()
 }
 
 trait ExpressionCompiler extends HasExpr {
@@ -226,21 +308,83 @@ case class ExpressionWrapper( expr: Expression, compileEval: Boolean = true) ext
 trait OutputExprLogic extends HasExpr {
   def eval(internalRow: org.apache.spark.sql.catalyst.InternalRow) =
     expr.eval(internalRow)
+
+  /**
+   * Allows clearing of expressions
+   */
+  def reset(): Unit = {}
+}
+
+object UpdateFolderExpression {
+  val currentResult = "currentResult"
+
+  import QualitySparkUtils.UnresolvedFunctionOps
+
+  /**
+   * Uses the template to add the arguments to the underlying updateField, replacing any currentResult's found with the correct
+   * UnresolvedNamedLambdaVariable type.
+   * @param args
+   * @return
+   */
+  def withArgsAndSubstitutedLambdaVariable(args: Seq[Expression]): Expression =
+    template.copy(function =
+      oFunc.withArguments(
+        oFunc.theArguments ++ args)).transform{
+      case a: UnresolvedAttribute if a.nameParts.head == currentResult =>
+        UnresolvedNamedLambdaVariable(a.nameParts)
+    }
+
+  lazy val template = RuleLogicUtils.expr(s"$currentResult -> updateField(currentResult)").asInstanceOf[SparkLambdaFunction]
+  lazy val oFunc = template.function.asInstanceOf[UnresolvedFunction]
+
 }
 
 /**
  * Used as a result of serializing
  * @param rule
  */
-case class OutputExpression( rule: String ) extends OutputExprLogic with HasRuleText {
-  lazy override val expr = RuleLogicUtils.expr(rule)
+case class OutputExpression( rule: String ) extends OutputExprLogic with HasRuleText with Logging {
+  private[quality] override def expression() = {
+    val parsed = RuleLogicUtils.expr(rule)
+    // output expressions can be:
+    // 1. simple expressions for ruleEngine
+    // 2. single argument lambda's returning the same type as the arg for folder
+    // 3. as of 0.0.2 #8 set( attribute = valueExpression, attribute = valueExpression) converted to the form of 2 with an updateField call
+    parsed match {
+      case uf: UnresolvedFunction if VariablesLookup.toName(uf) == "set" =>
+        // case 3
+        val args = QualitySparkUtils.arguments(uf)
+        val paired =
+          args.flatMap {
+            case EqualTo(name: UnresolvedAttribute, right) =>
+              // updateField takes paired args of field names to expression
+              Some(Seq(Literal(name.name), right))
+            case a =>
+              logInfo(s"Attempt to convert set OutputExpression argument $a failed as types do not match expected EqualTo(attribute, expression), will default to full expression")
+              None
+          }
+
+        if (paired.size != args.size)
+          // one of the args didn't match type
+          parsed
+        else
+          // need to keep first arg
+          UpdateFolderExpression.withArgsAndSubstitutedLambdaVariable(paired.flatten)
+      case _ =>
+        // for everything else (1+2) it's already good enough
+        parsed
+    }
+  }
+
+  override def reset(): Unit = super[HasRuleText].reset()
 }
 
 /**
  * Used in post serializing processing to keep the rule around
  * @param expr
  */
-case class OutputExpressionExpr( rule: String, expr: Expression) extends OutputExprLogic with HasRuleText {
+case class OutputExpressionExpr( rule: String, override val expr: Expression) extends OutputExprLogic with HasRuleText {
+  override def reset(): Unit = super[HasRuleText].reset()
 }
 
 case class OutputExpressionWrapper( expr: Expression, compileEval: Boolean = true) extends OutputExprLogic with ExpressionCompiler {

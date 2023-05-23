@@ -59,11 +59,11 @@ class CodeGenTest extends RowTools with TestUtils {
       f
       finished = true
     } catch {
-      case e: Throwable if e.getCause ne null =>
-        e.getCause match {
-          case ice: Exception /*InternalCompilerException*/ if ice.getMessage.contains("grows beyond 64 KB")=> () // ok
-          case _ => fail("Cause was not an ICE but "+e.getCause.getClass.getName)
-        }
+      case e: Throwable if anyCauseHas(e, {
+        case ice: Exception /*InternalCompilerException*/ if ice.getMessage.contains("grows beyond 64 KB") => true
+        case _ => false
+      }) =>
+        ()
       case t: Throwable => {
         val c = t.getCause
         fail("Should have throw 64k, instead got "+t.getMessage)
@@ -74,12 +74,13 @@ class CodeGenTest extends RowTools with TestUtils {
     }
   }
 
+  // GC's on 3.4, taking 2m locally
   @Test
-  def ruleRunnerTooMuchPerFunc: Unit = not_Databricks{ not2_4{ forceCodeGen {
+  def ruleRunnerTooMuchPerFunc: Unit = not3_4{ not_Databricks{ not2_4{ forceCodeGen {
     shouldAssert64kb{
       doRunnerGen(variablesPerFunc= 30000, variableFuncGroup = 12)
     }
-  }}}
+  }}}}
 
   @Test
   def ruleRunnerDefault: Unit = not2_4{ forceCodeGen {

@@ -3,6 +3,9 @@ package com.sparkutils.qualityTests
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.expressions.Expression
+import org.apache.spark.sql.execution.{FileSourceScanExec, SparkPlan}
+import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanExec
+
 import java.util.concurrent.atomic.AtomicReference
 
 case class AnalysisException(message: String) extends Exception(message)
@@ -38,4 +41,18 @@ object SparkTestUtils {
 
   def resolveBuiltinOrTempFunction(sparkSession: SparkSession)(name: String, exps: Seq[Expression]): Option[Expression] =
     sparkSession.sessionState.catalog.resolveBuiltinOrTempFunction(name, exps)
+
+  def getPushDowns(sparkPlan: SparkPlan): Seq[String] =
+    (if (sparkPlan.children.isEmpty)
+      // assume it's AQE
+    sparkPlan match {
+      case aq: AdaptiveSparkPlanExec => aq.initialPlan
+      case _ => sparkPlan
+    }
+    else
+      sparkPlan).collect {
+      case fs: FileSourceScanExec =>
+        fs.metadata.collect{ case ("PushedFilters", value)  if value != "[]" => value }
+    }.flatten
+
 }

@@ -3,11 +3,19 @@ package com.sparkutils.qualityTests
 import java.util.UUID
 
 import com.sparkutils.quality._
-import com.sparkutils.quality.utils.PrintCode
-import org.apache.spark.sql.SaveMode
+import com.sparkutils.quality.impl.longPair.AsUUID
+import com.sparkutils.quality.utils.{Arrays, PrintCode}
+import org.apache.spark.sql.QualitySparkUtils.newParser
+import org.apache.spark.sql.catalyst.expressions.{Expression, SubqueryExpression}
+import org.apache.spark.sql.catalyst.plans.logical.Project
+import org.apache.spark.sql.catalyst.util.ArrayData
+import org.apache.spark.sql.{Column, Encoder, SaveMode}
 import org.apache.spark.sql.functions._
+import org.apache.spark.sql.types.IntegerType
 import org.junit.Test
 import org.scalatest.FunSuite
+
+import scala.language.postfixOps
 
 class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
@@ -112,7 +120,6 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 //    val log = LogManager.getLogger("Dummy")
 //    log.error("OIOIOIO")
 
-
     val orig = UUID.randomUUID()
     val uuid = orig.toString
     val ModifiedString = new UUID(orig.getMostSignificantBits, orig.getLeastSignificantBits + 1).toString
@@ -124,13 +131,16 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     val starter = sparkSession.range(1,500).selectExpr("cast(id as int) as id").selectExpr("*","failed() * id as a", "passed() * id as b", "softFailed() * 1 as c", "disabledRule() as dis")
     val df = starter.selectExpr("*", "packInts(1024 * id, 9084 * id) as d", "softFail( (1 * id) > 2 ) as e", s"longPairFromUUID('$uuid') as fparts").
       selectExpr("*", "rngUUID(longPairFromUUID(uuid())) throwaway").
-      selectExpr("*", "rngUUID(named_struct('lower', fparts.lower + id, 'higher', fparts.higher)) as f"," longPair(`id` + 0L, `id` + 1L) as rowid", "unpack(d) as g", "probability(1000) as prob")
+      selectExpr("*", "rngUUID(named_struct('lower', fparts.lower + id, 'higher', fparts.higher)) as f"," longPair(`id` + 0L, `id` + 1L) as rowid", "unpack(d) as g", "probability(1000) as prob",
+        "as_uuid(fparts.lower + id, fparts.higher) as asUUIDExpr"
+      ).select(expr("*"), AsUUID(expr("fparts.lower + id"), expr("fparts.higher")).as("asUUIDCol"))
+
     df.write.mode(SaveMode.Overwrite).parquet(outputDir + "/simpleExprs")
     val re = sparkSession.read.parquet(outputDir + "/simpleExprs")
     import sparkSession.implicits._
     val res = re.as[SimpleRes].orderBy(col("id").asc).head()
     assert(res match {
-      case SimpleRes(1, FailedInt, PassedInt, SoftFailedInt, Packed, SoftFailedInt, DisabledRuleInt, ModifiedString, _, TestId, id, 0.01) => true
+      case SimpleRes(1, FailedInt, PassedInt, SoftFailedInt, Packed, SoftFailedInt, DisabledRuleInt, ModifiedString, _, TestId, id, 0.01, ModifiedString, ModifiedString) => true
       case _ => false
     })
   }
@@ -321,6 +331,62 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
   }
 
   @Test
+  def testComparableResultsDifferentKeysAndMapValue: Unit = evalCodeGensNoResolve {
+    import sparkSession.implicits._
+
+    def doCheck[T: Encoder](seq: Seq[T], thereCanBeOnlyOne: Boolean = false): Unit = {
+      val df = seq.toDS()
+      val df2 = seq.toDS()
+
+      // should fail
+      try {
+        (df union df2 distinct).show
+        fail("Is assumed to fail as spark doesn't order maps")
+      } catch {
+        case t: Throwable =>
+          assert(t.getMessage.contains("map type"))
+      }
+
+      // can't resolve DataQuality here, manages quite nicely on it's own
+      val comparable = df.selectExpr("comparableMaps(value) v")
+      val comparable2 = df2.select(comparableMaps(col("value")).as("v"))
+
+      //comparable.show
+      val unioned = comparable union comparable2 distinct
+
+      unioned.show
+      if (thereCanBeOnlyOne)
+        assert(unioned.count == 1)
+      else
+        assert(unioned.count == df.count)
+
+      unioned.sort("v").show
+    }
+
+    // arrays
+    doCheck(Seq(Holder(Map(Seq(1,2) -> 1, Seq(2,1) -> 2 )), Holder(Map(Seq(2,1) -> 1, Seq(3,1) -> 1 ))))
+    doCheck(Seq(Holder(Map(Seq(1,2) -> 1, Seq(2,1) -> 1 )), Holder(Map(Seq(2,1) -> 1, Seq(1,2) -> 1 ))), true)
+    doCheck(Seq(Holder(Map(Seq(1,2) -> 1, Seq(2) -> 2 )), Holder(Map(Seq(2) -> 1, Seq(3,1) -> 1 ))))
+    // maps
+    doCheck(Seq(Holder(Map(Map(1 -> 2, 2 -> 2) -> 1, Map(3 -> 2, 4 -> 2) -> 1)), Holder(Map(Map(2 -> 1, 1 -> 2) -> 1)))) // 2 -> 2 is different
+    doCheck(Seq(Holder(Map(Map(1 -> 2, 2 -> 2) -> 1)), Holder(Map(Map(2 -> 1, 1 -> 2) -> 1)))) // 2 -> 2 is different
+    doCheck(Seq(Holder(Map(Map(1 -> 2, 2 -> 1) -> 1)), Holder(Map(Map(2 -> 1, 1 -> 2) -> 1))), true)
+
+    // map value
+    doCheck(Seq(Holder(Map(1 -> Map(1 -> 2, 2 -> 2))), Holder(Map(1 -> Map(2 -> 1, 1 -> 2))))) // 2 -> 2 is different
+    doCheck(Seq(Holder(Map(1 -> Map(1 -> 2, 2 -> 1))), Holder(Map(1 -> Map(2 -> 1, 1 -> 2)))), true)
+    // structs
+    doCheck(Seq(Holder(Map(TestIdLeft(1, 2) -> 1)), Holder(Map(TestIdLeft(2, 1) -> 1))))
+    doCheck(Seq(Holder(Map(TestIdLeft(1, 2) -> 1, TestIdLeft(2, 2) -> 1)), Holder(Map(TestIdLeft(2, 1) -> 1, TestIdLeft(3, 2) -> 1))))
+    doCheck(Seq(Holder(Map(TestIdLeft(1, 2) -> 1)), Holder(Map(TestIdLeft(1, 2) -> 1))), true)
+    // struct with map
+    val map = Map(1 -> 1, 2 -> 2, 3 -> 3, 4 -> 4)
+
+    doCheck(Seq(Holder(NestedStruct(1, Map(12 -> MapArray(Seq(map))))), Holder(NestedStruct(1, Map(1 -> MapArray(Seq(map)))))))
+    doCheck(Seq(Holder(NestedStruct(1, Map(1 -> MapArray(Seq(map))))), Holder(NestedStruct(1, Map(1 -> MapArray(Seq(map)))))), true)
+  }
+
+  @Test
   def testCompareWithArrays: Unit = evalCodeGensNoResolve {
     // testComparableResult does a test against the DQ results so hits nested maps and structs,
     // but there aren't arrays there so that code isn't tested
@@ -390,15 +456,98 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     }
   }
 
+  @Test
+  def testCompareWithStructsReverseAndNested: Unit = evalCodeGensNoResolve {
+
+    val map = Map(1 -> 1, 2 -> 2, 3 -> 3, 4 -> 4)
+    val maps = (0 to 4).map(i => map.mapValues(_ * i))
+
+    import sparkSession.implicits._
+    val ds = maps.reverse.map(m => NestedMapStruct(NestedStruct(m.head._1, Map( m.head._1 -> MapArray(Seq(m)))))).toDS()
+    ds.show
+
+    // should fail
+    try {
+      ds.sort("nested").show
+      fail("Is assumed to fail as spark doesn't order maps")
+    } catch {
+      case t: Throwable =>
+        assert(t.getMessage.contains("data type mismatch"))
+    }
+
+    // can't resolve DataQuality here, manages quite nicely on it's own
+    val comparable = ds.toDF.selectExpr("comparableMaps(nested) seq")
+
+    val sorted = comparable.sort("seq").selectExpr("reverseComparableMaps(seq) nested").as[NestedMapStruct]
+    sorted.show
+    sorted.collect().zipWithIndex.foreach {
+      case (struct, index) =>
+        assert(struct.nested.nested.head._2.seq(0) == maps(index)) // because all 4 are identical
+
+    }
+
+  }
+
+  @Test
+  def mapArrays(): Unit = {
+    val ar = ArrayData.toArrayData(Seq(0,1,2,3,4)) // Force GenericArrayData instead of UnsafeArrayData
+    val nar = Arrays.mapArray(ar, IntegerType, _.asInstanceOf[Integer] + 1)
+    assert((0 until 5).forall(i => nar(i) == i + 1))
+
+    // verify with simple toArray
+    val nar2 = Arrays.toArray(ar, IntegerType)
+    assert((0 until 5).forall(i => nar2(i) == i))
+  }
+
+  @Test
+  def scalarSubqueryAsTrigger(): Unit = evalCodeGensNoResolve {
+    v3_4_and_above {
+      // assert that using a join to test with is fine even when nested
+      import sparkSession.implicits._
+      val seq = Seq(0, 1, 2, 3, 4)
+      val df = seq.toDF("i") // Force GenericArrayData instead of UnsafeArrayData
+      val tableName = "the_I_s_Have_It"
+      df.createOrReplaceTempView(tableName)
+
+      def sub(comp: String = "> 2", tableSuffix: String = "") = s"exists(select 0 from $tableName i_s$tableSuffix where i_s$tableSuffix.i $comp)"
+
+      val baseline = sparkSession.sql(s"select struct(${sub()}).col1 is not null")
+      assert(!baseline.isEmpty)
+      assert(baseline.as[Boolean].head())
+
+      val rs = RuleSuite(Id(1, 1), Seq(
+        RuleSet(Id(50, 1), Seq(
+          Rule(Id(100, 1), ExpressionRule(sub("> main.i and i_s.i < 3"))),
+          Rule(Id(101, 1), ExpressionRule(sub("> main.i")))
+        ))
+      ))
+      val testDF = seq.toDF("i").as("main")
+      testDF.collect()
+      val resdf = addDataQuality(testDF, rs)
+      try {
+        val res = resdf.selectExpr("DataQuality.overallResult").as[Int].collect()
+        assert(res.filterNot(_ == PassedInt).length == 3) // 1 with just 101 above, 3 fail with 100 as well
+      } catch {
+        case t: Throwable =>
+          throw t
+      }
+    }
+  }
+
 }
 
 object Holder {
   var res: String = ""
 }
 
+case class Holder[T](value: T)
+
 case class MapArray(seq: Seq[Map[Int, Int]])
+
+case class NestedStruct(field: Int, nested: Map[Int, MapArray])
+case class NestedMapStruct( nested: NestedStruct)
 
 case class TestIdLeft(left_lower: Long, left_higher: Long)
 case class TestIdRight(right_lower: Long, right_higher: Long)
 
-case class SimpleRes(id: Int, a: Int, b: Int, c: Int, d: Long, e: Int, dis: Int, f: String, throwaway: String, rowId: RowId, g: Id, prob: Double)
+case class SimpleRes(id: Int, a: Int, b: Int, c: Int, d: Long, e: Int, dis: Int, f: String, throwaway: String, rowId: RowId, g: Id, prob: Double, asUUIDExpr: String, asUUIDCol: String)

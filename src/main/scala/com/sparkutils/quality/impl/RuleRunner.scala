@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.RuleLogicUtils.mapRules
-import com.sparkutils.quality.{DisabledRule, ExpressionWrapper, Failed, Id, Passed, Probability, RuleLogic, RuleResult, RuleResultWithProcessor, RuleSetResult, RuleSuite, RuleSuiteResult, SoftFailed}
+import com.sparkutils.quality.{DisabledRule, ExpressionWrapper, Failed, Id, Passed, Probability, RuleLogic, RuleLogicUtils, RuleResult, RuleResultWithProcessor, RuleSetResult, RuleSuite, RuleSuiteResult, SoftFailed}
 import com.sparkutils.quality.impl.RuleRunnerFunctions.flattenExpressions
 import org.apache.spark.sql.{Column, DataFrame, QualitySparkUtils}
 import org.apache.spark.sql.catalyst.InternalRow
@@ -50,7 +50,8 @@ trait RuleRunnerImports {
    */
   def ruleRunner(ruleSuite: RuleSuite, compileEvals: Boolean = true, resolveWith: Option[DataFrame] = None, variablesPerFunc: Int = 40, variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false): Column = {
     com.sparkutils.quality.registerLambdaFunctions( ruleSuite.lambdaFunctions )
-    val runner = new RuleRunner(ruleSuite, PassThrough(flattenExpressions(ruleSuite)), compileEvals, variablesPerFunc, variableFuncGroup, forceRunnerEval)
+    val flattened = flattenExpressions(ruleSuite)
+    val runner = new RuleRunner(RuleLogicUtils.cleanExprs(ruleSuite), PassThrough(flattened), compileEvals, variablesPerFunc, variableFuncGroup, forceRunnerEval)
     new Column(
       QualitySparkUtils.resolveWithOverride(resolveWith).map { df =>
         val resolved = QualitySparkUtils.resolveExpression(df, runner)
