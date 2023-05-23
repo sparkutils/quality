@@ -16,7 +16,7 @@ import org.apache.spark.sql.types.DataType
  * @param dataType
  * @param nullable
  * @param exprId
- * @param value
+ * @param valueRef
  */
 case class NamedLambdaVariableCodeGen(
                                        name: String,
@@ -31,13 +31,10 @@ case class NamedLambdaVariableCodeGen(
    */
   var value: Any = _
 
-  var haveNotGenerated = true
-
   override def eval(input: InternalRow): Any =
     value
 
   protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
-    haveNotGenerated = false
     val javaType = CodeGenerator.javaType(dataType)
     val boxed = CodeGenerator.boxedType(dataType)
     ctx.references += this
@@ -123,18 +120,7 @@ object LambdaCompilationUtils {
 
   val lambdaENV = "quality.lambdaHandlers"
 
-  def getLambdaEnv = {
-    val res = System.getenv(lambdaENV)
-    if (res ne null)
-      res
-    else {
-      val sp = System.getProperty(lambdaENV)
-      if (sp ne null)
-        sp
-      else
-        SQLConf.get.getConfString(lambdaENV, "")
-    }
-  }
+  def getLambdaEnv = com.sparkutils.quality.getConfig(lambdaENV)
 
   /**
    * Parses lambda handlers from the quality.lambdaHandlers environment variable as a comma separated lambda|fqn=fqn pair.

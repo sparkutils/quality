@@ -2,14 +2,20 @@ package com.sparkutils.qualityTests
 
 import com.sparkutils.quality
 import com.sparkutils.quality.{RuleSuite, ruleRunner}
-import org.apache.spark.sql.{Dataset, Row}
+import org.apache.spark.sql.{Dataset, Row, SQLContext, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.{CodegenObjectFactoryMode, Expression}
 import org.apache.spark.sql.internal.SQLConf
 import org.junit.Before
-
 import java.io.File
 
+import org.apache.spark.rdd.RDD
+
 trait TestUtils {
+  def sparkSessionF: SparkSession
+  def sqlContextF: SQLContext
+
+  val sparkSession = sparkSessionF
+  val sqlContext = sqlContextF
 
   val outputDir = SparkTestUtils.ouputDir
 
@@ -25,11 +31,15 @@ trait TestUtils {
     sys.props.put("spark.testing","yes yes it is")
   }
 
-  @Before
-  def setup(): Unit = {
+  def cleanupOutput(): Unit = {
     import scala.reflect.io.Directory
     val outdir = new Directory(new java.io.File(outputDir))
     outdir.deleteRecursively()
+  }
+
+  @Before
+  def setup(): Unit = {
+    cleanupOutput()
     quality.registerQualityFunctions()
   }
 
@@ -175,13 +185,36 @@ trait TestUtils {
     assert(passed == runs, "Should have passed all of them, nothing has changed in between runs")
   }
 
-  lazy val sparkVersion = classOf[Expression].getPackage.getSpecificationVersion
+  lazy val sparkFullVersion = {
+    val pos = classOf[Expression].getPackage.getSpecificationVersion
+    if (pos eq null) // DBR 13.0 does this at least
+      SparkSession.active.version
+    else
+      pos
+  }
+
+  lazy val sparkVersion = {
+    sparkFullVersion.split('.').take(2).mkString(".")
+  }
 
   /**
    * Don't run this test on 2.4 - typically due to not being able to control code gen properly
    */
   def not2_4(thunk: => Unit) =
     if (sparkVersion != "2.4") thunk
+
+  /**
+   * Don't run this test on 3.4 - gc's on code gen
+   */
+  def not3_4(thunk: => Unit) =
+    if (sparkVersion != "3.4") thunk
+
+  /**
+   * Scalar subqueries etc. only work on 3.4 and above
+   * @param thunk
+   */
+  def v3_4_and_above(thunk: => Unit) =
+    if (sparkVersion.replace(".","").toInt >= 34) thunk
 
   /**
    * Only run this on 2.4
@@ -208,4 +241,29 @@ trait TestUtils {
    */
   def not_Databricks(thunk: => Unit) =
     if (!onDatabricks) thunk
+
+  /**
+   * Only run when the extension is enabled
+   */
+  def onlyWithExtension(thunk: => Unit) = {
+    val extensions = sparkSession.sparkContext.getConf.get("spark.sql.extensions","")
+    if (extensions.indexOf("com.sparkutils.quality.impl.extension.QualitySparkExtension") > -1) {
+      thunk
+    }
+  }
+
+  /**
+   * Checks for an exception, then it's cause(s) for f being true
+   * @param t
+   * @param f
+   * @return
+   */
+  def anyCauseHas(t: Throwable, f: Throwable => Boolean): Boolean =
+    if (f(t))
+      true
+    else
+      if (t.getCause ne null)
+        anyCauseHas(t.getCause, f)
+      else
+        false
 }

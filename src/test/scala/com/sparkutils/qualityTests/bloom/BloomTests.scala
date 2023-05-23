@@ -270,4 +270,22 @@ class BloomTests extends FunSuite with RowTools with TestUtils {
         assert(spark2_and_3 || spark32 || spark34 || early_spark34_dbr11_n_12)
     }
   }
+
+  @Test
+  def shouldThrowOnUnknownBlooms(): Unit = {
+    val b = sparkSession.sparkContext.broadcast(Map.empty[ String, (BloomLookup, Double) ])
+    registerBloomMapAndFunction(b)
+    try {
+      val aggrow = sparkSession.sql(s"select probabilityIn(1234, 'non')").head()
+      fail("Should have thrown on lookup")
+    } catch {
+      case t: Throwable => assert(anyCauseHas(t, {
+        case q: QualityException if q.getMessage.contains("non, does not exist") => true
+        case _ => false
+      }), "didn't have non")
+    } finally {
+      b.unpersist()
+    }
+  }
+
 }

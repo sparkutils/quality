@@ -2,6 +2,7 @@ package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
 import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.catalyst.expressions.Literal
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.{IntegerType, StringType, StructField, StructType}
 import org.junit.Test
@@ -92,25 +93,36 @@ class RuleFolderTest extends FunSuite with RowTools with TestUtils {
 
   }
 
-  def testAndRulesForReplace() = {
+  def testAndRulesForReplace(useSetSyntax: Boolean) = {
     registerLambdaFunctions(Seq(
       /*      LambdaFunction("account_row", "(transfer_type, account) -> named_struct('transfer_type', transfer_type, 'account', account, 'product', product, 'subcode', subcode)", Id(123, 23)),
             LambdaFunction("account_row", "transfer_type -> account_row(transfer_type, account)", Id(123, 24)),
             LambdaFunction("subcode", "(transfer_type, sub) -> updateField(account_row(transfer_type, account), 'subcode', sub)", Id(123, 25))*/
     ))
 
-    val expressionRules = Seq((ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040,1),
-      OutputExpression("thecurrent -> updateField(thecurrent, 'subcode', 1234)"))),
-      //OutputExpression("thecurrent -> updateField(thecurrent, 'subcode', 1234, 'transfer_type', 'from')")))
+    val expressionRules =
+      if (!useSetSyntax)
+        Seq((ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040,1),
+        OutputExpression("thecurrent -> updateField(thecurrent, 'subcode', 1234)"))),
 
-      (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1001, Id(1044,1),
-        OutputExpression("thecurrent -> updateField(thecurrent, 'account', concat(thecurrent.account,'_fruit'), 'subcode', 6000)"))),
-      (ExpressionRule("product like '%fx%'"), RunOnPassProcessor(1000, Id(1042,1),
-        OutputExpression("thecurrent -> updateField(thecurrent, 'account', 'to')"))),
-      (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1000, Id(1043,1),
-        OutputExpression("thecurrent -> updateField(thecurrent, 'account', 'from')")))
+        (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1001, Id(1044,1),
+          OutputExpression("thecurrent -> updateField(thecurrent, 'account', concat(thecurrent.account,'_fruit'), 'subcode', 6000)"))),
+        (ExpressionRule("product like '%fx%'"), RunOnPassProcessor(1000, Id(1042,1),
+          OutputExpression("thecurrent -> updateField(thecurrent, 'account', 'to')"))),
+        (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1000, Id(1043,1),
+          OutputExpression("thecurrent -> updateField(thecurrent, 'account', 'from')")))
+        )
+      else
+        Seq((ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040,1),
+          OutputExpression("set(subcode = 1234)"))),
 
-    )
+          (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1001, Id(1044,1),
+            OutputExpression("set( account = concat(currentResult.account,'_fruit'), subcode = 6000)"))),
+          (ExpressionRule("product like '%fx%'"), RunOnPassProcessor(1000, Id(1042,1),
+            OutputExpression("set(account = 'to')"))),
+          (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1000, Id(1043,1),
+            OutputExpression("set(account = 'from')")))
+        )
 
     val rules =
       for { ((exp, processor), idOffset) <- expressionRules.zipWithIndex }
@@ -146,8 +158,13 @@ class RuleFolderTest extends FunSuite with RowTools with TestUtils {
   }
 
   @Test
-  def testSimpleProductionRulesReplace(): Unit = evalCodeGens {
-    val (testDataDF, ruleSuite) = testAndRulesForReplace()
+  def testSimpleProductionRulesReplace(): Unit = doTestSimpleProductionRulesReplace(false)
+
+  @Test
+  def testSimpleProductionRulesReplaceSet(): Unit = doTestSimpleProductionRulesReplace(true)
+
+  def doTestSimpleProductionRulesReplace(useSetSyntax: Boolean): Unit = evalCodeGens {
+    val (testDataDF, ruleSuite) = testAndRulesForReplace(useSetSyntax)
 
     val outdf = testDataDF.transform(foldAndReplaceFields(ruleSuite, Seq("account", "product", "subcode")))
     //outdf.show
@@ -157,8 +174,12 @@ class RuleFolderTest extends FunSuite with RowTools with TestUtils {
   }
 
   @Test
-  def testSimpleProductionRulesReplaceOutOfOrder(): Unit = evalCodeGens {
-    val (testDataDF, ruleSuite) = testAndRulesForReplace()
+  def testSimpleProductionRulesReplaceOutOfOrder(): Unit = doTestSimpleProductionRulesReplaceOutOfOrder(false)
+  @Test
+  def testSimpleProductionRulesReplaceOutOfOrderSet(): Unit = doTestSimpleProductionRulesReplaceOutOfOrder(true)
+
+  def doTestSimpleProductionRulesReplaceOutOfOrder(useSetSyntax: Boolean): Unit = evalCodeGens {
+    val (testDataDF, ruleSuite) = testAndRulesForReplace(useSetSyntax)
 
     val outdf = testDataDF.transform(foldAndReplaceFields(ruleSuite, Seq("account", "product", "subcode"), maintainOrder = false))
     //outdf.show
@@ -168,8 +189,13 @@ class RuleFolderTest extends FunSuite with RowTools with TestUtils {
   }
 
   @Test
-  def testSimpleProductionRulesReplaceCustomDDL(): Unit = evalCodeGens {
-    val (testDataDF, ruleSuite) = testAndRulesForReplace()
+  def testSimpleProductionRulesReplaceCustomDDL(): Unit = doTestSimpleProductionRulesReplaceCustomDDL(false)
+
+  @Test
+  def testSimpleProductionRulesReplaceCustomDDLSet(): Unit = doTestSimpleProductionRulesReplaceCustomDDL(true)
+
+  def doTestSimpleProductionRulesReplaceCustomDDL(useSetSyntax: Boolean): Unit = evalCodeGens {
+    val (testDataDF, ruleSuite) = testAndRulesForReplace(useSetSyntax)
 
     val outdf = testDataDF.transform(foldAndReplaceFieldsWithStruct(ruleSuite, StructType(Seq(StructField("account", StringType),
       StructField("product", StringType), StructField("subcode",IntegerType))), maintainOrder = false))
@@ -180,8 +206,13 @@ class RuleFolderTest extends FunSuite with RowTools with TestUtils {
   }
 
   @Test
-  def testSimpleProductionRulesReplaceDebug(): Unit = evalCodeGens {
-    val (testDataDF, ruleSuite) = testAndRulesForReplace()
+  def testSimpleProductionRulesReplaceDebug(): Unit = doTestSimpleProductionRulesReplaceDebug(false)
+
+  @Test
+  def testSimpleProductionRulesReplaceDebugSet(): Unit = doTestSimpleProductionRulesReplaceDebug(true)
+
+  def doTestSimpleProductionRulesReplaceDebug(useSetSyntax: Boolean): Unit = evalCodeGens {
+    val (testDataDF, ruleSuite) = testAndRulesForReplace(useSetSyntax)
 
     val outdf = testDataDF.transform(foldAndReplaceFields(ruleSuite, Seq("account", "product", "subcode"), debugMode = true))
     //outdf.show
@@ -206,8 +237,13 @@ class RuleFolderTest extends FunSuite with RowTools with TestUtils {
   }
 
   @Test
-  def testFlattenResults(): Unit =  evalCodeGens {//forceInterpreted { // evalCodeGensNoResolve {
-    val (testDataDF, ruleSuite) = testAndRulesForReplace()
+  def testFlattenResults(): Unit = doTestFlattenResults(false)
+
+  @Test
+  def testFlattenResultsSet(): Unit = doTestFlattenResults(true)
+
+  def doTestFlattenResults(useSetSyntax: Boolean): Unit =  evalCodeGens {//forceInterpreted { // evalCodeGensNoResolve {
+    val (testDataDF, ruleSuite) = testAndRulesForReplace(useSetSyntax)
 
     import sparkSession.implicits._
 
@@ -256,4 +292,15 @@ class RuleFolderTest extends FunSuite with RowTools with TestUtils {
 
   }
 
+  @Test
+  def testSetSyntaxButNoEqualTo(): Unit = {
+    val bad = OutputExpression("set('lit')").expr
+    assert(bad.children.head.getClass == Literal("lit").getClass)
+  }
+
+  @Test
+  def testSetSyntaxEqualToButNoAttribute(): Unit = {
+    val bad = OutputExpression("set( 1 = 'lit' )").expr
+    assert(bad.children.head.children.head.getClass == Literal("lit").getClass)
+  }
 }

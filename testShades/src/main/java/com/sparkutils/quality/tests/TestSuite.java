@@ -38,7 +38,8 @@ public class TestSuite {
                 UserLambdaFunctionTest.class,
                 ValidationTest.class,
                 VariableIdentificationTest.class,
-                UserLambdaFunctionCompilationTest.class
+                UserLambdaFunctionCompilationTest.class,
+                ExtensionTest.class
         );
 
         resultReport(result);

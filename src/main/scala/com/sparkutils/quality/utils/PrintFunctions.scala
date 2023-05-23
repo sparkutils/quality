@@ -18,10 +18,12 @@ case class PrintCode(child: Expression, msg: String = "CodeGen Result ->", write
 
   override def eval(input: InternalRow): Any = child.eval(input)
 
+  @volatile
+  private var theCode = ""
+
   protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
     val code = child.genCode(ctx)
-    writer(
-      s"""$msg code is:
+    theCode =       s"""$msg code is:
 ${code.code}
 
 value is:
@@ -36,7 +38,8 @@ ${ctx.declareAddedFunctions}
 ${ctx.emitExtraCode}
 ${ctx.initMutableStates}
 ${ctx.initPartition}
-""")
+"""
+    writer(theCode)
     code
   }
 }

@@ -3,9 +3,9 @@ package org.apache.spark.sql
 import com.sparkutils.quality.impl.{RuleEngineRunner, RuleFolderRunner, RuleRunner, ShowParams}
 import com.sparkutils.quality.debugTime
 import com.sparkutils.quality.utils.PassThrough
-import org.apache.spark.sql.catalyst.CatalystTypeConverters
-import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, FunctionRegistry, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCoercion, UnresolvedFunction}
-import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Attribute, BindReferences, Cast, EqualNullSafe, Expression, ExpressionSet, LambdaFunction, Literal}
+import org.apache.spark.sql.catalyst.{CatalystTypeConverters, FunctionIdentifier}
+import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, FunctionRegistry, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCheckResult, TypeCoercion, UnresolvedFunction}
+import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Attribute, BindReferences, Cast, EqualNullSafe, Expression, ExpressionInfo, ExpressionSet, LambdaFunction, Literal}
 import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, UnaryNode}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.SparkSqlParser
@@ -14,11 +14,23 @@ import org.apache.spark.sql.qualityFunctions.{Digest, InterpretedHashLongsFuncti
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.CalendarInterval
 import org.apache.spark.util.Utils
+import TypeCheckResult.DataTypeMismatch
+import org.apache.spark.sql.catalyst.expressions.Cast.{toSQLValue => stoSQLValue}
+import org.apache.spark.sql.catalyst.expressions.ExpectsInputTypes.{toSQLExpr => stoSQLExpr, toSQLType => stoSQLType}
 
 /**
  * Set of utilities to reach in to private functions
  */
 object QualitySparkUtils {
+
+  implicit class UnresolvedFunctionOps(unresolvedFunction: UnresolvedFunction) {
+
+    def theArguments: Seq[Expression] =
+      unresolvedFunction.arguments
+
+    def withArguments(children: Seq[Expression]): UnresolvedFunction =
+      unresolvedFunction.copy(arguments = children)
+  }
 
   def isPrimitive(dataType: DataType) = CatalystTypeConverters.isPrimitive(dataType)
 
@@ -289,4 +301,28 @@ object QualitySparkUtils {
   def toString(dataFrame: DataFrame, showParams: ShowParams = ShowParams()) =
     dataFrame.showString(showParams.numRows, showParams.truncate, showParams.vertical)
 
+  /**
+   * Used by the SparkSessionExtensions mechanism
+   * @param extensions
+   * @param name
+   * @param builder
+   */
+  def registerFunctionViaExtension(extensions: SparkSessionExtensions)(name: String, builder: Seq[Expression] => Expression) =
+    extensions.injectFunction( (FunctionIdentifier(name), new ExpressionInfo(name, name) , builder) )
+
+  /**
+   * Type signature changed for 3.4 to more detailed setup, 12.2 already uses it
+   * @param errorSubClass
+   * @param messageParameters
+   * @return
+   */
+  def mismatch(errorSubClass: String, messageParameters: Map[String, String]): TypeCheckResult =
+    DataTypeMismatch(
+      errorSubClass = errorSubClass,
+      messageParameters = messageParameters
+    )
+
+  def toSQLType(dataType: DataType): String = stoSQLType(dataType)
+  def toSQLExpr(value: Expression): String = stoSQLExpr(value)
+  def toSQLValue(value: Any, dataType: DataType): String = stoSQLValue(value, dataType)
 }

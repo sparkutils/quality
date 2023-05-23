@@ -1,9 +1,7 @@
 package com.sparkutils.quality.utils
 
-import com.sparkutils.quality.{RuleSuite, ruleFolderRunner, ruleRunner}
-import org.apache.spark.broadcast.Broadcast
-import org.apache.spark.sql.functions.struct
-import org.apache.spark.sql.types.StructType
+import com.sparkutils.quality.{RuleSuite, ruleEngineRunner, ruleFolderRunner, ruleRunner}
+import org.apache.spark.sql.types.{DataType, StructType}
 import org.apache.spark.sql.{Column, Dataset, Row}
 
 trait AddDataFunctions {
@@ -65,7 +63,6 @@ trait AddDataFunctions {
    * @param rules
    * @param debugMode when true the last results are taken for the replaced fields
    * @param maintainOrder when true the schema is used to replace fields in the correct location, when false they are simply appended
-   * @param useType In the case you must use select and can't use withColumn you may provide a type directly to stop the NPE
    * @return
    */
   def foldAndReplaceFields(rules: RuleSuite, fields: Seq[String], foldFieldName: String = "foldedFields", debugMode: Boolean = false,
@@ -86,7 +83,6 @@ trait AddDataFunctions {
    * @param struct The fields, and types, are used to call the foldRunner.  These types must match in the input fields
    * @param debugMode when true the last results are taken for the replaced fields
    * @param maintainOrder when true the schema is used to replace fields in the correct location, when false they are simply appended
-   * @param useType In the case you must use select and can't use withColumn you may provide a type directly to stop the NPE
    * @return
    */
   def foldAndReplaceFieldsWithStruct(rules: RuleSuite, struct: StructType, foldFieldName: String = "foldedFields", debugMode: Boolean = false,
@@ -140,4 +136,37 @@ trait AddDataFunctions {
     else
       result
   }
+
+  /**
+   * Leverages the ruleRunner to produce an new output structure, the outputType defines the output structure generated.
+   *
+   * This version should only be used when you require select(*, ruleRunner) to be used, it requires you fully specify types.
+   *
+   * @param rules
+   * @param dataFrame the input dataframe
+   * @param outputType The fields, and types, are used to call the foldRunner.  These types must match in the input fields
+   * @param ruleEngineFieldName The field name the results will be stored in, by default ruleEngine
+   * @param alias sets the alias to use for dataFrame when using subqueries to resolve ambiguities, setting to an empty string (or null) will not assign an alias
+   * @return
+   */
+  def ruleEngineWithStruct(dataFrame: Dataset[Row], rules: RuleSuite, outputType: DataType, ruleEngineFieldName: String = "ruleEngine", alias: String = "main", debugMode: Boolean = false): Dataset[Row] = {
+    import org.apache.spark.sql.functions.expr
+    (if ( (alias eq null) || alias.isEmpty )
+      dataFrame
+    else
+      dataFrame.as(alias)).select(expr("*"), ruleEngineRunner(rules, outputType, debugMode = debugMode).as(ruleEngineFieldName))
+  }
+
+  /**
+   * Leverages the ruleRunner to produce an new output structure, the outputType defines the output structure generated.
+   *
+   * This version should only be used when you require select(*, ruleRunner) to be used, it requires you fully specify types.
+   *
+   * @param rules
+   * @param outputType The fields, and types, are used to call the foldRunner.  These types must match in the input fields
+   * @return
+   */
+  def ruleEngineWithStructF(rules: RuleSuite, outputType: DataType, ruleEngineFieldName: String = "ruleEngine", alias: String = "main", debugMode: Boolean = false): Dataset[Row] => Dataset[Row] =
+    ruleEngineWithStruct(_, rules, outputType, ruleEngineFieldName, alias, debugMode)
+
 }

@@ -1,6 +1,6 @@
 package com.sparkutils.qualityTests
 
-import com.sparkutils.quality.impl.{DataFrameSyntaxError, ExtraDocParameter, HasId, LambdaMultipleImplementationWithSameArityError, LambdaNameError, LambdaPossibleSOE, LambdaSparkFunctionNameError, LambdaStackOverflowError, LambdaSyntaxError, NonLambdaDocParameters, OuputSparkFunctionNameError, OutputRuleNameError, OutputRuleSyntaxError, RuleError, RuleNameError, RuleSyntaxError, RuleWarning, SparkFunctionNameError, Validation}
+import com.sparkutils.quality.impl.{DataFrameSyntaxError, ExtraDocParameter, HasId, LambdaMultipleImplementationWithSameArityError, LambdaNameError, LambdaPossibleSOE, LambdaSparkFunctionNameError, LambdaStackOverflowError, LambdaSyntaxError, LambdaViewError, NonLambdaDocParameters, OuputSparkFunctionNameError, OutputRuleNameError, OutputRuleSyntaxError, OutputRuleViewError, RuleError, RuleNameError, RuleSyntaxError, RuleViewError, RuleWarning, SparkFunctionNameError, Validation}
 import com.sparkutils.quality.utils.RuleSuiteDocs.{LambdaId, OutputExpressionId, RuleId}
 import com.sparkutils.quality.utils.{Docs, RuleSuiteDocs, WithDocs}
 import com.sparkutils.quality.{ExpressionRule, Id, LambdaFunction, OutputExpression, Rule, RuleSet, RuleSuite, RunOnPassProcessor, emptyDocs, packId, ruleEngineRunner, ruleRunner, validate}
@@ -446,4 +446,40 @@ class ValidationTest extends FunSuite with RowTools with TestUtils {
 
   }
 
+  @Test
+  def testMissingViews: Unit = { // v3_4_and_above not necessary as it's not getting to analysis
+    val output1 = RunOnPassProcessor(0, Id(6,1), OutputExpression("test(fielda)"))
+    val rule1 = Rule(Id(2,1), ExpressionRule("concat(fielda, fieldb)"), output1)
+    val lambda1 = LambdaFunction("test", "variable -> select max(i) from theview where i.variable = variable", Id(16,1))
+    val output2 = RunOnPassProcessor(0, Id(7,1), OutputExpression("select max(i) from theview where i > fieldb"))
+    val rule2 = Rule(Id(3,1), ExpressionRule("concat(fielda, fieldb)"), output2)
+    val output3 = RunOnPassProcessor(0, Id(8,1), OutputExpression("test(fielda)"))
+    val rule3 = Rule(Id(4,1), ExpressionRule("exists(select 0 from theview where i > fieldb)"), output3)
+
+    val rs = RuleSuite(Id(0,1), Seq(RuleSet(Id(1,1), Seq(
+      rule1, rule2, rule3
+    ))), Seq(lambda1))
+    val (err, warn, _, _, _) = validate(Left(struct), rs)
+
+    assert(warn.isEmpty)
+    val sorted = ordered(err)
+
+    assert(sorted match {
+      case Seq(
+      RuleViewError("theview", Id(4,1)),
+      OutputRuleViewError("theview", Id(7,1)),
+      LambdaViewError("theview", Id(16,1))
+      )
+      => true
+      case _ => false
+    } )
+
+    val (err2, warn2, _, _, _) = validate(Left(struct), rs, viewLookup = {
+      case "theview" => true
+      case _ => false
+    })
+
+    assert(warn2.isEmpty)
+    assert(err2.isEmpty)
+  }
 }

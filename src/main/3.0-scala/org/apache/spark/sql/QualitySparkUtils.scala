@@ -1,26 +1,39 @@
 package org.apache.spark.sql
 
+import java.util.Locale
+
 import com.sparkutils.quality.impl.{RuleEngineRunner, RuleFolderRunner, RuleRunner, ShowParams}
 import com.sparkutils.quality.debugTime
 import com.sparkutils.quality.utils.PassThrough
-import org.apache.spark.sql.catalyst.CatalystTypeConverters
-import org.apache.spark.sql.catalyst.analysis.{Analyzer, FunctionRegistry, ResolveCreateNamedStruct, ResolveHigherOrderFunctions, ResolveInlineTables, ResolveLambdaVariables, ResolveTimeZone, TypeCoercion, UnresolvedFunction}
+import org.apache.spark.sql.catalyst.{CatalystTypeConverters, FunctionIdentifier}
+import org.apache.spark.sql.catalyst.analysis.{Analyzer, FunctionRegistry, ResolveCreateNamedStruct, ResolveHigherOrderFunctions, ResolveInlineTables, ResolveLambdaVariables, ResolveTimeZone, TypeCheckResult, TypeCoercion, UnresolvedFunction}
 import org.apache.spark.sql.catalyst.catalog.SessionCatalog
 import org.apache.spark.sql.catalyst.errors.TreeNodeException
-import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Attribute, BindReferences, Cast, EqualNullSafe, Expression, Literal}
+import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Attribute, BindReferences, Cast, EqualNullSafe, Expression, ExpressionInfo, GetArrayStructFields, GetStructField, Literal, PrettyAttribute}
 import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, UnaryNode}
 import org.apache.spark.sql.catalyst.rules.Rule
+import org.apache.spark.sql.catalyst.util.{toPrettySQL, usePrettyExpression}
 import org.apache.spark.sql.execution.SparkSqlParser
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.qualityFunctions.{Digest, InterpretedHashLongsFunction}
 import org.apache.spark.sql.types._
-import org.apache.spark.unsafe.types.CalendarInterval
+import org.apache.spark.unsafe.types.{CalendarInterval, UTF8String}
 import org.apache.spark.util.Utils
 
 /**
  * Set of utilities to reach in to private functions
  */
 object QualitySparkUtils {
+
+  implicit class UnresolvedFunctionOps(unresolvedFunction: UnresolvedFunction) {
+
+    def theArguments: Seq[Expression] =
+      unresolvedFunction.arguments
+
+    def withArguments(children: Seq[Expression]): UnresolvedFunction =
+      unresolvedFunction.copy(arguments = children)
+  }
+
   def isPrimitive(dataType: DataType) = CatalystTypeConverters.isPrimitive(dataType)
 
   /**
@@ -277,4 +290,65 @@ object QualitySparkUtils {
   def toString(dataFrame: DataFrame, showParams: ShowParams = ShowParams()) =
     dataFrame.showString(showParams.numRows, showParams.truncate, showParams.vertical)
 
+  /**
+   * Used by the SparkSessionExtensions mechanism
+   * @param extensions
+   * @param name
+   * @param builder
+   */
+  def registerFunctionViaExtension(extensions: SparkSessionExtensions)(name: String, builder: Seq[Expression] => Expression) =
+    extensions.injectFunction( (FunctionIdentifier(name), new ExpressionInfo(name, name) , builder) )
+
+  /**
+   * Type signature changed for 3.4 to more detailed setup, 12.2 already uses it
+   * @param errorSubClass
+   * @param messageParameters
+   * @return
+   */
+  def mismatch(errorSubClass: String, messageParameters: Map[String, String]): TypeCheckResult =
+    TypeCheckResult.TypeCheckFailure(s"$errorSubClass extra info - $messageParameters")
+
+  def toSQLType(t: AbstractDataType): String = t match {
+    case TypeCollection(types) => types.map(toSQLType).mkString("(", " or ", ")")
+    case dt: DataType => quoteByDefault(dt.sql)
+    case at => quoteByDefault(at.simpleString.toUpperCase(Locale.ROOT))
+  }
+  def toSQLExpr(e: Expression): String = {
+    quoteByDefault(toPrettySQL(e))
+  }
+
+  def usePrettyExpression(e: Expression): Expression = e transform {
+    case a: Attribute => new PrettyAttribute(a)
+    case Literal(s: UTF8String, StringType) => PrettyAttribute(s.toString, StringType)
+    case Literal(v, t: NumericType) if v != null => PrettyAttribute(v.toString, t)
+    case Literal(null, dataType) => PrettyAttribute("NULL", dataType)
+    case e: GetStructField =>
+      val name = e.name.getOrElse(e.childSchema(e.ordinal).name)
+      PrettyAttribute(usePrettyExpression(e.child).sql + "." + name, e.dataType)
+    case e: GetArrayStructFields =>
+      PrettyAttribute(usePrettyExpression(e.child) + "." + e.field.name, e.dataType)
+    case c: Cast =>
+      PrettyAttribute(usePrettyExpression(c.child).sql, c.dataType)
+  }
+
+  def toPrettySQL(e: Expression): String = usePrettyExpression(e).sql
+  // Converts an error class parameter to its SQL representation
+  def toSQLValue(v: Any, t: DataType): String = Literal.create(v, t) match {
+    case Literal(null, _) => "NULL"
+    case Literal(v: Float, FloatType) =>
+      if (v.isNaN) "NaN"
+      else if (v.isPosInfinity) "Infinity"
+      else if (v.isNegInfinity) "-Infinity"
+      else v.toString
+    case l @ Literal(v: Double, DoubleType) =>
+      if (v.isNaN) "NaN"
+      else if (v.isPosInfinity) "Infinity"
+      else if (v.isNegInfinity) "-Infinity"
+      else l.sql
+    case l => l.sql
+  }
+
+  private def quoteByDefault(elem: String): String = {
+    "\"" + elem + "\""
+  }
 }

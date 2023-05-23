@@ -10,7 +10,7 @@ import com.sparkutils.quality.utils.{NonPassThrough, PassThrough}
 import com.sparkutils.quality._
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
-import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenFallback}
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression, UnaryExpression}
 import org.apache.spark.sql.catalyst.util.GenericArrayData
 import org.apache.spark.sql.types._
@@ -234,7 +234,8 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
 
     val output = {
       val javaType = realChildren.last.genCode(ctx).value.javaType // last should always be good
-      if (javaType.isPrimitive) javaType else javaType.getName
+      // can't use the primitive type as it can't handle nulls
+      if (javaType.isPrimitive) CodeGenerator.boxedType(javaType.getSimpleName) else javaType.getName
     }
     val outArrTerm = ctx.addMutableState(output+"[]", ctx.freshName("output"),
       v => s"$v = new $output[$offset];")

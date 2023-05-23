@@ -105,7 +105,6 @@ trait ProcessDisableIfMissingImports extends RuleRunnerImports {
   /**
    * Converts both rule expressions and any output expressions removing any coalesceIfAttributeMissing placeholding expressions using names to find each
    * first expression with no missing names (or replacing with null should all of them be).
-   * @param expression
    * @param names
    * @return
    */
