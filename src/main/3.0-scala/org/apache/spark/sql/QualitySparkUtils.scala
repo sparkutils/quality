@@ -351,4 +351,7 @@ object QualitySparkUtils {
   private def quoteByDefault(elem: String): String = {
     "\"" + elem + "\""
   }
+
+  // https://issues.apache.org/jira/browse/SPARK-43019 in 3.5, backported to 13.1 dbr
+  def sparkOrdering(dataType: DataType): Ordering[_] = dataType.asInstanceOf[AtomicType].ordering
 }

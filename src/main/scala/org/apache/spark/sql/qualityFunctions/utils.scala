@@ -2,10 +2,11 @@ package org.apache.spark.sql.qualityFunctions
 
 import com.sparkutils.quality.utils.Arrays
 import com.sparkutils.quality.utils.Comparison.compareToOrdering
+import org.apache.spark.sql.QualitySparkUtils
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.BoundReference
 import org.apache.spark.sql.catalyst.util.ArrayData
-import org.apache.spark.sql.types.{ArrayType, AtomicType, DataType, MapType, StructType, StructField}
+import org.apache.spark.sql.types.{ArrayType, AtomicType, DataType, MapType, StructField, StructType}
 
 object utils {
 
@@ -83,7 +84,7 @@ object utils {
             })
         )
       }
-      case dt: AtomicType => Some(compareToOrdering(dt.ordering))
+      case dt: AtomicType => Some(compareToOrdering(QualitySparkUtils.sparkOrdering(dt)))
       case arrayType: ArrayType =>
         val oelcomp = defaultMapCompare(arrayType.elementType, extension)
         oelcomp.map{

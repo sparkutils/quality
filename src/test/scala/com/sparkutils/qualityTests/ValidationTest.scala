@@ -217,7 +217,8 @@ class ValidationTest extends FunSuite with RowTools with TestUtils {
     val errors = ordered( validate(struct, rs) )
 
     assert(errors match {
-      case Seq(RuleSyntaxError(Id(2,1), err)) if err.contains("input '>'") => true
+      case Seq(RuleSyntaxError(Id(2,1), err)) if err.contains("input '>'") || err.contains("near '>'")
+        => true
       case _ => false
     } )
   }
@@ -252,7 +253,8 @@ class ValidationTest extends FunSuite with RowTools with TestUtils {
     val errors = ordered( validate(struct, rs) )
 
     assert(errors match {
-      case Seq(OutputRuleSyntaxError(Id(1001,1), err)) if err.contains("input '>'") => true
+      case Seq(OutputRuleSyntaxError(Id(1001,1), err)) if err.contains("input '>'") || err.contains("near '>'")
+        => true
       case _ => false
     } )
   }
