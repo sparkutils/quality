@@ -325,4 +325,7 @@ object QualitySparkUtils {
   def toSQLType(dataType: DataType): String = stoSQLType(dataType)
   def toSQLExpr(value: Expression): String = stoSQLExpr(value)
   def toSQLValue(value: Any, dataType: DataType): String = stoSQLValue(value, dataType)
+
+  // https://issues.apache.org/jira/browse/SPARK-43019 in 3.5, backported to 13.1 dbr
+  def sparkOrdering(dataType: DataType): Ordering[_] = dataType.asInstanceOf[AtomicType].ordering
 }
