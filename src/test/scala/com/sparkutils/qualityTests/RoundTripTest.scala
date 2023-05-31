@@ -78,10 +78,8 @@ class RoundTripTest extends FunSuite with RowTools with TestUtils {
     val rules = genRules(27, 27)
     val df = dataFrameLong(writeRows, 27, ruleSuiteResultType, null)
 
-    val newRoot = "file:///" +
-      outputDir.replace('\\', '/')//.replace(":","")
-    df.write.mode(SaveMode.Overwrite).parquet(newRoot+"/ruleRes")
-    val rere = taddDataQuality( df.sparkSession.read.parquet(newRoot+"/ruleRes"), rules )
+    df.write.mode(SaveMode.Overwrite).parquet(outputDir+"/ruleRes")
+    val rere = taddDataQuality( df.sparkSession.read.parquet(outputDir+"/ruleRes"), rules )
     // won't work with code gen as it's reducing columns
 //    rere.select(explode(col("DataQuality.ruleSetResults"))).show()
     rere.select(col("*"), explode(col("DataQuality.ruleSetResults"))).show()
