@@ -9,7 +9,7 @@ import org.apache.spark.sql.{Column, DataFrame, Dataset}
 import org.junit.Test
 import org.scalatest.FunSuite
 
-class AggregatesTest extends FunSuite with RowTools with TestUtils {
+class AggregatesTest extends FunSuite with TestUtils {
 
   def doMapTest(transform: Dataset[java.lang.Long] => Dataset[java.lang.Long], sql: String): Unit = evalCodeGensNoResolve {
     val factor = 200 // NB 2000 runs in 5m2s with default index scan and replace and map_concat which clearly fails, 4m 51 with index and map merge with expr based add

@@ -14,7 +14,7 @@ case class TestOn(product: String, account: String, subcode: Int)
 case class NewPosting(transfer_type: String, account: String, product: String, subcode: Int)
 case class Posting(transfer_type: String, account: String)
 
-class RuleEngineTest extends FunSuite with RowTools with TestUtils {
+class RuleEngineTest extends FunSuite with TestUtils {
 
   val testData=Seq(
     TestOn("edt", "4201", 40),

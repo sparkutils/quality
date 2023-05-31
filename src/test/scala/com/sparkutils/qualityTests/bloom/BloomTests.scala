@@ -9,7 +9,7 @@ import org.scalatest.FunSuite
 
 case class Pair(a: Long, b: Long)
 
-class BloomTests extends FunSuite with RowTools with TestUtils {
+class BloomTests extends FunSuite with TestUtils {
 
   def directCreateSpark() = {
     // train it

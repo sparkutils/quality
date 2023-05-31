@@ -41,7 +41,7 @@ object TradeTests {
   val tradeCols = Seq("date", "product", "value", "ccy", "ccyrate", "country")
 }
 
-class MapLookupTests extends FunSuite with RowTools with TestUtils {
+class MapLookupTests extends FunSuite with TestUtils {
 
   import TradeTests._
 

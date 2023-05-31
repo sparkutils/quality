@@ -19,7 +19,7 @@ import java.security.{MessageDigest, Provider}
 import java.util.Base64
 import scala.jdk.CollectionConverters._
 
-class IDTests extends FunSuite with RowTools with TestUtils {
+class IDTests extends FunSuite with TestUtils {
 
   @Test
   def rountTripRandom: Unit = doRoundTripGenericLongBasedID(model.RandomID)

@@ -8,7 +8,7 @@ import org.apache.spark.sql.types.{IntegerType, StringType, StructField, StructT
 import org.junit.Test
 import org.scalatest.FunSuite
 
-class RuleFolderTest extends FunSuite with RowTools with TestUtils {
+class RuleFolderTest extends FunSuite with TestUtils {
 
   val testData=Seq(
     TestOn("edt", "4201", 40),

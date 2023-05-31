@@ -4,7 +4,7 @@ import com.sparkutils.quality.utils.{BloomLookupType, MapLookupType}
 import org.junit.Test
 import org.scalatest.FunSuite
 
-class LookupIdentificationTest extends FunSuite with RowTools with TestUtils {
+class LookupIdentificationTest extends FunSuite with TestUtils {
 
   @Test
   def mapLookuplambdaTest = doSimpleLambdaTest("mapLookup", MapLookupType(_), asis)
