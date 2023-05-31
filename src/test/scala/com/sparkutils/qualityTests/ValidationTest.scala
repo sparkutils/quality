@@ -217,7 +217,8 @@ class ValidationTest extends FunSuite with RowTools with TestUtils {
     val errors = ordered( validate(struct, rs) )
 
     assert(errors match {
-      case Seq(RuleSyntaxError(Id(2,1), err)) if err.contains("input '>'") => true
+      case Seq(RuleSyntaxError(Id(2,1), err)) if err.contains("input '>'") || err.contains("near '>'")
+        => true
       case _ => false
     } )
   }
@@ -252,7 +253,8 @@ class ValidationTest extends FunSuite with RowTools with TestUtils {
     val errors = ordered( validate(struct, rs) )
 
     assert(errors match {
-      case Seq(OutputRuleSyntaxError(Id(1001,1), err)) if err.contains("input '>'") => true
+      case Seq(OutputRuleSyntaxError(Id(1001,1), err)) if err.contains("input '>'") || err.contains("near '>'")
+        => true
       case _ => false
     } )
   }
@@ -447,7 +449,7 @@ class ValidationTest extends FunSuite with RowTools with TestUtils {
   }
 
   @Test
-  def testMissingViews: Unit = {
+  def testMissingViews: Unit = { // v3_4_and_above not necessary as it's not getting to analysis
     val output1 = RunOnPassProcessor(0, Id(6,1), OutputExpression("test(fielda)"))
     val rule1 = Rule(Id(2,1), ExpressionRule("concat(fielda, fieldb)"), output1)
     val lambda1 = LambdaFunction("test", "variable -> select max(i) from theview where i.variable = variable", Id(16,1))

@@ -6,9 +6,9 @@ import com.sparkutils.quality.impl.{RuleEngineRunner, RuleFolderRunner, RuleRunn
 import com.sparkutils.quality.debugTime
 import com.sparkutils.quality.utils.PassThrough
 import org.apache.spark.sql.catalyst.{CatalystTypeConverters, FunctionIdentifier}
-import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, FunctionRegistry, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveHigherOrderFunctions, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCheckResult, TypeCoercion, UnresolvedFunction}
+import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, FunctionRegistry, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCoercion, UnresolvedFunction}
 import org.apache.spark.sql.catalyst.catalog.SessionCatalog
-import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Attribute, BindReferences, Cast, EqualNullSafe, Expression, ExpressionInfo, ExpressionSet, GetArrayStructFields, GetStructField, LambdaFunction, Literal, PrettyAttribute}
+import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Attribute, BinaryOperator, BindReferences, Cast, EqualNullSafe, Expression, ExpressionInfo, ExpressionSet, GetArrayStructFields, GetStructField, LambdaFunction, Literal, PrettyAttribute}
 import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, UnaryNode}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.catalyst.trees.TreeNode
@@ -18,6 +18,43 @@ import org.apache.spark.sql.qualityFunctions.{Digest, InterpretedHashLongsFuncti
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.{CalendarInterval, UTF8String}
 import org.apache.spark.util.Utils
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
+import org.apache.spark.sql.catalyst.util.TypeUtils
+import org.apache.spark.sql.types.{AbstractDataType, DataType, DecimalType}
+import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
+import TypeCheckResult.DataTypeMismatch
+import org.apache.spark.sql.catalyst.types.PhysicalDataType
+
+/**
+ * 3.4 backport present on databricks 11.3 lts
+ * An add expression for decimal values which is only used internally by Sum/Avg.
+ *
+ * Nota that, this expression does not check overflow which is different with `Add`. When
+ * aggregating values, Spark writes the aggregation buffer values to `UnsafeRow` via
+ * `UnsafeRowWriter`, which already checks decimal overflow, so we don't need to do it again in the
+ * add expression used by Sum/Avg.
+ */
+case class QDecimalAddNoOverflowCheck(
+                                      left: Expression,
+                                      right: Expression,
+                                      override val dataType: DataType) extends BinaryOperator {
+  require(dataType.isInstanceOf[DecimalType])
+
+  override def inputType: AbstractDataType = DecimalType
+  override def symbol: String = "+"
+  private def decimalMethod: String = "$plus"
+
+  private lazy val numeric = TypeUtils.getNumeric(dataType)
+
+  override protected def nullSafeEval(input1: Any, input2: Any): Any =
+    numeric.plus(input1, input2)
+
+  override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode =
+    defineCodeGen(ctx, ev, (eval1, eval2) => s"$eval1.$decimalMethod($eval2)")
+
+  override protected def withNewChildrenInternal(newLeft: Expression, newRight: Expression): QDecimalAddNoOverflowCheck =
+    copy(left = newLeft, right = newRight)
+}
 
 /**
  * Set of utilities to reach in to private functions
@@ -45,13 +82,16 @@ object QualitySparkUtils {
     orig
 
   /**
-   * Dbr 11.2 broke the contract for add and cast
+   * Dbr 11.2 broke the contract for add and cast, OSS 3.4 39316 changes Add's behaviour adding silent overflows
    * @param left
    * @param right
    * @return
    */
   def add(left: Expression, right: Expression, dataType: DataType): Expression =
-    Add(left, right)
+    if ((dataType ne null) && dataType.isInstanceOf[DecimalType])
+      QDecimalAddNoOverflowCheck(left, right, dataType)
+    else
+      new Add(left, right)
 
   /**
    * Dbr 11.2 broke the contract for add and cast
@@ -60,7 +100,7 @@ object QualitySparkUtils {
    * @return
    */
   def cast(child: Expression, dataType: DataType): Expression =
-    Cast(child, dataType)
+    new Cast(child, dataType, None)
 
   /**
    * Arguments for everything above 2.4
@@ -172,7 +212,7 @@ object QualitySparkUtils {
     import analyzer._
 
     Batch("Resolution", fixedPoint,
-      ResolveNamespace(catalogManager) ::
+//      ResolveNamespace(catalogManager) :: works on 11.0 and 11.1, fails on all other 11.x
         new ResolveCatalogs(catalogManager) ::
         ResolveUserSpecifiedColumns ::
         ResolveInsertInto ::
@@ -190,8 +230,8 @@ object QualitySparkUtils {
         ResolveGroupingAnalytics ::
         ResolvePivot ::
         ResolveOrdinalInOrderByAndGroupBy ::
-        ResolveAggAliasInGroupBy ::
-        ResolveMissingReferences ::
+        //ResolveAggAliasInGroupBy ::
+        //ResolveMissingReferences ::
         ExtractGenerator ::
         ResolveGenerate ::
         ResolveFunctions ::
@@ -324,8 +364,10 @@ object QualitySparkUtils {
    * @return
    */
   def mismatch(errorSubClass: String, messageParameters: Map[String, String]): TypeCheckResult =
-    TypeCheckResult.TypeCheckFailure(s"$errorSubClass extra info - $messageParameters")
-
+    DataTypeMismatch(
+      errorSubClass = errorSubClass,
+      messageParameters = messageParameters
+    )
 
   def toSQLType(t: AbstractDataType): String = t match {
     case TypeCollection(types) => types.map(toSQLType).mkString("(", " or ", ")")
@@ -371,7 +413,6 @@ object QualitySparkUtils {
     "\"" + elem + "\""
   }
 
-
   // https://issues.apache.org/jira/browse/SPARK-43019 in 3.5, backported to 13.1 dbr
-  def sparkOrdering(dataType: DataType): Ordering[_] = dataType.asInstanceOf[AtomicType].ordering
+  def sparkOrdering(dataType: DataType): Ordering[_] = PhysicalDataType.ordering(dataType)
 }
