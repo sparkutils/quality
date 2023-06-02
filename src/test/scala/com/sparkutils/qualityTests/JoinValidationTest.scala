@@ -14,7 +14,7 @@ import java.io.{ByteArrayOutputStream, ObjectOutputStream}
  * Primarily to prove joins with relation's work with resolveWith across versions.
  * Secondary usage is to prove a simple join (vs maplookup approach) can work with resolveWith for lookups
  */
-class JoinValidationTest extends FunSuite with RowTools with TestUtils {
+class JoinValidationTest extends FunSuite with TestUtils {
 
   val testData=Seq(
     TestOn("edt", "4201", 40),

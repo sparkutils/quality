@@ -12,7 +12,7 @@ import org.scalatest.FunSuite
 
 import java.util.concurrent.atomic.AtomicBoolean
 
-class UserLambdaFunctionCompilationTest extends FunSuite with RowTools with TestUtils {
+class UserLambdaFunctionCompilationTest extends FunSuite with TestUtils {
   // le horrible hack for testing
   Testing.setTesting()
 

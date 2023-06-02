@@ -15,7 +15,7 @@ import org.scalameter.api._
 
 import scala.collection.JavaConverters._
 
-trait RowTools {
+trait RowTools extends TestUtils {
 
   val structWithColumnExpr = (rules: Int, cols: Int, df: DataFrame) =>
     df.withColumn("DataQuality", ruleRunner(genRules(rules, cols), compileEvals = false))
@@ -57,36 +57,6 @@ trait RowTools {
           )
         )
     )
-
-  val hostMode = {
-    val tmp = System.getenv("QUALITY_SPARK_HOSTS")
-    if (tmp eq null)
-      "*"
-    else
-      tmp
-  }
-
-  def sparkSessionF: SparkSession = {
-    val sparkSession = SparkSession.builder().config("spark.master", s"local[$hostMode]").config("spark.ui.enabled", false).getOrCreate()
-    if (excludeFilters) {
-      sparkSession.conf.set("spark.sql.optimizer.excludedRules", "org.apache.spark.sql.catalyst.optimizer.InferFiltersFromGenerate")
-    }
-
-    sparkSession.conf.set("spark.sql.optimizer.nestedSchemaPruning.enabled", true)
-    // only a visual change
-    // sparkSession.conf.set("spark.sql.legacy.castComplexTypesToString.enabled", true)
-    sparkSession.sparkContext.setLogLevel("ERROR") // set to debug to get actual code lines etc.
-    sparkSession
-  }
-  def sqlContextF = sparkSessionF.sqlContext
-
-  val excludeFilters = {
-    val tmp = System.getProperty("excludeFilters")
-    if (tmp eq null)
-      true
-    else
-      tmp.toBoolean
-  }
 
   import scala.collection.JavaConverters._
 
