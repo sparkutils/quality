@@ -151,7 +151,7 @@ The second test
     
     A good example of the experimental nature is the _() function, it's quite possible that is taken by Spark at a later stage.
 
-??? warning "_lambda_ drop in call arguments to transform_values and transform_keys don't work on 3.0 and 3.1.2"
+??? warning "_lambda_ drop in call arguments to transform_values and transform_keys don't work on 3.0 and 3.1.2/3"
     They pattern match on List and not seq, later versions fix this.  To work around this you must explicitly use lambdas for these functions.
 
 ## Controlling compilation - Tweaking the Quality Optimisations

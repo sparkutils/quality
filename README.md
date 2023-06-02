@@ -14,14 +14,14 @@ Scala with sprinklings of java for WholeStageCodeGen optimisations.
 
 ## How do I use / build it?
 
-For oss with Spark 3.3.0 use properties:
+For oss with Spark 3.4.0 use properties:
 
 ```xml
 <properties>
-    <qualityRuntime>3.3.0.oss_</qualityRuntime>
+    <qualityRuntime>3.4.0.oss_</qualityRuntime>
     <scalaCompatVersion>2.12</scalaCompatVersion>
-    <sparkShortVersion>3.3</sparkShortVersion>
-    <qualityVersion>0.0.1</qualityVersion>
+    <sparkShortVersion>3.4</sparkShortVersion>
+    <qualityVersion>0.0.2</qualityVersion>
 </properties>
 ```
 

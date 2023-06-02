@@ -46,7 +46,7 @@ SyntaxError <-- LambdaMultipleImplementationWithSameArityError
 LambdaMultipleImplementationWithSameArityError ---> LambdaRelevant
 
 NameMissingError <-- LambdaNameError
-LambdaNameError ---> LambdaRelevant 
+LambdaNameError ---> LambdaRelevant
 NameMissingError <-- RuleNameError
 RuleRelevant <--- RuleNameError
 NameMissingError <-- OutputRuleNameError
@@ -57,6 +57,14 @@ NameMissingError <-- SparkFunctionNameError
 RuleRelevant <--- SparkFunctionNameError
 OutputExpressionRelevant <--- OuputSparkFunctionNameError 
 NameMissingError <-- OuputSparkFunctionNameError
+
+LambdaViewError ---> LambdaRelevant
+RuleViewError ---> RuleRelevant
+OutputRuleViewError ---> OutputRuleRelevant
+ViewMissingError <-- RuleViewError
+ViewMissingError <-- OuputRuleViewError
+ViewMissingError <-- LambdaViewError
+
 
 class Id {
   Int id

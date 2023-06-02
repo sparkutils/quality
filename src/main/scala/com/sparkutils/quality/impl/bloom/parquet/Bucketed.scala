@@ -52,7 +52,7 @@ trait BucketedCreatorFunctions {
    * The other interim result files will be removed and the resulting BucketedFiles can be used in lookups or stored elsewhere.
    *
    * @param dataFrame
-   * @param bloomOn
+   * @param bloomOn a compatible expression to generate the bloom hashes against
    * @param expectedSize
    * @param fpp
    * @param bloomId

@@ -1,17 +1,14 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality.{ExprLogic, RuleSuite}
-import com.sparkutils.quality.impl.id.model
-import com.sparkutils.quality.impl.rng.RandomLongs
-import com.sparkutils.quality.utils.StructFunctions
+import com.sparkutils.quality.utils.{PrintCode, StructFunctions}
 import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.impl.aggregates.AggregateExpressions
 import com.sparkutils.quality.impl.bloom.{BucketedArrayParquetAggregator, ParquetAggregator}
 import com.sparkutils.quality.impl.hash.{HashFunctionFactory, HashFunctionsExpression, MessageDigestFactory, ZALongHashFunctionFactory, ZALongTupleHashFunctionFactory}
-import com.sparkutils.quality.impl.id.{GenericLongBasedIDExpression, GuaranteedUniqueID, GuaranteedUniqueIdIDExpression, model}
+import com.sparkutils.quality.impl.id.{AsBase64Fields, AsBase64Struct, GenericLongBasedIDExpression, GuaranteedUniqueID, GuaranteedUniqueIdIDExpression, IDFromBase64, IDToRawIDDataType, SizeOfIDString, model}
 import com.sparkutils.quality.impl.rng.{RandLongsWithJump, RandomBytes, RandomLongs}
-import com.sparkutils.quality.impl.longPair.{LongPairExpression, PrefixedToLongPair}
-import com.sparkutils.quality.utils.{PrintCode, StructFunctions}
+import com.sparkutils.quality.impl.longPair.{AsUUID, LongPairExpression, PrefixedToLongPair}
+import com.sparkutils.quality.impl.util.{ComparableMapConverter, ComparableMapReverser}
 import com.sparkutils.quality.{ExprLogic, RuleSuite, impl}
 import org.apache.commons.rng.simple.RandomSource
 import org.apache.spark.sql.QualitySparkUtils.add
@@ -86,39 +83,51 @@ trait RuleRunnerFunctionsImport {
    * @param zero override zero creation for aggExpr (defaults to defaultZero)
    * @param add override the "add" function for aggExpr types (defaults to defaultAdd(dataType))
    * @param writer override the printCode and printExpr print writing function (defaults to println)
+   * @param registerFunction function to register the sql extensions
    */
   def registerQualityFunctions(parseTypes: String => Option[DataType] = defaultParseTypes _,
                                zero: DataType => Option[Any] = defaultZero _,
                                add: DataType => Option[(Expression, Expression) => Expression] = (dataType: DataType) => defaultAdd(dataType),
-                               writer: String => Unit = println(_)
+                               mapCompare: DataType => Option[(Any, Any) => Int] = (dataType: DataType) => utils.defaultMapCompare(dataType),
+                               writer: String => Unit = println(_),
+                               registerFunction: (String, Seq[Expression] => Expression) => Unit =
+                                  QualitySparkUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
                        ) {
-    val funcReg = SparkSession.getActiveSession.get.sessionState.functionRegistry
-    val register = QualitySparkUtils.registerFunction(funcReg) _
-    
+    // #12 - use underscore names but keep the old camel case approach around for compat
+    def register(name: String, argsf: Seq[Expression] => Expression) = {
+      registerFunction(name, argsf)
+      if (!mustKeepNames(name)) {
+        registerFunction(name.replaceAll("_",""), argsf)
+      }
+    }
+
+    register("comparable_Maps", exps => ComparableMapConverter(exps(0), mapCompare))
+    register("reverse_Comparable_Maps", exps => ComparableMapReverser(exps(0)))
+
     val f = (exps: Seq[Expression]) => ProbabilityExpr(exps.head)
     register("probability", f)
     val ff = (exps: Seq[Expression]) => FlattenResultsExpression(exps.head, FlattenStruct.ruleSuiteDeserializer)
-    register("flattenResults", ff)
-    register("flattenRuleResults", exps => FlattenRulesResultsExpression(exps(0), FlattenStruct.ruleSuiteDeserializer))
-    register("flattenFolderResults", exps => FlattenFolderResultsExpression(exps(0), FlattenStruct.ruleSuiteDeserializer))
+    register("flatten_Results", ff)
+    register("flatten_Rule_Results", exps => FlattenRulesResultsExpression(exps(0), FlattenStruct.ruleSuiteDeserializer))
+    register("flatten_Folder_Results", exps => FlattenFolderResultsExpression(exps(0), FlattenStruct.ruleSuiteDeserializer))
 
     register("passed", _ => com.sparkutils.quality.PassedExpr)
     register("failed", _ => com.sparkutils.quality.FailedExpr)
-    register("softFailed", _ => com.sparkutils.quality.SoftFailedExpr)
-    register("disabledRule", _ => com.sparkutils.quality.DisabledRuleExpr)
+    register("soft_Failed", _ => com.sparkutils.quality.SoftFailedExpr)
+    register("disabled_Rule", _ => com.sparkutils.quality.DisabledRuleExpr)
 
     val pif = (exps: Seq[Expression]) => Pack(exps(0), exps(1))
-    register("packInts", pif)
+    register("pack_Ints", pif)
 
     val upif = (exps: Seq[Expression]) => UnPack(exps(0))
     register("unpack", upif)
 
     val uptif = (exps: Seq[Expression]) => UnPackIdTriple(exps(0))
-    register("unpackIdTriple", uptif)
+    register("unpack_Id_Triple", uptif)
 
 
     val sf = (exps: Seq[Expression]) => SoftFailExpr(exps.head)
-    register("softFail", sf)
+    register("soft_Fail", sf)
 
     def strType(exp: Expression) = {
       val Literal(str: UTF8String, StringType) = exp // only accept type as string
@@ -181,15 +190,15 @@ trait RuleRunnerFunctionsImport {
         }
       AggregateExpressions(sumType, filter, sum, count, zero, add)
     }
-    register("aggExpr", afx)
+    register("agg_Expr", afx)
 
-    register("sumWith", (exps: Seq[Expression]) => {
+    register("sum_With", (exps: Seq[Expression]) => {
       val (dataType, origExp) = exps.size match {
         case 1 => (LongType, exps(0))
         // backwards compat
         case 2 => (parse(exps(0)), exps(1))
       }
-      FunN(Seq(RefExpression(dataType)), origExp, Some("sumWith"))
+      FunN(Seq(RefExpression(dataType)), origExp, Some("sum_With"))
     })
 
     val ff2 = (exps: Seq[Expression]) => {
@@ -200,9 +209,9 @@ trait RuleRunnerFunctionsImport {
           case 2 => (parse(exps(0)), exps(1)) // support the NO_REWRITE override case
         }
 
-      FunN(Seq(RefExpression(sumType), RefExpression(LongType)), exp, Some("resultsWith"))
+      FunN(Seq(RefExpression(sumType), RefExpression(LongType)), exp, Some("results_With"))
     }
-    register("resultsWith", ff2)
+    register("results_With", ff2)
 
     val mapFX = (exps: Seq[Expression]) => exps.size match {
       case 3 =>
@@ -212,7 +221,7 @@ trait RuleRunnerFunctionsImport {
         // default to LongType, aggrExpr must fix, 2nd param is key, third the func manipulating the key
         MapTransform.create(RefExpression(MapType(LongType, LongType)), exps(0), exps(1), zero)
     }
-    register("mapWith", mapFX)
+    register("map_With", mapFX)
 
     def aggFWith(fun: String) = (what: String) => (exps: Seq[Expression]) => (
       if (exps.size == 0)
@@ -221,12 +230,12 @@ trait RuleRunnerFunctionsImport {
         functions.expr(s"$fun('${strType(exps(0))}', $what )")
       ).expr
 
-    val retWith = aggFWith("resultsWith")
+    val retWith = aggFWith("results_With")
 
     // common cases
     register("meanF", retWith("(sum, count) -> sum / count"))
 
-    val sumWith = aggFWith("sumWith")
+    val sumWith = aggFWith("sum_With")
 
     val incX = (exps: Seq[Expression]) => exps match {
       case Seq(x: AttributeReference) =>
@@ -252,7 +261,7 @@ trait RuleRunnerFunctionsImport {
     register("inc", incX)
 
     // return sum
-    register("returnSum", retWith("(sum, count) -> sum"))
+    register("return_Sum", retWith("(sum, count) -> sum"))
 
 
     // random generators
@@ -274,7 +283,7 @@ trait RuleRunnerFunctionsImport {
 
       RandomBytes(numBytes, randomSource, seed)
     }
-    register("rngBytes", brf)
+    register("rng_Bytes", brf)
     def getRandom(exp: Expression) = {
       val str = getString(exp)
       RandomSource.valueOf(str)
@@ -296,14 +305,19 @@ trait RuleRunnerFunctionsImport {
     }
     register("rng", lrf)
 
-    register("rngUUID", (exps: Seq[Expression]) => RngUUIDExpression(exps.head))
+    register("rng_UUID", (exps: Seq[Expression]) => RngUUIDExpression(exps.head))
 
-    register("longPair", (exps: Seq[Expression]) => LongPairExpression(exps(0), exps(1)))
-    register("longPairFromUUID", (exps: Seq[Expression]) => UUIDToLongsExpression(exps.head))
+    register("long_Pair", (exps: Seq[Expression]) => LongPairExpression(exps(0), exps(1)))
+    register("long_Pair_From_UUID", (exps: Seq[Expression]) => UUIDToLongsExpression(exps.head))
 
-    register("smallBloom", (exps: Seq[Expression]) => ParquetAggregator(exps(0), exps(1), exps(2)))
+    register("small_Bloom", (exps: Seq[Expression]) => ParquetAggregator(exps(0), exps(1), exps(2)))
 
-    register("bigBloom", (exps: Seq[Expression]) => BucketedArrayParquetAggregator(exps(0), exps(1), exps(2), exps(3)))
+    register("big_Bloom", (exps: Seq[Expression]) => exps.size match {
+      case 4 =>
+        BucketedArrayParquetAggregator(exps(0), exps(1), exps(2), exps(3))
+      case 3 =>
+        BucketedArrayParquetAggregator(exps(0), exps(1), exps(2), Literal(java.util.UUID.randomUUID().toString))
+    })
 
     val longPairEqual = (exps: Seq[Expression]) => {
       val Seq(Literal(a, StringType), Literal(b, StringType)) = exps
@@ -314,7 +328,7 @@ trait RuleRunnerFunctionsImport {
 
       And(EqualTo(lower(a), lower(b)), EqualTo(higher(a), higher(b)))
     }
-    register("longPairEqual", longPairEqual)
+    register("long_Pair_Equal", longPairEqual)
 
     val idEqual = (exps: Seq[Expression]) => {
       val Seq(Literal(a, StringType), Literal(b, StringType)) = exps
@@ -327,15 +341,17 @@ trait RuleRunnerFunctionsImport {
     }
     register("idEqual", idEqual)
 
-    register("ruleSuiteResultDetails", (exps: Seq[Expression]) => impl.RuleSuiteResultDetails(exps(0)))
+    register("as_uuid", exps => AsUUID(exps(0), exps(1)))
 
-    register("digestToLongsStruct", digestToLongs(true))
+    register("rule_Suite_Result_Details", (exps: Seq[Expression]) => impl.RuleSuiteResultDetails(exps(0)))
+
+    register("digest_To_Longs_Struct", digestToLongs(true))
 
     def digestToLongs(asStruct: Boolean = true) = (exps: Seq[Expression]) => {
       val digestImpl = getString(exps.head)
       HashFunctionsExpression(exps.tail, digestImpl, asStruct, MessageDigestFactory(digestImpl))
     }
-    register("digestToLongs", digestToLongs(false))
+    register("digest_To_Longs", digestToLongs(false))
 
     def fieldBasedID(factory: String => DigestFactory) = (exps: Seq[Expression]) =>
         exps.size match {
@@ -347,10 +363,10 @@ trait RuleRunnerFunctionsImport {
           case _ => literalsNeeded
         }
 
-    register("fieldBasedID", fieldBasedID(MessageDigestFactory))
-    register("zaLongsFieldBasedID", fieldBasedID(ZALongTupleHashFunctionFactory))
-    register("zaFieldBasedID", fieldBasedID(ZALongHashFunctionFactory))
-    register("hashFieldBasedID", fieldBasedID(HashFunctionFactory(_)))
+    register("field_Based_ID", fieldBasedID(MessageDigestFactory))
+    register("za_Longs_Field_Based_ID", fieldBasedID(ZALongTupleHashFunctionFactory))
+    register("za_Field_Based_ID", fieldBasedID(ZALongHashFunctionFactory))
+    register("hash_Field_Based_ID", fieldBasedID(HashFunctionFactory(_)))
 
     val providedID = (exps: Seq[Expression]) =>
       exps.size match {
@@ -361,7 +377,7 @@ trait RuleRunnerFunctionsImport {
         case _ => literalsNeeded
       }
 
-    register("providedID", providedID)
+    register("provided_ID", providedID)
 
     val prefixedToLongPair = (exps: Seq[Expression]) =>
       exps.size match {
@@ -370,7 +386,7 @@ trait RuleRunnerFunctionsImport {
 
         case _ => literalsNeeded
       }
-    register("prefixedToLongPair", prefixedToLongPair)
+    register("prefixed_To_Long_Pair", prefixedToLongPair)
 
     val rngID = (exps: Seq[Expression]) => {
       val (randomSource, seed: Long, prefix) =
@@ -384,7 +400,7 @@ trait RuleRunnerFunctionsImport {
       GenericLongBasedIDExpression(model.RandomID,
         RandLongsWithJump(seed, randomSource), prefix) // only jumpables work
     }
-    register("rngID", rngID)
+    register("rng_ID", rngID)
 
     val uniqueID = (exps: Seq[Expression]) => {
       val (prefix) =
@@ -398,7 +414,18 @@ trait RuleRunnerFunctionsImport {
         , prefix
       )
     }
-    register("uniqueID", uniqueID)
+    register("unique_ID", uniqueID)
+
+    register("id_size", exps => SizeOfIDString(exps.head))
+    register("id_base64", {
+      case Seq(e) => AsBase64Struct(e)
+      case s => AsBase64Fields(s)
+    })
+    register("id_from_base64", {
+      case Seq(e) => IDFromBase64(e, 2) // default assumption
+      case Seq(e, s) => IDFromBase64(e, getInteger(s))
+    })
+    register("id_raw_type", exps => IDToRawIDDataType(exps.head))
 
     val Murmur3_128_64 = (exps: Seq[Expression]) => {
       val (prefix) =
@@ -409,7 +436,7 @@ trait RuleRunnerFunctionsImport {
       GenericLongBasedIDExpression(model.FieldBasedID,
         HashFunctionsExpression(exps.tail, "IGNORED", true, HashFunctionFactory("IGNORED")), prefix)
     }
-    register("murmur3ID", Murmur3_128_64)
+    register("murmur3_ID", Murmur3_128_64)
 
     def hashWithF(asStruct: Boolean) = (exps: Seq[Expression]) => {
       val (impl) =
@@ -419,8 +446,8 @@ trait RuleRunnerFunctionsImport {
         }
       HashFunctionsExpression(exps.tail, impl, asStruct, HashFunctionFactory(impl))
     }
-    register("hashWith", hashWithF(false))
-    register("hashWithStruct", hashWithF(true))
+    register("hash_With", hashWithF(false))
+    register("hash_With_Struct", hashWithF(true))
 
     def zahashF(asStruct: Boolean) = (exps: Seq[Expression]) => {
       val (digestImpl) =
@@ -430,8 +457,8 @@ trait RuleRunnerFunctionsImport {
         }
       HashFunctionsExpression(exps.tail, digestImpl, asStruct, ZALongHashFunctionFactory(digestImpl))
     }
-    register("zaHashWith", zahashF(false)) // 64bit only, not a great id choice
-    register("zaHashWithStruct", zahashF(true)) // 64bit only, not a great id choice
+    register("za_Hash_With", zahashF(false)) // 64bit only, not a great id choice
+    register("za_Hash_With_Struct", zahashF(true)) // 64bit only, not a great id choice
 
     def zaTuplehashF(asStruct: Boolean) = (exps: Seq[Expression]) => {
       val (digestImpl) =
@@ -441,15 +468,15 @@ trait RuleRunnerFunctionsImport {
         }
       HashFunctionsExpression(exps.tail, digestImpl, asStruct, ZALongTupleHashFunctionFactory(digestImpl))
     }
-    register("zaHashLongsWith", zaTuplehashF(false))
-    register("zaHashLongsWithStruct", zaTuplehashF(true))
+    register("za_Hash_Longs_With", zaTuplehashF(false))
+    register("za_Hash_Longs_With_Struct", zaTuplehashF(true))
 
     // here to stop these functions being used and allow validation
-    register("coalesceIfAttributesMissing", _ => qualityException("coalesceIf functions cannot be created") )
-    register("coalesceIfAttributesMissingDisable", _ => qualityException("coalesceIf functions cannot be created") )
+    register("coalesce_If_Attributes_Missing", _ => qualityException("coalesceIf functions cannot be created") )
+    register("coalesce_If_Attributes_Missing_Disable", _ => qualityException("coalesceIf functions cannot be created") )
 
     // The MSE library adds this lens functionality, 3.1.1 introduces this to dsl but neither does an sql interface
-    register("updateField", StructFunctions.withFieldFunction)
+    register("update_Field", StructFunctions.withFieldFunction)
 
     def msgAndExpr(msgDefault: String, exps: Seq[Expression]) = exps match {
       case Seq(Literal(str: UTF8String, StringType), e: Expression) =>
@@ -458,11 +485,11 @@ trait RuleRunnerFunctionsImport {
         (msgDefault, e)
     }
 
-    register("printCode", (exps: Seq[Expression]) => {
+    register("print_Code", (exps: Seq[Expression]) => {
       val (msg, exp) = msgAndExpr(PrintCode(exps(0)).msg, exps)
       PrintCode(exp, msg, writer)
     })
-    register("printExpr", (exps: Seq[Expression]) => {
+    register("print_Expr", (exps: Seq[Expression]) => {
       val (msg, exp) = msgAndExpr("Expression toStr is ->", exps)
       writer(s"$msg $exp .  Sql is ${exp.sql}")
       exp
@@ -479,6 +506,11 @@ object RuleRunnerFunctions {
       case Literal(seed: Long, LongType) => seed
       case _ => literalsNeeded
     }
+  protected[quality] def getInteger(exp: Expression) =
+    exp match {
+      case Literal(seed: Int, IntegerType) => seed
+      case _ => literalsNeeded
+    }
   protected[quality] def getString(exp: Expression) =
     exp match {
       case Literal(str: UTF8String, StringType) => str.toString()
@@ -491,13 +523,21 @@ object RuleRunnerFunctions {
         case r: ExprLogic => r.expr // only ExprLogic are possible here
       }))
 
-  val qualityFunctions = Set("murmur3ID","uniqueID","rngID","providedID","fieldBasedID",
-    "digestToLongs","digestToLongsStruct","ruleSuiteResultDetails","idEqual","longPairEqual","bigBloom","smallBloom",
-    "longPairFromUUID","longPair","rngUUID","rng","rngBytes","returnSum","sumWith","resultsWith",
-    "inc","meanF","aggExpr","passed","failed","softFailed","disabledRule","packInts","unpack",
-    "unpackIdTriple","softFail","probability","flattenResults","flattenRuleResults", "flattenFolderResults", "probabilityIn",
-    "mapLookup","mapContains","saferLongPair","hashWith","hashWithStruct","zaHashWith", "zaHashLongsWith",
-    "hashFieldBasedID","zaLongsFieldBasedID","zaHashLongsWithStruct", "zaHashWithStruct", "zaFieldBasedID", "prefixedToLongPair",
-    "coalesceIfAttributesMissing", "coalesceIfAttributesMissingDisable", "updateField", LambdaFunctions.PlaceHolder,
-    LambdaFunctions.Lambda, LambdaFunctions.CallFun, "printExpr", "printCode")
+  protected[quality] val mustKeepNames = Set(LambdaFunctions.PlaceHolder,
+    LambdaFunctions.Lambda, LambdaFunctions.CallFun)
+
+  val qualityFunctions = {
+    val withUnderscores = Set("murmur3_ID","unique_ID","rng_ID","provided_ID","field_Based_ID",
+      "digest_To_Longs","digest_To_Longs_Struct","rule_Suite_Result_Details","id_Equal","long_Pair_Equal","big_Bloom","small_Bloom",
+      "long_Pair_From_UUID","long_Pair","rng_UUID","rng","rng_Bytes","return_Sum","sum_With","results_With",
+      "inc","meanF","agg_Expr","passed","failed","soft_Failed","disabled_Rule","pack_Ints","unpack",
+      "unpack_Id_Triple","soft_Fail","probability","flatten_Results","flatten_Rule_Results", "flatten_Folder_Results", "probability_In",
+      "map_Lookup","map_Contains","safer_Long_Pair","hash_With","hash_With_Struct","za_Hash_With", "za_Hash_Longs_With",
+      "hash_Field_Based_ID","za_Longs_Field_Based_ID","za_Hash_Longs_With_Struct", "za_Hash_With_Struct", "za_Field_Based_ID", "prefixed_To_Long_Pair",
+      "coalesce_If_Attributes_Missing", "coalesce_If_Attributes_Missing_Disable", "update_Field", LambdaFunctions.PlaceHolder,
+      LambdaFunctions.Lambda, LambdaFunctions.CallFun, "print_Expr", "print_Code", "comparable_Maps", "reverse_Comparable_Maps", "as_uuid",
+      "id_size", "id_base64", "id_from_base64", "id_raw_type"
+    )
+    withUnderscores ++ withUnderscores.map(n => if (mustKeepNames(n)) n else n.replaceAll("_",""))
+  }
 }

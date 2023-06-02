@@ -5,8 +5,10 @@ import com.sparkutils.quality.impl.bloom.{BloomFilterLookupImports, BloomFilterR
 import com.sparkutils.quality.impl.id.{GenericLongBasedImports, GuaranteedUniqueIDImports}
 import com.sparkutils.quality.impl.mapLookup.MapLookupImport
 import com.sparkutils.quality.impl.longPair.RowIDExpressionImports
+import com.sparkutils.quality.impl.util.ComparableMapsImports
 import com.sparkutils.quality.impl.{ProcessDisableIfMissingImports, RuleEngineRunnerImports, RuleFolderRunnerImports, RuleRunnerFunctionsImport, RuleRunnerImports, RuleSparkTypes, Validation}
 import com.sparkutils.quality.utils.{AddDataFunctions, LookupIdFunctions, SerializingImports}
+import org.apache.spark.sql.internal.SQLConf
 import org.slf4j.LoggerFactory
 
 /**
@@ -17,7 +19,7 @@ package object quality extends BloomFilterTypes with BucketedCreatorFunctions wi
   with RuleSparkTypes with BloomFilterLookupImports with BlockSplitBloomFilterImports with SerializingImports
   with RowIDExpressionImports with AddDataFunctions with LambdaFunctions with LookupIdFunctions
   with GenericLongBasedImports with GuaranteedUniqueIDImports with RuleEngineRunnerImports with Validation
-  with ProcessDisableIfMissingImports with RuleFolderRunnerImports {
+  with ProcessDisableIfMissingImports with RuleFolderRunnerImports with ComparableMapsImports {
   // NB it must inherit Serializable due to the nested types and sparks serialization
 
   val logger = LoggerFactory.getLogger("com.sparkutils.quality")
@@ -47,6 +49,26 @@ package object quality extends BloomFilterTypes with BucketedCreatorFunctions wi
 
       log(stop - start, what)
     }
+  }
+
+  /**
+   * first attempts to get the system env, then system java property then sqlconf
+   * @param name
+   * @return
+   */
+  def getConfig(name: String) = try {
+    val res = System.getenv(name)
+    if (res ne null)
+      res
+    else {
+      val sp = System.getProperty(name)
+      if (sp ne null)
+        sp
+      else
+        SQLConf.get.getConfString(name, "")
+    }
+  } catch {
+    case _: Throwable => ""
   }
 
 }

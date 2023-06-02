@@ -6,7 +6,7 @@ import org.apache.spark.sql.types.{IntegerType, StructField, StructType}
 import org.junit.Test
 import org.scalatest.FunSuite
 
-class ReplaceWithMissingAttributesTest extends FunSuite with RowTools with TestUtils {
+class ReplaceWithMissingAttributesTest extends FunSuite with TestUtils {
 
   val struct = StructType(Seq(
     StructField("fielda", IntegerType)
