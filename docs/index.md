@@ -17,7 +17,7 @@ Write rules using simple SQL or create re-usable functions via SQL Lambdas
 
 Your rules are just versioned data, store them wherever convenient, use them by simply defining a column.
 
-* :new:{.pulseABit} - [comparableMaps](sqlfunctions.md#comparablemaps) - allow unions or sorting with map columns without json serialising and parsing overhead
+* :new:{.pulseABit} - [comparableMaps](sqlfunctions.md#comparable_maps) - allow unions or sorting with map columns without json serialising and parsing overhead
 * :new:{.pulseABit} - [set syntax](advanced/ruleFolder.md#set) - simplified syntax for updating and defaulting
 * :new:{.pulseABit} - [Spark Extension](getting_started/index.md#using-the-sql-functions-on-spark-thrift-hive-servers) - registers common Quality sql functions automatically for Thrift/Hive servers and query optimisations
 * :new:{.pulseABit} - Databricks 12.2 support

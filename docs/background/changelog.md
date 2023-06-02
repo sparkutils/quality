@@ -1,4 +1,4 @@
-### 0.0.2 <small>28th March, 2023</small>
+### 0.0.2 <small>2nd June, 2023</small>
 
 #16 - Remove winutils requirements for testing and usage
 

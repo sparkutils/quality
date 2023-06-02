@@ -78,14 +78,14 @@ testCaller2(fielda > fieldb) and test(fieldb)
     
 
 ```sql
-mapLookup(fielda, fieldb) and test(fieldb)
+map_Lookup(fielda, fieldb) and test(fieldb)
 ```
 
 <div class="spark_functions_used comma-list">
 <p>Quality functions used:</p>
 <ul>
 
-<li> <a target="_blank" href="../../sqlfunctions/#maplookup">mapLookup</a> </li>
+<li> <a target="_blank" href="../../sqlfunctions/#map_lookup">map_Lookup</a> </li>
 </ul>
 </div>
 
