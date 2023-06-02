@@ -10,7 +10,7 @@ import org.apache.spark.sql.types.{BooleanType, DoubleType, IntegerType, LongTyp
 import org.junit.Test
 import org.scalatest.FunSuite
 
-class ValidationTest extends FunSuite with RowTools with TestUtils {
+class ValidationTest extends FunSuite with TestUtils {
 
   val struct = StructType(Seq(
     StructField("fielda", StringType),

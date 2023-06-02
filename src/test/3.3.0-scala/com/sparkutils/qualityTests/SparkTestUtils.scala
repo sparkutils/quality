@@ -6,6 +6,7 @@ import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.execution.{FileSourceScanExec, SparkPlan}
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanExec
 
+import java.io.File
 import java.util.concurrent.atomic.AtomicReference
 
 case class AnalysisException(message: String) extends Exception(message)
@@ -22,7 +23,7 @@ object SparkTestUtils {
       throw new AnalysisException(s"Cannot modify the value of a static config: $k")
     }
 
-  protected var tpath = new AtomicReference[String]("./target/testData")
+  protected var tpath = new AtomicReference[String](new File("./target/testData").getAbsolutePath)
 
   def ouputDir = tpath.get
 

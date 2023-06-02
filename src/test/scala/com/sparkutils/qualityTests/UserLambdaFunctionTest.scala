@@ -9,7 +9,7 @@ import org.junit.Test
 import org.scalatest.FunSuite
 import com.sparkutils.qualityTests.mapLookup.TradeTests._
 
-class UserLambdaFunctionTest extends FunSuite with RowTools with TestUtils {
+class UserLambdaFunctionTest extends FunSuite with TestUtils {
 
   @Test
   def nullInParam: Unit = evalCodeGensNoResolve {

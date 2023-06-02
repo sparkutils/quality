@@ -11,11 +11,11 @@ import org.scalatest.FunSuite
 import java.util.UUID
 
 // including rowtools so standalone tests behave as if all of them are running and for verify compatibility
-class ExtensionTest extends FunSuite with RowTools with TestUtils {
+class ExtensionTest extends FunSuite with TestUtils {
 
   @Before
   override def setup(): Unit = {
-    cleanupOutput() // wierdly doesn't always run on databricks so we have test failures as a result.
+    cleanupOutput() // weirdly doesn't always run on databricks so we have test failures as a result.
   }
 
   def wrapWithExtension(thunk: SparkSession => Unit): Unit = wrapWithExtensionT(thunk)
@@ -31,7 +31,7 @@ class ExtensionTest extends FunSuite with RowTools with TestUtils {
       }
       System.setProperty(QualitySparkExtension.disableRulesConf, disableConf)
       // attempt to create a new session
-      tsparkSession = SparkSession.builder().config("spark.master", s"local[$hostMode]").config("spark.ui.enabled", false).
+      tsparkSession = registerFS(SparkSession.builder()).config("spark.master", s"local[$hostMode]").config("spark.ui.enabled", false).
         config("spark.sql.extensions", classOf[QualitySparkExtension].getName())
         .getOrCreate()
       tsparkSession.sparkContext.setLogLevel("ERROR")

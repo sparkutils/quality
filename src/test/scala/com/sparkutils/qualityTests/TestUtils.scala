@@ -1,18 +1,55 @@
 package com.sparkutils.qualityTests
 
+import com.globalmentor.apache.hadoop.fs.BareLocalFileSystem
 import com.sparkutils.quality
 import com.sparkutils.quality.{RuleSuite, ruleRunner}
-import org.apache.spark.sql.{Dataset, Row, SQLContext, SparkSession}
+import org.apache.spark.sql.{Dataset, Row, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.{CodegenObjectFactoryMode, Expression}
 import org.apache.spark.sql.internal.SQLConf
 import org.junit.Before
+
 import java.io.File
 
-import org.apache.spark.rdd.RDD
-
 trait TestUtils {
-  def sparkSessionF: SparkSession
-  def sqlContextF: SQLContext
+  val hostMode = {
+    val tmp = System.getenv("QUALITY_SPARK_HOSTS")
+    if (tmp eq null)
+      "*"
+    else
+      tmp
+  }
+
+  def sparkSessionF: SparkSession = {
+    val sparkSession = registerFS(SparkSession.builder()).config("spark.master", s"local[$hostMode]").config("spark.ui.enabled", false).getOrCreate()
+    if (excludeFilters) {
+      sparkSession.conf.set("spark.sql.optimizer.excludedRules", "org.apache.spark.sql.catalyst.optimizer.InferFiltersFromGenerate")
+    }
+
+    sparkSession.conf.set("spark.sql.optimizer.nestedSchemaPruning.enabled", true)
+    // only a visual change
+    // sparkSession.conf.set("spark.sql.legacy.castComplexTypesToString.enabled", true)
+    sparkSession.sparkContext.setLogLevel("ERROR") // set to debug to get actual code lines etc.
+    sparkSession
+  }
+
+  def sqlContextF = sparkSessionF.sqlContext
+
+  val excludeFilters = {
+    val tmp = System.getProperty("excludeFilters")
+    if (tmp eq null)
+      true
+    else
+      tmp.toBoolean
+  }
+
+  /**
+   * Allows bare naked to be used instead of winutils for testing / dev
+   */
+  def registerFS(sparkSessionBuilder: SparkSession.Builder): SparkSession.Builder =
+    if (System.getProperty("os.name").startsWith("Windows"))
+      sparkSessionBuilder.config("spark.hadoop.fs.file.impl",classOf[BareLocalFileSystem].getName)
+    else
+      sparkSessionBuilder
 
   val sparkSession = sparkSessionF
   val sqlContext = sqlContextF

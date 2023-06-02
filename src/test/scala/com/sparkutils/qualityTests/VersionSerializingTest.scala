@@ -7,7 +7,7 @@ import org.junit.Test
 import org.scalatest.FunSuite
 import simpleVersioning._
 
-class VersionSerializingTest extends FunSuite with RowTools with TestUtils {
+class VersionSerializingTest extends FunSuite with TestUtils {
 
   /**
    * Verify versions with all combos.
