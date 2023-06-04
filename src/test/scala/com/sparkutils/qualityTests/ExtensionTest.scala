@@ -124,11 +124,11 @@ class ExtensionTest extends FunSuite with TestUtils {
       val uuidobj = java.util.UUID.fromString(uuid)
       val lower = uuidobj.getLeastSignificantBits
       val higher = uuidobj.getMostSignificantBits
-      TestPair(lower, higher)
+      TestRow(lower, higher, uuid)
     }
 
     // if this is not read from file a LocalRelation will be used and there is no Filter to be pushed down
-    therows.toDS.selectExpr(s"lower as ${prefix}lower", s"higher as ${prefix}higher").write.mode("overwrite").parquet(outputDir + s"/${prefix}asymfilter")
+    therows.toDS.selectExpr(s"lower as ${prefix}lower", s"higher as ${prefix}higher", s"asString as ${prefix}asString").write.mode("overwrite").parquet(outputDir + s"/${prefix}asymfilter")
 
     val reread = tsparkSession.read.parquet(outputDir + s"/${prefix}asymfilter")
     val withcontext = reread.selectExpr("*", s"as_uuid(${prefix}lower, ${prefix}higher) as ${prefix}context")
@@ -657,8 +657,26 @@ class ExtensionTest extends FunSuite with TestUtils {
   def testAsymmetricFilterPlanJoinMixedGtEqViaExistingSession(): Unit = onlyWithExtension {
     doTestAsymmetricFilterPlanJoinIDS(wrapWithExistingSession _, "gte", (l, r) => l.>=(r), viaJoinIDsMixed)
   }
+/*
+attempts under #19 doesn't seem possible, keeping here for reference
 
+  @Test
+  def testPushdownOnString(): Unit = wrapWithExtension {
+    session =>
+      // PushedFilters: [IsNotNull(pasString), EqualTo(pasString,123e4567-e89b-12d3-a456-426614174006)],
+//      val ds = uuidPairsWithContext("p").apply(session).filter(s"pasString = '${ theuuid + "6" }' ")
+
+      val uuid = theuuid + "6"
+      val uuidobj = java.util.UUID.fromString(uuid)
+      val lower = uuidobj.getLeastSignificantBits
+      val higher = uuidobj.getMostSignificantBits
+//endsWith(pasString, '6')
+      val ds = uuidPairsWithContext("p").apply(session).filter(s"pasString = as_uuid(plower, phigher) and pasString = '${ theuuid + "6" }' ")
+      ds.explain(true)
+    ()
+  }
+*/
 }
 
-case class TestPair(lower: Long, higher: Long)
+case class TestRow(lower: Long, higher: Long, asString: String)
 case class TestID(base: Int, i0: Long, i1: Long)
