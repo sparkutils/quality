@@ -76,7 +76,7 @@ class CodeGenTest extends RowTools with TestUtils {
 
   // GC's on 3.4, taking 2m locally
   @Test
-  def ruleRunnerTooMuchPerFunc: Unit = not3_4{ not_Databricks{ not2_4{ forceCodeGen {
+  def ruleRunnerTooMuchPerFunc: Unit = not3_4_or_above{ not_Databricks{ not2_4{ forceCodeGen {
     shouldAssert64kb{
       doRunnerGen(variablesPerFunc= 30000, variableFuncGroup = 12)
     }

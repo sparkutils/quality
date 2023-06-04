@@ -247,6 +247,12 @@ trait TestUtils {
     if (sparkVersion != "3.4") thunk
 
   /**
+   * Don't run this test on 3.4 or greater - gc's on code gen
+   */
+  def not3_4_or_above(thunk: => Unit) =
+    if (sparkVersion.replace(".","").toInt < 34) thunk
+
+  /**
    * Scalar subqueries etc. only work on 3.4 and above
    * @param thunk
    */

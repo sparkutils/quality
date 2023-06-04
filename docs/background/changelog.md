@@ -1,3 +1,7 @@
+### 0.1.0 <small>10th June, 2023</small>
+
+#20 - 3.5.0 starting support
+
 ### 0.0.2 <small>2nd June, 2023</small>
 
 #16 - Remove winutils requirements for testing and usage
