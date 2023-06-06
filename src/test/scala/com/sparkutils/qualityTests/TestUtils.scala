@@ -227,7 +227,7 @@ trait TestUtils {
 
   lazy val sparkFullVersion = {
     val pos = classOf[Expression].getPackage.getSpecificationVersion
-    if (pos eq null) // DBR 13.0 does this at least
+    if (pos eq null) // DBR is always null
       SparkSession.active.version
     else
       pos

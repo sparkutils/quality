@@ -55,10 +55,6 @@ object SparkTestUtils {
         case _: Throwable => sparkPlan
       }
       else
-      sparkPlan).collect {
-      case fs: FileSourceScanExec =>
-        fs.metadata.collect { case ("PushedFilters", value) if value != "[]" => value }
-    }.flatten
-
+      sparkPlan
 
 }

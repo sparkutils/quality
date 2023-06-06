@@ -25,7 +25,7 @@ package object quality extends BloomFilterTypes with BucketedCreatorFunctions wi
   val logger = LoggerFactory.getLogger("com.sparkutils.quality")
 
   /**
-   * Creates a bloom filter from an array of bytes using the default Parquet bloomfitler implementation
+   * Creates a bloom filter from an array of bytes using the default Parquet bloom filter implementation
    * @param bytes
    * @return
    */
