@@ -48,12 +48,17 @@ object SparkTestUtils {
 
   def getCorrectPlan(sparkPlan: SparkPlan): SparkPlan =
     if (sparkPlan.children.isEmpty)
-    // assume it's AQE
-      sparkPlan match {
-        case aq: AdaptiveSparkPlanExec => aq.initialPlan
-        case _ => sparkPlan
+      // assume it's AQE
+      try {
+        (field.get(sparkPlan).asInstanceOf[SparkPlan])
+      } catch {
+        case _: Throwable => sparkPlan
       }
-    else
-      sparkPlan
+      else
+      sparkPlan).collect {
+      case fs: FileSourceScanExec =>
+        fs.metadata.collect { case ("PushedFilters", value) if value != "[]" => value }
+    }.flatten
+
 
 }
