@@ -3,9 +3,12 @@ package com.sparkutils.qualityTests
 import com.globalmentor.apache.hadoop.fs.BareLocalFileSystem
 import com.sparkutils.quality
 import com.sparkutils.quality.{RuleSuite, ruleRunner}
+import com.sparkutils.qualityTests.SparkTestUtils.getCorrectPlan
 import org.apache.spark.sql.{Dataset, Row, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.{CodegenObjectFactoryMode, Expression}
+import org.apache.spark.sql.execution.{FileSourceScanExec, SparkPlan}
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.sources.Filter
 import org.junit.Before
 
 import java.io.File
@@ -309,4 +312,32 @@ trait TestUtils {
         anyCauseHas(t.getCause, f)
       else
         false
+
+  /**
+   * Gets pushdowns from a dataset
+   * @param sparkPlan
+   * @return
+   */
+  def getPushDowns[T](dataset: Dataset[T]): Seq[Filter] =
+    getPushDowns(dataset.queryExecution.executedPlan)
+
+  /**
+   * Gets pushdowns from a FileSourceScanExec from a plan
+   * @param sparkPlan
+   * @return
+   */
+  def getPushDowns(sparkPlan: SparkPlan): Seq[Filter] =
+    getCorrectPlan(sparkPlan).collect {
+      case fs: FileSourceScanExec =>
+        import scala.reflect.runtime.{universe => ru}
+
+        val runtimeMirror = ru.runtimeMirror(getClass.getClassLoader)
+        val instanceMirror = runtimeMirror.reflect(fs)
+        val getter = ru.typeOf[FileSourceScanExec].member(ru.TermName("pushedDownFilters")).asTerm.getter
+        val m = instanceMirror.reflectMethod(getter.asMethod)
+        val res = m.apply(fs).asInstanceOf[Seq[Filter]]
+
+        res
+    }.flatten
+
 }
