@@ -8,7 +8,7 @@ val (viewConfigs, failed) = loadViewConfigs(loader, config.toDF(), expr("id.id")
 val results = loadViews(viewConfigs)
 ``` 
 
-[loadViewConfigs]( ../../site/scaladocs/com/sparkutils/quality/impl/ViewLoader/index.html ) takes a DataFrameLoader as a parameter allowing Quality to load tables based on your integration logic.  There are two flavours, one expecting a table with the following schema:
+[loadViewConfigs]( ../../site/scaladocs/com/sparkutils/quality/impl/views/ViewLoader$.html#loadViewConfigs(loader:com.sparkutils.quality.DataFrameLoader,viewDF:org.apache.spark.sql.DataFrame,ruleSuiteIdColumn:org.apache.spark.sql.Column,ruleSuiteVersionColumn:org.apache.spark.sql.Column,ruleSuiteId:com.sparkutils.quality.Id,name:org.apache.spark.sql.Column,token:org.apache.spark.sql.Column,filter:org.apache.spark.sql.Column,sql:org.apache.spark.sql.Column):(Seq[com.sparkutils.quality.impl.views.ViewConfig],Set[String]) ) takes a DataFrameLoader as a parameter allowing Quality to load tables based on your integration logic.  There are two flavours, one expecting a table with the following schema:
 
 ```sql
 STRUCT< name : STRING, token : STRING nullable, filter : STRING nullable, sql: STRING nullable> 
@@ -26,7 +26,7 @@ Where token is present the loader will be called for it and the filter column ap
 
 After loading the ViewConfig's the loadViews function can be called, registering all the views via createOrReplaceTempView and returning a set of replaced views, failedToLoadDueToCycles and notLoadedViews, a set of unloaded views.  In the event that views refer to other views not present in ViewConfig a MissingViewAnalysisException will be thrown, ViewLoaderAnalysisException for other analysis exceptions, as will parsing exceptions as per normal Spark.
 
-[loadViews](../../site/scaladocs/com/sparkutils/quality/impl/ViewLoader/index.html ) will attempt to automatically attempt to resolve ViewConfigs that depend on other ViewConfigs, where there is a cycle that is 2x the number of ViewConfigs the call will return with failedToLoadDueToCycles as true.
+[loadViews]( ../../site/scaladocs/com/sparkutils/quality/impl/views/ViewLoader$.html#loadViews(viewConfigs:Seq[com.sparkutils.quality.impl.views.ViewConfig]):com.sparkutils.quality.impl.views.ViewLoadResults) will attempt to automatically attempt to resolve ViewConfigs that depend on other ViewConfigs, where there is a cycle that is 2x the number of ViewConfigs the call will return with failedToLoadDueToCycles as true.
 
 These calls must be made before running any dq, engine or folder using views.
 
