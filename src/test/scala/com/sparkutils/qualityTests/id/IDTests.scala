@@ -19,7 +19,7 @@ import java.security.{MessageDigest, Provider}
 import java.util.Base64
 import scala.jdk.CollectionConverters._
 
-class IDTests extends FunSuite with RowTools with TestUtils {
+class IDTests extends FunSuite with TestUtils {
 
   @Test
   def rountTripRandom: Unit = doRoundTripGenericLongBasedID(model.RandomID)
@@ -28,7 +28,7 @@ class IDTests extends FunSuite with RowTools with TestUtils {
   @Test
   def rountTripFields: Unit = doRoundTripGenericLongBasedID(model.FieldBasedID)
 
-  def doRoundTripGenericLongBasedID(idType: IDType): Unit = evalCodeGensNoResolve {
+  def doRoundTripGenericLongBasedID(idType: IDType): Unit =  {
 
     val longs = Array(1235564L, 1455535634L, 1235453L, 1L, 100L)
 
@@ -53,7 +53,7 @@ class IDTests extends FunSuite with RowTools with TestUtils {
   }
 
   @Test
-  def assertsOnGuaranteedUniqueID: Unit = evalCodeGensNoResolve {
+  def assertsOnGuaranteedUniqueID: Unit = {
 
     var passed = false
     try {
@@ -104,7 +104,7 @@ class IDTests extends FunSuite with RowTools with TestUtils {
   }
 
   @Test
-  def roundTripGuaranteedUniqueIDLocalMac: Unit = evalCodeGensNoResolve {
+  def roundTripGuaranteedUniqueIDLocalMac: Unit = {
     doRoundTripGuaranteedUniqueID(model.localMAC)
   }
 
@@ -130,13 +130,13 @@ class IDTests extends FunSuite with RowTools with TestUtils {
    * 66-16-a-ffffffa5-fffffff8-fffffff3 being created on gitlab but not serialized properly
    */
   @Test
-  def guaranteedUniqueIDMACAddressOverflowTest: Unit = evalCodeGensNoResolve {
+  def guaranteedUniqueIDMACAddressOverflowTest: Unit = {
     val hardwareAddress = Array[Byte](0xffffffff, 0x0, 0xa, 0xffffffa5, 0xfffffff8, 0xfffffff3)
     doRoundTripGuaranteedUniqueID(hardwareAddress)
   }
 
   @Test
-  def testGuaranteedUniqueIDOps: Unit = evalCodeGensNoResolve {
+  def testGuaranteedUniqueIDOps: Unit = {
     import java.net._
     import scala.collection.JavaConverters._
 
@@ -385,6 +385,62 @@ class IDTests extends FunSuite with RowTools with TestUtils {
   }
 
   @Test
+  def testIDBase64: Unit = evalCodeGensNoResolve {
+    import com.sparkutils.quality._
+    registerQualityFunctions()
+
+    import sparkSession.implicits._
+
+    def mismatch(str: String) = notValidTest(str, "mismatch")
+    def bigInt(str: String) = notValidTest(str, ".._i1: BIGINT")
+
+    def notValidTest(str: String, expected: String) =
+      try {
+        val tester = sparkSession.sql(str).head()
+        fail(s"Should have an exception with $expected - $str")
+      } catch {
+        case t: Throwable if anyCauseHas(t, _.getMessage.indexOf(expected) > -1) => () // ok
+      }
+
+    mismatch("select id_size(uniqueid('pref')) id")
+    mismatch("select id_base64('string')")
+    mismatch("select id_base64('pref', 'df', 'fd') id")
+    mismatch("select id_base64('pref', 'df', 'fd') id")
+
+    bigInt("select id_base64(named_struct('f_base', 0, 'f_i0', 0, 'f_i0', 1)) id")
+    bigInt("select id_base64(named_struct('f_base', 0, 'f_i0', 0, 'f_i1', 'str')) id")
+    bigInt("select id_base64(named_struct('f_bass', 0, 'f_i0', 0, 'f_i1', 1)) id")
+    bigInt("select id_base64(named_struct('f_base', 'str', 'f_i0', 0, 'f_i1', 1)) id")
+
+    mismatch("select id_base64(0, 0, 'str') id")
+    mismatch("select id_base64('str', 'f_i1', 1) id")
+    notValidTest("select id_base64('str', 'f_i1') id", "positive")
+
+    val tester = sparkSession.sql("select uniqueid('pref') id").
+      selectExpr(" id_base64(id) baseOfStruct"," id_base64(id.pref_base, id.pref_i0, id.pref_i1) baseOfFields", "id").
+      selectExpr("id_size(baseOfStruct) size", "*", "id_from_base64(baseOfStruct) idtwo", "id_from_base64(null, 2) nullString",
+      "id_from_base64(id_base64(named_struct('f_base', 0, 'f_i0', 0L, 'f_i1', 1L, 'f_i2', 2L))) wrongSize", "id_from_base64('3423jkojojo3') junkString",
+      "id_raw_type(id) rawType")
+      .as[IdBaseTester].collect().head
+
+    assert(tester.size == 2)
+    assert(tester.baseOfFields == tester.baseOfStruct)
+    val id = model.parseID(tester.baseOfStruct).asInstanceOf[BaseWithLongs]
+    assert(id.base == tester.id.pref_base)
+    assert(id.array.toSeq == Seq(tester.id.pref_i0, tester.id.pref_i1))
+
+    assert(id.base == tester.rawType.base)
+    assert(id.array.toSeq == Seq(tester.rawType.i0, tester.rawType.i1))
+
+    assert(id.base == tester.idtwo.base)
+    assert(id.array.toSeq == Seq(tester.idtwo.i0, tester.idtwo.i1))
+
+    assert(tester.nullString.isEmpty)
+    assert(tester.wrongSize.isEmpty)
+    assert(tester.junkString.isEmpty)
+  }
+
+  @Test
   def testUUIDRoundTripping: Unit = evalCodeGensNoResolve {
     import com.sparkutils.quality._
     registerQualityFunctions()
@@ -431,7 +487,8 @@ class IDTests extends FunSuite with RowTools with TestUtils {
 import org.scalameter.api._
 
 object SumIdGenTest extends Bench.OfflineReport with RowTools {
-  import sparkSession.implicits._
+  val stable = sparkSessionF
+  import stable.implicits._
 
   import scala.collection.JavaConverters._
 
@@ -461,7 +518,7 @@ object SumIdGenTest extends Bench.OfflineReport with RowTools {
 
   def evaluate(func: (DataFrame) => DataFrame, colname: String)(param: Int) = {
     // the extra fields are added so performance of the other alternatives can be managed
-    val df = sparkSession.range(0, param).selectExpr("id", "id || '_field' as f1", "id || '_field2' as f2", "id || '_field3' as f3")
+    val df = sparkSessionF.range(0, param).selectExpr("id", "id || '_field' as f1", "id || '_field2' as f2", "id || '_field3' as f3")
 
     val ndf = func(df)
 
@@ -483,3 +540,8 @@ class TwoByteDigest extends MessageDigest("TwoByte") with Cloneable {
 
   override def clone(): AnyRef = new TwoByteDigest()
 }
+
+case class IdTester(pref_base: Int, pref_i0: Long, pref_i1: Long)
+case class IdTester2(base: Int, i0: Long, i1: Long)
+case class IdBaseTester(size: Int, baseOfStruct: String, baseOfFields: String, id: IdTester,
+                        idtwo: IdTester2, rawType: IdTester2, nullString: Option[IdTester2], wrongSize: Option[IdTester2], junkString: Option[IdTester2])

@@ -9,7 +9,7 @@ import org.apache.spark.sql.{Column, DataFrame}
 import org.junit.Test
 import org.scalatest.FunSuite
 
-class MetaRuleSetTest extends FunSuite with RowTools with TestUtils {
+class MetaRuleSetTest extends FunSuite with TestUtils {
 
   def ruleSet(id: Int, arg: String, exp: String) = MetaRuleSetRow(1,1,id,id*2,"",
     s"$arg -> $exp")

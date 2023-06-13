@@ -2,12 +2,15 @@ package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.RuleLogicUtils.mapRules
 import com.sparkutils.quality.VariablesLookup.{fieldsFromExpression, toName}
+import com.sparkutils.quality.utils.LookupIdFunctions
 import com.sparkutils.quality.{ExpressionRule, ExpressionRuleExpr, LambdaFunction, LambdaFunctionParsed, OutputExpression, OutputExpressionExpr, Rule, RuleLogicUtils, RuleSuite, RunOnPassProcessorImpl, namesFromSchema}
 import org.apache.spark.sql.catalyst.analysis.UnresolvedFunction
 import org.apache.spark.sql.catalyst.expressions.{Expression, Literal, LambdaFunction => SparkLambdaFunction}
 import org.apache.spark.sql.types.{NullType, StructType}
 
-trait ProcessDisableIfMissingImports extends RuleRunnerImports {
+
+
+object ProcessDisableIfMissing extends RuleRunnerImports {
   /**
    * Processes a given RuleSuite to replace any coalesceIfMissingAttributes.  This may be called before validate / docs but
    * *must* be called *before* adding the expression to a dataframe.
@@ -17,16 +20,17 @@ trait ProcessDisableIfMissingImports extends RuleRunnerImports {
    * @return
    */
   def processIfAttributeMissing(ruleSuite: RuleSuite, schema: StructType = StructType(Seq())) = {
-    val names = namesFromSchema(schema)
+    val names = LookupIdFunctions.namesFromSchema(schema)
 
-    val lambdas = ruleSuite.lambdaFunctions.map(lf => processIfMissingLambdaCoalesce(lf.parsed, names))
+    val lambdas = ruleSuite.lambdaFunctions.map(lf => ProcessDisableIfMissing.processIfMissingLambdaCoalesce(lf.parsed, names))
 
     val wrs = ruleSuite.copy(lambdaFunctions = lambdas)
 
-    mapRules( wrs ) {
-      processCoalesceIfAttributeMissing(_, names)
+    mapRules(wrs) {
+      ProcessDisableIfMissing.processCoalesceIfAttributeMissing(_, names)
     }
   }
+
 
   /**
    * For a given schema evaluates all calls to coalesce in a lambda to swap out missing attributes
@@ -36,7 +40,7 @@ trait ProcessDisableIfMissingImports extends RuleRunnerImports {
    * @param rule
    * @return
    */
-  protected def processIfMissingLambdaCoalesce(rule: LambdaFunctionParsed, names: Set[String]): LambdaFunction =
+  def processIfMissingLambdaCoalesce(rule: LambdaFunctionParsed, names: Set[String]): LambdaFunction =
     rule.expr match {
       case lambdaFunc: SparkLambdaFunction =>
         lambdaFunc.function match {
@@ -105,11 +109,10 @@ trait ProcessDisableIfMissingImports extends RuleRunnerImports {
   /**
    * Converts both rule expressions and any output expressions removing any coalesceIfAttributeMissing placeholding expressions using names to find each
    * first expression with no missing names (or replacing with null should all of them be).
-   * @param expression
    * @param names
    * @return
    */
-  protected def processCoalesceIfAttributeMissing(rule: Rule, names: Set[String]): Rule =
+  protected[quality] def processCoalesceIfAttributeMissing(rule: Rule, names: Set[String]): Rule =
     rule match {
       // rule and output
       case Rule(id, ExpressionRule(rule: String),

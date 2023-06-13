@@ -1,15 +1,61 @@
 package com.sparkutils.qualityTests
 
+import com.globalmentor.apache.hadoop.fs.BareLocalFileSystem
 import com.sparkutils.quality
 import com.sparkutils.quality.{RuleSuite, ruleRunner}
-import org.apache.spark.sql.{Dataset, Row}
+import com.sparkutils.qualityTests.SparkTestUtils.getCorrectPlan
+import org.apache.spark.sql.{Dataset, Row, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.{CodegenObjectFactoryMode, Expression}
+import org.apache.spark.sql.execution.{FileSourceScanExec, SparkPlan}
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.sources.Filter
 import org.junit.Before
 
 import java.io.File
 
 trait TestUtils {
+  val hostMode = {
+    val tmp = System.getenv("QUALITY_SPARK_HOSTS")
+    if (tmp eq null)
+      "*"
+    else
+      tmp
+  }
+
+  def sparkSessionF: SparkSession = {
+    val sparkSession = registerFS(SparkSession.builder()).config("spark.master", s"local[$hostMode]").config("spark.ui.enabled", false).getOrCreate()
+    if (excludeFilters) {
+      sparkSession.conf.set("spark.sql.optimizer.excludedRules", "org.apache.spark.sql.catalyst.optimizer.InferFiltersFromGenerate")
+    }
+
+    sparkSession.conf.set("spark.sql.optimizer.nestedSchemaPruning.enabled", true)
+    // only a visual change
+    // sparkSession.conf.set("spark.sql.legacy.castComplexTypesToString.enabled", true)
+    sparkSession.sparkContext.setLogLevel("ERROR") // set to debug to get actual code lines etc.
+    sparkSession
+  }
+
+  def sqlContextF = sparkSessionF.sqlContext
+
+  val excludeFilters = {
+    val tmp = System.getProperty("excludeFilters")
+    if (tmp eq null)
+      true
+    else
+      tmp.toBoolean
+  }
+
+  /**
+   * Allows bare naked to be used instead of winutils for testing / dev
+   */
+  def registerFS(sparkSessionBuilder: SparkSession.Builder): SparkSession.Builder =
+    if (System.getProperty("os.name").startsWith("Windows"))
+      sparkSessionBuilder.config("spark.hadoop.fs.file.impl",classOf[BareLocalFileSystem].getName)
+    else
+      sparkSessionBuilder
+
+  val sparkSession = sparkSessionF
+  val sqlContext = sqlContextF
 
   val outputDir = SparkTestUtils.ouputDir
 
@@ -25,11 +71,15 @@ trait TestUtils {
     sys.props.put("spark.testing","yes yes it is")
   }
 
-  @Before
-  def setup(): Unit = {
+  def cleanupOutput(): Unit = {
     import scala.reflect.io.Directory
     val outdir = new Directory(new java.io.File(outputDir))
     outdir.deleteRecursively()
+  }
+
+  @Before
+  def setup(): Unit = {
+    cleanupOutput()
     quality.registerQualityFunctions()
   }
 
@@ -175,13 +225,42 @@ trait TestUtils {
     assert(passed == runs, "Should have passed all of them, nothing has changed in between runs")
   }
 
-  lazy val sparkVersion = classOf[Expression].getPackage.getSpecificationVersion
+  lazy val sparkFullVersion = {
+    val pos = classOf[Expression].getPackage.getSpecificationVersion
+    if (pos eq null) // DBR is always null
+      SparkSession.active.version
+    else
+      pos
+  }
+
+  lazy val sparkVersion = {
+    sparkFullVersion.split('.').take(2).mkString(".")
+  }
 
   /**
    * Don't run this test on 2.4 - typically due to not being able to control code gen properly
    */
   def not2_4(thunk: => Unit) =
     if (sparkVersion != "2.4") thunk
+
+  /**
+   * Don't run this test on 3.4 - gc's on code gen
+   */
+  def not3_4(thunk: => Unit) =
+    if (sparkVersion != "3.4") thunk
+
+  /**
+   * Don't run this test on 3.4 or greater - gc's on code gen
+   */
+  def not3_4_or_above(thunk: => Unit) =
+    if (sparkVersion.replace(".","").toInt < 34) thunk
+
+  /**
+   * Scalar subqueries etc. only work on 3.4 and above
+   * @param thunk
+   */
+  def v3_4_and_above(thunk: => Unit) =
+    if (sparkVersion.replace(".","").toInt >= 34) thunk
 
   /**
    * Only run this on 2.4
@@ -208,4 +287,57 @@ trait TestUtils {
    */
   def not_Databricks(thunk: => Unit) =
     if (!onDatabricks) thunk
+
+  /**
+   * Only run when the extension is enabled
+   */
+  def onlyWithExtension(thunk: => Unit) = {
+    val extensions = sparkSession.sparkContext.getConf.get("spark.sql.extensions","")
+    if (extensions.indexOf("com.sparkutils.quality.impl.extension.QualitySparkExtension") > -1) {
+      thunk
+    }
+  }
+
+  /**
+   * Checks for an exception, then it's cause(s) for f being true
+   * @param t
+   * @param f
+   * @return
+   */
+  def anyCauseHas(t: Throwable, f: Throwable => Boolean): Boolean =
+    if (f(t))
+      true
+    else
+      if (t.getCause ne null)
+        anyCauseHas(t.getCause, f)
+      else
+        false
+
+  /**
+   * Gets pushdowns from a dataset
+   * @param sparkPlan
+   * @return
+   */
+  def getPushDowns[T](dataset: Dataset[T]): Seq[Filter] =
+    getPushDowns(dataset.queryExecution.executedPlan)
+
+  /**
+   * Gets pushdowns from a FileSourceScanExec from a plan
+   * @param sparkPlan
+   * @return
+   */
+  def getPushDowns(sparkPlan: SparkPlan): Seq[Filter] =
+    getCorrectPlan(sparkPlan).collect {
+      case fs: FileSourceScanExec =>
+        import scala.reflect.runtime.{universe => ru}
+
+        val runtimeMirror = ru.runtimeMirror(getClass.getClassLoader)
+        val instanceMirror = runtimeMirror.reflect(fs)
+        val getter = ru.typeOf[FileSourceScanExec].member(ru.TermName("pushedDownFilters")).asTerm.getter
+        val m = instanceMirror.reflectMethod(getter.asMethod)
+        val res = m.apply(fs).asInstanceOf[Seq[Filter]]
+
+        res
+    }.flatten
+
 }

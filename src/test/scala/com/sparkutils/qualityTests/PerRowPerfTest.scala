@@ -15,7 +15,7 @@ import org.scalameter.api._
 
 import scala.collection.JavaConverters._
 
-trait RowTools {
+trait RowTools extends TestUtils {
 
   val structWithColumnExpr = (rules: Int, cols: Int, df: DataFrame) =>
     df.withColumn("DataQuality", ruleRunner(genRules(rules, cols), compileEvals = false))
@@ -58,32 +58,6 @@ trait RowTools {
         )
     )
 
-  val hostMode = {
-    val tmp = System.getenv("QUALITY_SPARK_HOSTS")
-    if (tmp eq null)
-      "*"
-    else
-      tmp
-  }
-
-  val sparkSession: SparkSession = SparkSession.builder().config("spark.master", s"local[$hostMode]").config("spark.ui.enabled", false).getOrCreate()
-  val sqlContext = sparkSession.sqlContext
-  sparkSession.sparkContext.setLogLevel("ERROR")
-  val excludeFilters = {
-    val tmp = System.getProperty("excludeFilters")
-    if (tmp eq null)
-      true
-    else
-      tmp.toBoolean
-  }
-  if (excludeFilters) {
-    sparkSession.conf.set("spark.sql.optimizer.excludedRules", "org.apache.spark.sql.catalyst.optimizer.InferFiltersFromGenerate")
-  }
-
-  sparkSession.conf.set("spark.sql.optimizer.nestedSchemaPruning.enabled", true)
-  // only a visual change
-  // sparkSession.conf.set("spark.sql.legacy.castComplexTypesToString.enabled", true)
-
   import scala.collection.JavaConverters._
 
 //  val fields = Gen.range("fieldCount")(27, 30, 5) // 1500 gives gc issues, takes forever to warm up, probably will soe
@@ -101,7 +75,7 @@ trait RowTools {
   def sampleDataAsLong[T](maxRows: Int, maxCols: Int, startValue: T): Seq[Row] =
     (0 to maxRows).map(i => (0L until maxCols).map(i+_)).map(t => Row((t :+ startValue) :_*))
 
-  def dataFrameLong[T](maxRows: Int, maxCols: Int, dataType: DataType, startValue: T) = sparkSession.createDataFrame(sampleDataAsLong(maxRows, maxCols, startValue).asJava, longSchema(maxCols, dataType))
+  def dataFrameLong[T](maxRows: Int, maxCols: Int, dataType: DataType, startValue: T) = sparkSessionF.createDataFrame(sampleDataAsLong(maxRows, maxCols, startValue).asJava, longSchema(maxCols, dataType))
 
   def sampleDataAsLongLazy[T](ids: Dataset[java.lang.Long], maxCols: Int, startValue: T, structType: StructType): DataFrame = {
     implicit val renc = RowEncoder(structType)
@@ -111,7 +85,7 @@ trait RowTools {
   /**
    * unlike dataFrameLong it's lazy
    */
-  def dataFrameLongLazy[T](maxRows: Int, maxCols: Int, dataType: DataType, startValue: T) = sampleDataAsLongLazy(sparkSession.range(0, maxRows), maxCols, startValue, longSchema(maxCols, dataType))
+  def dataFrameLongLazy[T](maxRows: Int, maxCols: Int, dataType: DataType, startValue: T) = sampleDataAsLongLazy(sparkSessionF.range(0, maxRows), maxCols, startValue, longSchema(maxCols, dataType))
 
 }
 
@@ -200,7 +174,7 @@ trait ReadBased extends RowTools {
         } else {
           val path = SparkTestUtils.path("interimTest")
           ndf.write.mode("overwrite").parquet(path)
-          sparkSession.read.parquet(path)
+          sparkSessionF.read.parquet(path)
         }
       res
     }
@@ -311,7 +285,7 @@ object UUIDPerfTest extends Bench.OfflineReport with RowTools {
   }
 
   def evaluate(func: Dataset[java.lang.Long] => DataFrame, testName: String)(params: Int) = {
-    val rdf = sparkSession.range(0, params)
+    val rdf = sparkSessionF.range(0, params)
     val df = func(rdf)
     val path = SparkTestUtils.path("writePerfTest")
     //df.write.mode("overwrite").parquet(path + testName) // force a write rather than gen then read - differently optimised
@@ -387,7 +361,8 @@ object IDJoinStarter {
 object IDJoinPerfTest extends Bench.OfflineReport with RowTools {
   val rowCount = IDJoinStarter.maxRows
   // writeRows * 3
-  import sparkSession.implicits._
+  val stable = sparkSessionF
+  import stable.implicits._
 
   val rows = Gen.range("rowCount")(rowCount, rowCount, 1)
 
@@ -410,10 +385,10 @@ object IDJoinPerfTest extends Bench.OfflineReport with RowTools {
   }
 
   def evaluate(func: (DataFrame, DataFrame) => DataFrame)(params: Int) = {
-    val ids = sparkSession.read.parquet(SparkTestUtils.path("ids_for_ctw_joins"))
+    val ids = sparkSessionF.read.parquet(SparkTestUtils.path("ids_for_ctw_joins"))
     //idsRaw.persist(org.apache.spark.storage.StorageLevel.DISK_ONLY) // force persist to disk
 
-    val evens = sparkSession.read.parquet(SparkTestUtils.path("evens_for_ctw_joins"))
+    val evens = sparkSessionF.read.parquet(SparkTestUtils.path("evens_for_ctw_joins"))
     // evensRaw.persist(org.apache.spark.storage.StorageLevel.DISK_ONLY) // force persist to disk
 
     val df = func(ids, evens)

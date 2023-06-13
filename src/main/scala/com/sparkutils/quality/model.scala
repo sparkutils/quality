@@ -136,3 +136,9 @@ case class RuleResultRow(ruleSuiteId: Int,
                          ruleVersion: Int,
                          ruleResult: Int)
 
+/**
+ * Simple interface to load DataFrames used by map/bloom and view loading
+ */
+trait DataFrameLoader {
+  def load(token: String): DataFrame
+}

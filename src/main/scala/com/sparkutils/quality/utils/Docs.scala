@@ -2,7 +2,7 @@ package com.sparkutils.quality.utils
 
 import java.net.URI
 
-import com.sparkutils.quality.impl.{DataFrameSyntaxError, HasId, HasNonIdText, HasOutputText, LambdaMultipleImplementationWithSameArityError, LambdaRelevant, NonLambdaDocParameters, OutputExpressionRelevant, RuleError, RuleRelevant, RuleRunnerFunctions, RuleRunnerUtils, RuleWarning}
+import com.sparkutils.quality.impl.{DataFrameSyntaxError, HasId, HasNonIdText, HasOutputText, LambdaMultipleImplementationWithSameArityError, LambdaRelevant, NonLambdaDocParameters, OutputExpressionRelevant, RuleError, RuleRelevant, RuleRegistrationFunctions, RuleWarning}
 import com.sparkutils.quality.{ExpressionLookup, HasRuleText, Id, NoOpRunOnPassProcessor, Rule, RuleSuite, RunOnPassProcessor}
 
 import scala.util.parsing.combinator.{JavaTokenParsers, PackratParsers}
@@ -108,11 +108,11 @@ ${DocsParser.stripComments(any.asInstanceOf[HasRuleText].rule)}
 ```
 ${
         expressionLookups.get(id).fold("") { expr =>
-          val qf = genLinks(expr.sparkFunctions.filter(RuleRunnerFunctions.qualityFunctions), "Quality functions used", "spark_functions_used", extraFunctionListClass) {
+          val qf = genLinks(expr.sparkFunctions.filter(RuleRegistrationFunctions.qualityFunctions), "Quality functions used", "spark_functions_used", extraFunctionListClass) {
             fname =>
               s"""<a target="_blank" href="$qualityDocLink#${fname.toLowerCase}">$fname</a>"""
           }
-          val sf = genLinks(expr.sparkFunctions.filterNot(RuleRunnerFunctions.qualityFunctions), "Spark functions used", "spark_functions_used", extraFunctionListClass) {
+          val sf = genLinks(expr.sparkFunctions.filterNot(RuleRegistrationFunctions.qualityFunctions), "Spark functions used", "spark_functions_used", extraFunctionListClass) {
             fname =>
               s"""<a target="_blank" href="https://spark.apache.org/docs/latest/api/sql/index.html#$fname">$fname</a>"""
           }

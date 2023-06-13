@@ -1,6 +1,7 @@
 package com.sparkutils.qualityTests
 
-import com.sparkutils.quality.{INC_REWRITE_GENEXP_ERR_MSG, Id, LambdaFunctionImpl, registerLambdaFunctions}
+import com.sparkutils.quality.{Id, LambdaFunctionImpl, registerLambdaFunctions}
+import com.sparkutils.quality.impl.RuleRegistrationFunctions.INC_REWRITE_GENEXP_ERR_MSG
 import com.sparkutils.qualityTests.mapLookup.TradeTests._
 import org.apache.spark.sql.catalyst.expressions.GenericRowWithSchema
 import org.apache.spark.sql.functions.expr
@@ -9,7 +10,7 @@ import org.apache.spark.sql.{Column, DataFrame, Dataset}
 import org.junit.Test
 import org.scalatest.FunSuite
 
-class AggregatesTest extends FunSuite with RowTools with TestUtils {
+class AggregatesTest extends FunSuite with TestUtils {
 
   def doMapTest(transform: Dataset[java.lang.Long] => Dataset[java.lang.Long], sql: String): Unit = evalCodeGensNoResolve {
     val factor = 200 // NB 2000 runs in 5m2s with default index scan and replace and map_concat which clearly fails, 4m 51 with index and map merge with expr based add

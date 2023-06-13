@@ -1,9 +1,10 @@
 package com.sparkutils.quality.impl.rng
 
+import com.sparkutils.quality.impl.StatefulLike
 import org.apache.commons.rng.simple.RandomSource
 import org.apache.spark.sql.Column
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionWithRandomSeed, LeafExpression, Literal, Rand, Stateful}
+import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionWithRandomSeed, LeafExpression, Literal, Rand}
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
 import org.apache.spark.sql.types.{BinaryType, DataType, LongType, StructField, StructType}
 
@@ -45,7 +46,7 @@ case class RandBytesNonJump(definedSeed: Long, numBytes: Int, source: RandomSour
 /**
  * Base implementation for random number byte generation with pluggable implementations
  */
-abstract class RandBytes extends LeafExpression with Stateful
+abstract class RandBytes extends LeafExpression with StatefulLike
   with ExpressionWithRandomSeed with CodegenFallback with RngImpl {
 
   type ThisType <: RandBytes
@@ -114,7 +115,7 @@ case class RandLongsNonJump(definedSeed: Long, source: RandomSource) extends Ran
 /**
  * Base implementation for random number two long (128 bit) generation with pluggable implementations
  */
-abstract class RandLongs extends LeafExpression with Stateful
+abstract class RandLongs extends LeafExpression with StatefulLike
   with ExpressionWithRandomSeed with CodegenFallback with RngImpl {
 
   type ThisType <: RandLongs

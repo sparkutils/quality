@@ -3,7 +3,8 @@ import com.sparkutils.quality._
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions.expr
 import org.apache.spark.sql.types.{DataType, LongType}
-import org.codehaus.janino.InternalCompilerException
+import org.junit.Ignore
+// 3.4 drops this import org.codehaus.janino.InternalCompilerException
 import org.junit.Assert.fail
 import org.junit.Test
 
@@ -13,6 +14,7 @@ import org.junit.Test
  *
  * Alas it adds another minute to the testing, but worth it.  It will add more when engine is codegen'd ...
  */
+//@Ignore
 class CodeGenTest extends RowTools with TestUtils {
 
   def readGen[T](func: (Int, Int, DataFrame) => DataFrame, dataType: DataType, startValue: T)  = {
@@ -57,11 +59,11 @@ class CodeGenTest extends RowTools with TestUtils {
       f
       finished = true
     } catch {
-      case e: Throwable if e.getCause ne null =>
-        e.getCause match {
-          case ice: InternalCompilerException if ice.getMessage.contains("grows beyond 64 KB")=> () // ok
-          case _ => fail("Cause was not an ICE but "+e.getCause.getClass.getName)
-        }
+      case e: Throwable if anyCauseHas(e, {
+        case ice: Exception /*InternalCompilerException*/ if ice.getMessage.contains("grows beyond 64 KB") => true
+        case _ => false
+      }) =>
+        ()
       case t: Throwable => {
         val c = t.getCause
         fail("Should have throw 64k, instead got "+t.getMessage)
@@ -72,12 +74,13 @@ class CodeGenTest extends RowTools with TestUtils {
     }
   }
 
+  // GC's on 3.4, taking 2m locally
   @Test
-  def ruleRunnerTooMuchPerFunc: Unit = not_Databricks{ not2_4{ forceCodeGen {
+  def ruleRunnerTooMuchPerFunc: Unit = not3_4_or_above{ not_Databricks{ not2_4{ forceCodeGen {
     shouldAssert64kb{
       doRunnerGen(variablesPerFunc= 30000, variableFuncGroup = 12)
     }
-  }}}
+  }}}}
 
   @Test
   def ruleRunnerDefault: Unit = not2_4{ forceCodeGen {

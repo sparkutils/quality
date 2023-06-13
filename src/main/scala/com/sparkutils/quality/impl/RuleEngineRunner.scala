@@ -10,7 +10,7 @@ import com.sparkutils.quality.utils.{NonPassThrough, PassThrough}
 import com.sparkutils.quality._
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
-import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenFallback}
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression, UnaryExpression}
 import org.apache.spark.sql.catalyst.util.GenericArrayData
 import org.apache.spark.sql.types._
@@ -20,7 +20,7 @@ import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 import scala.reflect.ClassTag
 
-trait RuleEngineRunnerImports {
+object RuleEngineRunnerImpl {
 
   /**
    * Creates a column that runs the RuleSuite.  This also forces registering the lambda functions used by that RuleSuite
@@ -35,15 +35,15 @@ trait RuleEngineRunnerImports {
    * @param forceTriggerEval Defaulting to true, passing true forces each trigger expression to be compiled (compileEvals) and used in place, false instead expands the trigger in-line giving possible performance boosts based on JIT.  Most testing has however shown this not to be the case hence the default, ymmv.
    * @return A Column representing the QualityRules expression built from this ruleSuite
    */
-  def ruleEngineRunner(ruleSuite: RuleSuite, resultDataType: DataType, compileEvals: Boolean = true,
+  def ruleEngineRunnerImpl(ruleSuite: RuleSuite, resultDataType: DataType, compileEvals: Boolean = true,
                        debugMode: Boolean = false, resolveWith: Option[DataFrame] = None, variablesPerFunc: Int = 40,
                        variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = true): Column = {
     com.sparkutils.quality.registerLambdaFunctions( ruleSuite.lambdaFunctions )
     val realType =
       if (debugMode)
-        // wrap it in an array with the priority result
-        ArrayType(StructType(Seq(StructField("salience", IntegerType), StructField("result", resultDataType))))
-      else
+      // wrap it in an array with the priority result
+      ArrayType(StructType(Seq(StructField("salience", IntegerType), StructField("result", resultDataType))))
+        else
         resultDataType
 
     val (expressions, indexes) = flattenExpressions(ruleSuite)
@@ -234,7 +234,8 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
 
     val output = {
       val javaType = realChildren.last.genCode(ctx).value.javaType // last should always be good
-      if (javaType.isPrimitive) javaType else javaType.getName
+      // can't use the primitive type as it can't handle nulls
+      if (javaType.isPrimitive) CodeGenerator.boxedType(javaType.getSimpleName) else javaType.getName
     }
     val outArrTerm = ctx.addMutableState(output+"[]", ctx.freshName("output"),
       v => s"$v = new $output[$offset];")

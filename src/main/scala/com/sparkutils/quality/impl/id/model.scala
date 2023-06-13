@@ -1,9 +1,7 @@
 package com.sparkutils.quality.impl.id
 
-import java.net.{InetAddress, NetworkInterface}
 import java.util.{Base64, Calendar, TimeZone}
 
-import com.sparkutils.quality.impl.bloom.parquet.Bucketed
 import com.sparkutils.quality.utils.BytePackingUtils
 import org.apache.spark.sql.types.{IntegerType, LongType, StructField, StructType}
 
@@ -126,10 +124,7 @@ sealed trait BaseWithLongs extends ID {
    * Spark representation, typically these are also exploded, use dataType function to get exploding prefixes
    * @return
    */
-  override def rawDataType: StructType = StructType(
-    ( StructField(name = "base", dataType = IntegerType) +:
-      (0 until array.length).map(i => StructField(name = "i"+i, dataType = LongType)) ).toArray
-  )
+  override def rawDataType: StructType = model.rawType(array.size)
 
   /**
    * BitSet representation of the ID
@@ -149,7 +144,7 @@ sealed trait BaseWithLongs extends ID {
    *
    * @return
    */
-  override def bitLength: Int = 32 + (array.length * 64)
+  override def bitLength: Int = model.bitLength(array)
 
   /**
    * base64 representation - matches the factory function in ID
@@ -342,8 +337,18 @@ case class InvalidIDType(idType: Byte) extends RuntimeException(s"Invalid ID Typ
  * Model for ID handling
  */
 object model {
+
+  def bitLength(array: Array[Long]): Int = bitLength(array.length)
+  def bitLength(size: Int): Int = 32 + (size * 64)
+
+  def rawType(size: Int): StructType =  StructType(
+    ( StructField(name = "base", dataType = IntegerType) +:
+      (0 until size).map(i => StructField(name = "i"+i, dataType = LongType)) ).toArray
+  )
+
   /**
    * Provides the host's MAC address
+   *
    * @return
    */
   val localMAC = {
@@ -426,6 +431,50 @@ object model {
   val FieldBasedID: IDType = IDTypeImpl(Integer.parseInt("0010", 2).toByte, isFieldBased = true)
   val GuaranteedUniqueIDType: IDType = IDTypeImpl(GuaranteedUniqueHeader, isGuaranteedUnique = true)
   val ProvidedID: IDType = IDTypeImpl(Integer.parseInt("0100", 2).toByte, isProvided = true)
+/*
+  /**
+   * Creates the appropriate ID type using the header in base
+   * @param base
+   * @param longs
+   * @return
+   */
+  def id(base: Int, longs: Array[Long]): ID = {
+    val header = (base >> 24).asInstanceOf[Byte]
+    val idtype = header & GuaranteedUniqueHeader
+    idtype match {
+      case GenericLongsHeader => GenericLongBasedID(idTypeOf(header), longs)
+      case GuaranteedUniqueHeader => GuaranteedUniqueID()
+    }
+  } */
+
+  /**
+   * For a given byte array provides the length, only relevant for GenericLongsBasedID
+   * @param bytes
+   * @return
+   */
+  def lengthOfID(bytes: Array[Byte]) =
+    ((bytes(2) & 0xFF) << 16) |
+      ((bytes(3) & 0xFF) << 0)
+
+  /**
+   * Provides the type of the id from the first byte
+   * @param header
+   * @return
+   */
+  def idTypeOf(header: Byte): IDType = {
+    val idtype = header & GuaranteedUniqueHeader
+    idtype match {
+      case GenericLongsHeader =>
+        header match {
+          case FieldBasedID.typeMask => FieldBasedID
+          case ProvidedID.typeMask => ProvidedID
+          case RandomID.typeMask => RandomID
+          case _ => throw new InvalidIDType(header.toByte)
+        }
+      case GuaranteedUniqueHeader =>
+        GuaranteedUniqueIDType
+    }
+  }
 
   /**
    * parses a given base64 representation of an ID into the correct type
@@ -437,9 +486,7 @@ object model {
     val idtype = header & GuaranteedUniqueHeader
     idtype match {
       case GenericLongsHeader => // use 2 and 3 to get the length
-        val length =
-          ((bytes(2) & 0xFF) << 16) |
-            ((bytes(3) & 0xFF) << 0)
+        val length = lengthOfID(bytes)
         val ar = Array.ofDim[Long](length)
         for{i <- 0 until length}{
           ar(i) = BytePackingUtils.unencodeLong((i*8) + 4, bytes)
@@ -447,12 +494,7 @@ object model {
 
         GenericLongBasedID(
           // works as the default is 0 for randoms, would not work for extends then header ^ typeMask == 0 would be needed
-          header match {
-            case FieldBasedID.typeMask => FieldBasedID
-            case ProvidedID.typeMask => ProvidedID
-            case RandomID.typeMask => RandomID
-            case _ => throw new InvalidIDType(header.toByte)
-          }, ar)
+          idTypeOf(header), ar)
 
       case GuaranteedUniqueHeader =>
         val maclen = 6

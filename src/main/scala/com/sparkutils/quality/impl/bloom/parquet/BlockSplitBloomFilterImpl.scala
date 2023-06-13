@@ -1,13 +1,11 @@
 package com.sparkutils.quality.impl.bloom.parquet
 
-import java.io.IOException
-import java.io.OutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.IntBuffer
-import java.util
 
 import com.sparkutils.quality.utils.TransientHolder
+import com.sparkutils.quality.BloomLookup
 
 /*
  * Licensed to the Apache Software Foundation (ASF) under one
@@ -28,8 +26,7 @@ import com.sparkutils.quality.utils.TransientHolder
  * under the License.
  */
 
-
-trait BlockSplitBloomFilterImports {
+object BlockSplitBloomFilter {
   import com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.{BITS_PER_BLOCK, LOWER_BOUND_BYTES, UPPER_BOUND_BYTES}
 
   /**

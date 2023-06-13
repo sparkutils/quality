@@ -1,14 +1,14 @@
 package com.sparkutils.quality.tests
 
 import com.sparkutils.quality._
-import com.sparkutils.quality.impl.{RuleRunnerFunctions, RuleRunnerUtils}
-import com.sparkutils.qualityTests.{RowTools, TestUtils}
+import com.sparkutils.quality.impl.{RuleRegistrationFunctions, RuleRunnerUtils}
+import com.sparkutils.qualityTests.TestUtils
 import org.apache.spark.sql.catalyst.expressions.Literal
 import org.apache.spark.sql.types.StringType
 import org.junit.Test
 import org.scalatest.FunSuite
 
-class RoundTripPrivateTest extends FunSuite with RowTools with TestUtils {
+class RoundTripPrivateTest extends FunSuite with TestUtils {
 
   @Test
   def ruleExprSwapping(): Unit = evalCodeGens {
@@ -38,7 +38,7 @@ class RoundTripPrivateTest extends FunSuite with RowTools with TestUtils {
       ))
     ))
 
-    val flatABC = RuleRunnerFunctions.flattenExpressions(rules)
+    val flatABC = RuleRegistrationFunctions.flattenExpressions(rules)
     assert( flatABC.map( _ match {
       case Literal(a, StringType) => a
     }).mkString("") == "abcdefghijkl", "no alphabet" )

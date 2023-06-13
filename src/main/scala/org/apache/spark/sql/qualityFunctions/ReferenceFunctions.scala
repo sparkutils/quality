@@ -1,12 +1,13 @@
 package org.apache.spark.sql.qualityFunctions
 
+import com.sparkutils.quality.{QualityException, RuleLogicUtils}
+import com.sparkutils.quality.impl.HigherOrderFunctionLike
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
-import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodeGenerator, CodegenContext, CodegenFallback, ExprCode, SimpleExprValue}
-import org.apache.spark.sql.catalyst.expressions.{Expression, HigherOrderFunction, LambdaFunction, LeafExpression, NamedLambdaVariable, NullIntolerant}
-import org.apache.spark.sql.types.{AbstractDataType, DataType}
+import org.apache.spark.sql.catalyst.analysis.{TypeCheckResult, UnresolvedAttribute, UnresolvedExtractValue}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
-import org.apache.spark.sql.catalyst.expressions.objects.LambdaVariable
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, CreateNamedStruct, Expression, HigherOrderFunction, LambdaFunction, LeafExpression, Literal, NamedExpression, NamedLambdaVariable, OuterReference, ScalarSubquery, SubqueryExpression, UnresolvedNamedLambdaVariable}
+import org.apache.spark.sql.types.{AbstractDataType, DataType, StringType}
 
 /**
  * Wraps other expressions and stores the result in an RefExpression -
@@ -169,7 +170,7 @@ case class FunForward(children: Seq[Expression])
  */
 case class FunN(arguments: Seq[Expression], function: Expression, name: Option[String] = None,
                 processed: Boolean = false, attemptCodeGen: Boolean = false)
-  extends HigherOrderFunction with CodegenFallback with SeqArgs with FunDoGenCode {
+  extends HigherOrderFunctionLike with CodegenFallback with SeqArgs with FunDoGenCode {
 
   override def prettyName: String = name.getOrElse(super.prettyName)
 
@@ -179,9 +180,53 @@ case class FunN(arguments: Seq[Expression], function: Expression, name: Option[S
 
   override def functionTypes: Seq[AbstractDataType] = Seq(function.dataType)
 
-  override def bind(f: (Expression, Seq[(DataType, Boolean)]) => LambdaFunction): FunN =
-    copy(function = f(function,
-      arguments.map(e => (e.dataType, e.nullable))))
+  protected def bindInternal(f: (Expression, Seq[(DataType, Boolean)]) => LambdaFunction): HigherOrderFunction = {
+    // subqueries aren't being replaced correctly
+    val res = copy(function = f(function,
+        arguments.map(e => (e.dataType, e.nullable))))
+
+    if (RuleLogicUtils.hasSubQuery(res.function)) {
+      // only possible on > 3.4 (and DBR 12.2)
+      // given XX below reject this occurrence directly.
+      if (!arguments.forall(_.isInstanceOf[Attribute])) {
+        QualityException.qualityException(s"Cannot use LambdaFunctions with SubqueryExpressions and non-attribute parameters " + this)
+      }
+
+      def namedToOuterReference(index: Int, expression: NamedExpression) = arguments(index) match {
+        case n: NamedExpression => OuterReference(n) // replace the NamedLambdaVariable with the reference
+        // XX just expression will cause an exception printing the plan and showing the
+        // lambda variable is not accessible, wrapping it in OuterReference leads to a useless binding error
+        case _ => expression
+      }
+      function match {
+        case l: LambdaFunction =>
+
+          val replaced = {
+            // get the current args, they are the right ones to potentially replace
+            // resolve on the subquery doesn't work for LambdaVariables
+            val newL = res.function.asInstanceOf[LambdaFunction]
+            val indexes = l.arguments.zipWithIndex.toMap[Expression, Int]
+            val names = newL.arguments.zipWithIndex.map(a => a._1.name -> a._2).toMap
+            res.copy(function = res.function.transform {
+              case s: SubqueryExpression => s.withNewPlan(s.plan.transform {
+                case snippet => snippet.transformAllExpressions {
+                  case a: UnresolvedNamedLambdaVariable =>
+                    indexes.get(a).map(i => namedToOuterReference(i, newL.arguments(i))).getOrElse(a)
+                  case a: UnresolvedAttribute =>
+                    names.get(a.name).map(lamVar => namedToOuterReference(lamVar, newL.arguments(lamVar))).getOrElse(a)
+                }
+              })
+            })
+          }
+
+          replaced
+        case _ =>
+          // where there are no params in the lambda
+          res
+      }
+    } else
+      res
+  }
 
   @transient lazy val LambdaFunction(lambdaFunction, elementNamedVariables, _) = function
   @transient lazy val elementVars = elementNamedVariables.map(_.asInstanceOf[NamedLambdaVariable])
@@ -229,7 +274,7 @@ case class FunN(arguments: Seq[Expression], function: Expression, name: Option[S
           // it can be swapped out at runtime.  We can test for eval calls but given the call could be behind an
           // if way deep in the stack it's not something easy to optimise out at runtime either.
           val nlv = ev.asInstanceOf[NamedLambdaVariableCodeGen]
-          s"""
+          val snippet = s"""
              // gen the arg code
              ${arg.code}
              // capture the result and pass it to the lambdavariable holder ref
@@ -239,12 +284,9 @@ case class FunN(arguments: Seq[Expression], function: Expression, name: Option[S
                 ${nlv.valueRef} = null;
              }
              // for cases when the user of the code is CodegenFallback
-             ${if (nlv.haveNotGenerated)
-                nlv.genCode(ctx).code
-              else
-                ""
-              }
+             ${nlv.genCode(ctx).code}
              """
+          snippet
         } else
           s"""
              // nlv compat

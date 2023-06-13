@@ -4,7 +4,7 @@ import com.sparkutils.quality.utils.{BloomLookupType, MapLookupType}
 import org.junit.Test
 import org.scalatest.FunSuite
 
-class LookupIdentificationTest extends FunSuite with RowTools with TestUtils {
+class LookupIdentificationTest extends FunSuite with TestUtils {
 
   @Test
   def mapLookuplambdaTest = doSimpleLambdaTest("mapLookup", MapLookupType(_), asis)
@@ -15,16 +15,12 @@ class LookupIdentificationTest extends FunSuite with RowTools with TestUtils {
   @Test
   def probabilityInlambdaTest = doSimpleLambdaTest("probabilityIn", BloomLookupType(_), flipped)
 
-  @Test
-  def saferRowIdlambdaTest = doSimpleLambdaTest("saferRowId", BloomLookupType(_), flipped)
-
   var asis = (arg1: String, arg2: String) => s"$arg1, $arg2"
   var flipped = (arg1: String, arg2: String) => s"$arg2, $arg1"
 
   def doSimpleLambdaTest[A](lookupF: String, lookupType: String => A, argMaker: (String, String) => String): Unit = evalCodeGensNoResolve {
     import com.sparkutils.quality._
     registerQualityFunctions()
-    registerLongPairFunction(Map.empty)
 
     val ruleSuite =  RuleSuite(Id(1,1), Seq.empty, Seq(
       LambdaFunction("rule1", s"$lookupF(${argMaker("'ccyRate'", "ccy")})", Id(2,3)),

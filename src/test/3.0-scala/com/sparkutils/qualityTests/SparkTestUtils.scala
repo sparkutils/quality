@@ -3,6 +3,8 @@ package com.sparkutils.qualityTests
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.FunctionIdentifier
 import org.apache.spark.sql.catalyst.expressions.Expression
+import org.apache.spark.sql.execution.{FileSourceScanExec, SparkPlan}
+import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanExec
 import org.apache.spark.sql.internal.SQLConf
 
 import java.util.concurrent.atomic.AtomicReference
@@ -41,4 +43,13 @@ object SparkTestUtils {
   def resolveBuiltinOrTempFunction(sparkSession: SparkSession)(name: String, exps: Seq[Expression]): Option[Expression] =
     Some(sparkSession.sessionState.catalog.lookupFunction(FunctionIdentifier(name), exps))
 
+  def getCorrectPlan(sparkPlan: SparkPlan): SparkPlan =
+    if (sparkPlan.children.isEmpty)
+    // assume it's AQE
+      sparkPlan match {
+        case aq: AdaptiveSparkPlanExec => aq.initialPlan
+        case _ => sparkPlan
+      }
+    else
+      sparkPlan
 }

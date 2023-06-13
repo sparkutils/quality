@@ -6,7 +6,7 @@ import com.sparkutils.quality.{ExpressionRule, Id, LambdaFunction, OutputExpress
 import org.apache.commons.io.IOUtils
 import org.junit.Test
 
-class DocMarkdownTest extends RowTools {
+class DocMarkdownTest extends TestUtils { // test utils to force spark session before register is called
 
   /**
    * doesn't test anything but it's helpfully bootstrapped
@@ -24,7 +24,7 @@ class DocMarkdownTest extends RowTools {
 
     val rule2 = Rule(Id(6,1), ExpressionRule("fielda > fieldb"), output1)
     val rule3 = Rule(Id(4,1), ExpressionRule("testCaller2(fielda > fieldb) and test(fieldb)"))
-    val rule4 = Rule(Id(5,1), ExpressionRule("mapLookup(fielda, fieldb) and test(fieldb)"))
+    val rule4 = Rule(Id(5,1), ExpressionRule("map_Lookup(fielda, fieldb) and test(fieldb)"))
     val rule5 = Rule(Id(16,1), ExpressionRule("nonExistentFunction(fielda) and nonExistentFielda > nonExistentFieldb"))
     val rs = RuleSuite(Id(0,1), Seq(RuleSet(Id(1,1), Seq(
       rule1,

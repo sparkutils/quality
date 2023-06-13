@@ -9,7 +9,9 @@ import org.apache.spark.sql.{Column, DataFrame, QualitySparkUtils, SparkSession}
 
 import scala.collection.JavaConverters._
 
-trait MapLookupImport {
+
+
+object MapLookupImport {
 
   def registerMapLookupsAndFunction(mapLookups: MapLookups) {
     val funcReg = SparkSession.getActiveSession.get.sessionState.functionRegistry

@@ -1,6 +1,5 @@
 package com.sparkutils.quality.impl.bloom
 
-import com.sparkutils.quality.impl.longPair.SaferLongPairsExpression
 import org.apache.spark.sql.catalyst.FunctionIdentifier
 import org.apache.spark.sql.catalyst.analysis.UnresolvedFunction
 import org.apache.spark.sql.catalyst.expressions.{Expression, Literal}
@@ -22,9 +21,8 @@ object BloomFilterLookupSparkVersionSpecific {
 
       // case one
       expression match {
-        case UnresolvedFunction(FunctionIdentifier("probabilityIn" | "rowid", _), Seq(left, Literal(id: UTF8String, StringType)), _, _) => bloom(left, acc :+ id.toString)
+        case UnresolvedFunction(FunctionIdentifier(name, _), Seq(left, Literal(id: UTF8String, StringType)), _, _)  if name.replaceAll("_","").toLowerCase == "probabilityin" => bloom(left, acc :+ id.toString)
         case BloomFilterLookupExpression(left, Literal(id: UTF8String, StringType), _) => bloom(left, acc :+ id.toString)
-        case SaferLongPairsExpression(left, Literal(id: UTF8String, StringType), _) => bloom(left, acc :+ id.toString)
         case e : Expression => e.children.foldLeft(acc) { (acc, e) => bloom(e, acc) }
         case _ => acc
       }
