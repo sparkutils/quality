@@ -130,6 +130,9 @@ case class DataFrameSyntaxError(error: String) extends SyntaxError {
 object Validation {
   val unknownSOEId = Id(Int.MinValue,Int.MinValue)
   val dataFrameSyntaxErrorId = Id(Int.MinValue+1,Int.MinValue+1)
+
+  protected[quality] val defaultViewLookup: String => Boolean =
+    SparkSession.active.catalog.tableExists(_)
 }
 
 /**
@@ -141,9 +144,6 @@ object Validation {
 case class ShowParams(numRows: Int = 1000, truncate: Int = 0, vertical: Boolean = false)
 
 trait Validation {
-
-  protected val defaultViewLookup: String => Boolean =
-    SparkSession.active.catalog.tableExists(_)
 
   /**
    * For a given dataFrame provide a full set of any validation errors for a given ruleSuite.
@@ -176,7 +176,7 @@ trait Validation {
    * @param ruleSuite
    * @return A set of errors and the output from the dataframe when a runnerFunction is specified
    */
-  def validate_Lookup(frame: DataFrame, ruleSuite: RuleSuite, viewLookup: String => Boolean = defaultViewLookup): (Set[RuleError], Set[RuleWarning]) = {
+  def validate_Lookup(frame: DataFrame, ruleSuite: RuleSuite, viewLookup: String => Boolean = Validation.defaultViewLookup): (Set[RuleError], Set[RuleWarning]) = {
     val (err, warns, out, docs, exp) = validate(Right(frame), ruleSuite, viewLookup = viewLookup)
     (err, warns)
   }
@@ -258,7 +258,7 @@ trait Validation {
    */
   def validate(schemaOrFrame: Either[StructType, DataFrame], ruleSuite: RuleSuite, showParams: ShowParams = ShowParams(),
                runnerFunction: Option[DataFrame => Column] = None, qualityName: String = "Quality",
-               recursiveLambdasSOEIsOk: Boolean = false, transformBeforeShow: DataFrame => DataFrame = identity, viewLookup: String => Boolean = defaultViewLookup):
+               recursiveLambdasSOEIsOk: Boolean = false, transformBeforeShow: DataFrame => DataFrame = identity, viewLookup: String => Boolean = Validation.defaultViewLookup):
                 (Set[RuleError], Set[RuleWarning], String, RuleSuiteDocs, Map[IdTrEither, ExpressionLookup]) = {
     val schema = schemaOrFrame.fold(identity, _.schema)
 
