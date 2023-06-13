@@ -59,7 +59,8 @@ case class ExpressionLookupResults[A](lookupConstants: Map[A, Set[LookupType]], 
 
 case class ExpressionLookupResult(constants: Set[LookupType], hasExpressionLookups: Boolean)
 
-trait LookupIdFunctions {
+
+object LookupIdFunctions {
 
   def namesFromSchema(schema: StructType): Set[String] = {
 
@@ -106,6 +107,9 @@ trait LookupIdFunctions {
     LookupResults(ruleSuite, ExpressionLookupResults(Map.empty, Set.empty), lambdaResults)
   }
 }
+
+
+
 
 
 case class TSLocal[T](val initialValue: () => T) extends Serializable {

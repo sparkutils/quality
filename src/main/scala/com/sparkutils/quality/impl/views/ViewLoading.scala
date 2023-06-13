@@ -25,28 +25,39 @@ case class ViewConfig(name: String, source: Either[DataFrame, String])
  */
 private[views] case class ViewRow(name: String, token: Option[String], filter: Option[String], sql: Option[String])
 
-trait ViewLoading {
+/**
+ * For which a given view doesn't exist, but it's not one of the view configs
+ */
+case class MissingViewAnalysisException(cause: AnalysisException, message: String, viewName: String, sql: String, missingRelationNames: Set[String] ) extends RuntimeException(cause)
 
+/**
+ * A parser exception or similar occurred
+ */
+case class ViewLoaderAnalysisException( cause: AnalysisException, message: String, viewName: String, sql: String ) extends RuntimeException(cause)
+
+case class ViewLoadResults( replaced: Set[String], failedToLoadDueToCycles: Boolean, notLoadedViews: Set[String])
+
+object ViewLoader {
   /**
    * Loads view configurations from a given DataFrame for ruleSuiteId.  Wherever token is present loader will be called and the filter optionally applied.
    * @return A tuple of ViewConfig's and the names of rows which had unexpected content (either token or sql must be present)
    */
   def loadViewConfigs(loader: DataFrameLoader, viewDF: DataFrame,
-                ruleSuiteIdColumn: Column,
-                ruleSuiteVersionColumn: Column,
-                ruleSuiteId: Id,
-                name: Column,
-                token: Column,
-                filter: Column,
-                sql: Column
-               ): (Seq[ViewConfig], Set[String]) = {
+                      ruleSuiteIdColumn: Column,
+                      ruleSuiteVersionColumn: Column,
+                      ruleSuiteId: Id,
+                      name: Column,
+                      token: Column,
+                      filter: Column,
+                      sql: Column
+                     ): (Seq[ViewConfig], Set[String]) = {
     import viewDF.sparkSession.implicits._
 
     val filtered =
       viewDF.filter(
         ruleSuiteIdColumn === ruleSuiteId.id && ruleSuiteVersionColumn === ruleSuiteId.version)
-      .select(name.as("name"), token.as("token"), filter.as("filter"), sql.as("sql"))
-      .as[ViewRow]
+        .select(name.as("name"), token.as("token"), filter.as("filter"), sql.as("sql"))
+        .as[ViewRow]
 
     loadViewConfigs(loader, filtered)
   }
@@ -158,21 +169,8 @@ trait ViewLoading {
     }
     ViewLoadResults(replaced.toSet, !done, leftToProcess.keySet)
   }
-}
 
-/**
- * For which a given view doesn't exist, but it's not one of the view configs
- */
-case class MissingViewAnalysisException(cause: AnalysisException, message: String, viewName: String, sql: String, missingRelationNames: Set[String] ) extends RuntimeException(cause)
 
-/**
- * A parser exception or similar occurred
- */
-case class ViewLoaderAnalysisException( cause: AnalysisException, message: String, viewName: String, sql: String ) extends RuntimeException(cause)
-
-case class ViewLoadResults( replaced: Set[String], failedToLoadDueToCycles: Boolean, notLoadedViews: Set[String])
-
-object ViewLoader {
   def tableOrViewNotFound(ae: AnalysisException): Either[AnalysisException, Set[String]] =
     ae.plan.fold[Either[AnalysisException, Set[String]]]{
       // spark 2.4 just has exception: Table or view not found: names

@@ -1,6 +1,7 @@
 package com.sparkutils.qualityTests
 
-import com.sparkutils.quality.{INC_REWRITE_GENEXP_ERR_MSG, Id, LambdaFunctionImpl, registerLambdaFunctions}
+import com.sparkutils.quality.{Id, LambdaFunctionImpl, registerLambdaFunctions}
+import com.sparkutils.quality.impl.RuleRegistrationFunctions.INC_REWRITE_GENEXP_ERR_MSG
 import com.sparkutils.qualityTests.mapLookup.TradeTests._
 import org.apache.spark.sql.catalyst.expressions.GenericRowWithSchema
 import org.apache.spark.sql.functions.expr

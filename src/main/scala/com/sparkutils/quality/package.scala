@@ -3,12 +3,12 @@ package com.sparkutils
 import com.sparkutils.quality.impl.bloom.parquet.{BlockSplitBloomFilterImports, BucketedCreatorFunctions}
 import com.sparkutils.quality.impl.bloom.{BloomFilterLookupImports, BloomFilterRegistration, BloomFilterTypes}
 import com.sparkutils.quality.impl.id.{GenericLongBasedImports, GuaranteedUniqueIDImports}
-import com.sparkutils.quality.impl.mapLookup.MapLookupImport
+import com.sparkutils.quality.impl.mapLookup.{MapLookupImport, MapLookupImportImports}
 import com.sparkutils.quality.impl.longPair.RowIDExpressionImports
 import com.sparkutils.quality.impl.util.ComparableMapsImports
 import com.sparkutils.quality.impl.views.ViewLoading
-import com.sparkutils.quality.impl.{ProcessDisableIfMissingImports, RuleEngineRunnerImports, RuleFolderRunnerImports, RuleRunnerFunctionsImport, RuleRunnerImports, RuleSparkTypes, Validation}
-import com.sparkutils.quality.utils.{AddDataFunctions, LookupIdFunctions, SerializingImports}
+import com.sparkutils.quality.impl.{ProcessDisableIfMissingImports, RuleEngineRunnerImports, RuleFolderRunnerImports, RuleRunnerFunctionsImport, RuleRunnerImports, RuleSparkTypes, Validation, ValidationImports}
+import com.sparkutils.quality.utils.{AddDataFunctions, AddDataFunctionsImports, LookupIdFunctionsImports, SerializingImports}
 import org.apache.spark.sql.internal.SQLConf
 import org.slf4j.LoggerFactory
 
@@ -16,10 +16,10 @@ import org.slf4j.LoggerFactory
  * Provides an easy import point for the library.
  */
 package object quality extends BloomFilterTypes with BucketedCreatorFunctions with RuleRunnerFunctionsImport
-  with BloomFilterRegistration with RuleRunnerImports with Serializable with MapLookupImport
+  with BloomFilterRegistration with RuleRunnerImports with Serializable with MapLookupImportImports
   with RuleSparkTypes with BloomFilterLookupImports with BlockSplitBloomFilterImports with SerializingImports
-  with RowIDExpressionImports with AddDataFunctions with LambdaFunctions with LookupIdFunctions
-  with GenericLongBasedImports with GuaranteedUniqueIDImports with RuleEngineRunnerImports with Validation
+  with RowIDExpressionImports with AddDataFunctionsImports with LambdaFunctionsImports with LookupIdFunctionsImports
+  with GenericLongBasedImports with GuaranteedUniqueIDImports with RuleEngineRunnerImports with ValidationImports
   with ProcessDisableIfMissingImports with RuleFolderRunnerImports with ComparableMapsImports with ViewLoading {
   // NB it must inherit Serializable due to the nested types and sparks serialization
 
@@ -38,7 +38,7 @@ package object quality extends BloomFilterTypes with BucketedCreatorFunctions wi
    * @param bucketedFiles
    * @return
    */
-  def bloomLookup(bucketedFiles: BucketedFiles): BloomLookup =
+  def bloomLookup(bucketedFiles: BloomModel): BloomLookup =
     com.sparkutils.quality.impl.bloom.parquet.ThreadSafeBucketedBloomLookup(bucketedFiles)
 
   def debugTime[T](what: String, log: (Long, String)=>Unit = (i, what) => {logger.debug(s"----> ${i}ms for $what")} )( thunk: => T): T = {

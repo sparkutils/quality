@@ -35,7 +35,8 @@ object PackId {
   }
 }
 
-trait RuleRunnerImports {
+protected[quality] object RuleRunnerImpl {
+
 
   /**
    * Creates a column that runs the RuleSuite.  This also forces registering the lambda functions used by that RuleSuite
@@ -48,7 +49,7 @@ trait RuleRunnerImports {
    * @param forceRunnerEval Defaulting to false, passing true forces a simplified partially interpreted evaluation (compileEvals must be false to get fully interpreted)
    * @return A Column representing the Quality DQ expression built from this ruleSuite
    */
-  def ruleRunner(ruleSuite: RuleSuite, compileEvals: Boolean = true, resolveWith: Option[DataFrame] = None, variablesPerFunc: Int = 40, variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false): Column = {
+  def ruleRunnerImpl(ruleSuite: RuleSuite, compileEvals: Boolean = true, resolveWith: Option[DataFrame] = None, variablesPerFunc: Int = 40, variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false): Column = {
     com.sparkutils.quality.registerLambdaFunctions( ruleSuite.lambdaFunctions )
     val flattened = flattenExpressions(ruleSuite)
     val runner = new RuleRunner(RuleLogicUtils.cleanExprs(ruleSuite), PassThrough(flattened), compileEvals, variablesPerFunc, variableFuncGroup, forceRunnerEval)
@@ -63,24 +64,6 @@ trait RuleRunnerImports {
       } getOrElse runner
     )
   }
-
-  def strLit(str: String) =
-    UTF8String.fromString(str)
-
-  val strLitA = (str: Any) =>
-    UTF8String.fromString(str.asInstanceOf[String])
-
-  val packId = PackId.packId _
-  val unpackId = PackId.unpack _
-
-  val SoftFailedInt = -1
-  val SoftFailedExpr = Literal(SoftFailedInt, IntegerType)
-  val DisabledRuleInt = -2
-  val DisabledRuleExpr = Literal(DisabledRuleInt, IntegerType)
-  val PassedInt = 100000
-  val PassedExpr = Literal(PassedInt, IntegerType)
-  val FailedInt = 0
-  val FailedExpr = Literal(FailedInt, IntegerType)
 
 }
 

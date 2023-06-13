@@ -1,9 +1,10 @@
 package com.sparkutils.quality.utils
 
-import com.sparkutils.quality.{ExpressionRule, Id, LambdaFunction, LambdaFunctionImpl, LambdaFunctionRow, MetaRuleSetRow, NoOpRunOnPassProcessor, OutputExpressionRow, OutputExpression, Rule, RuleResult, RuleResultRow, RuleRow, RuleSet, RuleSuite, RuleSuiteResult, RunOnPassProcessor, RunOnPassProcessorHolder, RunOnPassProcessorImpl, VersionedId}
+import com.sparkutils.quality.{ExpressionRule, Id, LambdaFunction, LambdaFunctionImpl, LambdaFunctionRow, MetaRuleSetRow, NoOpRunOnPassProcessor, OutputExpression, OutputExpressionRow, Rule, RuleResult, RuleResultRow, RuleRow, RuleSet, RuleSuite, RuleSuiteResult, RunOnPassProcessor, RunOnPassProcessorHolder, RunOnPassProcessorImpl, VersionedId}
 import com.sparkutils.quality.RuleModel.RuleSuiteMap
 import com.sparkutils.quality.impl.RuleRunnerUtils.packId
 import com.sparkutils.quality.impl.RuleRunnerUtils
+import com.sparkutils.quality.utils.Serializing.{iIntegrateLambdas, iIntegrateOutputExpressions, ireadRulesFromDF}
 import org.apache.spark.sql._
 import org.apache.spark.sql.functions.expr
 
@@ -13,23 +14,52 @@ import scala.collection.mutable
 // Used to pull in |+| to deep merge the maps as SemiGroups - https://typelevel.org/cats/typeclasses/semigroup.html#example-usage-merging-maps
 import cats.implicits._
 
-trait SerializingImports {
+
+
+object Serializing {
+
+  def ruleResultToInt(ruleResult: RuleResult): Int = RuleRunnerUtils.ruleResultToInt(ruleResult)
+
+  def flatten(ruleSuiteResult: RuleSuiteResult): Iterable[RuleResultRow] =
+    ruleSuiteResult.ruleSetResults.flatMap{
+      case (rsId, rsR) =>
+        rsR.ruleResults.map {
+          case (rId, rRes) =>
+
+            RuleResultRow(ruleSuiteResult.id.id,
+              ruleSuiteResult.id.version,
+              ruleResultToInt(ruleSuiteResult.overallResult),
+              ruleResultToInt(rsR.overallResult),
+              rsId.id,
+              rsId.version,
+              rId.id,
+              rId.version,
+              ruleResultToInt(rRes)
+            )
+        }
+    }
+
+  /**
+   * Integrates meta rulesets into the rulesuites.  Note this only works for a specific dataset, if rulesuites should be
+   * filtered for a given dataset then this must take place before calling.
+   *
+   * @param dataFrame the dataframe to identify columns for metarules
+   * @param ruleSuiteMap the ruleSuites relevant for this dataframe
+   * @param metaRuleSetMap the meta rulesets
+   * @param stablePosition this function must maintain the law that each column name within a RuleSet always generates the same position
+   * @return
+   */
+  protected[quality] def iIntegrateMetaRuleSets(dataFrame: DataFrame, ruleSuiteMap: RuleSuiteMap, metaRuleSetMap: Map[Id, Seq[MetaRuleSetRow]], stablePosition: String => Int, transform: DataFrame => DataFrame = identity): RuleSuiteMap =
+    ruleSuiteMap.mapValues(r => metaRuleSetMap.get(r.id).map{
+      metaRuleSets =>
+        val generatedRuleSets = metaRuleSets.map( mrs => mrs.generateRuleSet(dataFrame, stablePosition, transform))
+        r.copy(ruleSets = r.ruleSets ++ generatedRuleSets)
+    }.getOrElse(r))
 
   protected[quality] def iIntegrateLambdas(ruleSuiteMap: RuleSuiteMap, lambdas: Map[Id, Seq[LambdaFunction]], globalLibrary: Option[Id], get: Id => Option[Seq[LambdaFunction]]): RuleSuiteMap = {
     val shared = globalLibrary.map(lambdas.getOrElse(_, Set()).toSet).getOrElse(Set())
     ruleSuiteMap.mapValues(r => get(r.id).map(lambdas => r.copy(lambdaFunctions = (lambdas.toSet |+| shared).toSeq)).getOrElse(r.copy(lambdaFunctions = shared.toSeq)))
   }
-
-  /**
-   * Add any of the Lambdas loaded for the rule suites
-   *
-   * @param ruleSuiteMap
-   * @param lambdas
-   * @param globalLibrary - all lambdas with this RuleSuite Id will be added to all RuleSuites
-   * @return
-   */
-  def integrateLambdas(ruleSuiteMap: RuleSuiteMap, lambdas: Map[Id, Seq[LambdaFunction]], globalLibrary: Option[Id] = None): RuleSuiteMap =
-    iIntegrateLambdas(ruleSuiteMap, lambdas, globalLibrary, r => lambdas.get(r))
 
   protected[quality] def iIntegrateOutputExpressions(ruleSuiteMap: RuleSuiteMap, outputs: Map[Id, Seq[OutputExpressionRow]], globalLibrary: Option[Id], get: Id => Option[Seq[OutputExpressionRow]]): (RuleSuiteMap, Map[Id, Set[Rule]]) = {
     val shared = globalLibrary.map(outputs.getOrElse(_, Seq.empty)).getOrElse(Seq.empty)
@@ -71,36 +101,6 @@ trait SerializingImports {
     (map, Map() ++ notexists)
   }
 
-
-  /**
-   * Returns an integrated ruleSuiteMap with a set of RuleSuite Id -> Rule mappings where the OutputExpression didn't exist.
-   *
-   * Users should check if their RuleSuite is in the "error" map.
-   *
-   * @param ruleSuiteMap
-   * @param outputs
-   * @param globalLibrary
-   * @return
-   */
-  def integrateOutputExpressions(ruleSuiteMap: RuleSuiteMap, outputs: Map[Id, Seq[OutputExpressionRow]], globalLibrary: Option[Id] = None): (RuleSuiteMap, Map[Id, Set[Rule]]) =
-    iIntegrateOutputExpressions(ruleSuiteMap, outputs, globalLibrary, id => outputs.get(id))
-
-  /**
-   * Integrates meta rulesets into the rulesuites.  Note this only works for a specific dataset, if rulesuites should be
-   * filtered for a given dataset then this must take place before calling.
-   *
-   * @param dataFrame the dataframe to identify columns for metarules
-   * @param ruleSuiteMap the ruleSuites relevant for this dataframe
-   * @param metaRuleSetMap the meta rulesets
-   * @param stablePosition this function must maintain the law that each column name within a RuleSet always generates the same position
-   * @return
-   */
-  def integrateMetaRuleSets(dataFrame: DataFrame, ruleSuiteMap: RuleSuiteMap, metaRuleSetMap: Map[Id, Seq[MetaRuleSetRow]], stablePosition: String => Int, transform: DataFrame => DataFrame = identity): RuleSuiteMap =
-    ruleSuiteMap.mapValues(r => metaRuleSetMap.get(r.id).map{
-      metaRuleSets =>
-        val generatedRuleSets = metaRuleSets.map( mrs => mrs.generateRuleSet(dataFrame, stablePosition, transform))
-        r.copy(ruleSets = r.ruleSets ++ generatedRuleSets)
-    }.getOrElse(r))
 
   /**
    * Loads lambda functions
@@ -151,13 +151,13 @@ trait SerializingImports {
    * @return
    */
   def readOutputExpressionsFromDF(
-                         outputExpressionDF: DataFrame,
-                         outputExpression: Column,
-                         outputExpressionId: Column,
-                         outputExpressionVersion: Column,
-                         outputExpressionRuleSuiteId: Column,
-                         outputExpressionRuleSuiteVersion: Column
-                       ): Map[Id, Seq[OutputExpressionRow]] = {
+                                   outputExpressionDF: DataFrame,
+                                   outputExpression: Column,
+                                   outputExpressionId: Column,
+                                   outputExpressionVersion: Column,
+                                   outputExpressionRuleSuiteId: Column,
+                                   outputExpressionRuleSuiteVersion: Column
+                                 ): Map[Id, Seq[OutputExpressionRow]] = {
     import outputExpressionDF.sparkSession.implicits._
 
     val outputExpressionRows = outputExpressionDF.select(
@@ -272,15 +272,15 @@ trait SerializingImports {
    * Loads a RuleSuite from a dataframe with integers ruleSuiteId, ruleSuiteVersion, ruleSetId, ruleSetVersion, ruleId, ruleVersion and an expression string ruleExpr
    */
   def ireadRulesFromDF(df: DataFrame,
-                      ruleSuiteId: Column,
-                      ruleSuiteVersion: Column,
-                      ruleSetId: Column,
-                      ruleSetVersion: Column,
-                      ruleId: Column,
-                      ruleVersion: Column,
-                      ruleExpr: Column,
-                      ruleEngine: Option[(Column, Column, Column)] = None
-                     ): RuleSuiteMap = {
+                       ruleSuiteId: Column,
+                       ruleSuiteVersion: Column,
+                       ruleSetId: Column,
+                       ruleSetVersion: Column,
+                       ruleId: Column,
+                       ruleVersion: Column,
+                       ruleExpr: Column,
+                       ruleEngine: Option[(Column, Column, Column)] = None
+                      ): RuleSuiteMap = {
 
     import df.sparkSession.implicits._
 
@@ -321,7 +321,7 @@ trait SerializingImports {
                   ruleEngine.map(re =>
                     RunOnPassProcessorHolder(rule.ruleEngineSalience, Id(rule.ruleEngineId, rule.ruleEngineVersion))).
                     getOrElse( NoOpRunOnPassProcessor.noOp
-                  ))).toSeq
+                    ))).toSeq
               )
           ).values.toSeq
         )
@@ -329,7 +329,7 @@ trait SerializingImports {
     // force seq
     toSeq(r)
   }
-  
+
   /**
    * Utility function to easy dealing with simple DQ rules where the rule engine functionality is ignored.
    * This can be paired with the default ruleEngine parameter in readRulesFromDF
@@ -409,30 +409,5 @@ trait SerializingImports {
 
     sess.createDataset(flattened)
   }
-
-}
-
-object Serializing {
-
-  def ruleResultToInt(ruleResult: RuleResult): Int = RuleRunnerUtils.ruleResultToInt(ruleResult)
-
-  def flatten(ruleSuiteResult: RuleSuiteResult): Iterable[RuleResultRow] =
-    ruleSuiteResult.ruleSetResults.flatMap{
-      case (rsId, rsR) =>
-        rsR.ruleResults.map {
-          case (rId, rRes) =>
-
-            RuleResultRow(ruleSuiteResult.id.id,
-              ruleSuiteResult.id.version,
-              ruleResultToInt(ruleSuiteResult.overallResult),
-              ruleResultToInt(rsR.overallResult),
-              rsId.id,
-              rsId.version,
-              rId.id,
-              rId.version,
-              ruleResultToInt(rRes)
-            )
-        }
-    }
 
 }

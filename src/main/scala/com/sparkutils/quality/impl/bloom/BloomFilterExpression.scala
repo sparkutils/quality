@@ -16,22 +16,7 @@ import org.apache.spark.sql.{Column, QualitySparkUtils, SparkSession}
 import org.apache.spark.unsafe.types.UTF8String
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
 
-trait BloomFilterRegistration {
-
-  /**
-   * Registers this bloom map and associates the probabilityIn sql expression against it
-   * @param bloomFilterMap
-   */
-  def registerBloomMapAndFunction(bloomFilterMap: Broadcast[BloomFilterMap]) {
-    val funcReg = SparkSession.getActiveSession.get.sessionState.functionRegistry
-
-    val f = (exps: Seq[Expression]) => BloomFilterLookupExpression(exps(0), exps(1), bloomFilterMap)
-    QualitySparkUtils.registerFunction(funcReg)("probabilityIn", f)
-  }
-
-}
-
-trait BloomFilterLookupImports {
+object BloomFilterLookup {
 
   /**
    * Identifies bloom ids before (or after) resolving for a given ruleSuite, use to know which bloom filters need to be loaded
@@ -49,11 +34,6 @@ trait BloomFilterLookupImports {
     ids
   }
 
-  def bloomFilterLookup(bloomFilterName: Column, lookupValue: Column, bloomMap: Broadcast[BloomFilterMap]): Column =
-    BloomFilterLookup(bloomFilterName, lookupValue, bloomMap)
-}
-
-object BloomFilterLookup {
   /**
     * For withColumn / select usage, the bloomfilters generation and test expressions must be of the same type
     */
@@ -175,7 +155,7 @@ case class BloomFilterLookupExpression(left: Expression, right: Expression, bloo
 
         Object converted = $converted;
 
-        boolean res = ((com.sparkutils.quality.package$$.BloomLookup) $bloomPair._1()).mightContain(converted);
+        boolean res = ((com.sparkutils.quality.BloomLookup) $bloomPair._1()).mightContain(converted);
         double ${ev.value} = (!res) ? 0.0 : (Double) $bloomPair._2();
         boolean ${ev.isNull} = false;
        """)

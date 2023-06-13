@@ -19,9 +19,11 @@ object LongPair {
 }
 
 trait RowIDExpressionImports {
+  @deprecated(since = "0.0.1",message = "Use uniqueId instead for row id's, checking existing rng is still a valid case so it is not removed.")
   def rowIDExpression(rng: Column, bloomLookupId: Column, bloomFilterMap: BloomFilterMap): Column =
     new Column(SaferLongPairsExpression(rng.expr, bloomLookupId.expr, bloomFilterMap))
 
+  @deprecated(since = "0.0.1",message = "Use uniqueId instead for row id's, checking existing rng is still a valid case so it is not removed.")
   def registerLongPairFunction(bloomFilterMap: BloomFilterMap) {
     val funcReg = SparkSession.getActiveSession.get.sessionState.functionRegistry
 
