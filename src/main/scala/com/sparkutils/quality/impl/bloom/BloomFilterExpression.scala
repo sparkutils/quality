@@ -1,20 +1,14 @@
 package com.sparkutils.quality.impl.bloom
 
-import com.sparkutils.quality.RuleSuite
-import com.sparkutils.quality.impl.RuleRunnerFunctions
-import com.sparkutils.quality.BloomFilterMap
 import com.sparkutils.quality.QualityException.qualityException
-import com.sparkutils.quality.impl.bloom.parquet.BloomFilter
-import com.sparkutils.quality.impl.longPair.SaferLongPairsExpression
+import com.sparkutils.quality.{BloomFilterMap, RuleSuite}
+import com.sparkutils.quality.impl.RuleRegistrationFunctions
 import org.apache.spark.broadcast.Broadcast
-import org.apache.spark.sql.catalyst.analysis.UnresolvedFunction
-import org.apache.spark.sql.catalyst.FunctionIdentifier
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode}
+import org.apache.spark.sql.catalyst.expressions.codegen.Block._
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
 import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression, ExpressionDescription, Literal, NullIntolerant}
 import org.apache.spark.sql.types.{DataType, DoubleType, StringType}
-import org.apache.spark.sql.{Column, QualitySparkUtils, SparkSession}
-import org.apache.spark.unsafe.types.UTF8String
-import org.apache.spark.sql.catalyst.expressions.codegen.Block._
+import org.apache.spark.sql.{Column, QualitySparkUtils}
 
 object BloomFilterLookup {
 
@@ -26,7 +20,7 @@ object BloomFilterLookup {
    */
   def getBlooms(ruleSuite: RuleSuite): Seq[String]  = {
     // parsing is different than plan..
-    val flattened = RuleRunnerFunctions.flattenExpressions(ruleSuite)
+    val flattened = RuleRegistrationFunctions.flattenExpressions(ruleSuite)
     val ids = flattened.flatMap {
       exp =>
         BloomFilterLookup.getBlooms(exp)

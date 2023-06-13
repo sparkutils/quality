@@ -54,7 +54,7 @@ object RuleRegistrationFunctions {
       "long_Pair_From_UUID","long_Pair","rng_UUID","rng","rng_Bytes","return_Sum","sum_With","results_With",
       "inc","meanF","agg_Expr","passed","failed","soft_Failed","disabled_Rule","pack_Ints","unpack",
       "unpack_Id_Triple","soft_Fail","probability","flatten_Results","flatten_Rule_Results", "flatten_Folder_Results", "probability_In",
-      "map_Lookup","map_Contains","safer_Long_Pair","hash_With","hash_With_Struct","za_Hash_With", "za_Hash_Longs_With",
+      "map_Lookup","map_Contains","hash_With","hash_With_Struct","za_Hash_With", "za_Hash_Longs_With",
       "hash_Field_Based_ID","za_Longs_Field_Based_ID","za_Hash_Longs_With_Struct", "za_Hash_With_Struct", "za_Field_Based_ID", "prefixed_To_Long_Pair",
       "coalesce_If_Attributes_Missing", "coalesce_If_Attributes_Missing_Disable", "update_Field", LambdaFunctions.PlaceHolder,
       LambdaFunctions.Lambda, LambdaFunctions.CallFun, "print_Expr", "print_Code", "comparable_Maps", "reverse_Comparable_Maps", "as_uuid",
@@ -535,48 +535,4 @@ object RuleRegistrationFunctions {
     })
   }
 
-}
-
-object RuleRunnerFunctions {
-
-  protected[quality] def literalsNeeded = qualityException("Cannot setup expression with non-literals")
-  protected[quality] def getLong(exp: Expression) =
-    exp match {
-      case Literal(seed: Long, LongType) => seed
-      case _ => literalsNeeded
-    }
-  protected[quality] def getInteger(exp: Expression) =
-    exp match {
-      case Literal(seed: Int, IntegerType) => seed
-      case _ => literalsNeeded
-    }
-  protected[quality] def getString(exp: Expression) =
-    exp match {
-      case Literal(str: UTF8String, StringType) => str.toString()
-      case _ => literalsNeeded
-    }
-
-  protected[quality] def flattenExpressions(ruleSuite: RuleSuite): Seq[Expression] =
-    ruleSuite.ruleSets.flatMap( ruleSet => ruleSet.rules.map(rule =>
-      rule.expression match {
-        case r: ExprLogic => r.expr // only ExprLogic are possible here
-      }))
-
-  protected[quality] val mustKeepNames = Set(LambdaFunctions.PlaceHolder,
-    LambdaFunctions.Lambda, LambdaFunctions.CallFun)
-
-  val qualityFunctions = {
-    val withUnderscores = Set("murmur3_ID","unique_ID","rng_ID","provided_ID","field_Based_ID",
-      "digest_To_Longs","digest_To_Longs_Struct","rule_Suite_Result_Details","id_Equal","long_Pair_Equal","big_Bloom","small_Bloom",
-      "long_Pair_From_UUID","long_Pair","rng_UUID","rng","rng_Bytes","return_Sum","sum_With","results_With",
-      "inc","meanF","agg_Expr","passed","failed","soft_Failed","disabled_Rule","pack_Ints","unpack",
-      "unpack_Id_Triple","soft_Fail","probability","flatten_Results","flatten_Rule_Results", "flatten_Folder_Results", "probability_In",
-      "map_Lookup","map_Contains","safer_Long_Pair","hash_With","hash_With_Struct","za_Hash_With", "za_Hash_Longs_With",
-      "hash_Field_Based_ID","za_Longs_Field_Based_ID","za_Hash_Longs_With_Struct", "za_Hash_With_Struct", "za_Field_Based_ID", "prefixed_To_Long_Pair",
-      "coalesce_If_Attributes_Missing", "coalesce_If_Attributes_Missing_Disable", "update_Field", LambdaFunctions.PlaceHolder,
-      LambdaFunctions.Lambda, LambdaFunctions.CallFun, "print_Expr", "print_Code", "comparable_Maps", "reverse_Comparable_Maps", "as_uuid",
-      "id_size", "id_base64", "id_from_base64", "id_raw_type"
-    )
-    withUnderscores ++ withUnderscores.map(n => if (mustKeepNames(n)) n else n.replaceAll("_",""))
-  }
 }
