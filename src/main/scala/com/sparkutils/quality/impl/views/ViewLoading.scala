@@ -3,8 +3,7 @@ package com.sparkutils.quality.impl.views
 import com.sparkutils.quality.impl.Validation
 import com.sparkutils.quality.{DataFrameLoader, Id}
 import org.apache.spark.sql.catalyst.analysis.UnresolvedRelation
-import org.apache.spark.sql.catalyst.plans.logical.SubqueryAlias
-import org.apache.spark.sql.{AnalysisException, Column, DataFrame, SparkSession}
+import org.apache.spark.sql.{AnalysisException, Column, DataFrame, Dataset, SparkSession}
 
 import scala.collection.mutable
 
@@ -48,6 +47,35 @@ trait ViewLoading {
         ruleSuiteIdColumn === ruleSuiteId.id && ruleSuiteVersionColumn === ruleSuiteId.version)
       .select(name.as("name"), token.as("token"), filter.as("filter"), sql.as("sql"))
       .as[ViewRow]
+
+    loadViewConfigs(loader, filtered)
+  }
+
+  /**
+   * Loads view configurations from a given DataFrame.  Wherever token is present loader will be called and the filter optionally applied.
+   * @return A tuple of ViewConfig's and the names of rows which had unexpected content (either token or sql must be present)
+   */
+  def loadViewConfigs(loader: DataFrameLoader, viewDF: DataFrame,
+                      name: Column,
+                      token: Column,
+                      filter: Column,
+                      sql: Column
+                     ): (Seq[ViewConfig], Set[String]) = {
+    import viewDF.sparkSession.implicits._
+
+    val filtered =
+      viewDF.select(name.as("name"), token.as("token"), filter.as("filter"), sql.as("sql"))
+        .as[ViewRow]
+
+    loadViewConfigs(loader, filtered)
+  }
+
+  /**
+   * Perform the actual load against a pre-prepared dataset
+   * @return A tuple of ViewConfig's and the names of rows which had unexpected content (either token or sql must be present)
+   */
+  protected[quality] def loadViewConfigs(loader: DataFrameLoader, filtered: Dataset[ViewRow]): (Seq[ViewConfig], Set[String]) = {
+    import filtered.sparkSession.implicits._
 
     val rejects = filtered.filter("token is null and sql is null").select("name").as[String].collect().toSet
 
@@ -98,22 +126,25 @@ trait ViewLoading {
           processed = processed + name
         } catch {
           case ae: AnalysisException =>
-            ae.plan.fold(throw ae) {
-              plan =>
-                val c =
-                  plan.collect {
-                    case ur: UnresolvedRelation =>
-                      if (mapOf.contains(ur.name)) { // TODO quoted
-                        attemptCount += 1
-                        processView(mapOf(ur.name))
-                      } else // not one we can actually do anything about
-                        throw ae
-                  }
+            val res = ViewLoader.tableOrViewNotFound(ae)
+            val sql = viewPair.source.right.getOrElse("")
 
-                if (c.isEmpty) {
-                  throw ae // not what we expected
+            res.fold(a => throw ViewLoaderAnalysisException(a, s"AnalysisException for view ${viewPair.name}: $sql", viewPair.name, sql),
+              views => {
+                val missingNames =
+                  views.flatMap { name =>
+                    if (mapOf.contains(name)) { // quoted must also be in the view name if it's got minus' etc.
+                      attemptCount += 1
+                      processView(mapOf(name))
+                      None
+                    } else // not one we can actually do anything about
+                      Some(name)
+                  }
+                if (!missingNames.isEmpty) {
+                  throw MissingViewAnalysisException(ae, s"Missing relations for view ${viewPair.name}: $missingNames used in sql $sql", viewPair.name, sql, missingNames)
                 }
-            }
+              }
+            )
         }
       }
 
@@ -125,20 +156,36 @@ trait ViewLoading {
         processView(p._2)
       }
     }
-    ViewLoadResults(replaced.toSet, !done)
+    ViewLoadResults(replaced.toSet, !done, leftToProcess.keySet)
   }
 }
 
-case class ViewLoadResults( replaced: Set[String], failedToLoadDueToCycles: Boolean = false)
+/**
+ * For which a given view doesn't exist, but it's not one of the view configs
+ */
+case class MissingViewAnalysisException(cause: AnalysisException, message: String, viewName: String, sql: String, missingRelationNames: Set[String] ) extends RuntimeException(cause)
+
+/**
+ * A parser exception or similar occurred
+ */
+case class ViewLoaderAnalysisException( cause: AnalysisException, message: String, viewName: String, sql: String ) extends RuntimeException(cause)
+
+case class ViewLoadResults( replaced: Set[String], failedToLoadDueToCycles: Boolean, notLoadedViews: Set[String])
 
 object ViewLoader {
-  def tableOrViewNotFound(ae: AnalysisException): Either[Throwable, Set[String]] =
-    ae.plan.fold[Either[Throwable, Set[String]]](Left(ae)) {
+  def tableOrViewNotFound(ae: AnalysisException): Either[AnalysisException, Set[String]] =
+    ae.plan.fold[Either[AnalysisException, Set[String]]]{
+      // spark 2.4 just has exception: Table or view not found: names
+      if (ae.message.contains("Table or view not found"))
+        Right(Set(ae.message.split(":")(1).trim))
+      else
+        Left(ae)
+    } {
       plan =>
         val c =
           plan.collect {
             case ur: UnresolvedRelation =>
-              ur.name
+              ur.tableName
           }
 
         if (c.isEmpty)

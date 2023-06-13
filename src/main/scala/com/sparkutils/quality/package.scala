@@ -6,6 +6,7 @@ import com.sparkutils.quality.impl.id.{GenericLongBasedImports, GuaranteedUnique
 import com.sparkutils.quality.impl.mapLookup.MapLookupImport
 import com.sparkutils.quality.impl.longPair.RowIDExpressionImports
 import com.sparkutils.quality.impl.util.ComparableMapsImports
+import com.sparkutils.quality.impl.views.ViewLoading
 import com.sparkutils.quality.impl.{ProcessDisableIfMissingImports, RuleEngineRunnerImports, RuleFolderRunnerImports, RuleRunnerFunctionsImport, RuleRunnerImports, RuleSparkTypes, Validation}
 import com.sparkutils.quality.utils.{AddDataFunctions, LookupIdFunctions, SerializingImports}
 import org.apache.spark.sql.internal.SQLConf
@@ -19,7 +20,7 @@ package object quality extends BloomFilterTypes with BucketedCreatorFunctions wi
   with RuleSparkTypes with BloomFilterLookupImports with BlockSplitBloomFilterImports with SerializingImports
   with RowIDExpressionImports with AddDataFunctions with LambdaFunctions with LookupIdFunctions
   with GenericLongBasedImports with GuaranteedUniqueIDImports with RuleEngineRunnerImports with Validation
-  with ProcessDisableIfMissingImports with RuleFolderRunnerImports with ComparableMapsImports {
+  with ProcessDisableIfMissingImports with RuleFolderRunnerImports with ComparableMapsImports with ViewLoading {
   // NB it must inherit Serializable due to the nested types and sparks serialization
 
   val logger = LoggerFactory.getLogger("com.sparkutils.quality")
