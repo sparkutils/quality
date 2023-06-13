@@ -156,8 +156,12 @@ class ViewLoaderTest extends TestUtils {
       case MissingViewAnalysisException(cause, message, viewName, sql, missingRelationNames) =>
         val r = ViewLoader.tableOrViewNotFound(cause)
         assert(r.isRight)
-        // spark 3+ gives two, 2 only the first
-        assert(missingRelationNames == Set("`le-21`"))
+        // sparks below 3.2 don't quote.
+        if (sparkVersion.replace(".","").toInt < 32)
+          assert(missingRelationNames == Set("le-21"))
+        else
+          assert(missingRelationNames == Set("`le-21`"))
+
         assert(viewName == "le2")
     }
   }
