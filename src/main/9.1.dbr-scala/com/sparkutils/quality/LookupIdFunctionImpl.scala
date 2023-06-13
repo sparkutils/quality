@@ -31,17 +31,17 @@ object LookupIdFunctionImpl {
     def accumulate(res: Option[ExpressionLookupResult], exp: Expression): Option[ExpressionLookupResult] =
       exp match {
         // unresolved case where we cannot see more unresolved functions
-        case UnresolvedFunction(FunctionIdentifier(funcName, None), Seq(Literal(name: UTF8String, StringType), next), _, _) if funcName.toLowerCase == "maplookup" || funcName.toLowerCase =="mapcontains" =>
+        case UnresolvedFunction(FunctionIdentifier(funcName, None), Seq(Literal(name: UTF8String, StringType), next), _, _) if funcName.replaceAll("_","").toLowerCase == "maplookup" || funcName.replaceAll("_","").toLowerCase =="mapcontains" =>
           accumulate(res.map(r => r.copy(constants = r.constants + MapLookupType(name.toString))).orElse(Some(ExpressionLookupResult(Set(MapLookupType(name.toString)), false))), next)
         // unresolved case where we have constants - it'll fail  at creation
-        case UnresolvedFunction(FunctionIdentifier(funcName, None), Seq(exp, next), _, _) if funcName.toLowerCase == "maplookup" || funcName.toLowerCase =="mapcontains" =>
+        case UnresolvedFunction(FunctionIdentifier(funcName, None), Seq(exp, next), _, _) if funcName.replaceAll("_","").toLowerCase == "maplookup" || funcName.replaceAll("_","").toLowerCase =="mapcontains" =>
           accumulate(res.map(r => r.copy(hasExpressionLookups = true)).orElse(Some(ExpressionLookupResult(Set.empty, true))), next)
 
         // unresolved case where we cannot see more unresolved functions
-        case UnresolvedFunction(FunctionIdentifier(funcName, None), Seq(next, Literal(name: UTF8String, StringType)), _, _) if funcName.toLowerCase == "probabilityin" || funcName.toLowerCase =="saferrowid" =>
+        case UnresolvedFunction(FunctionIdentifier(funcName, None), Seq(next, Literal(name: UTF8String, StringType)), _, _) if funcName.replaceAll("_","").toLowerCase == "probabilityin" =>
           accumulate(res.map(r => r.copy(constants = r.constants + BloomLookupType(name.toString))).orElse(Some(ExpressionLookupResult(Set(BloomLookupType(name.toString)), false))), next)
         // unresolved case where we have constants - it'll fail  at creation
-        case UnresolvedFunction(FunctionIdentifier(funcName, None), Seq(next, exp), _, _) if funcName.toLowerCase == "probabilityin" || funcName.toLowerCase =="saferrowid" =>
+        case UnresolvedFunction(FunctionIdentifier(funcName, None), Seq(next, exp), _, _) if funcName.replaceAll("_","").toLowerCase == "probabilityin" =>
           accumulate(res.map(r => r.copy(hasExpressionLookups = true)).orElse(Some(ExpressionLookupResult(Set.empty, true))), next)
 
         case _ : LeafExpression => res

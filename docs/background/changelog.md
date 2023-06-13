@@ -1,3 +1,11 @@
+### 0.1.0 <small>10th June, 2023</small>
+
+#24 - Remove saferId / rowid functions and support
+
+#17 - ViewLoader, allows simple view configuration for views
+
+#20 - 3.5.0 starting support
+
 ### 0.0.2 <small>2nd June, 2023</small>
 
 #16 - Remove winutils requirements for testing and usage

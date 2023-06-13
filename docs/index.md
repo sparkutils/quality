@@ -17,13 +17,9 @@ Write rules using simple SQL or create re-usable functions via SQL Lambdas
 
 Your rules are just versioned data, store them wherever convenient, use them by simply defining a column.
 
-* :new:{.pulseABit} - [comparableMaps](sqlfunctions.md#comparable_maps) - allow unions or sorting with map columns without json serialising and parsing overhead
-* :new:{.pulseABit} - [set syntax](advanced/ruleFolder.md#set) - simplified syntax for updating and defaulting
-* :new:{.pulseABit} - [Spark Extension](getting_started/index.md#using-the-sql-functions-on-spark-thrift-hive-servers) - registers common Quality sql functions automatically for Thrift/Hive servers and query optimisations
-* :new:{.pulseABit} - Databricks 12.2 support
-* :new:{.pulseABit} - New id related functions: [id_size](sqlfunctions.md#id_size), [id_base64](sqlfunctions.md#id_base64), [id_from_base64](sqlfunctions.md#id_from_base64), [id_raw_type](sqlfunctions.md#id_raw_type) and ["as_uuid"](sqlfunctions.md#as_uuid)
+* :new:{.pulseABit} - [view loading](advanced/viewLoader.md) - simple api to load views for data lookup and transformation rules
 
-Rules are evaluated lazily during Spark actions, such as writing a row, with results saved in a single predicatable and extensible column.
+Rules are evaluated lazily during Spark actions, such as writing a row, with results saved in a single predictable and extensible column.
 
 ## Enhanced Spark Functionality
 

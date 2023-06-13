@@ -20,7 +20,7 @@ import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 import scala.reflect.ClassTag
 
-trait RuleEngineRunnerImports {
+object RuleEngineRunnerImpl {
 
   /**
    * Creates a column that runs the RuleSuite.  This also forces registering the lambda functions used by that RuleSuite
@@ -35,15 +35,15 @@ trait RuleEngineRunnerImports {
    * @param forceTriggerEval Defaulting to true, passing true forces each trigger expression to be compiled (compileEvals) and used in place, false instead expands the trigger in-line giving possible performance boosts based on JIT.  Most testing has however shown this not to be the case hence the default, ymmv.
    * @return A Column representing the QualityRules expression built from this ruleSuite
    */
-  def ruleEngineRunner(ruleSuite: RuleSuite, resultDataType: DataType, compileEvals: Boolean = true,
+  def ruleEngineRunnerImpl(ruleSuite: RuleSuite, resultDataType: DataType, compileEvals: Boolean = true,
                        debugMode: Boolean = false, resolveWith: Option[DataFrame] = None, variablesPerFunc: Int = 40,
                        variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = true): Column = {
     com.sparkutils.quality.registerLambdaFunctions( ruleSuite.lambdaFunctions )
     val realType =
       if (debugMode)
-        // wrap it in an array with the priority result
-        ArrayType(StructType(Seq(StructField("salience", IntegerType), StructField("result", resultDataType))))
-      else
+      // wrap it in an array with the priority result
+      ArrayType(StructType(Seq(StructField("salience", IntegerType), StructField("result", resultDataType))))
+        else
         resultDataType
 
     val (expressions, indexes) = flattenExpressions(ruleSuite)

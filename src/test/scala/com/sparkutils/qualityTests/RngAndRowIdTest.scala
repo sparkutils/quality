@@ -85,50 +85,6 @@ class RngAndRowIdTest extends FunSuite with TestUtils {
   }
 
   @Test
-  def saferRowIDNormalRNGTest: Unit = doSaferRowIDTest("rng()", (row: Row) => {
-    val r = row.getAs[Row]("uuid")
-    Array(r.getAs[Long]("lower"), r.getAs[Long]("higher"))
-  }, reallyUnique = true)
-
-  // numRows is 10000 so rand between 0-30000 should "eventually" allow us to finish but force re-evaluation
-  @Test
-  def saferRowIDBadRNGTest: Unit = doSaferRowIDTest("cast( round( (rand() * 100000) % 10000 ) as bigint)", _.getAs[Long]("uuid"))
-
-  def doSaferRowIDTest(rng: String, rowToA: Row => Any, reallyUnique: Boolean = false): Unit = evalCodeGensNoResolve {
-    import com.sparkutils.quality._
-    val numRows = 10000
-    // obviously can't actually test the values
-    val ids = sparkSession.range(numRows)
-    val uuids = ids.selectExpr("*", s"$rng as uuid").persist() // have to persist to stop re-evaluation
-
-    val fpp = 0.0001
-
-    val bf = uuids.selectExpr(s"smallBloom(uuid, ${numRows * 5}, cast( $fpp as double) ) as bloom")
-    val bits = bf.head().getAs[Array[Byte]](0)
-    val filled = bits.count(_ != 0)
-    val bloom = ThreadSafeBloomLookupImpl( bits )
-
-    // check the bloom
-    import scala.collection.JavaConverters._
-    for(row <- uuids.toLocalIterator().asScala) {
-      val id = row.getAs[Long]("id")
-      val i = rowToA(row)
-      assert(bloom.mightContain(i), s"row $id was $i")
-    }
-
-    val blooms: BloomFilterMap = Map("ids" -> (bloom, 1 - fpp))
-    registerLongPairFunction(blooms)
-
-    val unique = uuids.selectExpr(s"saferLongPair($rng, 'ids') as uuid").distinct()
-
-    /** we should never get collisions */
-    assert(unique.join(uuids, "uuid").count() == 0)
-    if (reallyUnique) {
-      assert(unique.count() == numRows)
-    }
-  }
-
-  @Test
   def rngBytesWellsTest: Unit = evalCodeGensNoResolve {
     val numRows = 10000
     // obviously can't actually test the values

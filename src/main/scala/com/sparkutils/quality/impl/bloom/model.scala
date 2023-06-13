@@ -2,6 +2,7 @@ package com.sparkutils.quality.impl.bloom
 
 import java.io.{ByteArrayInputStream, ByteArrayOutputStream}
 
+import com.sparkutils.quality.BloomLookup
 import com.sparkutils.quality.impl.rng.RandomLongs
 import org.apache.spark.sql._
 import org.apache.spark.sql.catalyst.{CatalystTypeConverters, InternalRow}
@@ -12,32 +13,17 @@ import scala.collection.JavaConverters._
 
 trait BloomFilterTypes {
   /**
-    * Used as a param to load the bloomfilter expr
+   * Used as a param to load the bloomfilter expr
    */
-  type BloomFilterMap = Map[ String, (BloomLookup, Double) ]
-
-  /**
-   * Simple does it contain function to test a bloom
-   */
-  trait BloomLookup {
-    def apply(any: Any): Boolean = mightContain(any)
-
-    def mightContain(any: Any): Boolean
-  }
-
-  case class SparkBloomFilter( bloom: BloomFilter ) extends BloomLookup {
-    override def mightContain(any: Any): Boolean =
-      any match {
-        case s: String => bloom.mightContainString(s)
-        case b: Array[Byte] => bloom.mightContainBinary(b)
-        case l: Long => bloom.mightContainLong(l)
-        case _ => bloom.mightContain(any)
-      }
-  }
+  type BloomFilterMap = BloomExpressionLookup.BloomFilterMap
 
 }
 
 object BloomExpressionLookup {
+  /**
+   * Used as a param to load the bloomfilter expr
+   */
+  type BloomFilterMap = Map[ String, (BloomLookup, Double) ]
 
   /**
    * Identifies a converter for a given expression

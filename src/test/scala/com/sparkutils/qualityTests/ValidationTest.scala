@@ -321,7 +321,7 @@ class ValidationTest extends FunSuite with TestUtils {
     errs.size
     warns.size
     println(shown)
-    assert(shown.contains("null"))
+    assert(shown.toLowerCase.contains("null"))
   }
 
   def doTestUnknownFunction(rs: RuleSuite, func: DataFrame => Column): Unit = {
