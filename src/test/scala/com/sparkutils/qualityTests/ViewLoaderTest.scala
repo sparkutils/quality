@@ -104,15 +104,15 @@ class ViewLoaderTest extends TestUtils {
         // spark 3+ gives two, 2 only the first
         val notFound = r.right.get
 
-        val notFoundSet =
-          if (notFound.size == 1)
+        val expectedNotFoundSet =
+          if (sparkVersion == "2.4")
             Set("names43")
           else
             Set("names43","ages353")
 
-        assert(notFoundSet == Set("names43","ages353"))
+        assert(notFound == expectedNotFoundSet)
 
-        assert(missingRelationNames == notFoundSet)
+        assert(missingRelationNames == expectedNotFoundSet)
         assert(viewName == "joined")
         assert(sql == config(0).sql.get)
     }
