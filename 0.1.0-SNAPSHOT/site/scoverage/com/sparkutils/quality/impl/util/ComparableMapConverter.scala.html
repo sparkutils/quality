@@ -34,180 +34,174 @@
 </span>10 <span style=''>import org.apache.spark.sql.qualityFunctions.utils.{KeyValueArray, keyValueType}
 </span>11 <span style=''>import org.apache.spark.sql.types._
 </span>12 <span style=''>
-</span>13 <span style=''>trait ComparableMapsImports {
-</span>14 <span style=''>  def comparableMaps(child: Column, compareF: DataType =&gt; Option[(Any, Any) =&gt; Int] = (dataType: DataType) =&gt; utils.defaultMapCompare(dataType)): Column =
-</span>15 <span style=''>    </span><span style='background: #AEF1AE'>ComparableMapConverter(child,compareF)</span><span style=''>
-</span>16 <span style=''>
-</span>17 <span style=''>  def reverseComparableMaps(child: Column): Column =
-</span>18 <span style=''>    </span><span style='background: #AEF1AE'>new Column(ComparableMapReverser(child.expr))</span><span style=''>
-</span>19 <span style=''>}
-</span>20 <span style=''>/**
-</span>21 <span style=''> * Convert maps to sorted arrays of key value structs to allow comparison
-</span>22 <span style=''> */
-</span>23 <span style=''>object ComparableMapConverter {
-</span>24 <span style=''>
-</span>25 <span style=''>  def apply(child: Column, compareF: DataType =&gt; Option[(Any, Any) =&gt; Int] = (dataType: DataType) =&gt; utils.defaultMapCompare(dataType)): Column =
-</span>26 <span style=''>    </span><span style='background: #AEF1AE'>new Column(ComparableMapConverter(child.expr, compareF))</span><span style=''>
-</span>27 <span style=''>
-</span>28 <span style=''>  def deMapStruct(key: (DataType, Any =&gt; Any), value: (DataType, Any =&gt; Any), compareLookup: DataType =&gt; Option[(Any, Any) =&gt; Int]): (DataType, Any =&gt; Any) =
-</span>29 <span style=''>    </span><span style='background: #AEF1AE'>(keyValueType(key._1, value._1), {
-</span>30 <span style=''></span><span style='background: #AEF1AE'>      def ensureType(dataType: DataType) =
-</span>31 <span style=''></span><span style='background: #AEF1AE'>        dataType match {
-</span>32 <span style=''></span><span style='background: #AEF1AE'>          // it it's our converted type we need to &quot;extract&quot; via MapType
-</span>33 <span style=''></span><span style='background: #AEF1AE'>          case KeyValueArray(key, value) =&gt; MapType(key, value, false)
-</span>34 <span style=''></span><span style='background: #AEF1AE'>          case _ =&gt; dataType
-</span>35 <span style=''></span><span style='background: #AEF1AE'>        }
-</span>36 <span style=''></span><span style='background: #AEF1AE'>
-</span>37 <span style=''></span><span style='background: #AEF1AE'>      val actualKeyType = ensureType(key._1)
-</span>38 <span style=''></span><span style='background: #AEF1AE'>      val actualValueType = ensureType(value._1)
-</span>39 <span style=''></span><span style='background: #AEF1AE'>
-</span>40 <span style=''></span><span style='background: #AEF1AE'>      val compareF = compareLookup(actualKeyType).getOrElse(
-</span>41 <span style=''></span><span style='background: #AEF1AE'>        </span><span style='background: #F0ADAD'>sys.error(s&quot;Could not identify the comparison function for type $actualKeyType to order keys&quot;)</span><span style='background: #AEF1AE'>
-</span>42 <span style=''></span><span style='background: #AEF1AE'>      )
-</span>43 <span style=''></span><span style='background: #AEF1AE'>      // for the key type, expanded for 2.4, scala 2.11 support
-</span>44 <span style=''></span><span style='background: #AEF1AE'>      val comparisonOrdering: Ordering[Any] = new Ordering[Any] {
-</span>45 <span style=''></span><span style='background: #AEF1AE'>        override def compare(x: Any, y: Any): Int = compareF(x, y)
-</span>46 <span style=''></span><span style='background: #AEF1AE'>      }
-</span>47 <span style=''></span><span style='background: #AEF1AE'>
-</span>48 <span style=''></span><span style='background: #AEF1AE'>      {
-</span>49 <span style=''></span><span style='background: #AEF1AE'>        case theMap: MapData =&gt;
-</span>50 <span style=''></span><span style='background: #AEF1AE'>
-</span>51 <span style=''></span><span style='background: #AEF1AE'>          // maps are already converted all the way down before trying to sort by key._2
-</span>52 <span style=''></span><span style='background: #AEF1AE'>          val sorted = Arrays.mapArray(theMap.keyArray(), actualKeyType, key._2).zipWithIndex.sortBy(_._1)(comparisonOrdering)
-</span>53 <span style=''></span><span style='background: #AEF1AE'>          val vals = Arrays.toArray(theMap.valueArray(), actualValueType)
-</span>54 <span style=''></span><span style='background: #AEF1AE'>
-</span>55 <span style=''></span><span style='background: #AEF1AE'>          // now re-pack as structs
-</span>56 <span style=''></span><span style='background: #AEF1AE'>          ArrayData.toArrayData(sorted.map {
-</span>57 <span style=''></span><span style='background: #AEF1AE'>            case (tkey, index) =&gt;
-</span>58 <span style=''></span><span style='background: #AEF1AE'>              InternalRow(tkey, value._2(vals(index)))
-</span>59 <span style=''></span><span style='background: #AEF1AE'>          })
-</span>60 <span style=''></span><span style='background: #AEF1AE'>      }
-</span>61 <span style=''></span><span style='background: #AEF1AE'>    }
-</span>62 <span style=''></span><span style='background: #AEF1AE'>  )</span><span style=''>
-</span>63 <span style=''>
-</span>64 <span style=''>  def deMapStruct(dataType: DataType, compareF: DataType =&gt; Option[(Any, Any) =&gt; Int]): (DataType, Any =&gt; Any) =
-</span>65 <span style=''>    dataType match {
-</span>66 <span style=''>      case mapType: MapType =&gt;
-</span>67 <span style=''>        val key = </span><span style='background: #AEF1AE'>deMapStruct(mapType.keyType, compareF)</span><span style=''>
-</span>68 <span style=''>        val value = </span><span style='background: #AEF1AE'>deMapStruct(mapType.valueType, compareF)</span><span style=''>
-</span>69 <span style=''>        </span><span style='background: #AEF1AE'>deMapStruct( key, value, compareF)</span><span style=''>
-</span>70 <span style=''>      case arrayType: ArrayType =&gt;
-</span>71 <span style=''>        val r = </span><span style='background: #AEF1AE'>deMapStruct(arrayType.elementType, compareF)</span><span style=''>
-</span>72 <span style=''>        </span><span style='background: #AEF1AE'>(ArrayType(r._1),
-</span>73 <span style=''></span><span style='background: #AEF1AE'>          {
-</span>74 <span style=''></span><span style='background: #AEF1AE'>            case array: util.ArrayData =&gt;
-</span>75 <span style=''></span><span style='background: #AEF1AE'>              ArrayData.toArrayData(
-</span>76 <span style=''></span><span style='background: #AEF1AE'>                Arrays.mapArray( array, arrayType.elementType, r._2 )
-</span>77 <span style=''></span><span style='background: #AEF1AE'>              )
-</span>78 <span style=''></span><span style='background: #AEF1AE'>          }
-</span>79 <span style=''></span><span style='background: #AEF1AE'>        )</span><span style=''>
-</span>80 <span style=''>      case structType: StructType =&gt;
-</span>81 <span style=''>        val fieldTransforms = </span><span style='background: #AEF1AE'>structType.fields.zipWithIndex.map{
-</span>82 <span style=''></span><span style='background: #AEF1AE'>          case (f, index) =&gt;
-</span>83 <span style=''></span><span style='background: #AEF1AE'>            val p = deMapStruct(f.dataType, compareF)
-</span>84 <span style=''></span><span style='background: #AEF1AE'>            // use original type to get
-</span>85 <span style=''></span><span style='background: #AEF1AE'>            (p._1, (a: InternalRow) =&gt; p._2(BoundReference(index, f.dataType, nullable = true).eval(a)))
-</span>86 <span style=''></span><span style='background: #AEF1AE'>        }</span><span style=''>
-</span>87 <span style=''>
-</span>88 <span style=''>        // convert types
-</span>89 <span style=''>        </span><span style='background: #AEF1AE'>(StructType(structType.fields.zip(fieldTransforms).map(p =&gt; p._1.copy(dataType = p._2._1))),
-</span>90 <span style=''></span><span style='background: #AEF1AE'>          { // convert data to target type
-</span>91 <span style=''></span><span style='background: #AEF1AE'>            case row: InternalRow =&gt;
-</span>92 <span style=''></span><span style='background: #AEF1AE'>              InternalRow.fromSeq(fieldTransforms.map(_._2(row)))
-</span>93 <span style=''></span><span style='background: #AEF1AE'>          }
-</span>94 <span style=''></span><span style='background: #AEF1AE'>        )</span><span style=''>
-</span>95 <span style=''>      case _ =&gt; </span><span style='background: #AEF1AE'>(dataType, identity)</span><span style=''>
-</span>96 <span style=''>    }
-</span>97 <span style=''>
-</span>98 <span style=''>  def mapStruct(key: (DataType, Any =&gt; Any), value: (DataType, Any =&gt; Any)): (DataType, Any =&gt; Any) =
-</span>99 <span style=''>    </span><span style='background: #AEF1AE'>(MapType(key._1, value._1, false),
-</span>100 <span style=''></span><span style='background: #AEF1AE'>      {
-</span>101 <span style=''></span><span style='background: #AEF1AE'>        case theArray: ArrayData =&gt;
-</span>102 <span style=''></span><span style='background: #AEF1AE'>
-</span>103 <span style=''></span><span style='background: #AEF1AE'>          val keyr = BoundReference(0, key._1, nullable = true)
-</span>104 <span style=''></span><span style='background: #AEF1AE'>          val valuer = BoundReference(1, value._1, nullable = true)
-</span>105 <span style=''></span><span style='background: #AEF1AE'>
-</span>106 <span style=''></span><span style='background: #AEF1AE'>          val theScalaMap =
-</span>107 <span style=''></span><span style='background: #AEF1AE'>            Arrays.mapArray(theArray, StructType(
-</span>108 <span style=''></span><span style='background: #AEF1AE'>              Seq(StructField(&quot;key&quot;, key._1, false), StructField(&quot;value&quot;, value._1, false))
-</span>109 <span style=''></span><span style='background: #AEF1AE'>            ), {
-</span>110 <span style=''></span><span style='background: #AEF1AE'>              case row: InternalRow =&gt;
-</span>111 <span style=''></span><span style='background: #AEF1AE'>                (key._2(keyr.eval(row)), value._2(valuer.eval(row)))
-</span>112 <span style=''></span><span style='background: #AEF1AE'>            } ).map(_.asInstanceOf[(Any, Any)]).toMap
-</span>113 <span style=''></span><span style='background: #AEF1AE'>
-</span>114 <span style=''></span><span style='background: #AEF1AE'>          ArrayBasedMapData(theScalaMap)
-</span>115 <span style=''></span><span style='background: #AEF1AE'>      }
-</span>116 <span style=''></span><span style='background: #AEF1AE'>    )</span><span style=''>
-</span>117 <span style=''>
-</span>118 <span style=''>  def mapStruct(dataType: DataType): (DataType, Any =&gt; Any) =
-</span>119 <span style=''>    dataType match {
-</span>120 <span style=''>      case KeyValueArray(keyType, valueType) =&gt;
-</span>121 <span style=''>        val key = </span><span style='background: #AEF1AE'>mapStruct(keyType)</span><span style=''>
-</span>122 <span style=''>        val value = </span><span style='background: #AEF1AE'>mapStruct(valueType)</span><span style=''>
-</span>123 <span style=''>        </span><span style='background: #AEF1AE'>mapStruct( key, value)</span><span style=''>
-</span>124 <span style=''>      case arrayType: ArrayType =&gt;
-</span>125 <span style=''>        val r = </span><span style='background: #AEF1AE'>mapStruct(arrayType.elementType)</span><span style=''>
-</span>126 <span style=''>        </span><span style='background: #AEF1AE'>(ArrayType(r._1),
-</span>127 <span style=''></span><span style='background: #AEF1AE'>          {
-</span>128 <span style=''></span><span style='background: #AEF1AE'>            case array: util.ArrayData =&gt;
-</span>129 <span style=''></span><span style='background: #AEF1AE'>              ArrayData.toArrayData(
-</span>130 <span style=''></span><span style='background: #AEF1AE'>                Arrays.mapArray( array, arrayType.elementType, r._2 )
-</span>131 <span style=''></span><span style='background: #AEF1AE'>              )
-</span>132 <span style=''></span><span style='background: #AEF1AE'>          }
-</span>133 <span style=''></span><span style='background: #AEF1AE'>        )</span><span style=''>
-</span>134 <span style=''>      case structType: StructType =&gt;
-</span>135 <span style=''>        val fieldTransforms = </span><span style='background: #AEF1AE'>structType.fields.zipWithIndex.map{
-</span>136 <span style=''></span><span style='background: #AEF1AE'>          case (f, index) =&gt;
-</span>137 <span style=''></span><span style='background: #AEF1AE'>            val p = mapStruct(f.dataType)
-</span>138 <span style=''></span><span style='background: #AEF1AE'>            // use original type to get
-</span>139 <span style=''></span><span style='background: #AEF1AE'>            (p._1, (a: InternalRow) =&gt; p._2(BoundReference(index, f.dataType, nullable = true).eval(a)))
-</span>140 <span style=''></span><span style='background: #AEF1AE'>        }</span><span style=''>
-</span>141 <span style=''>
-</span>142 <span style=''>        // convert types
-</span>143 <span style=''>        </span><span style='background: #AEF1AE'>(StructType(structType.fields.zip(fieldTransforms).map(p =&gt; p._1.copy(dataType = p._2._1))),
-</span>144 <span style=''></span><span style='background: #AEF1AE'>          { // convert data to target type
-</span>145 <span style=''></span><span style='background: #AEF1AE'>            case row: InternalRow =&gt;
-</span>146 <span style=''></span><span style='background: #AEF1AE'>              InternalRow.fromSeq(fieldTransforms.map(_._2(row)))
-</span>147 <span style=''></span><span style='background: #AEF1AE'>          }
-</span>148 <span style=''></span><span style='background: #AEF1AE'>        )</span><span style=''>
-</span>149 <span style=''>      case _ =&gt; </span><span style='background: #AEF1AE'>(dataType, identity)</span><span style=''>
-</span>150 <span style=''>    }
-</span>151 <span style=''>}
-</span>152 <span style=''>
-</span>153 <span style=''>/**
-</span>154 <span style=''> * Convert's structures from child replacing all Map's with ordered arrays.
-</span>155 <span style=''> *
-</span>156 <span style=''> * Order is provided by registerQualityFunctions compare parameter.
-</span>157 <span style=''> *
-</span>158 <span style=''> * @param child the child expression e.g. a quality result
-</span>159 <span style=''> * @param compareF the compare lookup function
-</span>160 <span style=''> */
-</span>161 <span style=''>case class ComparableMapConverter(child: Expression, compareF: DataType =&gt; Option[(Any, Any) =&gt; Int]) extends UnaryExpression with CodegenFallback {
+</span>13 <span style=''>
+</span>14 <span style=''>/**
+</span>15 <span style=''> * Convert maps to sorted arrays of key value structs to allow comparison
+</span>16 <span style=''> */
+</span>17 <span style=''>object ComparableMapConverter {
+</span>18 <span style=''>
+</span>19 <span style=''>  def apply(child: Column, compareF: DataType =&gt; Option[(Any, Any) =&gt; Int] = (dataType: DataType) =&gt; utils.defaultMapCompare(dataType)): Column =
+</span>20 <span style=''>    </span><span style='background: #AEF1AE'>new Column(ComparableMapConverter(child.expr, compareF))</span><span style=''>
+</span>21 <span style=''>
+</span>22 <span style=''>  def deMapStruct(key: (DataType, Any =&gt; Any), value: (DataType, Any =&gt; Any), compareLookup: DataType =&gt; Option[(Any, Any) =&gt; Int]): (DataType, Any =&gt; Any) =
+</span>23 <span style=''>    </span><span style='background: #AEF1AE'>(keyValueType(key._1, value._1), {
+</span>24 <span style=''></span><span style='background: #AEF1AE'>      def ensureType(dataType: DataType) =
+</span>25 <span style=''></span><span style='background: #AEF1AE'>        dataType match {
+</span>26 <span style=''></span><span style='background: #AEF1AE'>          // it it's our converted type we need to &quot;extract&quot; via MapType
+</span>27 <span style=''></span><span style='background: #AEF1AE'>          case KeyValueArray(key, value) =&gt; MapType(key, value, false)
+</span>28 <span style=''></span><span style='background: #AEF1AE'>          case _ =&gt; dataType
+</span>29 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>30 <span style=''></span><span style='background: #AEF1AE'>
+</span>31 <span style=''></span><span style='background: #AEF1AE'>      val actualKeyType = ensureType(key._1)
+</span>32 <span style=''></span><span style='background: #AEF1AE'>      val actualValueType = ensureType(value._1)
+</span>33 <span style=''></span><span style='background: #AEF1AE'>
+</span>34 <span style=''></span><span style='background: #AEF1AE'>      val compareF = compareLookup(actualKeyType).getOrElse(
+</span>35 <span style=''></span><span style='background: #AEF1AE'>        </span><span style='background: #F0ADAD'>sys.error(s&quot;Could not identify the comparison function for type $actualKeyType to order keys&quot;)</span><span style='background: #AEF1AE'>
+</span>36 <span style=''></span><span style='background: #AEF1AE'>      )
+</span>37 <span style=''></span><span style='background: #AEF1AE'>      // for the key type, expanded for 2.4, scala 2.11 support
+</span>38 <span style=''></span><span style='background: #AEF1AE'>      val comparisonOrdering: Ordering[Any] = new Ordering[Any] {
+</span>39 <span style=''></span><span style='background: #AEF1AE'>        override def compare(x: Any, y: Any): Int = compareF(x, y)
+</span>40 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>41 <span style=''></span><span style='background: #AEF1AE'>
+</span>42 <span style=''></span><span style='background: #AEF1AE'>      {
+</span>43 <span style=''></span><span style='background: #AEF1AE'>        case theMap: MapData =&gt;
+</span>44 <span style=''></span><span style='background: #AEF1AE'>
+</span>45 <span style=''></span><span style='background: #AEF1AE'>          // maps are already converted all the way down before trying to sort by key._2
+</span>46 <span style=''></span><span style='background: #AEF1AE'>          val sorted = Arrays.mapArray(theMap.keyArray(), actualKeyType, key._2).zipWithIndex.sortBy(_._1)(comparisonOrdering)
+</span>47 <span style=''></span><span style='background: #AEF1AE'>          val vals = Arrays.toArray(theMap.valueArray(), actualValueType)
+</span>48 <span style=''></span><span style='background: #AEF1AE'>
+</span>49 <span style=''></span><span style='background: #AEF1AE'>          // now re-pack as structs
+</span>50 <span style=''></span><span style='background: #AEF1AE'>          ArrayData.toArrayData(sorted.map {
+</span>51 <span style=''></span><span style='background: #AEF1AE'>            case (tkey, index) =&gt;
+</span>52 <span style=''></span><span style='background: #AEF1AE'>              InternalRow(tkey, value._2(vals(index)))
+</span>53 <span style=''></span><span style='background: #AEF1AE'>          })
+</span>54 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>55 <span style=''></span><span style='background: #AEF1AE'>    }
+</span>56 <span style=''></span><span style='background: #AEF1AE'>  )</span><span style=''>
+</span>57 <span style=''>
+</span>58 <span style=''>  def deMapStruct(dataType: DataType, compareF: DataType =&gt; Option[(Any, Any) =&gt; Int]): (DataType, Any =&gt; Any) =
+</span>59 <span style=''>    dataType match {
+</span>60 <span style=''>      case mapType: MapType =&gt;
+</span>61 <span style=''>        val key = </span><span style='background: #AEF1AE'>deMapStruct(mapType.keyType, compareF)</span><span style=''>
+</span>62 <span style=''>        val value = </span><span style='background: #AEF1AE'>deMapStruct(mapType.valueType, compareF)</span><span style=''>
+</span>63 <span style=''>        </span><span style='background: #AEF1AE'>deMapStruct( key, value, compareF)</span><span style=''>
+</span>64 <span style=''>      case arrayType: ArrayType =&gt;
+</span>65 <span style=''>        val r = </span><span style='background: #AEF1AE'>deMapStruct(arrayType.elementType, compareF)</span><span style=''>
+</span>66 <span style=''>        </span><span style='background: #AEF1AE'>(ArrayType(r._1),
+</span>67 <span style=''></span><span style='background: #AEF1AE'>          {
+</span>68 <span style=''></span><span style='background: #AEF1AE'>            case array: util.ArrayData =&gt;
+</span>69 <span style=''></span><span style='background: #AEF1AE'>              ArrayData.toArrayData(
+</span>70 <span style=''></span><span style='background: #AEF1AE'>                Arrays.mapArray( array, arrayType.elementType, r._2 )
+</span>71 <span style=''></span><span style='background: #AEF1AE'>              )
+</span>72 <span style=''></span><span style='background: #AEF1AE'>          }
+</span>73 <span style=''></span><span style='background: #AEF1AE'>        )</span><span style=''>
+</span>74 <span style=''>      case structType: StructType =&gt;
+</span>75 <span style=''>        val fieldTransforms = </span><span style='background: #AEF1AE'>structType.fields.zipWithIndex.map{
+</span>76 <span style=''></span><span style='background: #AEF1AE'>          case (f, index) =&gt;
+</span>77 <span style=''></span><span style='background: #AEF1AE'>            val p = deMapStruct(f.dataType, compareF)
+</span>78 <span style=''></span><span style='background: #AEF1AE'>            // use original type to get
+</span>79 <span style=''></span><span style='background: #AEF1AE'>            (p._1, (a: InternalRow) =&gt; p._2(BoundReference(index, f.dataType, nullable = true).eval(a)))
+</span>80 <span style=''></span><span style='background: #AEF1AE'>        }</span><span style=''>
+</span>81 <span style=''>
+</span>82 <span style=''>        // convert types
+</span>83 <span style=''>        </span><span style='background: #AEF1AE'>(StructType(structType.fields.zip(fieldTransforms).map(p =&gt; p._1.copy(dataType = p._2._1))),
+</span>84 <span style=''></span><span style='background: #AEF1AE'>          { // convert data to target type
+</span>85 <span style=''></span><span style='background: #AEF1AE'>            case row: InternalRow =&gt;
+</span>86 <span style=''></span><span style='background: #AEF1AE'>              InternalRow.fromSeq(fieldTransforms.map(_._2(row)))
+</span>87 <span style=''></span><span style='background: #AEF1AE'>          }
+</span>88 <span style=''></span><span style='background: #AEF1AE'>        )</span><span style=''>
+</span>89 <span style=''>      case _ =&gt; </span><span style='background: #AEF1AE'>(dataType, identity)</span><span style=''>
+</span>90 <span style=''>    }
+</span>91 <span style=''>
+</span>92 <span style=''>  def mapStruct(key: (DataType, Any =&gt; Any), value: (DataType, Any =&gt; Any)): (DataType, Any =&gt; Any) =
+</span>93 <span style=''>    </span><span style='background: #AEF1AE'>(MapType(key._1, value._1, false),
+</span>94 <span style=''></span><span style='background: #AEF1AE'>      {
+</span>95 <span style=''></span><span style='background: #AEF1AE'>        case theArray: ArrayData =&gt;
+</span>96 <span style=''></span><span style='background: #AEF1AE'>
+</span>97 <span style=''></span><span style='background: #AEF1AE'>          val keyr = BoundReference(0, key._1, nullable = true)
+</span>98 <span style=''></span><span style='background: #AEF1AE'>          val valuer = BoundReference(1, value._1, nullable = true)
+</span>99 <span style=''></span><span style='background: #AEF1AE'>
+</span>100 <span style=''></span><span style='background: #AEF1AE'>          val theScalaMap =
+</span>101 <span style=''></span><span style='background: #AEF1AE'>            Arrays.mapArray(theArray, StructType(
+</span>102 <span style=''></span><span style='background: #AEF1AE'>              Seq(StructField(&quot;key&quot;, key._1, false), StructField(&quot;value&quot;, value._1, false))
+</span>103 <span style=''></span><span style='background: #AEF1AE'>            ), {
+</span>104 <span style=''></span><span style='background: #AEF1AE'>              case row: InternalRow =&gt;
+</span>105 <span style=''></span><span style='background: #AEF1AE'>                (key._2(keyr.eval(row)), value._2(valuer.eval(row)))
+</span>106 <span style=''></span><span style='background: #AEF1AE'>            } ).map(_.asInstanceOf[(Any, Any)]).toMap
+</span>107 <span style=''></span><span style='background: #AEF1AE'>
+</span>108 <span style=''></span><span style='background: #AEF1AE'>          ArrayBasedMapData(theScalaMap)
+</span>109 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>110 <span style=''></span><span style='background: #AEF1AE'>    )</span><span style=''>
+</span>111 <span style=''>
+</span>112 <span style=''>  def mapStruct(dataType: DataType): (DataType, Any =&gt; Any) =
+</span>113 <span style=''>    dataType match {
+</span>114 <span style=''>      case KeyValueArray(keyType, valueType) =&gt;
+</span>115 <span style=''>        val key = </span><span style='background: #AEF1AE'>mapStruct(keyType)</span><span style=''>
+</span>116 <span style=''>        val value = </span><span style='background: #AEF1AE'>mapStruct(valueType)</span><span style=''>
+</span>117 <span style=''>        </span><span style='background: #AEF1AE'>mapStruct( key, value)</span><span style=''>
+</span>118 <span style=''>      case arrayType: ArrayType =&gt;
+</span>119 <span style=''>        val r = </span><span style='background: #AEF1AE'>mapStruct(arrayType.elementType)</span><span style=''>
+</span>120 <span style=''>        </span><span style='background: #AEF1AE'>(ArrayType(r._1),
+</span>121 <span style=''></span><span style='background: #AEF1AE'>          {
+</span>122 <span style=''></span><span style='background: #AEF1AE'>            case array: util.ArrayData =&gt;
+</span>123 <span style=''></span><span style='background: #AEF1AE'>              ArrayData.toArrayData(
+</span>124 <span style=''></span><span style='background: #AEF1AE'>                Arrays.mapArray( array, arrayType.elementType, r._2 )
+</span>125 <span style=''></span><span style='background: #AEF1AE'>              )
+</span>126 <span style=''></span><span style='background: #AEF1AE'>          }
+</span>127 <span style=''></span><span style='background: #AEF1AE'>        )</span><span style=''>
+</span>128 <span style=''>      case structType: StructType =&gt;
+</span>129 <span style=''>        val fieldTransforms = </span><span style='background: #AEF1AE'>structType.fields.zipWithIndex.map{
+</span>130 <span style=''></span><span style='background: #AEF1AE'>          case (f, index) =&gt;
+</span>131 <span style=''></span><span style='background: #AEF1AE'>            val p = mapStruct(f.dataType)
+</span>132 <span style=''></span><span style='background: #AEF1AE'>            // use original type to get
+</span>133 <span style=''></span><span style='background: #AEF1AE'>            (p._1, (a: InternalRow) =&gt; p._2(BoundReference(index, f.dataType, nullable = true).eval(a)))
+</span>134 <span style=''></span><span style='background: #AEF1AE'>        }</span><span style=''>
+</span>135 <span style=''>
+</span>136 <span style=''>        // convert types
+</span>137 <span style=''>        </span><span style='background: #AEF1AE'>(StructType(structType.fields.zip(fieldTransforms).map(p =&gt; p._1.copy(dataType = p._2._1))),
+</span>138 <span style=''></span><span style='background: #AEF1AE'>          { // convert data to target type
+</span>139 <span style=''></span><span style='background: #AEF1AE'>            case row: InternalRow =&gt;
+</span>140 <span style=''></span><span style='background: #AEF1AE'>              InternalRow.fromSeq(fieldTransforms.map(_._2(row)))
+</span>141 <span style=''></span><span style='background: #AEF1AE'>          }
+</span>142 <span style=''></span><span style='background: #AEF1AE'>        )</span><span style=''>
+</span>143 <span style=''>      case _ =&gt; </span><span style='background: #AEF1AE'>(dataType, identity)</span><span style=''>
+</span>144 <span style=''>    }
+</span>145 <span style=''>}
+</span>146 <span style=''>
+</span>147 <span style=''>/**
+</span>148 <span style=''> * Convert's structures from child replacing all Map's with ordered arrays.
+</span>149 <span style=''> *
+</span>150 <span style=''> * Order is provided by registerQualityFunctions compare parameter.
+</span>151 <span style=''> *
+</span>152 <span style=''> * @param child the child expression e.g. a quality result
+</span>153 <span style=''> * @param compareF the compare lookup function
+</span>154 <span style=''> */
+</span>155 <span style=''>case class ComparableMapConverter(child: Expression, compareF: DataType =&gt; Option[(Any, Any) =&gt; Int]) extends UnaryExpression with CodegenFallback {
+</span>156 <span style=''>
+</span>157 <span style=''>  lazy val (theType, theFunction) = ComparableMapConverter.deMapStruct(child.dataType, compareF: DataType =&gt; Option[(Any, Any) =&gt; Int])
+</span>158 <span style=''>
+</span>159 <span style=''>  override def dataType: DataType = theType
+</span>160 <span style=''>
+</span>161 <span style=''>  override def nullSafeEval(input: Any): Any = </span><span style='background: #AEF1AE'>theFunction(input)</span><span style=''>
 </span>162 <span style=''>
-</span>163 <span style=''>  lazy val (theType, theFunction) = ComparableMapConverter.deMapStruct(child.dataType, compareF: DataType =&gt; Option[(Any, Any) =&gt; Int])
-</span>164 <span style=''>
-</span>165 <span style=''>  override def dataType: DataType = theType
-</span>166 <span style=''>
-</span>167 <span style=''>  override def nullSafeEval(input: Any): Any = </span><span style='background: #AEF1AE'>theFunction(input)</span><span style=''>
-</span>168 <span style=''>
-</span>169 <span style=''>  protected def withNewChildInternal(newChild: Expression): Expression = </span><span style='background: #AEF1AE'>copy(child = newChild)</span><span style=''>
-</span>170 <span style=''>}
-</span>171 <span style=''>
-</span>172 <span style=''>/**
-</span>173 <span style=''> * Reverts the ComparableMapConverter
-</span>174 <span style=''> *
-</span>175 <span style=''> * @param child the child expression e.g. a quality result
-</span>176 <span style=''> */
-</span>177 <span style=''>case class ComparableMapReverser(child: Expression) extends UnaryExpression with CodegenFallback {
+</span>163 <span style=''>  protected def withNewChildInternal(newChild: Expression): Expression = </span><span style='background: #AEF1AE'>copy(child = newChild)</span><span style=''>
+</span>164 <span style=''>}
+</span>165 <span style=''>
+</span>166 <span style=''>/**
+</span>167 <span style=''> * Reverts the ComparableMapConverter
+</span>168 <span style=''> *
+</span>169 <span style=''> * @param child the child expression e.g. a quality result
+</span>170 <span style=''> */
+</span>171 <span style=''>case class ComparableMapReverser(child: Expression) extends UnaryExpression with CodegenFallback {
+</span>172 <span style=''>
+</span>173 <span style=''>  lazy val (theType, theFunction) = ComparableMapConverter.mapStruct(child.dataType)
+</span>174 <span style=''>
+</span>175 <span style=''>  override def dataType: DataType = theType
+</span>176 <span style=''>
+</span>177 <span style=''>  override def nullSafeEval(input: Any): Any = </span><span style='background: #AEF1AE'>theFunction(input)</span><span style=''>
 </span>178 <span style=''>
-</span>179 <span style=''>  lazy val (theType, theFunction) = ComparableMapConverter.mapStruct(child.dataType)
-</span>180 <span style=''>
-</span>181 <span style=''>  override def dataType: DataType = theType
-</span>182 <span style=''>
-</span>183 <span style=''>  override def nullSafeEval(input: Any): Any = </span><span style='background: #AEF1AE'>theFunction(input)</span><span style=''>
-</span>184 <span style=''>
-</span>185 <span style=''>  protected def withNewChildInternal(newChild: Expression): Expression = </span><span style='background: #AEF1AE'>copy(child = newChild)</span><span style=''>
-</span>186 <span style=''>}
+</span>179 <span style=''>  protected def withNewChildInternal(newChild: Expression): Expression = </span><span style='background: #AEF1AE'>copy(child = newChild)</span><span style=''>
+</span>180 <span style=''>}
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -222,63 +216,15 @@
         <th>Code</th>
       </tr><tr>
         <td>
-          15
+          20
         </td>
         <td>
-          5183
+          5158
         </td>
         <td>
-          785
+          896
           -
-          823
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.util.ComparableMapConverter.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ComparableMapConverter.apply(child, compareF)
-        </td>
-      </tr><tr>
-        <td>
-          18
-        </td>
-        <td>
-          5185
-        </td>
-        <td>
-          893
-          -
-          926
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.util.ComparableMapReverser.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ComparableMapReverser.apply(child.expr)
-        </td>
-      </tr><tr>
-        <td>
-          18
-        </td>
-        <td>
-          5184
-        </td>
-        <td>
-          915
-          -
-          925
+          906
         </td>
         <td>
           Select
@@ -294,87 +240,15 @@
         </td>
       </tr><tr>
         <td>
-          18
+          20
         </td>
         <td>
-          5186
+          5160
         </td>
         <td>
-          882
+          862
           -
-          927
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.apache.spark.sql.Column.&lt;init&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          new org.apache.spark.sql.Column(ComparableMapReverser.apply(child.expr))
-        </td>
-      </tr><tr>
-        <td>
-          26
-        </td>
-        <td>
-          5188
-        </td>
-        <td>
-          1206
-          -
-          1250
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.util.ComparableMapConverter.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ComparableMapConverter.apply(child.expr, compareF)
-        </td>
-      </tr><tr>
-        <td>
-          26
-        </td>
-        <td>
-          5187
-        </td>
-        <td>
-          1229
-          -
-          1239
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          org.apache.spark.sql.Column.expr
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          child.expr
-        </td>
-      </tr><tr>
-        <td>
-          26
-        </td>
-        <td>
-          5189
-        </td>
-        <td>
-          1195
-          -
-          1251
+          918
         </td>
         <td>
           Apply
@@ -390,15 +264,39 @@
         </td>
       </tr><tr>
         <td>
-          29
+          20
         </td>
         <td>
-          5191
+          5159
         </td>
         <td>
-          1437
+          873
           -
-          1445
+          917
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.ComparableMapConverter.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ComparableMapConverter.apply(child.expr, compareF)
+        </td>
+      </tr><tr>
+        <td>
+          23
+        </td>
+        <td>
+          5161
+        </td>
+        <td>
+          1096
+          -
+          1102
         </td>
         <td>
           Select
@@ -410,19 +308,43 @@
           
         </td>
         <td style="background: #AEF1AE">
-          value._1
+          key._1
         </td>
       </tr><tr>
         <td>
-          29
+          23
         </td>
         <td>
-          5212
+          5163
         </td>
         <td>
-          1415
+          1083
           -
-          2707
+          1113
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.utils.keyValueType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.qualityFunctions.utils.keyValueType(key._1, value._1)
+        </td>
+      </tr><tr>
+        <td>
+          23
+        </td>
+        <td>
+          5183
+        </td>
+        <td>
+          1082
+          -
+          2374
         </td>
         <td>
           Apply
@@ -465,159 +387,15 @@
         </td>
       </tr><tr>
         <td>
-          29
+          23
         </td>
         <td>
-          5190
+          5162
         </td>
         <td>
-          1429
+          1104
           -
-          1435
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.Tuple2._1
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          key._1
-        </td>
-      </tr><tr>
-        <td>
-          29
-        </td>
-        <td>
-          5192
-        </td>
-        <td>
-          1416
-          -
-          1446
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.apache.spark.sql.qualityFunctions.utils.keyValueType
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          org.apache.spark.sql.qualityFunctions.utils.keyValueType(key._1, value._1)
-        </td>
-      </tr><tr>
-        <td>
-          33
-        </td>
-        <td>
-          5193
-        </td>
-        <td>
-          1635
-          -
-          1661
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.apache.spark.sql.types.MapType.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          org.apache.spark.sql.types.MapType.apply(key, value, false)
-        </td>
-      </tr><tr>
-        <td>
-          37
-        </td>
-        <td>
-          5194
-        </td>
-        <td>
-          1739
-          -
-          1745
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.Tuple2._1
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          key._1
-        </td>
-      </tr><tr>
-        <td>
-          37
-        </td>
-        <td>
-          5195
-        </td>
-        <td>
-          1728
-          -
-          1746
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.util.ComparableMapConverter.ensureType
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ensureType(key._1)
-        </td>
-      </tr><tr>
-        <td>
-          38
-        </td>
-        <td>
-          5197
-        </td>
-        <td>
-          1775
-          -
-          1795
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.util.ComparableMapConverter.ensureType
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ensureType(value._1)
-        </td>
-      </tr><tr>
-        <td>
-          38
-        </td>
-        <td>
-          5196
-        </td>
-        <td>
-          1786
-          -
-          1794
+          1112
         </td>
         <td>
           Select
@@ -633,15 +411,135 @@
         </td>
       </tr><tr>
         <td>
-          40
+          27
         </td>
         <td>
-          5200
+          5164
         </td>
         <td>
-          1818
+          1302
           -
-          1968
+          1328
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.MapType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.MapType.apply(key, value, false)
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          5166
+        </td>
+        <td>
+          1395
+          -
+          1413
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.ComparableMapConverter.ensureType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ensureType(key._1)
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          5165
+        </td>
+        <td>
+          1406
+          -
+          1412
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          key._1
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          5167
+        </td>
+        <td>
+          1453
+          -
+          1461
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          value._1
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          5168
+        </td>
+        <td>
+          1442
+          -
+          1462
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.ComparableMapConverter.ensureType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ensureType(value._1)
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          5171
+        </td>
+        <td>
+          1485
+          -
+          1635
         </td>
         <td>
           Apply
@@ -657,15 +555,15 @@
         </td>
       </tr><tr>
         <td>
-          41
+          35
         </td>
         <td>
-          5199
+          5170
         </td>
         <td>
-          1866
+          1533
           -
-          1960
+          1627
         </td>
         <td>
           Apply
@@ -681,15 +579,15 @@
         </td>
       </tr><tr>
         <td>
-          41
+          35
         </td>
         <td>
-          5198
+          5169
         </td>
         <td>
-          1876
+          1543
           -
-          1959
+          1626
         </td>
         <td>
           Apply
@@ -705,15 +603,15 @@
         </td>
       </tr><tr>
         <td>
-          44
+          38
         </td>
         <td>
-          5202
+          5173
         </td>
         <td>
-          2079
+          1746
           -
-          2082
+          1749
         </td>
         <td>
           Apply
@@ -729,15 +627,15 @@
         </td>
       </tr><tr>
         <td>
-          45
+          39
         </td>
         <td>
-          5201
+          5172
         </td>
         <td>
-          2151
+          1818
           -
-          2165
+          1832
         </td>
         <td>
           Apply
@@ -753,15 +651,15 @@
         </td>
       </tr><tr>
         <td>
-          52
+          46
         </td>
         <td>
-          5203
+          5174
         </td>
         <td>
-          2328
+          1995
           -
-          2431
+          2098
         </td>
         <td>
           Apply
@@ -777,15 +675,15 @@
         </td>
       </tr><tr>
         <td>
-          53
+          47
         </td>
         <td>
-          5205
+          5176
         </td>
         <td>
-          2453
+          2120
           -
-          2505
+          2172
         </td>
         <td>
           Apply
@@ -801,15 +699,15 @@
         </td>
       </tr><tr>
         <td>
-          53
+          47
         </td>
         <td>
-          5204
+          5175
         </td>
         <td>
-          2468
+          2135
           -
-          2487
+          2154
         </td>
         <td>
           Apply
@@ -825,39 +723,15 @@
         </td>
       </tr><tr>
         <td>
-          56
+          50
         </td>
         <td>
-          5209
+          5182
         </td>
         <td>
-          2586
+          2220
           -
-          2586
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          scala.Array.canBuildFrom
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.this.Array.canBuildFrom[org.apache.spark.sql.catalyst.InternalRow]((ClassTag.apply[org.apache.spark.sql.catalyst.InternalRow](classOf[org.apache.spark.sql.catalyst.InternalRow]): scala.reflect.ClassTag[org.apache.spark.sql.catalyst.InternalRow]))
-        </td>
-      </tr><tr>
-        <td>
-          56
-        </td>
-        <td>
-          5211
-        </td>
-        <td>
-          2553
-          -
-          2689
+          2356
         </td>
         <td>
           Apply
@@ -875,15 +749,15 @@
         </td>
       </tr><tr>
         <td>
-          56
+          50
         </td>
         <td>
-          5210
+          5181
         </td>
         <td>
-          2575
+          2242
           -
-          2688
+          2355
         </td>
         <td>
           ApplyToImplicitArgs
@@ -901,39 +775,39 @@
         </td>
       </tr><tr>
         <td>
-          58
+          50
         </td>
         <td>
-          5206
+          5180
         </td>
         <td>
-          2663
+          2253
           -
-          2674
+          2253
         </td>
         <td>
-          Apply
+          ApplyToImplicitArgs
         </td>
         <td>
-          scala.Array.apply
+          scala.Array.canBuildFrom
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          vals.apply(index)
+          scala.this.Array.canBuildFrom[org.apache.spark.sql.catalyst.InternalRow]((ClassTag.apply[org.apache.spark.sql.catalyst.InternalRow](classOf[org.apache.spark.sql.catalyst.InternalRow]): scala.reflect.ClassTag[org.apache.spark.sql.catalyst.InternalRow]))
         </td>
       </tr><tr>
         <td>
-          58
+          52
         </td>
         <td>
-          5208
+          5179
         </td>
         <td>
-          2636
+          2303
           -
-          2676
+          2343
         </td>
         <td>
           Apply
@@ -949,15 +823,15 @@
         </td>
       </tr><tr>
         <td>
-          58
+          52
         </td>
         <td>
-          5207
+          5178
         </td>
         <td>
-          2654
+          2321
           -
-          2675
+          2342
         </td>
         <td>
           Apply
@@ -973,15 +847,39 @@
         </td>
       </tr><tr>
         <td>
-          67
+          52
         </td>
         <td>
-          5214
+          5177
         </td>
         <td>
-          2892
+          2330
           -
-          2930
+          2341
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          vals.apply(index)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          5185
+        </td>
+        <td>
+          2559
+          -
+          2597
         </td>
         <td>
           Apply
@@ -997,15 +895,15 @@
         </td>
       </tr><tr>
         <td>
-          67
+          61
         </td>
         <td>
-          5213
+          5184
         </td>
         <td>
-          2904
+          2571
           -
-          2919
+          2586
         </td>
         <td>
           Select
@@ -1021,39 +919,15 @@
         </td>
       </tr><tr>
         <td>
-          68
+          62
         </td>
         <td>
-          5215
+          5187
         </td>
         <td>
-          2963
+          2618
           -
-          2980
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          org.apache.spark.sql.types.MapType.valueType
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          mapType.valueType
-        </td>
-      </tr><tr>
-        <td>
-          68
-        </td>
-        <td>
-          5216
-        </td>
-        <td>
-          2951
-          -
-          2991
+          2658
         </td>
         <td>
           Apply
@@ -1069,15 +943,39 @@
         </td>
       </tr><tr>
         <td>
-          69
+          62
         </td>
         <td>
-          5217
+          5186
         </td>
         <td>
-          3000
+          2630
           -
-          3034
+          2647
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.MapType.valueType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          mapType.valueType
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          5188
+        </td>
+        <td>
+          2667
+          -
+          2701
         </td>
         <td>
           Apply
@@ -1093,39 +991,15 @@
         </td>
       </tr><tr>
         <td>
-          71
+          65
         </td>
         <td>
-          5218
+          5190
         </td>
         <td>
-          3098
+          2753
           -
-          3119
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          org.apache.spark.sql.types.ArrayType.elementType
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          arrayType.elementType
-        </td>
-      </tr><tr>
-        <td>
-          71
-        </td>
-        <td>
-          5219
-        </td>
-        <td>
-          3086
-          -
-          3130
+          2797
         </td>
         <td>
           Apply
@@ -1141,63 +1015,39 @@
         </td>
       </tr><tr>
         <td>
-          72
+          65
         </td>
         <td>
-          5221
+          5189
         </td>
         <td>
-          3140
+          2765
           -
-          3155
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.apache.spark.sql.types.ArrayType.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          org.apache.spark.sql.types.ArrayType.apply(r._1)
-        </td>
-      </tr><tr>
-        <td>
-          72
-        </td>
-        <td>
-          5220
-        </td>
-        <td>
-          3150
-          -
-          3154
+          2786
         </td>
         <td>
           Select
         </td>
         <td>
-          scala.Tuple2._1
+          org.apache.spark.sql.types.ArrayType.elementType
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          r._1
+          arrayType.elementType
         </td>
       </tr><tr>
         <td>
-          72
+          66
         </td>
         <td>
-          5226
+          5197
         </td>
         <td>
-          3139
+          2806
           -
-          3355
+          3022
         </td>
         <td>
           Apply
@@ -1215,15 +1065,63 @@
         </td>
       </tr><tr>
         <td>
-          75
+          66
         </td>
         <td>
-          5225
+          5191
         </td>
         <td>
-          3225
+          2817
           -
-          3333
+          2821
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          r._1
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          5192
+        </td>
+        <td>
+          2807
+          -
+          2822
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.ArrayType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.ArrayType.apply(r._1)
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          5196
+        </td>
+        <td>
+          2892
+          -
+          3000
         </td>
         <td>
           Apply
@@ -1239,39 +1137,15 @@
         </td>
       </tr><tr>
         <td>
-          76
+          70
         </td>
         <td>
-          5224
+          5194
         </td>
         <td>
-          3264
+          2978
           -
-          3317
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.utils.Arrays.mapArray
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          com.sparkutils.quality.utils.Arrays.mapArray(array, arrayType.elementType, r._2)
-        </td>
-      </tr><tr>
-        <td>
-          76
-        </td>
-        <td>
-          5223
-        </td>
-        <td>
-          3311
-          -
-          3315
+          2982
         </td>
         <td>
           Select
@@ -1287,15 +1161,15 @@
         </td>
       </tr><tr>
         <td>
-          76
+          70
         </td>
         <td>
-          5222
+          5193
         </td>
         <td>
-          3288
+          2955
           -
-          3309
+          2976
         </td>
         <td>
           Select
@@ -1311,63 +1185,39 @@
         </td>
       </tr><tr>
         <td>
-          81
+          70
         </td>
         <td>
-          5227
+          5195
         </td>
         <td>
-          3423
+          2931
           -
-          3440
+          2984
         </td>
         <td>
-          Select
+          Apply
         </td>
         <td>
-          org.apache.spark.sql.types.StructType.fields
+          com.sparkutils.quality.utils.Arrays.mapArray
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          structType.fields
+          com.sparkutils.quality.utils.Arrays.mapArray(array, arrayType.elementType, r._2)
         </td>
       </tr><tr>
         <td>
-          81
+          75
         </td>
         <td>
-          5236
+          5200
         </td>
         <td>
-          3457
+          3090
           -
-          3457
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          scala.Array.canBuildFrom
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.this.Array.canBuildFrom[(org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any)]((ClassTag.apply[(org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any)](classOf[scala.Tuple2]): scala.reflect.ClassTag[(org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any)]))
-        </td>
-      </tr><tr>
-        <td>
-          81
-        </td>
-        <td>
-          5229
-        </td>
-        <td>
-          3423
-          -
-          3453
+          3120
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1383,15 +1233,15 @@
         </td>
       </tr><tr>
         <td>
-          81
+          75
         </td>
         <td>
-          5237
+          5208
         </td>
         <td>
-          3423
+          3090
           -
-          3696
+          3363
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1412,15 +1262,15 @@
         </td>
       </tr><tr>
         <td>
-          81
+          75
         </td>
         <td>
-          5228
+          5199
         </td>
         <td>
-          3441
+          3108
           -
-          3441
+          3108
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1436,207 +1286,15 @@
         </td>
       </tr><tr>
         <td>
-          83
+          75
         </td>
         <td>
-          5230
+          5198
         </td>
         <td>
-          3520
+          3090
           -
-          3530
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          org.apache.spark.sql.types.StructField.dataType
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          f.dataType
-        </td>
-      </tr><tr>
-        <td>
-          83
-        </td>
-        <td>
-          5231
-        </td>
-        <td>
-          3508
-          -
-          3541
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.util.ComparableMapConverter.deMapStruct
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ComparableMapConverter.this.deMapStruct(f.dataType, compareF)
-        </td>
-      </tr><tr>
-        <td>
-          85
-        </td>
-        <td>
-          5233
-        </td>
-        <td>
-          3626
-          -
-          3684
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.apache.spark.sql.catalyst.expressions.BoundReference.eval
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          org.apache.spark.sql.catalyst.expressions.BoundReference.apply(index, f.dataType, true).eval(a)
-        </td>
-      </tr><tr>
-        <td>
-          85
-        </td>
-        <td>
-          5232
-        </td>
-        <td>
-          3595
-          -
-          3599
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.Tuple2._1
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          p._1
-        </td>
-      </tr><tr>
-        <td>
-          85
-        </td>
-        <td>
-          5235
-        </td>
-        <td>
-          3594
-          -
-          3686
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Tuple2.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.Tuple2.apply[org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any](p._1, ((a: org.apache.spark.sql.catalyst.InternalRow) =&gt; p._2.apply(org.apache.spark.sql.catalyst.expressions.BoundReference.apply(index, f.dataType, true).eval(a))))
-        </td>
-      </tr><tr>
-        <td>
-          85
-        </td>
-        <td>
-          5234
-        </td>
-        <td>
-          3621
-          -
-          3685
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Function1.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          p._2.apply(org.apache.spark.sql.catalyst.expressions.BoundReference.apply(index, f.dataType, true).eval(a))
-        </td>
-      </tr><tr>
-        <td>
-          89
-        </td>
-        <td>
-          5242
-        </td>
-        <td>
-          3812
-          -
-          3819
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.Tuple2._1
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          p._2._1
-        </td>
-      </tr><tr>
-        <td>
-          89
-        </td>
-        <td>
-          5245
-        </td>
-        <td>
-          3796
-          -
-          3796
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          org.apache.spark.sql.types.StructField.copy$default$4
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          p._1.copy$default$4
-        </td>
-      </tr><tr>
-        <td>
-          89
-        </td>
-        <td>
-          5238
-        </td>
-        <td>
-          3743
-          -
-          3760
+          3107
         </td>
         <td>
           Select
@@ -1652,15 +1310,15 @@
         </td>
       </tr><tr>
         <td>
-          89
+          75
         </td>
         <td>
-          5247
+          5207
         </td>
         <td>
-          3785
+          3124
           -
-          3785
+          3124
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1672,43 +1330,163 @@
           
         </td>
         <td style="background: #AEF1AE">
-          scala.this.Array.canBuildFrom[org.apache.spark.sql.types.StructField]((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField]))
+          scala.this.Array.canBuildFrom[(org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any)]((ClassTag.apply[(org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any)](classOf[scala.Tuple2]): scala.reflect.ClassTag[(org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any)]))
         </td>
       </tr><tr>
         <td>
-          89
+          77
         </td>
         <td>
-          5241
+          5202
         </td>
         <td>
-          3743
+          3175
           -
-          3781
+          3208
         </td>
         <td>
-          ApplyToImplicitArgs
+          Apply
         </td>
         <td>
-          scala.collection.IndexedSeqOptimized.zip
+          com.sparkutils.quality.impl.util.ComparableMapConverter.deMapStruct
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](structType.fields).zip[org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any), Array[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))]](scala.Predef.wrapRefArray[(org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any)](fieldTransforms))(scala.this.Array.canBuildFrom[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))]((ClassTag.apply[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))](classOf[scala.Tuple2]): scala.reflect.ClassTag[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))])))
+          ComparableMapConverter.this.deMapStruct(f.dataType, compareF)
         </td>
       </tr><tr>
         <td>
-          89
+          77
         </td>
         <td>
-          5244
+          5201
         </td>
         <td>
-          3796
+          3187
           -
-          3796
+          3197
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          f.dataType
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          5206
+        </td>
+        <td>
+          3261
+          -
+          3353
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any](p._1, ((a: org.apache.spark.sql.catalyst.InternalRow) =&gt; p._2.apply(org.apache.spark.sql.catalyst.expressions.BoundReference.apply(index, f.dataType, true).eval(a))))
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          5203
+        </td>
+        <td>
+          3262
+          -
+          3266
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          p._1
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          5205
+        </td>
+        <td>
+          3288
+          -
+          3352
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          p._2.apply(org.apache.spark.sql.catalyst.expressions.BoundReference.apply(index, f.dataType, true).eval(a))
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          5204
+        </td>
+        <td>
+          3293
+          -
+          3351
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.BoundReference.eval
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.BoundReference.apply(index, f.dataType, true).eval(a)
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          5215
+        </td>
+        <td>
+          3463
+          -
+          3463
         </td>
         <td>
           Select
@@ -1724,15 +1502,141 @@
         </td>
       </tr><tr>
         <td>
-          89
+          83
         </td>
         <td>
-          5243
+          5218
         </td>
         <td>
-          3796
+          3452
           -
-          3796
+          3452
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Array.canBuildFrom[org.apache.spark.sql.types.StructField]((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField]))
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          5209
+        </td>
+        <td>
+          3410
+          -
+          3427
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.fields
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          structType.fields
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          5212
+        </td>
+        <td>
+          3410
+          -
+          3448
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.IndexedSeqOptimized.zip
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](structType.fields).zip[org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any), Array[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))]](scala.Predef.wrapRefArray[(org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any)](fieldTransforms))(scala.this.Array.canBuildFrom[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))]((ClassTag.apply[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))](classOf[scala.Tuple2]): scala.reflect.ClassTag[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))])))
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          5211
+        </td>
+        <td>
+          3431
+          -
+          3431
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Array.canBuildFrom[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))]((ClassTag.apply[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))](classOf[scala.Tuple2]): scala.reflect.ClassTag[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))]))
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          5220
+        </td>
+        <td>
+          3399
+          -
+          3489
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructType.apply(scala.Predef.refArrayOps[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))](scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](structType.fields).zip[org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any), Array[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))]](scala.Predef.wrapRefArray[(org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any)](fieldTransforms))(scala.this.Array.canBuildFrom[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))]((ClassTag.apply[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))](classOf[scala.Tuple2]): scala.reflect.ClassTag[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))])))).map[org.apache.spark.sql.types.StructField, Array[org.apache.spark.sql.types.StructField]](((p: (org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))) =&gt; {
+  &lt;artifact&gt; val x$1: org.apache.spark.sql.types.DataType = p._2._1;
+  &lt;artifact&gt; val x$2: String = p._1.copy$default$1;
+  &lt;artifact&gt; val x$3: Boolean = p._1.copy$default$3;
+  &lt;artifact&gt; val x$4: org.apache.spark.sql.types.Metadata = p._1.copy$default$4;
+  p._1.copy(x$2, x$1, x$3, x$4)
+}))(scala.this.Array.canBuildFrom[org.apache.spark.sql.types.StructField]((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField]))))
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          5214
+        </td>
+        <td>
+          3463
+          -
+          3463
         </td>
         <td>
           Select
@@ -1748,15 +1652,15 @@
         </td>
       </tr><tr>
         <td>
-          89
+          83
         </td>
         <td>
-          5255
+          5226
         </td>
         <td>
-          3731
+          3398
           -
-          3991
+          3658
         </td>
         <td>
           Apply
@@ -1780,15 +1684,15 @@
         </td>
       </tr><tr>
         <td>
-          89
+          83
         </td>
         <td>
-          5246
+          5217
         </td>
         <td>
-          3791
+          3458
           -
-          3820
+          3487
         </td>
         <td>
           Apply
@@ -1804,69 +1708,15 @@
         </td>
       </tr><tr>
         <td>
-          89
+          83
         </td>
         <td>
-          5240
+          5210
         </td>
         <td>
-          3764
+          3432
           -
-          3764
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          scala.Array.canBuildFrom
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.this.Array.canBuildFrom[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))]((ClassTag.apply[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))](classOf[scala.Tuple2]): scala.reflect.ClassTag[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))]))
-        </td>
-      </tr><tr>
-        <td>
-          89
-        </td>
-        <td>
-          5249
-        </td>
-        <td>
-          3732
-          -
-          3822
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.apache.spark.sql.types.StructType.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          org.apache.spark.sql.types.StructType.apply(scala.Predef.refArrayOps[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))](scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](structType.fields).zip[org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any), Array[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))]](scala.Predef.wrapRefArray[(org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any)](fieldTransforms))(scala.this.Array.canBuildFrom[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))]((ClassTag.apply[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))](classOf[scala.Tuple2]): scala.reflect.ClassTag[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))])))).map[org.apache.spark.sql.types.StructField, Array[org.apache.spark.sql.types.StructField]](((p: (org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))) =&gt; {
-  &lt;artifact&gt; val x$1: org.apache.spark.sql.types.DataType = p._2._1;
-  &lt;artifact&gt; val x$2: String = p._1.copy$default$1;
-  &lt;artifact&gt; val x$3: Boolean = p._1.copy$default$3;
-  &lt;artifact&gt; val x$4: org.apache.spark.sql.types.Metadata = p._1.copy$default$4;
-  p._1.copy(x$2, x$1, x$3, x$4)
-}))(scala.this.Array.canBuildFrom[org.apache.spark.sql.types.StructField]((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField]))))
-        </td>
-      </tr><tr>
-        <td>
-          89
-        </td>
-        <td>
-          5239
-        </td>
-        <td>
-          3765
-          -
-          3780
+          3447
         </td>
         <td>
           ApplyImplicitView
@@ -1882,15 +1732,15 @@
         </td>
       </tr><tr>
         <td>
-          89
+          83
         </td>
         <td>
-          5248
+          5219
         </td>
         <td>
-          3743
+          3410
           -
-          3821
+          3488
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1912,87 +1762,63 @@
         </td>
       </tr><tr>
         <td>
-          92
+          83
         </td>
         <td>
-          5251
+          5213
         </td>
         <td>
-          3957
+          3479
           -
-          3957
+          3486
         </td>
         <td>
           Select
         </td>
         <td>
-          scala.Predef.DummyImplicit.dummyImplicit
+          scala.Tuple2._1
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          Predef.this.DummyImplicit.dummyImplicit
+          p._2._1
         </td>
       </tr><tr>
         <td>
-          92
+          83
         </td>
         <td>
-          5254
+          5216
         </td>
         <td>
-          3918
+          3463
           -
-          3969
+          3463
         </td>
         <td>
-          Apply
+          Select
         </td>
         <td>
-          org.apache.spark.sql.catalyst.InternalRow.fromSeq
+          org.apache.spark.sql.types.StructField.copy$default$4
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          org.apache.spark.sql.catalyst.InternalRow.fromSeq(scala.Predef.refArrayOps[(org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any)](fieldTransforms).map[Any, Seq[Any]](((x$2: (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any)) =&gt; x$2._2.apply(row)))(scala.this.Array.fallbackCanBuildFrom[Any](Predef.this.DummyImplicit.dummyImplicit)))
+          p._1.copy$default$4
         </td>
       </tr><tr>
         <td>
-          92
+          86
         </td>
         <td>
-          5250
+          5224
         </td>
         <td>
-          3958
+          3605
           -
-          3967
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Function1.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          x$2._2.apply(row)
-        </td>
-      </tr><tr>
-        <td>
-          92
-        </td>
-        <td>
-          5253
-        </td>
-        <td>
-          3938
-          -
-          3968
+          3635
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2008,15 +1834,39 @@
         </td>
       </tr><tr>
         <td>
-          92
+          86
         </td>
         <td>
-          5252
+          5221
         </td>
         <td>
-          3957
+          3625
           -
-          3957
+          3634
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$2._2.apply(row)
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          5223
+        </td>
+        <td>
+          3624
+          -
+          3624
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2032,15 +1882,63 @@
         </td>
       </tr><tr>
         <td>
-          95
+          86
         </td>
         <td>
-          5256
+          5225
         </td>
         <td>
-          4019
+          3585
           -
-          4027
+          3636
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.InternalRow.fromSeq
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.InternalRow.fromSeq(scala.Predef.refArrayOps[(org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any)](fieldTransforms).map[Any, Seq[Any]](((x$2: (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any)) =&gt; x$2._2.apply(row)))(scala.this.Array.fallbackCanBuildFrom[Any](Predef.this.DummyImplicit.dummyImplicit)))
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          5222
+        </td>
+        <td>
+          3624
+          -
+          3624
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Predef.DummyImplicit.dummyImplicit
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          Predef.this.DummyImplicit.dummyImplicit
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          5227
+        </td>
+        <td>
+          3686
+          -
+          3694
         </td>
         <td>
           Apply
@@ -2056,15 +1954,15 @@
         </td>
       </tr><tr>
         <td>
-          95
+          89
         </td>
         <td>
-          5257
+          5228
         </td>
         <td>
-          4008
+          3675
           -
-          4028
+          3695
         </td>
         <td>
           Apply
@@ -2082,15 +1980,87 @@
         </td>
       </tr><tr>
         <td>
-          99
+          93
         </td>
         <td>
-          5260
+          5230
         </td>
         <td>
-          4169
+          3826
           -
-          4174
+          3834
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          value._1
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          5229
+        </td>
+        <td>
+          3818
+          -
+          3824
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          key._1
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          5232
+        </td>
+        <td>
+          3810
+          -
+          3842
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.MapType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.MapType.apply(key._1, value._1, false)
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          5231
+        </td>
+        <td>
+          3836
+          -
+          3841
         </td>
         <td>
           Literal
@@ -2106,15 +2076,15 @@
         </td>
       </tr><tr>
         <td>
-          99
+          93
         </td>
         <td>
-          5296
+          5267
         </td>
         <td>
-          4142
+          3809
           -
-          4759
+          4426
         </td>
         <td>
           Apply
@@ -2139,111 +2109,15 @@
         </td>
       </tr><tr>
         <td>
-          99
+          97
         </td>
         <td>
-          5259
+          5233
         </td>
         <td>
-          4159
+          3925
           -
-          4167
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.Tuple2._1
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          value._1
-        </td>
-      </tr><tr>
-        <td>
-          99
-        </td>
-        <td>
-          5261
-        </td>
-        <td>
-          4143
-          -
-          4175
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.apache.spark.sql.types.MapType.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          org.apache.spark.sql.types.MapType.apply(key._1, value._1, false)
-        </td>
-      </tr><tr>
-        <td>
-          99
-        </td>
-        <td>
-          5258
-        </td>
-        <td>
-          4151
-          -
-          4157
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.Tuple2._1
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          key._1
-        </td>
-      </tr><tr>
-        <td>
-          103
-        </td>
-        <td>
-          5263
-        </td>
-        <td>
-          4261
-          -
-          4267
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.Tuple2._1
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          key._1
-        </td>
-      </tr><tr>
-        <td>
-          103
-        </td>
-        <td>
-          5262
-        </td>
-        <td>
-          4258
-          -
-          4259
+          3926
         </td>
         <td>
           Literal
@@ -2259,15 +2133,15 @@
         </td>
       </tr><tr>
         <td>
-          103
+          97
         </td>
         <td>
-          5265
+          5236
         </td>
         <td>
-          4243
+          3910
           -
-          4285
+          3952
         </td>
         <td>
           Apply
@@ -2283,15 +2157,15 @@
         </td>
       </tr><tr>
         <td>
-          103
+          97
         </td>
         <td>
-          5264
+          5235
         </td>
         <td>
-          4280
+          3947
           -
-          4284
+          3951
         </td>
         <td>
           Literal
@@ -2307,63 +2181,39 @@
         </td>
       </tr><tr>
         <td>
-          104
+          97
         </td>
         <td>
-          5269
+          5234
         </td>
         <td>
-          4309
+          3928
           -
-          4353
+          3934
         </td>
         <td>
-          Apply
+          Select
         </td>
         <td>
-          org.apache.spark.sql.catalyst.expressions.BoundReference.apply
+          scala.Tuple2._1
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          org.apache.spark.sql.catalyst.expressions.BoundReference.apply(1, value._1, true)
+          key._1
         </td>
       </tr><tr>
         <td>
-          104
+          98
         </td>
         <td>
-          5268
+          5238
         </td>
         <td>
-          4348
+          3994
           -
-          4352
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          true
-        </td>
-      </tr><tr>
-        <td>
-          104
-        </td>
-        <td>
-          5267
-        </td>
-        <td>
-          4327
-          -
-          4335
+          4002
         </td>
         <td>
           Select
@@ -2379,15 +2229,15 @@
         </td>
       </tr><tr>
         <td>
-          104
+          98
         </td>
         <td>
-          5266
+          5237
         </td>
         <td>
-          4324
+          3991
           -
-          4325
+          3992
         </td>
         <td>
           Literal
@@ -2403,15 +2253,87 @@
         </td>
       </tr><tr>
         <td>
-          107
+          98
         </td>
         <td>
-          5287
+          5240
         </td>
         <td>
-          4395
+          3976
           -
-          4665
+          4020
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.BoundReference.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.BoundReference.apply(1, value._1, true)
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          5239
+        </td>
+        <td>
+          4015
+          -
+          4019
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          5252
+        </td>
+        <td>
+          4088
+          -
+          4205
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructType.apply(scala.collection.Seq.apply[org.apache.spark.sql.types.StructField](org.apache.spark.sql.types.StructField.apply(&quot;key&quot;, key._1, false, org.apache.spark.sql.types.StructField.apply$default$4), org.apache.spark.sql.types.StructField.apply(&quot;value&quot;, value._1, false, org.apache.spark.sql.types.StructField.apply$default$4)))
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          5258
+        </td>
+        <td>
+          4062
+          -
+          4332
         </td>
         <td>
           Apply
@@ -2429,111 +2351,15 @@
         </td>
       </tr><tr>
         <td>
-          107
+          102
         </td>
         <td>
-          5281
+          5242
         </td>
         <td>
-          4421
+          4137
           -
-          4538
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.apache.spark.sql.types.StructType.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          org.apache.spark.sql.types.StructType.apply(scala.collection.Seq.apply[org.apache.spark.sql.types.StructField](org.apache.spark.sql.types.StructField.apply(&quot;key&quot;, key._1, false, org.apache.spark.sql.types.StructField.apply$default$4), org.apache.spark.sql.types.StructField.apply(&quot;value&quot;, value._1, false, org.apache.spark.sql.types.StructField.apply$default$4)))
-        </td>
-      </tr><tr>
-        <td>
-          108
-        </td>
-        <td>
-          5278
-        </td>
-        <td>
-          4486
-          -
-          4486
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          org.apache.spark.sql.types.StructField.apply$default$4
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          org.apache.spark.sql.types.StructField.apply$default$4
-        </td>
-      </tr><tr>
-        <td>
-          108
-        </td>
-        <td>
-          5272
-        </td>
-        <td>
-          4478
-          -
-          4483
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          false
-        </td>
-      </tr><tr>
-        <td>
-          108
-        </td>
-        <td>
-          5280
-        </td>
-        <td>
-          4447
-          -
-          4524
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.collection.generic.GenericCompanion.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.collection.Seq.apply[org.apache.spark.sql.types.StructField](org.apache.spark.sql.types.StructField.apply(&quot;key&quot;, key._1, false, org.apache.spark.sql.types.StructField.apply$default$4), org.apache.spark.sql.types.StructField.apply(&quot;value&quot;, value._1, false, org.apache.spark.sql.types.StructField.apply$default$4))
-        </td>
-      </tr><tr>
-        <td>
-          108
-        </td>
-        <td>
-          5271
-        </td>
-        <td>
-          4470
-          -
-          4476
+          4143
         </td>
         <td>
           Select
@@ -2549,15 +2375,39 @@
         </td>
       </tr><tr>
         <td>
-          108
+          102
         </td>
         <td>
-          5274
+          5251
         </td>
         <td>
-          4451
+          4114
           -
-          4484
+          4191
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.Seq.apply[org.apache.spark.sql.types.StructField](org.apache.spark.sql.types.StructField.apply(&quot;key&quot;, key._1, false, org.apache.spark.sql.types.StructField.apply$default$4), org.apache.spark.sql.types.StructField.apply(&quot;value&quot;, value._1, false, org.apache.spark.sql.types.StructField.apply$default$4))
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          5245
+        </td>
+        <td>
+          4118
+          -
+          4151
         </td>
         <td>
           Apply
@@ -2573,39 +2423,15 @@
         </td>
       </tr><tr>
         <td>
-          108
+          102
         </td>
         <td>
-          5277
+          5247
         </td>
         <td>
-          4517
+          4174
           -
-          4522
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          false
-        </td>
-      </tr><tr>
-        <td>
-          108
-        </td>
-        <td>
-          5276
-        </td>
-        <td>
-          4507
-          -
-          4515
+          4182
         </td>
         <td>
           Select
@@ -2621,15 +2447,15 @@
         </td>
       </tr><tr>
         <td>
-          108
+          102
         </td>
         <td>
-          5270
+          5241
         </td>
         <td>
-          4463
+          4130
           -
-          4468
+          4135
         </td>
         <td>
           Literal
@@ -2645,15 +2471,15 @@
         </td>
       </tr><tr>
         <td>
-          108
+          102
         </td>
         <td>
-          5279
+          5250
         </td>
         <td>
-          4486
+          4153
           -
-          4523
+          4190
         </td>
         <td>
           Apply
@@ -2669,15 +2495,15 @@
         </td>
       </tr><tr>
         <td>
-          108
+          102
         </td>
         <td>
-          5273
+          5244
         </td>
         <td>
-          4451
+          4118
           -
-          4451
+          4118
         </td>
         <td>
           Select
@@ -2693,15 +2519,39 @@
         </td>
       </tr><tr>
         <td>
-          108
+          102
         </td>
         <td>
-          5275
+          5243
         </td>
         <td>
-          4498
+          4145
           -
-          4505
+          4150
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          5246
+        </td>
+        <td>
+          4165
+          -
+          4172
         </td>
         <td>
           Literal
@@ -2717,15 +2567,63 @@
         </td>
       </tr><tr>
         <td>
-          111
+          102
         </td>
         <td>
-          5283
+          5249
         </td>
         <td>
-          4598
+          4153
           -
-          4620
+          4153
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          5248
+        </td>
+        <td>
+          4184
+          -
+          4189
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          5254
+        </td>
+        <td>
+          4265
+          -
+          4287
         </td>
         <td>
           Apply
@@ -2741,39 +2639,15 @@
         </td>
       </tr><tr>
         <td>
-          111
+          105
         </td>
         <td>
-          5286
+          5256
         </td>
         <td>
-          4597
+          4289
           -
-          4649
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Tuple2.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.Tuple2.apply[Any, Any](key._2.apply(keyr.eval(row)), value._2.apply(valuer.eval(row)))
-        </td>
-      </tr><tr>
-        <td>
-          111
-        </td>
-        <td>
-          5285
-        </td>
-        <td>
-          4622
-          -
-          4648
+          4315
         </td>
         <td>
           Apply
@@ -2789,15 +2663,15 @@
         </td>
       </tr><tr>
         <td>
-          111
+          105
         </td>
         <td>
-          5282
+          5253
         </td>
         <td>
-          4605
+          4272
           -
-          4619
+          4286
         </td>
         <td>
           Apply
@@ -2813,15 +2687,15 @@
         </td>
       </tr><tr>
         <td>
-          111
+          105
         </td>
         <td>
-          5284
+          5255
         </td>
         <td>
-          4631
+          4298
           -
-          4647
+          4314
         </td>
         <td>
           Apply
@@ -2837,41 +2711,39 @@
         </td>
       </tr><tr>
         <td>
-          112
+          105
         </td>
         <td>
-          5290
+          5257
         </td>
         <td>
-          4395
+          4264
           -
-          4697
+          4316
         </td>
         <td>
-          ApplyToImplicitArgs
+          Apply
         </td>
         <td>
-          scala.collection.TraversableLike.map
+          scala.Tuple2.apply
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          scala.Predef.genericArrayOps[Any](com.sparkutils.quality.utils.Arrays.mapArray(theArray, org.apache.spark.sql.types.StructType.apply(scala.collection.Seq.apply[org.apache.spark.sql.types.StructField](org.apache.spark.sql.types.StructField.apply(&quot;key&quot;, key._1, false, org.apache.spark.sql.types.StructField.apply$default$4), org.apache.spark.sql.types.StructField.apply(&quot;value&quot;, value._1, false, org.apache.spark.sql.types.StructField.apply$default$4))), ((x0$2: Any) =&gt; x0$2 match {
-  case (row @ (_: org.apache.spark.sql.catalyst.InternalRow)) =&gt; scala.Tuple2.apply[Any, Any](key._2.apply(keyr.eval(row)), value._2.apply(valuer.eval(row)))
-}))).map[(Any, Any), Array[(Any, Any)]](((x$3: Any) =&gt; x$3.asInstanceOf[(Any, Any)]))(scala.this.Array.canBuildFrom[(Any, Any)]((ClassTag.apply[(Any, Any)](classOf[scala.Tuple2]): scala.reflect.ClassTag[(Any, Any)])))
+          scala.Tuple2.apply[Any, Any](key._2.apply(keyr.eval(row)), value._2.apply(valuer.eval(row)))
         </td>
       </tr><tr>
         <td>
-          112
+          106
         </td>
         <td>
-          5289
+          5260
         </td>
         <td>
-          4669
+          4336
           -
-          4669
+          4336
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2887,15 +2759,15 @@
         </td>
       </tr><tr>
         <td>
-          112
+          106
         </td>
         <td>
-          5292
+          5263
         </td>
         <td>
-          4395
+          4062
           -
-          4703
+          4370
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2913,39 +2785,15 @@
         </td>
       </tr><tr>
         <td>
-          112
+          106
         </td>
         <td>
-          5288
+          5262
         </td>
         <td>
-          4670
+          4365
           -
-          4696
-        </td>
-        <td>
-          TypeApply
-        </td>
-        <td>
-          scala.Any.asInstanceOf
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          x$3.asInstanceOf[(Any, Any)]
-        </td>
-      </tr><tr>
-        <td>
-          112
-        </td>
-        <td>
-          5291
-        </td>
-        <td>
-          4698
-          -
-          4698
+          4365
         </td>
         <td>
           TypeApply
@@ -2961,15 +2809,113 @@
         </td>
       </tr><tr>
         <td>
-          114
+          106
         </td>
         <td>
-          5295
+          5259
         </td>
         <td>
-          4715
+          4337
           -
-          4745
+          4363
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$3.asInstanceOf[(Any, Any)]
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          5261
+        </td>
+        <td>
+          4062
+          -
+          4364
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.genericArrayOps[Any](com.sparkutils.quality.utils.Arrays.mapArray(theArray, org.apache.spark.sql.types.StructType.apply(scala.collection.Seq.apply[org.apache.spark.sql.types.StructField](org.apache.spark.sql.types.StructField.apply(&quot;key&quot;, key._1, false, org.apache.spark.sql.types.StructField.apply$default$4), org.apache.spark.sql.types.StructField.apply(&quot;value&quot;, value._1, false, org.apache.spark.sql.types.StructField.apply$default$4))), ((x0$2: Any) =&gt; x0$2 match {
+  case (row @ (_: org.apache.spark.sql.catalyst.InternalRow)) =&gt; scala.Tuple2.apply[Any, Any](key._2.apply(keyr.eval(row)), value._2.apply(valuer.eval(row)))
+}))).map[(Any, Any), Array[(Any, Any)]](((x$3: Any) =&gt; x$3.asInstanceOf[(Any, Any)]))(scala.this.Array.canBuildFrom[(Any, Any)]((ClassTag.apply[(Any, Any)](classOf[scala.Tuple2]): scala.reflect.ClassTag[(Any, Any)])))
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          5265
+        </td>
+        <td>
+          4382
+          -
+          4382
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          5264
+        </td>
+        <td>
+          4382
+          -
+          4382
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply$default$2
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          5266
+        </td>
+        <td>
+          4382
+          -
+          4412
         </td>
         <td>
           Apply
@@ -2985,63 +2931,15 @@
         </td>
       </tr><tr>
         <td>
-          114
+          115
         </td>
         <td>
-          5294
+          5268
         </td>
         <td>
-          4715
+          4577
           -
-          4715
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply$default$3
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply$default$3
-        </td>
-      </tr><tr>
-        <td>
-          114
-        </td>
-        <td>
-          5293
-        </td>
-        <td>
-          4715
-          -
-          4715
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply$default$2
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply$default$2
-        </td>
-      </tr><tr>
-        <td>
-          121
-        </td>
-        <td>
-          5297
-        </td>
-        <td>
-          4910
-          -
-          4928
+          4595
         </td>
         <td>
           Apply
@@ -3057,15 +2955,15 @@
         </td>
       </tr><tr>
         <td>
-          122
+          116
         </td>
         <td>
-          5298
+          5269
         </td>
         <td>
-          4949
+          4616
           -
-          4969
+          4636
         </td>
         <td>
           Apply
@@ -3081,15 +2979,15 @@
         </td>
       </tr><tr>
         <td>
-          123
+          117
         </td>
         <td>
-          5299
+          5270
         </td>
         <td>
-          4978
+          4645
           -
-          5000
+          4667
         </td>
         <td>
           Apply
@@ -3105,15 +3003,15 @@
         </td>
       </tr><tr>
         <td>
-          125
+          119
         </td>
         <td>
-          5301
+          5272
         </td>
         <td>
-          5052
+          4719
           -
-          5084
+          4751
         </td>
         <td>
           Apply
@@ -3129,15 +3027,15 @@
         </td>
       </tr><tr>
         <td>
-          125
+          119
         </td>
         <td>
-          5300
+          5271
         </td>
         <td>
-          5062
+          4729
           -
-          5083
+          4750
         </td>
         <td>
           Select
@@ -3153,15 +3051,15 @@
         </td>
       </tr><tr>
         <td>
-          126
+          120
         </td>
         <td>
-          5303
+          5274
         </td>
         <td>
-          5094
+          4761
           -
-          5109
+          4776
         </td>
         <td>
           Apply
@@ -3177,15 +3075,15 @@
         </td>
       </tr><tr>
         <td>
-          126
+          120
         </td>
         <td>
-          5308
+          5279
         </td>
         <td>
-          5093
+          4760
           -
-          5309
+          4976
         </td>
         <td>
           Apply
@@ -3203,15 +3101,15 @@
         </td>
       </tr><tr>
         <td>
-          126
+          120
         </td>
         <td>
-          5302
+          5273
         </td>
         <td>
-          5104
+          4771
           -
-          5108
+          4775
         </td>
         <td>
           Select
@@ -3227,15 +3125,15 @@
         </td>
       </tr><tr>
         <td>
-          129
+          123
         </td>
         <td>
-          5307
+          5278
         </td>
         <td>
-          5179
+          4846
           -
-          5287
+          4954
         </td>
         <td>
           Apply
@@ -3251,63 +3149,15 @@
         </td>
       </tr><tr>
         <td>
-          130
+          124
         </td>
         <td>
-          5305
+          5277
         </td>
         <td>
-          5265
+          4885
           -
-          5269
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.Tuple2._2
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          r._2
-        </td>
-      </tr><tr>
-        <td>
-          130
-        </td>
-        <td>
-          5304
-        </td>
-        <td>
-          5242
-          -
-          5263
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          org.apache.spark.sql.types.ArrayType.elementType
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          arrayType.elementType
-        </td>
-      </tr><tr>
-        <td>
-          130
-        </td>
-        <td>
-          5306
-        </td>
-        <td>
-          5218
-          -
-          5271
+          4938
         </td>
         <td>
           Apply
@@ -3323,39 +3173,63 @@
         </td>
       </tr><tr>
         <td>
-          135
+          124
         </td>
         <td>
-          5310
+          5276
         </td>
         <td>
-          5395
+          4932
           -
-          5395
+          4936
         </td>
         <td>
-          ApplyToImplicitArgs
+          Select
         </td>
         <td>
-          scala.Array.canBuildFrom
+          scala.Tuple2._2
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          scala.this.Array.canBuildFrom[(org.apache.spark.sql.types.StructField, Int)]((ClassTag.apply[(org.apache.spark.sql.types.StructField, Int)](classOf[scala.Tuple2]): scala.reflect.ClassTag[(org.apache.spark.sql.types.StructField, Int)]))
+          r._2
         </td>
       </tr><tr>
         <td>
-          135
+          124
         </td>
         <td>
-          5319
+          5275
         </td>
         <td>
-          5377
+          4909
           -
-          5638
+          4930
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.ArrayType.elementType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          arrayType.elementType
+        </td>
+      </tr><tr>
+        <td>
+          129
+        </td>
+        <td>
+          5290
+        </td>
+        <td>
+          5044
+          -
+          5305
         </td>
         <td>
           ApplyToImplicitArgs
@@ -3376,15 +3250,39 @@
         </td>
       </tr><tr>
         <td>
-          135
+          129
         </td>
         <td>
-          5309
+          5281
         </td>
         <td>
-          5377
+          5062
           -
-          5394
+          5062
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Array.canBuildFrom[(org.apache.spark.sql.types.StructField, Int)]((ClassTag.apply[(org.apache.spark.sql.types.StructField, Int)](classOf[scala.Tuple2]): scala.reflect.ClassTag[(org.apache.spark.sql.types.StructField, Int)]))
+        </td>
+      </tr><tr>
+        <td>
+          129
+        </td>
+        <td>
+          5280
+        </td>
+        <td>
+          5044
+          -
+          5061
         </td>
         <td>
           Select
@@ -3400,15 +3298,15 @@
         </td>
       </tr><tr>
         <td>
-          135
+          129
         </td>
         <td>
-          5318
+          5289
         </td>
         <td>
-          5411
+          5078
           -
-          5411
+          5078
         </td>
         <td>
           ApplyToImplicitArgs
@@ -3424,15 +3322,15 @@
         </td>
       </tr><tr>
         <td>
-          135
+          129
         </td>
         <td>
-          5311
+          5282
         </td>
         <td>
-          5377
+          5044
           -
-          5407
+          5074
         </td>
         <td>
           ApplyToImplicitArgs
@@ -3448,39 +3346,15 @@
         </td>
       </tr><tr>
         <td>
-          137
+          131
         </td>
         <td>
-          5313
+          5283
         </td>
         <td>
-          5462
+          5139
           -
-          5483
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.util.ComparableMapConverter.mapStruct
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ComparableMapConverter.this.mapStruct(f.dataType)
-        </td>
-      </tr><tr>
-        <td>
-          137
-        </td>
-        <td>
-          5312
-        </td>
-        <td>
-          5472
-          -
-          5482
+          5149
         </td>
         <td>
           Select
@@ -3496,39 +3370,39 @@
         </td>
       </tr><tr>
         <td>
-          139
+          131
         </td>
         <td>
-          5314
+          5284
         </td>
         <td>
-          5537
+          5129
           -
-          5541
+          5150
         </td>
         <td>
-          Select
+          Apply
         </td>
         <td>
-          scala.Tuple2._1
+          com.sparkutils.quality.impl.util.ComparableMapConverter.mapStruct
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          p._1
+          ComparableMapConverter.this.mapStruct(f.dataType)
         </td>
       </tr><tr>
         <td>
-          139
+          133
         </td>
         <td>
-          5316
+          5287
         </td>
         <td>
-          5563
+          5230
           -
-          5627
+          5294
         </td>
         <td>
           Apply
@@ -3544,15 +3418,15 @@
         </td>
       </tr><tr>
         <td>
-          139
+          133
         </td>
         <td>
-          5315
+          5286
         </td>
         <td>
-          5568
+          5235
           -
-          5626
+          5293
         </td>
         <td>
           Apply
@@ -3568,15 +3442,39 @@
         </td>
       </tr><tr>
         <td>
-          139
+          133
         </td>
         <td>
-          5317
+          5285
         </td>
         <td>
-          5536
+          5204
           -
-          5628
+          5208
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          p._1
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          5288
+        </td>
+        <td>
+          5203
+          -
+          5295
         </td>
         <td>
           Apply
@@ -3592,93 +3490,15 @@
         </td>
       </tr><tr>
         <td>
-          143
+          137
         </td>
         <td>
-          5323
+          5296
         </td>
         <td>
-          5685
+          5405
           -
-          5723
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          scala.collection.IndexedSeqOptimized.zip
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](structType.fields).zip[org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any), Array[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))]](scala.Predef.wrapRefArray[(org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any)](fieldTransforms))(scala.this.Array.canBuildFrom[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))]((ClassTag.apply[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))](classOf[scala.Tuple2]): scala.reflect.ClassTag[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))])))
-        </td>
-      </tr><tr>
-        <td>
-          143
-        </td>
-        <td>
-          5322
-        </td>
-        <td>
-          5706
-          -
-          5706
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          scala.Array.canBuildFrom
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.this.Array.canBuildFrom[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))]((ClassTag.apply[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))](classOf[scala.Tuple2]): scala.reflect.ClassTag[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))]))
-        </td>
-      </tr><tr>
-        <td>
-          143
-        </td>
-        <td>
-          5331
-        </td>
-        <td>
-          5674
-          -
-          5764
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.apache.spark.sql.types.StructType.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          org.apache.spark.sql.types.StructType.apply(scala.Predef.refArrayOps[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))](scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](structType.fields).zip[org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any), Array[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))]](scala.Predef.wrapRefArray[(org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any)](fieldTransforms))(scala.this.Array.canBuildFrom[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))]((ClassTag.apply[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))](classOf[scala.Tuple2]): scala.reflect.ClassTag[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))])))).map[org.apache.spark.sql.types.StructField, Array[org.apache.spark.sql.types.StructField]](((p: (org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))) =&gt; {
-  &lt;artifact&gt; val x$1: org.apache.spark.sql.types.DataType = p._2._1;
-  &lt;artifact&gt; val x$2: String = p._1.copy$default$1;
-  &lt;artifact&gt; val x$3: Boolean = p._1.copy$default$3;
-  &lt;artifact&gt; val x$4: org.apache.spark.sql.types.Metadata = p._1.copy$default$4;
-  p._1.copy(x$2, x$1, x$3, x$4)
-}))(scala.this.Array.canBuildFrom[org.apache.spark.sql.types.StructField]((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField]))))
-        </td>
-      </tr><tr>
-        <td>
-          143
-        </td>
-        <td>
-          5325
-        </td>
-        <td>
-          5738
-          -
-          5738
+          5405
         </td>
         <td>
           Select
@@ -3694,15 +3514,213 @@
         </td>
       </tr><tr>
         <td>
-          143
+          137
         </td>
         <td>
-          5328
+          5298
         </td>
         <td>
-          5733
+          5405
           -
-          5762
+          5405
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.copy$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          p._1.copy$default$4
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          5292
+        </td>
+        <td>
+          5374
+          -
+          5389
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.LowPriorityImplicits.wrapRefArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.wrapRefArray[(org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any)](fieldTransforms)
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          5301
+        </td>
+        <td>
+          5352
+          -
+          5430
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.refArrayOps[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))](scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](structType.fields).zip[org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any), Array[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))]](scala.Predef.wrapRefArray[(org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any)](fieldTransforms))(scala.this.Array.canBuildFrom[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))]((ClassTag.apply[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))](classOf[scala.Tuple2]): scala.reflect.ClassTag[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))])))).map[org.apache.spark.sql.types.StructField, Array[org.apache.spark.sql.types.StructField]](((p: (org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))) =&gt; {
+  &lt;artifact&gt; val x$1: org.apache.spark.sql.types.DataType = p._2._1;
+  &lt;artifact&gt; val x$2: String = p._1.copy$default$1;
+  &lt;artifact&gt; val x$3: Boolean = p._1.copy$default$3;
+  &lt;artifact&gt; val x$4: org.apache.spark.sql.types.Metadata = p._1.copy$default$4;
+  p._1.copy(x$2, x$1, x$3, x$4)
+}))(scala.this.Array.canBuildFrom[org.apache.spark.sql.types.StructField]((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField])))
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          5295
+        </td>
+        <td>
+          5421
+          -
+          5428
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          p._2._1
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          5294
+        </td>
+        <td>
+          5352
+          -
+          5390
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.IndexedSeqOptimized.zip
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](structType.fields).zip[org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any), Array[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))]](scala.Predef.wrapRefArray[(org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any)](fieldTransforms))(scala.this.Array.canBuildFrom[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))]((ClassTag.apply[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))](classOf[scala.Tuple2]): scala.reflect.ClassTag[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))])))
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          5297
+        </td>
+        <td>
+          5405
+          -
+          5405
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.copy$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          p._1.copy$default$3
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          5291
+        </td>
+        <td>
+          5352
+          -
+          5369
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.fields
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          structType.fields
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          5300
+        </td>
+        <td>
+          5394
+          -
+          5394
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Array.canBuildFrom[org.apache.spark.sql.types.StructField]((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField]))
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          5299
+        </td>
+        <td>
+          5400
+          -
+          5429
         </td>
         <td>
           Apply
@@ -3718,15 +3736,15 @@
         </td>
       </tr><tr>
         <td>
-          143
+          137
         </td>
         <td>
-          5337
+          5308
         </td>
         <td>
-          5673
+          5340
           -
-          5933
+          5600
         </td>
         <td>
           Apply
@@ -3750,165 +3768,45 @@
         </td>
       </tr><tr>
         <td>
-          143
+          137
         </td>
         <td>
-          5321
+          5302
         </td>
         <td>
-          5707
+          5341
           -
-          5722
+          5431
         </td>
         <td>
-          ApplyImplicitView
+          Apply
         </td>
         <td>
-          scala.LowPriorityImplicits.wrapRefArray
+          org.apache.spark.sql.types.StructType.apply
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          scala.Predef.wrapRefArray[(org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any)](fieldTransforms)
-        </td>
-      </tr><tr>
-        <td>
-          143
-        </td>
-        <td>
-          5330
-        </td>
-        <td>
-          5685
-          -
-          5763
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          scala.collection.TraversableLike.map
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.Predef.refArrayOps[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))](scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](structType.fields).zip[org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any), Array[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))]](scala.Predef.wrapRefArray[(org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any)](fieldTransforms))(scala.this.Array.canBuildFrom[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))]((ClassTag.apply[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))](classOf[scala.Tuple2]): scala.reflect.ClassTag[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))])))).map[org.apache.spark.sql.types.StructField, Array[org.apache.spark.sql.types.StructField]](((p: (org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))) =&gt; {
+          org.apache.spark.sql.types.StructType.apply(scala.Predef.refArrayOps[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))](scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](structType.fields).zip[org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any), Array[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))]](scala.Predef.wrapRefArray[(org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any)](fieldTransforms))(scala.this.Array.canBuildFrom[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))]((ClassTag.apply[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))](classOf[scala.Tuple2]): scala.reflect.ClassTag[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))])))).map[org.apache.spark.sql.types.StructField, Array[org.apache.spark.sql.types.StructField]](((p: (org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))) =&gt; {
   &lt;artifact&gt; val x$1: org.apache.spark.sql.types.DataType = p._2._1;
   &lt;artifact&gt; val x$2: String = p._1.copy$default$1;
   &lt;artifact&gt; val x$3: Boolean = p._1.copy$default$3;
   &lt;artifact&gt; val x$4: org.apache.spark.sql.types.Metadata = p._1.copy$default$4;
   p._1.copy(x$2, x$1, x$3, x$4)
-}))(scala.this.Array.canBuildFrom[org.apache.spark.sql.types.StructField]((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField])))
+}))(scala.this.Array.canBuildFrom[org.apache.spark.sql.types.StructField]((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField]))))
         </td>
       </tr><tr>
         <td>
-          143
+          137
         </td>
         <td>
-          5324
+          5293
         </td>
         <td>
-          5754
+          5373
           -
-          5761
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.Tuple2._1
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          p._2._1
-        </td>
-      </tr><tr>
-        <td>
-          143
-        </td>
-        <td>
-          5327
-        </td>
-        <td>
-          5738
-          -
-          5738
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          org.apache.spark.sql.types.StructField.copy$default$4
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          p._1.copy$default$4
-        </td>
-      </tr><tr>
-        <td>
-          143
-        </td>
-        <td>
-          5326
-        </td>
-        <td>
-          5738
-          -
-          5738
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          org.apache.spark.sql.types.StructField.copy$default$3
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          p._1.copy$default$3
-        </td>
-      </tr><tr>
-        <td>
-          143
-        </td>
-        <td>
-          5320
-        </td>
-        <td>
-          5685
-          -
-          5702
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          org.apache.spark.sql.types.StructType.fields
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          structType.fields
-        </td>
-      </tr><tr>
-        <td>
-          143
-        </td>
-        <td>
-          5329
-        </td>
-        <td>
-          5727
-          -
-          5727
+          5373
         </td>
         <td>
           ApplyToImplicitArgs
@@ -3920,43 +3818,19 @@
           
         </td>
         <td style="background: #AEF1AE">
-          scala.this.Array.canBuildFrom[org.apache.spark.sql.types.StructField]((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField]))
+          scala.this.Array.canBuildFrom[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))]((ClassTag.apply[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))](classOf[scala.Tuple2]): scala.reflect.ClassTag[(org.apache.spark.sql.types.StructField, (org.apache.spark.sql.types.DataType, org.apache.spark.sql.catalyst.InternalRow =&gt; Any))]))
         </td>
       </tr><tr>
         <td>
-          146
+          140
         </td>
         <td>
-          5332
+          5305
         </td>
         <td>
-          5900
+          5566
           -
-          5909
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Function1.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          x$4._2.apply(row)
-        </td>
-      </tr><tr>
-        <td>
-          146
-        </td>
-        <td>
-          5334
-        </td>
-        <td>
-          5899
-          -
-          5899
+          5566
         </td>
         <td>
           ApplyToImplicitArgs
@@ -3972,15 +3846,15 @@
         </td>
       </tr><tr>
         <td>
-          146
+          140
         </td>
         <td>
-          5336
+          5307
         </td>
         <td>
-          5860
+          5527
           -
-          5911
+          5578
         </td>
         <td>
           Apply
@@ -3996,15 +3870,15 @@
         </td>
       </tr><tr>
         <td>
-          146
+          140
         </td>
         <td>
-          5333
+          5304
         </td>
         <td>
-          5899
+          5566
           -
-          5899
+          5566
         </td>
         <td>
           Select
@@ -4020,15 +3894,39 @@
         </td>
       </tr><tr>
         <td>
-          146
+          140
         </td>
         <td>
-          5335
+          5303
         </td>
         <td>
-          5880
+          5567
           -
-          5910
+          5576
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$4._2.apply(row)
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          5306
+        </td>
+        <td>
+          5547
+          -
+          5577
         </td>
         <td>
           ApplyToImplicitArgs
@@ -4044,15 +3942,15 @@
         </td>
       </tr><tr>
         <td>
-          149
+          143
         </td>
         <td>
-          5339
+          5310
         </td>
         <td>
-          5950
+          5617
           -
-          5970
+          5637
         </td>
         <td>
           Apply
@@ -4070,15 +3968,15 @@
         </td>
       </tr><tr>
         <td>
-          149
+          143
         </td>
         <td>
-          5338
+          5309
         </td>
         <td>
-          5961
+          5628
           -
-          5969
+          5636
         </td>
         <td>
           Apply
@@ -4094,15 +3992,15 @@
         </td>
       </tr><tr>
         <td>
-          167
+          161
         </td>
         <td>
-          5340
+          5311
         </td>
         <td>
-          6623
+          6290
           -
-          6641
+          6308
         </td>
         <td>
           Apply
@@ -4118,39 +4016,15 @@
         </td>
       </tr><tr>
         <td>
-          169
+          163
         </td>
         <td>
-          5341
+          5313
         </td>
         <td>
-          6716
+          6383
           -
-          6716
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.util.ComparableMapConverter.copy$default$2
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ComparableMapConverter.this.copy$default$2
-        </td>
-      </tr><tr>
-        <td>
-          169
-        </td>
-        <td>
-          5342
-        </td>
-        <td>
-          6716
-          -
-          6738
+          6405
         </td>
         <td>
           Apply
@@ -4166,15 +4040,39 @@
         </td>
       </tr><tr>
         <td>
-          183
+          163
         </td>
         <td>
-          5343
+          5312
         </td>
         <td>
-          7128
+          6383
           -
-          7146
+          6383
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.ComparableMapConverter.copy$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ComparableMapConverter.this.copy$default$2
+        </td>
+      </tr><tr>
+        <td>
+          177
+        </td>
+        <td>
+          5314
+        </td>
+        <td>
+          6795
+          -
+          6813
         </td>
         <td>
           Apply
@@ -4190,15 +4088,15 @@
         </td>
       </tr><tr>
         <td>
-          185
+          179
         </td>
         <td>
-          5344
+          5315
         </td>
         <td>
-          7221
+          6888
           -
-          7243
+          6910
         </td>
         <td>
           Apply

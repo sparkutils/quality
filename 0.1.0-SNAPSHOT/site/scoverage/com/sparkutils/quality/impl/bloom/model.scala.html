@@ -26,161 +26,147 @@
 </span>2 <span style=''>
 </span>3 <span style=''>import java.io.{ByteArrayInputStream, ByteArrayOutputStream}
 </span>4 <span style=''>
-</span>5 <span style=''>import com.sparkutils.quality.impl.rng.RandomLongs
-</span>6 <span style=''>import org.apache.spark.sql._
-</span>7 <span style=''>import org.apache.spark.sql.catalyst.{CatalystTypeConverters, InternalRow}
-</span>8 <span style=''>import org.apache.spark.sql.catalyst.expressions.Expression
-</span>9 <span style=''>import org.apache.spark.util.sketch.BloomFilter
-</span>10 <span style=''>
-</span>11 <span style=''>import scala.collection.JavaConverters._
-</span>12 <span style=''>
-</span>13 <span style=''>trait BloomFilterTypes {
-</span>14 <span style=''>  /**
-</span>15 <span style=''>    * Used as a param to load the bloomfilter expr
-</span>16 <span style=''>   */
-</span>17 <span style=''>  type BloomFilterMap = Map[ String, (BloomLookup, Double) ]
-</span>18 <span style=''>
-</span>19 <span style=''>  /**
-</span>20 <span style=''>   * Simple does it contain function to test a bloom
-</span>21 <span style=''>   */
-</span>22 <span style=''>  trait BloomLookup {
-</span>23 <span style=''>    def apply(any: Any): Boolean = </span><span style='background: #F0ADAD'>mightContain(any)</span><span style=''>
-</span>24 <span style=''>
-</span>25 <span style=''>    def mightContain(any: Any): Boolean
-</span>26 <span style=''>  }
+</span>5 <span style=''>import com.sparkutils.quality.BloomLookup
+</span>6 <span style=''>import com.sparkutils.quality.impl.rng.RandomLongs
+</span>7 <span style=''>import org.apache.spark.sql._
+</span>8 <span style=''>import org.apache.spark.sql.catalyst.{CatalystTypeConverters, InternalRow}
+</span>9 <span style=''>import org.apache.spark.sql.catalyst.expressions.Expression
+</span>10 <span style=''>import org.apache.spark.util.sketch.BloomFilter
+</span>11 <span style=''>
+</span>12 <span style=''>import scala.collection.JavaConverters._
+</span>13 <span style=''>
+</span>14 <span style=''>trait BloomFilterTypes {
+</span>15 <span style=''>  /**
+</span>16 <span style=''>   * Used as a param to load the bloomfilter expr
+</span>17 <span style=''>   */
+</span>18 <span style=''>  type BloomFilterMap = BloomExpressionLookup.BloomFilterMap
+</span>19 <span style=''>
+</span>20 <span style=''>}
+</span>21 <span style=''>
+</span>22 <span style=''>object BloomExpressionLookup {
+</span>23 <span style=''>  /**
+</span>24 <span style=''>   * Used as a param to load the bloomfilter expr
+</span>25 <span style=''>   */
+</span>26 <span style=''>  type BloomFilterMap = Map[ String, (BloomLookup, Double) ]
 </span>27 <span style=''>
-</span>28 <span style=''>  case class SparkBloomFilter( bloom: BloomFilter ) extends BloomLookup {
-</span>29 <span style=''>    override def mightContain(any: Any): Boolean =
-</span>30 <span style=''>      any match {
-</span>31 <span style=''>        case s: String =&gt; </span><span style='background: #F0ADAD'>bloom.mightContainString(s)</span><span style=''>
-</span>32 <span style=''>        case b: Array[Byte] =&gt; </span><span style='background: #F0ADAD'>bloom.mightContainBinary(b)</span><span style=''>
-</span>33 <span style=''>        case l: Long =&gt; </span><span style='background: #AEF1AE'>bloom.mightContainLong(l)</span><span style=''>
-</span>34 <span style=''>        case _ =&gt; </span><span style='background: #F0ADAD'>bloom.mightContain(any)</span><span style=''>
-</span>35 <span style=''>      }
-</span>36 <span style=''>  }
-</span>37 <span style=''>
-</span>38 <span style=''>}
-</span>39 <span style=''>
-</span>40 <span style=''>object BloomExpressionLookup {
+</span>28 <span style=''>  /**
+</span>29 <span style=''>   * Identifies a converter for a given expression
+</span>30 <span style=''>   * @param expr
+</span>31 <span style=''>   * @return
+</span>32 <span style=''>   */
+</span>33 <span style=''>  def bloomLookupValueConverter(expr: Expression) =
+</span>34 <span style=''>    if (</span><span style='background: #AEF1AE'>expr.dataType == RandomLongs.structType</span><span style=''>)
+</span>35 <span style=''>      </span><span style='background: #F0ADAD'>(input: Any) =&gt; {
+</span>36 <span style=''></span><span style='background: #F0ADAD'>        val row = input.asInstanceOf[InternalRow]
+</span>37 <span style=''></span><span style='background: #F0ADAD'>        Array(row.getLong(0), row.getLong(1))
+</span>38 <span style=''></span><span style='background: #F0ADAD'>      }</span><span style=''>
+</span>39 <span style=''>    else
+</span>40 <span style=''>      </span><span style='background: #AEF1AE'>CatalystTypeConverters.createToScalaConverter(expr.dataType)</span><span style=''>
 </span>41 <span style=''>
-</span>42 <span style=''>  /**
-</span>43 <span style=''>   * Identifies a converter for a given expression
-</span>44 <span style=''>   * @param expr
-</span>45 <span style=''>   * @return
-</span>46 <span style=''>   */
-</span>47 <span style=''>  def bloomLookupValueConverter(expr: Expression) =
-</span>48 <span style=''>    if (</span><span style='background: #AEF1AE'>expr.dataType == RandomLongs.structType</span><span style=''>)
-</span>49 <span style=''>      </span><span style='background: #AEF1AE'>(input: Any) =&gt; {
-</span>50 <span style=''></span><span style='background: #AEF1AE'>        val row = input.asInstanceOf[InternalRow]
-</span>51 <span style=''></span><span style='background: #AEF1AE'>        Array(row.getLong(0), row.getLong(1))
-</span>52 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
-</span>53 <span style=''>    else
-</span>54 <span style=''>      </span><span style='background: #AEF1AE'>CatalystTypeConverters.createToScalaConverter(expr.dataType)</span><span style=''>
-</span>55 <span style=''>
-</span>56 <span style=''>}
-</span>57 <span style=''>
-</span>58 <span style=''>case class BloomRaw(bloom_id: String, bloom: Array[Byte])
+</span>42 <span style=''>}
+</span>43 <span style=''>
+</span>44 <span style=''>case class BloomRaw(bloom_id: String, bloom: Array[Byte])
+</span>45 <span style=''>
+</span>46 <span style=''>case class BloomStruct(fpp: Double, blooms: Array[Array[Byte]])
+</span>47 <span style=''>case class BloomArrayRaw(bloom_id: String, bloom: BloomStruct)
+</span>48 <span style=''>
+</span>49 <span style=''>object BloomStruct {
+</span>50 <span style=''>  import frameless._
+</span>51 <span style=''>
+</span>52 <span style=''>  implicit val typedEnc = </span><span style='background: #F0ADAD'>TypedEncoder[BloomStruct]</span><span style=''>
+</span>53 <span style=''>
+</span>54 <span style=''>  implicit val enc = </span><span style='background: #F0ADAD'>TypedExpressionEncoder[BloomStruct]</span><span style=''>
+</span>55 <span style=''>}
+</span>56 <span style=''>
+</span>57 <span style=''>object BloomArrayRaw {
+</span>58 <span style=''>  import frameless._
 </span>59 <span style=''>
-</span>60 <span style=''>case class BloomStruct(fpp: Double, blooms: Array[Array[Byte]])
-</span>61 <span style=''>case class BloomArrayRaw(bloom_id: String, bloom: BloomStruct)
-</span>62 <span style=''>
-</span>63 <span style=''>object BloomStruct {
-</span>64 <span style=''>  import frameless._
-</span>65 <span style=''>
-</span>66 <span style=''>  implicit val typedEnc = </span><span style='background: #F0ADAD'>TypedEncoder[BloomStruct]</span><span style=''>
-</span>67 <span style=''>
-</span>68 <span style=''>  implicit val enc = </span><span style='background: #F0ADAD'>TypedExpressionEncoder[BloomStruct]</span><span style=''>
-</span>69 <span style=''>}
+</span>60 <span style=''>  implicit val typedEnc = </span><span style='background: #F0ADAD'>TypedEncoder[BloomArrayRaw]</span><span style=''>
+</span>61 <span style=''>
+</span>62 <span style=''>  implicit val enc = </span><span style='background: #F0ADAD'>TypedExpressionEncoder[BloomArrayRaw]</span><span style=''>
+</span>63 <span style=''>}
+</span>64 <span style=''>
+</span>65 <span style=''>trait BloomSerializer[Storage, T] {
+</span>66 <span style=''>  type Serialized = (String, (com.sparkutils.quality.BloomLookup, Double))
+</span>67 <span style=''>  type SerType
+</span>68 <span style=''>
+</span>69 <span style=''>  import scala.language.implicitConversions
 </span>70 <span style=''>
-</span>71 <span style=''>object BloomArrayRaw {
-</span>72 <span style=''>  import frameless._
-</span>73 <span style=''>
-</span>74 <span style=''>  implicit val typedEnc = </span><span style='background: #F0ADAD'>TypedEncoder[BloomArrayRaw]</span><span style=''>
-</span>75 <span style=''>
-</span>76 <span style=''>  implicit val enc = </span><span style='background: #F0ADAD'>TypedExpressionEncoder[BloomArrayRaw]</span><span style=''>
-</span>77 <span style=''>}
-</span>78 <span style=''>
-</span>79 <span style=''>trait BloomSerializer[Storage, T] {
-</span>80 <span style=''>  type Serialized = (String, (com.sparkutils.quality.BloomLookup, Double))
-</span>81 <span style=''>  type SerType
-</span>82 <span style=''>
-</span>83 <span style=''>  import scala.language.implicitConversions
-</span>84 <span style=''>
-</span>85 <span style=''>  implicit def enc(sparkSession: SparkSession): Encoder[SerType]
+</span>71 <span style=''>  implicit def enc(sparkSession: SparkSession): Encoder[SerType]
+</span>72 <span style=''>
+</span>73 <span style=''>  def fromType(ser: SerType): Serialized
+</span>74 <span style=''>  def toType(bloomFilter: Serialized): SerType
+</span>75 <span style=''>}
+</span>76 <span style=''>
+</span>77 <span style=''>case object SparkBloomFilterSerializer extends BloomSerializer[Array[Byte], com.sparkutils.quality.SparkBloomFilter] {
+</span>78 <span style=''>  type SerType = BloomRaw
+</span>79 <span style=''>
+</span>80 <span style=''>  import scala.language.implicitConversions
+</span>81 <span style=''>
+</span>82 <span style=''>  implicit def enc(sparkSession: SparkSession): Encoder[SerType] = {
+</span>83 <span style=''>    import sparkSession.implicits._
+</span>84 <span style=''>    </span><span style='background: #AEF1AE'>implicitly[Encoder[BloomRaw]]</span><span style=''>
+</span>85 <span style=''>  }
 </span>86 <span style=''>
-</span>87 <span style=''>  def fromType(ser: SerType): Serialized
-</span>88 <span style=''>  def toType(bloomFilter: Serialized): SerType
-</span>89 <span style=''>}
-</span>90 <span style=''>
-</span>91 <span style=''>case object SparkBloomFilterSerializer extends BloomSerializer[Array[Byte], com.sparkutils.quality.SparkBloomFilter] {
-</span>92 <span style=''>  type SerType = BloomRaw
-</span>93 <span style=''>
-</span>94 <span style=''>  import scala.language.implicitConversions
-</span>95 <span style=''>
-</span>96 <span style=''>  implicit def enc(sparkSession: SparkSession): Encoder[SerType] = {
-</span>97 <span style=''>    import sparkSession.implicits._
-</span>98 <span style=''>    </span><span style='background: #AEF1AE'>implicitly[Encoder[BloomRaw]]</span><span style=''>
-</span>99 <span style=''>  }
-</span>100 <span style=''>
-</span>101 <span style=''>  override def fromType(bloomRaw: BloomRaw): Serialized = {
-</span>102 <span style=''>    val bis = </span><span style='background: #AEF1AE'>new ByteArrayInputStream(bloomRaw.bloom)</span><span style=''>
-</span>103 <span style=''>
-</span>104 <span style=''>    val bloom = </span><span style='background: #AEF1AE'>BloomFilter.readFrom(bis)</span><span style=''>
-</span>105 <span style=''>    </span><span style='background: #AEF1AE'>bis.close()</span><span style=''>
-</span>106 <span style=''>    </span><span style='background: #AEF1AE'>bloomRaw.bloom_id -&gt; (com.sparkutils.quality.SparkBloomFilter(bloom), 1.0 - bloom.expectedFpp())</span><span style=''>
-</span>107 <span style=''>  }
+</span>87 <span style=''>  override def fromType(bloomRaw: BloomRaw): Serialized = {
+</span>88 <span style=''>    val bis = </span><span style='background: #AEF1AE'>new ByteArrayInputStream(bloomRaw.bloom)</span><span style=''>
+</span>89 <span style=''>
+</span>90 <span style=''>    val bloom = </span><span style='background: #AEF1AE'>BloomFilter.readFrom(bis)</span><span style=''>
+</span>91 <span style=''>    </span><span style='background: #AEF1AE'>bis.close()</span><span style=''>
+</span>92 <span style=''>    </span><span style='background: #AEF1AE'>bloomRaw.bloom_id -&gt; (com.sparkutils.quality.SparkBloomFilter(bloom), 1.0 - bloom.expectedFpp())</span><span style=''>
+</span>93 <span style=''>  }
+</span>94 <span style=''>
+</span>95 <span style=''>  override def toType(bloomFilter: Serialized): SerType = {
+</span>96 <span style=''>    val (id, (com.sparkutils.quality.SparkBloomFilter(bloom), fpp)) = bloomFilter
+</span>97 <span style=''>
+</span>98 <span style=''>    val bos = </span><span style='background: #AEF1AE'>new ByteArrayOutputStream()</span><span style=''>
+</span>99 <span style=''>    </span><span style='background: #AEF1AE'>bloom.writeTo(bos)</span><span style=''>
+</span>100 <span style=''>    val bits = </span><span style='background: #AEF1AE'>bos.toByteArray</span><span style=''>
+</span>101 <span style=''>    </span><span style='background: #AEF1AE'>bos.close()</span><span style=''>
+</span>102 <span style=''>    </span><span style='background: #AEF1AE'>BloomRaw(id, bits)</span><span style=''>
+</span>103 <span style=''>  }
+</span>104 <span style=''>}
+</span>105 <span style=''>
+</span>106 <span style=''>object Serializing {
+</span>107 <span style=''>  import com.sparkutils.quality.BloomFilterMap
 </span>108 <span style=''>
-</span>109 <span style=''>  override def toType(bloomFilter: Serialized): SerType = {
-</span>110 <span style=''>    val (id, (com.sparkutils.quality.SparkBloomFilter(bloom), fpp)) = bloomFilter
-</span>111 <span style=''>
-</span>112 <span style=''>    val bos = </span><span style='background: #AEF1AE'>new ByteArrayOutputStream()</span><span style=''>
-</span>113 <span style=''>    </span><span style='background: #AEF1AE'>bloom.writeTo(bos)</span><span style=''>
-</span>114 <span style=''>    val bits = </span><span style='background: #AEF1AE'>bos.toByteArray</span><span style=''>
-</span>115 <span style=''>    </span><span style='background: #AEF1AE'>bos.close()</span><span style=''>
-</span>116 <span style=''>    </span><span style='background: #AEF1AE'>BloomRaw(id, bits)</span><span style=''>
-</span>117 <span style=''>  }
-</span>118 <span style=''>}
+</span>109 <span style=''>  implicit val sparkBloomFilterSerializer = SparkBloomFilterSerializer
+</span>110 <span style=''>
+</span>111 <span style=''>  /**
+</span>112 <span style=''>    * Loads bloomfilters from a dataframe with string id and binary bloomfilter bloom
+</span>113 <span style=''>    * @param id the column representing the bloom filter id, must be string
+</span>114 <span style=''>    * @param bloom the column representing the bloomfilter itself, must be binary
+</span>115 <span style=''>    * @return a map of bloomfilter id to bloomfilter and expected fpp
+</span>116 <span style=''>    */
+</span>117 <span style=''>  def fromDF[SerializedType, T: ({ type B[A] = BloomSerializer[SerializedType, A] })#B](df: DataFrame, id: Column, bloom: Column): BloomFilterMap = {
+</span>118 <span style=''>    val ser = </span><span style='background: #AEF1AE'>implicitly[BloomSerializer[SerializedType, T]]</span><span style=''>
 </span>119 <span style=''>
-</span>120 <span style=''>object Serializing {
-</span>121 <span style=''>  import com.sparkutils.quality.BloomFilterMap
-</span>122 <span style=''>
-</span>123 <span style=''>  implicit val sparkBloomFilterSerializer = SparkBloomFilterSerializer
-</span>124 <span style=''>
-</span>125 <span style=''>  /**
-</span>126 <span style=''>    * Loads bloomfilters from a dataframe with string id and binary bloomfilter bloom
-</span>127 <span style=''>    * @param id the column representing the bloom filter id, must be string
-</span>128 <span style=''>    * @param bloom the column representing the bloomfilter itself, must be binary
-</span>129 <span style=''>    * @return a map of bloomfilter id to bloomfilter and expected fpp
-</span>130 <span style=''>    */
-</span>131 <span style=''>  def fromDF[SerializedType, T: ({ type B[A] = BloomSerializer[SerializedType, A] })#B](df: DataFrame, id: Column, bloom: Column): BloomFilterMap = {
-</span>132 <span style=''>    val ser = </span><span style='background: #AEF1AE'>implicitly[BloomSerializer[SerializedType, T]]</span><span style=''>
-</span>133 <span style=''>
-</span>134 <span style=''>    implicit val enc = </span><span style='background: #AEF1AE'>ser.enc(df.sparkSession)</span><span style=''>
+</span>120 <span style=''>    implicit val enc = </span><span style='background: #AEF1AE'>ser.enc(df.sparkSession)</span><span style=''>
+</span>121 <span style=''>
+</span>122 <span style=''>    </span><span style='background: #AEF1AE'>df.select(id.as(&quot;BLOOM_ID&quot;), bloom.as(&quot;BLOOM&quot;)).as[ser.SerType].toLocalIterator().asScala.map{
+</span>123 <span style=''></span><span style='background: #AEF1AE'>      bloomRaw =&gt; ser.fromType(bloomRaw)
+</span>124 <span style=''></span><span style='background: #AEF1AE'>    }.toMap</span><span style=''>
+</span>125 <span style=''>  }
+</span>126 <span style=''>
+</span>127 <span style=''>  /**
+</span>128 <span style=''>    * Must have an active sparksession before calling
+</span>129 <span style=''>    * @param bloomFilterMap
+</span>130 <span style=''>    * @return a DataFrame representing storage of ID -&gt; some bloom type
+</span>131 <span style=''>    */
+</span>132 <span style=''>  def toDF[SerializedType, T: ({ type B[A] = BloomSerializer[SerializedType, A] })#B](bloomFilterMap: BloomFilterMap):
+</span>133 <span style=''>      Dataset[BloomSerializer[SerializedType, T]#SerType] = {
+</span>134 <span style=''>    val ser = </span><span style='background: #AEF1AE'>implicitly[BloomSerializer[SerializedType, T]]</span><span style=''>
 </span>135 <span style=''>
-</span>136 <span style=''>    </span><span style='background: #AEF1AE'>df.select(id.as(&quot;BLOOM_ID&quot;), bloom.as(&quot;BLOOM&quot;)).as[ser.SerType].toLocalIterator().asScala.map{
-</span>137 <span style=''></span><span style='background: #AEF1AE'>      bloomRaw =&gt; ser.fromType(bloomRaw)
-</span>138 <span style=''></span><span style='background: #AEF1AE'>    }.toMap</span><span style=''>
-</span>139 <span style=''>  }
-</span>140 <span style=''>
-</span>141 <span style=''>  /**
-</span>142 <span style=''>    * Must have an active sparksession before calling
-</span>143 <span style=''>    * @param bloomFilterMap
-</span>144 <span style=''>    * @return a DataFrame representing storage of ID -&gt; some bloom type
-</span>145 <span style=''>    */
-</span>146 <span style=''>  def toDF[SerializedType, T: ({ type B[A] = BloomSerializer[SerializedType, A] })#B](bloomFilterMap: BloomFilterMap):
-</span>147 <span style=''>      Dataset[BloomSerializer[SerializedType, T]#SerType] = {
-</span>148 <span style=''>    val ser = </span><span style='background: #AEF1AE'>implicitly[BloomSerializer[SerializedType, T]]</span><span style=''>
-</span>149 <span style=''>
-</span>150 <span style=''>    val blooms = </span><span style='background: #AEF1AE'>bloomFilterMap.map { pair =&gt;
-</span>151 <span style=''></span><span style='background: #AEF1AE'>      ser.toType(pair)
-</span>152 <span style=''></span><span style='background: #AEF1AE'>    }.toSeq</span><span style=''>
-</span>153 <span style=''>
-</span>154 <span style=''>    val sess = </span><span style='background: #AEF1AE'>SparkSession.getDefaultSession.get</span><span style=''>
-</span>155 <span style=''>    implicit val enc = </span><span style='background: #AEF1AE'>ser.enc(sess)</span><span style=''>
-</span>156 <span style=''>
-</span>157 <span style=''>    </span><span style='background: #AEF1AE'>sess.createDataset(blooms).asInstanceOf[Dataset[BloomSerializer[SerializedType, T]#SerType]]</span><span style=''>
-</span>158 <span style=''>  }
-</span>159 <span style=''>}
+</span>136 <span style=''>    val blooms = </span><span style='background: #AEF1AE'>bloomFilterMap.map { pair =&gt;
+</span>137 <span style=''></span><span style='background: #AEF1AE'>      ser.toType(pair)
+</span>138 <span style=''></span><span style='background: #AEF1AE'>    }.toSeq</span><span style=''>
+</span>139 <span style=''>
+</span>140 <span style=''>    val sess = </span><span style='background: #AEF1AE'>SparkSession.getDefaultSession.get</span><span style=''>
+</span>141 <span style=''>    implicit val enc = </span><span style='background: #AEF1AE'>ser.enc(sess)</span><span style=''>
+</span>142 <span style=''>
+</span>143 <span style=''>    </span><span style='background: #AEF1AE'>sess.createDataset(blooms).asInstanceOf[Dataset[BloomSerializer[SerializedType, T]#SerType]]</span><span style=''>
+</span>144 <span style=''>  }
+</span>145 <span style=''>}
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -195,135 +181,15 @@
         <th>Code</th>
       </tr><tr>
         <td>
-          23
-        </td>
-        <td>
-          3282
-        </td>
-        <td>
-          684
-          -
-          701
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.BloomFilterTypes.BloomLookup.mightContain
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          BloomLookup.this.mightContain(any)
-        </td>
-      </tr><tr>
-        <td>
-          31
-        </td>
-        <td>
-          3283
-        </td>
-        <td>
-          917
-          -
-          944
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.apache.spark.util.sketch.BloomFilter.mightContainString
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          SparkBloomFilter.this.bloom.mightContainString(s)
-        </td>
-      </tr><tr>
-        <td>
-          32
-        </td>
-        <td>
-          3284
-        </td>
-        <td>
-          976
-          -
-          1003
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.apache.spark.util.sketch.BloomFilter.mightContainBinary
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          SparkBloomFilter.this.bloom.mightContainBinary(b)
-        </td>
-      </tr><tr>
-        <td>
-          33
-        </td>
-        <td>
-          3285
-        </td>
-        <td>
-          1028
-          -
-          1053
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.apache.spark.util.sketch.BloomFilter.mightContainLong
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          SparkBloomFilter.this.bloom.mightContainLong(l)
-        </td>
-      </tr><tr>
-        <td>
           34
         </td>
         <td>
-          3286
+          3292
         </td>
         <td>
-          1072
+          914
           -
-          1095
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.apache.spark.util.sketch.BloomFilter.mightContain
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          SparkBloomFilter.this.bloom.mightContain(any)
-        </td>
-      </tr><tr>
-        <td>
-          48
-        </td>
-        <td>
-          3288
-        </td>
-        <td>
-          1297
-          -
-          1336
+          953
         </td>
         <td>
           Apply
@@ -339,15 +205,15 @@
         </td>
       </tr><tr>
         <td>
-          48
+          34
         </td>
         <td>
-          3287
+          3291
         </td>
         <td>
-          1314
+          931
           -
-          1336
+          953
         </td>
         <td>
           Select
@@ -363,15 +229,15 @@
         </td>
       </tr><tr>
         <td>
-          49
+          35
         </td>
         <td>
-          3293
+          3297
         </td>
         <td>
-          1344
+          961
           -
-          1465
+          1082
         </td>
         <td>
           Function
@@ -382,7 +248,7 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           ((input: Any) =&gt; {
   val row: org.apache.spark.sql.catalyst.InternalRow = input.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow];
   scala.Array.apply(row.getLong(0), row.getLong(1))
@@ -390,15 +256,15 @@
         </td>
       </tr><tr>
         <td>
-          50
+          36
         </td>
         <td>
-          3289
+          3293
         </td>
         <td>
-          1380
+          997
           -
-          1411
+          1028
         </td>
         <td>
           TypeApply
@@ -409,20 +275,68 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           input.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow]
         </td>
       </tr><tr>
         <td>
-          51
+          37
         </td>
         <td>
-          3292
+          3295
         </td>
         <td>
-          1420
+          1059
           -
-          1457
+          1073
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.SpecializedGetters.getLong
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          row.getLong(1)
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          3294
+        </td>
+        <td>
+          1043
+          -
+          1057
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.SpecializedGetters.getLong
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          row.getLong(0)
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          3296
+        </td>
+        <td>
+          1037
+          -
+          1074
         </td>
         <td>
           Apply
@@ -433,92 +347,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           scala.Array.apply(row.getLong(0), row.getLong(1))
         </td>
       </tr><tr>
         <td>
-          51
+          40
         </td>
         <td>
-          3291
+          3298
         </td>
         <td>
-          1442
+          1144
           -
-          1456
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.apache.spark.sql.catalyst.expressions.SpecializedGetters.getLong
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          row.getLong(1)
-        </td>
-      </tr><tr>
-        <td>
-          51
-        </td>
-        <td>
-          3290
-        </td>
-        <td>
-          1426
-          -
-          1440
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.apache.spark.sql.catalyst.expressions.SpecializedGetters.getLong
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          row.getLong(0)
-        </td>
-      </tr><tr>
-        <td>
-          54
-        </td>
-        <td>
-          3295
-        </td>
-        <td>
-          1481
-          -
-          1541
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.apache.spark.sql.catalyst.CatalystTypeConverters.createToScalaConverter
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          org.apache.spark.sql.catalyst.CatalystTypeConverters.createToScalaConverter(expr.dataType)
-        </td>
-      </tr><tr>
-        <td>
-          54
-        </td>
-        <td>
-          3294
-        </td>
-        <td>
-          1527
-          -
-          1540
+          1157
         </td>
         <td>
           Select
@@ -534,15 +376,15 @@
         </td>
       </tr><tr>
         <td>
-          54
+          40
         </td>
         <td>
-          3296
+          3300
         </td>
         <td>
-          1481
+          1098
           -
-          1541
+          1158
         </td>
         <td>
           Block
@@ -558,136 +400,39 @@
         </td>
       </tr><tr>
         <td>
-          66
+          40
+        </td>
+        <td>
+          3299
+        </td>
+        <td>
+          1098
+          -
+          1158
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.CatalystTypeConverters.createToScalaConverter
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.CatalystTypeConverters.createToScalaConverter(expr.dataType)
+        </td>
+      </tr><tr>
+        <td>
+          52
         </td>
         <td>
           3304
         </td>
         <td>
-          1814
+          1431
           -
-          1814
-        </td>
-        <td>
-          TypeApply
-        </td>
-        <td>
-          frameless.DropUnitValues.deriveHNil
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          frameless.this.DropUnitValues.deriveHNil[Nothing]
-        </td>
-      </tr><tr>
-        <td>
-          66
-        </td>
-        <td>
-          3298
-        </td>
-        <td>
-          1814
-          -
-          1814
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          shapeless.ops.hlist.ZipWithKeys.hconsZipWithKeys
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          hlist.this.ZipWithKeys.hconsZipWithKeys[Symbol @@ String(&quot;blooms&quot;), Array[Array[Byte]], shapeless.HNil, shapeless.HNil](hlist.this.ZipWithKeys.hnilZipWithKeys, shapeless.Witness.mkWitness[Symbol with shapeless.tag.Tagged[String(&quot;blooms&quot;)]](scala.Symbol.apply(&quot;blooms&quot;).asInstanceOf[Symbol @@ String(&quot;blooms&quot;)].asInstanceOf[Symbol with shapeless.tag.Tagged[String(&quot;blooms&quot;)]]))
-        </td>
-      </tr><tr>
-        <td>
-          66
-        </td>
-        <td>
-          3307
-        </td>
-        <td>
-          1814
-          -
-          1814
-        </td>
-        <td>
-          TypeApply
-        </td>
-        <td>
-          shapeless.ops.hlist.IsHCons.hlistIsHCons
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          hlist.this.IsHCons.hlistIsHCons[shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;fpp&quot;)],Double], shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;blooms&quot;)],Array[Array[Byte]]] :: shapeless.HNil]
-        </td>
-      </tr><tr>
-        <td>
-          66
-        </td>
-        <td>
-          3301
-        </td>
-        <td>
-          1814
-          -
-          1814
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          shapeless.LabelledGeneric.materializeProduct
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          shapeless.this.LabelledGeneric.materializeProduct[com.sparkutils.quality.impl.bloom.BloomStruct, (Symbol @@ String(&quot;fpp&quot;)) :: (Symbol @@ String(&quot;blooms&quot;)) :: shapeless.HNil, Double :: Array[Array[Byte]] :: shapeless.HNil, this.Out](({
-  final class $anon extends AnyRef with shapeless.DefaultSymbolicLabelling[com.sparkutils.quality.impl.bloom.BloomStruct] {
-    def &lt;init&gt;(): &lt;$anon: shapeless.DefaultSymbolicLabelling[com.sparkutils.quality.impl.bloom.BloomStruct]&gt; = {
-      $anon.super.&lt;init&gt;();
-      ()
-    };
-    type Out = (Symbol @@ String(&quot;fpp&quot;)) :: (Symbol @@ String(&quot;blooms&quot;)) :: shapeless.HNil;
-    def apply(): (Symbol @@ String(&quot;fpp&quot;)) :: (Symbol @@ String(&quot;blooms&quot;)) :: shapeless.HNil = shapeless.::.apply[Symbol @@ String(&quot;fpp&quot;), (Symbol @@ String(&quot;blooms&quot;)) :: shapeless.HNil.type](scala.Symbol.apply(&quot;fpp&quot;).asInstanceOf[Symbol @@ String(&quot;fpp&quot;)], shapeless.::.apply[Symbol @@ String(&quot;blooms&quot;), shapeless.HNil.type](scala.Symbol.apply(&quot;blooms&quot;).asInstanceOf[Symbol @@ String(&quot;blooms&quot;)], shapeless.HNil))
-  };
-  new $anon()
-}: shapeless.DefaultSymbolicLabelling.Aux[com.sparkutils.quality.impl.bloom.BloomStruct,(Symbol @@ String(&quot;fpp&quot;)) :: (Symbol @@ String(&quot;blooms&quot;)) :: shapeless.HNil]), {
-  final class anon$macro$6 extends AnyRef with shapeless.Generic[com.sparkutils.quality.impl.bloom.BloomStruct] {
-    def &lt;init&gt;(): anon$macro$6 = {
-      anon$macro$6.super.&lt;init&gt;();
-      ()
-    };
-    type Repr = Double :: Array[Array[Byte]] :: shapeless.HNil;
-    def to(p: com.sparkutils.quality.impl.bloom.BloomStruct): anon$macro$6.this.Repr = p match {
-  case (fpp: Double, blooms: Array[Array[Byte]])com.sparkutils.quality.impl.bloom.BloomStruct((pat$macro$4 @ _), (pat$macro$5 @ _)) =&gt; shapeless.::.apply[Double, Array[Array[Byte]] :: shapeless.HNil.type](pat$macro$4, shapeless.::.apply[Array[Array[Byte]], shapeless.HNil.type](pat$macro$5, shapeless.HNil))
-}.asInstanceOf[anon$macro$6.this.Repr];
-    def from(p: anon$macro$6.this.Repr): com.sparkutils.quality.impl.bloom.BloomStruct = p match {
-      case (head: Double, tail: Array[Array[Byte]] :: shapeless.HNil)Double :: Array[Array[Byte]] :: shapeless.HNil((pat$macro$4 @ _), (head: Array[Array[Byte]], tail: shapeless.HNil)Array[Array[Byte]] :: shapeless.HNil((pat$macro$5 @ _), shapeless.HNil)) =&gt; bloom.this.BloomStruct.apply(pat$macro$4, pat$macro$5)
-    }
-  };
-  (new anon$macro$6(): shapeless.Generic.Aux[com.sparkutils.quality.impl.bloom.BloomStruct,Double :: Array[Array[Byte]] :: shapeless.HNil])
-}, hlist.this.ZipWithKeys.hconsZipWithKeys[Symbol @@ String(&quot;fpp&quot;), Double, (Symbol @@ String(&quot;blooms&quot;)) :: shapeless.HNil, Array[Array[Byte]] :: shapeless.HNil](hlist.this.ZipWithKeys.hconsZipWithKeys[Symbol @@ String(&quot;blooms&quot;), Array[Array[Byte]], shapeless.HNil, shapeless.HNil](hlist.this.ZipWithKeys.hnilZipWithKeys, shapeless.Witness.mkWitness[Symbol with shapeless.tag.Tagged[String(&quot;blooms&quot;)]](scala.Symbol.apply(&quot;blooms&quot;).asInstanceOf[Symbol @@ String(&quot;blooms&quot;)].asInstanceOf[Symbol with shapeless.tag.Tagged[String(&quot;blooms&quot;)]])), shapeless.Witness.mkWitness[Symbol with shapeless.tag.Tagged[String(&quot;fpp&quot;)]](scala.Symbol.apply(&quot;fpp&quot;).asInstanceOf[Symbol @@ String(&quot;fpp&quot;)].asInstanceOf[Symbol with shapeless.tag.Tagged[String(&quot;fpp&quot;)]])), scala.Predef.$conforms[this.Out])
-        </td>
-      </tr><tr>
-        <td>
-          66
-        </td>
-        <td>
-          3300
-        </td>
-        <td>
-          1814
-          -
-          1814
+          1431
         </td>
         <td>
           TypeApply
@@ -703,15 +448,15 @@
         </td>
       </tr><tr>
         <td>
-          66
+          52
         </td>
         <td>
-          3309
+          3313
         </td>
         <td>
-          1802
+          1419
           -
-          1827
+          1444
         </td>
         <td>
           ApplyToImplicitArgs
@@ -769,15 +514,15 @@
         </td>
       </tr><tr>
         <td>
-          66
+          52
         </td>
         <td>
-          3303
+          3307
         </td>
         <td>
-          1814
+          1431
           -
-          1814
+          1431
         </td>
         <td>
           TypeApply
@@ -793,39 +538,15 @@
         </td>
       </tr><tr>
         <td>
-          66
+          52
         </td>
         <td>
-          3297
+          3310
         </td>
         <td>
-          1814
+          1431
           -
-          1814
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          shapeless.ops.hlist.ZipWithKeys.hnilZipWithKeys
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          hlist.this.ZipWithKeys.hnilZipWithKeys
-        </td>
-      </tr><tr>
-        <td>
-          66
-        </td>
-        <td>
-          3306
-        </td>
-        <td>
-          1814
-          -
-          1814
+          1431
         </td>
         <td>
           ApplyToImplicitArgs
@@ -841,15 +562,39 @@
         </td>
       </tr><tr>
         <td>
-          66
+          52
         </td>
         <td>
-          3305
+          3301
         </td>
         <td>
-          1814
+          1431
           -
-          1814
+          1431
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          shapeless.ops.hlist.ZipWithKeys.hnilZipWithKeys
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          hlist.this.ZipWithKeys.hnilZipWithKeys
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          3309
+        </td>
+        <td>
+          1431
+          -
+          1431
         </td>
         <td>
           ApplyToImplicitArgs
@@ -865,15 +610,15 @@
         </td>
       </tr><tr>
         <td>
-          66
+          52
         </td>
         <td>
-          3299
+          3303
         </td>
         <td>
-          1814
+          1431
           -
-          1814
+          1431
         </td>
         <td>
           ApplyToImplicitArgs
@@ -889,15 +634,15 @@
         </td>
       </tr><tr>
         <td>
-          66
+          52
         </td>
         <td>
-          3308
+          3312
         </td>
         <td>
-          1814
+          1431
           -
-          1814
+          1431
         </td>
         <td>
           ApplyToImplicitArgs
@@ -955,15 +700,15 @@
         </td>
       </tr><tr>
         <td>
-          66
+          52
         </td>
         <td>
-          3302
+          3306
         </td>
         <td>
-          1814
+          1431
           -
-          1814
+          1431
         </td>
         <td>
           TypeApply
@@ -979,111 +724,15 @@
         </td>
       </tr><tr>
         <td>
-          68
+          52
         </td>
         <td>
-          3310
+          3305
         </td>
         <td>
-          1872
+          1431
           -
-          1872
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.BloomStruct.typedEnc
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          BloomStruct.this.typedEnc
-        </td>
-      </tr><tr>
-        <td>
-          68
-        </td>
-        <td>
-          3311
-        </td>
-        <td>
-          1850
-          -
-          1885
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          frameless.TypedExpressionEncoder.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          frameless.TypedExpressionEncoder.apply[com.sparkutils.quality.impl.bloom.BloomStruct](BloomStruct.this.typedEnc)
-        </td>
-      </tr><tr>
-        <td>
-          74
-        </td>
-        <td>
-          3322
-        </td>
-        <td>
-          1972
-          -
-          1972
-        </td>
-        <td>
-          TypeApply
-        </td>
-        <td>
-          shapeless.ops.hlist.IsHCons.hlistIsHCons
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          hlist.this.IsHCons.hlistIsHCons[shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;bloom_id&quot;)],String], shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)],com.sparkutils.quality.impl.bloom.BloomStruct] :: shapeless.HNil]
-        </td>
-      </tr><tr>
-        <td>
-          74
-        </td>
-        <td>
-          3313
-        </td>
-        <td>
-          1972
-          -
-          1972
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          shapeless.ops.hlist.ZipWithKeys.hconsZipWithKeys
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          hlist.this.ZipWithKeys.hconsZipWithKeys[Symbol @@ String(&quot;bloom&quot;), com.sparkutils.quality.impl.bloom.BloomStruct, shapeless.HNil, shapeless.HNil](hlist.this.ZipWithKeys.hnilZipWithKeys, shapeless.Witness.mkWitness[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)]](scala.Symbol.apply(&quot;bloom&quot;).asInstanceOf[Symbol @@ String(&quot;bloom&quot;)].asInstanceOf[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)]]))
-        </td>
-      </tr><tr>
-        <td>
-          74
-        </td>
-        <td>
-          3316
-        </td>
-        <td>
-          1972
-          -
-          1972
+          1431
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1095,44 +744,44 @@
           
         </td>
         <td style="background: #F0ADAD">
-          shapeless.this.LabelledGeneric.materializeProduct[com.sparkutils.quality.impl.bloom.BloomArrayRaw, (Symbol @@ String(&quot;bloom_id&quot;)) :: (Symbol @@ String(&quot;bloom&quot;)) :: shapeless.HNil, String :: com.sparkutils.quality.impl.bloom.BloomStruct :: shapeless.HNil, this.Out](({
-  final class $anon extends AnyRef with shapeless.DefaultSymbolicLabelling[com.sparkutils.quality.impl.bloom.BloomArrayRaw] {
-    def &lt;init&gt;(): &lt;$anon: shapeless.DefaultSymbolicLabelling[com.sparkutils.quality.impl.bloom.BloomArrayRaw]&gt; = {
+          shapeless.this.LabelledGeneric.materializeProduct[com.sparkutils.quality.impl.bloom.BloomStruct, (Symbol @@ String(&quot;fpp&quot;)) :: (Symbol @@ String(&quot;blooms&quot;)) :: shapeless.HNil, Double :: Array[Array[Byte]] :: shapeless.HNil, this.Out](({
+  final class $anon extends AnyRef with shapeless.DefaultSymbolicLabelling[com.sparkutils.quality.impl.bloom.BloomStruct] {
+    def &lt;init&gt;(): &lt;$anon: shapeless.DefaultSymbolicLabelling[com.sparkutils.quality.impl.bloom.BloomStruct]&gt; = {
       $anon.super.&lt;init&gt;();
       ()
     };
-    type Out = (Symbol @@ String(&quot;bloom_id&quot;)) :: (Symbol @@ String(&quot;bloom&quot;)) :: shapeless.HNil;
-    def apply(): (Symbol @@ String(&quot;bloom_id&quot;)) :: (Symbol @@ String(&quot;bloom&quot;)) :: shapeless.HNil = shapeless.::.apply[Symbol @@ String(&quot;bloom_id&quot;), (Symbol @@ String(&quot;bloom&quot;)) :: shapeless.HNil.type](scala.Symbol.apply(&quot;bloom_id&quot;).asInstanceOf[Symbol @@ String(&quot;bloom_id&quot;)], shapeless.::.apply[Symbol @@ String(&quot;bloom&quot;), shapeless.HNil.type](scala.Symbol.apply(&quot;bloom&quot;).asInstanceOf[Symbol @@ String(&quot;bloom&quot;)], shapeless.HNil))
+    type Out = (Symbol @@ String(&quot;fpp&quot;)) :: (Symbol @@ String(&quot;blooms&quot;)) :: shapeless.HNil;
+    def apply(): (Symbol @@ String(&quot;fpp&quot;)) :: (Symbol @@ String(&quot;blooms&quot;)) :: shapeless.HNil = shapeless.::.apply[Symbol @@ String(&quot;fpp&quot;), (Symbol @@ String(&quot;blooms&quot;)) :: shapeless.HNil.type](scala.Symbol.apply(&quot;fpp&quot;).asInstanceOf[Symbol @@ String(&quot;fpp&quot;)], shapeless.::.apply[Symbol @@ String(&quot;blooms&quot;), shapeless.HNil.type](scala.Symbol.apply(&quot;blooms&quot;).asInstanceOf[Symbol @@ String(&quot;blooms&quot;)], shapeless.HNil))
   };
   new $anon()
-}: shapeless.DefaultSymbolicLabelling.Aux[com.sparkutils.quality.impl.bloom.BloomArrayRaw,(Symbol @@ String(&quot;bloom_id&quot;)) :: (Symbol @@ String(&quot;bloom&quot;)) :: shapeless.HNil]), {
-  final class anon$macro$6 extends AnyRef with shapeless.Generic[com.sparkutils.quality.impl.bloom.BloomArrayRaw] {
+}: shapeless.DefaultSymbolicLabelling.Aux[com.sparkutils.quality.impl.bloom.BloomStruct,(Symbol @@ String(&quot;fpp&quot;)) :: (Symbol @@ String(&quot;blooms&quot;)) :: shapeless.HNil]), {
+  final class anon$macro$6 extends AnyRef with shapeless.Generic[com.sparkutils.quality.impl.bloom.BloomStruct] {
     def &lt;init&gt;(): anon$macro$6 = {
       anon$macro$6.super.&lt;init&gt;();
       ()
     };
-    type Repr = String :: com.sparkutils.quality.impl.bloom.BloomStruct :: shapeless.HNil;
-    def to(p: com.sparkutils.quality.impl.bloom.BloomArrayRaw): anon$macro$6.this.Repr = p match {
-  case (bloom_id: String, bloom: com.sparkutils.quality.impl.bloom.BloomStruct)com.sparkutils.quality.impl.bloom.BloomArrayRaw((pat$macro$4 @ _), (pat$macro$5 @ _)) =&gt; shapeless.::.apply[String, com.sparkutils.quality.impl.bloom.BloomStruct :: shapeless.HNil.type](pat$macro$4, shapeless.::.apply[com.sparkutils.quality.impl.bloom.BloomStruct, shapeless.HNil.type](pat$macro$5, shapeless.HNil))
+    type Repr = Double :: Array[Array[Byte]] :: shapeless.HNil;
+    def to(p: com.sparkutils.quality.impl.bloom.BloomStruct): anon$macro$6.this.Repr = p match {
+  case (fpp: Double, blooms: Array[Array[Byte]])com.sparkutils.quality.impl.bloom.BloomStruct((pat$macro$4 @ _), (pat$macro$5 @ _)) =&gt; shapeless.::.apply[Double, Array[Array[Byte]] :: shapeless.HNil.type](pat$macro$4, shapeless.::.apply[Array[Array[Byte]], shapeless.HNil.type](pat$macro$5, shapeless.HNil))
 }.asInstanceOf[anon$macro$6.this.Repr];
-    def from(p: anon$macro$6.this.Repr): com.sparkutils.quality.impl.bloom.BloomArrayRaw = p match {
-      case (head: String, tail: com.sparkutils.quality.impl.bloom.BloomStruct :: shapeless.HNil)String :: com.sparkutils.quality.impl.bloom.BloomStruct :: shapeless.HNil((pat$macro$4 @ _), (head: com.sparkutils.quality.impl.bloom.BloomStruct, tail: shapeless.HNil)com.sparkutils.quality.impl.bloom.BloomStruct :: shapeless.HNil((pat$macro$5 @ _), shapeless.HNil)) =&gt; bloom.this.BloomArrayRaw.apply(pat$macro$4, pat$macro$5)
+    def from(p: anon$macro$6.this.Repr): com.sparkutils.quality.impl.bloom.BloomStruct = p match {
+      case (head: Double, tail: Array[Array[Byte]] :: shapeless.HNil)Double :: Array[Array[Byte]] :: shapeless.HNil((pat$macro$4 @ _), (head: Array[Array[Byte]], tail: shapeless.HNil)Array[Array[Byte]] :: shapeless.HNil((pat$macro$5 @ _), shapeless.HNil)) =&gt; bloom.this.BloomStruct.apply(pat$macro$4, pat$macro$5)
     }
   };
-  (new anon$macro$6(): shapeless.Generic.Aux[com.sparkutils.quality.impl.bloom.BloomArrayRaw,String :: com.sparkutils.quality.impl.bloom.BloomStruct :: shapeless.HNil])
-}, hlist.this.ZipWithKeys.hconsZipWithKeys[Symbol @@ String(&quot;bloom_id&quot;), String, (Symbol @@ String(&quot;bloom&quot;)) :: shapeless.HNil, com.sparkutils.quality.impl.bloom.BloomStruct :: shapeless.HNil](hlist.this.ZipWithKeys.hconsZipWithKeys[Symbol @@ String(&quot;bloom&quot;), com.sparkutils.quality.impl.bloom.BloomStruct, shapeless.HNil, shapeless.HNil](hlist.this.ZipWithKeys.hnilZipWithKeys, shapeless.Witness.mkWitness[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)]](scala.Symbol.apply(&quot;bloom&quot;).asInstanceOf[Symbol @@ String(&quot;bloom&quot;)].asInstanceOf[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)]])), shapeless.Witness.mkWitness[Symbol with shapeless.tag.Tagged[String(&quot;bloom_id&quot;)]](scala.Symbol.apply(&quot;bloom_id&quot;).asInstanceOf[Symbol @@ String(&quot;bloom_id&quot;)].asInstanceOf[Symbol with shapeless.tag.Tagged[String(&quot;bloom_id&quot;)]])), scala.Predef.$conforms[this.Out])
+  (new anon$macro$6(): shapeless.Generic.Aux[com.sparkutils.quality.impl.bloom.BloomStruct,Double :: Array[Array[Byte]] :: shapeless.HNil])
+}, hlist.this.ZipWithKeys.hconsZipWithKeys[Symbol @@ String(&quot;fpp&quot;), Double, (Symbol @@ String(&quot;blooms&quot;)) :: shapeless.HNil, Array[Array[Byte]] :: shapeless.HNil](hlist.this.ZipWithKeys.hconsZipWithKeys[Symbol @@ String(&quot;blooms&quot;), Array[Array[Byte]], shapeless.HNil, shapeless.HNil](hlist.this.ZipWithKeys.hnilZipWithKeys, shapeless.Witness.mkWitness[Symbol with shapeless.tag.Tagged[String(&quot;blooms&quot;)]](scala.Symbol.apply(&quot;blooms&quot;).asInstanceOf[Symbol @@ String(&quot;blooms&quot;)].asInstanceOf[Symbol with shapeless.tag.Tagged[String(&quot;blooms&quot;)]])), shapeless.Witness.mkWitness[Symbol with shapeless.tag.Tagged[String(&quot;fpp&quot;)]](scala.Symbol.apply(&quot;fpp&quot;).asInstanceOf[Symbol @@ String(&quot;fpp&quot;)].asInstanceOf[Symbol with shapeless.tag.Tagged[String(&quot;fpp&quot;)]])), scala.Predef.$conforms[this.Out])
         </td>
       </tr><tr>
         <td>
-          74
+          52
         </td>
         <td>
-          3319
+          3308
         </td>
         <td>
-          1972
+          1431
           -
-          1972
+          1431
         </td>
         <td>
           TypeApply
@@ -1148,15 +797,111 @@
         </td>
       </tr><tr>
         <td>
-          74
+          52
         </td>
         <td>
-          3318
+          3302
         </td>
         <td>
-          1972
+          1431
           -
-          1972
+          1431
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          shapeless.ops.hlist.ZipWithKeys.hconsZipWithKeys
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          hlist.this.ZipWithKeys.hconsZipWithKeys[Symbol @@ String(&quot;blooms&quot;), Array[Array[Byte]], shapeless.HNil, shapeless.HNil](hlist.this.ZipWithKeys.hnilZipWithKeys, shapeless.Witness.mkWitness[Symbol with shapeless.tag.Tagged[String(&quot;blooms&quot;)]](scala.Symbol.apply(&quot;blooms&quot;).asInstanceOf[Symbol @@ String(&quot;blooms&quot;)].asInstanceOf[Symbol with shapeless.tag.Tagged[String(&quot;blooms&quot;)]]))
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          3311
+        </td>
+        <td>
+          1431
+          -
+          1431
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          shapeless.ops.hlist.IsHCons.hlistIsHCons
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          hlist.this.IsHCons.hlistIsHCons[shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;fpp&quot;)],Double], shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;blooms&quot;)],Array[Array[Byte]]] :: shapeless.HNil]
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          3315
+        </td>
+        <td>
+          1467
+          -
+          1502
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          frameless.TypedExpressionEncoder.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          frameless.TypedExpressionEncoder.apply[com.sparkutils.quality.impl.bloom.BloomStruct](BloomStruct.this.typedEnc)
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          3314
+        </td>
+        <td>
+          1489
+          -
+          1489
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.BloomStruct.typedEnc
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          BloomStruct.this.typedEnc
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          3322
+        </td>
+        <td>
+          1589
+          -
+          1589
         </td>
         <td>
           TypeApply
@@ -1172,15 +917,15 @@
         </td>
       </tr><tr>
         <td>
-          74
+          60
         </td>
         <td>
-          3312
+          3316
         </td>
         <td>
-          1972
+          1589
           -
-          1972
+          1589
         </td>
         <td>
           Select
@@ -1196,15 +941,15 @@
         </td>
       </tr><tr>
         <td>
-          74
+          60
         </td>
         <td>
-          3321
+          3325
         </td>
         <td>
-          1972
+          1589
           -
-          1972
+          1589
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1220,15 +965,15 @@
         </td>
       </tr><tr>
         <td>
-          74
+          60
         </td>
         <td>
-          3315
+          3319
         </td>
         <td>
-          1972
+          1589
           -
-          1972
+          1589
         </td>
         <td>
           TypeApply
@@ -1244,83 +989,15 @@
         </td>
       </tr><tr>
         <td>
-          74
+          60
         </td>
         <td>
-          3324
+          3327
         </td>
         <td>
-          1960
+          1589
           -
-          1987
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          frameless.TypedEncoder.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          frameless.TypedEncoder.apply[com.sparkutils.quality.impl.bloom.BloomArrayRaw](frameless.this.TypedEncoder.usingDerivation[com.sparkutils.quality.impl.bloom.BloomArrayRaw, this.Out, shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;bloom_id&quot;)],String] :: shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)],com.sparkutils.quality.impl.bloom.BloomStruct] :: shapeless.HNil](shapeless.this.LabelledGeneric.materializeProduct[com.sparkutils.quality.impl.bloom.BloomArrayRaw, (Symbol @@ String(&quot;bloom_id&quot;)) :: (Symbol @@ String(&quot;bloom&quot;)) :: shapeless.HNil, String :: com.sparkutils.quality.impl.bloom.BloomStruct :: shapeless.HNil, this.Out](({
-  final class $anon extends AnyRef with shapeless.DefaultSymbolicLabelling[com.sparkutils.quality.impl.bloom.BloomArrayRaw] {
-    def &lt;init&gt;(): &lt;$anon: shapeless.DefaultSymbolicLabelling[com.sparkutils.quality.impl.bloom.BloomArrayRaw]&gt; = {
-      $anon.super.&lt;init&gt;();
-      ()
-    };
-    type Out = (Symbol @@ String(&quot;bloom_id&quot;)) :: (Symbol @@ String(&quot;bloom&quot;)) :: shapeless.HNil;
-    def apply(): (Symbol @@ String(&quot;bloom_id&quot;)) :: (Symbol @@ String(&quot;bloom&quot;)) :: shapeless.HNil = shapeless.::.apply[Symbol @@ String(&quot;bloom_id&quot;), (Symbol @@ String(&quot;bloom&quot;)) :: shapeless.HNil.type](scala.Symbol.apply(&quot;bloom_id&quot;).asInstanceOf[Symbol @@ String(&quot;bloom_id&quot;)], shapeless.::.apply[Symbol @@ String(&quot;bloom&quot;), shapeless.HNil.type](scala.Symbol.apply(&quot;bloom&quot;).asInstanceOf[Symbol @@ String(&quot;bloom&quot;)], shapeless.HNil))
-  };
-  new $anon()
-}: shapeless.DefaultSymbolicLabelling.Aux[com.sparkutils.quality.impl.bloom.BloomArrayRaw,(Symbol @@ String(&quot;bloom_id&quot;)) :: (Symbol @@ String(&quot;bloom&quot;)) :: shapeless.HNil]), {
-  final class anon$macro$6 extends AnyRef with shapeless.Generic[com.sparkutils.quality.impl.bloom.BloomArrayRaw] {
-    def &lt;init&gt;(): anon$macro$6 = {
-      anon$macro$6.super.&lt;init&gt;();
-      ()
-    };
-    type Repr = String :: com.sparkutils.quality.impl.bloom.BloomStruct :: shapeless.HNil;
-    def to(p: com.sparkutils.quality.impl.bloom.BloomArrayRaw): anon$macro$6.this.Repr = p match {
-  case (bloom_id: String, bloom: com.sparkutils.quality.impl.bloom.BloomStruct)com.sparkutils.quality.impl.bloom.BloomArrayRaw((pat$macro$4 @ _), (pat$macro$5 @ _)) =&gt; shapeless.::.apply[String, com.sparkutils.quality.impl.bloom.BloomStruct :: shapeless.HNil.type](pat$macro$4, shapeless.::.apply[com.sparkutils.quality.impl.bloom.BloomStruct, shapeless.HNil.type](pat$macro$5, shapeless.HNil))
-}.asInstanceOf[anon$macro$6.this.Repr];
-    def from(p: anon$macro$6.this.Repr): com.sparkutils.quality.impl.bloom.BloomArrayRaw = p match {
-      case (head: String, tail: com.sparkutils.quality.impl.bloom.BloomStruct :: shapeless.HNil)String :: com.sparkutils.quality.impl.bloom.BloomStruct :: shapeless.HNil((pat$macro$4 @ _), (head: com.sparkutils.quality.impl.bloom.BloomStruct, tail: shapeless.HNil)com.sparkutils.quality.impl.bloom.BloomStruct :: shapeless.HNil((pat$macro$5 @ _), shapeless.HNil)) =&gt; bloom.this.BloomArrayRaw.apply(pat$macro$4, pat$macro$5)
-    }
-  };
-  (new anon$macro$6(): shapeless.Generic.Aux[com.sparkutils.quality.impl.bloom.BloomArrayRaw,String :: com.sparkutils.quality.impl.bloom.BloomStruct :: shapeless.HNil])
-}, hlist.this.ZipWithKeys.hconsZipWithKeys[Symbol @@ String(&quot;bloom_id&quot;), String, (Symbol @@ String(&quot;bloom&quot;)) :: shapeless.HNil, com.sparkutils.quality.impl.bloom.BloomStruct :: shapeless.HNil](hlist.this.ZipWithKeys.hconsZipWithKeys[Symbol @@ String(&quot;bloom&quot;), com.sparkutils.quality.impl.bloom.BloomStruct, shapeless.HNil, shapeless.HNil](hlist.this.ZipWithKeys.hnilZipWithKeys, shapeless.Witness.mkWitness[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)]](scala.Symbol.apply(&quot;bloom&quot;).asInstanceOf[Symbol @@ String(&quot;bloom&quot;)].asInstanceOf[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)]])), shapeless.Witness.mkWitness[Symbol with shapeless.tag.Tagged[String(&quot;bloom_id&quot;)]](scala.Symbol.apply(&quot;bloom_id&quot;).asInstanceOf[Symbol @@ String(&quot;bloom_id&quot;)].asInstanceOf[Symbol with shapeless.tag.Tagged[String(&quot;bloom_id&quot;)]])), scala.Predef.$conforms[this.Out]), frameless.this.DropUnitValues.deriveNonUnit[Symbol with shapeless.tag.Tagged[String(&quot;bloom_id&quot;)], String, com.sparkutils.quality.impl.bloom.BloomStruct with shapeless.labelled.KeyTag[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)],com.sparkutils.quality.impl.bloom.BloomStruct] :: shapeless.HNil, Nothing, shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)],com.sparkutils.quality.impl.bloom.BloomStruct] :: shapeless.HNil](shapeless.this.`package`.neq[String, Unit], frameless.this.DropUnitValues.deriveNonUnit[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)], com.sparkutils.quality.impl.bloom.BloomStruct, shapeless.HNil, Nothing, shapeless.HNil](shapeless.this.`package`.neq[com.sparkutils.quality.impl.bloom.BloomStruct, Unit], frameless.this.DropUnitValues.deriveHNil[Nothing])), hlist.this.IsHCons.hlistIsHCons[shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;bloom_id&quot;)],String], shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)],com.sparkutils.quality.impl.bloom.BloomStruct] :: shapeless.HNil], {
-  val inst$macro$31: frameless.RecordEncoderFields[shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;bloom_id&quot;)],String] :: com.sparkutils.quality.impl.bloom.BloomStruct with shapeless.labelled.KeyTag[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)],com.sparkutils.quality.impl.bloom.BloomStruct] :: shapeless.HNil] = {
-    final class anon$usingDerivation$macro$30 extends AnyRef with Serializable {
-      def &lt;init&gt;(): anon$usingDerivation$macro$30 = {
-        anon$usingDerivation$macro$30.super.&lt;init&gt;();
-        ()
-      };
-      &lt;stable&gt; &lt;accessor&gt; lazy val inst$macro$16: frameless.RecordFieldEncoder[Byte] = frameless.this.RecordFieldEncoder.apply[Byte](frameless.this.TypedEncoder.byteEncoder).asInstanceOf[frameless.RecordFieldEncoder[Byte]];
-      &lt;stable&gt; &lt;accessor&gt; lazy val inst$macro$15: frameless.RecordFieldEncoder[Array[Byte]] = frameless.this.RecordFieldEncoder.apply[Array[Byte]](frameless.this.TypedEncoder.arrayEncoder[Byte]((ClassTag.Byte: scala.reflect.ClassTag[Byte]), shapeless.Lazy.apply[frameless.RecordFieldEncoder[Byte]](anon$usingDerivation$macro$30.this.inst$macro$16))).asInstanceOf[frameless.RecordFieldEncoder[Array[Byte]]];
-      &lt;stable&gt; &lt;accessor&gt; lazy val inst$macro$14: frameless.RecordEncoderFields[shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;fpp&quot;)],Double] :: Array[Array[Byte]] with shapeless.labelled.KeyTag[Symbol with shapeless.tag.Tagged[String(&quot;blooms&quot;)],Array[Array[Byte]]] :: shapeless.HNil] = frameless.this.RecordEncoderFields.deriveRecordCons[Symbol with shapeless.tag.Tagged[String(&quot;fpp&quot;)], Double, Array[Array[Byte]] with shapeless.labelled.KeyTag[Symbol with shapeless.tag.Tagged[String(&quot;blooms&quot;)],Array[Array[Byte]]] :: shapeless.HNil](shapeless.Witness.mkWitness[Symbol with shapeless.tag.Tagged[String(&quot;fpp&quot;)]](scala.Symbol.apply(&quot;fpp&quot;).asInstanceOf[Symbol @@ String(&quot;fpp&quot;)].asInstanceOf[Symbol with shapeless.tag.Tagged[String(&quot;fpp&quot;)]]), frameless.this.RecordFieldEncoder.apply[Double](frameless.this.TypedEncoder.doubleEncoder), frameless.this.RecordEncoderFields.deriveRecordLast[Symbol with shapeless.tag.Tagged[String(&quot;blooms&quot;)], Array[Array[Byte]]](shapeless.Witness.mkWitness[Symbol with shapeless.tag.Tagged[String(&quot;blooms&quot;)]](scala.Symbol.apply(&quot;blooms&quot;).asInstanceOf[Symbol @@ String(&quot;blooms&quot;)].asInstanceOf[Symbol with shapeless.tag.Tagged[String(&quot;blooms&quot;)]]), frameless.this.RecordFieldEncoder.apply[Array[Array[Byte]]](frameless.this.TypedEncoder.arrayEncoder[Array[Byte]]((ClassTag.apply[Array[Byte]](scala.runtime.ScalaRunTime.arrayClass(classOf[scala.Byte])): scala.reflect.ClassTag[Array[Byte]]), shapeless.Lazy.apply[frameless.RecordFieldEncoder[Array[Byte]]](anon$usingDerivation$macro$30.this.inst$macro$15))))).asInstanceOf[frameless.RecordEncoderFields[shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;fpp&quot;)],Double] :: Array[Array[Byte]] with shapeless.labelled.KeyTag[Symbol with shapeless.tag.Tagged[String(&quot;blooms&quot;)],Array[Array[Byte]]] :: shapeless.HNil]];
-      &lt;stable&gt; &lt;accessor&gt; lazy val inst$macro$17: frameless.NewInstanceExprs[shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;fpp&quot;)],Double] :: Array[Array[Byte]] with shapeless.labelled.KeyTag[Symbol with shapeless.tag.Tagged[String(&quot;blooms&quot;)],Array[Array[Byte]]] :: shapeless.HNil] = frameless.this.NewInstanceExprs.deriveNonUnit[Symbol with shapeless.tag.Tagged[String(&quot;fpp&quot;)], Double, Array[Array[Byte]] with shapeless.labelled.KeyTag[Symbol with shapeless.tag.Tagged[String(&quot;blooms&quot;)],Array[Array[Byte]]] :: shapeless.HNil](shapeless.this.`package`.neq[Double, Unit], frameless.this.NewInstanceExprs.deriveNonUnit[Symbol with shapeless.tag.Tagged[String(&quot;blooms&quot;)], Array[Array[Byte]], shapeless.HNil](shapeless.this.`package`.neq[Array[Array[Byte]], Unit], frameless.this.NewInstanceExprs.deriveHNil)).asInstanceOf[frameless.NewInstanceExprs[shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;fpp&quot;)],Double] :: Array[Array[Byte]] with shapeless.labelled.KeyTag[Symbol with shapeless.tag.Tagged[String(&quot;blooms&quot;)],Array[Array[Byte]]] :: shapeless.HNil]];
-      &lt;stable&gt; &lt;accessor&gt; lazy val inst$macro$7: frameless.RecordEncoderFields[shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;bloom_id&quot;)],String] :: com.sparkutils.quality.impl.bloom.BloomStruct with shapeless.labelled.KeyTag[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)],com.sparkutils.quality.impl.bloom.BloomStruct] :: shapeless.HNil] = frameless.this.RecordEncoderFields.deriveRecordCons[Symbol with shapeless.tag.Tagged[String(&quot;bloom_id&quot;)], String, com.sparkutils.quality.impl.bloom.BloomStruct with shapeless.labelled.KeyTag[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)],com.sparkutils.quality.impl.bloom.BloomStruct] :: shapeless.HNil](shapeless.Witness.mkWitness[Symbol with shapeless.tag.Tagged[String(&quot;bloom_id&quot;)]](scala.Symbol.apply(&quot;bloom_id&quot;).asInstanceOf[Symbol @@ String(&quot;bloom_id&quot;)].asInstanceOf[Symbol with shapeless.tag.Tagged[String(&quot;bloom_id&quot;)]]), frameless.this.RecordFieldEncoder.apply[String](frameless.this.TypedEncoder.stringEncoder), frameless.this.RecordEncoderFields.deriveRecordLast[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)], com.sparkutils.quality.impl.bloom.BloomStruct](shapeless.Witness.mkWitness[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)]](scala.Symbol.apply(&quot;bloom&quot;).asInstanceOf[Symbol @@ String(&quot;bloom&quot;)].asInstanceOf[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)]]), frameless.this.RecordFieldEncoder.apply[com.sparkutils.quality.impl.bloom.BloomStruct](bloom.this.BloomStruct.typedEnc))).asInstanceOf[frameless.RecordEncoderFields[shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;bloom_id&quot;)],String] :: com.sparkutils.quality.impl.bloom.BloomStruct with shapeless.labelled.KeyTag[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)],com.sparkutils.quality.impl.bloom.BloomStruct] :: shapeless.HNil]]
-    };
-    new anon$usingDerivation$macro$30().inst$macro$7
-  };
-  shapeless.Lazy.apply[frameless.RecordEncoderFields[shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;bloom_id&quot;)],String] :: com.sparkutils.quality.impl.bloom.BloomStruct with shapeless.labelled.KeyTag[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)],com.sparkutils.quality.impl.bloom.BloomStruct] :: shapeless.HNil]](inst$macro$31)
-}, {
-  val inst$macro$33: frameless.NewInstanceExprs[shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;bloom_id&quot;)],String] :: com.sparkutils.quality.impl.bloom.BloomStruct with shapeless.labelled.KeyTag[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)],com.sparkutils.quality.impl.bloom.BloomStruct] :: shapeless.HNil] = frameless.this.NewInstanceExprs.deriveNonUnit[Symbol with shapeless.tag.Tagged[String(&quot;bloom_id&quot;)], String, com.sparkutils.quality.impl.bloom.BloomStruct with shapeless.labelled.KeyTag[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)],com.sparkutils.quality.impl.bloom.BloomStruct] :: shapeless.HNil](shapeless.this.`package`.neq[String, Unit], frameless.this.NewInstanceExprs.deriveNonUnit[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)], com.sparkutils.quality.impl.bloom.BloomStruct, shapeless.HNil](shapeless.this.`package`.neq[com.sparkutils.quality.impl.bloom.BloomStruct, Unit], frameless.this.NewInstanceExprs.deriveHNil)).asInstanceOf[frameless.NewInstanceExprs[shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;bloom_id&quot;)],String] :: com.sparkutils.quality.impl.bloom.BloomStruct with shapeless.labelled.KeyTag[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)],com.sparkutils.quality.impl.bloom.BloomStruct] :: shapeless.HNil]];
-  shapeless.Lazy.apply[frameless.NewInstanceExprs[shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;bloom_id&quot;)],String] :: com.sparkutils.quality.impl.bloom.BloomStruct with shapeless.labelled.KeyTag[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)],com.sparkutils.quality.impl.bloom.BloomStruct] :: shapeless.HNil]](inst$macro$33)
-}, (ClassTag.apply[com.sparkutils.quality.impl.bloom.BloomArrayRaw](classOf[com.sparkutils.quality.impl.bloom.BloomArrayRaw]): scala.reflect.ClassTag[com.sparkutils.quality.impl.bloom.BloomArrayRaw])))
-        </td>
-      </tr><tr>
-        <td>
-          74
-        </td>
-        <td>
-          3323
-        </td>
-        <td>
-          1972
-          -
-          1972
+          1589
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1380,15 +1057,15 @@
         </td>
       </tr><tr>
         <td>
-          74
+          60
         </td>
         <td>
-          3314
+          3318
         </td>
         <td>
-          1972
+          1589
           -
-          1972
+          1589
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1404,15 +1081,15 @@
         </td>
       </tr><tr>
         <td>
-          74
+          60
         </td>
         <td>
-          3317
+          3321
         </td>
         <td>
-          1972
+          1589
           -
-          1972
+          1589
         </td>
         <td>
           TypeApply
@@ -1428,15 +1105,15 @@
         </td>
       </tr><tr>
         <td>
-          74
+          60
         </td>
         <td>
-          3320
+          3324
         </td>
         <td>
-          1972
+          1589
           -
-          1972
+          1589
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1452,39 +1129,204 @@
         </td>
       </tr><tr>
         <td>
-          76
+          60
         </td>
         <td>
-          3325
+          3323
         </td>
         <td>
-          2032
+          1589
           -
-          2032
+          1589
         </td>
         <td>
-          Select
+          TypeApply
         </td>
         <td>
-          com.sparkutils.quality.impl.bloom.BloomArrayRaw.typedEnc
+          frameless.DropUnitValues.deriveHNil
         </td>
         <td>
           
         </td>
         <td style="background: #F0ADAD">
-          BloomArrayRaw.this.typedEnc
+          frameless.this.DropUnitValues.deriveHNil[Nothing]
         </td>
       </tr><tr>
         <td>
-          76
+          60
         </td>
         <td>
           3326
         </td>
         <td>
-          2010
+          1589
           -
-          2047
+          1589
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          shapeless.ops.hlist.IsHCons.hlistIsHCons
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          hlist.this.IsHCons.hlistIsHCons[shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;bloom_id&quot;)],String], shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)],com.sparkutils.quality.impl.bloom.BloomStruct] :: shapeless.HNil]
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          3317
+        </td>
+        <td>
+          1589
+          -
+          1589
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          shapeless.ops.hlist.ZipWithKeys.hconsZipWithKeys
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          hlist.this.ZipWithKeys.hconsZipWithKeys[Symbol @@ String(&quot;bloom&quot;), com.sparkutils.quality.impl.bloom.BloomStruct, shapeless.HNil, shapeless.HNil](hlist.this.ZipWithKeys.hnilZipWithKeys, shapeless.Witness.mkWitness[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)]](scala.Symbol.apply(&quot;bloom&quot;).asInstanceOf[Symbol @@ String(&quot;bloom&quot;)].asInstanceOf[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)]]))
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          3320
+        </td>
+        <td>
+          1589
+          -
+          1589
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          shapeless.LabelledGeneric.materializeProduct
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          shapeless.this.LabelledGeneric.materializeProduct[com.sparkutils.quality.impl.bloom.BloomArrayRaw, (Symbol @@ String(&quot;bloom_id&quot;)) :: (Symbol @@ String(&quot;bloom&quot;)) :: shapeless.HNil, String :: com.sparkutils.quality.impl.bloom.BloomStruct :: shapeless.HNil, this.Out](({
+  final class $anon extends AnyRef with shapeless.DefaultSymbolicLabelling[com.sparkutils.quality.impl.bloom.BloomArrayRaw] {
+    def &lt;init&gt;(): &lt;$anon: shapeless.DefaultSymbolicLabelling[com.sparkutils.quality.impl.bloom.BloomArrayRaw]&gt; = {
+      $anon.super.&lt;init&gt;();
+      ()
+    };
+    type Out = (Symbol @@ String(&quot;bloom_id&quot;)) :: (Symbol @@ String(&quot;bloom&quot;)) :: shapeless.HNil;
+    def apply(): (Symbol @@ String(&quot;bloom_id&quot;)) :: (Symbol @@ String(&quot;bloom&quot;)) :: shapeless.HNil = shapeless.::.apply[Symbol @@ String(&quot;bloom_id&quot;), (Symbol @@ String(&quot;bloom&quot;)) :: shapeless.HNil.type](scala.Symbol.apply(&quot;bloom_id&quot;).asInstanceOf[Symbol @@ String(&quot;bloom_id&quot;)], shapeless.::.apply[Symbol @@ String(&quot;bloom&quot;), shapeless.HNil.type](scala.Symbol.apply(&quot;bloom&quot;).asInstanceOf[Symbol @@ String(&quot;bloom&quot;)], shapeless.HNil))
+  };
+  new $anon()
+}: shapeless.DefaultSymbolicLabelling.Aux[com.sparkutils.quality.impl.bloom.BloomArrayRaw,(Symbol @@ String(&quot;bloom_id&quot;)) :: (Symbol @@ String(&quot;bloom&quot;)) :: shapeless.HNil]), {
+  final class anon$macro$6 extends AnyRef with shapeless.Generic[com.sparkutils.quality.impl.bloom.BloomArrayRaw] {
+    def &lt;init&gt;(): anon$macro$6 = {
+      anon$macro$6.super.&lt;init&gt;();
+      ()
+    };
+    type Repr = String :: com.sparkutils.quality.impl.bloom.BloomStruct :: shapeless.HNil;
+    def to(p: com.sparkutils.quality.impl.bloom.BloomArrayRaw): anon$macro$6.this.Repr = p match {
+  case (bloom_id: String, bloom: com.sparkutils.quality.impl.bloom.BloomStruct)com.sparkutils.quality.impl.bloom.BloomArrayRaw((pat$macro$4 @ _), (pat$macro$5 @ _)) =&gt; shapeless.::.apply[String, com.sparkutils.quality.impl.bloom.BloomStruct :: shapeless.HNil.type](pat$macro$4, shapeless.::.apply[com.sparkutils.quality.impl.bloom.BloomStruct, shapeless.HNil.type](pat$macro$5, shapeless.HNil))
+}.asInstanceOf[anon$macro$6.this.Repr];
+    def from(p: anon$macro$6.this.Repr): com.sparkutils.quality.impl.bloom.BloomArrayRaw = p match {
+      case (head: String, tail: com.sparkutils.quality.impl.bloom.BloomStruct :: shapeless.HNil)String :: com.sparkutils.quality.impl.bloom.BloomStruct :: shapeless.HNil((pat$macro$4 @ _), (head: com.sparkutils.quality.impl.bloom.BloomStruct, tail: shapeless.HNil)com.sparkutils.quality.impl.bloom.BloomStruct :: shapeless.HNil((pat$macro$5 @ _), shapeless.HNil)) =&gt; bloom.this.BloomArrayRaw.apply(pat$macro$4, pat$macro$5)
+    }
+  };
+  (new anon$macro$6(): shapeless.Generic.Aux[com.sparkutils.quality.impl.bloom.BloomArrayRaw,String :: com.sparkutils.quality.impl.bloom.BloomStruct :: shapeless.HNil])
+}, hlist.this.ZipWithKeys.hconsZipWithKeys[Symbol @@ String(&quot;bloom_id&quot;), String, (Symbol @@ String(&quot;bloom&quot;)) :: shapeless.HNil, com.sparkutils.quality.impl.bloom.BloomStruct :: shapeless.HNil](hlist.this.ZipWithKeys.hconsZipWithKeys[Symbol @@ String(&quot;bloom&quot;), com.sparkutils.quality.impl.bloom.BloomStruct, shapeless.HNil, shapeless.HNil](hlist.this.ZipWithKeys.hnilZipWithKeys, shapeless.Witness.mkWitness[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)]](scala.Symbol.apply(&quot;bloom&quot;).asInstanceOf[Symbol @@ String(&quot;bloom&quot;)].asInstanceOf[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)]])), shapeless.Witness.mkWitness[Symbol with shapeless.tag.Tagged[String(&quot;bloom_id&quot;)]](scala.Symbol.apply(&quot;bloom_id&quot;).asInstanceOf[Symbol @@ String(&quot;bloom_id&quot;)].asInstanceOf[Symbol with shapeless.tag.Tagged[String(&quot;bloom_id&quot;)]])), scala.Predef.$conforms[this.Out])
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          3328
+        </td>
+        <td>
+          1577
+          -
+          1604
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          frameless.TypedEncoder.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          frameless.TypedEncoder.apply[com.sparkutils.quality.impl.bloom.BloomArrayRaw](frameless.this.TypedEncoder.usingDerivation[com.sparkutils.quality.impl.bloom.BloomArrayRaw, this.Out, shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;bloom_id&quot;)],String] :: shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)],com.sparkutils.quality.impl.bloom.BloomStruct] :: shapeless.HNil](shapeless.this.LabelledGeneric.materializeProduct[com.sparkutils.quality.impl.bloom.BloomArrayRaw, (Symbol @@ String(&quot;bloom_id&quot;)) :: (Symbol @@ String(&quot;bloom&quot;)) :: shapeless.HNil, String :: com.sparkutils.quality.impl.bloom.BloomStruct :: shapeless.HNil, this.Out](({
+  final class $anon extends AnyRef with shapeless.DefaultSymbolicLabelling[com.sparkutils.quality.impl.bloom.BloomArrayRaw] {
+    def &lt;init&gt;(): &lt;$anon: shapeless.DefaultSymbolicLabelling[com.sparkutils.quality.impl.bloom.BloomArrayRaw]&gt; = {
+      $anon.super.&lt;init&gt;();
+      ()
+    };
+    type Out = (Symbol @@ String(&quot;bloom_id&quot;)) :: (Symbol @@ String(&quot;bloom&quot;)) :: shapeless.HNil;
+    def apply(): (Symbol @@ String(&quot;bloom_id&quot;)) :: (Symbol @@ String(&quot;bloom&quot;)) :: shapeless.HNil = shapeless.::.apply[Symbol @@ String(&quot;bloom_id&quot;), (Symbol @@ String(&quot;bloom&quot;)) :: shapeless.HNil.type](scala.Symbol.apply(&quot;bloom_id&quot;).asInstanceOf[Symbol @@ String(&quot;bloom_id&quot;)], shapeless.::.apply[Symbol @@ String(&quot;bloom&quot;), shapeless.HNil.type](scala.Symbol.apply(&quot;bloom&quot;).asInstanceOf[Symbol @@ String(&quot;bloom&quot;)], shapeless.HNil))
+  };
+  new $anon()
+}: shapeless.DefaultSymbolicLabelling.Aux[com.sparkutils.quality.impl.bloom.BloomArrayRaw,(Symbol @@ String(&quot;bloom_id&quot;)) :: (Symbol @@ String(&quot;bloom&quot;)) :: shapeless.HNil]), {
+  final class anon$macro$6 extends AnyRef with shapeless.Generic[com.sparkutils.quality.impl.bloom.BloomArrayRaw] {
+    def &lt;init&gt;(): anon$macro$6 = {
+      anon$macro$6.super.&lt;init&gt;();
+      ()
+    };
+    type Repr = String :: com.sparkutils.quality.impl.bloom.BloomStruct :: shapeless.HNil;
+    def to(p: com.sparkutils.quality.impl.bloom.BloomArrayRaw): anon$macro$6.this.Repr = p match {
+  case (bloom_id: String, bloom: com.sparkutils.quality.impl.bloom.BloomStruct)com.sparkutils.quality.impl.bloom.BloomArrayRaw((pat$macro$4 @ _), (pat$macro$5 @ _)) =&gt; shapeless.::.apply[String, com.sparkutils.quality.impl.bloom.BloomStruct :: shapeless.HNil.type](pat$macro$4, shapeless.::.apply[com.sparkutils.quality.impl.bloom.BloomStruct, shapeless.HNil.type](pat$macro$5, shapeless.HNil))
+}.asInstanceOf[anon$macro$6.this.Repr];
+    def from(p: anon$macro$6.this.Repr): com.sparkutils.quality.impl.bloom.BloomArrayRaw = p match {
+      case (head: String, tail: com.sparkutils.quality.impl.bloom.BloomStruct :: shapeless.HNil)String :: com.sparkutils.quality.impl.bloom.BloomStruct :: shapeless.HNil((pat$macro$4 @ _), (head: com.sparkutils.quality.impl.bloom.BloomStruct, tail: shapeless.HNil)com.sparkutils.quality.impl.bloom.BloomStruct :: shapeless.HNil((pat$macro$5 @ _), shapeless.HNil)) =&gt; bloom.this.BloomArrayRaw.apply(pat$macro$4, pat$macro$5)
+    }
+  };
+  (new anon$macro$6(): shapeless.Generic.Aux[com.sparkutils.quality.impl.bloom.BloomArrayRaw,String :: com.sparkutils.quality.impl.bloom.BloomStruct :: shapeless.HNil])
+}, hlist.this.ZipWithKeys.hconsZipWithKeys[Symbol @@ String(&quot;bloom_id&quot;), String, (Symbol @@ String(&quot;bloom&quot;)) :: shapeless.HNil, com.sparkutils.quality.impl.bloom.BloomStruct :: shapeless.HNil](hlist.this.ZipWithKeys.hconsZipWithKeys[Symbol @@ String(&quot;bloom&quot;), com.sparkutils.quality.impl.bloom.BloomStruct, shapeless.HNil, shapeless.HNil](hlist.this.ZipWithKeys.hnilZipWithKeys, shapeless.Witness.mkWitness[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)]](scala.Symbol.apply(&quot;bloom&quot;).asInstanceOf[Symbol @@ String(&quot;bloom&quot;)].asInstanceOf[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)]])), shapeless.Witness.mkWitness[Symbol with shapeless.tag.Tagged[String(&quot;bloom_id&quot;)]](scala.Symbol.apply(&quot;bloom_id&quot;).asInstanceOf[Symbol @@ String(&quot;bloom_id&quot;)].asInstanceOf[Symbol with shapeless.tag.Tagged[String(&quot;bloom_id&quot;)]])), scala.Predef.$conforms[this.Out]), frameless.this.DropUnitValues.deriveNonUnit[Symbol with shapeless.tag.Tagged[String(&quot;bloom_id&quot;)], String, com.sparkutils.quality.impl.bloom.BloomStruct with shapeless.labelled.KeyTag[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)],com.sparkutils.quality.impl.bloom.BloomStruct] :: shapeless.HNil, Nothing, shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)],com.sparkutils.quality.impl.bloom.BloomStruct] :: shapeless.HNil](shapeless.this.`package`.neq[String, Unit], frameless.this.DropUnitValues.deriveNonUnit[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)], com.sparkutils.quality.impl.bloom.BloomStruct, shapeless.HNil, Nothing, shapeless.HNil](shapeless.this.`package`.neq[com.sparkutils.quality.impl.bloom.BloomStruct, Unit], frameless.this.DropUnitValues.deriveHNil[Nothing])), hlist.this.IsHCons.hlistIsHCons[shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;bloom_id&quot;)],String], shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)],com.sparkutils.quality.impl.bloom.BloomStruct] :: shapeless.HNil], {
+  val inst$macro$31: frameless.RecordEncoderFields[shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;bloom_id&quot;)],String] :: com.sparkutils.quality.impl.bloom.BloomStruct with shapeless.labelled.KeyTag[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)],com.sparkutils.quality.impl.bloom.BloomStruct] :: shapeless.HNil] = {
+    final class anon$usingDerivation$macro$30 extends AnyRef with Serializable {
+      def &lt;init&gt;(): anon$usingDerivation$macro$30 = {
+        anon$usingDerivation$macro$30.super.&lt;init&gt;();
+        ()
+      };
+      &lt;stable&gt; &lt;accessor&gt; lazy val inst$macro$16: frameless.RecordFieldEncoder[Byte] = frameless.this.RecordFieldEncoder.apply[Byte](frameless.this.TypedEncoder.byteEncoder).asInstanceOf[frameless.RecordFieldEncoder[Byte]];
+      &lt;stable&gt; &lt;accessor&gt; lazy val inst$macro$15: frameless.RecordFieldEncoder[Array[Byte]] = frameless.this.RecordFieldEncoder.apply[Array[Byte]](frameless.this.TypedEncoder.arrayEncoder[Byte]((ClassTag.Byte: scala.reflect.ClassTag[Byte]), shapeless.Lazy.apply[frameless.RecordFieldEncoder[Byte]](anon$usingDerivation$macro$30.this.inst$macro$16))).asInstanceOf[frameless.RecordFieldEncoder[Array[Byte]]];
+      &lt;stable&gt; &lt;accessor&gt; lazy val inst$macro$14: frameless.RecordEncoderFields[shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;fpp&quot;)],Double] :: Array[Array[Byte]] with shapeless.labelled.KeyTag[Symbol with shapeless.tag.Tagged[String(&quot;blooms&quot;)],Array[Array[Byte]]] :: shapeless.HNil] = frameless.this.RecordEncoderFields.deriveRecordCons[Symbol with shapeless.tag.Tagged[String(&quot;fpp&quot;)], Double, Array[Array[Byte]] with shapeless.labelled.KeyTag[Symbol with shapeless.tag.Tagged[String(&quot;blooms&quot;)],Array[Array[Byte]]] :: shapeless.HNil](shapeless.Witness.mkWitness[Symbol with shapeless.tag.Tagged[String(&quot;fpp&quot;)]](scala.Symbol.apply(&quot;fpp&quot;).asInstanceOf[Symbol @@ String(&quot;fpp&quot;)].asInstanceOf[Symbol with shapeless.tag.Tagged[String(&quot;fpp&quot;)]]), frameless.this.RecordFieldEncoder.apply[Double](frameless.this.TypedEncoder.doubleEncoder), frameless.this.RecordEncoderFields.deriveRecordLast[Symbol with shapeless.tag.Tagged[String(&quot;blooms&quot;)], Array[Array[Byte]]](shapeless.Witness.mkWitness[Symbol with shapeless.tag.Tagged[String(&quot;blooms&quot;)]](scala.Symbol.apply(&quot;blooms&quot;).asInstanceOf[Symbol @@ String(&quot;blooms&quot;)].asInstanceOf[Symbol with shapeless.tag.Tagged[String(&quot;blooms&quot;)]]), frameless.this.RecordFieldEncoder.apply[Array[Array[Byte]]](frameless.this.TypedEncoder.arrayEncoder[Array[Byte]]((ClassTag.apply[Array[Byte]](scala.runtime.ScalaRunTime.arrayClass(classOf[scala.Byte])): scala.reflect.ClassTag[Array[Byte]]), shapeless.Lazy.apply[frameless.RecordFieldEncoder[Array[Byte]]](anon$usingDerivation$macro$30.this.inst$macro$15))))).asInstanceOf[frameless.RecordEncoderFields[shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;fpp&quot;)],Double] :: Array[Array[Byte]] with shapeless.labelled.KeyTag[Symbol with shapeless.tag.Tagged[String(&quot;blooms&quot;)],Array[Array[Byte]]] :: shapeless.HNil]];
+      &lt;stable&gt; &lt;accessor&gt; lazy val inst$macro$17: frameless.NewInstanceExprs[shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;fpp&quot;)],Double] :: Array[Array[Byte]] with shapeless.labelled.KeyTag[Symbol with shapeless.tag.Tagged[String(&quot;blooms&quot;)],Array[Array[Byte]]] :: shapeless.HNil] = frameless.this.NewInstanceExprs.deriveNonUnit[Symbol with shapeless.tag.Tagged[String(&quot;fpp&quot;)], Double, Array[Array[Byte]] with shapeless.labelled.KeyTag[Symbol with shapeless.tag.Tagged[String(&quot;blooms&quot;)],Array[Array[Byte]]] :: shapeless.HNil](shapeless.this.`package`.neq[Double, Unit], frameless.this.NewInstanceExprs.deriveNonUnit[Symbol with shapeless.tag.Tagged[String(&quot;blooms&quot;)], Array[Array[Byte]], shapeless.HNil](shapeless.this.`package`.neq[Array[Array[Byte]], Unit], frameless.this.NewInstanceExprs.deriveHNil)).asInstanceOf[frameless.NewInstanceExprs[shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;fpp&quot;)],Double] :: Array[Array[Byte]] with shapeless.labelled.KeyTag[Symbol with shapeless.tag.Tagged[String(&quot;blooms&quot;)],Array[Array[Byte]]] :: shapeless.HNil]];
+      &lt;stable&gt; &lt;accessor&gt; lazy val inst$macro$7: frameless.RecordEncoderFields[shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;bloom_id&quot;)],String] :: com.sparkutils.quality.impl.bloom.BloomStruct with shapeless.labelled.KeyTag[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)],com.sparkutils.quality.impl.bloom.BloomStruct] :: shapeless.HNil] = frameless.this.RecordEncoderFields.deriveRecordCons[Symbol with shapeless.tag.Tagged[String(&quot;bloom_id&quot;)], String, com.sparkutils.quality.impl.bloom.BloomStruct with shapeless.labelled.KeyTag[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)],com.sparkutils.quality.impl.bloom.BloomStruct] :: shapeless.HNil](shapeless.Witness.mkWitness[Symbol with shapeless.tag.Tagged[String(&quot;bloom_id&quot;)]](scala.Symbol.apply(&quot;bloom_id&quot;).asInstanceOf[Symbol @@ String(&quot;bloom_id&quot;)].asInstanceOf[Symbol with shapeless.tag.Tagged[String(&quot;bloom_id&quot;)]]), frameless.this.RecordFieldEncoder.apply[String](frameless.this.TypedEncoder.stringEncoder), frameless.this.RecordEncoderFields.deriveRecordLast[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)], com.sparkutils.quality.impl.bloom.BloomStruct](shapeless.Witness.mkWitness[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)]](scala.Symbol.apply(&quot;bloom&quot;).asInstanceOf[Symbol @@ String(&quot;bloom&quot;)].asInstanceOf[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)]]), frameless.this.RecordFieldEncoder.apply[com.sparkutils.quality.impl.bloom.BloomStruct](bloom.this.BloomStruct.typedEnc))).asInstanceOf[frameless.RecordEncoderFields[shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;bloom_id&quot;)],String] :: com.sparkutils.quality.impl.bloom.BloomStruct with shapeless.labelled.KeyTag[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)],com.sparkutils.quality.impl.bloom.BloomStruct] :: shapeless.HNil]]
+    };
+    new anon$usingDerivation$macro$30().inst$macro$7
+  };
+  shapeless.Lazy.apply[frameless.RecordEncoderFields[shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;bloom_id&quot;)],String] :: com.sparkutils.quality.impl.bloom.BloomStruct with shapeless.labelled.KeyTag[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)],com.sparkutils.quality.impl.bloom.BloomStruct] :: shapeless.HNil]](inst$macro$31)
+}, {
+  val inst$macro$33: frameless.NewInstanceExprs[shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;bloom_id&quot;)],String] :: com.sparkutils.quality.impl.bloom.BloomStruct with shapeless.labelled.KeyTag[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)],com.sparkutils.quality.impl.bloom.BloomStruct] :: shapeless.HNil] = frameless.this.NewInstanceExprs.deriveNonUnit[Symbol with shapeless.tag.Tagged[String(&quot;bloom_id&quot;)], String, com.sparkutils.quality.impl.bloom.BloomStruct with shapeless.labelled.KeyTag[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)],com.sparkutils.quality.impl.bloom.BloomStruct] :: shapeless.HNil](shapeless.this.`package`.neq[String, Unit], frameless.this.NewInstanceExprs.deriveNonUnit[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)], com.sparkutils.quality.impl.bloom.BloomStruct, shapeless.HNil](shapeless.this.`package`.neq[com.sparkutils.quality.impl.bloom.BloomStruct, Unit], frameless.this.NewInstanceExprs.deriveHNil)).asInstanceOf[frameless.NewInstanceExprs[shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;bloom_id&quot;)],String] :: com.sparkutils.quality.impl.bloom.BloomStruct with shapeless.labelled.KeyTag[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)],com.sparkutils.quality.impl.bloom.BloomStruct] :: shapeless.HNil]];
+  shapeless.Lazy.apply[frameless.NewInstanceExprs[shapeless.labelled.FieldType[Symbol with shapeless.tag.Tagged[String(&quot;bloom_id&quot;)],String] :: com.sparkutils.quality.impl.bloom.BloomStruct with shapeless.labelled.KeyTag[Symbol with shapeless.tag.Tagged[String(&quot;bloom&quot;)],com.sparkutils.quality.impl.bloom.BloomStruct] :: shapeless.HNil]](inst$macro$33)
+}, (ClassTag.apply[com.sparkutils.quality.impl.bloom.BloomArrayRaw](classOf[com.sparkutils.quality.impl.bloom.BloomArrayRaw]): scala.reflect.ClassTag[com.sparkutils.quality.impl.bloom.BloomArrayRaw])))
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          3330
+        </td>
+        <td>
+          1627
+          -
+          1664
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1500,15 +1342,39 @@
         </td>
       </tr><tr>
         <td>
-          98
+          62
         </td>
         <td>
-          3327
+          3329
         </td>
         <td>
-          2690
+          1649
           -
-          2690
+          1649
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.BloomArrayRaw.typedEnc
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          BloomArrayRaw.this.typedEnc
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          3331
+        </td>
+        <td>
+          2307
+          -
+          2307
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1541,15 +1407,15 @@
         </td>
       </tr><tr>
         <td>
-          98
+          84
         </td>
         <td>
-          3328
+          3332
         </td>
         <td>
-          2680
+          2297
           -
-          2709
+          2326
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1582,15 +1448,15 @@
         </td>
       </tr><tr>
         <td>
-          102
+          88
         </td>
         <td>
-          3330
+          3334
         </td>
         <td>
-          2789
+          2406
           -
-          2829
+          2446
         </td>
         <td>
           Apply
@@ -1606,15 +1472,15 @@
         </td>
       </tr><tr>
         <td>
-          102
+          88
         </td>
         <td>
-          3329
+          3333
         </td>
         <td>
-          2814
+          2431
           -
-          2828
+          2445
         </td>
         <td>
           Select
@@ -1630,15 +1496,15 @@
         </td>
       </tr><tr>
         <td>
-          104
+          90
         </td>
         <td>
-          3331
+          3335
         </td>
         <td>
-          2847
+          2464
           -
-          2872
+          2489
         </td>
         <td>
           Apply
@@ -1654,15 +1520,15 @@
         </td>
       </tr><tr>
         <td>
-          105
+          91
         </td>
         <td>
-          3332
+          3336
         </td>
         <td>
-          2877
+          2494
           -
-          2888
+          2505
         </td>
         <td>
           Apply
@@ -1678,39 +1544,15 @@
         </td>
       </tr><tr>
         <td>
-          106
+          92
         </td>
         <td>
-          3334
+          3340
         </td>
         <td>
-          2915
+          2586
           -
-          2961
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.BloomFilterTypes.SparkBloomFilter.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          com.sparkutils.quality.`package`.SparkBloomFilter.apply(bloom)
-        </td>
-      </tr><tr>
-        <td>
-          106
-        </td>
-        <td>
-          3336
-        </td>
-        <td>
-          2969
-          -
-          2988
+          2605
         </td>
         <td>
           Apply
@@ -1726,15 +1568,15 @@
         </td>
       </tr><tr>
         <td>
-          106
+          92
         </td>
         <td>
-          3339
+          3343
         </td>
         <td>
-          2893
+          2510
           -
-          2989
+          2606
         </td>
         <td>
           Apply
@@ -1746,43 +1588,19 @@
           
         </td>
         <td style="background: #AEF1AE">
-          scala.Predef.ArrowAssoc[String](bloomRaw.bloom_id).-&gt;[(com.sparkutils.quality.SparkBloomFilter, Double)](scala.Tuple2.apply[com.sparkutils.quality.SparkBloomFilter, Double](com.sparkutils.quality.`package`.SparkBloomFilter.apply(bloom), 1.0.-(bloom.expectedFpp())))
+          scala.Predef.ArrowAssoc[String](bloomRaw.bloom_id).-&gt;[(com.sparkutils.quality.SparkBloomFilter, Double)](scala.Tuple2.apply[com.sparkutils.quality.SparkBloomFilter, Double](com.sparkutils.quality.SparkBloomFilter.apply(bloom), 1.0.-(bloom.expectedFpp())))
         </td>
       </tr><tr>
         <td>
-          106
+          92
         </td>
         <td>
-          3333
+          3339
         </td>
         <td>
-          2893
+          2580
           -
-          2910
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.BloomRaw.bloom_id
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          bloomRaw.bloom_id
-        </td>
-      </tr><tr>
-        <td>
-          106
-        </td>
-        <td>
-          3335
-        </td>
-        <td>
-          2963
-          -
-          2966
+          2583
         </td>
         <td>
           Literal
@@ -1798,15 +1616,15 @@
         </td>
       </tr><tr>
         <td>
-          106
+          92
         </td>
         <td>
-          3338
+          3342
         </td>
         <td>
-          2893
+          2510
           -
-          2989
+          2606
         </td>
         <td>
           Apply
@@ -1818,19 +1636,19 @@
           
         </td>
         <td style="background: #AEF1AE">
-          scala.Tuple2.apply[com.sparkutils.quality.SparkBloomFilter, Double](com.sparkutils.quality.`package`.SparkBloomFilter.apply(bloom), 1.0.-(bloom.expectedFpp()))
+          scala.Tuple2.apply[com.sparkutils.quality.SparkBloomFilter, Double](com.sparkutils.quality.SparkBloomFilter.apply(bloom), 1.0.-(bloom.expectedFpp()))
         </td>
       </tr><tr>
         <td>
-          106
+          92
         </td>
         <td>
-          3337
+          3341
         </td>
         <td>
-          2963
+          2580
           -
-          2988
+          2605
         </td>
         <td>
           Apply
@@ -1846,63 +1664,63 @@
         </td>
       </tr><tr>
         <td>
-          110
+          92
         </td>
         <td>
-          3340
+          3338
         </td>
         <td>
-          3064
+          2532
           -
-          3064
+          2578
         </td>
         <td>
-          Select
+          Apply
         </td>
         <td>
-          scala.Tuple3._1
+          com.sparkutils.quality.SparkBloomFilter.apply
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          x$1._1
+          com.sparkutils.quality.SparkBloomFilter.apply(bloom)
         </td>
       </tr><tr>
         <td>
-          110
+          92
         </td>
         <td>
-          3342
+          3337
         </td>
         <td>
-          3117
+          2510
           -
-          3117
+          2527
         </td>
         <td>
           Select
         </td>
         <td>
-          scala.Tuple3._3
+          com.sparkutils.quality.impl.bloom.BloomRaw.bloom_id
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          x$1._3
+          bloomRaw.bloom_id
         </td>
       </tr><tr>
         <td>
-          110
+          96
         </td>
         <td>
-          3341
+          3345
         </td>
         <td>
-          3109
+          2726
           -
-          3109
+          2726
         </td>
         <td>
           Select
@@ -1918,15 +1736,63 @@
         </td>
       </tr><tr>
         <td>
-          112
+          96
         </td>
         <td>
-          3343
+          3344
         </td>
         <td>
-          3152
+          2681
           -
-          3179
+          2681
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple3._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$1._1
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          3346
+        </td>
+        <td>
+          2734
+          -
+          2734
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple3._3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$1._3
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          3347
+        </td>
+        <td>
+          2769
+          -
+          2796
         </td>
         <td>
           Apply
@@ -1942,15 +1808,15 @@
         </td>
       </tr><tr>
         <td>
-          113
+          99
         </td>
         <td>
-          3344
+          3348
         </td>
         <td>
-          3184
+          2801
           -
-          3202
+          2819
         </td>
         <td>
           Apply
@@ -1966,15 +1832,15 @@
         </td>
       </tr><tr>
         <td>
-          114
+          100
         </td>
         <td>
-          3345
+          3349
         </td>
         <td>
-          3218
+          2835
           -
-          3233
+          2850
         </td>
         <td>
           Apply
@@ -1990,15 +1856,15 @@
         </td>
       </tr><tr>
         <td>
-          115
+          101
         </td>
         <td>
-          3346
+          3350
         </td>
         <td>
-          3238
+          2855
           -
-          3249
+          2866
         </td>
         <td>
           Apply
@@ -2014,15 +1880,15 @@
         </td>
       </tr><tr>
         <td>
-          116
+          102
         </td>
         <td>
-          3347
+          3351
         </td>
         <td>
-          3254
+          2871
           -
-          3272
+          2889
         </td>
         <td>
           Apply
@@ -2038,15 +1904,15 @@
         </td>
       </tr><tr>
         <td>
-          132
+          118
         </td>
         <td>
-          3348
+          3352
         </td>
         <td>
-          3912
+          3529
           -
-          3958
+          3575
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2062,15 +1928,15 @@
         </td>
       </tr><tr>
         <td>
-          134
+          120
         </td>
         <td>
-          3349
+          3353
         </td>
         <td>
-          3983
+          3600
           -
-          4007
+          3624
         </td>
         <td>
           Apply
@@ -2086,15 +1952,15 @@
         </td>
       </tr><tr>
         <td>
-          136
+          122
         </td>
         <td>
-          3350
+          3354
         </td>
         <td>
-          4013
+          3630
           -
-          4094
+          3711
         </td>
         <td>
           Apply
@@ -2110,15 +1976,15 @@
         </td>
       </tr><tr>
         <td>
-          137
+          123
         </td>
         <td>
-          3351
+          3355
         </td>
         <td>
-          4126
+          3743
           -
-          4148
+          3765
         </td>
         <td>
           Apply
@@ -2134,39 +2000,15 @@
         </td>
       </tr><tr>
         <td>
-          138
+          124
         </td>
         <td>
-          3352
+          3357
         </td>
         <td>
-          4155
+          3630
           -
-          4155
-        </td>
-        <td>
-          TypeApply
-        </td>
-        <td>
-          scala.Predef.$conforms
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.Predef.$conforms[ser.Serialized]
-        </td>
-      </tr><tr>
-        <td>
-          138
-        </td>
-        <td>
-          3353
-        </td>
-        <td>
-          4013
-          -
-          4160
+          3777
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2182,15 +2024,39 @@
         </td>
       </tr><tr>
         <td>
-          148
+          124
         </td>
         <td>
-          3354
+          3356
         </td>
         <td>
-          4528
+          3772
           -
-          4574
+          3772
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.$conforms[ser.Serialized]
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          3358
+        </td>
+        <td>
+          4145
+          -
+          4191
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2206,15 +2072,15 @@
         </td>
       </tr><tr>
         <td>
-          150
+          136
         </td>
         <td>
-          3356
+          3360
         </td>
         <td>
-          4612
+          4229
           -
-          4612
+          4229
         </td>
         <td>
           TypeApply
@@ -2230,15 +2096,15 @@
         </td>
       </tr><tr>
         <td>
-          151
+          137
         </td>
         <td>
-          3355
+          3359
         </td>
         <td>
-          4628
+          4245
           -
-          4644
+          4261
         </td>
         <td>
           Apply
@@ -2254,15 +2120,15 @@
         </td>
       </tr><tr>
         <td>
-          152
+          138
         </td>
         <td>
-          3357
+          3361
         </td>
         <td>
-          4593
+          4210
           -
-          4656
+          4273
         </td>
         <td>
           Select
@@ -2278,15 +2144,15 @@
         </td>
       </tr><tr>
         <td>
-          154
+          140
         </td>
         <td>
-          3358
+          3362
         </td>
         <td>
-          4673
+          4290
           -
-          4707
+          4324
         </td>
         <td>
           Select
@@ -2302,15 +2168,15 @@
         </td>
       </tr><tr>
         <td>
-          155
+          141
         </td>
         <td>
-          3359
+          3363
         </td>
         <td>
-          4731
+          4348
           -
-          4744
+          4361
         </td>
         <td>
           Apply
@@ -2326,15 +2192,15 @@
         </td>
       </tr><tr>
         <td>
-          157
+          143
         </td>
         <td>
-          3360
+          3364
         </td>
         <td>
-          4750
+          4367
           -
-          4842
+          4459
         </td>
         <td>
           TypeApply

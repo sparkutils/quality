@@ -24,326 +24,323 @@
           <div class="tab-pane active" id="codegrid">
             <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality.impl.bloom.parquet
 </span>2 <span style=''>
-</span>3 <span style=''>import java.io.IOException
-</span>4 <span style=''>import java.io.OutputStream
-</span>5 <span style=''>import java.nio.ByteBuffer
-</span>6 <span style=''>import java.nio.ByteOrder
-</span>7 <span style=''>import java.nio.IntBuffer
-</span>8 <span style=''>import java.util
+</span>3 <span style=''>import java.nio.ByteBuffer
+</span>4 <span style=''>import java.nio.ByteOrder
+</span>5 <span style=''>import java.nio.IntBuffer
+</span>6 <span style=''>
+</span>7 <span style=''>import com.sparkutils.quality.utils.TransientHolder
+</span>8 <span style=''>import com.sparkutils.quality.BloomLookup
 </span>9 <span style=''>
-</span>10 <span style=''>import com.sparkutils.quality.utils.TransientHolder
-</span>11 <span style=''>
-</span>12 <span style=''>/*
-</span>13 <span style=''> * Licensed to the Apache Software Foundation (ASF) under one
-</span>14 <span style=''> * or more contributor license agreements.  See the NOTICE file
-</span>15 <span style=''> * distributed with this work for additional information
-</span>16 <span style=''> * regarding copyright ownership.  The ASF licenses this file
-</span>17 <span style=''> * to you under the Apache License, Version 2.0 (the
-</span>18 <span style=''> * &quot;License&quot;); you may not use this file except in compliance
-</span>19 <span style=''> * with the License.  You may obtain a copy of the License at
+</span>10 <span style=''>/*
+</span>11 <span style=''> * Licensed to the Apache Software Foundation (ASF) under one
+</span>12 <span style=''> * or more contributor license agreements.  See the NOTICE file
+</span>13 <span style=''> * distributed with this work for additional information
+</span>14 <span style=''> * regarding copyright ownership.  The ASF licenses this file
+</span>15 <span style=''> * to you under the Apache License, Version 2.0 (the
+</span>16 <span style=''> * &quot;License&quot;); you may not use this file except in compliance
+</span>17 <span style=''> * with the License.  You may obtain a copy of the License at
+</span>18 <span style=''> *
+</span>19 <span style=''> *   http://www.apache.org/licenses/LICENSE-2.0
 </span>20 <span style=''> *
-</span>21 <span style=''> *   http://www.apache.org/licenses/LICENSE-2.0
-</span>22 <span style=''> *
-</span>23 <span style=''> * Unless required by applicable law or agreed to in writing,
-</span>24 <span style=''> * software distributed under the License is distributed on an
-</span>25 <span style=''> * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-</span>26 <span style=''> * KIND, either express or implied.  See the License for the
-</span>27 <span style=''> * specific language governing permissions and limitations
-</span>28 <span style=''> * under the License.
-</span>29 <span style=''> */
-</span>30 <span style=''>
+</span>21 <span style=''> * Unless required by applicable law or agreed to in writing,
+</span>22 <span style=''> * software distributed under the License is distributed on an
+</span>23 <span style=''> * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+</span>24 <span style=''> * KIND, either express or implied.  See the License for the
+</span>25 <span style=''> * specific language governing permissions and limitations
+</span>26 <span style=''> * under the License.
+</span>27 <span style=''> */
+</span>28 <span style=''>
+</span>29 <span style=''>object BlockSplitBloomFilter {
+</span>30 <span style=''>  import com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.{BITS_PER_BLOCK, LOWER_BOUND_BYTES, UPPER_BOUND_BYTES}
 </span>31 <span style=''>
-</span>32 <span style=''>trait BlockSplitBloomFilterImports {
-</span>33 <span style=''>  import com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.{BITS_PER_BLOCK, LOWER_BOUND_BYTES, UPPER_BOUND_BYTES}
-</span>34 <span style=''>
-</span>35 <span style=''>  /**
-</span>36 <span style=''>   * Calculate optimal size according to the number of distinct values and false positive probability.
-</span>37 <span style=''>   *
-</span>38 <span style=''>   * @param n : The number of distinct values.
-</span>39 <span style=''>   * @param p : The false positive probability.
-</span>40 <span style=''>   * @return optimal number of bits of given n and p.
-</span>41 <span style=''>   */
-</span>42 <span style=''>  def optimalNumOfBits(n: Long, p: Double): Int = {
-</span>43 <span style=''>    </span><span style='background: #AEF1AE'>require(p &gt; 0.0 &amp;&amp; p &lt; 1.0, </span><span style='background: #F0ADAD'>&quot;FPP should be less than 1.0 and great than 0.0&quot;</span><span style='background: #AEF1AE'>)</span><span style=''>
-</span>44 <span style=''>    val m = </span><span style='background: #AEF1AE'>-8 * n / Math.log(1 - Math.pow(p, 1.0 / 8))</span><span style=''>
-</span>45 <span style=''>    var numBits = </span><span style='background: #AEF1AE'>m.toInt</span><span style=''> // 2147483647
-</span>46 <span style=''>    // Handle overflow.
-</span>47 <span style=''>    if (</span><span style='background: #AEF1AE'>numBits &gt; (UPPER_BOUND_BYTES &lt;&lt; 3) || m &lt; 0</span><span style=''>) {
-</span>48 <span style=''>      </span><span style='background: #AEF1AE'>numBits = UPPER_BOUND_BYTES &lt;&lt; 3</span><span style=''> // 1073741824
-</span>49 <span style=''>    }
+</span>32 <span style=''>  /**
+</span>33 <span style=''>   * Calculate optimal size according to the number of distinct values and false positive probability.
+</span>34 <span style=''>   *
+</span>35 <span style=''>   * @param n : The number of distinct values.
+</span>36 <span style=''>   * @param p : The false positive probability.
+</span>37 <span style=''>   * @return optimal number of bits of given n and p.
+</span>38 <span style=''>   */
+</span>39 <span style=''>  def optimalNumOfBits(n: Long, p: Double): Int = {
+</span>40 <span style=''>    </span><span style='background: #AEF1AE'>require(p &gt; 0.0 &amp;&amp; p &lt; 1.0, </span><span style='background: #F0ADAD'>&quot;FPP should be less than 1.0 and great than 0.0&quot;</span><span style='background: #AEF1AE'>)</span><span style=''>
+</span>41 <span style=''>    val m = </span><span style='background: #AEF1AE'>-8 * n / Math.log(1 - Math.pow(p, 1.0 / 8))</span><span style=''>
+</span>42 <span style=''>    var numBits = </span><span style='background: #AEF1AE'>m.toInt</span><span style=''> // 2147483647
+</span>43 <span style=''>    // Handle overflow.
+</span>44 <span style=''>    if (</span><span style='background: #AEF1AE'>numBits &gt; (UPPER_BOUND_BYTES &lt;&lt; 3) || m &lt; 0</span><span style=''>) {
+</span>45 <span style=''>      </span><span style='background: #AEF1AE'>numBits = UPPER_BOUND_BYTES &lt;&lt; 3</span><span style=''> // 1073741824
+</span>46 <span style=''>    }
+</span>47 <span style=''>
+</span>48 <span style=''>    // Round numBits up to (k * BITS_PER_BLOCK)
+</span>49 <span style=''>    numBits = </span><span style='background: #AEF1AE'>(numBits + BITS_PER_BLOCK - 1) &amp; ~BITS_PER_BLOCK</span><span style=''> // 1073742079
 </span>50 <span style=''>
-</span>51 <span style=''>    // Round numBits up to (k * BITS_PER_BLOCK)
-</span>52 <span style=''>    numBits = </span><span style='background: #AEF1AE'>(numBits + BITS_PER_BLOCK - 1) &amp; ~BITS_PER_BLOCK</span><span style=''> // 1073742079
-</span>53 <span style=''>
-</span>54 <span style=''>    if (</span><span style='background: #AEF1AE'>numBits &lt; (LOWER_BOUND_BYTES &lt;&lt; 3)</span><span style=''>) {
-</span>55 <span style=''>      </span><span style='background: #AEF1AE'>numBits = LOWER_BOUND_BYTES &lt;&lt; 3</span><span style=''>
-</span>56 <span style=''>    }
-</span>57 <span style=''>    numBits
-</span>58 <span style=''>  }
-</span>59 <span style=''>
-</span>60 <span style=''>  def optimalNumberOfBuckets(n: Long, p: Double): Long = {
-</span>61 <span style=''>
-</span>62 <span style=''>    def directNumberOfBits(n: Long, p: Double): Long = {
-</span>63 <span style=''>      </span><span style='background: #AEF1AE'>require(p &gt; 0.0 &amp;&amp; p &lt; 1.0, </span><span style='background: #F0ADAD'>&quot;FPP should be less than 1.0 and great than 0.0&quot;</span><span style='background: #AEF1AE'>)</span><span style=''>
-</span>64 <span style=''>      val m = (</span><span style='background: #AEF1AE'>-8L * n).toDouble / Math.log(1L - Math.pow(p, 1.0 / 8d))</span><span style=''>
-</span>65 <span style=''>      </span><span style='background: #AEF1AE'>m.toLong</span><span style=''>
-</span>66 <span style=''>    }
-</span>67 <span style=''>
-</span>68 <span style=''>    val origBytes = </span><span style='background: #AEF1AE'>directNumberOfBits(n, p) / 8</span><span style=''> // bytes
-</span>69 <span style=''>    var numBytes = </span><span style='background: #AEF1AE'>optimalNumOfBits(n, p) / 8</span><span style=''> // 134217759
-</span>70 <span style=''>    if (</span><span style='background: #AEF1AE'>(numBytes &amp; (numBytes - 1)) != 0</span><span style=''>) </span><span style='background: #AEF1AE'>numBytes = Integer.highestOneBit(numBytes) &lt;&lt; 1</span><span style=''> // 268435456
-</span>71 <span style=''>    if (</span><span style='background: #AEF1AE'>numBytes &gt; UPPER_BOUND_BYTES || numBytes &lt; 0</span><span style=''>) </span><span style='background: #AEF1AE'>numBytes = UPPER_BOUND_BYTES</span><span style=''>    // 134217728 -- is num bytes so we want prev?
-</span>72 <span style=''>
-</span>73 <span style=''>    // numBytes is now likely UPPER_BOUND_BYTES anyway to use buckets - but how may bytes off are we?
-</span>74 <span style=''>    if (</span><span style='background: #AEF1AE'>numBytes &gt; origBytes</span><span style=''>)
-</span>75 <span style=''>      (</span><span style='background: #AEF1AE'>numBytes.toDouble / origBytes.toDouble).ceil.toLong</span><span style=''>
-</span>76 <span style=''>    else
-</span>77 <span style=''>      (</span><span style='background: #AEF1AE'>origBytes.toDouble / numBytes.toDouble).ceil.toLong</span><span style=''>
-</span>78 <span style=''>  }
-</span>79 <span style=''>
-</span>80 <span style=''>}
-</span>81 <span style=''>
-</span>82 <span style=''>/*
-</span>83 <span style=''> * This Bloom filter is implemented using block-based Bloom filter algorithm from Putze et al.'s
-</span>84 <span style=''> * &quot;Cache-, Hash- and Space-Efficient Bloom filters&quot;. The basic idea is to hash the item to a tiny
-</span>85 <span style=''> * Bloom filter which size fit a single cache line or smaller. This implementation sets 8 bits in
-</span>86 <span style=''> * each tiny Bloom filter. Each tiny Bloom filter is 32 bytes to take advantage of 32-byte SIMD
-</span>87 <span style=''> * instruction.
-</span>88 <span style=''> */
-</span>89 <span style=''>object BlockSplitBloomFilterImpl { // Bytes in a tiny Bloom filter block.
-</span>90 <span style=''>  private[parquet] val BYTES_PER_BLOCK = </span><span style='background: #AEF1AE'>32</span><span style=''>
-</span>91 <span style=''>  // Bits in a tiny Bloom filter block.
-</span>92 <span style=''>  private[parquet] val BITS_PER_BLOCK = </span><span style='background: #AEF1AE'>256</span><span style=''>
-</span>93 <span style=''>  // The lower bound of bloom filter size, set to the size of a tiny Bloom filter block.
-</span>94 <span style=''>  val LOWER_BOUND_BYTES = </span><span style='background: #AEF1AE'>32</span><span style=''>
-</span>95 <span style=''>  // The upper bound of bloom filter size, set to default row group size.
-</span>96 <span style=''>  val UPPER_BOUND_BYTES: Int = </span><span style='background: #AEF1AE'>128 * 1024 * 1024</span><span style=''>
-</span>97 <span style=''>  // The number of bits to set in a tiny Bloom filter
-</span>98 <span style=''>  private[parquet] val BITS_SET_PER_BLOCK = </span><span style='background: #AEF1AE'>8</span><span style=''>
-</span>99 <span style=''>  // The metadata in the header of a serialized Bloom filter is four four-byte values: the number of bytes,
-</span>100 <span style=''>  // the filter algorithm, the hash algorithm, and the compression.
-</span>101 <span style=''>  val HEADER_SIZE = </span><span style='background: #AEF1AE'>16</span><span style=''>
-</span>102 <span style=''>  // The default false positive probability value
-</span>103 <span style=''>  val DEFAULT_FPP = </span><span style='background: #AEF1AE'>0.01</span><span style=''>
-</span>104 <span style=''>  // The block-based algorithm needs 8 odd SALT values to calculate eight indexes
-</span>105 <span style=''>  // of bits to set, one per 32-bit word.
-</span>106 <span style=''>  private[parquet] val SALT = </span><span style='background: #AEF1AE'>Array(0x47b6137b, 0x44974d91, 0x8824ad5b, 0xa2b7289d, 0x705495c7, 0x2df1424b, 0x9efc4947, 0x5c6bfb31)</span><span style=''>
-</span>107 <span style=''>
-</span>108 <span style=''>  def fromBytes(bitset: Array[Byte]): BlockSplitBloomFilterImpl = {
-</span>109 <span style=''>    </span><span style='background: #AEF1AE'>apply(bitset)</span><span style=''>
-</span>110 <span style=''>  }
-</span>111 <span style=''>
-</span>112 <span style=''>  /**
-</span>113 <span style=''>   * Construct the Bloom filter with given bitset, it is used when reconstructing
-</span>114 <span style=''>   * Bloom filter from parquet file. It use XXH64 as its default hash
-</span>115 <span style=''>   * function.
-</span>116 <span style=''>   *
-</span>117 <span style=''>   * @param bitset The given bitset to construct Bloom filter.
-</span>118 <span style=''>   */
-</span>119 <span style=''>  def apply(bitset: Array[Byte]): BlockSplitBloomFilterImpl = {
-</span>120 <span style=''>    </span><span style='background: #AEF1AE'>apply(bitset, BloomFilter.XXH64)</span><span style=''>
-</span>121 <span style=''>  }
-</span>122 <span style=''>
-</span>123 <span style=''>  def arrayBacked(bits: Array[Byte]): TransientHolder[BufferAndRaw] = {
-</span>124 <span style=''>
-</span>125 <span style=''>    val ibuffer = </span><span style='background: #AEF1AE'>TransientHolder{ () =&gt;
-</span>126 <span style=''></span><span style='background: #AEF1AE'>      val buf = ByteBuffer.wrap(bits).order(ByteOrder.LITTLE_ENDIAN).asIntBuffer
-</span>127 <span style=''></span><span style='background: #AEF1AE'>      BufferAndRaw(buf, Some(bits))
-</span>128 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
-</span>129 <span style=''>    ibuffer
-</span>130 <span style=''>  }
-</span>131 <span style=''>
-</span>132 <span style=''>
-</span>133 <span style=''>  /**
-</span>134 <span style=''>   * Construct the Bloom filter with given bitset, it is used when reconstructing
-</span>135 <span style=''>   * Bloom filter from parquet file.
-</span>136 <span style=''>   *
-</span>137 <span style=''>   * @param bitset       The given bitset to construct Bloom filter.
-</span>138 <span style=''>   * @param hashImpl A hashImpl, no attempt at thread safety is made here, the caller must ensure thread safety
-</span>139 <span style=''>   */
-</span>140 <span style=''>  def apply(bitset: Array[Byte], hashImpl: BloomHash): BlockSplitBloomFilterImpl = {
-</span>141 <span style=''>
-</span>142 <span style=''>    val bs = </span><span style='background: #AEF1AE'>BlockSplitBloomFilterImpl(arrayBacked(bitset), hashImpl)</span><span style=''>
+</span>51 <span style=''>    if (</span><span style='background: #AEF1AE'>numBits &lt; (LOWER_BOUND_BYTES &lt;&lt; 3)</span><span style=''>) {
+</span>52 <span style=''>      </span><span style='background: #AEF1AE'>numBits = LOWER_BOUND_BYTES &lt;&lt; 3</span><span style=''>
+</span>53 <span style=''>    }
+</span>54 <span style=''>    numBits
+</span>55 <span style=''>  }
+</span>56 <span style=''>
+</span>57 <span style=''>  def optimalNumberOfBuckets(n: Long, p: Double): Long = {
+</span>58 <span style=''>
+</span>59 <span style=''>    def directNumberOfBits(n: Long, p: Double): Long = {
+</span>60 <span style=''>      </span><span style='background: #AEF1AE'>require(p &gt; 0.0 &amp;&amp; p &lt; 1.0, </span><span style='background: #F0ADAD'>&quot;FPP should be less than 1.0 and great than 0.0&quot;</span><span style='background: #AEF1AE'>)</span><span style=''>
+</span>61 <span style=''>      val m = (</span><span style='background: #AEF1AE'>-8L * n).toDouble / Math.log(1L - Math.pow(p, 1.0 / 8d))</span><span style=''>
+</span>62 <span style=''>      </span><span style='background: #AEF1AE'>m.toLong</span><span style=''>
+</span>63 <span style=''>    }
+</span>64 <span style=''>
+</span>65 <span style=''>    val origBytes = </span><span style='background: #AEF1AE'>directNumberOfBits(n, p) / 8</span><span style=''> // bytes
+</span>66 <span style=''>    var numBytes = </span><span style='background: #AEF1AE'>optimalNumOfBits(n, p) / 8</span><span style=''> // 134217759
+</span>67 <span style=''>    if (</span><span style='background: #AEF1AE'>(numBytes &amp; (numBytes - 1)) != 0</span><span style=''>) </span><span style='background: #AEF1AE'>numBytes = Integer.highestOneBit(numBytes) &lt;&lt; 1</span><span style=''> // 268435456
+</span>68 <span style=''>    if (</span><span style='background: #AEF1AE'>numBytes &gt; UPPER_BOUND_BYTES || numBytes &lt; 0</span><span style=''>) </span><span style='background: #AEF1AE'>numBytes = UPPER_BOUND_BYTES</span><span style=''>    // 134217728 -- is num bytes so we want prev?
+</span>69 <span style=''>
+</span>70 <span style=''>    // numBytes is now likely UPPER_BOUND_BYTES anyway to use buckets - but how may bytes off are we?
+</span>71 <span style=''>    if (</span><span style='background: #AEF1AE'>numBytes &gt; origBytes</span><span style=''>)
+</span>72 <span style=''>      (</span><span style='background: #AEF1AE'>numBytes.toDouble / origBytes.toDouble).ceil.toLong</span><span style=''>
+</span>73 <span style=''>    else
+</span>74 <span style=''>      (</span><span style='background: #AEF1AE'>origBytes.toDouble / numBytes.toDouble).ceil.toLong</span><span style=''>
+</span>75 <span style=''>  }
+</span>76 <span style=''>
+</span>77 <span style=''>}
+</span>78 <span style=''>
+</span>79 <span style=''>/*
+</span>80 <span style=''> * This Bloom filter is implemented using block-based Bloom filter algorithm from Putze et al.'s
+</span>81 <span style=''> * &quot;Cache-, Hash- and Space-Efficient Bloom filters&quot;. The basic idea is to hash the item to a tiny
+</span>82 <span style=''> * Bloom filter which size fit a single cache line or smaller. This implementation sets 8 bits in
+</span>83 <span style=''> * each tiny Bloom filter. Each tiny Bloom filter is 32 bytes to take advantage of 32-byte SIMD
+</span>84 <span style=''> * instruction.
+</span>85 <span style=''> */
+</span>86 <span style=''>object BlockSplitBloomFilterImpl { // Bytes in a tiny Bloom filter block.
+</span>87 <span style=''>  private[parquet] val BYTES_PER_BLOCK = </span><span style='background: #AEF1AE'>32</span><span style=''>
+</span>88 <span style=''>  // Bits in a tiny Bloom filter block.
+</span>89 <span style=''>  private[parquet] val BITS_PER_BLOCK = </span><span style='background: #AEF1AE'>256</span><span style=''>
+</span>90 <span style=''>  // The lower bound of bloom filter size, set to the size of a tiny Bloom filter block.
+</span>91 <span style=''>  val LOWER_BOUND_BYTES = </span><span style='background: #AEF1AE'>32</span><span style=''>
+</span>92 <span style=''>  // The upper bound of bloom filter size, set to default row group size.
+</span>93 <span style=''>  val UPPER_BOUND_BYTES: Int = </span><span style='background: #AEF1AE'>128 * 1024 * 1024</span><span style=''>
+</span>94 <span style=''>  // The number of bits to set in a tiny Bloom filter
+</span>95 <span style=''>  private[parquet] val BITS_SET_PER_BLOCK = </span><span style='background: #AEF1AE'>8</span><span style=''>
+</span>96 <span style=''>  // The metadata in the header of a serialized Bloom filter is four four-byte values: the number of bytes,
+</span>97 <span style=''>  // the filter algorithm, the hash algorithm, and the compression.
+</span>98 <span style=''>  val HEADER_SIZE = </span><span style='background: #AEF1AE'>16</span><span style=''>
+</span>99 <span style=''>  // The default false positive probability value
+</span>100 <span style=''>  val DEFAULT_FPP = </span><span style='background: #AEF1AE'>0.01</span><span style=''>
+</span>101 <span style=''>  // The block-based algorithm needs 8 odd SALT values to calculate eight indexes
+</span>102 <span style=''>  // of bits to set, one per 32-bit word.
+</span>103 <span style=''>  private[parquet] val SALT = </span><span style='background: #AEF1AE'>Array(0x47b6137b, 0x44974d91, 0x8824ad5b, 0xa2b7289d, 0x705495c7, 0x2df1424b, 0x9efc4947, 0x5c6bfb31)</span><span style=''>
+</span>104 <span style=''>
+</span>105 <span style=''>  def fromBytes(bitset: Array[Byte]): BlockSplitBloomFilterImpl = {
+</span>106 <span style=''>    </span><span style='background: #AEF1AE'>apply(bitset)</span><span style=''>
+</span>107 <span style=''>  }
+</span>108 <span style=''>
+</span>109 <span style=''>  /**
+</span>110 <span style=''>   * Construct the Bloom filter with given bitset, it is used when reconstructing
+</span>111 <span style=''>   * Bloom filter from parquet file. It use XXH64 as its default hash
+</span>112 <span style=''>   * function.
+</span>113 <span style=''>   *
+</span>114 <span style=''>   * @param bitset The given bitset to construct Bloom filter.
+</span>115 <span style=''>   */
+</span>116 <span style=''>  def apply(bitset: Array[Byte]): BlockSplitBloomFilterImpl = {
+</span>117 <span style=''>    </span><span style='background: #AEF1AE'>apply(bitset, BloomFilter.XXH64)</span><span style=''>
+</span>118 <span style=''>  }
+</span>119 <span style=''>
+</span>120 <span style=''>  def arrayBacked(bits: Array[Byte]): TransientHolder[BufferAndRaw] = {
+</span>121 <span style=''>
+</span>122 <span style=''>    val ibuffer = </span><span style='background: #AEF1AE'>TransientHolder{ () =&gt;
+</span>123 <span style=''></span><span style='background: #AEF1AE'>      val buf = ByteBuffer.wrap(bits).order(ByteOrder.LITTLE_ENDIAN).asIntBuffer
+</span>124 <span style=''></span><span style='background: #AEF1AE'>      BufferAndRaw(buf, Some(bits))
+</span>125 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>126 <span style=''>    ibuffer
+</span>127 <span style=''>  }
+</span>128 <span style=''>
+</span>129 <span style=''>
+</span>130 <span style=''>  /**
+</span>131 <span style=''>   * Construct the Bloom filter with given bitset, it is used when reconstructing
+</span>132 <span style=''>   * Bloom filter from parquet file.
+</span>133 <span style=''>   *
+</span>134 <span style=''>   * @param bitset       The given bitset to construct Bloom filter.
+</span>135 <span style=''>   * @param hashImpl A hashImpl, no attempt at thread safety is made here, the caller must ensure thread safety
+</span>136 <span style=''>   */
+</span>137 <span style=''>  def apply(bitset: Array[Byte], hashImpl: BloomHash): BlockSplitBloomFilterImpl = {
+</span>138 <span style=''>
+</span>139 <span style=''>    val bs = </span><span style='background: #AEF1AE'>BlockSplitBloomFilterImpl(arrayBacked(bitset), hashImpl)</span><span style=''>
+</span>140 <span style=''>
+</span>141 <span style=''>    bs
+</span>142 <span style=''>  }
 </span>143 <span style=''>
-</span>144 <span style=''>    bs
-</span>145 <span style=''>  }
-</span>146 <span style=''>
-</span>147 <span style=''>  /**
-</span>148 <span style=''>   * Construct the Bloom filter with given bitset, it is used when reconstructing
-</span>149 <span style=''>   * Bloom filter from parquet file.
-</span>150 <span style=''>   *
-</span>151 <span style=''>   * @param bitset       The given bitset to construct Bloom filter.
-</span>152 <span style=''>   * @param hashStrategy The hash strategy Bloom filter apply.
-</span>153 <span style=''>   */
-</span>154 <span style=''>  def apply(bitset: Array[Byte], hashStrategy: BloomFilter.HashStrategy): BlockSplitBloomFilterImpl =
-</span>155 <span style=''>    </span><span style='background: #AEF1AE'>apply(bitset,  new BloomHashImpl(hashStrategy))</span><span style=''>
-</span>156 <span style=''>
-</span>157 <span style=''>
-</span>158 <span style=''>  def bufferEquals(left: IntBuffer, right: IntBuffer) =
-</span>159 <span style=''>    if (</span><span style='background: #F0ADAD'>left.limit() == right.limit()</span><span style=''>) </span><span style='background: #F0ADAD'>{
-</span>160 <span style=''></span><span style='background: #F0ADAD'>      var i = -1
-</span>161 <span style=''></span><span style='background: #F0ADAD'>      do {
-</span>162 <span style=''></span><span style='background: #F0ADAD'>        i += 1
-</span>163 <span style=''></span><span style='background: #F0ADAD'>      } while( i &lt; right.limit() &amp;&amp; left.get(i) == right.get(i) )
-</span>164 <span style=''></span><span style='background: #F0ADAD'>      if ((i+1) == right.limit())
-</span>165 <span style=''></span><span style='background: #F0ADAD'>        true // got to the end
-</span>166 <span style=''></span><span style='background: #F0ADAD'>      else
-</span>167 <span style=''></span><span style='background: #F0ADAD'>        false // did not there is a difference
-</span>168 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''> else
-</span>169 <span style=''>      </span><span style='background: #F0ADAD'>false</span><span style=''>
-</span>170 <span style=''>
-</span>171 <span style=''>  /**
-</span>172 <span style=''>   * Creates using an array
-</span>173 <span style=''>   *
-</span>174 <span style=''>   * @param numBytes
-</span>175 <span style=''>   * @param iMinimumBytes
-</span>176 <span style=''>   * @param iMaximumBytes
-</span>177 <span style=''>   * @param hashImpl
-</span>178 <span style=''>   * @return
-</span>179 <span style=''>   */
-</span>180 <span style=''>  def apply(numBytes: Int, iMinimumBytes: Int, iMaximumBytes: Int, hashImpl: BloomHash): BlockSplitBloomFilterImpl =
-</span>181 <span style=''>    </span><span style='background: #AEF1AE'>apply(createArray(numBytes, iMinimumBytes, iMaximumBytes), hashImpl)</span><span style=''>
-</span>182 <span style=''>
-</span>183 <span style=''>  def createArray(numBytes: Int, iMinimumBytes: Int, iMaximumBytes: Int) = </span><span style='background: #AEF1AE'>new Array[Byte]({
-</span>184 <span style=''></span><span style='background: #AEF1AE'>
-</span>185 <span style=''></span><span style='background: #AEF1AE'>
-</span>186 <span style=''></span><span style='background: #AEF1AE'>    val maximumBytes =
-</span>187 <span style=''></span><span style='background: #AEF1AE'>      if (iMaximumBytes &gt; BlockSplitBloomFilterImpl.LOWER_BOUND_BYTES &amp;&amp; iMaximumBytes &lt; BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES)
-</span>188 <span style=''></span><span style='background: #AEF1AE'>        </span><span style='background: #F0ADAD'>iMaximumBytes</span><span style='background: #AEF1AE'>
-</span>189 <span style=''></span><span style='background: #AEF1AE'>      else
-</span>190 <span style=''></span><span style='background: #AEF1AE'>        BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES
-</span>191 <span style=''></span><span style='background: #AEF1AE'>    val minimumBytes =
-</span>192 <span style=''></span><span style='background: #AEF1AE'>      if (iMinimumBytes &gt; BlockSplitBloomFilterImpl.LOWER_BOUND_BYTES &amp;&amp; </span><span style='background: #F0ADAD'>iMinimumBytes &lt; BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES</span><span style='background: #AEF1AE'>)
-</span>193 <span style=''></span><span style='background: #AEF1AE'>        </span><span style='background: #F0ADAD'>iMaximumBytes</span><span style='background: #AEF1AE'>
-</span>194 <span style=''></span><span style='background: #AEF1AE'>      else
-</span>195 <span style=''></span><span style='background: #AEF1AE'>        BlockSplitBloomFilterImpl.LOWER_BOUND_BYTES
-</span>196 <span style=''></span><span style='background: #AEF1AE'>
-</span>197 <span style=''></span><span style='background: #AEF1AE'>    var inumBytes = numBytes
-</span>198 <span style=''></span><span style='background: #AEF1AE'>    if (inumBytes &lt; minimumBytes) {
-</span>199 <span style=''></span><span style='background: #AEF1AE'>      </span><span style='background: #F0ADAD'>inumBytes = minimumBytes</span><span style='background: #AEF1AE'>
-</span>200 <span style=''></span><span style='background: #AEF1AE'>    }
-</span>201 <span style=''></span><span style='background: #AEF1AE'>    // Get next power of 2 if it is not power of 2.
-</span>202 <span style=''></span><span style='background: #AEF1AE'>    if ((inumBytes &amp; (inumBytes - 1)) != 0) inumBytes = Integer.highestOneBit(inumBytes) &lt;&lt; 1
-</span>203 <span style=''></span><span style='background: #AEF1AE'>    if (inumBytes &gt; maximumBytes || inumBytes &lt; 0) </span><span style='background: #F0ADAD'>inumBytes = maximumBytes</span><span style='background: #AEF1AE'>
-</span>204 <span style=''></span><span style='background: #AEF1AE'>
-</span>205 <span style=''></span><span style='background: #AEF1AE'>    inumBytes
-</span>206 <span style=''></span><span style='background: #AEF1AE'>  })</span><span style=''>
-</span>207 <span style=''>
-</span>208 <span style=''>}
-</span>209 <span style=''>
-</span>210 <span style=''>case class BufferAndRaw(buffer: IntBuffer, bytes: Option[Array[Byte]] = None)
-</span>211 <span style=''>
-</span>212 <span style=''>/**
-</span>213 <span style=''> * Constructor of block-based Bloom filter.
-</span>214 <span style=''> *
-</span>215 <span style=''> * @param intBufferGen Creates the backing buffer
-</span>216 <span style=''> * @param hashImpl Manages hashing for this bloomfilter
-</span>217 <span style=''> */
-</span>218 <span style=''>case class BlockSplitBloomFilterImpl(intBufferGen: TransientHolder[BufferAndRaw], hashImpl: BloomHash) extends
-</span>219 <span style=''>  BloomFilter[Array[Byte]] with BloomLookupImpl with Bloom[Array[Byte]] with DelegatingBloomHash { // The hash strategy used in this Bloom filter.
-</span>220 <span style=''>  type BloomType = BlockSplitBloomFilterImpl
-</span>221 <span style=''>
-</span>222 <span style=''>  /*
-</span>223 <span style=''>   * @param iMinimumBytes The minimum bytes of the Bloom filter.
-</span>224 <span style=''> * @param iMaximumBytes The maximum bytes of the Bloom filter.
-</span>225 <span style=''>
-</span>226 <span style=''>   */
-</span>227 <span style=''>//  require(iMinimumBytes &lt;= iMaximumBytes, &quot;the minimum bytes should be less or equal than maximum bytes&quot;)
-</span>228 <span style=''>  </span><span style='background: #AEF1AE'>require(hashStrategy == BloomFilter.XXH64, </span><span style='background: #F0ADAD'>s&quot;Unsupported hash strategy $hashStrategy&quot;</span><span style='background: #AEF1AE'>)</span><span style=''>
-</span>229 <span style=''>
-</span>230 <span style=''>  </span><span style='background: #AEF1AE'>cacheBuffer.order(ByteOrder.LITTLE_ENDIAN)</span><span style=''>
-</span>231 <span style=''>
-</span>232 <span style=''>  override def intBuffer: IntBuffer = </span><span style='background: #AEF1AE'>intBufferGen.get().buffer</span><span style=''>
-</span>233 <span style=''>
-</span>234 <span style=''>  /**
-</span>235 <span style=''>   * Constructor of block-based Bloom filter backed by an array of the correct size
-</span>236 <span style=''>   *
-</span>237 <span style=''>   * @param numBytes The number of bytes for Bloom filter bitset. The range of num_bytes should be within
-</span>238 <span style=''>   *                 [DEFAULT_MINIMUM_BYTES, DEFAULT_MAXIMUM_BYTES], it will be rounded up/down
-</span>239 <span style=''>   *                 to lower/upper bound if num_bytes is out of range. It will also be rounded up to a power
-</span>240 <span style=''>   *                 of 2. It uses XXH64 as its default hash function.
-</span>241 <span style=''>   */
-</span>242 <span style=''>  def this(numBytes: Int) {
-</span>243 <span style=''>    </span><span style='background: #AEF1AE'>this({
-</span>244 <span style=''></span><span style='background: #AEF1AE'>      val bits = BlockSplitBloomFilterImpl.createArray(numBytes, BlockSplitBloomFilterImpl.LOWER_BOUND_BYTES, BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES)
-</span>245 <span style=''></span><span style='background: #AEF1AE'>      BlockSplitBloomFilterImpl.arrayBacked(bits)
-</span>246 <span style=''></span><span style='background: #AEF1AE'>    }, new BloomHashImpl(BloomFilter.XXH64))</span><span style=''>
-</span>247 <span style=''>  }
-</span>248 <span style=''>
-</span>249 <span style=''>  def insertHash(hash: Long): Unit = {
-</span>250 <span style=''>    val numBlocks = </span><span style='background: #AEF1AE'>getBitsetSize / BlockSplitBloomFilterImpl.BYTES_PER_BLOCK</span><span style=''>
-</span>251 <span style=''>    val lowHash = </span><span style='background: #AEF1AE'>hash &gt;&gt;&gt; 32</span><span style=''>
-</span>252 <span style=''>    val blockIndex = (</span><span style='background: #AEF1AE'>(lowHash * numBlocks) &gt;&gt; 32).toInt</span><span style=''>
-</span>253 <span style=''>    val key = </span><span style='background: #AEF1AE'>hash.toInt</span><span style=''>
-</span>254 <span style=''>    // Calculate mask for bucket.
-</span>255 <span style=''>    val mask = </span><span style='background: #AEF1AE'>setMask(key)</span><span style=''>
-</span>256 <span style=''>    </span><span style='background: #AEF1AE'>for (i &lt;- 0 until BlockSplitBloomFilterImpl.BITS_SET_PER_BLOCK) {
-</span>257 <span style=''></span><span style='background: #AEF1AE'>      var value = intBuffer.get(blockIndex * (BlockSplitBloomFilterImpl.BYTES_PER_BLOCK / 4) + i)
-</span>258 <span style=''></span><span style='background: #AEF1AE'>      value |= mask(i)
-</span>259 <span style=''></span><span style='background: #AEF1AE'>      intBuffer.put(blockIndex * (BlockSplitBloomFilterImpl.BYTES_PER_BLOCK / 4) + i, value)
-</span>260 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
-</span>261 <span style=''>  }
-</span>262 <span style=''>
-</span>263 <span style=''>  /** CTw added the or'ing */
-</span>264 <span style=''>  override def |= (that: BlockSplitBloomFilterImpl): BlockSplitBloomFilterImpl = {
-</span>265 <span style=''>    </span><span style='background: #AEF1AE'>checkCompatibility(that)</span><span style=''>
-</span>266 <span style=''>    // Breeze copies but we'll do in place
-</span>267 <span style=''>    </span><span style='background: #AEF1AE'>for(i &lt;- 0 until intBuffer.limit()) {
-</span>268 <span style=''></span><span style='background: #AEF1AE'>      intBuffer.put(i, intBuffer.get(i) | that.intBuffer.get(i))</span><span style=''>
-</span>269 <span style=''>    }
-</span>270 <span style=''>    this
-</span>271 <span style=''>  }
+</span>144 <span style=''>  /**
+</span>145 <span style=''>   * Construct the Bloom filter with given bitset, it is used when reconstructing
+</span>146 <span style=''>   * Bloom filter from parquet file.
+</span>147 <span style=''>   *
+</span>148 <span style=''>   * @param bitset       The given bitset to construct Bloom filter.
+</span>149 <span style=''>   * @param hashStrategy The hash strategy Bloom filter apply.
+</span>150 <span style=''>   */
+</span>151 <span style=''>  def apply(bitset: Array[Byte], hashStrategy: BloomFilter.HashStrategy): BlockSplitBloomFilterImpl =
+</span>152 <span style=''>    </span><span style='background: #AEF1AE'>apply(bitset,  new BloomHashImpl(hashStrategy))</span><span style=''>
+</span>153 <span style=''>
+</span>154 <span style=''>
+</span>155 <span style=''>  def bufferEquals(left: IntBuffer, right: IntBuffer) =
+</span>156 <span style=''>    if (</span><span style='background: #F0ADAD'>left.limit() == right.limit()</span><span style=''>) </span><span style='background: #F0ADAD'>{
+</span>157 <span style=''></span><span style='background: #F0ADAD'>      var i = -1
+</span>158 <span style=''></span><span style='background: #F0ADAD'>      do {
+</span>159 <span style=''></span><span style='background: #F0ADAD'>        i += 1
+</span>160 <span style=''></span><span style='background: #F0ADAD'>      } while( i &lt; right.limit() &amp;&amp; left.get(i) == right.get(i) )
+</span>161 <span style=''></span><span style='background: #F0ADAD'>      if ((i+1) == right.limit())
+</span>162 <span style=''></span><span style='background: #F0ADAD'>        true // got to the end
+</span>163 <span style=''></span><span style='background: #F0ADAD'>      else
+</span>164 <span style=''></span><span style='background: #F0ADAD'>        false // did not there is a difference
+</span>165 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''> else
+</span>166 <span style=''>      </span><span style='background: #F0ADAD'>false</span><span style=''>
+</span>167 <span style=''>
+</span>168 <span style=''>  /**
+</span>169 <span style=''>   * Creates using an array
+</span>170 <span style=''>   *
+</span>171 <span style=''>   * @param numBytes
+</span>172 <span style=''>   * @param iMinimumBytes
+</span>173 <span style=''>   * @param iMaximumBytes
+</span>174 <span style=''>   * @param hashImpl
+</span>175 <span style=''>   * @return
+</span>176 <span style=''>   */
+</span>177 <span style=''>  def apply(numBytes: Int, iMinimumBytes: Int, iMaximumBytes: Int, hashImpl: BloomHash): BlockSplitBloomFilterImpl =
+</span>178 <span style=''>    </span><span style='background: #AEF1AE'>apply(createArray(numBytes, iMinimumBytes, iMaximumBytes), hashImpl)</span><span style=''>
+</span>179 <span style=''>
+</span>180 <span style=''>  def createArray(numBytes: Int, iMinimumBytes: Int, iMaximumBytes: Int) = </span><span style='background: #AEF1AE'>new Array[Byte]({
+</span>181 <span style=''></span><span style='background: #AEF1AE'>
+</span>182 <span style=''></span><span style='background: #AEF1AE'>
+</span>183 <span style=''></span><span style='background: #AEF1AE'>    val maximumBytes =
+</span>184 <span style=''></span><span style='background: #AEF1AE'>      if (iMaximumBytes &gt; BlockSplitBloomFilterImpl.LOWER_BOUND_BYTES &amp;&amp; iMaximumBytes &lt; BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES)
+</span>185 <span style=''></span><span style='background: #AEF1AE'>        </span><span style='background: #F0ADAD'>iMaximumBytes</span><span style='background: #AEF1AE'>
+</span>186 <span style=''></span><span style='background: #AEF1AE'>      else
+</span>187 <span style=''></span><span style='background: #AEF1AE'>        BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES
+</span>188 <span style=''></span><span style='background: #AEF1AE'>    val minimumBytes =
+</span>189 <span style=''></span><span style='background: #AEF1AE'>      if (iMinimumBytes &gt; BlockSplitBloomFilterImpl.LOWER_BOUND_BYTES &amp;&amp; </span><span style='background: #F0ADAD'>iMinimumBytes &lt; BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES</span><span style='background: #AEF1AE'>)
+</span>190 <span style=''></span><span style='background: #AEF1AE'>        </span><span style='background: #F0ADAD'>iMaximumBytes</span><span style='background: #AEF1AE'>
+</span>191 <span style=''></span><span style='background: #AEF1AE'>      else
+</span>192 <span style=''></span><span style='background: #AEF1AE'>        BlockSplitBloomFilterImpl.LOWER_BOUND_BYTES
+</span>193 <span style=''></span><span style='background: #AEF1AE'>
+</span>194 <span style=''></span><span style='background: #AEF1AE'>    var inumBytes = numBytes
+</span>195 <span style=''></span><span style='background: #AEF1AE'>    if (inumBytes &lt; minimumBytes) {
+</span>196 <span style=''></span><span style='background: #AEF1AE'>      </span><span style='background: #F0ADAD'>inumBytes = minimumBytes</span><span style='background: #AEF1AE'>
+</span>197 <span style=''></span><span style='background: #AEF1AE'>    }
+</span>198 <span style=''></span><span style='background: #AEF1AE'>    // Get next power of 2 if it is not power of 2.
+</span>199 <span style=''></span><span style='background: #AEF1AE'>    if ((inumBytes &amp; (inumBytes - 1)) != 0) inumBytes = Integer.highestOneBit(inumBytes) &lt;&lt; 1
+</span>200 <span style=''></span><span style='background: #AEF1AE'>    if (inumBytes &gt; maximumBytes || inumBytes &lt; 0) </span><span style='background: #F0ADAD'>inumBytes = maximumBytes</span><span style='background: #AEF1AE'>
+</span>201 <span style=''></span><span style='background: #AEF1AE'>
+</span>202 <span style=''></span><span style='background: #AEF1AE'>    inumBytes
+</span>203 <span style=''></span><span style='background: #AEF1AE'>  })</span><span style=''>
+</span>204 <span style=''>
+</span>205 <span style=''>}
+</span>206 <span style=''>
+</span>207 <span style=''>case class BufferAndRaw(buffer: IntBuffer, bytes: Option[Array[Byte]] = None)
+</span>208 <span style=''>
+</span>209 <span style=''>/**
+</span>210 <span style=''> * Constructor of block-based Bloom filter.
+</span>211 <span style=''> *
+</span>212 <span style=''> * @param intBufferGen Creates the backing buffer
+</span>213 <span style=''> * @param hashImpl Manages hashing for this bloomfilter
+</span>214 <span style=''> */
+</span>215 <span style=''>case class BlockSplitBloomFilterImpl(intBufferGen: TransientHolder[BufferAndRaw], hashImpl: BloomHash) extends
+</span>216 <span style=''>  BloomFilter[Array[Byte]] with BloomLookupImpl with Bloom[Array[Byte]] with DelegatingBloomHash { // The hash strategy used in this Bloom filter.
+</span>217 <span style=''>  type BloomType = BlockSplitBloomFilterImpl
+</span>218 <span style=''>
+</span>219 <span style=''>  /*
+</span>220 <span style=''>   * @param iMinimumBytes The minimum bytes of the Bloom filter.
+</span>221 <span style=''> * @param iMaximumBytes The maximum bytes of the Bloom filter.
+</span>222 <span style=''>
+</span>223 <span style=''>   */
+</span>224 <span style=''>//  require(iMinimumBytes &lt;= iMaximumBytes, &quot;the minimum bytes should be less or equal than maximum bytes&quot;)
+</span>225 <span style=''>  </span><span style='background: #AEF1AE'>require(hashStrategy == BloomFilter.XXH64, </span><span style='background: #F0ADAD'>s&quot;Unsupported hash strategy $hashStrategy&quot;</span><span style='background: #AEF1AE'>)</span><span style=''>
+</span>226 <span style=''>
+</span>227 <span style=''>  </span><span style='background: #AEF1AE'>cacheBuffer.order(ByteOrder.LITTLE_ENDIAN)</span><span style=''>
+</span>228 <span style=''>
+</span>229 <span style=''>  override def intBuffer: IntBuffer = </span><span style='background: #AEF1AE'>intBufferGen.get().buffer</span><span style=''>
+</span>230 <span style=''>
+</span>231 <span style=''>  /**
+</span>232 <span style=''>   * Constructor of block-based Bloom filter backed by an array of the correct size
+</span>233 <span style=''>   *
+</span>234 <span style=''>   * @param numBytes The number of bytes for Bloom filter bitset. The range of num_bytes should be within
+</span>235 <span style=''>   *                 [DEFAULT_MINIMUM_BYTES, DEFAULT_MAXIMUM_BYTES], it will be rounded up/down
+</span>236 <span style=''>   *                 to lower/upper bound if num_bytes is out of range. It will also be rounded up to a power
+</span>237 <span style=''>   *                 of 2. It uses XXH64 as its default hash function.
+</span>238 <span style=''>   */
+</span>239 <span style=''>  def this(numBytes: Int) {
+</span>240 <span style=''>    </span><span style='background: #AEF1AE'>this({
+</span>241 <span style=''></span><span style='background: #AEF1AE'>      val bits = BlockSplitBloomFilterImpl.createArray(numBytes, BlockSplitBloomFilterImpl.LOWER_BOUND_BYTES, BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES)
+</span>242 <span style=''></span><span style='background: #AEF1AE'>      BlockSplitBloomFilterImpl.arrayBacked(bits)
+</span>243 <span style=''></span><span style='background: #AEF1AE'>    }, new BloomHashImpl(BloomFilter.XXH64))</span><span style=''>
+</span>244 <span style=''>  }
+</span>245 <span style=''>
+</span>246 <span style=''>  def insertHash(hash: Long): Unit = {
+</span>247 <span style=''>    val numBlocks = </span><span style='background: #AEF1AE'>getBitsetSize / BlockSplitBloomFilterImpl.BYTES_PER_BLOCK</span><span style=''>
+</span>248 <span style=''>    val lowHash = </span><span style='background: #AEF1AE'>hash &gt;&gt;&gt; 32</span><span style=''>
+</span>249 <span style=''>    val blockIndex = (</span><span style='background: #AEF1AE'>(lowHash * numBlocks) &gt;&gt; 32).toInt</span><span style=''>
+</span>250 <span style=''>    val key = </span><span style='background: #AEF1AE'>hash.toInt</span><span style=''>
+</span>251 <span style=''>    // Calculate mask for bucket.
+</span>252 <span style=''>    val mask = </span><span style='background: #AEF1AE'>setMask(key)</span><span style=''>
+</span>253 <span style=''>    </span><span style='background: #AEF1AE'>for (i &lt;- 0 until BlockSplitBloomFilterImpl.BITS_SET_PER_BLOCK) {
+</span>254 <span style=''></span><span style='background: #AEF1AE'>      var value = intBuffer.get(blockIndex * (BlockSplitBloomFilterImpl.BYTES_PER_BLOCK / 4) + i)
+</span>255 <span style=''></span><span style='background: #AEF1AE'>      value |= mask(i)
+</span>256 <span style=''></span><span style='background: #AEF1AE'>      intBuffer.put(blockIndex * (BlockSplitBloomFilterImpl.BYTES_PER_BLOCK / 4) + i, value)
+</span>257 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>258 <span style=''>  }
+</span>259 <span style=''>
+</span>260 <span style=''>  /** CTw added the or'ing */
+</span>261 <span style=''>  override def |= (that: BlockSplitBloomFilterImpl): BlockSplitBloomFilterImpl = {
+</span>262 <span style=''>    </span><span style='background: #AEF1AE'>checkCompatibility(that)</span><span style=''>
+</span>263 <span style=''>    // Breeze copies but we'll do in place
+</span>264 <span style=''>    </span><span style='background: #AEF1AE'>for(i &lt;- 0 until intBuffer.limit()) {
+</span>265 <span style=''></span><span style='background: #AEF1AE'>      intBuffer.put(i, intBuffer.get(i) | that.intBuffer.get(i))</span><span style=''>
+</span>266 <span style=''>    }
+</span>267 <span style=''>    this
+</span>268 <span style=''>  }
+</span>269 <span style=''>
+</span>270 <span style=''>  private def checkCompatibility(that: BloomFilter[Array[Byte]]): Unit =
+</span>271 <span style=''>    </span><span style='background: #AEF1AE'>require(that.getBitsetSize == this.getBitsetSize, </span><span style='background: #F0ADAD'>&quot;Must have the same number of buckets to intersect&quot;</span><span style='background: #AEF1AE'>)</span><span style=''>
 </span>272 <span style=''>
-</span>273 <span style=''>  private def checkCompatibility(that: BloomFilter[Array[Byte]]): Unit =
-</span>274 <span style=''>    </span><span style='background: #AEF1AE'>require(that.getBitsetSize == this.getBitsetSize, </span><span style='background: #F0ADAD'>&quot;Must have the same number of buckets to intersect&quot;</span><span style='background: #AEF1AE'>)</span><span style=''>
-</span>275 <span style=''>
-</span>276 <span style=''>  def getBitsetSize: Int = </span><span style='background: #AEF1AE'>this.intBuffer.limit() * 4</span><span style=''>
-</span>277 <span style=''>
-</span>278 <span style=''>  override def equals(other: Any): Boolean =
-</span>279 <span style=''>    other match {
-</span>280 <span style=''>      case bs: BlockSplitBloomFilterImpl if </span><span style='background: #F0ADAD'>bs eq this</span><span style=''> =&gt; </span><span style='background: #F0ADAD'>true</span><span style=''>
-</span>281 <span style=''>      case that: BlockSplitBloomFilterImpl =&gt;
-</span>282 <span style=''>        </span><span style='background: #F0ADAD'>BlockSplitBloomFilterImpl.bufferEquals(this.intBuffer, that.intBuffer) &amp;&amp; (this.getAlgorithm eq that.getAlgorithm) &amp;&amp; (this.hashStrategy eq that.hashStrategy)</span><span style=''>
-</span>283 <span style=''>      case _ =&gt; </span><span style='background: #F0ADAD'>false</span><span style=''>
-</span>284 <span style=''>    }
-</span>285 <span style=''>
-</span>286 <span style=''>  def getHashStrategy: BloomFilter.HashStrategy = </span><span style='background: #F0ADAD'>BloomFilter.XXH64</span><span style=''>
-</span>287 <span style=''>
-</span>288 <span style=''>  def getAlgorithm: BloomFilter.Algorithm = </span><span style='background: #F0ADAD'>BloomFilter.BLOCK</span><span style=''>
-</span>289 <span style=''>
-</span>290 <span style=''>  def getCompression: BloomFilter.Compression = </span><span style='background: #F0ADAD'>BloomFilter.UNCOMPRESSED</span><span style=''>
-</span>291 <span style=''>
-</span>292 <span style=''>  def hash(value: Int): Long = {
-</span>293 <span style=''>    </span><span style='background: #F0ADAD'>cacheBuffer.putInt(value)</span><span style=''>
-</span>294 <span style=''>    </span><span style='background: #F0ADAD'>doHash</span><span style=''>
-</span>295 <span style=''>  }
-</span>296 <span style=''>
-</span>297 <span style=''>  def hash(value: Long): Long = {
-</span>298 <span style=''>    </span><span style='background: #F0ADAD'>cacheBuffer.putLong(value)</span><span style=''>
-</span>299 <span style=''>    </span><span style='background: #F0ADAD'>doHash</span><span style=''>
-</span>300 <span style=''>  }
-</span>301 <span style=''>
-</span>302 <span style=''>  def hash(value: Double): Long = {
-</span>303 <span style=''>    </span><span style='background: #F0ADAD'>cacheBuffer.putDouble(value)</span><span style=''>
-</span>304 <span style=''>    </span><span style='background: #F0ADAD'>doHash</span><span style=''>
-</span>305 <span style=''>  }
-</span>306 <span style=''>
-</span>307 <span style=''>  def hash(value: Float): Long = {
-</span>308 <span style=''>    </span><span style='background: #F0ADAD'>cacheBuffer.putFloat(value)</span><span style=''>
-</span>309 <span style=''>    </span><span style='background: #F0ADAD'>doHash</span><span style=''>
-</span>310 <span style=''>  }
-</span>311 <span style=''>
-</span>312 <span style=''>  def hash(value: BloomFilter.Binary): Long = </span><span style='background: #F0ADAD'>hashFunction.hashBytes(value)</span><span style=''>
-</span>313 <span style=''>
-</span>314 <span style=''>  override def serialized: Array[Byte] = {
-</span>315 <span style=''>    val a = </span><span style='background: #AEF1AE'>Array.ofDim[Byte](getBitsetSize)</span><span style=''>
-</span>316 <span style=''>    val copy = </span><span style='background: #AEF1AE'>ByteBuffer.wrap(a).order(ByteOrder.LITTLE_ENDIAN).asIntBuffer()</span><span style=''>
-</span>317 <span style=''>    </span><span style='background: #AEF1AE'>copy.put(intBuffer)</span><span style=''>
-</span>318 <span style=''>      // now in a
-</span>319 <span style=''>    a
-</span>320 <span style=''>  }
-</span>321 <span style=''>
-</span>322 <span style=''>}
+</span>273 <span style=''>  def getBitsetSize: Int = </span><span style='background: #AEF1AE'>this.intBuffer.limit() * 4</span><span style=''>
+</span>274 <span style=''>
+</span>275 <span style=''>  override def equals(other: Any): Boolean =
+</span>276 <span style=''>    other match {
+</span>277 <span style=''>      case bs: BlockSplitBloomFilterImpl if </span><span style='background: #F0ADAD'>bs eq this</span><span style=''> =&gt; </span><span style='background: #F0ADAD'>true</span><span style=''>
+</span>278 <span style=''>      case that: BlockSplitBloomFilterImpl =&gt;
+</span>279 <span style=''>        </span><span style='background: #F0ADAD'>BlockSplitBloomFilterImpl.bufferEquals(this.intBuffer, that.intBuffer) &amp;&amp; (this.getAlgorithm eq that.getAlgorithm) &amp;&amp; (this.hashStrategy eq that.hashStrategy)</span><span style=''>
+</span>280 <span style=''>      case _ =&gt; </span><span style='background: #F0ADAD'>false</span><span style=''>
+</span>281 <span style=''>    }
+</span>282 <span style=''>
+</span>283 <span style=''>  def getHashStrategy: BloomFilter.HashStrategy = </span><span style='background: #F0ADAD'>BloomFilter.XXH64</span><span style=''>
+</span>284 <span style=''>
+</span>285 <span style=''>  def getAlgorithm: BloomFilter.Algorithm = </span><span style='background: #F0ADAD'>BloomFilter.BLOCK</span><span style=''>
+</span>286 <span style=''>
+</span>287 <span style=''>  def getCompression: BloomFilter.Compression = </span><span style='background: #F0ADAD'>BloomFilter.UNCOMPRESSED</span><span style=''>
+</span>288 <span style=''>
+</span>289 <span style=''>  def hash(value: Int): Long = {
+</span>290 <span style=''>    </span><span style='background: #F0ADAD'>cacheBuffer.putInt(value)</span><span style=''>
+</span>291 <span style=''>    </span><span style='background: #F0ADAD'>doHash</span><span style=''>
+</span>292 <span style=''>  }
+</span>293 <span style=''>
+</span>294 <span style=''>  def hash(value: Long): Long = {
+</span>295 <span style=''>    </span><span style='background: #F0ADAD'>cacheBuffer.putLong(value)</span><span style=''>
+</span>296 <span style=''>    </span><span style='background: #F0ADAD'>doHash</span><span style=''>
+</span>297 <span style=''>  }
+</span>298 <span style=''>
+</span>299 <span style=''>  def hash(value: Double): Long = {
+</span>300 <span style=''>    </span><span style='background: #F0ADAD'>cacheBuffer.putDouble(value)</span><span style=''>
+</span>301 <span style=''>    </span><span style='background: #F0ADAD'>doHash</span><span style=''>
+</span>302 <span style=''>  }
+</span>303 <span style=''>
+</span>304 <span style=''>  def hash(value: Float): Long = {
+</span>305 <span style=''>    </span><span style='background: #F0ADAD'>cacheBuffer.putFloat(value)</span><span style=''>
+</span>306 <span style=''>    </span><span style='background: #F0ADAD'>doHash</span><span style=''>
+</span>307 <span style=''>  }
+</span>308 <span style=''>
+</span>309 <span style=''>  def hash(value: BloomFilter.Binary): Long = </span><span style='background: #F0ADAD'>hashFunction.hashBytes(value)</span><span style=''>
+</span>310 <span style=''>
+</span>311 <span style=''>  override def serialized: Array[Byte] = {
+</span>312 <span style=''>    val a = </span><span style='background: #AEF1AE'>Array.ofDim[Byte](getBitsetSize)</span><span style=''>
+</span>313 <span style=''>    val copy = </span><span style='background: #AEF1AE'>ByteBuffer.wrap(a).order(ByteOrder.LITTLE_ENDIAN).asIntBuffer()</span><span style=''>
+</span>314 <span style=''>    </span><span style='background: #AEF1AE'>copy.put(intBuffer)</span><span style=''>
+</span>315 <span style=''>      // now in a
+</span>316 <span style=''>    a
+</span>317 <span style=''>  }
+</span>318 <span style=''>
+</span>319 <span style=''>}
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -358,39 +355,15 @@
         <th>Code</th>
       </tr><tr>
         <td>
-          43
+          40
         </td>
         <td>
-          3361
+          3367
         </td>
         <td>
-          1573
+          1532
           -
-          1576
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          0.0
-        </td>
-      </tr><tr>
-        <td>
-          43
-        </td>
-        <td>
-          3363
-        </td>
-        <td>
-          1569
-          -
-          1587
+          1550
         </td>
         <td>
           Apply
@@ -406,15 +379,15 @@
         </td>
       </tr><tr>
         <td>
-          43
+          40
         </td>
         <td>
-          3365
+          3369
         </td>
         <td>
-          1561
+          1524
           -
-          1638
+          1601
         </td>
         <td>
           Apply
@@ -430,15 +403,15 @@
         </td>
       </tr><tr>
         <td>
-          43
+          40
         </td>
         <td>
-          3362
+          3366
         </td>
         <td>
-          1580
+          1543
           -
-          1587
+          1550
         </td>
         <td>
           Apply
@@ -454,15 +427,39 @@
         </td>
       </tr><tr>
         <td>
-          43
+          40
         </td>
         <td>
-          3364
+          3365
         </td>
         <td>
-          1589
+          1536
           -
-          1637
+          1539
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0.0
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          3368
+        </td>
+        <td>
+          1552
+          -
+          1600
         </td>
         <td>
           Literal
@@ -478,87 +475,15 @@
         </td>
       </tr><tr>
         <td>
-          44
-        </td>
-        <td>
-          3367
-        </td>
-        <td>
-          1669
-          -
-          1670
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          1
-        </td>
-      </tr><tr>
-        <td>
-          44
+          41
         </td>
         <td>
           3370
         </td>
         <td>
-          1660
+          1614
           -
-          1694
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          java.lang.Math.log
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          java.lang.Math.log(1.-(java.lang.Math.pow(p, 0.125)))
-        </td>
-      </tr><tr>
-        <td>
-          44
-        </td>
-        <td>
-          3369
-        </td>
-        <td>
-          1669
-          -
-          1693
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Int.-
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          1.-(java.lang.Math.pow(p, 0.125))
-        </td>
-      </tr><tr>
-        <td>
-          44
-        </td>
-        <td>
-          3366
-        </td>
-        <td>
-          1651
-          -
-          1653
+          1616
         </td>
         <td>
           Literal
@@ -574,15 +499,15 @@
         </td>
       </tr><tr>
         <td>
-          44
+          41
         </td>
         <td>
-          3368
+          3372
         </td>
         <td>
-          1673
+          1636
           -
-          1693
+          1656
         </td>
         <td>
           Apply
@@ -598,15 +523,15 @@
         </td>
       </tr><tr>
         <td>
-          44
+          41
         </td>
         <td>
-          3371
+          3375
         </td>
         <td>
-          1651
+          1614
           -
-          1694
+          1657
         </td>
         <td>
           Apply
@@ -622,207 +547,39 @@
         </td>
       </tr><tr>
         <td>
-          45
-        </td>
-        <td>
-          3372
-        </td>
-        <td>
-          1713
-          -
-          1720
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.Double.toInt
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          m.toInt
-        </td>
-      </tr><tr>
-        <td>
-          47
-        </td>
-        <td>
-          3379
-        </td>
-        <td>
-          1763
-          -
-          1763
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          47
-        </td>
-        <td>
-          3378
-        </td>
-        <td>
-          1763
-          -
-          1763
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          47
-        </td>
-        <td>
-          3375
-        </td>
-        <td>
-          1767
-          -
-          1810
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Boolean.||
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          numBits.&gt;(com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES.&lt;&lt;(3)).||(m.&lt;(0))
-        </td>
-      </tr><tr>
-        <td>
-          47
+          41
         </td>
         <td>
           3374
         </td>
         <td>
-          1805
+          1623
           -
-          1810
+          1657
         </td>
         <td>
           Apply
         </td>
         <td>
-          scala.Double.&lt;
+          java.lang.Math.log
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          m.&lt;(0)
+          java.lang.Math.log(1.-(java.lang.Math.pow(p, 0.125)))
         </td>
       </tr><tr>
         <td>
-          47
+          41
         </td>
         <td>
-          3373
+          3371
         </td>
         <td>
-          1778
+          1632
           -
-          1800
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Int.&lt;&lt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES.&lt;&lt;(3)
-        </td>
-      </tr><tr>
-        <td>
-          48
-        </td>
-        <td>
-          3376
-        </td>
-        <td>
-          1830
-          -
-          1852
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Int.&lt;&lt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES.&lt;&lt;(3)
-        </td>
-      </tr><tr>
-        <td>
-          48
-        </td>
-        <td>
-          3377
-        </td>
-        <td>
-          1820
-          -
-          1852
-        </td>
-        <td>
-          Assign
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          numBits = com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES.&lt;&lt;(3)
-        </td>
-      </tr><tr>
-        <td>
-          52
-        </td>
-        <td>
-          3381
-        </td>
-        <td>
-          1964
-          -
-          1965
+          1633
         </td>
         <td>
           Literal
@@ -838,15 +595,255 @@
         </td>
       </tr><tr>
         <td>
-          52
+          41
+        </td>
+        <td>
+          3373
+        </td>
+        <td>
+          1632
+          -
+          1656
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.-
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          1.-(java.lang.Math.pow(p, 0.125))
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          3376
+        </td>
+        <td>
+          1676
+          -
+          1683
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Double.toInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          m.toInt
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          3379
+        </td>
+        <td>
+          1730
+          -
+          1773
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.||
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          numBits.&gt;(com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES.&lt;&lt;(3)).||(m.&lt;(0))
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          3378
+        </td>
+        <td>
+          1768
+          -
+          1773
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Double.&lt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          m.&lt;(0)
+        </td>
+      </tr><tr>
+        <td>
+          44
         </td>
         <td>
           3383
         </td>
         <td>
-          1936
+          1726
           -
-          1984
+          1726
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          3377
+        </td>
+        <td>
+          1741
+          -
+          1763
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&lt;&lt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES.&lt;&lt;(3)
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          3382
+        </td>
+        <td>
+          1726
+          -
+          1726
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          3381
+        </td>
+        <td>
+          1783
+          -
+          1815
+        </td>
+        <td>
+          Assign
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          numBits = com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES.&lt;&lt;(3)
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          3380
+        </td>
+        <td>
+          1793
+          -
+          1815
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&lt;&lt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES.&lt;&lt;(3)
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          3385
+        </td>
+        <td>
+          1927
+          -
+          1928
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          3387
+        </td>
+        <td>
+          1899
+          -
+          1947
         </td>
         <td>
           Apply
@@ -862,15 +859,15 @@
         </td>
       </tr><tr>
         <td>
-          52
+          49
         </td>
         <td>
-          3380
+          3384
         </td>
         <td>
-          1947
+          1910
           -
-          1961
+          1924
         </td>
         <td>
           Select
@@ -886,15 +883,15 @@
         </td>
       </tr><tr>
         <td>
-          52
+          49
         </td>
         <td>
-          3382
+          3386
         </td>
         <td>
-          1969
+          1932
           -
-          1984
+          1947
         </td>
         <td>
           Select
@@ -910,15 +907,63 @@
         </td>
       </tr><tr>
         <td>
-          54
+          51
         </td>
         <td>
-          3385
+          3393
         </td>
         <td>
-          2008
+          1967
           -
-          2042
+          1967
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          3392
+        </td>
+        <td>
+          1967
+          -
+          1967
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          3389
+        </td>
+        <td>
+          1971
+          -
+          2005
         </td>
         <td>
           Apply
@@ -934,15 +979,15 @@
         </td>
       </tr><tr>
         <td>
-          54
+          51
         </td>
         <td>
-          3384
+          3388
         </td>
         <td>
-          2019
+          1982
           -
-          2041
+          2004
         </td>
         <td>
           Apply
@@ -958,63 +1003,39 @@
         </td>
       </tr><tr>
         <td>
-          54
+          52
         </td>
         <td>
-          3389
+          3390
         </td>
         <td>
-          2004
+          2025
           -
-          2004
+          2047
         </td>
         <td>
-          Block
+          Apply
         </td>
         <td>
-          &lt;nosymbol&gt;
+          scala.Int.&lt;&lt;
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          ()
+          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.LOWER_BOUND_BYTES.&lt;&lt;(3)
         </td>
       </tr><tr>
         <td>
-          54
+          52
         </td>
         <td>
-          3388
+          3391
         </td>
         <td>
-          2004
+          2015
           -
-          2004
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          55
-        </td>
-        <td>
-          3387
-        </td>
-        <td>
-          2052
-          -
-          2084
+          2047
         </td>
         <td>
           Assign
@@ -1030,63 +1051,15 @@
         </td>
       </tr><tr>
         <td>
-          55
-        </td>
-        <td>
-          3386
-        </td>
-        <td>
-          2062
-          -
-          2084
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Int.&lt;&lt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.LOWER_BOUND_BYTES.&lt;&lt;(3)
-        </td>
-      </tr><tr>
-        <td>
-          63
+          60
         </td>
         <td>
           3394
         </td>
         <td>
-          2231
+          2206
           -
-          2308
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Predef.require
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.Predef.require(p.&gt;(0.0).&amp;&amp;(p.&lt;(1.0)), &quot;FPP should be less than 1.0 and great than 0.0&quot;)
-        </td>
-      </tr><tr>
-        <td>
-          63
-        </td>
-        <td>
-          3390
-        </td>
-        <td>
-          2243
-          -
-          2246
+          2209
         </td>
         <td>
           Literal
@@ -1102,39 +1075,15 @@
         </td>
       </tr><tr>
         <td>
-          63
+          60
         </td>
         <td>
-          3393
+          3396
         </td>
         <td>
-          2259
+          2202
           -
-          2307
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;FPP should be less than 1.0 and great than 0.0&quot;
-        </td>
-      </tr><tr>
-        <td>
-          63
-        </td>
-        <td>
-          3392
-        </td>
-        <td>
-          2239
-          -
-          2257
+          2220
         </td>
         <td>
           Apply
@@ -1150,15 +1099,15 @@
         </td>
       </tr><tr>
         <td>
-          63
+          60
         </td>
         <td>
-          3391
+          3395
         </td>
         <td>
-          2250
+          2213
           -
-          2257
+          2220
         </td>
         <td>
           Apply
@@ -1174,15 +1123,39 @@
         </td>
       </tr><tr>
         <td>
-          64
+          60
         </td>
         <td>
-          3396
+          3398
         </td>
         <td>
-          2353
+          2194
           -
-          2355
+          2271
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.require
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.require(p.&gt;(0.0).&amp;&amp;(p.&lt;(1.0)), &quot;FPP should be less than 1.0 and great than 0.0&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          3397
+        </td>
+        <td>
+          2222
+          -
+          2270
         </td>
         <td>
           Literal
@@ -1193,20 +1166,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
-          1L
+        <td style="background: #F0ADAD">
+          &quot;FPP should be less than 1.0 and great than 0.0&quot;
         </td>
       </tr><tr>
         <td>
-          64
+          61
         </td>
         <td>
-          3399
+          3403
         </td>
         <td>
-          2344
+          2307
           -
-          2380
+          2343
         </td>
         <td>
           Apply
@@ -1222,15 +1195,15 @@
         </td>
       </tr><tr>
         <td>
-          64
+          61
         </td>
         <td>
-          3395
+          3399
         </td>
         <td>
-          2324
+          2287
           -
-          2327
+          2290
         </td>
         <td>
           Literal
@@ -1246,15 +1219,15 @@
         </td>
       </tr><tr>
         <td>
-          64
+          61
         </td>
         <td>
-          3398
+          3402
         </td>
         <td>
-          2353
+          2316
           -
-          2379
+          2342
         </td>
         <td>
           Apply
@@ -1270,15 +1243,15 @@
         </td>
       </tr><tr>
         <td>
-          64
+          61
         </td>
         <td>
-          3397
+          3401
         </td>
         <td>
-          2358
+          2321
           -
-          2379
+          2342
         </td>
         <td>
           Apply
@@ -1294,15 +1267,15 @@
         </td>
       </tr><tr>
         <td>
-          64
+          61
         </td>
         <td>
-          3400
+          3404
         </td>
         <td>
-          2324
+          2287
           -
-          2380
+          2343
         </td>
         <td>
           Apply
@@ -1318,15 +1291,39 @@
         </td>
       </tr><tr>
         <td>
-          65
+          61
         </td>
         <td>
-          3401
+          3400
         </td>
         <td>
-          2387
+          2316
           -
-          2395
+          2318
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          1L
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          3405
+        </td>
+        <td>
+          2350
+          -
+          2358
         </td>
         <td>
           Select
@@ -1342,15 +1339,15 @@
         </td>
       </tr><tr>
         <td>
-          68
+          65
         </td>
         <td>
-          3402
+          3406
         </td>
         <td>
-          2423
+          2386
           -
-          2451
+          2414
         </td>
         <td>
           Apply
@@ -1366,15 +1363,15 @@
         </td>
       </tr><tr>
         <td>
-          69
+          66
         </td>
         <td>
-          3403
+          3407
         </td>
         <td>
-          2480
+          2443
           -
-          2506
+          2469
         </td>
         <td>
           Apply
@@ -1386,43 +1383,19 @@
           
         </td>
         <td style="background: #AEF1AE">
-          BlockSplitBloomFilterImports.this.optimalNumOfBits(n, p)./(8)
+          BlockSplitBloomFilter.this.optimalNumOfBits(n, p)./(8)
         </td>
       </tr><tr>
         <td>
-          70
+          67
         </td>
         <td>
-          3405
+          3412
         </td>
         <td>
-          2573
+          2487
           -
-          2609
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Int.&lt;&lt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          java.lang.Integer.highestOneBit(numBytes).&lt;&lt;(1)
-        </td>
-      </tr><tr>
-        <td>
-          70
-        </td>
-        <td>
-          3408
-        </td>
-        <td>
-          2524
-          -
-          2524
+          2487
         </td>
         <td>
           Block
@@ -1438,15 +1411,39 @@
         </td>
       </tr><tr>
         <td>
-          70
+          67
         </td>
         <td>
-          3404
+          3411
         </td>
         <td>
-          2528
+          2487
           -
-          2560
+          2487
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          3408
+        </td>
+        <td>
+          2491
+          -
+          2523
         </td>
         <td>
           Apply
@@ -1462,39 +1459,15 @@
         </td>
       </tr><tr>
         <td>
-          70
+          67
         </td>
         <td>
-          3407
+          3410
         </td>
         <td>
-          2524
+          2525
           -
-          2524
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          70
-        </td>
-        <td>
-          3406
-        </td>
-        <td>
-          2562
-          -
-          2609
+          2572
         </td>
         <td>
           Assign
@@ -1510,87 +1483,39 @@
         </td>
       </tr><tr>
         <td>
-          71
+          67
         </td>
         <td>
-          3412
+          3409
         </td>
         <td>
-          2688
+          2536
           -
-          2705
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES
-        </td>
-      </tr><tr>
-        <td>
-          71
-        </td>
-        <td>
-          3411
-        </td>
-        <td>
-          2631
-          -
-          2675
+          2572
         </td>
         <td>
           Apply
         </td>
         <td>
-          scala.Boolean.||
+          scala.Int.&lt;&lt;
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          numBytes.&gt;(com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES).||(numBytes.&lt;(0))
+          java.lang.Integer.highestOneBit(numBytes).&lt;&lt;(1)
         </td>
       </tr><tr>
         <td>
-          71
+          68
         </td>
         <td>
           3414
         </td>
         <td>
-          2627
+          2626
           -
-          2627
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          71
-        </td>
-        <td>
-          3410
-        </td>
-        <td>
-          2663
-          -
-          2675
+          2638
         </td>
         <td>
           Apply
@@ -1606,15 +1531,15 @@
         </td>
       </tr><tr>
         <td>
-          71
+          68
         </td>
         <td>
-          3413
+          3417
         </td>
         <td>
-          2677
+          2640
           -
-          2705
+          2668
         </td>
         <td>
           Assign
@@ -1630,15 +1555,15 @@
         </td>
       </tr><tr>
         <td>
-          71
+          68
         </td>
         <td>
-          3415
+          3419
         </td>
         <td>
-          2627
+          2590
           -
-          2627
+          2590
         </td>
         <td>
           Block
@@ -1654,15 +1579,15 @@
         </td>
       </tr><tr>
         <td>
-          71
+          68
         </td>
         <td>
-          3409
+          3413
         </td>
         <td>
-          2642
+          2605
           -
-          2659
+          2622
         </td>
         <td>
           Select
@@ -1678,15 +1603,87 @@
         </td>
       </tr><tr>
         <td>
-          74
+          68
         </td>
         <td>
           3416
         </td>
         <td>
-          2866
+          2651
           -
-          2886
+          2668
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          3415
+        </td>
+        <td>
+          2594
+          -
+          2638
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.||
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          numBytes.&gt;(com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES).||(numBytes.&lt;(0))
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          3418
+        </td>
+        <td>
+          2590
+          -
+          2590
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          3420
+        </td>
+        <td>
+          2829
+          -
+          2849
         </td>
         <td>
           Apply
@@ -1702,39 +1699,15 @@
         </td>
       </tr><tr>
         <td>
-          75
+          72
         </td>
         <td>
-          3420
+          3421
         </td>
         <td>
-          2895
+          2878
           -
-          2946
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          scala.Double.toLong
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.Predef.doubleWrapper(numBytes.toDouble./(origBytes.toDouble)).ceil.toLong
-        </td>
-      </tr><tr>
-        <td>
-          75
-        </td>
-        <td>
-          3417
-        </td>
-        <td>
-          2915
-          -
-          2933
+          2896
         </td>
         <td>
           Select
@@ -1750,15 +1723,15 @@
         </td>
       </tr><tr>
         <td>
-          75
+          72
         </td>
         <td>
-          3419
+          3423
         </td>
         <td>
-          2895
+          2858
           -
-          2946
+          2909
         </td>
         <td>
           Select
@@ -1774,15 +1747,15 @@
         </td>
       </tr><tr>
         <td>
-          75
+          72
         </td>
         <td>
-          3418
+          3422
         </td>
         <td>
-          2895
+          2858
           -
-          2933
+          2896
         </td>
         <td>
           Apply
@@ -1798,42 +1771,18 @@
         </td>
       </tr><tr>
         <td>
-          77
+          72
         </td>
         <td>
-          3421
+          3424
         </td>
         <td>
-          2984
+          2858
           -
-          3001
+          2909
         </td>
         <td>
-          Select
-        </td>
-        <td>
-          scala.Int.toDouble
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          numBytes.toDouble
-        </td>
-      </tr><tr>
-        <td>
-          77
-        </td>
-        <td>
-          3423
-        </td>
-        <td>
-          2963
-          -
-          3014
-        </td>
-        <td>
-          Select
+          Block
         </td>
         <td>
           scala.Double.toLong
@@ -1842,19 +1791,19 @@
           
         </td>
         <td style="background: #AEF1AE">
-          scala.Predef.doubleWrapper(origBytes.toDouble./(numBytes.toDouble)).ceil.toLong
+          scala.Predef.doubleWrapper(numBytes.toDouble./(origBytes.toDouble)).ceil.toLong
         </td>
       </tr><tr>
         <td>
-          77
+          74
         </td>
         <td>
-          3422
+          3426
         </td>
         <td>
-          2963
+          2926
           -
-          3001
+          2964
         </td>
         <td>
           Apply
@@ -1870,15 +1819,39 @@
         </td>
       </tr><tr>
         <td>
-          77
+          74
         </td>
         <td>
-          3424
+          3425
         </td>
         <td>
-          2963
+          2947
           -
-          3014
+          2964
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Int.toDouble
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          numBytes.toDouble
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          3428
+        </td>
+        <td>
+          2926
+          -
+          2977
         </td>
         <td>
           Block
@@ -1894,15 +1867,39 @@
         </td>
       </tr><tr>
         <td>
-          90
+          74
         </td>
         <td>
-          3425
+          3427
         </td>
         <td>
-          3551
+          2926
           -
-          3553
+          2977
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Double.toLong
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.doubleWrapper(origBytes.toDouble./(numBytes.toDouble)).ceil.toLong
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          3429
+        </td>
+        <td>
+          3514
+          -
+          3516
         </td>
         <td>
           Literal
@@ -1918,15 +1915,15 @@
         </td>
       </tr><tr>
         <td>
-          92
+          89
         </td>
         <td>
-          3426
+          3430
         </td>
         <td>
-          3634
+          3597
           -
-          3637
+          3600
         </td>
         <td>
           Literal
@@ -1942,15 +1939,15 @@
         </td>
       </tr><tr>
         <td>
-          94
+          91
         </td>
         <td>
-          3427
+          3431
         </td>
         <td>
-          3753
+          3716
           -
-          3755
+          3718
         </td>
         <td>
           Literal
@@ -1966,15 +1963,15 @@
         </td>
       </tr><tr>
         <td>
-          96
+          93
         </td>
         <td>
-          3428
+          3432
         </td>
         <td>
-          3861
+          3824
           -
-          3878
+          3841
         </td>
         <td>
           Literal
@@ -1990,15 +1987,15 @@
         </td>
       </tr><tr>
         <td>
-          98
+          95
         </td>
         <td>
-          3429
+          3433
         </td>
         <td>
-          3977
+          3940
           -
-          3978
+          3941
         </td>
         <td>
           Literal
@@ -2014,15 +2011,15 @@
         </td>
       </tr><tr>
         <td>
-          101
+          98
         </td>
         <td>
-          3430
+          3434
         </td>
         <td>
-          4175
+          4138
           -
-          4177
+          4140
         </td>
         <td>
           Literal
@@ -2038,15 +2035,15 @@
         </td>
       </tr><tr>
         <td>
-          103
+          100
         </td>
         <td>
-          3431
+          3435
         </td>
         <td>
-          4248
+          4211
           -
-          4252
+          4215
         </td>
         <td>
           Literal
@@ -2062,15 +2059,15 @@
         </td>
       </tr><tr>
         <td>
-          106
+          103
         </td>
         <td>
-          3432
+          3436
         </td>
         <td>
-          4407
+          4370
           -
-          4508
+          4471
         </td>
         <td>
           Apply
@@ -2086,15 +2083,15 @@
         </td>
       </tr><tr>
         <td>
-          109
+          106
         </td>
         <td>
-          3433
+          3437
         </td>
         <td>
-          4582
+          4545
           -
-          4595
+          4558
         </td>
         <td>
           Apply
@@ -2110,15 +2107,15 @@
         </td>
       </tr><tr>
         <td>
-          120
+          117
         </td>
         <td>
-          3435
+          3439
         </td>
         <td>
-          4916
+          4879
           -
-          4948
+          4911
         </td>
         <td>
           Apply
@@ -2134,15 +2131,15 @@
         </td>
       </tr><tr>
         <td>
-          120
+          117
         </td>
         <td>
-          3434
+          3438
         </td>
         <td>
-          4930
+          4893
           -
-          4947
+          4910
         </td>
         <td>
           Select
@@ -2158,15 +2155,15 @@
         </td>
       </tr><tr>
         <td>
-          125
+          122
         </td>
         <td>
-          3439
+          3443
         </td>
         <td>
-          5045
+          5008
           -
-          5190
+          5153
         </td>
         <td>
           Apply
@@ -2185,15 +2182,15 @@
         </td>
       </tr><tr>
         <td>
-          126
+          123
         </td>
         <td>
-          3436
+          3440
         </td>
         <td>
-          5084
+          5047
           -
-          5148
+          5111
         </td>
         <td>
           Apply
@@ -2209,39 +2206,15 @@
         </td>
       </tr><tr>
         <td>
-          127
+          124
         </td>
         <td>
-          3438
+          3441
         </td>
         <td>
-          5155
+          5136
           -
-          5184
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.BufferAndRaw.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          BufferAndRaw.apply(buf, scala.Some.apply[Array[Byte]](bits))
-        </td>
-      </tr><tr>
-        <td>
-          127
-        </td>
-        <td>
-          3437
-        </td>
-        <td>
-          5173
-          -
-          5183
+          5146
         </td>
         <td>
           Apply
@@ -2257,39 +2230,39 @@
         </td>
       </tr><tr>
         <td>
-          142
+          124
         </td>
         <td>
-          3441
+          3442
         </td>
         <td>
-          5625
+          5118
           -
-          5681
+          5147
         </td>
         <td>
           Apply
         </td>
         <td>
-          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.apply
+          com.sparkutils.quality.impl.bloom.parquet.BufferAndRaw.apply
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          BlockSplitBloomFilterImpl.apply(BlockSplitBloomFilterImpl.this.arrayBacked(bitset), hashImpl)
+          BufferAndRaw.apply(buf, scala.Some.apply[Array[Byte]](bits))
         </td>
       </tr><tr>
         <td>
-          142
+          139
         </td>
         <td>
-          3440
+          3444
         </td>
         <td>
-          5651
+          5614
           -
-          5670
+          5633
         </td>
         <td>
           Apply
@@ -2305,15 +2278,39 @@
         </td>
       </tr><tr>
         <td>
-          155
+          139
         </td>
         <td>
-          3443
+          3445
         </td>
         <td>
-          6069
+          5588
           -
-          6116
+          5644
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BlockSplitBloomFilterImpl.apply(BlockSplitBloomFilterImpl.this.arrayBacked(bitset), hashImpl)
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          3447
+        </td>
+        <td>
+          6032
+          -
+          6079
         </td>
         <td>
           Apply
@@ -2329,15 +2326,15 @@
         </td>
       </tr><tr>
         <td>
-          155
+          152
         </td>
         <td>
-          3442
+          3446
         </td>
         <td>
-          6084
+          6047
           -
-          6115
+          6078
         </td>
         <td>
           Apply
@@ -2353,39 +2350,15 @@
         </td>
       </tr><tr>
         <td>
-          159
+          156
         </td>
         <td>
-          3444
+          3449
         </td>
         <td>
-          6199
+          6146
           -
-          6212
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          java.nio.Buffer.limit
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          right.limit()
-        </td>
-      </tr><tr>
-        <td>
-          159
-        </td>
-        <td>
-          3445
-        </td>
-        <td>
-          6183
-          -
-          6212
+          6175
         </td>
         <td>
           Apply
@@ -2401,15 +2374,15 @@
         </td>
       </tr><tr>
         <td>
-          159
+          156
         </td>
         <td>
-          3463
+          3467
         </td>
         <td>
-          6214
+          6177
           -
-          6453
+          6416
         </td>
         <td>
           Block
@@ -2438,15 +2411,39 @@
         </td>
       </tr><tr>
         <td>
-          160
+          156
         </td>
         <td>
-          3446
+          3448
         </td>
         <td>
-          6230
+          6162
           -
-          6232
+          6175
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.nio.Buffer.limit
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          right.limit()
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          3450
+        </td>
+        <td>
+          6193
+          -
+          6195
         </td>
         <td>
           Literal
@@ -2462,39 +2459,15 @@
         </td>
       </tr><tr>
         <td>
-          161
+          158
         </td>
         <td>
-          3453
+          3456
         </td>
         <td>
-          6239
+          6202
           -
-          6239
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.doWhile$1
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          doWhile$1()
-        </td>
-      </tr><tr>
-        <td>
-          161
-        </td>
-        <td>
-          3452
-        </td>
-        <td>
-          6239
-          -
-          6239
+          6202
         </td>
         <td>
           Apply
@@ -2510,15 +2483,15 @@
         </td>
       </tr><tr>
         <td>
-          161
+          158
         </td>
         <td>
-          3455
+          3459
         </td>
         <td>
-          6239
+          6202
           -
-          6239
+          6202
         </td>
         <td>
           Block
@@ -2534,15 +2507,15 @@
         </td>
       </tr><tr>
         <td>
-          161
+          158
         </td>
         <td>
-          3454
+          3458
         </td>
         <td>
-          6239
+          6202
           -
-          6239
+          6202
         </td>
         <td>
           Literal
@@ -2558,15 +2531,39 @@
         </td>
       </tr><tr>
         <td>
-          162
+          158
         </td>
         <td>
-          3447
+          3457
         </td>
         <td>
-          6252
+          6202
           -
-          6258
+          6202
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.doWhile$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          doWhile$1()
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          3451
+        </td>
+        <td>
+          6215
+          -
+          6221
         </td>
         <td>
           Apply
@@ -2582,39 +2579,15 @@
         </td>
       </tr><tr>
         <td>
-          163
+          160
         </td>
         <td>
-          3450
+          3453
         </td>
         <td>
-          6295
+          6273
           -
-          6322
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Int.==
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          left.get(i).==(right.get(i))
-        </td>
-      </tr><tr>
-        <td>
-          163
-        </td>
-        <td>
-          3449
-        </td>
-        <td>
-          6310
-          -
-          6322
+          6285
         </td>
         <td>
           Apply
@@ -2630,15 +2603,15 @@
         </td>
       </tr><tr>
         <td>
-          163
+          160
         </td>
         <td>
-          3448
+          3452
         </td>
         <td>
-          6278
+          6241
           -
-          6291
+          6254
         </td>
         <td>
           Apply
@@ -2654,15 +2627,15 @@
         </td>
       </tr><tr>
         <td>
-          163
+          160
         </td>
         <td>
-          3451
+          3455
         </td>
         <td>
-          6274
+          6237
           -
-          6322
+          6285
         </td>
         <td>
           Apply
@@ -2678,39 +2651,39 @@
         </td>
       </tr><tr>
         <td>
-          164
+          160
         </td>
         <td>
-          3456
+          3454
         </td>
         <td>
-          6338
+          6258
           -
-          6339
+          6285
         </td>
         <td>
-          Literal
+          Apply
         </td>
         <td>
-          &lt;nosymbol&gt;
+          scala.Int.==
         </td>
         <td>
           
         </td>
         <td style="background: #F0ADAD">
-          1
+          left.get(i).==(right.get(i))
         </td>
       </tr><tr>
         <td>
-          164
+          161
         </td>
         <td>
-          3458
+          3462
         </td>
         <td>
-          6335
+          6298
           -
-          6357
+          6320
         </td>
         <td>
           Apply
@@ -2726,15 +2699,15 @@
         </td>
       </tr><tr>
         <td>
-          164
+          161
         </td>
         <td>
-          3457
+          3461
         </td>
         <td>
-          6344
+          6307
           -
-          6357
+          6320
         </td>
         <td>
           Apply
@@ -2750,39 +2723,39 @@
         </td>
       </tr><tr>
         <td>
-          165
-        </td>
-        <td>
-          3459
-        </td>
-        <td>
-          6367
-          -
-          6371
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          true
-        </td>
-      </tr><tr>
-        <td>
-          165
+          161
         </td>
         <td>
           3460
         </td>
         <td>
-          6367
+          6301
           -
-          6371
+          6302
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          162
+        </td>
+        <td>
+          3464
+        </td>
+        <td>
+          6330
+          -
+          6334
         </td>
         <td>
           Block
@@ -2798,39 +2771,15 @@
         </td>
       </tr><tr>
         <td>
-          167
+          162
         </td>
         <td>
-          3462
+          3463
         </td>
         <td>
-          6409
+          6330
           -
-          6414
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          false
-        </td>
-      </tr><tr>
-        <td>
-          167
-        </td>
-        <td>
-          3461
-        </td>
-        <td>
-          6409
-          -
-          6414
+          6334
         </td>
         <td>
           Literal
@@ -2842,43 +2791,19 @@
           
         </td>
         <td style="background: #F0ADAD">
-          false
+          true
         </td>
       </tr><tr>
         <td>
-          169
+          164
         </td>
         <td>
           3465
         </td>
         <td>
-          6465
+          6372
           -
-          6470
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          false
-        </td>
-      </tr><tr>
-        <td>
-          169
-        </td>
-        <td>
-          3464
-        </td>
-        <td>
-          6465
-          -
-          6470
+          6377
         </td>
         <td>
           Literal
@@ -2894,15 +2819,87 @@
         </td>
       </tr><tr>
         <td>
-          181
+          164
         </td>
         <td>
-          3467
+          3466
         </td>
         <td>
-          6745
+          6372
           -
-          6813
+          6377
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          166
+        </td>
+        <td>
+          3468
+        </td>
+        <td>
+          6428
+          -
+          6433
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          166
+        </td>
+        <td>
+          3469
+        </td>
+        <td>
+          6428
+          -
+          6433
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          178
+        </td>
+        <td>
+          3471
+        </td>
+        <td>
+          6708
+          -
+          6776
         </td>
         <td>
           Apply
@@ -2918,15 +2915,15 @@
         </td>
       </tr><tr>
         <td>
-          181
+          178
         </td>
         <td>
-          3466
+          3470
         </td>
         <td>
-          6751
+          6714
           -
-          6802
+          6765
         </td>
         <td>
           Apply
@@ -2942,15 +2939,15 @@
         </td>
       </tr><tr>
         <td>
-          183
+          180
         </td>
         <td>
-          3496
+          3500
         </td>
         <td>
-          6890
+          6853
           -
-          7738
+          7701
         </td>
         <td>
           Apply
@@ -2989,63 +2986,15 @@
         </td>
       </tr><tr>
         <td>
-          187
+          184
         </td>
         <td>
-          3471
+          3474
         </td>
         <td>
-          6943
+          6969
           -
-          7065
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Boolean.&amp;&amp;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          iMaximumBytes.&gt;(BlockSplitBloomFilterImpl.LOWER_BOUND_BYTES).&amp;&amp;(iMaximumBytes.&lt;(BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES))
-        </td>
-      </tr><tr>
-        <td>
-          187
-        </td>
-        <td>
-          3468
-        </td>
-        <td>
-          6959
-          -
-          7002
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.LOWER_BOUND_BYTES
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          BlockSplitBloomFilterImpl.LOWER_BOUND_BYTES
-        </td>
-      </tr><tr>
-        <td>
-          187
-        </td>
-        <td>
-          3470
-        </td>
-        <td>
-          7006
-          -
-          7065
+          7028
         </td>
         <td>
           Apply
@@ -3061,87 +3010,15 @@
         </td>
       </tr><tr>
         <td>
-          187
-        </td>
-        <td>
-          3469
-        </td>
-        <td>
-          7022
-          -
-          7065
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES
-        </td>
-      </tr><tr>
-        <td>
-          188
-        </td>
-        <td>
-          3472
-        </td>
-        <td>
-          7075
-          -
-          7088
-        </td>
-        <td>
-          Ident
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.iMaximumBytes
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          iMaximumBytes
-        </td>
-      </tr><tr>
-        <td>
-          190
-        </td>
-        <td>
-          3474
-        </td>
-        <td>
-          7108
-          -
-          7151
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES
-        </td>
-      </tr><tr>
-        <td>
-          190
+          184
         </td>
         <td>
           3473
         </td>
         <td>
-          7108
+          6985
           -
-          7151
+          7028
         </td>
         <td>
           Select
@@ -3157,63 +3034,39 @@
         </td>
       </tr><tr>
         <td>
-          192
-        </td>
-        <td>
-          3477
-        </td>
-        <td>
-          7248
-          -
-          7307
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Int.&lt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          iMinimumBytes.&lt;(BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES)
-        </td>
-      </tr><tr>
-        <td>
-          192
-        </td>
-        <td>
-          3476
-        </td>
-        <td>
-          7264
-          -
-          7307
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES
-        </td>
-      </tr><tr>
-        <td>
-          192
+          184
         </td>
         <td>
           3475
         </td>
         <td>
-          7201
+          6906
           -
-          7244
+          7028
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          iMaximumBytes.&gt;(BlockSplitBloomFilterImpl.LOWER_BOUND_BYTES).&amp;&amp;(iMaximumBytes.&lt;(BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES))
+        </td>
+      </tr><tr>
+        <td>
+          184
+        </td>
+        <td>
+          3472
+        </td>
+        <td>
+          6922
+          -
+          6965
         </td>
         <td>
           Select
@@ -3229,15 +3082,135 @@
         </td>
       </tr><tr>
         <td>
-          192
+          185
+        </td>
+        <td>
+          3476
+        </td>
+        <td>
+          7038
+          -
+          7051
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.iMaximumBytes
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          iMaximumBytes
+        </td>
+      </tr><tr>
+        <td>
+          187
+        </td>
+        <td>
+          3477
+        </td>
+        <td>
+          7071
+          -
+          7114
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES
+        </td>
+      </tr><tr>
+        <td>
+          187
         </td>
         <td>
           3478
         </td>
         <td>
-          7185
+          7071
           -
-          7307
+          7114
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES
+        </td>
+      </tr><tr>
+        <td>
+          189
+        </td>
+        <td>
+          3480
+        </td>
+        <td>
+          7227
+          -
+          7270
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES
+        </td>
+      </tr><tr>
+        <td>
+          189
+        </td>
+        <td>
+          3479
+        </td>
+        <td>
+          7164
+          -
+          7207
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.LOWER_BOUND_BYTES
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BlockSplitBloomFilterImpl.LOWER_BOUND_BYTES
+        </td>
+      </tr><tr>
+        <td>
+          189
+        </td>
+        <td>
+          3482
+        </td>
+        <td>
+          7148
+          -
+          7270
         </td>
         <td>
           Apply
@@ -3253,15 +3226,39 @@
         </td>
       </tr><tr>
         <td>
-          193
+          189
         </td>
         <td>
-          3479
+          3481
         </td>
         <td>
-          7317
+          7211
           -
-          7330
+          7270
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&lt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          iMinimumBytes.&lt;(BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES)
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          3483
+        </td>
+        <td>
+          7280
+          -
+          7293
         </td>
         <td>
           Ident
@@ -3277,15 +3274,39 @@
         </td>
       </tr><tr>
         <td>
-          195
+          192
         </td>
         <td>
-          3480
+          3485
         </td>
         <td>
-          7350
+          7313
           -
-          7393
+          7356
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.LOWER_BOUND_BYTES
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BlockSplitBloomFilterImpl.LOWER_BOUND_BYTES
+        </td>
+      </tr><tr>
+        <td>
+          192
+        </td>
+        <td>
+          3484
+        </td>
+        <td>
+          7313
+          -
+          7356
         </td>
         <td>
           Select
@@ -3304,36 +3325,12 @@
           195
         </td>
         <td>
-          3481
+          3489
         </td>
         <td>
-          7350
+          7391
           -
-          7393
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.LOWER_BOUND_BYTES
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          BlockSplitBloomFilterImpl.LOWER_BOUND_BYTES
-        </td>
-      </tr><tr>
-        <td>
-          198
-        </td>
-        <td>
-          3485
-        </td>
-        <td>
-          7428
-          -
-          7428
+          7391
         </td>
         <td>
           Block
@@ -3349,15 +3346,15 @@
         </td>
       </tr><tr>
         <td>
-          198
+          195
         </td>
         <td>
-          3482
+          3486
         </td>
         <td>
-          7432
+          7395
           -
-          7456
+          7419
         </td>
         <td>
           Apply
@@ -3373,15 +3370,15 @@
         </td>
       </tr><tr>
         <td>
-          198
+          195
         </td>
         <td>
-          3484
+          3488
         </td>
         <td>
-          7428
+          7391
           -
-          7428
+          7391
         </td>
         <td>
           Literal
@@ -3397,15 +3394,15 @@
         </td>
       </tr><tr>
         <td>
-          199
+          196
         </td>
         <td>
-          3483
+          3487
         </td>
         <td>
-          7466
+          7429
           -
-          7490
+          7453
         </td>
         <td>
           Assign
@@ -3421,63 +3418,15 @@
         </td>
       </tr><tr>
         <td>
-          202
+          199
         </td>
         <td>
-          3489
+          3492
         </td>
         <td>
-          7553
+          7556
           -
-          7553
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          202
-        </td>
-        <td>
-          3486
-        </td>
-        <td>
-          7557
-          -
-          7591
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Int.!=
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          inumBytes.&amp;(inumBytes.-(1)).!=(0)
-        </td>
-      </tr><tr>
-        <td>
-          202
-        </td>
-        <td>
-          3488
-        </td>
-        <td>
-          7593
-          -
-          7642
+          7605
         </td>
         <td>
           Assign
@@ -3493,15 +3442,39 @@
         </td>
       </tr><tr>
         <td>
-          202
+          199
         </td>
         <td>
-          3487
+          3494
         </td>
         <td>
-          7605
+          7516
           -
-          7642
+          7516
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          199
+        </td>
+        <td>
+          3491
+        </td>
+        <td>
+          7568
+          -
+          7605
         </td>
         <td>
           Apply
@@ -3517,18 +3490,18 @@
         </td>
       </tr><tr>
         <td>
-          202
+          199
         </td>
         <td>
-          3490
+          3493
         </td>
         <td>
-          7553
+          7516
           -
-          7553
+          7516
         </td>
         <td>
-          Block
+          Literal
         </td>
         <td>
           &lt;nosymbol&gt;
@@ -3541,63 +3514,39 @@
         </td>
       </tr><tr>
         <td>
-          203
+          199
         </td>
         <td>
-          3492
+          3490
         </td>
         <td>
-          7651
+          7520
           -
-          7692
+          7554
         </td>
         <td>
           Apply
         </td>
         <td>
-          scala.Boolean.||
+          scala.Int.!=
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          inumBytes.&gt;(maximumBytes).||(inumBytes.&lt;(0))
+          inumBytes.&amp;(inumBytes.-(1)).!=(0)
         </td>
       </tr><tr>
         <td>
-          203
+          200
         </td>
         <td>
-          3495
+          3498
         </td>
         <td>
-          7647
+          7610
           -
-          7647
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          203
-        </td>
-        <td>
-          3494
-        </td>
-        <td>
-          7647
-          -
-          7647
+          7610
         </td>
         <td>
           Literal
@@ -3613,15 +3562,15 @@
         </td>
       </tr><tr>
         <td>
-          203
+          200
         </td>
         <td>
-          3491
+          3495
         </td>
         <td>
-          7679
+          7642
           -
-          7692
+          7655
         </td>
         <td>
           Apply
@@ -3637,15 +3586,15 @@
         </td>
       </tr><tr>
         <td>
-          203
+          200
         </td>
         <td>
-          3493
+          3497
         </td>
         <td>
-          7694
+          7657
           -
-          7718
+          7681
         </td>
         <td>
           Assign
@@ -3661,63 +3610,63 @@
         </td>
       </tr><tr>
         <td>
-          228
+          200
         </td>
         <td>
-          3498
+          3496
         </td>
         <td>
-          8545
+          7614
           -
-          8578
+          7655
         </td>
         <td>
           Apply
         </td>
         <td>
-          java.lang.Object.==
+          scala.Boolean.||
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          BlockSplitBloomFilterImpl.this.hashStrategy.==(BloomFilter.XXH64)
+          inumBytes.&gt;(maximumBytes).||(inumBytes.&lt;(0))
         </td>
       </tr><tr>
         <td>
-          228
+          200
         </td>
         <td>
-          3501
+          3499
         </td>
         <td>
-          8609
+          7610
           -
-          8621
+          7610
         </td>
         <td>
-          Select
+          Block
         </td>
         <td>
-          com.sparkutils.quality.impl.bloom.parquet.DelegatingBloomHash.hashStrategy
+          &lt;nosymbol&gt;
         </td>
         <td>
           
         </td>
-        <td style="background: #F0ADAD">
-          BlockSplitBloomFilterImpl.this.hashStrategy
+        <td style="background: #AEF1AE">
+          ()
         </td>
       </tr><tr>
         <td>
-          228
+          225
         </td>
         <td>
-          3503
+          3507
         </td>
         <td>
-          8537
+          8500
           -
-          8623
+          8586
         </td>
         <td>
           Apply
@@ -3733,15 +3682,15 @@
         </td>
       </tr><tr>
         <td>
-          228
+          225
         </td>
         <td>
-          3497
+          3501
         </td>
         <td>
-          8561
+          8524
           -
-          8578
+          8541
         </td>
         <td>
           Select
@@ -3757,15 +3706,15 @@
         </td>
       </tr><tr>
         <td>
-          228
+          225
         </td>
         <td>
-          3500
+          3504
         </td>
         <td>
-          8621
+          8584
           -
-          8622
+          8585
         </td>
         <td>
           Literal
@@ -3781,39 +3730,15 @@
         </td>
       </tr><tr>
         <td>
-          228
+          225
         </td>
         <td>
-          3502
+          3503
         </td>
         <td>
-          8580
+          8545
           -
-          8622
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.StringContext.s
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          scala.StringContext.apply(&quot;Unsupported hash strategy &quot;, &quot;&quot;).s(BlockSplitBloomFilterImpl.this.hashStrategy)
-        </td>
-      </tr><tr>
-        <td>
-          228
-        </td>
-        <td>
-          3499
-        </td>
-        <td>
-          8582
-          -
-          8609
+          8572
         </td>
         <td>
           Literal
@@ -3829,39 +3754,87 @@
         </td>
       </tr><tr>
         <td>
-          230
+          225
         </td>
         <td>
-          3504
+          3506
         </td>
         <td>
-          8645
+          8543
           -
-          8668
+          8585
         </td>
         <td>
-          Select
+          Apply
         </td>
         <td>
-          java.nio.ByteOrder.LITTLE_ENDIAN
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Unsupported hash strategy &quot;, &quot;&quot;).s(BlockSplitBloomFilterImpl.this.hashStrategy)
+        </td>
+      </tr><tr>
+        <td>
+          225
+        </td>
+        <td>
+          3502
+        </td>
+        <td>
+          8508
+          -
+          8541
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          java.nio.ByteOrder.LITTLE_ENDIAN
+          BlockSplitBloomFilterImpl.this.hashStrategy.==(BloomFilter.XXH64)
         </td>
       </tr><tr>
         <td>
-          230
+          225
         </td>
         <td>
           3505
         </td>
         <td>
-          8627
+          8572
           -
-          8669
+          8584
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.DelegatingBloomHash.hashStrategy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          BlockSplitBloomFilterImpl.this.hashStrategy
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          3509
+        </td>
+        <td>
+          8590
+          -
+          8632
         </td>
         <td>
           Apply
@@ -3877,15 +3850,39 @@
         </td>
       </tr><tr>
         <td>
-          232
+          227
         </td>
         <td>
-          3506
+          3508
         </td>
         <td>
-          8709
+          8608
           -
-          8734
+          8631
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          java.nio.ByteOrder.LITTLE_ENDIAN
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          java.nio.ByteOrder.LITTLE_ENDIAN
+        </td>
+      </tr><tr>
+        <td>
+          229
+        </td>
+        <td>
+          3510
+        </td>
+        <td>
+          8672
+          -
+          8697
         </td>
         <td>
           Select
@@ -3901,15 +3898,15 @@
         </td>
       </tr><tr>
         <td>
-          242
+          239
         </td>
         <td>
-          3514
+          3518
         </td>
         <td>
-          9246
+          9209
           -
-          9246
+          9209
         </td>
         <td>
           Literal
@@ -3925,15 +3922,15 @@
         </td>
       </tr><tr>
         <td>
-          243
+          240
         </td>
         <td>
-          3513
+          3517
         </td>
         <td>
-          9252
+          9215
           -
-          9508
+          9471
         </td>
         <td>
           Apply
@@ -3952,39 +3949,15 @@
         </td>
       </tr><tr>
         <td>
-          244
+          241
         </td>
         <td>
-          3507
+          3513
         </td>
         <td>
-          9324
+          9239
           -
-          9367
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.LOWER_BOUND_BYTES
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          BlockSplitBloomFilterImpl.LOWER_BOUND_BYTES
-        </td>
-      </tr><tr>
-        <td>
-          244
-        </td>
-        <td>
-          3509
-        </td>
-        <td>
-          9276
-          -
-          9413
+          9376
         </td>
         <td>
           Apply
@@ -4000,15 +3973,15 @@
         </td>
       </tr><tr>
         <td>
-          244
+          241
         </td>
         <td>
-          3508
+          3512
         </td>
         <td>
-          9369
+          9332
           -
-          9412
+          9375
         </td>
         <td>
           Select
@@ -4024,15 +3997,39 @@
         </td>
       </tr><tr>
         <td>
-          245
+          241
         </td>
         <td>
-          3510
+          3511
         </td>
         <td>
-          9420
+          9287
           -
-          9463
+          9330
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.LOWER_BOUND_BYTES
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BlockSplitBloomFilterImpl.LOWER_BOUND_BYTES
+        </td>
+      </tr><tr>
+        <td>
+          242
+        </td>
+        <td>
+          3514
+        </td>
+        <td>
+          9383
+          -
+          9426
         </td>
         <td>
           Apply
@@ -4048,15 +4045,15 @@
         </td>
       </tr><tr>
         <td>
-          246
+          243
         </td>
         <td>
-          3512
+          3516
         </td>
         <td>
-          9471
+          9434
           -
-          9507
+          9470
         </td>
         <td>
           Apply
@@ -4072,15 +4069,15 @@
         </td>
       </tr><tr>
         <td>
-          246
+          243
         </td>
         <td>
-          3511
+          3515
         </td>
         <td>
-          9489
+          9452
           -
-          9506
+          9469
         </td>
         <td>
           Select
@@ -4096,39 +4093,15 @@
         </td>
       </tr><tr>
         <td>
-          250
+          247
         </td>
         <td>
-          3516
+          3519
         </td>
         <td>
-          9573
+          9552
           -
-          9630
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Int./
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          BlockSplitBloomFilterImpl.this.getBitsetSize./(BlockSplitBloomFilterImpl.BYTES_PER_BLOCK)
-        </td>
-      </tr><tr>
-        <td>
-          250
-        </td>
-        <td>
-          3515
-        </td>
-        <td>
-          9589
-          -
-          9630
+          9593
         </td>
         <td>
           Select
@@ -4144,15 +4117,39 @@
         </td>
       </tr><tr>
         <td>
-          251
+          247
         </td>
         <td>
-          3517
+          3520
         </td>
         <td>
-          9649
+          9536
           -
-          9660
+          9593
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int./
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BlockSplitBloomFilterImpl.this.getBitsetSize./(BlockSplitBloomFilterImpl.BYTES_PER_BLOCK)
+        </td>
+      </tr><tr>
+        <td>
+          248
+        </td>
+        <td>
+          3521
+        </td>
+        <td>
+          9612
+          -
+          9623
         </td>
         <td>
           Apply
@@ -4168,39 +4165,15 @@
         </td>
       </tr><tr>
         <td>
-          252
+          249
         </td>
         <td>
-          3519
+          3522
         </td>
         <td>
-          9683
+          9671
           -
-          9717
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.Long.toInt
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          lowHash.*(numBlocks).&gt;&gt;(32).toInt
-        </td>
-      </tr><tr>
-        <td>
-          252
-        </td>
-        <td>
-          3518
-        </td>
-        <td>
-          9708
-          -
-          9710
+          9673
         </td>
         <td>
           Literal
@@ -4216,15 +4189,39 @@
         </td>
       </tr><tr>
         <td>
-          253
+          249
         </td>
         <td>
-          3520
+          3523
         </td>
         <td>
-          9732
+          9646
           -
-          9742
+          9680
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Long.toInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          lowHash.*(numBlocks).&gt;&gt;(32).toInt
+        </td>
+      </tr><tr>
+        <td>
+          250
+        </td>
+        <td>
+          3524
+        </td>
+        <td>
+          9695
+          -
+          9705
         </td>
         <td>
           Select
@@ -4240,15 +4237,15 @@
         </td>
       </tr><tr>
         <td>
-          255
+          252
         </td>
         <td>
-          3521
+          3525
         </td>
         <td>
-          9792
+          9755
           -
-          9804
+          9767
         </td>
         <td>
           Apply
@@ -4264,39 +4261,15 @@
         </td>
       </tr><tr>
         <td>
-          256
+          253
         </td>
         <td>
-          3522
+          3534
         </td>
         <td>
-          9819
+          9772
           -
-          9820
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          0
-        </td>
-      </tr><tr>
-        <td>
-          256
-        </td>
-        <td>
-          3530
-        </td>
-        <td>
-          9809
-          -
-          10094
+          10057
         </td>
         <td>
           Apply
@@ -4316,15 +4289,15 @@
         </td>
       </tr><tr>
         <td>
-          256
+          253
         </td>
         <td>
-          3523
+          3527
         </td>
         <td>
-          9827
+          9790
           -
-          9871
+          9834
         </td>
         <td>
           Select
@@ -4340,231 +4313,15 @@
         </td>
       </tr><tr>
         <td>
-          257
-        </td>
-        <td>
-          3525
-        </td>
-        <td>
-          9893
-          -
-          9972
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          java.nio.IntBuffer.get
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          BlockSplitBloomFilterImpl.this.intBuffer.get(blockIndex.*(BlockSplitBloomFilterImpl.BYTES_PER_BLOCK./(4)).+(i))
-        </td>
-      </tr><tr>
-        <td>
-          257
-        </td>
-        <td>
-          3524
-        </td>
-        <td>
-          9907
-          -
-          9971
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Int.+
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          blockIndex.*(BlockSplitBloomFilterImpl.BYTES_PER_BLOCK./(4)).+(i)
-        </td>
-      </tr><tr>
-        <td>
-          258
-        </td>
-        <td>
-          3527
-        </td>
-        <td>
-          9979
-          -
-          9995
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Int.|
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          value.|(mask.apply(i))
-        </td>
-      </tr><tr>
-        <td>
-          258
+          253
         </td>
         <td>
           3526
         </td>
         <td>
-          9988
+          9782
           -
-          9995
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Array.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          mask.apply(i)
-        </td>
-      </tr><tr>
-        <td>
-          259
-        </td>
-        <td>
-          3528
-        </td>
-        <td>
-          10016
-          -
-          10080
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Int.+
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          blockIndex.*(BlockSplitBloomFilterImpl.BYTES_PER_BLOCK./(4)).+(i)
-        </td>
-      </tr><tr>
-        <td>
-          259
-        </td>
-        <td>
-          3529
-        </td>
-        <td>
-          10002
-          -
-          10088
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          java.nio.IntBuffer.put
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          BlockSplitBloomFilterImpl.this.intBuffer.put(blockIndex.*(BlockSplitBloomFilterImpl.BYTES_PER_BLOCK./(4)).+(i), value)
-        </td>
-      </tr><tr>
-        <td>
-          265
-        </td>
-        <td>
-          3531
-        </td>
-        <td>
-          10217
-          -
-          10241
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.checkCompatibility
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          BlockSplitBloomFilterImpl.this.checkCompatibility(that)
-        </td>
-      </tr><tr>
-        <td>
-          267
-        </td>
-        <td>
-          3537
-        </td>
-        <td>
-          10289
-          -
-          10391
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.collection.immutable.Range.foreach
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.Predef.intWrapper(0).until(BlockSplitBloomFilterImpl.this.intBuffer.limit()).foreach[java.nio.IntBuffer](((i: Int) =&gt; BlockSplitBloomFilterImpl.this.intBuffer.put(i, BlockSplitBloomFilterImpl.this.intBuffer.get(i).|(that.intBuffer.get(i)))))
-        </td>
-      </tr><tr>
-        <td>
-          267
-        </td>
-        <td>
-          3533
-        </td>
-        <td>
-          10306
-          -
-          10323
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          java.nio.Buffer.limit
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          BlockSplitBloomFilterImpl.this.intBuffer.limit()
-        </td>
-      </tr><tr>
-        <td>
-          267
-        </td>
-        <td>
-          3532
-        </td>
-        <td>
-          10298
-          -
-          10299
+          9783
         </td>
         <td>
           Literal
@@ -4580,15 +4337,39 @@
         </td>
       </tr><tr>
         <td>
-          268
+          254
         </td>
         <td>
-          3534
+          3528
         </td>
         <td>
-          10369
+          9870
           -
-          10390
+          9934
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          blockIndex.*(BlockSplitBloomFilterImpl.BYTES_PER_BLOCK./(4)).+(i)
+        </td>
+      </tr><tr>
+        <td>
+          254
+        </td>
+        <td>
+          3529
+        </td>
+        <td>
+          9856
+          -
+          9935
         </td>
         <td>
           Apply
@@ -4600,19 +4381,211 @@
           
         </td>
         <td style="background: #AEF1AE">
-          that.intBuffer.get(i)
+          BlockSplitBloomFilterImpl.this.intBuffer.get(blockIndex.*(BlockSplitBloomFilterImpl.BYTES_PER_BLOCK./(4)).+(i))
         </td>
       </tr><tr>
         <td>
-          268
+          255
+        </td>
+        <td>
+          3531
+        </td>
+        <td>
+          9942
+          -
+          9958
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.|
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          value.|(mask.apply(i))
+        </td>
+      </tr><tr>
+        <td>
+          255
+        </td>
+        <td>
+          3530
+        </td>
+        <td>
+          9951
+          -
+          9958
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          mask.apply(i)
+        </td>
+      </tr><tr>
+        <td>
+          256
+        </td>
+        <td>
+          3533
+        </td>
+        <td>
+          9965
+          -
+          10051
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.nio.IntBuffer.put
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BlockSplitBloomFilterImpl.this.intBuffer.put(blockIndex.*(BlockSplitBloomFilterImpl.BYTES_PER_BLOCK./(4)).+(i), value)
+        </td>
+      </tr><tr>
+        <td>
+          256
+        </td>
+        <td>
+          3532
+        </td>
+        <td>
+          9979
+          -
+          10043
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          blockIndex.*(BlockSplitBloomFilterImpl.BYTES_PER_BLOCK./(4)).+(i)
+        </td>
+      </tr><tr>
+        <td>
+          262
+        </td>
+        <td>
+          3535
+        </td>
+        <td>
+          10180
+          -
+          10204
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.checkCompatibility
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BlockSplitBloomFilterImpl.this.checkCompatibility(that)
+        </td>
+      </tr><tr>
+        <td>
+          264
+        </td>
+        <td>
+          3537
+        </td>
+        <td>
+          10269
+          -
+          10286
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.nio.Buffer.limit
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BlockSplitBloomFilterImpl.this.intBuffer.limit()
+        </td>
+      </tr><tr>
+        <td>
+          264
         </td>
         <td>
           3536
         </td>
         <td>
-          10333
+          10261
           -
-          10391
+          10262
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          264
+        </td>
+        <td>
+          3541
+        </td>
+        <td>
+          10252
+          -
+          10354
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.Range.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.intWrapper(0).until(BlockSplitBloomFilterImpl.this.intBuffer.limit()).foreach[java.nio.IntBuffer](((i: Int) =&gt; BlockSplitBloomFilterImpl.this.intBuffer.put(i, BlockSplitBloomFilterImpl.this.intBuffer.get(i).|(that.intBuffer.get(i)))))
+        </td>
+      </tr><tr>
+        <td>
+          265
+        </td>
+        <td>
+          3540
+        </td>
+        <td>
+          10296
+          -
+          10354
         </td>
         <td>
           Apply
@@ -4628,15 +4601,15 @@
         </td>
       </tr><tr>
         <td>
-          268
+          265
         </td>
         <td>
-          3535
+          3539
         </td>
         <td>
-          10350
+          10313
           -
-          10390
+          10353
         </td>
         <td>
           Apply
@@ -4652,39 +4625,39 @@
         </td>
       </tr><tr>
         <td>
-          274
+          265
         </td>
         <td>
-          3540
+          3538
         </td>
         <td>
-          10539
+          10332
           -
-          10590
+          10353
         </td>
         <td>
-          Literal
+          Apply
         </td>
         <td>
-          &lt;nosymbol&gt;
+          java.nio.IntBuffer.get
         </td>
         <td>
           
         </td>
-        <td style="background: #F0ADAD">
-          &quot;Must have the same number of buckets to intersect&quot;
+        <td style="background: #AEF1AE">
+          that.intBuffer.get(i)
         </td>
       </tr><tr>
         <td>
-          274
+          271
         </td>
         <td>
-          3539
+          3543
         </td>
         <td>
-          10497
+          10460
           -
-          10537
+          10500
         </td>
         <td>
           Apply
@@ -4700,39 +4673,15 @@
         </td>
       </tr><tr>
         <td>
-          274
+          271
         </td>
         <td>
-          3538
+          3545
         </td>
         <td>
-          10519
+          10452
           -
-          10537
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.getBitsetSize
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          this.getBitsetSize
-        </td>
-      </tr><tr>
-        <td>
-          274
-        </td>
-        <td>
-          3541
-        </td>
-        <td>
-          10489
-          -
-          10591
+          10554
         </td>
         <td>
           Apply
@@ -4748,15 +4697,63 @@
         </td>
       </tr><tr>
         <td>
-          276
+          271
         </td>
         <td>
           3542
         </td>
         <td>
-          10620
+          10482
           -
-          10646
+          10500
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.getBitsetSize
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          this.getBitsetSize
+        </td>
+      </tr><tr>
+        <td>
+          271
+        </td>
+        <td>
+          3544
+        </td>
+        <td>
+          10502
+          -
+          10553
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Must have the same number of buckets to intersect&quot;
+        </td>
+      </tr><tr>
+        <td>
+          273
+        </td>
+        <td>
+          3546
+        </td>
+        <td>
+          10583
+          -
+          10609
         </td>
         <td>
           Apply
@@ -4772,39 +4769,15 @@
         </td>
       </tr><tr>
         <td>
-          280
+          277
         </td>
         <td>
-          3543
+          3548
         </td>
         <td>
-          10755
+          10732
           -
-          10765
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          java.lang.Object.eq
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          bs.eq(this)
-        </td>
-      </tr><tr>
-        <td>
-          280
-        </td>
-        <td>
-          3544
-        </td>
-        <td>
-          10769
-          -
-          10773
+          10736
         </td>
         <td>
           Literal
@@ -4820,63 +4793,39 @@
         </td>
       </tr><tr>
         <td>
-          282
+          277
+        </td>
+        <td>
+          3547
+        </td>
+        <td>
+          10718
+          -
+          10728
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.eq
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          bs.eq(this)
+        </td>
+      </tr><tr>
+        <td>
+          279
         </td>
         <td>
           3549
         </td>
         <td>
-          10968
+          10830
           -
-          10985
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.DelegatingBloomHash.hashStrategy
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          that.hashStrategy
-        </td>
-      </tr><tr>
-        <td>
-          282
-        </td>
-        <td>
-          3546
-        </td>
-        <td>
-          10883
-          -
-          10897
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.intBuffer
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          that.intBuffer
-        </td>
-      </tr><tr>
-        <td>
-          282
-        </td>
-        <td>
-          3545
-        </td>
-        <td>
-          10867
-          -
-          10881
+          10844
         </td>
         <td>
           Select
@@ -4892,15 +4841,15 @@
         </td>
       </tr><tr>
         <td>
-          282
+          279
         </td>
         <td>
-          3548
+          3552
         </td>
         <td>
-          10903
+          10866
           -
-          10941
+          10904
         </td>
         <td>
           Apply
@@ -4916,15 +4865,15 @@
         </td>
       </tr><tr>
         <td>
-          282
+          279
         </td>
         <td>
-          3551
+          3555
         </td>
         <td>
-          10828
+          10791
           -
-          10986
+          10949
         </td>
         <td>
           Apply
@@ -4940,39 +4889,15 @@
         </td>
       </tr><tr>
         <td>
-          282
+          279
         </td>
         <td>
-          3547
+          3554
         </td>
         <td>
-          10924
+          10910
           -
-          10941
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.getAlgorithm
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          that.getAlgorithm
-        </td>
-      </tr><tr>
-        <td>
-          282
-        </td>
-        <td>
-          3550
-        </td>
-        <td>
-          10947
-          -
-          10985
+          10948
         </td>
         <td>
           Apply
@@ -4988,15 +4913,87 @@
         </td>
       </tr><tr>
         <td>
-          283
+          279
         </td>
         <td>
-          3552
+          3551
         </td>
         <td>
-          11003
+          10887
           -
-          11008
+          10904
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.getAlgorithm
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          that.getAlgorithm
+        </td>
+      </tr><tr>
+        <td>
+          279
+        </td>
+        <td>
+          3553
+        </td>
+        <td>
+          10931
+          -
+          10948
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.DelegatingBloomHash.hashStrategy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          that.hashStrategy
+        </td>
+      </tr><tr>
+        <td>
+          279
+        </td>
+        <td>
+          3550
+        </td>
+        <td>
+          10846
+          -
+          10860
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.intBuffer
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          that.intBuffer
+        </td>
+      </tr><tr>
+        <td>
+          280
+        </td>
+        <td>
+          3556
+        </td>
+        <td>
+          10966
+          -
+          10971
         </td>
         <td>
           Literal
@@ -5012,15 +5009,15 @@
         </td>
       </tr><tr>
         <td>
-          286
+          283
         </td>
         <td>
-          3553
+          3557
         </td>
         <td>
-          11066
+          11029
           -
-          11083
+          11046
         </td>
         <td>
           Select
@@ -5036,15 +5033,15 @@
         </td>
       </tr><tr>
         <td>
-          288
+          285
         </td>
         <td>
-          3554
+          3558
         </td>
         <td>
-          11129
+          11092
           -
-          11146
+          11109
         </td>
         <td>
           Select
@@ -5060,15 +5057,15 @@
         </td>
       </tr><tr>
         <td>
-          290
+          287
         </td>
         <td>
-          3555
+          3559
         </td>
         <td>
-          11196
+          11159
           -
-          11220
+          11183
         </td>
         <td>
           Select
@@ -5084,15 +5081,15 @@
         </td>
       </tr><tr>
         <td>
-          293
+          290
         </td>
         <td>
-          3556
+          3560
         </td>
         <td>
-          11259
+          11222
           -
-          11284
+          11247
         </td>
         <td>
           Apply
@@ -5108,15 +5105,15 @@
         </td>
       </tr><tr>
         <td>
-          294
+          291
         </td>
         <td>
-          3557
+          3561
         </td>
         <td>
-          11289
+          11252
           -
-          11295
+          11258
         </td>
         <td>
           Select
@@ -5132,15 +5129,15 @@
         </td>
       </tr><tr>
         <td>
-          298
+          295
         </td>
         <td>
-          3558
+          3562
         </td>
         <td>
-          11339
+          11302
           -
-          11365
+          11328
         </td>
         <td>
           Apply
@@ -5156,15 +5153,15 @@
         </td>
       </tr><tr>
         <td>
-          299
+          296
         </td>
         <td>
-          3559
+          3563
         </td>
         <td>
-          11370
+          11333
           -
-          11376
+          11339
         </td>
         <td>
           Select
@@ -5180,15 +5177,15 @@
         </td>
       </tr><tr>
         <td>
-          303
+          300
         </td>
         <td>
-          3560
+          3564
         </td>
         <td>
-          11422
+          11385
           -
-          11450
+          11413
         </td>
         <td>
           Apply
@@ -5204,15 +5201,15 @@
         </td>
       </tr><tr>
         <td>
-          304
+          301
         </td>
         <td>
-          3561
+          3565
         </td>
         <td>
-          11455
+          11418
           -
-          11461
+          11424
         </td>
         <td>
           Select
@@ -5228,15 +5225,15 @@
         </td>
       </tr><tr>
         <td>
-          308
+          305
         </td>
         <td>
-          3562
+          3566
         </td>
         <td>
-          11506
+          11469
           -
-          11533
+          11496
         </td>
         <td>
           Apply
@@ -5252,15 +5249,15 @@
         </td>
       </tr><tr>
         <td>
-          309
+          306
         </td>
         <td>
-          3563
+          3567
         </td>
         <td>
-          11538
+          11501
           -
-          11544
+          11507
         </td>
         <td>
           Select
@@ -5276,15 +5273,15 @@
         </td>
       </tr><tr>
         <td>
-          312
+          309
         </td>
         <td>
-          3564
+          3568
         </td>
         <td>
-          11596
+          11559
           -
-          11625
+          11588
         </td>
         <td>
           Apply
@@ -5300,15 +5297,15 @@
         </td>
       </tr><tr>
         <td>
-          315
+          312
         </td>
         <td>
-          3566
+          3570
         </td>
         <td>
-          11682
+          11645
           -
-          11714
+          11677
         </td>
         <td>
           ApplyToImplicitArgs
@@ -5324,15 +5321,15 @@
         </td>
       </tr><tr>
         <td>
-          315
+          312
         </td>
         <td>
-          3565
+          3569
         </td>
         <td>
-          11700
+          11663
           -
-          11713
+          11676
         </td>
         <td>
           Select
@@ -5348,15 +5345,15 @@
         </td>
       </tr><tr>
         <td>
-          316
+          313
         </td>
         <td>
-          3567
+          3571
         </td>
         <td>
-          11730
+          11693
           -
-          11793
+          11756
         </td>
         <td>
           Apply
@@ -5372,15 +5369,15 @@
         </td>
       </tr><tr>
         <td>
-          317
+          314
         </td>
         <td>
-          3569
+          3573
         </td>
         <td>
-          11798
+          11761
           -
-          11817
+          11780
         </td>
         <td>
           Apply
@@ -5396,15 +5393,15 @@
         </td>
       </tr><tr>
         <td>
-          317
+          314
         </td>
         <td>
-          3568
+          3572
         </td>
         <td>
-          11807
+          11770
           -
-          11816
+          11779
         </td>
         <td>
           Select
