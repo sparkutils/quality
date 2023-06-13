@@ -20,9 +20,48 @@ import org.apache.spark.sql.types._
 import org.apache.spark.sql.{QualitySparkUtils, SparkSession, functions}
 import org.apache.spark.unsafe.types.UTF8String
 
-trait RuleRunnerFunctionsImport {
+object RuleRegistrationFunctions {
 
-  import RuleRunnerFunctions._
+  protected[quality] def literalsNeeded = qualityException("Cannot setup expression with non-literals")
+  protected[quality] def getLong(exp: Expression) =
+    exp match {
+      case Literal(seed: Long, LongType) => seed
+      case _ => literalsNeeded
+    }
+  protected[quality] def getInteger(exp: Expression) =
+    exp match {
+      case Literal(seed: Int, IntegerType) => seed
+      case _ => literalsNeeded
+    }
+  protected[quality] def getString(exp: Expression) =
+    exp match {
+      case Literal(str: UTF8String, StringType) => str.toString()
+      case _ => literalsNeeded
+    }
+
+  protected[quality] def flattenExpressions(ruleSuite: RuleSuite): Seq[Expression] =
+    ruleSuite.ruleSets.flatMap( ruleSet => ruleSet.rules.map(rule =>
+      rule.expression match {
+        case r: ExprLogic => r.expr // only ExprLogic are possible here
+      }))
+
+  protected[quality] val mustKeepNames = Set(LambdaFunctions.PlaceHolder,
+    LambdaFunctions.Lambda, LambdaFunctions.CallFun)
+
+  val qualityFunctions = {
+    val withUnderscores = Set("murmur3_ID","unique_ID","rng_ID","provided_ID","field_Based_ID",
+      "digest_To_Longs","digest_To_Longs_Struct","rule_Suite_Result_Details","id_Equal","long_Pair_Equal","big_Bloom","small_Bloom",
+      "long_Pair_From_UUID","long_Pair","rng_UUID","rng","rng_Bytes","return_Sum","sum_With","results_With",
+      "inc","meanF","agg_Expr","passed","failed","soft_Failed","disabled_Rule","pack_Ints","unpack",
+      "unpack_Id_Triple","soft_Fail","probability","flatten_Results","flatten_Rule_Results", "flatten_Folder_Results", "probability_In",
+      "map_Lookup","map_Contains","hash_With","hash_With_Struct","za_Hash_With", "za_Hash_Longs_With",
+      "hash_Field_Based_ID","za_Longs_Field_Based_ID","za_Hash_Longs_With_Struct", "za_Hash_With_Struct", "za_Field_Based_ID", "prefixed_To_Long_Pair",
+      "coalesce_If_Attributes_Missing", "coalesce_If_Attributes_Missing_Disable", "update_Field", LambdaFunctions.PlaceHolder,
+      LambdaFunctions.Lambda, LambdaFunctions.CallFun, "print_Expr", "print_Code", "comparable_Maps", "reverse_Comparable_Maps", "as_uuid",
+      "id_size", "id_base64", "id_from_base64", "id_raw_type"
+    )
+    withUnderscores ++ withUnderscores.map(n => if (mustKeepNames(n)) n else n.replaceAll("_",""))
+  }
 
   val maxDec = DecimalType(DecimalType.MAX_PRECISION, DecimalType.MAX_SCALE)
 
@@ -91,8 +130,8 @@ trait RuleRunnerFunctionsImport {
                                mapCompare: DataType => Option[(Any, Any) => Int] = (dataType: DataType) => utils.defaultMapCompare(dataType),
                                writer: String => Unit = println(_),
                                registerFunction: (String, Seq[Expression] => Expression) => Unit =
-                                  QualitySparkUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
-                       ) {
+                               QualitySparkUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
+                              ) {
     // #12 - use underscore names but keep the old camel case approach around for compat
     def register(name: String, argsf: Seq[Expression] => Expression) = {
       registerFunction(name, argsf)
@@ -183,9 +222,9 @@ trait RuleRunnerFunctionsImport {
           case 4 =>
             val Literal(str: UTF8String, StringType) = exps(0) // only accept type as string
             if (str.toString == "NO_REWRITE")
-              // signal not to replace types
-              (null, exps(1), exps(2), exps(3))
-            else
+            // signal not to replace types
+            (null, exps(1), exps(2), exps(3))
+              else
               (parse(exps(0)), exps(1), exps(2), exps(3))
         }
       AggregateExpressions(sumType, filter, sum, count, zero, add)
@@ -354,14 +393,14 @@ trait RuleRunnerFunctionsImport {
     register("digest_To_Longs", digestToLongs(false))
 
     def fieldBasedID(factory: String => DigestFactory) = (exps: Seq[Expression]) =>
-        exps.size match {
-          case a if a > 2 =>
-            val digestImpl = getString(exps(1))
-            GenericLongBasedIDExpression(model.FieldBasedID,
-              HashFunctionsExpression(exps.drop(2), digestImpl, true, factory(digestImpl)), getString(exps.head))
+      exps.size match {
+        case a if a > 2 =>
+          val digestImpl = getString(exps(1))
+          GenericLongBasedIDExpression(model.FieldBasedID,
+            HashFunctionsExpression(exps.drop(2), digestImpl, true, factory(digestImpl)), getString(exps.head))
 
-          case _ => literalsNeeded
-        }
+        case _ => literalsNeeded
+      }
 
     register("field_Based_ID", fieldBasedID(MessageDigestFactory))
     register("za_Longs_Field_Based_ID", fieldBasedID(ZALongTupleHashFunctionFactory))
@@ -496,48 +535,4 @@ trait RuleRunnerFunctionsImport {
     })
   }
 
-}
-
-object RuleRunnerFunctions {
-
-  protected[quality] def literalsNeeded = qualityException("Cannot setup expression with non-literals")
-  protected[quality] def getLong(exp: Expression) =
-    exp match {
-      case Literal(seed: Long, LongType) => seed
-      case _ => literalsNeeded
-    }
-  protected[quality] def getInteger(exp: Expression) =
-    exp match {
-      case Literal(seed: Int, IntegerType) => seed
-      case _ => literalsNeeded
-    }
-  protected[quality] def getString(exp: Expression) =
-    exp match {
-      case Literal(str: UTF8String, StringType) => str.toString()
-      case _ => literalsNeeded
-    }
-
-  protected[quality] def flattenExpressions(ruleSuite: RuleSuite): Seq[Expression] =
-    ruleSuite.ruleSets.flatMap( ruleSet => ruleSet.rules.map(rule =>
-      rule.expression match {
-        case r: ExprLogic => r.expr // only ExprLogic are possible here
-      }))
-
-  protected[quality] val mustKeepNames = Set(LambdaFunctions.PlaceHolder,
-    LambdaFunctions.Lambda, LambdaFunctions.CallFun)
-
-  val qualityFunctions = {
-    val withUnderscores = Set("murmur3_ID","unique_ID","rng_ID","provided_ID","field_Based_ID",
-      "digest_To_Longs","digest_To_Longs_Struct","rule_Suite_Result_Details","id_Equal","long_Pair_Equal","big_Bloom","small_Bloom",
-      "long_Pair_From_UUID","long_Pair","rng_UUID","rng","rng_Bytes","return_Sum","sum_With","results_With",
-      "inc","meanF","agg_Expr","passed","failed","soft_Failed","disabled_Rule","pack_Ints","unpack",
-      "unpack_Id_Triple","soft_Fail","probability","flatten_Results","flatten_Rule_Results", "flatten_Folder_Results", "probability_In",
-      "map_Lookup","map_Contains","safer_Long_Pair","hash_With","hash_With_Struct","za_Hash_With", "za_Hash_Longs_With",
-      "hash_Field_Based_ID","za_Longs_Field_Based_ID","za_Hash_Longs_With_Struct", "za_Hash_With_Struct", "za_Field_Based_ID", "prefixed_To_Long_Pair",
-      "coalesce_If_Attributes_Missing", "coalesce_If_Attributes_Missing_Disable", "update_Field", LambdaFunctions.PlaceHolder,
-      LambdaFunctions.Lambda, LambdaFunctions.CallFun, "print_Expr", "print_Code", "comparable_Maps", "reverse_Comparable_Maps", "as_uuid",
-      "id_size", "id_base64", "id_from_base64", "id_raw_type"
-    )
-    withUnderscores ++ withUnderscores.map(n => if (mustKeepNames(n)) n else n.replaceAll("_",""))
-  }
 }

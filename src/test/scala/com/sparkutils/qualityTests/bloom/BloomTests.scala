@@ -227,15 +227,14 @@ class BloomTests extends FunSuite with TestUtils {
       RuleSet(Id(50, 3), Seq(
         Rule(Id(100, 9), ExpressionRule("10")),
         Rule(Id(100, 10), ExpressionRule("probabilityIn(a + b, 'bungle') and (1 + 2) = 3")),
-        Rule(Id(100, 11), ExpressionRule("7")),
-        Rule(Id(100, 12), ExpressionRule("rowid(rng(), 'other')"))
+        Rule(Id(100, 11), ExpressionRule("7"))
       ))
     ))
 
     val ids = getBlooms(rules)
     ids.foreach(println)
 
-    val expected = Seq("ids", "dont have it", "amy", "bungle", "other")
+    val expected = Seq("ids", "dont have it", "amy", "bungle")
     assert(expected == ids, "Did not get the expected id's in the right order")
   }
 

@@ -4,6 +4,27 @@ import java.io.{ByteArrayInputStream, ByteArrayOutputStream, File, FileInputStre
 import java.nio.{ByteOrder, IntBuffer}
 import java.nio.channels.FileChannel
 
+import org.apache.spark.util.sketch.BloomFilter
+
+/**
+ * Simple does it contain function to test a bloom
+ */
+trait BloomLookup {
+  def apply(any: Any): Boolean = mightContain(any)
+
+  def mightContain(any: Any): Boolean
+}
+
+case class SparkBloomFilter( bloom: BloomFilter ) extends BloomLookup {
+  override def mightContain(any: Any): Boolean =
+    any match {
+      case s: String => bloom.mightContainString(s)
+      case b: Array[Byte] => bloom.mightContainBinary(b)
+      case l: Long => bloom.mightContainLong(l)
+      case _ => bloom.mightContain(any)
+    }
+}
+
 /**
  * Represents the shared file location of a bucked bloom filter.  There should be files with names 0..numBuckets containing
  * the same number of bytes representing each bucket.
@@ -12,7 +33,7 @@ import java.nio.channels.FileChannel
  * @param fpp  The fpp for this bloom - note it is informational only and will not be used in further processing
  * @param numBuckets The number of buckets within this bloom
  */
-case class BucketedFiles(rootDir: String, fpp: Double, numBuckets: Int) extends Serializable {
+case class BloomModel(rootDir: String, fpp: Double, numBuckets: Int) extends Serializable {
   /**
    * Provides memory mapped buffers from the underlying files
    * @return
@@ -77,16 +98,16 @@ case class BucketedFiles(rootDir: String, fpp: Double, numBuckets: Int) extends 
   }
 }
 
-object BucketedFiles {
+object BloomModel {
   /**
    * Deserializes from the bytes, must have been created by a compatible BucketFiles.serialize
    * @param storageFormat
    * @return
    */
-  def deserialize(storageFormat: Array[Byte]): BucketedFiles = {
+  def deserialize(storageFormat: Array[Byte]): BloomModel = {
     val ios = new ByteArrayInputStream(storageFormat)
     val oos = new ObjectInputStream(ios)
-    val bucketedFiles = oos.readObject().asInstanceOf[BucketedFiles]
+    val bucketedFiles = oos.readObject().asInstanceOf[BloomModel]
     oos.close()
     ios.close()
     bucketedFiles

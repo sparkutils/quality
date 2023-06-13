@@ -258,10 +258,6 @@ functions:
     description: "reverses a call to comparableMaps"
     tags:
       - map
-  safer_Long_Pair:
-    description: "deprecated use unique_Id - safer_Long_Pair(expr, 'bloomid') Prefer to use unique_ID, this 'safer' rng repeatedly calls the expr rng function until there is no matching entry in the bloom id.  It returns lower and higher longs."
-    tags:
-      - longs
   hash_With_Struct:
     description: "per hash_With('HASH', fields*) but generates a struct with i0 to ix named longs.  This structure is not suitable for blooms"
     tags:

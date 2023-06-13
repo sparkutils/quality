@@ -2,7 +2,7 @@ package com.sparkutils.quality.impl.mapLookup
 
 import com.sparkutils.quality.MapLookups
 import com.sparkutils.quality.QualityException.qualityException
-import com.sparkutils.quality.impl.{MapUtils, RuleRunnerFunctions}
+import com.sparkutils.quality.impl.{MapUtils, RuleRegistrationFunctions}
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.catalyst.{CatalystTypeConverters, InternalRow}
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
@@ -21,7 +21,7 @@ object MapLookup {
   }
 
   def apply(mapLookupName: Expression, lookupValue: Expression, mapLookups: MapLookups): MapLookupExpression = {
-    val id = RuleRunnerFunctions.getString(mapLookupName) // Must be hard coded, can't give a dynamic data type otherwise it will fail at runtime not analysis
+    val id = RuleRegistrationFunctions.getString(mapLookupName) // Must be hard coded, can't give a dynamic data type otherwise it will fail at runtime not analysis
     val (bv, dt) = mapLookups.getOrElse(id, mapDoesNotExist(id))
 
     MapLookupExpression(id, lookupValue, bv, dt)
