@@ -28,7 +28,12 @@ After loading the ViewConfig's the loadViews function can be called, registering
 
 [loadViews](../../site/scaladocs/com/sparkutils/quality/impl/ViewLoader/index.html ) will attempt to automatically attempt to resolve ViewConfigs that depend on other ViewConfigs, where there is a cycle that is 2x the number of ViewConfigs the call will return with failedToLoadDueToCycles as true.
 
-These calls must be made before running any dq, engine or folder using views.   
+These calls must be made before running any dq, engine or folder using views.
+
+!!! note "View names must be quoted if using special characters"
+    A good rule of thumb is minus', dot's etc. that you wouldn't be able to use as a table name in any other sql dialect must be \`quoted\` in backticks.
+    On Spark versions less than 3.2 any missing views will not contain back ticks, this can lead to situations on earlier Spark versions where views are not loaded and will result in the MissingViewAnalysisException.missingRelationNames also not having backticks returned.
+    Quality will attempt to work around this limitation when resolving dependencies. 
 
    
 

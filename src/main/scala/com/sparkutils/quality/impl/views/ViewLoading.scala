@@ -144,9 +144,15 @@ object ViewLoader {
               views => {
                 val missingNames =
                   views.flatMap { name =>
-                    if (mapOf.contains(name)) { // quoted must also be in the view name if it's got minus' etc.
+                    val lookupName =
+                      if (mapOf.contains(name))
+                        name
+                      else
+                        s"`$name`"
+
+                    if (mapOf.contains(lookupName)) { // quoted must also be in the view name if it's got minus' etc., on Spark < 3.2 this will be incorrectly unquoted
                       attemptCount += 1
-                      processView(mapOf(name))
+                      processView(mapOf(lookupName))
                       None
                     } else // not one we can actually do anything about
                       Some(name)
