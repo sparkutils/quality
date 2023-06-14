@@ -12,7 +12,7 @@ Similarly, for cases involving more logic than a simple equality check you must 
 
 ## Map Loading
 
-The interface and config row data types is similar to that of [View Loader](viewLoader.md) with the addition of key and value columns:
+The interface and config row data types is similar to that of [View Loader](viewLoader.md) with the addition of key and value string columns:
 
 ```scala
 val (mapConfigs, couldNotLoad) = loadMapConfigs(loader, config.toDF(), expr("id.id"), expr("id.version"), Id(1,1),
