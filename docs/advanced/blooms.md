@@ -88,7 +88,7 @@ To change the base location for blooms use the sparkSession.sparkContext.setLoca
 
 ## Bloom Loading
 
-The interface and config row data types is similar to that of [View Loader](viewLoader.md) with the addition of the following columns:
+The interface and config row data types is similar to that of [View Loader](viewLoader.md) with [loadBloomConfigs](../../site/scaladocs/com/sparkutils/quality/impl/bloom/BloomFilterLookupImports.html#loadBloomConfigs(loader:com.sparkutils.quality.DataFrameLoader,viewDF:org.apache.spark.sql.DataFrame,ruleSuiteIdColumn:org.apache.spark.sql.Column,ruleSuiteVersionColumn:org.apache.spark.sql.Column,ruleSuiteId:com.sparkutils.quality.Id,name:org.apache.spark.sql.Column,token:org.apache.spark.sql.Column,filter:org.apache.spark.sql.Column,sql:org.apache.spark.sql.Column,bigBloom:org.apache.spark.sql.Column,value:org.apache.spark.sql.Column,numberOfElements:org.apache.spark.sql.Column,expectedFPP:org.apache.spark.sql.Column):(Seq[com.sparkutils.quality.impl.bloom.BloomConfig],Set[String])) accepting these additional columns:
 
 ```sql
 bigBloom: Boolean, value: String, numberOfElements: BIGINT, expectedFPP: DOUBLE
@@ -111,7 +111,7 @@ val blooms = loadBlooms(bloomConfigs)
 
 with couldNotLoad holding a set of configuration rows that aren't possible to load (neither a DataFrameLoader token nor an sql).
 
-loadBlooms will process the resulting dataframe using bigBloom, value, numberOfElements and expectedFPP to create the appropriate blooms.  Views first loaded via view loader are available when executing the sql column (when token is null).
+[loadBlooms]( ../../site/scaladocs/com/sparkutils/quality/impl/bloom/BloomFilterLookupImports.html#loadBlooms(configs:Seq[com.sparkutils.quality.impl.bloom.BloomConfig]):com.sparkutils.quality.impl.bloom.BloomExpressionLookup.BloomFilterMap ) will process the resulting dataframe using bigBloom, value, numberOfElements and expectedFPP to create the appropriate blooms.  Views first loaded via view loader are available when executing the sql column (when token is null).
 
 ## Expressions which take expression parameters
 

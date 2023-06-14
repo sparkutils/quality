@@ -12,7 +12,7 @@ Similarly, for cases involving more logic than a simple equality check you must 
 
 ## Map Loading
 
-The interface and config row data types is similar to that of [View Loader](viewLoader.md) with the addition of key and value string columns:
+The interface and config row data types is similar to that of [View Loader](viewLoader.md) with [loadMapConfigs](../../site/scaladocs/com/sparkutils/quality/impl/mapLookup/MapLookupImports.html#loadMapConfigs(loader:com.sparkutils.quality.DataFrameLoader,viewDF:org.apache.spark.sql.DataFrame,ruleSuiteIdColumn:org.apache.spark.sql.Column,ruleSuiteVersionColumn:org.apache.spark.sql.Column,ruleSuiteId:com.sparkutils.quality.Id,name:org.apache.spark.sql.Column,token:org.apache.spark.sql.Column,filter:org.apache.spark.sql.Column,sql:org.apache.spark.sql.Column,key:org.apache.spark.sql.Column,value:org.apache.spark.sql.Column):(Seq[com.sparkutils.quality.impl.mapLookup.MapConfig],Set[String]) ) accepting these additional columns:
 
 ```scala
 val (mapConfigs, couldNotLoad) = loadMapConfigs(loader, config.toDF(), expr("id.id"), expr("id.version"), Id(1,1),
@@ -24,7 +24,7 @@ val maps = loadMaps(mapConfigs)
 
 with couldNotLoad holding a set of configuration rows that aren't possible to load (neither a DataFrameLoader token nor an sql).
 
-loadMaps will process the resulting dataframe using key and value as sql expressions in exactly the same way as mapLookupFromDFs, as such they must be valid expressions against the source dataframe.  Views first loaded via view loader are available when executing the sql column (when token is null).
+[loadMaps](../../site/scaladocs/com/sparkutils/quality/impl/mapLookup/MapLookupImports.html#loadMaps(configs:Seq[com.sparkutils.quality.impl.mapLookup.MapConfig]):MapLookupImports.this.MapLookups) will process the resulting dataframe using key and value as sql expressions in exactly the same way as mapLookupFromDFs, as such they must be valid expressions against the source dataframe.  Views first loaded via view loader are available when executing the sql column (when token is null).
 
 ## Building the Lookup Maps Directly
 
