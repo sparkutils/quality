@@ -2,11 +2,14 @@ package com.sparkutils.quality.impl.bloom
 
 import java.io.{ByteArrayInputStream, ByteArrayOutputStream}
 
-import com.sparkutils.quality.BloomLookup
+import com.sparkutils.quality.impl.bloom.parquet.BucketedCreator
+import com.sparkutils.quality.{BloomLookup, bloomLookup}
 import com.sparkutils.quality.impl.rng.RandomLongs
+import com.sparkutils.quality.impl.util.{Config, ConfigFactory, Row}
 import org.apache.spark.sql._
 import org.apache.spark.sql.catalyst.{CatalystTypeConverters, InternalRow}
 import org.apache.spark.sql.catalyst.expressions.Expression
+import org.apache.spark.sql.functions.expr
 import org.apache.spark.util.sketch.BloomFilter
 
 import scala.collection.JavaConverters._
@@ -142,4 +145,54 @@ object Serializing {
 
     sess.createDataset(blooms).asInstanceOf[Dataset[BloomSerializer[SerializedType, T]#SerType]]
   }
+
+  implicit val factory =
+    new ConfigFactory[BloomConfig, BloomRow] {
+      override def create(base: Config, row: BloomRow): BloomConfig =
+        BloomConfig(base.name, base.source, row.bigBloom, row.value, row.numberOfElements, row.expectedFPP)
+    }
+
+  implicit val bloomRowEncoder: Encoder[BloomRow] = Encoders.product[BloomRow]
+
+  def loadBlooms(configs: Seq[BloomConfig]): BloomExpressionLookup.BloomFilterMap =
+    configs.map{
+      config =>
+        import config._
+
+        val df = source.fold(identity, SparkSession.active.sql(_))
+
+        val (lookup, fpp) =
+          if (config.bigBloom) {
+            val bloom = BucketedCreator.bloomFrom(df, value, numberOfElements, expectedFPP)
+            bloom.cleanupOthers()
+            (bloomLookup(bloom), 1.0 - bloom.fpp)
+          } else {
+            val aggrow = df.select(expr(s"smallBloom($value, $numberOfElements, cast( $expectedFPP as double ))")).head()
+            val thebytes = aggrow.getAs[Array[Byte]](0)
+            (bloomLookup(thebytes), 1.0 - expectedFPP)
+          }
+
+        name -> (lookup, fpp)
+    }.toMap
+
 }
+
+/**
+ * Represents a configuration row for bloom loading
+ * @param name the bloom name
+ * @param source either a loaded DataFrame or an sql to run against the catalog
+ * @param bigBloom when false a small bloom will be attempted
+ * @param value the valid expression required to construct the bloom
+ */
+case class BloomConfig(override val name: String, override val source: Either[DataFrame, String], bigBloom: Boolean, value: String, numberOfElements: Long, expectedFPP: Double) extends Config(name, source)
+
+/**
+ * Underlying row information converted into a BloomConfig with the following logic:
+ *
+ * a) if token is specified sql is ignored
+ * b) if token is null sql is used
+ * c) if both are null the row will not be used
+ */
+private[bloom] case class BloomRow(override val name: String, override val token: Option[String],
+                                     override val filter: Option[String], override val sql: Option[String], bigBloom: Boolean, value: String, numberOfElements: Long, expectedFPP: Double)
+  extends Row(name, token, filter, sql)

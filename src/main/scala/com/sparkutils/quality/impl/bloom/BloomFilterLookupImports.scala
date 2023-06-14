@@ -1,8 +1,9 @@
 package com.sparkutils.quality.impl.bloom
 
-import com.sparkutils.quality.RuleSuite
+import com.sparkutils.quality.{DataFrameLoader, Id, RuleSuite}
+import com.sparkutils.quality.impl.util.ConfigLoader
 import org.apache.spark.broadcast.Broadcast
-import org.apache.spark.sql.{Column, QualitySparkUtils, SparkSession}
+import org.apache.spark.sql.{Column, DataFrame, QualitySparkUtils, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.Expression
 
 trait BloomFilterRegistration {
@@ -33,4 +34,72 @@ trait BloomFilterLookupImports {
 
   def bloomFilterLookup(bloomFilterName: Column, lookupValue: Column, bloomMap: Broadcast[BloomExpressionLookup.BloomFilterMap]): Column =
     BloomFilterLookup(bloomFilterName, lookupValue, bloomMap)
+
+
+  import Serializing.{factory, bloomRowEncoder}
+
+  /**
+   * Loads map configurations from a given DataFrame for ruleSuiteId.  Wherever token is present loader will be called and the filter optionally applied.
+   * @return A tuple of MapConfig's and the names of rows which had unexpected content (either token or sql must be present)
+   */
+  def loadBloomConfigs(loader: DataFrameLoader, viewDF: DataFrame,
+                     ruleSuiteIdColumn: Column,
+                     ruleSuiteVersionColumn: Column,
+                     ruleSuiteId: Id,
+                     name: Column,
+                     token: Column,
+                     filter: Column,
+                     sql: Column,
+                     bigBloom: Column,
+                     value: Column,
+                     numberOfElements: Column,
+                     expectedFPP: Column
+                    ): (Seq[BloomConfig], Set[String]) =
+    ConfigLoader.loadConfigs[BloomConfig, BloomRow](
+      loader, viewDF,
+      ruleSuiteIdColumn,
+      ruleSuiteVersionColumn,
+      ruleSuiteId,
+      name,
+      token,
+      filter,
+      sql,
+      bigBloom,
+      value,
+      numberOfElements,
+      expectedFPP
+    )
+
+  /**
+   * Loads map configurations from a given DataFrame.  Wherever token is present loader will be called and the filter optionally applied.
+   * @return A tuple of MapConfig's and the names of rows which had unexpected content (either token or sql must be present)
+   */
+  def loadBloomConfigs(loader: DataFrameLoader, viewDF: DataFrame,
+                     name: Column,
+                     token: Column,
+                     filter: Column,
+                     sql: Column,
+                     bigBloom: Column,
+                     value: Column,
+                     numberOfElements: Column,
+                     expectedFPP: Column
+                    ): (Seq[BloomConfig], Set[String]) =
+    ConfigLoader.loadConfigs[BloomConfig, BloomRow](
+      loader, viewDF,
+      name,
+      token,
+      filter,
+      sql,
+      bigBloom,
+      value,
+      numberOfElements,
+      expectedFPP
+    )
+
+  /**
+   * Loads bloom maps ready to register from configuration
+   * @param configs
+   * @return
+   */
+  def loadBlooms(configs: Seq[BloomConfig]): BloomExpressionLookup.BloomFilterMap = Serializing.loadBlooms(configs)
 }
