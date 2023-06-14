@@ -40,7 +40,8 @@ public class TestSuite {
                 VariableIdentificationTest.class,
                 UserLambdaFunctionCompilationTest.class,
                 ExtensionTest.class,
-                ViewLoaderTest.class
+                ViewLoaderTest.class,
+                MapLoaderTest.class
         );
 
         resultReport(result);

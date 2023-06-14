@@ -10,7 +10,23 @@ Quality's map functions reproduce the result of joining datasets but guarantees 
 
 Similarly, for cases involving more logic than a simple equality check you must use joins or starting in 3.4 (DBR 12.2) scalar sub queries, see [View Loader](viewLoader.md) for a way to manage the loading of views. 
 
-## Building the Lookup Maps
+## Map Loading
+
+The interface and config row data types is similar to that of [View Loader](viewLoader.md) with the addition of key and value columns:
+
+```scala
+val (mapConfigs, couldNotLoad) = loadMapConfigs(loader, config.toDF(), expr("id.id"), expr("id.version"), Id(1,1),
+  col("name"),col("token"),col("filter"),col("sql"),col("key"),col("value")
+)
+
+val maps = loadMaps(mapConfigs)
+```
+
+with couldNotLoad holding a set of configuration rows that aren't possible to load (neither a DataFrameLoader token nor an sql).
+
+loadMaps will process the resulting data frame using key and value as sql expressions in exactly the same way as mapLookupFromDFs, as such they must be valid expressions against the source dataframe.  Views first loaded via view loader are available when executing the sql column (when token is null).
+
+## Building the Lookup Maps Directly
 
 In order to lookup values in the maps Quality requires a map of map id's to the actual maps.
 
