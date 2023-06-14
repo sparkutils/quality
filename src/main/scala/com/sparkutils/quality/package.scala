@@ -1,6 +1,6 @@
 package com.sparkutils
 
-import com.sparkutils.quality.impl.bloom.parquet.{BlockSplitBloomFilterImports, BucketedCreatorFunctions}
+import com.sparkutils.quality.impl.bloom.parquet.{BlockSplitBloomFilterImports, BucketedCreatorFunctionImports}
 import com.sparkutils.quality.impl.bloom.{BloomFilterLookupImports, BloomFilterRegistration, BloomFilterTypes}
 import com.sparkutils.quality.impl.id.{GenericLongBasedImports, GuaranteedUniqueIDImports}
 import com.sparkutils.quality.impl.mapLookup.{MapLookupFunctions, MapLookupImports}
@@ -14,7 +14,7 @@ import org.slf4j.LoggerFactory
 /**
  * Provides an easy import point for the library.
  */
-package object quality extends BloomFilterTypes with BucketedCreatorFunctions with RuleRunnerFunctionsImport
+package object quality extends BloomFilterTypes with BucketedCreatorFunctionImports with RuleRunnerFunctionsImport
   with BloomFilterRegistration with RuleRunnerImports with Serializable with MapLookupImports
   with RuleSparkTypes with BloomFilterLookupImports with BlockSplitBloomFilterImports with SerializingImports
   with AddDataFunctionsImports with LambdaFunctionsImports with LookupIdFunctionsImports

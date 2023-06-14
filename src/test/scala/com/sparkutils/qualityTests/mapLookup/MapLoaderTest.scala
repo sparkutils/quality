@@ -2,11 +2,9 @@ package com.sparkutils.qualityTests.mapLookup
 
 import com.sparkutils.quality.impl.mapLookup.MapConfig
 import com.sparkutils.quality.{DataFrameLoader, Id, loadMapConfigs, loadMaps}
-import com.sparkutils.quality.impl.views.{MissingViewAnalysisException, ViewConfig, ViewLoader, ViewLoaderAnalysisException}
 import com.sparkutils.qualityTests.TestUtils
 import org.apache.spark.sql.functions.{col, expr}
 import org.apache.spark.sql.DataFrame
-import org.junit.Assert.fail
 import org.junit.Test
 
 // NB the other combinations of loading are covered by the ViewLoaderTest

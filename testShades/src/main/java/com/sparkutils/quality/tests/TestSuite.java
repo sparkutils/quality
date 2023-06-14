@@ -41,7 +41,8 @@ public class TestSuite {
                 UserLambdaFunctionCompilationTest.class,
                 ExtensionTest.class,
                 ViewLoaderTest.class,
-                MapLoaderTest.class
+                MapLoaderTest.class,
+                BloomLoaderTest.class
         );
 
         resultReport(result);

@@ -24,7 +24,7 @@ val maps = loadMaps(mapConfigs)
 
 with couldNotLoad holding a set of configuration rows that aren't possible to load (neither a DataFrameLoader token nor an sql).
 
-loadMaps will process the resulting data frame using key and value as sql expressions in exactly the same way as mapLookupFromDFs, as such they must be valid expressions against the source dataframe.  Views first loaded via view loader are available when executing the sql column (when token is null).
+loadMaps will process the resulting dataframe using key and value as sql expressions in exactly the same way as mapLookupFromDFs, as such they must be valid expressions against the source dataframe.  Views first loaded via view loader are available when executing the sql column (when token is null).
 
 ## Building the Lookup Maps Directly
 
