@@ -1,6 +1,6 @@
 ### 0.1.0 <small>10th June, 2023</small>
 
-#24 - Remove saferId / rowid functions and support
+#24 - Remove saferId / rowid functions - use unique_id where required 
 
 #17 - ViewLoader, allows simple view configuration for views
 
