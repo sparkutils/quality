@@ -44,7 +44,7 @@ trait ToSerializedType[T, H] extends Serializable {
   def serializeBuckets(filters: Seq[BlockSplitBloomFilterImpl], fpp: Double, numBuckets: Int, hint: H): Array[Byte]
 }
 
-trait BucketedCreatorFunctions {
+object BucketedCreator {
 
   /**
    * Generates a bloom filter using the expression passed via bloomOn with optional repartitioning and a default fpp of 0.01.
@@ -59,7 +59,7 @@ trait BucketedCreatorFunctions {
    * @param partitions
    * @return
    */
-  def bloomFrom(dataFrame: DataFrame, bloomOn: String, expectedSize: Int,
+  def bloomFrom(dataFrame: DataFrame, bloomOn: String, expectedSize: Long,
                 fpp: Double = 0.01, bloomId: String = java.util.UUID.randomUUID().toString, partitions: Int = 0): BloomModel = {
     val df =
       if (partitions != 0)
@@ -92,9 +92,6 @@ trait BucketedCreatorFunctions {
     fl.mkdirs()
     fl.getAbsolutePath
   }
-}
-
-object BucketedCreator {
 
   implicit val toLocalFiles = new ToSerializedType[Array[Array[Byte]], BucketedFilesRoot] {
     def serializeBuckets(filters: Seq[BlockSplitBloomFilterImpl], fpp: Double, numBuckets: Int, hint: BucketedFilesRoot): Array[Byte] = {

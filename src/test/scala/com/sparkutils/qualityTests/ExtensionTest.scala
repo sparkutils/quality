@@ -22,7 +22,7 @@ class ExtensionTest extends FunSuite with TestUtils {
 
   def wrapWithExtension(thunk: SparkSession => Unit): Unit = wrapWithExtensionT(thunk)
 
-  def wrapWithExtensionT(thunk: SparkSession => Unit, disableConf: String = ""): Unit = {
+  def wrapWithExtensionT(thunk: SparkSession => Unit, disableConf: String = "", forceInjection: String = null): Unit = {
     var tsparkSession: SparkSession = null
 
     try {
@@ -32,6 +32,11 @@ class ExtensionTest extends FunSuite with TestUtils {
         case t: Throwable => fail("Could not shut down the wrapping spark", t)
       }
       System.setProperty(QualitySparkExtension.disableRulesConf, disableConf)
+      if (forceInjection eq null)
+        System.clearProperty(QualitySparkExtension.forceInjectFunction)
+      else
+        System.setProperty(QualitySparkExtension.forceInjectFunction, forceInjection)
+
       // attempt to create a new session
       tsparkSession = registerFS(SparkSession.builder()).config("spark.master", s"local[$hostMode]").config("spark.ui.enabled", false).
         config("spark.sql.extensions", classOf[QualitySparkExtension].getName())
@@ -47,6 +52,7 @@ class ExtensionTest extends FunSuite with TestUtils {
         }
       } finally {
         System.clearProperty(QualitySparkExtension.disableRulesConf)
+        System.clearProperty(QualitySparkExtension.forceInjectFunction)
       }
     }
 
@@ -88,6 +94,39 @@ class ExtensionTest extends FunSuite with TestUtils {
       assert(str.isEmpty, s"should have been empty, got $str")
     }
   }
+
+  val createview = (sparkSession: SparkSession) => {
+    sparkSession.sql(s"create or replace view testfunctionview as select as_uuid($lower, $higher) context");
+    import sparkSession.implicits._
+    val res = sparkSession.sql("select context from testfunctionview").as[String].collect()
+    assert(res.length == 1)
+    assert(res.head == (theuuid+"6"))
+    ()
+  }
+
+  @Test
+  def testForceFunctionInjection(): Unit = not2_4 {
+    not_Databricks { // will never work on 2.4 and Databricks has a fixed session
+      Testing.test {
+        try {
+          wrapWithExtensionT(createview, forceInjection = "true")
+          fail("expected to fail as the functions are temporary only")
+        } catch {
+          case throwable: Throwable if throwable.getMessage.contains("as_uuid") => ()
+        }
+      }
+    }
+  }
+
+  @Test
+  def testDefaultFunctionRegistrationViaBuiltIn(): Unit = not2_4 {
+    not_Databricks { // will never work on 2.4 and Databricks has a fixed session
+      Testing.test {
+        wrapWithExtensionT(createview)
+      }
+    }
+  }
+
 
   val theuuid = "123e4567-e89b-12d3-a456-42661417400"
 
@@ -201,7 +240,10 @@ class ExtensionTest extends FunSuite with TestUtils {
     doTestAsymmetricFilterPlanJoin(wrapWithExistingSession _, "gte", (l, r) => l.>=(r))
   }
 
-  val theuuid6Higher = SEqualTo("ahigher", 1314564453825188563L)
+  val higher = 1314564453825188563L
+  val lower = -6605018797301088250L
+
+  val theuuid6Higher = SEqualTo("ahigher", higher)
 
   def doTestAsymmetricFilterPlanJoin(viaExtension: (SparkSession => Unit) => Unit, hint: String,
                                      joinOp: (Column, Column) => Column): Unit =
@@ -211,9 +253,9 @@ class ExtensionTest extends FunSuite with TestUtils {
       (s" '${theuuid + 6}' = acontext and bhigher > 0", theuuid6Higher, s"expr_rhs with further filter $hint"),
       (s" acontext = '${theuuid + 6}' and bhigher > 0", theuuid6Higher, s"expr_lhs with further filter $hint"),
       (s" acontext > '${theuuid + 6}' and bhigher > 0",
-        SOr(SAnd(SEqualTo("ahigher",1314564453825188563L),
-          SGreaterThan("alower",-6605018797301088250L)),
-          SGreaterThan("ahigher",1314564453825188563L)), s"expr_lhs gt with further filter $hint")
+        SOr(SAnd(SEqualTo("ahigher",higher),
+          SGreaterThan("alower",lower)),
+          SGreaterThan("ahigher",higher)), s"expr_lhs gt with further filter $hint")
     ), true, viaExtension = viaExtension)
 
   val viaJoinOnContext = (comp: (Column, Column) => Column) => (tsparkSession: SparkSession) => {

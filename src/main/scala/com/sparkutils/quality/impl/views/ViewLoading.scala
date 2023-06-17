@@ -1,20 +1,19 @@
 package com.sparkutils.quality.impl.views
 
 import com.sparkutils.quality.impl.Validation
+import com.sparkutils.quality.impl.util.{Config, ConfigFactory, ConfigLoader, Row}
 import com.sparkutils.quality.{DataFrameLoader, Id}
 import org.apache.spark.sql.catalyst.analysis.UnresolvedRelation
-import org.apache.spark.sql.{AnalysisException, Column, DataFrame, Dataset, SparkSession}
+import org.apache.spark.sql.{AnalysisException, Column, DataFrame, Encoder, Encoders, SparkSession}
 
 import scala.collection.mutable
-
-case class TokenWithFilter(token: String, filter: Option[String])
 
 /**
  * Represents a configuration row for view loading
  * @param name the view name, this will be used to manage dependencies
  * @param source either a loaded DataFrame or an sql to run against the catalog
  */
-case class ViewConfig(name: String, source: Either[DataFrame, String])
+case class ViewConfig(override val name: String, override val source: Either[DataFrame, String]) extends Config(name, source)
 
 /**
  * Underlying row information converted into a ViewConfig with the following logic:
@@ -23,7 +22,9 @@ case class ViewConfig(name: String, source: Either[DataFrame, String])
  * b) if token is null sql is used
  * c) if both are null the row will not be used
  */
-private[views] case class ViewRow(name: String, token: Option[String], filter: Option[String], sql: Option[String])
+private[views] case class ViewRow(override val name: String, override val token: Option[String],
+                                  override val filter: Option[String], override val sql: Option[String])
+  extends Row(name, token, filter, sql)
 
 /**
  * For which a given view doesn't exist, but it's not one of the view configs
@@ -38,69 +39,14 @@ case class ViewLoaderAnalysisException( cause: AnalysisException, message: Strin
 case class ViewLoadResults( replaced: Set[String], failedToLoadDueToCycles: Boolean, notLoadedViews: Set[String])
 
 object ViewLoader {
-  /**
-   * Loads view configurations from a given DataFrame for ruleSuiteId.  Wherever token is present loader will be called and the filter optionally applied.
-   * @return A tuple of ViewConfig's and the names of rows which had unexpected content (either token or sql must be present)
-   */
-  def loadViewConfigs(loader: DataFrameLoader, viewDF: DataFrame,
-                      ruleSuiteIdColumn: Column,
-                      ruleSuiteVersionColumn: Column,
-                      ruleSuiteId: Id,
-                      name: Column,
-                      token: Column,
-                      filter: Column,
-                      sql: Column
-                     ): (Seq[ViewConfig], Set[String]) = {
-    import viewDF.sparkSession.implicits._
 
-    val filtered =
-      viewDF.filter(
-        ruleSuiteIdColumn === ruleSuiteId.id && ruleSuiteVersionColumn === ruleSuiteId.version)
-        .select(name.as("name"), token.as("token"), filter.as("filter"), sql.as("sql"))
-        .as[ViewRow]
+  implicit val factory =
+    new ConfigFactory[ViewConfig, ViewRow] {
+      override def create(base: Config, row: ViewRow): ViewConfig =
+        ViewConfig(base.name, base.source)
+    }
 
-    loadViewConfigs(loader, filtered)
-  }
-
-  /**
-   * Loads view configurations from a given DataFrame.  Wherever token is present loader will be called and the filter optionally applied.
-   * @return A tuple of ViewConfig's and the names of rows which had unexpected content (either token or sql must be present)
-   */
-  def loadViewConfigs(loader: DataFrameLoader, viewDF: DataFrame,
-                      name: Column,
-                      token: Column,
-                      filter: Column,
-                      sql: Column
-                     ): (Seq[ViewConfig], Set[String]) = {
-    import viewDF.sparkSession.implicits._
-
-    val filtered =
-      viewDF.select(name.as("name"), token.as("token"), filter.as("filter"), sql.as("sql"))
-        .as[ViewRow]
-
-    loadViewConfigs(loader, filtered)
-  }
-
-  /**
-   * Perform the actual load against a pre-prepared dataset
-   * @return A tuple of ViewConfig's and the names of rows which had unexpected content (either token or sql must be present)
-   */
-  protected[quality] def loadViewConfigs(loader: DataFrameLoader, filtered: Dataset[ViewRow]): (Seq[ViewConfig], Set[String]) = {
-    import filtered.sparkSession.implicits._
-
-    val rejects = filtered.filter("token is null and sql is null").select("name").as[String].collect().toSet
-
-    val rows = filtered.filter("not(token is null and sql is null)").collect().toSeq
-    (
-      rows.map{ vr =>
-        ViewConfig( vr.name,
-          vr.token.fold[Either[DataFrame,String]]( Right(vr.sql.get ) ){ token =>
-            val df = loader.load(token)
-            Left(vr.filter.fold(df)( df.filter(_) ))
-          }
-        )
-      }, rejects)
-  }
+  implicit val viewRowEncoder: Encoder[ViewRow] = Encoders.product[ViewRow]
 
   /**
    * Attempts to load all the views present in the config.  If a view is already registered in that name it will be replaced.
@@ -127,10 +73,8 @@ object ViewLoader {
             replaced += name
           }
 
-          config.source.fold(t => t
-            , sql =>
-              SparkSession.active.sql(sql)
-          ).createOrReplaceTempView(name)
+          config.source.fold(identity, SparkSession.active.sql(_))
+           .createOrReplaceTempView(name)
 
           // it worked, remove it
           leftToProcess = leftToProcess - name

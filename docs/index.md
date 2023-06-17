@@ -17,7 +17,9 @@ Write rules using simple SQL or create re-usable functions via SQL Lambdas
 
 Your rules are just versioned data, store them wherever convenient, use them by simply defining a column.
 
-* :new:{.pulseABit} - [view loading](advanced/viewLoader.md) - simple api to load views for data lookup and transformation rules
+* :new:{.pulseABit} - [view loading](advanced/viewLoader.md) - load views for data lookup and transformation rules from a configuration DataFrame
+* :new:{.pulseABit} - [map loading](advanced/mapFunctions.md#map-loading) - load maps using views or DataFrames from a configuration DataFrame
+* :new:{.pulseABit} - [bloom loading](advanced/blooms.md#bloom-loading) - load blooms using views or DataFrames from a configuration DataFrame
 
 Rules are evaluated lazily during Spark actions, such as writing a row, with results saved in a single predictable and extensible column.
 

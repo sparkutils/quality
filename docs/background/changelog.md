@@ -1,8 +1,10 @@
 ### 0.1.0 <small>10th June, 2023</small>
 
-#24 - Remove saferId / rowid functions and support
+#15 - Addition of the loadXConfigs and loadX functions for maps and blooms, simplifying configuration management
 
-#17 - ViewLoader, allows simple view configuration for views
+#24 - Remove saferId / rowid functions - use unique_id where required 
+
+#17 - ViewLoader - simple view configuration via DataFrames  
 
 #20 - 3.5.0 starting support
 

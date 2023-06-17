@@ -11,7 +11,7 @@ The aim is to have explicit support for LTS', other interim versions may be supp
 
 Use the 9.1.dbr build / profile, the artefact name will also end with _9.1.dbr.  OSS 3.1 do not need to worry about this and should not use this profile.
 
-Databricks has back-ported TreePattern including the final nodePatterns in HigherOrderFunction and 3.2's Conf class.  As such very old versions of non-opensource Quality (<=0.5.0) will fail with AbstractMethodError's when lambda's are used are 9.1 as the OSS binary version of HigherOrderFunction does not have nodePattern.  Similarly the quality_testshade jar must use the 9.1.dbr version due to Conf changes.
+Databricks has back-ported TreePattern including the final nodePatterns in HigherOrderFunction and 3.2's Conf class.  As such very old versions of non-opensource Quality (<=0.5.0) will fail with AbstractMethodError's when lambda's are used are 9.1 as the OSS binary version of HigherOrderFunction does not have nodePattern.  Similarly, the quality_testshade jar must use the 9.1.dbr version due to Conf changes.
 
 The 9.1.dbr build class files are built on the fake TreePattern and HigherOrderFunction present in the 9.1.dbr-scala source directory, they are however removed in the jar.
 
@@ -70,11 +70,11 @@ SparkTestUtils.setPath(fileLoc)
 Ideally at the end of your runs you'll see - after 10 minutes or so and some stdout - for example on DBR 11.3 a run provides:
 
 ```
-Time: 682.626
+Time: 633.686
 
-OK (298 tests)
+OK (310 tests)
 
-Finished. Result: Failures: 0. Ignored: 0. Tests run: 298. Time: 682626ms.
+Finished. Result: Failures: 0. Ignored: 0. Tests run: 310. Time: 633686ms.
 import com.sparkutils.quality.tests.TestSuite
 import com.sparkutils.qualityTests.SparkTestUtils
 fileLoc: String = /dbfs/databricks/quality_test

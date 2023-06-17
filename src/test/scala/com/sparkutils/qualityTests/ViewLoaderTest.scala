@@ -52,7 +52,7 @@ class ViewLoaderTest extends TestUtils {
   }
 
   @Test
-  def testConfigLoading2(): Unit = {
+  def testConfigLoadingWithoutIds(): Unit = {
     import sparkSession.implicits._
 
     val res = loadViewConfigs(loader, config.filterNot(_.id == Id(100,1)).map(_.to2).toDF(),
