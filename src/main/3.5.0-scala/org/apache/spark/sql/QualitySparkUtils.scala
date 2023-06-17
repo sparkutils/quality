@@ -1,23 +1,23 @@
 package org.apache.spark.sql
 
-import java.util.Locale
-
 import com.sparkutils.quality.impl.{RuleEngineRunner, RuleFolderRunner, RuleRunner, ShowParams}
 import com.sparkutils.quality.debugTime
 import com.sparkutils.quality.utils.PassThrough
 import org.apache.spark.sql.catalyst.{CatalystTypeConverters, FunctionIdentifier}
-import org.apache.spark.sql.catalyst.analysis.{Analyzer, FunctionRegistry, ResolveCatalogs, ResolveHigherOrderFunctions, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTableValuedFunctions, ResolveTimeZone, ResolveUnion, TimeWindowing, TypeCheckResult, TypeCoercion, UnresolvedFunction}
-import org.apache.spark.sql.catalyst.catalog.SessionCatalog
-import org.apache.spark.sql.catalyst.errors.TreeNodeException
-import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Attribute, BindReferences, Cast, EqualNullSafe, Expression, ExpressionInfo, ExpressionSet, GetArrayStructFields, GetStructField, Literal, PrettyAttribute}
+import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, FunctionRegistry, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCheckResult, TypeCoercion, UnresolvedFunction}
+import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Attribute, BindReferences, Cast, EqualNullSafe, Expression, ExpressionInfo, ExpressionSet, LambdaFunction, Literal}
 import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, UnaryNode}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.SparkSqlParser
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.qualityFunctions.{Digest, InterpretedHashLongsFunction}
 import org.apache.spark.sql.types._
-import org.apache.spark.unsafe.types.{CalendarInterval, UTF8String}
+import org.apache.spark.unsafe.types.CalendarInterval
 import org.apache.spark.util.Utils
+import TypeCheckResult.DataTypeMismatch
+import org.apache.spark.sql.catalyst.expressions.Cast.{toSQLValue => stoSQLValue}
+import org.apache.spark.sql.catalyst.expressions.ExpectsInputTypes.{toSQLExpr => stoSQLExpr, toSQLType => stoSQLType}
+import org.apache.spark.sql.catalyst.types.PhysicalDataType
 
 /**
  * Set of utilities to reach in to private functions
@@ -45,6 +45,12 @@ object QualitySparkUtils {
     orig
 
   /**
+   * Arguments for everything above 2.4
+   */
+  def arguments(unresolvedFunction: UnresolvedFunction): Seq[Expression] =
+    unresolvedFunction.arguments
+
+  /**
    * Dbr 11.2 broke the contract for add and cast
    * @param left
    * @param right
@@ -63,13 +69,8 @@ object QualitySparkUtils {
     Cast(child, dataType)
 
   /**
-   * Arguments for everything above 2.4
-   */
-  def arguments(unresolvedFunction: UnresolvedFunction): Seq[Expression] =
-    unresolvedFunction.arguments
-
-  /**
    * Provides Spark 3 specific version of hashing CalendarInterval
+   *
    * @param c
    * @param hashlongs
    * @param digest
@@ -87,18 +88,20 @@ object QualitySparkUtils {
    * simply optimise the tree so certain things like constant folding etc. won't show up.
    *
    * @param dataFrame resolve's must be against a given dataframe to keep names matching
-   * @param expr the expression to resolve
+   * @param expr      the expression to resolve
    */
   def resolveExpression(dataFrame: DataFrame, expr: Expression): Expression = {
 
     val sparkSession = SparkSession.getActiveSession.get
 
     val plan = dataFrame.select("*").logicalPlan // select * needed for toDF's etc. from dataset to force evaluation of the attributes
-    val res = debugTime("tryResolveReferences"){
+    val res = debugTime("tryResolveReferences") {
       tryResolveReferences(sparkSession)(expr, plan)
     }
 
-    val fres = debugTime("bindReferences"){BindReferences.bindReference(res, plan.allAttributes)}
+    val fres = debugTime("bindReferences") {
+      BindReferences.bindReference(res, plan.allAttributes)
+    }
 
     fres
   }
@@ -135,7 +138,7 @@ object QualitySparkUtils {
           val message = s"Max iterations (${iteration - 1}) reached for batch ${batch.name}" +
             s"$endingMsg"
           if (Utils.isTesting || batch.strategy.errorOnExceed) {
-            throw new TreeNodeException(curPlan, message, null)
+            throw new Exception(message)
           } else {
           }
         }
@@ -153,13 +156,13 @@ object QualitySparkUtils {
   }
 
   case class Strategy(
-    maxIterations: Int, errorOnExceed: Boolean = false, maxIterationsSetting: String = null
+                       maxIterations: Int, errorOnExceed: Boolean = false, maxIterationsSetting: String = null
                      )
 
   case class Batch(name: String, strategy: Strategy, rules: Rule[LogicalPlan]*)
 
 
-  def resolution(analyzer: Analyzer, sparkSession: SparkSession) = {
+  def resolution(analyzer: Analyzer, sparkSession: SparkSession, plan: LogicalPlan) = {
     val conf = sparkSession.sqlContext.conf
     val fixedPoint = new Strategy(
       conf.analyzerMaxIterations,
@@ -168,27 +171,21 @@ object QualitySparkUtils {
 
     import analyzer._
 
-    val v1SessionCatalog: SessionCatalog = catalogManager.v1SessionCatalog
-
     Batch("Resolution", fixedPoint,
-      ResolveTableValuedFunctions ::
-        ResolveNamespace(catalogManager) ::
         new ResolveCatalogs(catalogManager) ::
-        ResolveUserSpecifiedColumns ::
         ResolveInsertInto ::
         ResolveRelations ::
-        ResolveTables ::
         ResolvePartitionSpec ::
         AddMetadataColumns ::
+        DeduplicateRelations ::
         ResolveReferences ::
+        ResolveExpressionsWithNamePlaceholders ::
         ResolveDeserializer ::
         ResolveNewInstance ::
         ResolveUpCast ::
         ResolveGroupingAnalytics ::
         ResolvePivot ::
         ResolveOrdinalInOrderByAndGroupBy ::
-        ResolveAggAliasInGroupBy ::
-        ResolveMissingReferences ::
         ExtractGenerator ::
         ResolveGenerate ::
         ResolveFunctions ::
@@ -203,28 +200,28 @@ object QualitySparkUtils {
         GlobalAggregates ::
         ResolveAggregateFunctions ::
         TimeWindowing ::
+        SessionWindowing ::
         ResolveInlineTables ::
-        ResolveHigherOrderFunctions(v1SessionCatalog) ::
         ResolveLambdaVariables ::
         ResolveTimeZone ::
         ResolveRandomSeed ::
         ResolveBinaryArithmetic ::
         ResolveUnion ::
-        TypeCoercion.typeCoercionRules
-          : _*)
-      }
+        TypeCoercion.typeCoercionRules ++
+          Seq(ResolveWithCTE): _*)
+  }
 
   // below based on approach from delta / discussed with Alex to use a Project, LeafNode should be fine
   protected def tryResolveReferences(
-                                  sparkSession: SparkSession)(
-                                  expr: Expression,
-                                  child: LogicalPlan): Expression = {
+                                      sparkSession: SparkSession)(
+                                      expr: Expression,
+                                      child: LogicalPlan): Expression = {
     val analyzer = sparkSession.sessionState.analyzer
 
     def forExpr(expr: Expression) = {
       val newPlan = FakePlan(expr, child)
       //analyzer.execute(newPlan)
-      execute(newPlan, resolution(analyzer, sparkSession))
+      execute(newPlan, resolution(analyzer, sparkSession, newPlan))
       match {
         case FakePlan(resolvedExpr, _) =>
           // Return even if it did not successfully resolve
@@ -262,9 +259,9 @@ object QualitySparkUtils {
     protected def mygetAllValidConstraints(projectList: Seq[Expression]): Set[Expression] = {
       var allConstraints = Set.empty[Expression]
       projectList.foreach {
-        case a @ Alias(l: Literal, _) =>
+        case a@Alias(l: Literal, _) =>
           allConstraints += EqualNullSafe(a.toAttribute, l)
-        case a @ Alias(e, _) =>
+        case a@Alias(e, _) =>
           // For every alias in `projectList`, replace the reference in constraints by its attribute.
           allConstraints ++= allConstraints.map(_ transform {
             case expr: Expression if expr.semanticEquals(e) =>
@@ -278,10 +275,13 @@ object QualitySparkUtils {
     }
 
     override lazy val validConstraints: ExpressionSet = ExpressionSet(mygetAllValidConstraints(Seq(expr)))
+
+    protected def withNewChildInternal(newChild: LogicalPlan): LogicalPlan = copy(child = newChild)
   }
 
   /**
    * Creates a new parser, introduced in 0.4 - 3.2.0 due to SparkSqlParser having no params
+   *
    * @return
    */
   def newParser() = {
@@ -290,24 +290,26 @@ object QualitySparkUtils {
 
   /**
    * Registers functions with spark, Introduced in 0.4 - 3.2.0 support due to extra source parameter - "built-in" is used as no other option is remotely close
+   *
    * @param funcReg
    * @param name
    * @param builder
    */
   def registerFunction(funcReg: FunctionRegistry)(name: String, builder: Seq[Expression] => Expression) =
-    funcReg.createOrReplaceTempFunction(name, builder)
+    funcReg.createOrReplaceTempFunction(name, builder, "built-in")
 
   def toString(dataFrame: DataFrame, showParams: ShowParams = ShowParams()) =
     dataFrame.showString(showParams.numRows, showParams.truncate, showParams.vertical)
 
   /**
-   * Used by the SparkSessionExtensions mechanism
+   * Used by the SparkSessionExtensions mechanism registered via injection - functions are classed as temporary functions only, not fully integrated
    * @param extensions
    * @param name
    * @param builder
    */
   def registerFunctionViaExtension(extensions: SparkSessionExtensions)(name: String, builder: Seq[Expression] => Expression) =
     extensions.injectFunction( (FunctionIdentifier(name), new ExpressionInfo(name, name) , builder) )
+
   /**
    * Used by the SparkSessionExtensions mechanism but registered via builtin registry
    * @param name
@@ -323,53 +325,16 @@ object QualitySparkUtils {
    * @return
    */
   def mismatch(errorSubClass: String, messageParameters: Map[String, String]): TypeCheckResult =
-    TypeCheckResult.TypeCheckFailure(s"$errorSubClass extra info - $messageParameters")
+    DataTypeMismatch(
+      errorSubClass = errorSubClass,
+      messageParameters = messageParameters
+    )
 
-
-  def toSQLType(t: AbstractDataType): String = t match {
-    case TypeCollection(types) => types.map(toSQLType).mkString("(", " or ", ")")
-    case dt: DataType => quoteByDefault(dt.sql)
-    case at => quoteByDefault(at.simpleString.toUpperCase(Locale.ROOT))
-  }
-  def toSQLExpr(e: Expression): String = {
-    quoteByDefault(toPrettySQL(e))
-  }
-
-  def usePrettyExpression(e: Expression): Expression = e transform {
-    case a: Attribute => new PrettyAttribute(a)
-    case Literal(s: UTF8String, StringType) => PrettyAttribute(s.toString, StringType)
-    case Literal(v, t: NumericType) if v != null => PrettyAttribute(v.toString, t)
-    case Literal(null, dataType) => PrettyAttribute("NULL", dataType)
-    case e: GetStructField =>
-      val name = e.name.getOrElse(e.childSchema(e.ordinal).name)
-      PrettyAttribute(usePrettyExpression(e.child).sql + "." + name, e.dataType)
-    case e: GetArrayStructFields =>
-      PrettyAttribute(usePrettyExpression(e.child) + "." + e.field.name, e.dataType)
-    case c: Cast =>
-      PrettyAttribute(usePrettyExpression(c.child).sql, c.dataType)
-  }
-
-  def toPrettySQL(e: Expression): String = usePrettyExpression(e).sql
-  // Converts an error class parameter to its SQL representation
-  def toSQLValue(v: Any, t: DataType): String = Literal.create(v, t) match {
-    case Literal(null, _) => "NULL"
-    case Literal(v: Float, FloatType) =>
-      if (v.isNaN) "NaN"
-      else if (v.isPosInfinity) "Infinity"
-      else if (v.isNegInfinity) "-Infinity"
-      else v.toString
-    case l @ Literal(v: Double, DoubleType) =>
-      if (v.isNaN) "NaN"
-      else if (v.isPosInfinity) "Infinity"
-      else if (v.isNegInfinity) "-Infinity"
-      else l.sql
-    case l => l.sql
-  }
-
-  private def quoteByDefault(elem: String): String = {
-    "\"" + elem + "\""
-  }
+  def toSQLType(dataType: DataType): String = stoSQLType(dataType)
+  def toSQLExpr(value: Expression): String = stoSQLExpr(value)
+  def toSQLValue(value: Any, dataType: DataType): String = stoSQLValue(value, dataType)
 
   // https://issues.apache.org/jira/browse/SPARK-43019 in 3.5, backported to 13.1 dbr
-  def sparkOrdering(dataType: DataType): Ordering[_] = dataType.asInstanceOf[AtomicType].ordering
+  def sparkOrdering(dataType: DataType): Ordering[_] = PhysicalDataType.ordering(dataType)
+
 }

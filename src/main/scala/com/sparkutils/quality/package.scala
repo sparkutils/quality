@@ -56,7 +56,7 @@ package object quality extends BloomFilterTypes with BucketedCreatorFunctions wi
    * @param name
    * @return
    */
-  def getConfig(name: String) = try {
+  def getConfig(name: String, default: String = "") = try {
     val res = System.getenv(name)
     if (res ne null)
       res
@@ -65,10 +65,10 @@ package object quality extends BloomFilterTypes with BucketedCreatorFunctions wi
       if (sp ne null)
         sp
       else
-        SQLConf.get.getConfString(name, "")
+        SQLConf.get.getConfString(name, default)
     }
   } catch {
-    case _: Throwable => ""
+    case _: Throwable => default
   }
 
 }
