@@ -3,7 +3,7 @@ package com.sparkutils.qualityTests
 import com.sparkutils.quality.impl.extension.{AsUUIDFilter, ExtensionTesting, IDBase64Filter, QualitySparkExtension}
 import com.sparkutils.quality.impl.extension.QualitySparkExtension.disableRulesConf
 import com.sparkutils.quality.utils.Testing
-import org.apache.spark.sql.catalyst.expressions.{And, Attribute, BinaryComparison, EqualTo, Equality, Or}
+import org.apache.spark.sql.catalyst.expressions.{And, Attribute, BinaryComparison, EqualTo, Equality, Expression, Or}
 import org.apache.spark.sql.catalyst.plans.logical.Join
 import org.apache.spark.sql.sources.{Filter, EqualTo => SEqualTo, GreaterThanOrEqual => SGreaterThanOrEqual, GreaterThan => SGreaterThan, In => SIn, And => SAnd, Or => SOr}
 import org.apache.spark.sql.{Column, DataFrame, SparkSession}
@@ -11,6 +11,9 @@ import org.junit.{Before, Test}
 import org.scalatest.FunSuite
 
 import java.util.UUID
+
+import org.apache.spark.sql.catalyst.FunctionIdentifier
+import org.apache.spark.sql.catalyst.analysis.FunctionRegistry
 
 // including rowtools so standalone tests behave as if all of them are running and for verify compatibility
 class ExtensionTest extends FunSuite with TestUtils {
@@ -57,7 +60,6 @@ class ExtensionTest extends FunSuite with TestUtils {
     }
 
   }
-
 
   @Test
   def testExtension(): Unit = not2_4 { not_Databricks { // will never work on 2.4 and Databricks has a fixed session
@@ -107,6 +109,11 @@ class ExtensionTest extends FunSuite with TestUtils {
   @Test
   def testForceFunctionInjection(): Unit = not2_4 {
     not_Databricks { // will never work on 2.4 and Databricks has a fixed session
+      // need to clear the existing quality functions out first
+      com.sparkutils.quality.registerQualityFunctions(
+        registerFunction = (str: String, f: Seq[Expression] => Expression) => FunctionRegistry.builtin.dropFunction(FunctionIdentifier(str))
+      )
+
       Testing.test {
         try {
           wrapWithExtensionT(createview, forceInjection = "true")

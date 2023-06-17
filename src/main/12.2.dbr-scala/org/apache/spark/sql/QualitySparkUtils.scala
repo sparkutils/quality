@@ -362,7 +362,7 @@ object QualitySparkUtils {
    * @param builder
    */
   def registerFunctionViaBuiltin(name: String, builder: Seq[Expression] => Expression) =
-    FunctionRegistry.builtin.internalRegisterFunction( FunctionIdentifier(name), new ExpressionInfo(name, name) , builder)
+    FunctionRegistry.builtin.registerFunction( FunctionIdentifier(name), new ExpressionInfo(name, name) , builder)
 
   /**
    * Type signature changed for 3.4 to more detailed setup, 12.2 already uses it
