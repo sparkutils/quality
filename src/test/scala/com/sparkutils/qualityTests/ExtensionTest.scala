@@ -3,12 +3,15 @@ package com.sparkutils.qualityTests
 import com.sparkutils.quality.impl.extension.{AsUUIDFilter, ExtensionTesting, IDBase64Filter, QualitySparkExtension}
 import com.sparkutils.quality.impl.extension.QualitySparkExtension.disableRulesConf
 import com.sparkutils.quality.utils.Testing
-import org.apache.spark.sql.catalyst.expressions.{And, Attribute, BinaryComparison, EqualTo, Equality, Or}
+import org.apache.spark.sql.catalyst.expressions.{And, Attribute, BinaryComparison, EqualTo, Equality, Expression, Or}
 import org.apache.spark.sql.catalyst.plans.logical.Join
 import org.apache.spark.sql.{Column, DataFrame, SparkSession}
 import org.junit.{Before, Test}
 import org.scalatest.FunSuite
 import java.util.UUID
+
+import org.apache.spark.sql.catalyst.FunctionIdentifier
+import org.apache.spark.sql.catalyst.analysis.FunctionRegistry
 
 // including rowtools so standalone tests behave as if all of them are running and for verify compatibility
 class ExtensionTest extends FunSuite with TestUtils {
@@ -20,7 +23,7 @@ class ExtensionTest extends FunSuite with TestUtils {
 
   def wrapWithExtension(thunk: SparkSession => Unit): Unit = wrapWithExtensionT(thunk)
 
-  def wrapWithExtensionT(thunk: SparkSession => Unit, disableConf: String = ""): Unit = {
+  def wrapWithExtensionT(thunk: SparkSession => Unit, disableConf: String = "", forceInjection: String = null): Unit = {
     var tsparkSession: SparkSession = null
 
     try {
@@ -30,6 +33,11 @@ class ExtensionTest extends FunSuite with TestUtils {
         case t: Throwable => fail("Could not shut down the wrapping spark", t)
       }
       System.setProperty(QualitySparkExtension.disableRulesConf, disableConf)
+      if (forceInjection eq null)
+        System.clearProperty(QualitySparkExtension.forceInjectFunction)
+      else
+        System.setProperty(QualitySparkExtension.forceInjectFunction, forceInjection)
+
       // attempt to create a new session
       tsparkSession = registerFS(SparkSession.builder()).config("spark.master", s"local[$hostMode]").config("spark.ui.enabled", false).
         config("spark.sql.extensions", classOf[QualitySparkExtension].getName())
@@ -45,11 +53,11 @@ class ExtensionTest extends FunSuite with TestUtils {
         }
       } finally {
         System.clearProperty(QualitySparkExtension.disableRulesConf)
+        System.clearProperty(QualitySparkExtension.forceInjectFunction)
       }
     }
 
   }
-
 
   @Test
   def testExtension(): Unit = not2_4 { not_Databricks { // will never work on 2.4 and Databricks has a fixed session
@@ -86,6 +94,44 @@ class ExtensionTest extends FunSuite with TestUtils {
       assert(str.isEmpty, s"should have been empty, got $str")
     }
   }
+
+  val createview = (sparkSession: SparkSession) => {
+    sparkSession.sql(s"create or replace view testfunctionview as select as_uuid($lower, $higher) context");
+    import sparkSession.implicits._
+    val res = sparkSession.sql("select context from testfunctionview").as[String].collect()
+    assert(res.length == 1)
+    assert(res.head == (theuuid+"6"))
+    ()
+  }
+
+  @Test
+  def testForceFunctionInjection(): Unit = not2_4 {
+    not_Databricks { // will never work on 2.4 and Databricks has a fixed session
+      // need to clear the existing quality functions out first
+      com.sparkutils.quality.registerQualityFunctions(
+        registerFunction = (str: String, f: Seq[Expression] => Expression) => FunctionRegistry.builtin.dropFunction(FunctionIdentifier(str))
+      )
+
+      Testing.test {
+        try {
+          wrapWithExtensionT(createview, forceInjection = "true")
+          fail("expected to fail as the functions are temporary only")
+        } catch {
+          case throwable: Throwable if throwable.getMessage.contains("as_uuid") => ()
+        }
+      }
+    }
+  }
+
+  @Test
+  def testDefaultFunctionRegistrationViaBuiltIn(): Unit = not2_4 {
+    not_Databricks { // will never work on 2.4 and Databricks has a fixed session
+      Testing.test {
+        wrapWithExtensionT(createview)
+      }
+    }
+  }
+
 
   val theuuid = "123e4567-e89b-12d3-a456-42661417400"
 
@@ -195,6 +241,9 @@ class ExtensionTest extends FunSuite with TestUtils {
   def testAsymmetricFilterPlanJoinGteViaExistingSession(): Unit = onlyWithExtension {
     doTestAsymmetricFilterPlanJoin(wrapWithExistingSession _, "gte", (l, r) => l.>=(r))
   }
+
+  val higher = 1314564453825188563L
+  val lower = -6605018797301088250L
 
   def doTestAsymmetricFilterPlanJoin(viaExtension: (SparkSession => Unit) => Unit, hint: String,
                                      joinOp: (Column, Column) => Column): Unit =

@@ -1,3 +1,7 @@
+### 0.0.3 <small>17th June, 2023</small>
+
+#25 - Use builtIn function registration by default - allows global views to be created using Quality functions
+
 ### 0.0.2 <small>2nd June, 2023</small>
 
 #16 - Remove winutils requirements for testing and usage
