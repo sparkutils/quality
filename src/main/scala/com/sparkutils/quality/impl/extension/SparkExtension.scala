@@ -34,6 +34,22 @@ class QualitySparkExtension extends ((SparkSessionExtensions) => Unit) with Logg
   def writer: String => Unit = println(_)
 
   /**
+   * uses writer to write prefix: str
+   * @param str
+   * @param prefix defaults to "Quality SparkExtensions"
+   */
+  def dump(str: String, prefix: String = "Quality SparkExtensions") = writer(s"$prefix: $str")
+
+  /**
+   * attempts to logInfo, typically doesn't work, but also then dumps the str
+   * @param str
+   */
+  def attemptLogInfo(str: String) = {
+    logInfo(str)
+    dump(str)
+  }
+
+  /**
    * Adds AsymmetricFilterExpressions for AsUUID
    * Derived implementations should also call super if they wish to register the default rules (or specify both as extensions).
    * These are registered after resolution is done.
@@ -46,10 +62,10 @@ class QualitySparkExtension extends ((SparkSessionExtensions) => Unit) with Logg
   override def apply(extensions: SparkSessionExtensions): Unit = {
     val func =
       if (com.sparkutils.quality.getConfig(forceInjectFunction, "false").toBoolean) {
-        logInfo("registering quality functions via injection - they are classed as temporary functions")
+        attemptLogInfo("registering quality functions via injection - they are classed as temporary functions")
         QualitySparkUtils.registerFunctionViaExtension(extensions) _
       } else {
-        logInfo("registering quality functions via builtin function registry - whilst you can use these in global views the extension must always be present")
+        attemptLogInfo("registering quality functions via builtin function registry - whilst you can use these in global views the extension must always be present")
         QualitySparkUtils.registerFunctionViaBuiltin _
       }
     com.sparkutils.quality.registerQualityFunctions(parseTypes, zero, add, mapCompare, writer,
@@ -64,16 +80,14 @@ class QualitySparkExtension extends ((SparkSessionExtensions) => Unit) with Logg
       val disabledRules = disableConf.split(",").map(_.trim).toSet
       val filteredRules = optimiserRules.filterNot(p => disabledRules.contains(p._1.trim))
       val str = s"$disableRulesConf = $disabledRules leaving ${filteredRules.map(_._1)} remaining"
-      logInfo(str)
-      println(s"Quality SparkExtensions: $str")
+      attemptLogInfo(str)
       if (Testing.testing) {
         ExtensionTesting.disableRuleResult = str
       }
       filteredRules.map(_._2).foreach(extensions.injectOptimizerRule _)
     } else {
       val str = s"All optimiser rules are disabled via $disableRulesConf"
-      logInfo(str)
-      println(s"Quality SparkExtensions: $str")
+      attemptLogInfo(str)
     }
   }
 
