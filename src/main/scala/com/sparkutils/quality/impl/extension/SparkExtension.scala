@@ -1,10 +1,10 @@
 package com.sparkutils.quality.impl.extension
 
-import com.sparkutils.quality.impl.extension.QualitySparkExtension.disableRulesConf
+import com.sparkutils.quality.impl.extension.QualitySparkExtension.{disableRulesConf, forceInjectFunction}
 import com.sparkutils.quality.utils.Testing
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.{QualitySparkUtils, SparkSession, SparkSessionExtensions}
-import org.apache.spark.sql.catalyst.expressions.Expression
+import org.apache.spark.sql.catalyst.expressions.{Expression}
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.qualityFunctions.utils
@@ -15,10 +15,11 @@ object QualitySparkExtension {
    * underscores as . isn't valid in an env name and only env / system property is available when apply is called
    */
   val disableRulesConf = "quality_disable_optimiser_rules"
+  val forceInjectFunction = "quality_force_inject_function"
 }
 
 /**
- * Registers Quality sql functions using the defaults for registerQualityFunctions, these can be overridden without having to subclass DriverPlugin.
+ * Registers Quality sql functions using the defaults for registerQualityFunctions, these can be overridden without having to subclass DriverPlugin.  Functions are registered via FunctionRegistry.builtIn making them available for view creation, if they should be registered via extensions only then use the quality_force_inject_function = true configuration.
  *
  * It also registers plan optimiser rule's such as AsUUIDFilter, which rewrites filters with variables backed by as_uuid.
  *
@@ -43,8 +44,16 @@ class QualitySparkExtension extends ((SparkSessionExtensions) => Unit) with Logg
     Seq((AsUUIDFilter.getClass.getName, _ => AsUUIDFilter), (IDBase64Filter.getClass.getName, _ => IDBase64Filter))
 
   override def apply(extensions: SparkSessionExtensions): Unit = {
+    val func =
+      if (com.sparkutils.quality.getConfig(forceInjectFunction, "false").toBoolean) {
+        logInfo("registering quality functions via injection - they are classed as temporary functions")
+        QualitySparkUtils.registerFunctionViaExtension(extensions) _
+      } else {
+        logInfo("registering quality functions via builtin function registry - whilst you can use these in global views the extension must always be present")
+        QualitySparkUtils.registerFunctionViaBuiltin _
+      }
     com.sparkutils.quality.registerQualityFunctions(parseTypes, zero, add, mapCompare, writer,
-      registerFunction = QualitySparkUtils.registerFunctionViaExtension(extensions) _
+      registerFunction = func
     )
 
     if (Testing.testing) {
