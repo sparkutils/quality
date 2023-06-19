@@ -780,10 +780,10 @@ attempts under #19 doesn't seem possible, keeping here for reference
 case class TestRow(lower: Long, higher: Long, asString: String)
 case class TestID(base: Int, i0: Long, i1: Long)
 
-class ExtensionTestParquet extends ExtensionTestBase {
+class ExtensionParquetTest extends ExtensionTestBase {
   val format = "parquet"
 }
 
-class ExtensionTestDelta extends ExtensionTestBase {
+class ExtensionDeltaTest extends ExtensionTestBase {
   val format = "delta"
 }
