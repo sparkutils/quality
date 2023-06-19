@@ -39,8 +39,8 @@ public class TestSuite {
                 ValidationTest.class,
                 VariableIdentificationTest.class,
                 UserLambdaFunctionCompilationTest.class,
-                ExtensionTestParquet.class,
-                ExtensionTestDelta.class,
+                ExtensionParquetTest.class,
+                ExtensionDeltaTest.class,
                 ViewLoaderTest.class,
                 MapLoaderTest.class,
                 BloomLoaderTest.class
