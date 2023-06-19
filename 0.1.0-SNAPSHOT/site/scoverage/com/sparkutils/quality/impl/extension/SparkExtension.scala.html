@@ -24,11 +24,11 @@
           <div class="tab-pane active" id="codegrid">
             <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality.impl.extension
 </span>2 <span style=''>
-</span>3 <span style=''>import com.sparkutils.quality.impl.extension.QualitySparkExtension.disableRulesConf
+</span>3 <span style=''>import com.sparkutils.quality.impl.extension.QualitySparkExtension.{disableRulesConf, forceInjectFunction}
 </span>4 <span style=''>import com.sparkutils.quality.utils.Testing
 </span>5 <span style=''>import org.apache.spark.internal.Logging
 </span>6 <span style=''>import org.apache.spark.sql.{QualitySparkUtils, SparkSession, SparkSessionExtensions}
-</span>7 <span style=''>import org.apache.spark.sql.catalyst.expressions.Expression
+</span>7 <span style=''>import org.apache.spark.sql.catalyst.expressions.{Expression}
 </span>8 <span style=''>import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 </span>9 <span style=''>import org.apache.spark.sql.catalyst.rules.Rule
 </span>10 <span style=''>import org.apache.spark.sql.qualityFunctions.utils
@@ -38,66 +38,89 @@
 </span>14 <span style=''>  /**
 </span>15 <span style=''>   * underscores as . isn't valid in an env name and only env / system property is available when apply is called
 </span>16 <span style=''>   */
-</span>17 <span style=''>  val disableRulesConf = </span><span style='background: #AEF1AE'>&quot;quality_disable_optimiser_rules&quot;</span><span style=''>
-</span>18 <span style=''>}
-</span>19 <span style=''>
-</span>20 <span style=''>/**
-</span>21 <span style=''> * Registers Quality sql functions using the defaults for registerQualityFunctions, these can be overridden without having to subclass DriverPlugin.
-</span>22 <span style=''> *
-</span>23 <span style=''> * It also registers plan optimiser rule's such as AsUUIDFilter, which rewrites filters with variables backed by as_uuid.
-</span>24 <span style=''> *
-</span>25 <span style=''> * Optimiser rules can be disabled via the quality_disable_optimiser_rules system environment variable. &quot;*&quot; disables all rules, otherwise a comma separated list of fqn class names may be used.
-</span>26 <span style=''> */
-</span>27 <span style=''>class QualitySparkExtension extends ((SparkSessionExtensions) =&gt; Unit) with Logging {
-</span>28 <span style=''>
-</span>29 <span style=''>  def parseTypes: String =&gt; Option[DataType] = </span><span style='background: #F0ADAD'>com.sparkutils.quality.impl.RuleRegistrationFunctions.defaultParseTypes</span><span style=''> _
-</span>30 <span style=''>  def zero: DataType =&gt; Option[Any] = </span><span style='background: #F0ADAD'>com.sparkutils.quality.impl.RuleRegistrationFunctions.defaultZero</span><span style=''> _
-</span>31 <span style=''>  def add: DataType =&gt; Option[(Expression, Expression) =&gt; Expression] = (dataType: DataType) =&gt; </span><span style='background: #F0ADAD'>com.sparkutils.quality.impl.RuleRegistrationFunctions.defaultAdd(dataType)</span><span style=''>
-</span>32 <span style=''>  def mapCompare: DataType =&gt; Option[(Any, Any) =&gt; Int] = (dataType: DataType) =&gt; </span><span style='background: #F0ADAD'>utils.defaultMapCompare(dataType)</span><span style=''>
-</span>33 <span style=''>  def writer: String =&gt; Unit = </span><span style='background: #F0ADAD'>println(_)</span><span style=''>
-</span>34 <span style=''>
-</span>35 <span style=''>  /**
-</span>36 <span style=''>   * Adds AsymmetricFilterExpressions for AsUUID
-</span>37 <span style=''>   * Derived implementations should also call super if they wish to register the default rules (or specify both as extensions).
-</span>38 <span style=''>   * These are registered after resolution is done.
-</span>39 <span style=''>   * The first String should be the fqn classname / rule name for the rule
-</span>40 <span style=''>   * @return
-</span>41 <span style=''>   */
-</span>42 <span style=''>  def optimiserRules: Seq[(String, SparkSession =&gt; Rule[LogicalPlan])] =
-</span>43 <span style=''>    </span><span style='background: #AEF1AE'>Seq((AsUUIDFilter.getClass.getName, _ =&gt; AsUUIDFilter), (IDBase64Filter.getClass.getName, _ =&gt; IDBase64Filter))</span><span style=''>
-</span>44 <span style=''>
-</span>45 <span style=''>  override def apply(extensions: SparkSessionExtensions): Unit = {
-</span>46 <span style=''>    </span><span style='background: #AEF1AE'>com.sparkutils.quality.registerQualityFunctions(parseTypes, zero, add, mapCompare, writer,
-</span>47 <span style=''></span><span style='background: #AEF1AE'>      registerFunction = QualitySparkUtils.registerFunctionViaExtension(extensions) _
-</span>48 <span style=''></span><span style='background: #AEF1AE'>    )</span><span style=''>
-</span>49 <span style=''>
-</span>50 <span style=''>    if (</span><span style='background: #AEF1AE'>Testing.testing</span><span style=''>) {
-</span>51 <span style=''>      </span><span style='background: #AEF1AE'>ExtensionTesting.disableRuleResult = &quot;&quot;</span><span style=''>
-</span>52 <span style=''>    }
-</span>53 <span style=''>    val disableConf = </span><span style='background: #AEF1AE'>com.sparkutils.quality.getConfig(disableRulesConf)</span><span style=''>
-</span>54 <span style=''>    if (</span><span style='background: #AEF1AE'>disableConf != &quot;*&quot;</span><span style=''>) </span><span style='background: #AEF1AE'>{
-</span>55 <span style=''></span><span style='background: #AEF1AE'>      val disabledRules = disableConf.split(&quot;,&quot;).map(_.trim).toSet
-</span>56 <span style=''></span><span style='background: #AEF1AE'>      val filteredRules = optimiserRules.filterNot(p =&gt; disabledRules.contains(p._1.trim))
-</span>57 <span style=''></span><span style='background: #AEF1AE'>      val str = s&quot;$disableRulesConf = $disabledRules leaving ${filteredRules.map(_._1)} remaining&quot;
-</span>58 <span style=''></span><span style='background: #AEF1AE'>      logInfo(str)
-</span>59 <span style=''></span><span style='background: #AEF1AE'>      println(s&quot;Quality SparkExtensions: $str&quot;)
-</span>60 <span style=''></span><span style='background: #AEF1AE'>      if (Testing.testing) {
-</span>61 <span style=''></span><span style='background: #AEF1AE'>        ExtensionTesting.disableRuleResult = str
-</span>62 <span style=''></span><span style='background: #AEF1AE'>      }
-</span>63 <span style=''></span><span style='background: #AEF1AE'>      filteredRules.map(_._2).foreach(extensions.injectOptimizerRule _)
-</span>64 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''> else </span><span style='background: #AEF1AE'>{
-</span>65 <span style=''></span><span style='background: #AEF1AE'>      val str = s&quot;All optimiser rules are disabled via $disableRulesConf&quot;
-</span>66 <span style=''></span><span style='background: #AEF1AE'>      logInfo(str)
-</span>67 <span style=''></span><span style='background: #AEF1AE'>      println(s&quot;Quality SparkExtensions: $str&quot;)
-</span>68 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
-</span>69 <span style=''>  }
-</span>70 <span style=''>
-</span>71 <span style=''>}
-</span>72 <span style=''>
-</span>73 <span style=''>private[sparkutils] object ExtensionTesting {
-</span>74 <span style=''>  // whilst clearly not threadsafe it should only be called during single threaded 'driver' testing
-</span>75 <span style=''>  var disableRuleResult: String = </span><span style='background: #AEF1AE'>&quot;&quot;</span><span style=''>
-</span>76 <span style=''>}
+</span>17 <span style=''>  val disableRulesConf = </span><span style='background: #F0ADAD'>&quot;quality_disable_optimiser_rules&quot;</span><span style=''>
+</span>18 <span style=''>  val forceInjectFunction = </span><span style='background: #F0ADAD'>&quot;quality_force_inject_function&quot;</span><span style=''>
+</span>19 <span style=''>}
+</span>20 <span style=''>
+</span>21 <span style=''>/**
+</span>22 <span style=''> * Registers Quality sql functions using the defaults for registerQualityFunctions, these can be overridden without having to subclass DriverPlugin.  Functions are registered via FunctionRegistry.builtIn making them available for view creation, if they should be registered via extensions only then use the quality_force_inject_function = true configuration.
+</span>23 <span style=''> *
+</span>24 <span style=''> * It also registers plan optimiser rule's such as AsUUIDFilter, which rewrites filters with variables backed by as_uuid.
+</span>25 <span style=''> *
+</span>26 <span style=''> * Optimiser rules can be disabled via the quality_disable_optimiser_rules system environment variable. &quot;*&quot; disables all rules, otherwise a comma separated list of fqn class names may be used.
+</span>27 <span style=''> */
+</span>28 <span style=''>class QualitySparkExtension extends ((SparkSessionExtensions) =&gt; Unit) with Logging {
+</span>29 <span style=''>
+</span>30 <span style=''>  def parseTypes: String =&gt; Option[DataType] = </span><span style='background: #F0ADAD'>com.sparkutils.quality.impl.RuleRegistrationFunctions.defaultParseTypes</span><span style=''> _
+</span>31 <span style=''>  def zero: DataType =&gt; Option[Any] = </span><span style='background: #F0ADAD'>com.sparkutils.quality.impl.RuleRegistrationFunctions.defaultZero</span><span style=''> _
+</span>32 <span style=''>  def add: DataType =&gt; Option[(Expression, Expression) =&gt; Expression] = (dataType: DataType) =&gt; </span><span style='background: #F0ADAD'>com.sparkutils.quality.impl.RuleRegistrationFunctions.defaultAdd(dataType)</span><span style=''>
+</span>33 <span style=''>  def mapCompare: DataType =&gt; Option[(Any, Any) =&gt; Int] = (dataType: DataType) =&gt; </span><span style='background: #F0ADAD'>utils.defaultMapCompare(dataType)</span><span style=''>
+</span>34 <span style=''>  def writer: String =&gt; Unit = </span><span style='background: #F0ADAD'>println(_)</span><span style=''>
+</span>35 <span style=''>
+</span>36 <span style=''>  /**
+</span>37 <span style=''>   * uses writer to write prefix: str
+</span>38 <span style=''>   * @param str
+</span>39 <span style=''>   * @param prefix defaults to &quot;Quality SparkExtensions&quot;
+</span>40 <span style=''>   */
+</span>41 <span style=''>  def dump(str: String, prefix: String = &quot;Quality SparkExtensions&quot;) = </span><span style='background: #F0ADAD'>writer(s&quot;$prefix: $str&quot;)</span><span style=''>
+</span>42 <span style=''>
+</span>43 <span style=''>  /**
+</span>44 <span style=''>   * attempts to logInfo, typically doesn't work, but also then dumps the str
+</span>45 <span style=''>   * @param str
+</span>46 <span style=''>   */
+</span>47 <span style=''>  def attemptLogInfo(str: String) = {
+</span>48 <span style=''>    </span><span style='background: #F0ADAD'>logInfo(str)</span><span style=''>
+</span>49 <span style=''>    </span><span style='background: #F0ADAD'>dump(str)</span><span style=''>
+</span>50 <span style=''>  }
+</span>51 <span style=''>
+</span>52 <span style=''>  /**
+</span>53 <span style=''>   * Adds AsymmetricFilterExpressions for AsUUID
+</span>54 <span style=''>   * Derived implementations should also call super if they wish to register the default rules (or specify both as extensions).
+</span>55 <span style=''>   * These are registered after resolution is done.
+</span>56 <span style=''>   * The first String should be the fqn classname / rule name for the rule
+</span>57 <span style=''>   * @return
+</span>58 <span style=''>   */
+</span>59 <span style=''>  def optimiserRules: Seq[(String, SparkSession =&gt; Rule[LogicalPlan])] =
+</span>60 <span style=''>    </span><span style='background: #F0ADAD'>Seq((AsUUIDFilter.getClass.getName, _ =&gt; AsUUIDFilter), (IDBase64Filter.getClass.getName, _ =&gt; IDBase64Filter))</span><span style=''>
+</span>61 <span style=''>
+</span>62 <span style=''>  override def apply(extensions: SparkSessionExtensions): Unit = {
+</span>63 <span style=''>    val func =
+</span>64 <span style=''>      if (</span><span style='background: #F0ADAD'>com.sparkutils.quality.getConfig(forceInjectFunction, &quot;false&quot;).toBoolean</span><span style=''>) </span><span style='background: #F0ADAD'>{
+</span>65 <span style=''></span><span style='background: #F0ADAD'>        attemptLogInfo(&quot;registering quality functions via injection - they are classed as temporary functions&quot;)
+</span>66 <span style=''></span><span style='background: #F0ADAD'>        QualitySparkUtils.registerFunctionViaExtension(extensions) _
+</span>67 <span style=''></span><span style='background: #F0ADAD'>      }</span><span style=''> else </span><span style='background: #F0ADAD'>{
+</span>68 <span style=''></span><span style='background: #F0ADAD'>        attemptLogInfo(&quot;registering quality functions via builtin function registry - whilst you can use these in global views the extension must always be present&quot;)
+</span>69 <span style=''></span><span style='background: #F0ADAD'>        QualitySparkUtils.registerFunctionViaBuiltin _
+</span>70 <span style=''></span><span style='background: #F0ADAD'>      }</span><span style=''>
+</span>71 <span style=''>    </span><span style='background: #F0ADAD'>com.sparkutils.quality.registerQualityFunctions(parseTypes, zero, add, mapCompare, writer,
+</span>72 <span style=''></span><span style='background: #F0ADAD'>      registerFunction = func
+</span>73 <span style=''></span><span style='background: #F0ADAD'>    )</span><span style=''>
+</span>74 <span style=''>
+</span>75 <span style=''>    if (</span><span style='background: #F0ADAD'>Testing.testing</span><span style=''>) {
+</span>76 <span style=''>      </span><span style='background: #F0ADAD'>ExtensionTesting.disableRuleResult = &quot;&quot;</span><span style=''>
+</span>77 <span style=''>    }
+</span>78 <span style=''>    val disableConf = </span><span style='background: #F0ADAD'>com.sparkutils.quality.getConfig(disableRulesConf)</span><span style=''>
+</span>79 <span style=''>    if (</span><span style='background: #F0ADAD'>disableConf != &quot;*&quot;</span><span style=''>) </span><span style='background: #F0ADAD'>{
+</span>80 <span style=''></span><span style='background: #F0ADAD'>      val disabledRules = disableConf.split(&quot;,&quot;).map(_.trim).toSet
+</span>81 <span style=''></span><span style='background: #F0ADAD'>      val filteredRules = optimiserRules.filterNot(p =&gt; disabledRules.contains(p._1.trim))
+</span>82 <span style=''></span><span style='background: #F0ADAD'>      val str = s&quot;$disableRulesConf = $disabledRules leaving ${filteredRules.map(_._1)} remaining&quot;
+</span>83 <span style=''></span><span style='background: #F0ADAD'>      attemptLogInfo(str)
+</span>84 <span style=''></span><span style='background: #F0ADAD'>      if (Testing.testing) {
+</span>85 <span style=''></span><span style='background: #F0ADAD'>        ExtensionTesting.disableRuleResult = str
+</span>86 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>87 <span style=''></span><span style='background: #F0ADAD'>      filteredRules.map(_._2).foreach(extensions.injectOptimizerRule _)
+</span>88 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''> else </span><span style='background: #F0ADAD'>{
+</span>89 <span style=''></span><span style='background: #F0ADAD'>      val str = s&quot;All optimiser rules are disabled via $disableRulesConf&quot;
+</span>90 <span style=''></span><span style='background: #F0ADAD'>      attemptLogInfo(str)
+</span>91 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>92 <span style=''>  }
+</span>93 <span style=''>
+</span>94 <span style=''>}
+</span>95 <span style=''>
+</span>96 <span style=''>private[sparkutils] object ExtensionTesting {
+</span>97 <span style=''>  // whilst clearly not threadsafe it should only be called during single threaded 'driver' testing
+</span>98 <span style=''>  var disableRuleResult: String = </span><span style='background: #F0ADAD'>&quot;&quot;</span><span style=''>
+</span>99 <span style=''>}
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -118,9 +141,9 @@
           4137
         </td>
         <td>
-          750
+          775
           -
-          783
+          808
         </td>
         <td>
           Literal
@@ -131,20 +154,44 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           &quot;quality_disable_optimiser_rules&quot;
         </td>
       </tr><tr>
         <td>
-          29
+          18
         </td>
         <td>
           4138
         </td>
         <td>
-          1399
+          837
           -
-          1470
+          868
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;quality_force_inject_function&quot;
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          4139
+        </td>
+        <td>
+          1694
+          -
+          1765
         </td>
         <td>
           Apply
@@ -160,15 +207,15 @@
         </td>
       </tr><tr>
         <td>
-          30
+          31
         </td>
         <td>
-          4139
+          4140
         </td>
         <td>
-          1511
+          1806
           -
-          1576
+          1871
         </td>
         <td>
           Apply
@@ -184,15 +231,39 @@
         </td>
       </tr><tr>
         <td>
-          31
+          32
         </td>
         <td>
           4141
         </td>
         <td>
-          1675
+          2024
           -
-          1749
+          2024
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRegistrationFunctions.defaultAdd$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.sparkutils.quality.impl.RuleRegistrationFunctions.defaultAdd$default$2
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          4142
+        </td>
+        <td>
+          1970
+          -
+          2044
         </td>
         <td>
           Apply
@@ -208,39 +279,15 @@
         </td>
       </tr><tr>
         <td>
-          31
+          33
         </td>
         <td>
-          4140
+          4144
         </td>
         <td>
-          1729
+          2127
           -
-          1729
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.RuleRegistrationFunctions.defaultAdd$default$2
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          com.sparkutils.quality.impl.RuleRegistrationFunctions.defaultAdd$default$2
-        </td>
-      </tr><tr>
-        <td>
-          32
-        </td>
-        <td>
-          4143
-        </td>
-        <td>
-          1832
-          -
-          1865
+          2160
         </td>
         <td>
           Apply
@@ -256,15 +303,15 @@
         </td>
       </tr><tr>
         <td>
-          32
+          33
         </td>
         <td>
-          4142
+          4143
         </td>
         <td>
-          1838
+          2133
           -
-          1838
+          2133
         </td>
         <td>
           Select
@@ -280,15 +327,15 @@
         </td>
       </tr><tr>
         <td>
-          33
+          34
         </td>
         <td>
-          4144
+          4145
         </td>
         <td>
-          1897
+          2192
           -
-          1907
+          2202
         </td>
         <td>
           Apply
@@ -304,15 +351,135 @@
         </td>
       </tr><tr>
         <td>
-          43
+          41
         </td>
         <td>
           4147
         </td>
         <td>
-          2372
+          2397
           -
-          2403
+          2421
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          QualitySparkExtension.this.writer.apply(scala.StringContext.apply(&quot;&quot;, &quot;: &quot;, &quot;&quot;).s(prefix, str))
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          4146
+        </td>
+        <td>
+          2404
+          -
+          2420
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;: &quot;, &quot;&quot;).s(prefix, str)
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          4148
+        </td>
+        <td>
+          2571
+          -
+          2583
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.internal.Logging.logInfo
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          QualitySparkExtension.this.logInfo(str)
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          4150
+        </td>
+        <td>
+          2588
+          -
+          2597
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.extension.QualitySparkExtension.dump
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          QualitySparkExtension.this.dump(str, QualitySparkExtension.this.dump$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          4149
+        </td>
+        <td>
+          2588
+          -
+          2588
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.extension.QualitySparkExtension.dump$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          QualitySparkExtension.this.dump$default$2
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          4153
+        </td>
+        <td>
+          3066
+          -
+          3097
         </td>
         <td>
           Apply
@@ -323,20 +490,44 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           IDBase64Filter.getClass().getName()
         </td>
       </tr><tr>
         <td>
-          43
+          60
         </td>
         <td>
-          4149
+          4152
         </td>
         <td>
-          2315
+          3013
           -
-          2426
+          3063
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Tuple2.apply[String, org.apache.spark.sql.SparkSession =&gt; com.sparkutils.quality.impl.extension.AsUUIDFilter.type](AsUUIDFilter.getClass().getName(), ((x$2: org.apache.spark.sql.SparkSession) =&gt; AsUUIDFilter))
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          4155
+        </td>
+        <td>
+          3009
+          -
+          3120
         </td>
         <td>
           Apply
@@ -347,20 +538,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           scala.collection.Seq.apply[(String, org.apache.spark.sql.SparkSession =&gt; com.sparkutils.quality.impl.extension.AsymmetricFilterExpressions)](scala.Tuple2.apply[String, org.apache.spark.sql.SparkSession =&gt; com.sparkutils.quality.impl.extension.AsUUIDFilter.type](AsUUIDFilter.getClass().getName(), ((x$2: org.apache.spark.sql.SparkSession) =&gt; AsUUIDFilter)), scala.Tuple2.apply[String, org.apache.spark.sql.SparkSession =&gt; com.sparkutils.quality.impl.extension.IDBase64Filter.type](IDBase64Filter.getClass().getName(), ((x$3: org.apache.spark.sql.SparkSession) =&gt; IDBase64Filter)))
         </td>
       </tr><tr>
         <td>
-          43
+          60
         </td>
         <td>
-          4146
+          4154
         </td>
         <td>
-          2319
+          3065
           -
-          2369
+          3119
         </td>
         <td>
           Apply
@@ -371,20 +562,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
-          scala.Tuple2.apply[String, org.apache.spark.sql.SparkSession =&gt; com.sparkutils.quality.impl.extension.AsUUIDFilter.type](AsUUIDFilter.getClass().getName(), ((x$2: org.apache.spark.sql.SparkSession) =&gt; AsUUIDFilter))
+        <td style="background: #F0ADAD">
+          scala.Tuple2.apply[String, org.apache.spark.sql.SparkSession =&gt; com.sparkutils.quality.impl.extension.IDBase64Filter.type](IDBase64Filter.getClass().getName(), ((x$3: org.apache.spark.sql.SparkSession) =&gt; IDBase64Filter))
         </td>
       </tr><tr>
         <td>
-          43
+          60
         </td>
         <td>
-          4145
+          4151
         </td>
         <td>
-          2320
+          3014
           -
-          2349
+          3043
         </td>
         <td>
           Apply
@@ -395,358 +586,97 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           AsUUIDFilter.getClass().getName()
         </td>
       </tr><tr>
         <td>
-          43
-        </td>
-        <td>
-          4148
-        </td>
-        <td>
-          2371
-          -
-          2425
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Tuple2.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.Tuple2.apply[String, org.apache.spark.sql.SparkSession =&gt; com.sparkutils.quality.impl.extension.IDBase64Filter.type](IDBase64Filter.getClass().getName(), ((x$3: org.apache.spark.sql.SparkSession) =&gt; IDBase64Filter))
-        </td>
-      </tr><tr>
-        <td>
-          46
-        </td>
-        <td>
-          4153
-        </td>
-        <td>
-          2570
-          -
-          2580
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.extension.QualitySparkExtension.mapCompare
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          QualitySparkExtension.this.mapCompare
-        </td>
-      </tr><tr>
-        <td>
-          46
-        </td>
-        <td>
-          4156
-        </td>
-        <td>
-          2499
-          -
-          2681
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.RuleRunnerFunctionsImport.registerQualityFunctions
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          com.sparkutils.quality.`package`.registerQualityFunctions(QualitySparkExtension.this.parseTypes, QualitySparkExtension.this.zero, QualitySparkExtension.this.add, QualitySparkExtension.this.mapCompare, QualitySparkExtension.this.writer, {
-  ((name: String, builder: Seq[org.apache.spark.sql.catalyst.expressions.Expression] =&gt; org.apache.spark.sql.catalyst.expressions.Expression) =&gt; org.apache.spark.sql.QualitySparkUtils.registerFunctionViaExtension(extensions)(name, builder))
-})
-        </td>
-      </tr><tr>
-        <td>
-          46
-        </td>
-        <td>
-          4150
-        </td>
-        <td>
-          2547
-          -
-          2557
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.extension.QualitySparkExtension.parseTypes
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          QualitySparkExtension.this.parseTypes
-        </td>
-      </tr><tr>
-        <td>
-          46
-        </td>
-        <td>
-          4152
-        </td>
-        <td>
-          2565
-          -
-          2568
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.extension.QualitySparkExtension.add
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          QualitySparkExtension.this.add
-        </td>
-      </tr><tr>
-        <td>
-          46
-        </td>
-        <td>
-          4154
-        </td>
-        <td>
-          2582
-          -
-          2588
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.extension.QualitySparkExtension.writer
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          QualitySparkExtension.this.writer
-        </td>
-      </tr><tr>
-        <td>
-          46
-        </td>
-        <td>
-          4151
-        </td>
-        <td>
-          2559
-          -
-          2563
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.extension.QualitySparkExtension.zero
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          QualitySparkExtension.this.zero
-        </td>
-      </tr><tr>
-        <td>
-          47
-        </td>
-        <td>
-          4155
-        </td>
-        <td>
-          2615
-          -
-          2673
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.apache.spark.sql.QualitySparkUtils.registerFunctionViaExtension
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          org.apache.spark.sql.QualitySparkUtils.registerFunctionViaExtension(extensions)(name, builder)
-        </td>
-      </tr><tr>
-        <td>
-          50
-        </td>
-        <td>
-          4161
-        </td>
-        <td>
-          2687
-          -
-          2687
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          50
-        </td>
-        <td>
-          4157
-        </td>
-        <td>
-          2691
-          -
-          2706
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.utils.Testing.testing
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          com.sparkutils.quality.utils.Testing.testing
-        </td>
-      </tr><tr>
-        <td>
-          50
-        </td>
-        <td>
-          4160
-        </td>
-        <td>
-          2687
-          -
-          2687
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          51
-        </td>
-        <td>
-          4159
-        </td>
-        <td>
-          2716
-          -
-          2755
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          com.sparkutils.quality.impl.extension.ExtensionTesting.disableRuleResult_=
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ExtensionTesting.disableRuleResult_=(&quot;&quot;)
-        </td>
-      </tr><tr>
-        <td>
-          51
-        </td>
-        <td>
-          4158
-        </td>
-        <td>
-          2716
-          -
-          2755
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.extension.ExtensionTesting.disableRuleResult_=
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ExtensionTesting.disableRuleResult_=(&quot;&quot;)
-        </td>
-      </tr><tr>
-        <td>
-          53
+          64
         </td>
         <td>
           4162
         </td>
         <td>
-          2817
+          3288
           -
-          2833
+          3478
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  QualitySparkExtension.this.attemptLogInfo(&quot;registering quality functions via injection - they are classed as temporary functions&quot;);
+  {
+    ((name: String, builder: Seq[org.apache.spark.sql.catalyst.expressions.Expression] =&gt; org.apache.spark.sql.catalyst.expressions.Expression) =&gt; org.apache.spark.sql.QualitySparkUtils.registerFunctionViaExtension(extensions)(name, builder))
+  }
+}
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          4156
+        </td>
+        <td>
+          3247
+          -
+          3266
         </td>
         <td>
           Select
         </td>
         <td>
-          com.sparkutils.quality.impl.extension.QualitySparkExtension.disableRulesConf
+          com.sparkutils.quality.impl.extension.QualitySparkExtension.forceInjectFunction
         </td>
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
-          com.sparkutils.quality.impl.extension.QualitySparkExtension.disableRulesConf
+        <td style="background: #F0ADAD">
+          com.sparkutils.quality.impl.extension.QualitySparkExtension.forceInjectFunction
         </td>
       </tr><tr>
         <td>
-          53
+          64
         </td>
         <td>
-          4163
+          4159
         </td>
         <td>
-          2784
+          3214
           -
-          2834
+          3286
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.toBoolean
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.augmentString(com.sparkutils.quality.`package`.getConfig(com.sparkutils.quality.impl.extension.QualitySparkExtension.forceInjectFunction, &quot;false&quot;)).toBoolean
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          4158
+        </td>
+        <td>
+          3214
+          -
+          3276
         </td>
         <td>
           Apply
@@ -757,20 +687,92 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
-          com.sparkutils.quality.`package`.getConfig(com.sparkutils.quality.impl.extension.QualitySparkExtension.disableRulesConf)
+        <td style="background: #F0ADAD">
+          com.sparkutils.quality.`package`.getConfig(com.sparkutils.quality.impl.extension.QualitySparkExtension.forceInjectFunction, &quot;false&quot;)
         </td>
       </tr><tr>
         <td>
-          54
+          64
         </td>
         <td>
-          4194
+          4157
         </td>
         <td>
-          2863
+          3268
           -
-          3352
+          3275
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;false&quot;
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          4160
+        </td>
+        <td>
+          3298
+          -
+          3401
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.extension.QualitySparkExtension.attemptLogInfo
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          QualitySparkExtension.this.attemptLogInfo(&quot;registering quality functions via injection - they are classed as temporary functions&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          4161
+        </td>
+        <td>
+          3410
+          -
+          3468
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.QualitySparkUtils.registerFunctionViaExtension
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.QualitySparkUtils.registerFunctionViaExtension(extensions)(name, builder)
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          4165
+        </td>
+        <td>
+          3484
+          -
+          3714
         </td>
         <td>
           Block
@@ -781,13 +783,449 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
+          {
+  QualitySparkExtension.this.attemptLogInfo(&quot;registering quality functions via builtin function registry - whilst you can use these in global views the extension must always be present&quot;);
+  {
+    ((name: String, builder: Seq[org.apache.spark.sql.catalyst.expressions.Expression] =&gt; org.apache.spark.sql.catalyst.expressions.Expression) =&gt; org.apache.spark.sql.QualitySparkUtils.registerFunctionViaBuiltin(name, builder))
+  }
+}
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          4163
+        </td>
+        <td>
+          3494
+          -
+          3651
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.extension.QualitySparkExtension.attemptLogInfo
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          QualitySparkExtension.this.attemptLogInfo(&quot;registering quality functions via builtin function registry - whilst you can use these in global views the extension must always be present&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          4164
+        </td>
+        <td>
+          3660
+          -
+          3704
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.QualitySparkUtils.registerFunctionViaBuiltin
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.QualitySparkUtils.registerFunctionViaBuiltin(name, builder)
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          4168
+        </td>
+        <td>
+          3785
+          -
+          3788
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.extension.QualitySparkExtension.add
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          QualitySparkExtension.this.add
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          4171
+        </td>
+        <td>
+          3719
+          -
+          3845
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunnerFunctionsImport.registerQualityFunctions
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.sparkutils.quality.`package`.registerQualityFunctions(QualitySparkExtension.this.parseTypes, QualitySparkExtension.this.zero, QualitySparkExtension.this.add, QualitySparkExtension.this.mapCompare, QualitySparkExtension.this.writer, func)
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          4167
+        </td>
+        <td>
+          3779
+          -
+          3783
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.extension.QualitySparkExtension.zero
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          QualitySparkExtension.this.zero
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          4170
+        </td>
+        <td>
+          3802
+          -
+          3808
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.extension.QualitySparkExtension.writer
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          QualitySparkExtension.this.writer
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          4166
+        </td>
+        <td>
+          3767
+          -
+          3777
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.extension.QualitySparkExtension.parseTypes
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          QualitySparkExtension.this.parseTypes
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          4169
+        </td>
+        <td>
+          3790
+          -
+          3800
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.extension.QualitySparkExtension.mapCompare
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          QualitySparkExtension.this.mapCompare
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          4176
+        </td>
+        <td>
+          3851
+          -
+          3851
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          4172
+        </td>
+        <td>
+          3855
+          -
+          3870
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.utils.Testing.testing
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.sparkutils.quality.utils.Testing.testing
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          4175
+        </td>
+        <td>
+          3851
+          -
+          3851
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          4174
+        </td>
+        <td>
+          3880
+          -
+          3919
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.extension.ExtensionTesting.disableRuleResult_=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ExtensionTesting.disableRuleResult_=(&quot;&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          4173
+        </td>
+        <td>
+          3880
+          -
+          3919
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.extension.ExtensionTesting.disableRuleResult_=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ExtensionTesting.disableRuleResult_=(&quot;&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          4177
+        </td>
+        <td>
+          3981
+          -
+          3997
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.extension.QualitySparkExtension.disableRulesConf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.sparkutils.quality.impl.extension.QualitySparkExtension.disableRulesConf
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          4179
+        </td>
+        <td>
+          3948
+          -
+          3998
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.getConfig
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.sparkutils.quality.`package`.getConfig(com.sparkutils.quality.impl.extension.QualitySparkExtension.disableRulesConf, com.sparkutils.quality.`package`.getConfig$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          4178
+        </td>
+        <td>
+          3971
+          -
+          3971
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.getConfig$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.sparkutils.quality.`package`.getConfig$default$2
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          4180
+        </td>
+        <td>
+          4007
+          -
+          4025
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.!=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          disableConf.!=(&quot;*&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          4208
+        </td>
+        <td>
+          4027
+          -
+          4475
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
           {
   val disabledRules: scala.collection.immutable.Set[String] = scala.Predef.refArrayOps[String](scala.Predef.refArrayOps[String](disableConf.split(&quot;,&quot;)).map[String, Array[String]](((x$4: String) =&gt; x$4.trim()))(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))).toSet[String];
   val filteredRules: Seq[(String, org.apache.spark.sql.SparkSession =&gt; org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan])] = QualitySparkExtension.this.optimiserRules.filterNot(((p: (String, org.apache.spark.sql.SparkSession =&gt; org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan])) =&gt; disabledRules.contains(p._1.trim())));
   val str: String = scala.StringContext.apply(&quot;&quot;, &quot; = &quot;, &quot; leaving &quot;, &quot; remaining&quot;).s(com.sparkutils.quality.impl.extension.QualitySparkExtension.disableRulesConf, disabledRules, filteredRules.map[String, Any](((x$5: (String, org.apache.spark.sql.SparkSession =&gt; org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan])) =&gt; x$5._1))(collection.this.Seq.canBuildFrom[String]));
-  QualitySparkExtension.this.logInfo(str);
-  scala.Predef.println(scala.StringContext.apply(&quot;Quality SparkExtensions: &quot;, &quot;&quot;).s(str));
+  QualitySparkExtension.this.attemptLogInfo(str);
   if (com.sparkutils.quality.utils.Testing.testing)
     ExtensionTesting.disableRuleResult_=(str)
   else
@@ -799,87 +1237,15 @@
         </td>
       </tr><tr>
         <td>
-          54
+          80
         </td>
         <td>
-          4164
+          4183
         </td>
         <td>
-          2843
+          4081
           -
-          2861
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          java.lang.Object.!=
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          disableConf.!=(&quot;*&quot;)
-        </td>
-      </tr><tr>
-        <td>
-          55
-        </td>
-        <td>
-          4168
-        </td>
-        <td>
-          2891
-          -
-          2925
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          scala.collection.TraversableLike.map
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.Predef.refArrayOps[String](disableConf.split(&quot;,&quot;)).map[String, Array[String]](((x$4: String) =&gt; x$4.trim()))(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))
-        </td>
-      </tr><tr>
-        <td>
-          55
-        </td>
-        <td>
-          4165
-        </td>
-        <td>
-          2891
-          -
-          2913
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          java.lang.String.split
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          disableConf.split(&quot;,&quot;)
-        </td>
-      </tr><tr>
-        <td>
-          55
-        </td>
-        <td>
-          4167
-        </td>
-        <td>
-          2917
-          -
-          2917
+          4081
         </td>
         <td>
           ApplyToImplicitArgs
@@ -890,20 +1256,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))
         </td>
       </tr><tr>
         <td>
-          55
+          80
         </td>
         <td>
-          4166
+          4182
         </td>
         <td>
-          2918
+          4082
           -
-          2924
+          4088
         </td>
         <td>
           Apply
@@ -914,20 +1280,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           x$4.trim()
         </td>
       </tr><tr>
         <td>
-          55
+          80
         </td>
         <td>
-          4169
+          4185
         </td>
         <td>
-          2891
+          4055
           -
-          2931
+          4095
         </td>
         <td>
           TypeApply
@@ -938,116 +1304,44 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           scala.Predef.refArrayOps[String](scala.Predef.refArrayOps[String](disableConf.split(&quot;,&quot;)).map[String, Array[String]](((x$4: String) =&gt; x$4.trim()))(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))).toSet[String]
         </td>
       </tr><tr>
         <td>
-          56
+          80
         </td>
         <td>
-          4171
+          4181
         </td>
         <td>
-          2988
+          4055
           -
-          3021
+          4077
         </td>
         <td>
           Apply
         </td>
         <td>
-          scala.collection.SetLike.contains
+          java.lang.String.split
         </td>
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
-          disabledRules.contains(p._1.trim())
+        <td style="background: #F0ADAD">
+          disableConf.split(&quot;,&quot;)
         </td>
       </tr><tr>
         <td>
-          56
+          80
         </td>
         <td>
-          4170
+          4184
         </td>
         <td>
-          3011
+          4055
           -
-          3020
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          java.lang.String.trim
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          p._1.trim()
-        </td>
-      </tr><tr>
-        <td>
-          56
-        </td>
-        <td>
-          4172
-        </td>
-        <td>
-          2958
-          -
-          3022
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.collection.TraversableLike.filterNot
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          QualitySparkExtension.this.optimiserRules.filterNot(((p: (String, org.apache.spark.sql.SparkSession =&gt; org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan])) =&gt; disabledRules.contains(p._1.trim())))
-        </td>
-      </tr><tr>
-        <td>
-          57
-        </td>
-        <td>
-          4177
-        </td>
-        <td>
-          3042
-          -
-          3058
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.extension.QualitySparkExtension.disableRulesConf
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          com.sparkutils.quality.impl.extension.QualitySparkExtension.disableRulesConf
-        </td>
-      </tr><tr>
-        <td>
-          57
-        </td>
-        <td>
-          4180
-        </td>
-        <td>
-          3086
-          -
-          3109
+          4089
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1058,68 +1352,92 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
-          filteredRules.map[String, Any](((x$5: (String, org.apache.spark.sql.SparkSession =&gt; org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan])) =&gt; x$5._1))(collection.this.Seq.canBuildFrom[String])
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[String](disableConf.split(&quot;,&quot;)).map[String, Array[String]](((x$4: String) =&gt; x$4.trim()))(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))
         </td>
       </tr><tr>
         <td>
-          57
+          81
         </td>
         <td>
-          4174
+          4186
         </td>
         <td>
-          3058
+          4175
           -
-          3062
+          4184
         </td>
         <td>
-          Literal
+          Apply
         </td>
         <td>
-          &lt;nosymbol&gt;
+          java.lang.String.trim
         </td>
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
-          &quot; = &quot;
+        <td style="background: #F0ADAD">
+          p._1.trim()
         </td>
       </tr><tr>
         <td>
-          57
+          81
         </td>
         <td>
-          4176
+          4188
         </td>
         <td>
-          3110
+          4122
           -
-          3121
+          4186
         </td>
         <td>
-          Literal
+          Apply
         </td>
         <td>
-          &lt;nosymbol&gt;
+          scala.collection.TraversableLike.filterNot
         </td>
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
-          &quot; remaining&quot;
+        <td style="background: #F0ADAD">
+          QualitySparkExtension.this.optimiserRules.filterNot(((p: (String, org.apache.spark.sql.SparkSession =&gt; org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan])) =&gt; disabledRules.contains(p._1.trim())))
         </td>
       </tr><tr>
         <td>
-          57
+          81
         </td>
         <td>
-          4179
+          4187
         </td>
         <td>
-          3103
+          4152
           -
-          3103
+          4185
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SetLike.contains
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          disabledRules.contains(p._1.trim())
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          4195
+        </td>
+        <td>
+          4267
+          -
+          4267
         </td>
         <td>
           TypeApply
@@ -1130,20 +1448,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           collection.this.Seq.canBuildFrom[String]
         </td>
       </tr><tr>
         <td>
-          57
+          82
         </td>
         <td>
-          4173
+          4189
         </td>
         <td>
-          3041
+          4205
           -
-          3042
+          4206
         </td>
         <td>
           Literal
@@ -1154,44 +1472,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           &quot;&quot;
         </td>
       </tr><tr>
         <td>
-          57
+          82
         </td>
         <td>
-          4181
+          4192
         </td>
         <td>
-          3039
+          4274
           -
-          3121
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.StringContext.s
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.StringContext.apply(&quot;&quot;, &quot; = &quot;, &quot; leaving &quot;, &quot; remaining&quot;).s(com.sparkutils.quality.impl.extension.QualitySparkExtension.disableRulesConf, disabledRules, filteredRules.map[String, Any](((x$5: (String, org.apache.spark.sql.SparkSession =&gt; org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan])) =&gt; x$5._1))(collection.this.Seq.canBuildFrom[String]))
-        </td>
-      </tr><tr>
-        <td>
-          57
-        </td>
-        <td>
-          4175
-        </td>
-        <td>
-          3075
-          -
-          3085
+          4285
         </td>
         <td>
           Literal
@@ -1202,20 +1496,44 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
+          &quot; remaining&quot;
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          4191
+        </td>
+        <td>
+          4239
+          -
+          4249
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
           &quot; leaving &quot;
         </td>
       </tr><tr>
         <td>
-          57
+          82
         </td>
         <td>
-          4178
+          4194
         </td>
         <td>
-          3104
+          4268
           -
-          3108
+          4272
         </td>
         <td>
           Select
@@ -1226,44 +1544,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           x$5._1
         </td>
       </tr><tr>
         <td>
-          58
+          82
         </td>
         <td>
-          4182
+          4197
         </td>
         <td>
-          3128
+          4203
           -
-          3140
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.apache.spark.internal.Logging.logInfo
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          QualitySparkExtension.this.logInfo(str)
-        </td>
-      </tr><tr>
-        <td>
-          59
-        </td>
-        <td>
-          4183
-        </td>
-        <td>
-          3155
-          -
-          3187
+          4285
         </td>
         <td>
           Apply
@@ -1274,92 +1568,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
-          scala.StringContext.apply(&quot;Quality SparkExtensions: &quot;, &quot;&quot;).s(str)
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot; = &quot;, &quot; leaving &quot;, &quot; remaining&quot;).s(com.sparkutils.quality.impl.extension.QualitySparkExtension.disableRulesConf, disabledRules, filteredRules.map[String, Any](((x$5: (String, org.apache.spark.sql.SparkSession =&gt; org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan])) =&gt; x$5._1))(collection.this.Seq.canBuildFrom[String]))
         </td>
       </tr><tr>
         <td>
-          59
+          82
         </td>
         <td>
-          4184
+          4190
         </td>
         <td>
-          3147
+          4222
           -
-          3188
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Predef.println
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.Predef.println(scala.StringContext.apply(&quot;Quality SparkExtensions: &quot;, &quot;&quot;).s(str))
-        </td>
-      </tr><tr>
-        <td>
-          60
-        </td>
-        <td>
-          4189
-        </td>
-        <td>
-          3195
-          -
-          3195
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          60
-        </td>
-        <td>
-          4185
-        </td>
-        <td>
-          3199
-          -
-          3214
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.utils.Testing.testing
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          com.sparkutils.quality.utils.Testing.testing
-        </td>
-      </tr><tr>
-        <td>
-          60
-        </td>
-        <td>
-          4188
-        </td>
-        <td>
-          3195
-          -
-          3195
+          4226
         </td>
         <td>
           Literal
@@ -1370,44 +1592,164 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
-          ()
+        <td style="background: #F0ADAD">
+          &quot; = &quot;
         </td>
       </tr><tr>
         <td>
-          61
+          82
         </td>
         <td>
-          4186
+          4193
         </td>
         <td>
-          3226
+          4206
           -
-          3266
+          4222
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.extension.QualitySparkExtension.disableRulesConf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.sparkutils.quality.impl.extension.QualitySparkExtension.disableRulesConf
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          4196
+        </td>
+        <td>
+          4250
+          -
+          4273
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          filteredRules.map[String, Any](((x$5: (String, org.apache.spark.sql.SparkSession =&gt; org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan])) =&gt; x$5._1))(collection.this.Seq.canBuildFrom[String])
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          4198
+        </td>
+        <td>
+          4292
+          -
+          4311
         </td>
         <td>
           Apply
         </td>
         <td>
-          com.sparkutils.quality.impl.extension.ExtensionTesting.disableRuleResult_=
+          com.sparkutils.quality.impl.extension.QualitySparkExtension.attemptLogInfo
         </td>
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
-          ExtensionTesting.disableRuleResult_=(str)
+        <td style="background: #F0ADAD">
+          QualitySparkExtension.this.attemptLogInfo(str)
         </td>
       </tr><tr>
         <td>
-          61
+          84
         </td>
         <td>
-          4187
+          4203
         </td>
         <td>
-          3226
+          4318
           -
-          3266
+          4318
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          4199
+        </td>
+        <td>
+          4322
+          -
+          4337
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.utils.Testing.testing
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.sparkutils.quality.utils.Testing.testing
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          4202
+        </td>
+        <td>
+          4318
+          -
+          4318
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          4201
+        </td>
+        <td>
+          4349
+          -
+          4389
         </td>
         <td>
           Block
@@ -1418,68 +1760,44 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           ExtensionTesting.disableRuleResult_=(str)
         </td>
       </tr><tr>
         <td>
-          63
+          85
         </td>
         <td>
-          4192
+          4200
         </td>
         <td>
-          3313
+          4349
           -
-          3343
+          4389
         </td>
         <td>
           Apply
         </td>
         <td>
-          org.apache.spark.sql.SparkSessionExtensions.injectOptimizerRule
+          com.sparkutils.quality.impl.extension.ExtensionTesting.disableRuleResult_=
         </td>
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
-          extensions.injectOptimizerRule(builder)
+        <td style="background: #F0ADAD">
+          ExtensionTesting.disableRuleResult_=(str)
         </td>
       </tr><tr>
         <td>
-          63
+          87
         </td>
         <td>
-          4191
+          4204
         </td>
         <td>
-          3298
+          4422
           -
-          3298
-        </td>
-        <td>
-          TypeApply
-        </td>
-        <td>
-          scala.collection.Seq.canBuildFrom
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          collection.this.Seq.canBuildFrom[org.apache.spark.sql.SparkSession =&gt; org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]]
-        </td>
-      </tr><tr>
-        <td>
-          63
-        </td>
-        <td>
-          4190
-        </td>
-        <td>
-          3299
-          -
-          3303
+          4426
         </td>
         <td>
           Select
@@ -1490,20 +1808,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           x$6._2
         </td>
       </tr><tr>
         <td>
-          63
+          87
         </td>
         <td>
-          4193
+          4207
         </td>
         <td>
-          3281
+          4404
           -
-          3346
+          4469
         </td>
         <td>
           Apply
@@ -1514,22 +1832,70 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           filteredRules.map[org.apache.spark.sql.SparkSession =&gt; org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan], Seq[org.apache.spark.sql.SparkSession =&gt; org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]]](((x$6: (String, org.apache.spark.sql.SparkSession =&gt; org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan])) =&gt; x$6._2))(collection.this.Seq.canBuildFrom[org.apache.spark.sql.SparkSession =&gt; org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]]).foreach[Unit]({
   ((builder: extensions.RuleBuilder) =&gt; extensions.injectOptimizerRule(builder))
 })
         </td>
       </tr><tr>
         <td>
-          64
+          87
         </td>
         <td>
-          4202
+          4206
         </td>
         <td>
-          3358
+          4436
           -
-          3506
+          4466
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.SparkSessionExtensions.injectOptimizerRule
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          extensions.injectOptimizerRule(builder)
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          4205
+        </td>
+        <td>
+          4421
+          -
+          4421
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[org.apache.spark.sql.SparkSession =&gt; org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]]
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          4214
+        </td>
+        <td>
+          4481
+          -
+          4588
         </td>
         <td>
           Block
@@ -1540,24 +1906,23 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           {
   val str: String = scala.StringContext.apply(&quot;All optimiser rules are disabled via &quot;, &quot;&quot;).s(com.sparkutils.quality.impl.extension.QualitySparkExtension.disableRulesConf);
-  QualitySparkExtension.this.logInfo(str);
-  scala.Predef.println(scala.StringContext.apply(&quot;Quality SparkExtensions: &quot;, &quot;&quot;).s(str))
+  QualitySparkExtension.this.attemptLogInfo(str)
 }
         </td>
       </tr><tr>
         <td>
-          65
+          89
         </td>
         <td>
-          4195
+          4210
         </td>
         <td>
-          3378
+          4555
           -
-          3416
+          4556
         </td>
         <td>
           Literal
@@ -1568,20 +1933,44 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          4209
+        </td>
+        <td>
+          4501
+          -
+          4539
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
           &quot;All optimiser rules are disabled via &quot;
         </td>
       </tr><tr>
         <td>
-          65
+          89
         </td>
         <td>
-          4198
+          4212
         </td>
         <td>
-          3376
+          4499
           -
-          3433
+          4556
         </td>
         <td>
           Apply
@@ -1592,20 +1981,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           scala.StringContext.apply(&quot;All optimiser rules are disabled via &quot;, &quot;&quot;).s(com.sparkutils.quality.impl.extension.QualitySparkExtension.disableRulesConf)
         </td>
       </tr><tr>
         <td>
-          65
+          89
         </td>
         <td>
-          4197
+          4211
         </td>
         <td>
-          3416
+          4539
           -
-          3432
+          4555
         </td>
         <td>
           Select
@@ -1616,20 +2005,44 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           com.sparkutils.quality.impl.extension.QualitySparkExtension.disableRulesConf
         </td>
       </tr><tr>
         <td>
-          65
+          90
         </td>
         <td>
-          4196
+          4213
         </td>
         <td>
-          3432
+          4563
           -
-          3433
+          4582
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.extension.QualitySparkExtension.attemptLogInfo
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          QualitySparkExtension.this.attemptLogInfo(str)
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          4215
+        </td>
+        <td>
+          4777
+          -
+          4779
         </td>
         <td>
           Literal
@@ -1640,103 +2053,7 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
-          &quot;&quot;
-        </td>
-      </tr><tr>
-        <td>
-          66
-        </td>
-        <td>
-          4199
-        </td>
-        <td>
-          3440
-          -
-          3452
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.apache.spark.internal.Logging.logInfo
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          QualitySparkExtension.this.logInfo(str)
-        </td>
-      </tr><tr>
-        <td>
-          67
-        </td>
-        <td>
-          4201
-        </td>
-        <td>
-          3459
-          -
-          3500
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Predef.println
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.Predef.println(scala.StringContext.apply(&quot;Quality SparkExtensions: &quot;, &quot;&quot;).s(str))
-        </td>
-      </tr><tr>
-        <td>
-          67
-        </td>
-        <td>
-          4200
-        </td>
-        <td>
-          3467
-          -
-          3499
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.StringContext.s
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.StringContext.apply(&quot;Quality SparkExtensions: &quot;, &quot;&quot;).s(str)
-        </td>
-      </tr><tr>
-        <td>
-          75
-        </td>
-        <td>
-          4203
-        </td>
-        <td>
-          3695
-          -
-          3697
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           &quot;&quot;
         </td>
       </tr>
