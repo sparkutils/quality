@@ -70,6 +70,11 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
       } finally {
         System.clearProperty(QualitySparkExtension.disableRulesConf)
         System.clearProperty(QualitySparkExtension.forceInjectFunction)
+
+        if (format == "delta") {
+          // https://github.com/delta-io/delta/issues/629 workaround
+          org.apache.spark.sql.delta.DeltaLog.clearCache()
+        }
       }
     }
 
