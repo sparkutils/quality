@@ -184,7 +184,7 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
     ), viaExtension = viaExtension)
   }
 
-  val format: String
+  def format: String
 
   val uuidPairsWithContext = (prefix: String) => (tsparkSession: SparkSession) => {
     import tsparkSession.implicits._
