@@ -71,11 +71,14 @@ trait TestUtils {
     sys.props.put("spark.testing","yes yes it is")
   }
 
-  def cleanupOutput(): Unit = {
+  def cleanUp(target: String): Unit = {
     import scala.reflect.io.Directory
-    val outdir = new Directory(new java.io.File(outputDir))
+    val outdir = new Directory(new java.io.File(target))
     outdir.deleteRecursively()
   }
+
+  def cleanupOutput(): Unit =
+    cleanUp(outputDir)
 
   @Before
   def setup(): Unit = {
