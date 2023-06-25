@@ -76,12 +76,12 @@ The full list of supported runtimes is below:
 | 3.2.0         | 3.2 |                | 2.12 | 
 | 3.2.1         | 3.2 | 3.2.1.oss_     | 2.12 | 
 | 3.2.1         | 3.2 | 10.4.dbr_      | 2.12 | 
-| 3.3.0         | 3.3 | 3.3.0.oss_     | 2.12 | 
-| 3.3.0         | 3.3 | 11.3.dbr_      | 2.12 |
-| 3.3.0         | 3.3 | 12.2.dbr_      | 2.12 |
-| 3.3.0         | 3.3 | 13.1.dbr_      | 2.12 |
-| 3.4.0         | 3.4 | 3.4.0.oss_     | 2.12 |
-| 3.4.0         | 3.4 | 13.1.dbr_      | 2.12 |
+| 3.3.2         | 3.3 | 3.3.2.oss_     | 2.12 | 
+| 3.3.2         | 3.3 | 11.3.dbr_      | 2.12 |
+| 3.3.2         | 3.3 | 12.2.dbr_      | 2.12 |
+| 3.3.2         | 3.3 | 13.1.dbr_      | 2.12 |
+| 3.4.1         | 3.4 | 3.4.1.oss_     | 2.12 |
+| 3.4.1         | 3.4 | 13.1.dbr_      | 2.12 |
 
 2.4 support is deprecated and will be removed in a future version.  3.1.2 support is replaced by 3.1.3 due to interpreted encoder issues. 
 
@@ -128,8 +128,8 @@ The known combinations requiring this approach is below:
 |---------------|-------------------|-------------------|-------------------------| - |
 | 3.2.1         | 3.2               | 3.2.1.oss_        | 10.4.dbr_               | 2.12 | 
 | 3.3.0         | 3.3               | 3.3.0.oss_        | 11.3.dbr_               | 2.12 | 
-| 3.3.0         | 3.3               | 3.3.0.oss_        | 12.2.dbr_               | 2.12 | 
-| 3.4.0         | 3.4               | 3.4.0.oss_        | 13.1.dbr_               | 2.12 | 
+| 3.3.2         | 3.3               | 3.3.2.oss_        | 12.2.dbr_               | 2.12 | 
+| 3.4.1         | 3.4               | 3.4.1.oss_        | 13.1.dbr_               | 2.12 | 
 
 ## Using the SQL functions on Spark Thrift (Hive) servers
 
