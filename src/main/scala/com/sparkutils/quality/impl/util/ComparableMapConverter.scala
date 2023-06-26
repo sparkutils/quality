@@ -44,8 +44,10 @@ object ComparableMapConverter {
 
           // maps are already converted all the way down before trying to sort by key._2
           val sorted = Arrays.mapArray(theMap.keyArray(), actualKeyType, key._2).zipWithIndex.sortBy(_._1)(comparisonOrdering)
-          val vals = Arrays.toArray(theMap.valueArray(), actualValueType)
-
+          val vals = {
+            val valArray =theMap.valueArray()
+            (idx: Int) => valArray.get(idx, actualValueType) //Arrays.toArray(theMap.valueArray(), actualValueType)
+          }
           // now re-pack as structs
           ArrayData.toArrayData(sorted.map {
             case (tkey, index) =>

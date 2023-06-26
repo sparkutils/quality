@@ -1,6 +1,5 @@
 package org.apache.spark.sql.qualityFunctions
 
-import com.sparkutils.quality.utils.Arrays
 import com.sparkutils.quality.utils.Comparison.compareToOrdering
 import org.apache.spark.sql.QualitySparkUtils
 import org.apache.spark.sql.catalyst.InternalRow
@@ -41,8 +40,8 @@ object utils {
       // same
       var i = 0
       var res = 0
-      val al = Arrays.toArray(left, elementType)
-      val ar = Arrays.toArray(right, elementType)
+      val al = (idx: Int) => left.get(idx, elementType)// Arrays.toArray(left, elementType)
+      val ar = (idx: Int) => right.get(idx, elementType)// Arrays.toArray(right, elementType)
       while (i < left.numElements() && res == 0) {
         res = elComp(al(i), ar(i))
         i += 1
