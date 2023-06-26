@@ -565,14 +565,16 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
       count_if("rule_result(DataQuality, pack_ints(1, 1), pack_ints(52,1), pack_ints(100,1)) == passed()"),
       count_if("rule_result(DataQuality, pack_ints(100, 1), pack_ints(52,1), pack_ints(100,1)) == passed()"),
       count_if("rule_result(DataQuality, pack_ints(1, 1), pack_ints(152,1), pack_ints(100,1)) == passed()"),
-      count_if("rule_result(DataQuality, pack_ints(1, 1), pack_ints(52,1), pack_ints(10000,1)) == passed()")
+      count_if("rule_result(DataQuality, pack_ints(1, 1), pack_ints(52,1), pack_ints(10000,1)) == passed()"),
+      count_if("rule_result(DataQuality, pack_ints(1, 1), pack_ints(52,1), null) == passed()")
     )
-    val (shouldBeHalfPassed, shouldNotBeFoundSuite, shouldNotBeFoundSet, shouldNotBeFoundRule) = theRule.as[(Long, Long, Long, Long)].head()
+    val (shouldBeHalfPassed, shouldNotBeFoundSuite, shouldNotBeFoundSet, shouldNotBeFoundRule, hasNulls) = theRule.as[(Long, Long, Long, Long, Long)].head()
     assert(shouldBeHalfPassed == ((toWrite / 2) + 1))
 
     assert(shouldNotBeFoundSuite == 0)
     assert(shouldNotBeFoundSet == 0)
     assert(shouldNotBeFoundRule == 0)
+    assert(hasNulls == 0)
   }
 
 }

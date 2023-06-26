@@ -30,7 +30,7 @@ object RuleResultExpression {
 //TODO move to Quanternary after 2.4 is dropped
 case class RuleResultExpression(children: Seq[Expression]) extends
   Expression with CodegenFallback with InputTypeChecks {
-  protected def withNewChildrenInternal(newChildren: Seq[Expression]): Expression =
+  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
     copy(children = newChildren)
 
   protected lazy val extractResults =
@@ -48,31 +48,27 @@ case class RuleResultExpression(children: Seq[Expression]) extends
   override def nullable: Boolean = true
 
   override def eval(inputRow: InternalRow): Any = {
-    if (inputRow == null)
+    val noneAreNull = Seq(children(0).eval(inputRow), children(1).eval(inputRow),
+      children(2).eval(inputRow), children(3).eval(inputRow))
+    if (noneAreNull.contains(null))
       null
     else {
-      val noneAreNull = Seq(children(0).eval(inputRow), children(1).eval(inputRow),
-        children(2).eval(inputRow), children(3).eval(inputRow))
-      if (noneAreNull.contains(null))
-        null
-      else {
-        val Seq(input1, input2, input3, input4) = noneAreNull
+      val Seq(input1, input2, input3, input4) = noneAreNull
 
-        val theStruct = input1.asInstanceOf[InternalRow]
-        val suite = theStruct.getLong(0)
-        if (suite == input2) {
-          val (row, newCachedS) = RuleResultExpression.getRuleSet(theStruct.getMap(extractResults), cachedSetPositions, input3.asInstanceOf[Long])
-          cachedSetPositions = newCachedS
-          if (row eq null)
-            null
-          else {
-            val (result, newCachedR) = RuleResultExpression.getRule(row.getMap(1), cachedRulesPositions, input4.asInstanceOf[Long])
-            cachedSetPositions = newCachedR
-            result
-          }
-        } else
+      val theStruct = input1.asInstanceOf[InternalRow]
+      val suite = theStruct.getLong(0)
+      if (suite == input2) {
+        val (row, newCachedS) = RuleResultExpression.getRuleSet(theStruct.getMap(extractResults), cachedSetPositions, input3.asInstanceOf[Long])
+        cachedSetPositions = newCachedS
+        if (row eq null)
           null
-      }
+        else {
+          val (result, newCachedR) = RuleResultExpression.getRule(row.getMap(1), cachedRulesPositions, input4.asInstanceOf[Long])
+          cachedSetPositions = newCachedR
+          result
+        }
+      } else
+        null
     }
   }
 
