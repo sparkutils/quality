@@ -1,4 +1,4 @@
-package org.apache.spark.sql
+package org.apache.spark.sql.qualityFunctions
 
 import org.apache.spark.sql.catalyst.expressions.ExpectsInputTypes
 import org.apache.spark.sql.types.{AbstractDataType, DataType, TypeCollection}

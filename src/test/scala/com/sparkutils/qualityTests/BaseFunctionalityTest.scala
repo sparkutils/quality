@@ -1,7 +1,6 @@
 package com.sparkutils.qualityTests
 
 import java.util.UUID
-
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.longPair.AsUUID
 import com.sparkutils.quality.utils.{Arrays, PrintCode}
@@ -9,7 +8,7 @@ import org.apache.spark.sql.QualitySparkUtils.newParser
 import org.apache.spark.sql.catalyst.expressions.{Expression, SubqueryExpression}
 import org.apache.spark.sql.catalyst.plans.logical.Project
 import org.apache.spark.sql.catalyst.util.ArrayData
-import org.apache.spark.sql.{Column, Encoder, SaveMode}
+import org.apache.spark.sql.{Column, DataFrame, Encoder, SaveMode}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.IntegerType
 import org.junit.Test
@@ -532,6 +531,48 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
           throw t
       }
     }
+  }
+
+  @Test
+  def testRuleResult(): Unit = evalCodeGensNoResolve {
+    val rules = genRules(27, 27)
+
+    val toWrite = 1400 // writeRows
+
+    val df = taddDataQuality(dataFrameLong(toWrite, 27, ruleSuiteResultType, null), rules)
+
+    doTheRuleResultTest(df, toWrite)
+  }
+
+  @Test
+  def testRuleResultDetails(): Unit = evalCodeGensNoResolve {
+    val rules = genRules(27, 27)
+
+    val toWrite = 1400 // writeRows
+
+    val df = taddDataQuality(dataFrameLong(toWrite, 27, ruleSuiteResultType, null), rules)
+
+    doTheRuleResultTest(df.selectExpr("rule_Suite_Result_Details(DataQuality) DataQuality"), toWrite)
+  }
+
+  def doTheRuleResultTest(df: DataFrame, toWrite: Int): Unit = {
+    import sparkSession.implicits._
+
+    // count_if not on 2.4
+    def count_if(cond: String) = s"aggExpr($cond, inc(), returnSum())"
+
+    val theRule = df.selectExpr(
+      count_if("rule_result(DataQuality, pack_ints(1, 1), pack_ints(52,1), pack_ints(100,1)) == passed()"),
+      count_if("rule_result(DataQuality, pack_ints(100, 1), pack_ints(52,1), pack_ints(100,1)) == passed()"),
+      count_if("rule_result(DataQuality, pack_ints(1, 1), pack_ints(152,1), pack_ints(100,1)) == passed()"),
+      count_if("rule_result(DataQuality, pack_ints(1, 1), pack_ints(52,1), pack_ints(10000,1)) == passed()")
+    )
+    val (shouldBeHalfPassed, shouldNotBeFoundSuite, shouldNotBeFoundSet, shouldNotBeFoundRule) = theRule.as[(Long, Long, Long, Long)].head()
+    assert(shouldBeHalfPassed == ((toWrite / 2) + 1))
+
+    assert(shouldNotBeFoundSuite == 0)
+    assert(shouldNotBeFoundSet == 0)
+    assert(shouldNotBeFoundRule == 0)
   }
 
 }

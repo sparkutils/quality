@@ -1,10 +1,10 @@
 package com.sparkutils.quality.impl
 
-import org.apache.spark.sql.InputTypeChecks
 import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionDescription, NullIntolerant, UnaryExpression}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
 import org.apache.spark.sql.types.{DataType, DoubleType, IntegerType, LongType}
 import com.sparkutils.quality.PassedInt
+import org.apache.spark.sql.qualityFunctions.InputTypeChecks
 
 @ExpressionDescription(
   usage = "probability(expr) - Returns the probability from a rule result as a double.",

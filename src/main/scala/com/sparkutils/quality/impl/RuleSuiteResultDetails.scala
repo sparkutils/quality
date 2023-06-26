@@ -1,11 +1,11 @@
 package com.sparkutils.quality.impl
 
-import org.apache.spark.sql.InputTypeChecks
 import org.apache.spark.sql.catalyst.InternalRow
 
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression, UnaryExpression}
-import org.apache.spark.sql.types.{DataType, _}
+import org.apache.spark.sql.qualityFunctions.InputTypeChecks
+import org.apache.spark.sql.types._
 
 object RuleSuiteResultDetails {
   def getDetails(input: scala.Any): InternalRow = {

@@ -2,9 +2,10 @@ package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.{Id, packId}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.{Column, InputTypeChecks}
+import org.apache.spark.sql.Column
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
 import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression, ExpressionDescription, NullIntolerant, UnaryExpression}
+import org.apache.spark.sql.qualityFunctions.InputTypeChecks
 import org.apache.spark.sql.types.{DataType, IntegerType, LongType, StructField, StructType}
 
 object Pack {

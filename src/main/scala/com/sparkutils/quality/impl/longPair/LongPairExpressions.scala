@@ -7,8 +7,9 @@ import com.sparkutils.quality.impl.id.{GenericLongBasedID, model}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode}
 import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression, NullIntolerant, UnaryExpression}
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.qualityFunctions.InputTypeChecks
 import org.apache.spark.sql.types.{DataType, LongType, StructField, StructType}
-import org.apache.spark.sql.{Column, InputTypeChecks, QualitySparkUtils, SparkSession}
+import org.apache.spark.sql.{Column, QualitySparkUtils, SparkSession}
 
 import scala.annotation.tailrec
 

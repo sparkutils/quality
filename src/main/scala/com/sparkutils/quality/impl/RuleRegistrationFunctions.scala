@@ -58,7 +58,7 @@ object RuleRegistrationFunctions {
       "hash_Field_Based_ID","za_Longs_Field_Based_ID","za_Hash_Longs_With_Struct", "za_Hash_With_Struct", "za_Field_Based_ID", "prefixed_To_Long_Pair",
       "coalesce_If_Attributes_Missing", "coalesce_If_Attributes_Missing_Disable", "update_Field", LambdaFunctions.PlaceHolder,
       LambdaFunctions.Lambda, LambdaFunctions.CallFun, "print_Expr", "print_Code", "comparable_Maps", "reverse_Comparable_Maps", "as_uuid",
-      "id_size", "id_base64", "id_from_base64", "id_raw_type"
+      "id_size", "id_base64", "id_from_base64", "id_raw_type", "rule_result"
     )
     withUnderscores ++ withUnderscores.map(n => if (mustKeepNames(n)) n else n.replaceAll("_",""))
   }
@@ -139,6 +139,8 @@ object RuleRegistrationFunctions {
         registerFunction(name.replaceAll("_",""), argsf)
       }
     }
+
+    register("rule_result", exps => RuleResultExpression(Seq(exps(0), exps(1), exps(2), exps(3))))
 
     register("comparable_Maps", exps => ComparableMapConverter(exps(0), mapCompare))
     register("reverse_Comparable_Maps", exps => ComparableMapReverser(exps(0)))

@@ -115,4 +115,54 @@ object MapUtils {
     val values = map.valueArray.toObjectArray(valueType)
     keys.zip(values).toMap
   }
+
+  /**
+   * Assuming MapData entries are stable, as they are array backed, over a dataset.  When the position of 'what' is not in the cachedPositions a full search is performed with the new location being returned in addition.
+   *
+   * @param mapData the source mapdata to search through.
+   * @param cachedPositions already known positions to check for what
+   * @param what compared against the keyArray to obtain the position
+   * @param getValue obtain the value from the mapData, with any necessary conversions, against the index parameter
+   * @tparam T
+   * @return (result from getValue or null when not found, either cachedPositions or cachedPositions and a newly found position)
+   */
+  def getMapEntry[T <: AnyRef](mapData: MapData, cachedPositions: Seq[Int], what: Any)(getValue: Int => T): (T, Seq[Int]) = {
+    val keys = mapData.keyArray()
+    val n = keys.numElements()
+    val acc = (idx: Int) => keys.getLong(idx)
+
+    def search() = {
+      var i = 0
+      var found = false
+      while (i < n && !found) {
+        if (acc(i) == what) {
+          found = true
+        } else {
+          i += 1
+        }
+      }
+      if (!found)
+        -1
+      else
+        i
+    }
+
+    def withCached() =
+      cachedPositions.find { i =>
+        if (i < n)
+          acc(i) == what
+        else
+          false
+      }
+
+    withCached().map(i => (getValue(i), cachedPositions))
+      .getOrElse {
+        val r = search()
+        if (r == -1)
+          (null.asInstanceOf[T], cachedPositions)
+        else
+          (getValue(r), cachedPositions :+ r)
+      }
+  }
+
 }

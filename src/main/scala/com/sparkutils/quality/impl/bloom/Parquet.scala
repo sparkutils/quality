@@ -4,10 +4,10 @@ import java.io.{ByteArrayInputStream, File, ObjectInputStream}
 import com.sparkutils.quality.BloomModel
 import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.impl.bloom.parquet.{BlockSplitBloomFilterImpl, Bloom, BloomFilter, BloomHash, BucketedCreator, BucketedFilesRoot, FileRoot}
-import org.apache.spark.sql.InputTypeChecks
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.expressions.aggregate.{ImperativeAggregate, TypedImperativeAggregate}
+import org.apache.spark.sql.qualityFunctions.InputTypeChecks
 import org.apache.spark.sql.types._
 
 trait ParquetBloomAggregator[T <: Bloom[_]] extends InputTypeChecks {

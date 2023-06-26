@@ -3,12 +3,13 @@ package com.sparkutils.quality.impl
 import com.sparkutils.quality.utils.Serializing
 import com.sparkutils.quality._
 import com.sparkutils.quality.utils.Serializing
-import org.apache.spark.sql.{InputTypeChecks, SparkSession}
+import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
 import org.apache.spark.sql.catalyst.expressions.{AttributeReference, BinaryExpression, Expression, ExpressionDescription, GenericInternalRow, NullIntolerant, UnaryExpression}
 import org.apache.spark.sql.catalyst.util.GenericArrayData
+import org.apache.spark.sql.qualityFunctions.InputTypeChecks
 import org.apache.spark.sql.types._
 
 object FlattenStruct {
