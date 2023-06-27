@@ -1,5 +1,7 @@
 ### 0.1.0 <small>10th June, 2023</small>
 
+#28 - rule_result function - retrieves a rule result directly from a dq result
+
 #15 - Addition of the loadXConfigs and loadX functions for maps and blooms, simplifying configuration management
 
 #24 - Remove saferId / rowid functions - use unique_id where required 
@@ -7,6 +9,10 @@
 #17 - ViewLoader - simple view configuration via DataFrames  
 
 #20 - 3.5.0 starting support
+
+### 0.0.3 <small>17th June, 2023</small>
+
+#25 - Use builtIn function registration by default - allows global views to be created using Quality functions
 
 ### 0.0.2 <small>2nd June, 2023</small>
 

@@ -534,6 +534,14 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
   }
 
   @Test
+  def functionParameterSizes(): Unit = try {
+    sparkSession.sql("select inc(1,34,3243,666)")
+    fail("Should have thrown")
+  } catch {
+    case QualityException(m,_) if m.contains("counts are 1, 0, 2") => ()
+  }
+
+  @Test
   def testRuleResult(): Unit = evalCodeGensNoResolve {
     val rules = genRules(27, 27)
 
@@ -558,15 +566,19 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
   def doTheRuleResultTest(df: DataFrame, toWrite: Int): Unit = {
     import sparkSession.implicits._
 
+    // using a lambda to ensure it works to reduce code duplication
+    val l = LambdaFunction("dq_rule_result", "(a, b) -> rule_result(DataQuality, pack_ints(1,1), a, b)", Id(0,0))
+    registerLambdaFunctions(Seq(l))
+
     // count_if not on 2.4
     def count_if(cond: String) = s"aggExpr($cond, inc(), returnSum())"
 
     val theRule = df.selectExpr(
-      count_if("rule_result(DataQuality, pack_ints(1, 1), pack_ints(52,1), pack_ints(100,1)) == passed()"),
+      count_if("dq_rule_result(pack_ints(52,1), pack_ints(100,1)) == passed()"),
       count_if("rule_result(DataQuality, pack_ints(100, 1), pack_ints(52,1), pack_ints(100,1)) == passed()"),
-      count_if("rule_result(DataQuality, pack_ints(1, 1), pack_ints(152,1), pack_ints(100,1)) == passed()"),
-      count_if("rule_result(DataQuality, pack_ints(1, 1), pack_ints(52,1), pack_ints(10000,1)) == passed()"),
-      count_if("rule_result(DataQuality, pack_ints(1, 1), pack_ints(52,1), null) == passed()")
+      count_if("dq_rule_result(pack_ints(152,1), pack_ints(100,1)) == passed()"),
+      count_if("dq_rule_result(pack_ints(52,1), pack_ints(10000,1)) == passed()"),
+      count_if("dq_rule_result(pack_ints(52,1), null) == passed()")
     )
     val (shouldBeHalfPassed, shouldNotBeFoundSuite, shouldNotBeFoundSet, shouldNotBeFoundRule, hasNulls) = theRule.as[(Long, Long, Long, Long, Long)].head()
     assert(shouldBeHalfPassed == ((toWrite / 2) + 1))
