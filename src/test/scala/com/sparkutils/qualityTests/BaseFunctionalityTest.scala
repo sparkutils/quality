@@ -315,7 +315,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
       fail("Is assumed to fail as spark doesn't order maps")
     } catch {
       case t: Throwable =>
-        assert(t.getMessage.contains("map type"))
+        assert(t.getMessage.toLowerCase.contains("map type"))
     }
 
     // can't resolve DataQuality here, manages quite nicely on it's own
@@ -343,7 +343,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
         fail("Is assumed to fail as spark doesn't order maps")
       } catch {
         case t: Throwable =>
-          assert(t.getMessage.contains("map type"))
+          assert(t.getMessage.toLowerCase.contains("map type"))
       }
 
       // can't resolve DataQuality here, manages quite nicely on it's own
@@ -404,7 +404,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
       fail("Is assumed to fail as spark doesn't order maps")
     } catch {
       case t: Throwable =>
-        assert(t.getMessage.contains("map type"))
+        assert(t.getMessage.toLowerCase.contains("map type"))
     }
 
     // can't resolve DataQuality here, manages quite nicely on it's own
