@@ -305,7 +305,7 @@ object RuleRegistrationFunctions {
     register("inc", incX, Set(1, 0, 2))
 
     // return sum
-    register("return_Sum", retWith("(sum, count) -> sum"), Set(0))
+    register("return_Sum", retWith("(sum, count) -> sum"), Set(0, 1))
 
     // random generators
     val brf = (exps: Seq[Expression]) => {
