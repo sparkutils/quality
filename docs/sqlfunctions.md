@@ -1,5 +1,12 @@
 ---
 functions:
+  rule_result:
+    description: |
+      rule_result(ruleSuiteResultColumn, packedRuleSuiteId, packedRuleSetId, packedRuleId) uses the long id's to retrieve the integer ruleResult or null if it can't be found.  
+      
+      You can use pack_ints(id, version) to specify each id if you don't already have the packed long version.  This is suitable for retrieving individual rule results, for example to aggregate counts of a specific rule result, without having to resort to using filter and map values. 
+    tags:
+      - rule
   murmur3_ID:
     description: "murmur3ID('prefix', fields*) Generates a 160bit id using murmer3 hashing over input fields, prefix is used with the _base, _i0 and _i1 fields in the resulting structure"
     tags:
