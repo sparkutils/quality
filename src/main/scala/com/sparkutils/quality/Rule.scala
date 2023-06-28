@@ -3,7 +3,7 @@ package com.sparkutils.quality
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedFunction}
-import org.apache.spark.sql.catalyst.expressions.{EqualTo, Expression, Literal, OuterReference, ScalarSubquery, SubqueryExpression, UnresolvedNamedLambdaVariable, LambdaFunction => SparkLambdaFunction}
+import org.apache.spark.sql.catalyst.expressions.{Cast, EqualTo, Expression, Literal, OuterReference, ScalarSubquery, SubqueryExpression, UnresolvedNamedLambdaVariable, LambdaFunction => SparkLambdaFunction}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext}
 import org.apache.spark.sql.qualityFunctions.{FunN, LambdaFunctions, RefExpressionLazyType}
 import org.apache.spark.sql.types.Decimal
@@ -618,4 +618,21 @@ case class RuleSuite(id: Id, ruleSets: Seq[RuleSet], lambdaFunctions: Seq[Lambda
    * @return
    */
   def withProbablePass(probablePass: Double) = copy(probablePass = probablePass)
+
+  def evalAggregates(internalRow: InternalRow): GeneralExpressionsResult = {
+    val rawRuleSets =
+      ruleSets.map { rs =>
+        val ruleSetRawRes: Seq[(VersionedId, GeneralExpressionResult)] = rs.rules.map { r =>
+          // it's a cast to string
+          val resultType = r.expression match {
+            case expr: HasExpr => expr.expr.children(0).dataType.sql
+          }
+          val ruleResult = r.expression.internalEval(internalRow).toString
+          r.id -> GeneralExpressionResult(ruleResult, resultType)
+        }
+        rs.id -> ruleSetRawRes.toMap
+      }
+
+    GeneralExpressionsResult(id, rawRuleSets.toMap)
+  }
 }

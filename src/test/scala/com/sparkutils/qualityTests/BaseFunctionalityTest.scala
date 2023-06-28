@@ -1,7 +1,10 @@
 package com.sparkutils.qualityTests
 
+import com.sparkutils.quality
+
 import java.util.UUID
 import com.sparkutils.quality._
+import com.sparkutils.quality.impl.ExpressionRunner
 import com.sparkutils.quality.impl.longPair.AsUUID
 import com.sparkutils.quality.utils.{Arrays, PrintCode}
 import org.apache.spark.sql.QualitySparkUtils.newParser
@@ -587,6 +590,29 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     assert(shouldNotBeFoundSet == 0)
     assert(shouldNotBeFoundRule == 0)
     assert(hasNulls == 0)
+  }
+
+  @Test
+  def testSimpleAggregate(): Unit = evalCodeGensNoResolve {
+    val rowrs = RuleSuite(Id(11, 2), Seq(RuleSet(Id(21, 1), Seq(
+      Rule(Id(40, 3), ExpressionRule("iseven(id)"))
+    ))), lambdaFunctions = Seq(LambdaFunction("iseven", "p -> p % 2 = 0", Id(1020, 2))))
+
+    val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+      Rule(Id(30, 3), ExpressionRule("sum(id)")),
+      Rule(Id(31, 3), ExpressionRule("aggExpr(rule_result(DataQuality, pack_ints(11,2), pack_ints(21,1), pack_ints(40,3)) == passed(), inc(), returnSum())"))
+    ))))
+
+    import frameless._
+    import quality.implicits._
+
+    val processed = ExpressionRunner.run(rs, taddDataQuality(sparkSession.range(1000).toDF, rowrs))
+
+    val res = processed.selectExpr("expressionResults.*").as[GeneralExpressionsResult].head()
+    assert(res == GeneralExpressionsResult(Id(10, 2), Map(Id(20, 1) -> Map(
+      Id(30, 3) -> GeneralExpressionResult("499500", "BIGINT"),
+      Id(31, 3) -> GeneralExpressionResult("500", "BIGINT")
+    ))))
   }
 
 }

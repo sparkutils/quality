@@ -14,4 +14,9 @@ trait RuleSparkTypes {
   val fullRuleIdType = StructType(Seq(StructField("ruleSuiteId", packedIdType), StructField("ruleSetId", packedIdType), StructField("ruleId", packedIdType)))
 
   val ruleSuiteDetailsResultType = StructType(Seq(StructField("id", packedIdType), ruleSetsType ))
+
+  val expressionResultType = StructType(Seq(StructField("result", StringType), StructField("resultDDL", StringType)))
+  val expressionsRuleSetType = MapType(packedIdType, expressionResultType)
+  val expressionsRuleSetsType = MapType(packedIdType, expressionsRuleSetType)
+  val expressionsResultsType = StructType(Seq(StructField("id", packedIdType), StructField("ruleSetResults", expressionsRuleSetsType)))
 }

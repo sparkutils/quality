@@ -35,9 +35,9 @@ case class OverallResult(probablePass: Double = 0.8, currentResult: RuleResult =
 }
 
 /**
-  * Result collection for a number of named rules
+  * Result collection for a number of rules
   * @param overallResult
-  * @param ruleResults rule name -> ruleresult
+  * @param ruleResults rule id -> ruleresult
   */
 case class RuleSetResult(overallResult: RuleResult, ruleResults: Map[VersionedId, RuleResult]) extends Serializable
 
@@ -58,6 +58,20 @@ case class RuleSuiteResultDetails(id: VersionedId, ruleSetResults: Map[Versioned
 case class RuleSuiteResult(id: VersionedId, overallResult: RuleResult, ruleSetResults: Map[VersionedId, RuleSetResult]) extends Serializable {
   def details: RuleSuiteResultDetails = RuleSuiteResultDetails(id, ruleSetResults)
 }
+
+/**
+ * Represents the expression results of ExpressionRunner
+ * @param ruleResult the result casted to string
+ * @param resultType the result type in ddl
+ */
+case class GeneralExpressionResult(ruleResult: String, resultType: String) extends RuleResult
+
+/**
+ * Represents the results of the ExpressionRunner
+ * @param id
+ * @param ruleSetResults
+ */
+case class GeneralExpressionsResult(id: VersionedId, ruleSetResults: Map[VersionedId, Map[VersionedId, GeneralExpressionResult]]) extends Serializable
 
 /**
  * Represents the rule that matched a given RuleEngine result
