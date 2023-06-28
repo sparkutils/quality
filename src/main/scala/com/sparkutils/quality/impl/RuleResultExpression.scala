@@ -4,7 +4,7 @@ import com.sparkutils.quality.impl.MapUtils.getMapEntry
 import com.sparkutils.quality.ruleSetType
 import org.apache.spark.sql.Column
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, ExprCode}
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.util.MapData
@@ -13,14 +13,9 @@ import org.apache.spark.sql.types.{DataType, IntegerType, LongType}
 
 object RuleResultExpression {
 
-  def getRuleSet(mapData: MapData, cachedPositions: Seq[Int], id: Long): (InternalRow, Seq[Int]) =
-    getMapEntry[InternalRow](mapData, cachedPositions, id) {
-      (i: Int) => mapData.valueArray().getStruct(i, ruleSetType.size)
-    }
-
-  def getRule(mapData: MapData, cachedPositions: Seq[Int], id: Long): (Integer, Seq[Int]) =
+  def getEntry(mapData: MapData, cachedPositions: Seq[Int], id: Long, dataType: DataType): (Any, Seq[Int]) =
     getMapEntry(mapData, cachedPositions, id) {
-      (i: Int) => mapData.valueArray().getInt(i)
+      (i: Int) => mapData.valueArray().get(i, dataType)
     }
 
   def apply(ruleSuiteResultsColumn: Column, ruleSuiteId: Column, ruleSetId: Column, ruleId: Column): RuleResultExpression =
@@ -59,12 +54,12 @@ case class RuleResultExpression(children: Seq[Expression]) extends
       val theStruct = input1.asInstanceOf[InternalRow]
       val suite = theStruct.getLong(0)
       if (suite == input2) {
-        val (row, newCachedS) = RuleResultExpression.getRuleSet(theStruct.getMap(extractResults), cachedSetPositions, input3.asInstanceOf[Long])
+        val (row, newCachedS) = RuleResultExpression.getEntry(theStruct.getMap(extractResults), cachedSetPositions, input3.asInstanceOf[Long], entryType)
         cachedSetPositions = newCachedS
-        if (row eq null)
+        if (row == null)
           null
         else {
-          val (result, newCachedR) = RuleResultExpression.getRule(row.getMap(1), cachedRulePositions, input4.asInstanceOf[Long])
+          val (result, newCachedR) = RuleResultExpression.getEntry(access(row), cachedRulePositions, input4.asInstanceOf[Long], dataType)
           cachedRulePositions = newCachedR
           result
         }
@@ -82,6 +77,19 @@ case class RuleResultExpression(children: Seq[Expression]) extends
     val cachedRulePositions = ctx.addMutableState(setClass, "cachedRulePositions",
       v => s"$v = ($setClass) scala.collection.Seq$$.MODULE$$.<Object>empty();")
 
+    val className = classOf[RuleResultExpression].getName
+    val dataTypeName = classOf[DataType].getName
+
+    val referencesIndex = ctx.references.size - 1
+
+    // pass the type through
+    val dataTypeRef = ctx.addMutableState(dataTypeName, "dataTypeRef",
+      v => s"$v = ($dataTypeName)((($className)references" +
+        s"[$referencesIndex]).dataType());")
+    val entryTypeRef = ctx.addMutableState(dataTypeName, "entryTypeRef",
+      v => s"$v = ($dataTypeName)((($className)references" +
+        s"[$referencesIndex]).getEntryType());")
+
     val structCode = children(0).genCode(ctx)
     val suiteCode = children(1).genCode(ctx)
     val setCode = children(2).genCode(ctx)
@@ -92,6 +100,8 @@ case class RuleResultExpression(children: Seq[Expression]) extends
     val ruleSetResultClassName = "scala.Tuple2<InternalRow, scala.collection.Seq<Object>>"
     val ruleResultClassName = "scala.Tuple2<Integer, scala.collection.Seq<Object>>"
 
+    val dataTypeJava = CodeGenerator.boxedType(dataType)
+
     ev.copy(code =
       code"""
          ${structCode.code}
@@ -99,7 +109,7 @@ case class RuleResultExpression(children: Seq[Expression]) extends
          ${setCode.code}
          ${ruleCode.code}
          boolean ${ev.isNull} = false;
-         int ${ev.value} = 0; // failed by default
+         $dataTypeJava ${ev.value} = ${ CodeGenerator.defaultValue(dataType) };
 
          if (${structCode.isNull} || ${structCode.isNull} || ${structCode.isNull} || ${structCode.isNull}) {
            ${ev.isNull} = true;
@@ -107,18 +117,18 @@ case class RuleResultExpression(children: Seq[Expression]) extends
            ${classOf[InternalRow].getName} theStruct = ${structCode.value};
            Long suite = theStruct.getLong(0);
            if (suite == ${suiteCode.value}) {
-              $ruleSetResultClassName ruleSetResult = $companion.getRuleSet(theStruct.getMap($extractResults), $cachedSetPositions, ${setCode.value});
+              $ruleSetResultClassName ruleSetResult = $companion.getEntry(theStruct.getMap($extractResults), $cachedSetPositions, ${setCode.value}, $entryTypeRef);
               $cachedSetPositions = (scala.collection.Seq<Object>) ruleSetResult._2();
               if (ruleSetResult._1() == null) {
                 ${ev.isNull} = true;
               } else {
-                $ruleResultClassName ruleResult = $companion.getRule(((${classOf[InternalRow].getName})ruleSetResult._1()).getMap(1), $cachedRulePositions, ${ruleCode.value});
+                $ruleResultClassName ruleResult = $companion.getEntry((($className)references[$referencesIndex]).access(ruleSetResult._1()), $cachedRulePositions, ${ruleCode.value}, $dataTypeRef);
                 $cachedRulePositions = (scala.collection.Seq<Object>) ruleResult._2();
                 if (ruleResult._1() == null) {
                   ${ev.isNull} = true;
                 } else {
                   ${ev.isNull} = false;
-                  ${ev.value} = (java.lang.Integer) ruleResult._1();
+                  ${ev.value} = ($dataTypeJava) ruleResult._1();
                 }
               }
             } else {
@@ -128,9 +138,20 @@ case class RuleResultExpression(children: Seq[Expression]) extends
             """)
   }
 
-  override def dataType: DataType = IntegerType
+  lazy val (resultType, entryType, accessF) =
+    if (children(0).dataType == com.sparkutils.quality.expressionsResultsType)
+      (com.sparkutils.quality.expressionResultType, com.sparkutils.quality.expressionsRuleSetType, (a: Any) => a.asInstanceOf[MapData])
+    else
+      (IntegerType, com.sparkutils.quality.ruleSetType, (a: Any) => a.asInstanceOf[InternalRow].getMap(1))
+
+  def getEntryType = entryType
+
+  def access(any: Any): MapData = accessF(any)
+
+  override def dataType: DataType = resultType
 
   override def inputDataTypes: Seq[Seq[DataType]] = Seq(
-    Seq(com.sparkutils.quality.ruleSuiteResultType, com.sparkutils.quality.ruleSuiteDetailsResultType),
+    Seq(com.sparkutils.quality.ruleSuiteResultType, com.sparkutils.quality.ruleSuiteDetailsResultType,
+      com.sparkutils.quality.expressionsResultsType),
     Seq(LongType), Seq(LongType), Seq(LongType))
 }

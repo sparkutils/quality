@@ -613,6 +613,9 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
       Id(30, 3) -> GeneralExpressionResult("499500", "BIGINT"),
       Id(31, 3) -> GeneralExpressionResult("500", "BIGINT")
     ))))
+
+    processed.selectExpr("rule_result(expressionResults, pack_ints(10,2), pack_ints(20,1), pack_ints(31,3))").show
+
   }
 
 }
