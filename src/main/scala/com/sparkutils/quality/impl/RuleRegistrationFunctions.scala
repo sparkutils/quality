@@ -39,12 +39,6 @@ object RuleRegistrationFunctions {
       case _ => literalsNeeded
     }
 
-  protected[quality] def flattenExpressions(ruleSuite: RuleSuite): Seq[Expression] =
-    ruleSuite.ruleSets.flatMap( ruleSet => ruleSet.rules.map(rule =>
-      rule.expression match {
-        case r: ExprLogic => r.expr // only ExprLogic are possible here
-      }))
-
   protected[quality] val mustKeepNames = Set(LambdaFunctions.PlaceHolder,
     LambdaFunctions.Lambda, LambdaFunctions.CallFun)
 

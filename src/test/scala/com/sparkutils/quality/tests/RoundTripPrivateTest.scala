@@ -38,7 +38,7 @@ class RoundTripPrivateTest extends FunSuite with TestUtils {
       ))
     ))
 
-    val flatABC = RuleRegistrationFunctions.flattenExpressions(rules)
+    val flatABC = RuleRunnerUtils.flattenExpressions(rules)
     assert( flatABC.map( _ match {
       case Literal(a, StringType) => a
     }).mkString("") == "abcdefghijkl", "no alphabet" )

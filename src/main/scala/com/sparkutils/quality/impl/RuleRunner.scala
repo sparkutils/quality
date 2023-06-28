@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.RuleLogicUtils.mapRules
-import com.sparkutils.quality.impl.RuleRegistrationFunctions.flattenExpressions
+import com.sparkutils.quality.impl.RuleRunnerUtils.flattenExpressions
 import com.sparkutils.quality.utils.{NonPassThrough, PassThrough}
 import com.sparkutils.quality._
 import org.apache.spark.sql.catalyst.InternalRow
@@ -77,6 +77,12 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
       case Probability(percentage) => (percentage * PassedInt).toInt
       case RuleResultWithProcessor(res, _) => ruleResultToInt(res)
     }
+
+  def flattenExpressions(ruleSuite: RuleSuite): Seq[Expression] =
+    ruleSuite.ruleSets.flatMap(ruleSet => ruleSet.rules.map(rule =>
+      rule.expression match {
+        case r: ExprLogic => r.expr // only ExprLogic are possible here
+      }))
 
   def reincorporateExpressions(ruleSuite: RuleSuite, expr: Seq[Expression], compileEvals: Boolean = true): RuleSuite =
     reincorporateExpressionsF(ruleSuite, expr, (expr: Expression) => ExpressionWrapper(expr, compileEvals))

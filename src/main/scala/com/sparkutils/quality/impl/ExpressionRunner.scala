@@ -1,13 +1,12 @@
 package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.impl.ExpressionRunner.expressionsResultToRow
-import com.sparkutils.quality.impl.RuleRegistrationFunctions.flattenExpressions
-import com.sparkutils.quality.impl.RuleRunnerUtils.reincorporateExpressions
+import com.sparkutils.quality.impl.RuleRunnerUtils.{flattenExpressions, reincorporateExpressions}
 import com.sparkutils.quality.{GeneralExpressionResult, GeneralExpressionsResult, RuleSuite, VersionedId, expressionsResultsType, packId}
 import org.apache.spark.sql.{Column, DataFrame}
 import org.apache.spark.sql.QualitySparkUtils.cast
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{Cast, Expression, NonSQLExpression}
+import org.apache.spark.sql.catalyst.expressions.{Cast, Expression, NonSQLExpression, UnaryExpression}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode}
 import org.apache.spark.sql.catalyst.util.ArrayBasedMapData
 import org.apache.spark.sql.functions.col
