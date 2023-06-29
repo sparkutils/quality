@@ -1,6 +1,8 @@
 ### 0.1.0 <small>10th June, 2023</small>
 
-#28 - rule_result function - retrieves a rule result directly from a dq result
+#32 - expressionRunner - saves the results of expressions as strings, suitable for aggregate statistics
+
+#28 - rule_result function - retrieves a rule result directly from a dq or expressionRunner result
 
 #15 - Addition of the loadXConfigs and loadX functions for maps and blooms, simplifying configuration management
 

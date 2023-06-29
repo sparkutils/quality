@@ -17,6 +17,8 @@ Write rules using simple SQL or create re-usable functions via SQL Lambdas
 
 Your rules are just versioned data, store them wherever convenient, use them by simply defining a column.
 
+* :new:{.pulseABit} - [rule_result](sqlfunctions.md/#rule_result) - directly access rule results from DQ and expressionRunner, simplifying row statistic collection 
+* :new:{.pulseABit} - [expression runner](advanced/expressionRunner.md) - new runner type saving results directly, suitable for aggregate statistics
 * :new:{.pulseABit} - [view loading](advanced/viewLoader.md) - load views for data lookup and transformation rules from a configuration DataFrame
 * :new:{.pulseABit} - [map loading](advanced/mapFunctions.md#map-loading) - load maps using views or DataFrames from a configuration DataFrame
 * :new:{.pulseABit} - [bloom loading](advanced/blooms.md#bloom-loading) - load blooms using views or DataFrames from a configuration DataFrame
