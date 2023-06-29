@@ -1,6 +1,7 @@
 package com.sparkutils.qualityTests.bloom
 
 import com.sparkutils.quality._
+import functions._
 import com.sparkutils.qualityTests._
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.{DataFrame, SaveMode, SparkSession}

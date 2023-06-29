@@ -1,6 +1,7 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
+import com.sparkutils.quality.functions.flatten_folder_results
 import com.sparkutils.quality.impl.RunOnPassProcessor
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.catalyst.expressions.Literal
@@ -263,6 +264,9 @@ class RuleFolderTest extends FunSuite with TestUtils {
         )*/))
 
     val outdfi = outdfit.selectExpr("explode(flattenFolderResults(together)) as expl")
+    val outdfi2 = outdfit.select(explode(flatten_folder_results(col("together"))) as "expl")
+    assert(outdfi.union(outdfi2).distinct().count == outdfi.distinct().count)
+
 
     //println("outdfi show")
 

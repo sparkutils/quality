@@ -1,6 +1,7 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
+import com.sparkutils.quality.functions.{flatten_rule_results, unpack_id_triple}
 import com.sparkutils.quality.impl.{RuleEngineRunner, RunOnPassProcessor}
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions._
@@ -123,8 +124,7 @@ class RuleEngineTest extends FunSuite with TestUtils {
   }
 
   @Test
-  //@elidable(1) // does not work on 3.2 need to elide - possibly due to https://issues.apache.org/jira/browse/SPARK-37392 and Databricks' ES-213117
-  def testFlattenResults(): Unit =  forceInterpreted { // evalCodeGensNoResolve {
+  def testFlattenResults(): Unit = evalCodeGensNoResolve {
     val rer = rules(
       (ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040,1),
         OutputExpression("array(account_row('from', account), account_row('to', 'other_account1'))"))),
@@ -136,35 +136,24 @@ class RuleEngineTest extends FunSuite with TestUtils {
 
     val testDataDF = testData.toDF()
 
-    //val outdf = testDataDF.withColumn("together", rer(testDataDF)).selectExpr("flattenRuleResults(together) as expl").selectExpr("explode(expl) as tostar").selectExpr("tostar.*")
-    val outdfi = testDataDF.withColumn("together", rer(testDataDF)).selectExpr("explode(flattenRuleResults(together)) as expl")
+    val interimT = testDataDF.withColumn("together", rer(testDataDF)).cache()
+    val outdfi = interimT.selectExpr("explode(flattenRuleResults(together)) as expl")
+    val outdfi2 = interimT.select(explode(flatten_rule_results(col("together"))) as "expl")
+    assert(outdfi.union(outdfi2).distinct().count == outdfi.distinct().count)
 
     println("outdfi show")
 
     outdfi.show
     outdfi.printSchema
 
-    //val outdf = outdfi.selectExpr("explode(expl) as tostar").selectExpr("tostar.*")
-    /* comment out from here to "down to here" to just use directly, which doesn't require cache
-    val outdf = outdfi.selectExpr("expl.*")
-    outdf.show
-    outdf.printSchema
-
-    println("RESULT SCHEMA")
-    //outdf.cache // uncomment this to get the tests passing on 3.2
-    val interim = outdf.selectExpr("result")
-    */
-    // "down to here" - comment to above marker and uncomment below to also work without cache
     val interim = outdfi.selectExpr("expl.result")
     interim.printSchema
 
     interim.show
     val res = interim.as[Seq[Posting]].collect()
-    //val res = interim.as[Seq[Row]].collect()
-    //val res = interim.as[Seq[NewPosting]].collect()
     assert(res(0) == Seq(Posting("from", "4201"), Posting("to","other_account1")))
     assert(res(6) == Seq(Posting("from", "another_account"), Posting("to","4206")))
-    assert(res(8) == Seq(Posting("from", "another_account"), Posting("to","4201"))) /**/
+    assert(res(8) == Seq(Posting("from", "another_account"), Posting("to","4201")))
   }
 
   @Test
@@ -189,8 +178,9 @@ class RuleEngineTest extends FunSuite with TestUtils {
     assert(res(5) == Seq(Posting("from", "4201"), Posting("to","other_account1")))
 
     // prove unpackIdTriple works
+    val srulec = outdf.select(unpack_id_triple(col("together.salientRule")) as "salientRule").selectExpr("salientRule.*")
     val srule = outdf.selectExpr("unpackIdTriple(together.salientRule) as salientRule").selectExpr("salientRule.*")
-    srule.show
+    assert(srule.union(srulec).distinct().count == srule.distinct.count)
 
     // need Option for the int's because they may be null.
     val sruleres = srule.select("ruleSuiteId","ruleSuiteVersion","ruleSetId","ruleSetVersion","ruleId","ruleVersion").

@@ -1,17 +1,11 @@
 package com.sparkutils.quality.impl.longPair
 
-import com.sparkutils.quality.BloomFilterMap
-import com.sparkutils.quality.BloomLookup
-import com.sparkutils.quality.impl.bloom.{BloomExpressionLookup, BloomFilterLookup}
 import com.sparkutils.quality.impl.id.{GenericLongBasedID, model}
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode}
-import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression, NullIntolerant, UnaryExpression}
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
+import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression, NullIntolerant, UnaryExpression}
 import org.apache.spark.sql.qualityFunctions.InputTypeChecks
 import org.apache.spark.sql.types.{DataType, LongType, StructField, StructType}
-import org.apache.spark.sql.{Column, QualitySparkUtils, SparkSession}
-
-import scala.annotation.tailrec
 
 object LongPair {
   val structType = StructType(Seq(

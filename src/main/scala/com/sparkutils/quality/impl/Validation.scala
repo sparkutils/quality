@@ -2,10 +2,10 @@ package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.impl.VariablesLookup.Identifiers
 import com.sparkutils.quality.impl.util.RuleSuiteDocs.{IdTrEither, LambdaId, OutputExpressionId, RuleId}
-import com.sparkutils.quality.impl.util.{Docs, RuleSuiteDocs, WithDocs, DocsParser}
+import com.sparkutils.quality.impl.util.{Docs, DocsParser, RuleSuiteDocs, WithDocs}
 import com.sparkutils.quality._
 import org.apache.spark.sql.catalyst.analysis.UnresolvedRelation
-import org.apache.spark.sql.catalyst.expressions.{Expression, LambdaFunction => SLambdaFunction, SubqueryExpression}
+import org.apache.spark.sql.catalyst.expressions.{Expression, SubqueryExpression, LambdaFunction => SLambdaFunction}
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql._
 

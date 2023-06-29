@@ -2,6 +2,7 @@ package com.sparkutils.qualityTests
 
 import com.sparkutils.quality.impl.RuleLogicUtils.mapRules
 import com.sparkutils.quality._
+import com.sparkutils.quality.functions.rng_bytes
 import com.sparkutils.quality.impl.rng.RandomBytes
 import com.sparkutils.qualityTests.ResultHelper.longSchema
 import org.apache.commons.rng.simple.RandomSource
@@ -268,7 +269,7 @@ object UUIDPerfTest extends Bench.OfflineReport with RowTools {
 
   performance of "UUIDWriting" in {
     measure method "writeWithPCG" in {
-      using(rows) in evaluate(_.withColumn("uuid", RandomBytes(RandomSource.PCG_RXS_M_XS_64) ), "writeWithPCG")
+      using(rows) in evaluate(_.withColumn("uuid", rng_bytes(RandomSource.PCG_RXS_M_XS_64) ), "writeWithPCG")
     }
     measure method "writeWithXOR128" in {
       using(rows) in evaluate(_.withColumn("uuid", RandomBytes(RandomSource.XO_RO_SHI_RO_128_PP) ), "writeWithXOR")

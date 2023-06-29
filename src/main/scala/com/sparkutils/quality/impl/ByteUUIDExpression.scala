@@ -33,6 +33,7 @@ object RngUUIDExpression {
     (l, h)
   }
 
+  /** Note: This implementation is the same as the Spark uuid function but allows a pluggable rng instead of the twister */
   def getNextUUID(most: Long, least: Long): UUID = {
     val mostSigBits = (most & 0xFFFFFFFFFFFF0FFFL) | 0x0000000000004000L
     val leastSigBits = (least | 0x8000000000000000L) & 0xBFFFFFFFFFFFFFFFL

@@ -21,6 +21,20 @@ trait BloomFilterRegistration {
 
 }
 
+trait BloomFilterLookupFunctionImport {
+
+  /**
+   * Lookup the value against a bloom filter from bloomMap with name bloomFilterName
+   *
+   * @param bloomFilterName
+   * @param lookupValue
+   * @param bloomMap
+   * @return
+   */
+  def bloomFilterLookup(bloomFilterName: Column, lookupValue: Column, bloomMap: Broadcast[BloomExpressionLookup.BloomFilterMap]): Column =
+    BloomFilterLookup(bloomFilterName, lookupValue, bloomMap)
+
+}
 
 trait BloomFilterLookupImports {
 
@@ -31,10 +45,6 @@ trait BloomFilterLookupImports {
    * @return The bloom id's used, for unresolved expression trees this may contain blooms which are not present in the bloom map
    */
   def getBlooms(ruleSuite: RuleSuite): Seq[String] = BloomFilterLookup.getBlooms(ruleSuite)
-
-  def bloomFilterLookup(bloomFilterName: Column, lookupValue: Column, bloomMap: Broadcast[BloomExpressionLookup.BloomFilterMap]): Column =
-    BloomFilterLookup(bloomFilterName, lookupValue, bloomMap)
-
 
   import Serializing.{factory, bloomRowEncoder}
 

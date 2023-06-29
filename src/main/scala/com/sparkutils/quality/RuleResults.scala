@@ -1,6 +1,6 @@
 package com.sparkutils.quality
 
-import com.sparkutils.quality.impl.{RunOnPassProcessor, VersionedId}
+import com.sparkutils.quality.impl.VersionedId
 
 sealed trait RuleResult extends Serializable
 
@@ -26,7 +26,7 @@ case class Probability(percentage: Double) extends RuleResult
 /**
  * Packs a rule result with a RunOnPassProcessor processor
  */
-case class RuleResultWithProcessor(ruleResult: RuleResult, runOnPassProcessor: RunOnPassProcessor) extends RuleResult
+case class RuleResultWithProcessor(ruleResult: RuleResult, runOnPassProcessor: impl.RunOnPassProcessor) extends RuleResult
 
 /**
   * Probability is evaluated at over probablePass percent, defaults to 80% 0.8.
@@ -66,7 +66,7 @@ case class RuleSuiteResult(id: VersionedId, overallResult: RuleResult, ruleSetRe
  * @param ruleResult the result casted to string
  * @param resultDDL the result type in ddl
  */
-case class GeneralExpressionResult(ruleResult: String, resultDDL: String) extends RuleResult
+case class GeneralExpressionResult(ruleResult: String, resultDDL: String)
 
 /**
  * Represents the results of the ExpressionRunner

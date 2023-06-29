@@ -120,7 +120,10 @@ functions:
     tags:
       - longs
   rng_UUID:
-    description: "rng_UUID(expr) takes either a structure with lower and higher longs or a 128bit binary type and converts to a string uuid"
+    description: |
+      rng_UUID(expr) takes either a structure with lower and higher longs or a 128bit binary type and converts to a string uuid - use with, for example, the rng() function.
+      
+      If a simple conversion from two longs (lower, higher) to a uuid is desired then use as_uuid, rng_uuid applies the same transformations as the Spark uuid to the input higher and lower longs.
     tags:
       - longs
   rng:
@@ -321,7 +324,7 @@ functions:
     tags:
       - ID, longs
   as_uuid:
-    description: "as_uuid(lower_long, higher_long) converts two longs into a uuid, equivalent to rngUUID(longPair(lower, higher))"
+    description: "as_uuid(lower_long, higher_long) converts two longs into a uuid. Note: this is not functionally equivalent to rng_uuid(longPair(lower, higher)) despite having the same types."
     tags:
       - longs
   update_Field:

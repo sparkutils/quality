@@ -1,13 +1,12 @@
 package com.sparkutils
 
+import com.sparkutils.quality.impl.RuleSparkTypes
 import com.sparkutils.quality.impl.bloom.parquet.{BlockSplitBloomFilterImports, BucketedCreatorFunctionImports}
 import com.sparkutils.quality.impl.bloom.{BloomFilterLookupImports, BloomFilterRegistration, BloomFilterTypes}
-import com.sparkutils.quality.impl.id.{GenericLongBasedImports, GuaranteedUniqueIDImports}
-import com.sparkutils.quality.impl.imports.{ExpressionRunnerImports, LambdaFunctionsImports, ProcessDisableIfMissingImports, RuleEngineRunnerImports, RuleFolderRunnerImports, RuleRunnerFunctionsImport, RuleRunnerImports, ValidationImports}
+import com.sparkutils.quality.impl.imports._
 import com.sparkutils.quality.impl.mapLookup.MapLookupImports
-import com.sparkutils.quality.impl.util.{AddDataFunctionsImports, ComparableMapsImports, LookupIdFunctionsImports, SerializingImports}
+import com.sparkutils.quality.impl.util.{AddDataFunctionsImports, LookupIdFunctionsImports, SerializingImports}
 import com.sparkutils.quality.impl.views.ViewLoading
-import com.sparkutils.quality.impl.RuleSparkTypes
 import org.apache.spark.sql.internal.SQLConf
 import org.slf4j.LoggerFactory
 
@@ -15,12 +14,10 @@ import org.slf4j.LoggerFactory
  * Provides an easy import point for the library.
  */
 package object quality extends BloomFilterTypes with BucketedCreatorFunctionImports with RuleRunnerFunctionsImport
-  with BloomFilterRegistration with RuleRunnerImports with Serializable with MapLookupImports
+  with BloomFilterRegistration with RuleRunnerImports with Serializable with MapLookupImports with LookupIdFunctionsImports
   with RuleSparkTypes with BloomFilterLookupImports with BlockSplitBloomFilterImports with SerializingImports
-  with AddDataFunctionsImports with LambdaFunctionsImports with LookupIdFunctionsImports
-  with GenericLongBasedImports with GuaranteedUniqueIDImports with RuleEngineRunnerImports with ValidationImports
-  with ProcessDisableIfMissingImports with RuleFolderRunnerImports with ComparableMapsImports with ViewLoading
-  with ExpressionRunnerImports {
+  with AddDataFunctionsImports with LambdaFunctionsImports with RuleEngineRunnerImports with ValidationImports
+  with ProcessDisableIfMissingImports with RuleFolderRunnerImports with ViewLoading with ExpressionRunnerImports {
   // NB it must inherit Serializable due to the nested types and sparks serialization
 
   val logger = LoggerFactory.getLogger("com.sparkutils.quality")

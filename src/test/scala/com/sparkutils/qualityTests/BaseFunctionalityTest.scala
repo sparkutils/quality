@@ -1,28 +1,23 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality
-
-import java.util.UUID
 import com.sparkutils.quality._
-import com.sparkutils.quality.impl.ExpressionRunner
+import functions._
 import com.sparkutils.quality.impl.longPair.AsUUID
 import com.sparkutils.quality.impl.util.{Arrays, PrintCode}
-import org.apache.spark.sql.QualitySparkUtils.newParser
-import org.apache.spark.sql.catalyst.expressions.{Expression, SubqueryExpression}
-import org.apache.spark.sql.catalyst.plans.logical.Project
 import org.apache.spark.sql.catalyst.util.ArrayData
-import org.apache.spark.sql.{Column, DataFrame, Encoder, SaveMode, functions}
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.types.{IntegerType, StringType}
+import org.apache.spark.sql.types.IntegerType
+import org.apache.spark.sql.{Column, DataFrame, Encoder, SaveMode}
 import org.junit.Test
 import org.scalatest.FunSuite
 
+import java.util.UUID
 import scala.language.postfixOps
 
 class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
   @Test
-  //@elidable(1) // does not work on 3.2 need to elide - possibly due to https://issues.apache.org/jira/browse/SPARK-37392 and Databricks' ES-213117
   def flattenResultsTest: Unit = evalCodeGensNoResolve {
     val rules = genRules(27, 27)
     val rulecount = rules.ruleSets.map( s => s.rules.size).sum
@@ -31,14 +26,9 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
     val df = taddDataQuality(dataFrameLong(toWrite, 27, ruleSuiteResultType, null), rules)
 
-    // fails on 3.2 when the deserializer is not evaluated by spark before use
-    //val exploded = df.select(expr("*"), expr("explode(flattenResults(DataQuality))").as("struct")).select("*","struct.*")
     val exploded = df.select(expr("*"), expr("explode(flattenResults(DataQuality))").as("struct")).select("struct.*")
-    // works on 3.2
-//    val exploded = df.select(expr("*"), expr("flattenResults(DataQuality)").as("flattened")).select(expr("explode(flattened)").as("struct")).select("struct.*")
-
-    //println(exploded.queryExecution)
-    //exploded.show(84)
+    val exploded2 = df.select(expr("*"), explode(flatten_results(col("DataQuality"))).as("struct")).select("struct.*")
+    assert(exploded.union(exploded2).distinct().count == exploded.distinct().count)
 
     // verify fields are there
     assert(!exploded.select("ruleSuiteId", "ruleSuiteVersion", "ruleSuiteResult", "ruleSetResult", "ruleSetId", "ruleSetVersion", "ruleId", "ruleVersion", "ruleResult").isEmpty, "Flattened fields should be present")
@@ -116,6 +106,13 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     assert(rulecount * (writeRows + 1) == res, "exploded count size was unexpected")
   }
 */
+  @Test
+  def verifyResultExprDSL: Unit = evalCodeGens {
+    assert(sparkSession.range(1).selectExpr("passed() p", "soft_failed() s", "disabled_rule() d", "failed() f")
+      .select(expr("*"), passed as "p1", soft_failed as "s1", disabled_rule as "d1", failed as "f1")
+      .filter("p1 = p and s1 = s and d1 = d and f1 = f").count == 1)
+  }
+
   @Test // probabilityIn is covered by bloomtests, flatten by explodeResultsTest
   def verifySimpleExprs: Unit = evalCodeGens {
 
@@ -135,11 +132,14 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
       selectExpr("*", "rngUUID(longPairFromUUID(uuid())) throwaway").
       selectExpr("*", "rngUUID(named_struct('lower', fparts.lower + id, 'higher', fparts.higher)) as f"," longPair(`id` + 0L, `id` + 1L) as rowid", "unpack(d) as g", "probability(1000) as prob",
         "as_uuid(fparts.lower + id, fparts.higher) as asUUIDExpr"
-      ).select(expr("*"), AsUUID(expr("fparts.lower + id"), expr("fparts.higher")).as("asUUIDCol"))
+      ).select(expr("*"), unpack(col("d")) as "g2", AsUUID(expr("fparts.lower + id"), expr("fparts.higher")).as("asUUIDCol"))
 
-    df.write.mode(SaveMode.Overwrite).parquet(outputDir + "/simpleExprs")
-    val re = sparkSession.read.parquet(outputDir + "/simpleExprs")
     import sparkSession.implicits._
+    val unpackCheck = df.selectExpr("g", "g2").as[((Int, Int), (Int, Int))].head
+    assert(unpackCheck._1 == unpackCheck._2)
+
+    df.drop("g2").write.mode(SaveMode.Overwrite).parquet(outputDir + "/simpleExprs")
+    val re = sparkSession.read.parquet(outputDir + "/simpleExprs")
     val res = re.as[SimpleRes].orderBy(col("id").asc).head()
     assert(res match {
       case SimpleRes(1, FailedInt, PassedInt, SoftFailedInt, Packed, SoftFailedInt, DisabledRuleInt, ModifiedString, _, TestId, id, 0.01, ModifiedString, ModifiedString) => true
@@ -164,14 +164,18 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     val tests = Seq("cannot resolve", "requires (int or bigint) type")
     doTypeCheck("probability('a')", tests :+ "however, a is of string type")
     doTypeCheck("probability(1.02)", tests :+ "however, 1.02 is of decimal(3,2) type") // NB will be double in Spark 3.0
+    doTypeCheck(probability(lit(1.02)), tests :+ "however, 1.02 is of double type") // double as the lit input is a double
   }
 
-  def doTypeCheck(eval: String, containsTests: Seq[String]) : Unit = evalCodeGens {
+  def doTypeCheck(eval: String, containsTests: Seq[String]) : Unit =
+    doTypeCheck(expr(eval), containsTests)
+
+  def doTypeCheck(expr: Column, containsTests: Seq[String]) : Unit = evalCodeGens {
     val df = dataFrameLong(writeRows, 27, ruleSuiteResultType, null)
 
     var failed = false
     try {
-      val exploded = df.select(expr(eval))
+      val exploded = df.select(expr)
       exploded.count
       failed = true
     } catch {
@@ -234,9 +238,8 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
   def oddBoxingIssueShouldRun: Unit = doSimpleOverallEval(simplePrimitiveButNotLiteralRule, null) // we don't care about the result
 
   def doSimpleOverallEval(ruleSuite: RuleSuite, expected: RuleResult): Unit =  evalCodeGens {
-    import frameless._
-
     import com.sparkutils.quality.implicits._
+    import frameless._
 
     val df = {
       import sparkSession.implicits._ // can't have it use these defaults or it fails on versionedid and friends
@@ -323,7 +326,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
     // can't resolve DataQuality here, manages quite nicely on it's own
     val comparable = df.selectExpr("*", "comparableMaps(DataQuality) compDQ").drop("DataQuality")
-    val comparable2 = df2.select(expr("*"), comparableMaps(col("DataQuality")).as("compDQ")).drop("DataQuality")
+    val comparable2 = df2.select(expr("*"), comparable_maps(col("DataQuality")).as("compDQ")).drop("DataQuality")
 
     //comparable.show
     val unioned = comparable union comparable2 distinct
@@ -351,7 +354,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
       // can't resolve DataQuality here, manages quite nicely on it's own
       val comparable = df.selectExpr("comparableMaps(value) v")
-      val comparable2 = df2.select(comparableMaps(col("value")).as("v"))
+      val comparable2 = df2.select(comparable_maps(col("value")).as("v"))
 
       //comparable.show
       val unioned = comparable union comparable2 distinct
@@ -451,7 +454,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
         assert(map.seq(0) == maps(index)) // because all 4 are identical
     }
 
-    val sorted2 = comparable.sort("seq").select(reverseComparableMaps(col("seq")).as("seq")).as[MapArray]
+    val sorted2 = comparable.sort("seq").select(reverse_comparable_maps(col("seq")).as("seq")).as[MapArray]
     sorted2.collect().zipWithIndex.foreach{
       case (map,index) =>
         assert(map.seq(0) == maps(index)) // because all 4 are identical
@@ -603,7 +606,6 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
       Rule(Id(31, 3), ExpressionRule("aggExpr(rule_result(DataQuality, pack_ints(11,2), pack_ints(21,1), pack_ints(40,3)) == passed(), inc(), returnSum())"))
     ))))
 
-    import frameless._
     import quality.implicits._
 
     val processed = taddDataQuality(sparkSession.range(1000).toDF, rowrs).select(expressionRunner(rs))
@@ -621,6 +623,8 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     assert(gres == GeneralExpressionResult("500", "BIGINT"))
 
     val stripped = processed.selectExpr("strip_result_ddl(expressionResults) rr")
+    val stripped2 = processed.select(strip_result_ddl(col("expressionResults")) as "rr")
+    assert(stripped.select(comparable_maps(col("rr"))).union( stripped2.select(comparable_maps(col("rr"))) ).distinct.count == 1)
 
     val strippedRes = stripped.selectExpr("rr.*").as[GeneralExpressionsResultNoDDL].head()
     assert(strippedRes == GeneralExpressionsResultNoDDL(Id(10, 2), Map(Id(20, 1) -> Map(
@@ -630,7 +634,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
     val strippedGres = {
       import sparkSession.implicits._
-      stripped.selectExpr("rule_result(rr, pack_ints(10,2), pack_ints(20,1), pack_ints(31,3))")
+      stripped.select(rule_result(col("rr"), pack_ints(10,2), pack_ints(20,1), pack_ints(Id(31,3))))
         .as[String].head
     }
 
