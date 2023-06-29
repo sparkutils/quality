@@ -288,7 +288,7 @@ case class RuleRunner(ruleSuite: RuleSuite, child: Expression, compileEvals: Boo
         val converted =
           s"""${eval.code}\n
 
-             $arrTerm[$idx] = ${eval.isNull} ? null : com.sparkutils.quality.RuleLogicUtils.anyToRuleResultInt(${eval.value});"""
+             $arrTerm[$idx] = ${eval.isNull} ? null : com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt(${eval.value});"""
 
         converted
     }.grouped(variablesPerFunc).grouped(variableFuncGroup)

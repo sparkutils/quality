@@ -27,7 +27,7 @@ case class RuleSuiteResultDetailsExpr(child: Expression) extends UnaryExpression
   def dataType: DataType = com.sparkutils.quality.ruleSuiteDetailsResultType
 
   override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode =
-    defineCodeGen(ctx, ev, c => s"com.sparkutils.quality.impl.RuleSuiteResultDetails.getDetails($c)")
+    defineCodeGen(ctx, ev, c => s"com.sparkutils.quality.impl.RuleSuiteResultDetailsExpr.getDetails($c)")
 
   protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
 }

@@ -248,7 +248,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
           ("", s"$utilsName.ruleResultToInt($childrenFuncTerm[$idx].eval($i))")
         else {
           val eval = exp.genCode(ctx)
-          (eval.code, s"com.sparkutils.quality.RuleLogicUtils.anyToRuleResultInt(${eval.isNull} ? null : ${eval.value})")
+          (eval.code, s"com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt(${eval.isNull} ? null : ${eval.value})")
         }
 
       val converted =
