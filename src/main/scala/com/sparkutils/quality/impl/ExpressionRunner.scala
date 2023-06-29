@@ -3,13 +3,15 @@ package com.sparkutils.quality.impl
 import com.sparkutils.quality.impl.ExpressionRunner.expressionsResultToRow
 import com.sparkutils.quality.impl.RuleRunnerUtils.{flattenExpressions, reincorporateExpressions}
 import com.sparkutils.quality._
+import com.sparkutils.quality.utils.Arrays
 import org.apache.spark.sql.QualitySparkUtils.cast
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
-import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression}
-import org.apache.spark.sql.catalyst.util.ArrayBasedMapData
+import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression, UnaryExpression}
+import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, GenericArrayData, MapData}
 import org.apache.spark.sql.types.{DataType, StringType}
 import org.apache.spark.sql.Column
+import org.apache.spark.sql.qualityFunctions.InputTypeChecks
 import org.apache.spark.unsafe.types.UTF8String
 
 object ExpressionRunner {
@@ -36,7 +38,7 @@ object ExpressionRunner {
           ArrayBasedMapData(
             v, packId, (a: Any) => {
               val r = a.asInstanceOf[GeneralExpressionResult]
-              InternalRow(UTF8String.fromString( r.ruleResult ), UTF8String.fromString( r.resultType) )
+              InternalRow(UTF8String.fromString( r.ruleResult ), UTF8String.fromString( r.resultDDL) )
             }
           )
         }
@@ -71,4 +73,27 @@ case class ExpressionRunner(ruleSuite: RuleSuite, children: Seq[Expression])
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
     copy(children = newChildren)
 
+}
+
+case class StripResultTypes(child: Expression) extends UnaryExpression with CodegenFallback with InputTypeChecks {
+  protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
+
+  override def nullSafeEval(input: Any): Any = {
+    val row = input.asInstanceOf[InternalRow]
+    val setData = row.getMap(1)
+    val values =
+      Arrays.mapArray(setData.valueArray(), expressionsRuleSetType, a => {
+        val rulesData = a.asInstanceOf[MapData]
+        val values = Arrays.mapArray(rulesData.valueArray(), expressionResultType, a => {
+          val row = a.asInstanceOf[InternalRow]
+          row.getUTF8String(0)
+        })
+        new ArrayBasedMapData(rulesData.keyArray(), new GenericArrayData(values))
+      })
+    InternalRow(row.getLong(0), new ArrayBasedMapData(setData.keyArray(), new GenericArrayData(values)))
+  }
+
+  override def dataType: DataType = expressionsResultsNoDDLType
+
+  override def inputDataTypes: Seq[Seq[DataType]] = Seq(Seq(expressionsResultsType))
 }

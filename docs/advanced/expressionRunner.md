@@ -44,3 +44,27 @@ RuleSuites are built per the normal DQ rules and executed by adding an expressio
     ```
 
     which will not work without group by's.
+
+## strip_result_ddl
+
+The resultType string is useful in debugging but may not be for storage, if you wish to trim this information from the results use the strip_result_ddl function.
+
+This turns the result from GeneralExpressionResult into a simple string:
+
+```{.scala #exampleCode}
+    val stripped = processed.selectExpr("strip_result_ddl(expressionResults) rr")
+
+    val strippedRes = stripped.selectExpr("rr.*").as[GeneralExpressionsResultNoDDL].head()
+    assert(strippedRes == GeneralExpressionsResultNoDDL(Id(10, 2), Map(Id(20, 1) -> Map(
+      Id(30, 3) -> "499500",
+      Id(31, 3) -> "500")
+    )))
+
+    val strippedGres = {
+      import sparkSession.implicits._
+      stripped.selectExpr("rule_result(rr, pack_ints(10,2), pack_ints(20,1), pack_ints(31,3))")
+        .as[String].head
+    }
+
+    assert(strippedGres == "500")
+```

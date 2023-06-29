@@ -619,6 +619,22 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
         .selectExpr("rr.*").as[GeneralExpressionResult].head
 
     assert(gres == GeneralExpressionResult("500", "BIGINT"))
+
+    val stripped = processed.selectExpr("strip_result_ddl(expressionResults) rr")
+
+    val strippedRes = stripped.selectExpr("rr.*").as[GeneralExpressionsResultNoDDL].head()
+    assert(strippedRes == GeneralExpressionsResultNoDDL(Id(10, 2), Map(Id(20, 1) -> Map(
+      Id(30, 3) -> "499500",
+      Id(31, 3) -> "500")
+    )))
+
+    val strippedGres = {
+      import sparkSession.implicits._
+      stripped.selectExpr("rule_result(rr, pack_ints(10,2), pack_ints(20,1), pack_ints(31,3))")
+        .as[String].head
+    }
+
+    assert(strippedGres == "500")
   }
 
 }

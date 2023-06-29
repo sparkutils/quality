@@ -62,9 +62,9 @@ case class RuleSuiteResult(id: VersionedId, overallResult: RuleResult, ruleSetRe
 /**
  * Represents the expression results of ExpressionRunner
  * @param ruleResult the result casted to string
- * @param resultType the result type in ddl
+ * @param resultDDL the result type in ddl
  */
-case class GeneralExpressionResult(ruleResult: String, resultType: String) extends RuleResult
+case class GeneralExpressionResult(ruleResult: String, resultDDL: String) extends RuleResult
 
 /**
  * Represents the results of the ExpressionRunner
@@ -72,6 +72,13 @@ case class GeneralExpressionResult(ruleResult: String, resultType: String) exten
  * @param ruleSetResults
  */
 case class GeneralExpressionsResult(id: VersionedId, ruleSetResults: Map[VersionedId, Map[VersionedId, GeneralExpressionResult]]) extends Serializable
+
+/**
+ * Represents the results of the ExpressionRunner after calling strip_result_ddl
+ * @param id
+ * @param ruleSetResults
+ */
+case class GeneralExpressionsResultNoDDL(id: VersionedId, ruleSetResults: Map[VersionedId, Map[VersionedId, String]]) extends Serializable
 
 /**
  * Represents the rule that matched a given RuleEngine result

@@ -9,7 +9,7 @@ import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.util.MapData
 import org.apache.spark.sql.qualityFunctions.InputTypeChecks
-import org.apache.spark.sql.types.{DataType, IntegerType, LongType}
+import org.apache.spark.sql.types.{DataType, IntegerType, LongType, StringType}
 
 object RuleResultExpression {
 
@@ -139,10 +139,14 @@ case class RuleResultExpression(children: Seq[Expression]) extends
   }
 
   lazy val (resultType, entryType, accessF) =
-    if (children(0).dataType == com.sparkutils.quality.expressionsResultsType)
-      (com.sparkutils.quality.expressionResultType, com.sparkutils.quality.expressionsRuleSetType, (a: Any) => a.asInstanceOf[MapData])
-    else
-      (IntegerType, com.sparkutils.quality.ruleSetType, (a: Any) => a.asInstanceOf[InternalRow].getMap(1))
+    children(0).dataType match {
+      case com.sparkutils.quality.expressionsResultsType =>
+        (com.sparkutils.quality.expressionResultType, com.sparkutils.quality.expressionsRuleSetType, (a: Any) => a.asInstanceOf[MapData] )
+      case com.sparkutils.quality.expressionsResultsNoDDLType =>
+        (StringType, com.sparkutils.quality.expressionsRuleSetNoDDLType, (a: Any) => a.asInstanceOf[MapData])
+      case _ =>
+        (IntegerType, com.sparkutils.quality.ruleSetType, (a: Any) => a.asInstanceOf[InternalRow].getMap (1) )
+    }
 
   def getEntryType = entryType
 
@@ -152,6 +156,6 @@ case class RuleResultExpression(children: Seq[Expression]) extends
 
   override def inputDataTypes: Seq[Seq[DataType]] = Seq(
     Seq(com.sparkutils.quality.ruleSuiteResultType, com.sparkutils.quality.ruleSuiteDetailsResultType,
-      com.sparkutils.quality.expressionsResultsType),
+      com.sparkutils.quality.expressionsResultsType, com.sparkutils.quality.expressionsResultsNoDDLType),
     Seq(LongType), Seq(LongType), Seq(LongType))
 }
