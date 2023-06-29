@@ -1,7 +1,7 @@
 package org.apache.spark.sql.qualityFunctions
 
-import com.sparkutils.quality.{QualityException, RuleLogicUtils}
-import com.sparkutils.quality.impl.HigherOrderFunctionLike
+import com.sparkutils.quality.{QualityException}
+import com.sparkutils.quality.impl.{HigherOrderFunctionLike, RuleLogicUtils}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{TypeCheckResult, UnresolvedAttribute, UnresolvedExtractValue}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper

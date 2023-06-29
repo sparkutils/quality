@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality.utils.Serializing
-import com.sparkutils.quality.{Passed, RuleLogicUtils, SoftFailedInt}
+import com.sparkutils.quality.impl.util.Serializing
+import com.sparkutils.quality.{Passed, SoftFailedInt}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
 import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionDescription, NullIntolerant, UnaryExpression}
 import org.apache.spark.sql.types.{DataType, IntegerType}

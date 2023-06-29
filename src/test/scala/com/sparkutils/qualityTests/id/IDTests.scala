@@ -5,7 +5,7 @@ import com.sparkutils.quality.impl.hash.{HashFunctionFactory, MessageDigestFacto
 import com.sparkutils.quality.impl.id._
 import com.sparkutils.quality.impl.id.model.{ProvidedID, RandomID}
 import com.sparkutils.quality.impl.rng.RandomLongs
-import com.sparkutils.quality.utils.BytePackingUtils
+import com.sparkutils.quality.impl.util.BytePackingUtils
 import com.sparkutils.qualityTests._
 import org.apache.commons.rng.simple.RandomSource
 import org.apache.spark.sql.functions._

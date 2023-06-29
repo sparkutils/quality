@@ -1,5 +1,7 @@
 package com.sparkutils.quality
 
+import com.sparkutils.quality.impl.{RunOnPassProcessor, VersionedId}
+
 sealed trait RuleResult extends Serializable
 
 case object Failed extends RuleResult

@@ -1,16 +1,13 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality
-import com.sparkutils.quality.VariablesLookup.Identifiers
-import com.sparkutils.quality.impl.Validation.validate
-import com.sparkutils.quality.utils.RuleSuiteDocs.{IdTrEither, LambdaId, OutputExpressionId, RuleId}
-import com.sparkutils.quality.utils.{Docs, DocsParser, RuleSuiteDocs, WithDocs}
-import com.sparkutils.quality.{ExpressionLookup, ExpressionRule, HasExpr, HasRuleText, Id, NoOpRunOnPassProcessor, OutputExpression, Rule, RuleLogicUtils, RuleSuite, RunOnPassProcessor, VariablesLookup, namesFromSchema}
+import com.sparkutils.quality.impl.VariablesLookup.Identifiers
+import com.sparkutils.quality.impl.util.RuleSuiteDocs.{IdTrEither, LambdaId, OutputExpressionId, RuleId}
+import com.sparkutils.quality.impl.util.{Docs, RuleSuiteDocs, WithDocs, DocsParser}
+import com.sparkutils.quality._
 import org.apache.spark.sql.catalyst.analysis.UnresolvedRelation
-import org.apache.spark.sql.{Column, DataFrame, QualitySparkUtils, Row, SparkSession}
-import org.apache.spark.sql.catalyst.expressions.{Expression, LambdaFunction, SubqueryExpression}
-import org.apache.spark.sql.catalyst.plans.logical.Project
+import org.apache.spark.sql.catalyst.expressions.{Expression, LambdaFunction => SLambdaFunction, SubqueryExpression}
 import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql._
 
 import scala.collection.mutable
 
@@ -255,9 +252,9 @@ object Validation {
 
   protected def validateLambdas(ruleSuite: RuleSuite, recursiveLambdasSOEIsOk: Boolean, names: Set[String], viewLookup: String => Boolean): Either[(Set[RuleError], Set[RuleWarning], String, RuleSuiteDocs, Map[IdTrEither, ExpressionLookup]),
     (Seq[(String, Either[(Id, Expression), LambdaSyntaxError])], Map[String, Map[Id, Set[String]]],
-      Set[Id], Set[LambdaSparkFunctionNameError], Set[LambdaMultipleImplementationWithSameArityError], Set[LambdaNameError], Map[Id, WithDocs[quality.LambdaFunction]], Set[RuleWarning], Map[IdTrEither, ExpressionLookup], Set[LambdaViewError])] = {
+      Set[Id], Set[LambdaSparkFunctionNameError], Set[LambdaMultipleImplementationWithSameArityError], Set[LambdaNameError], Map[Id, WithDocs[LambdaFunction]], Set[RuleWarning], Map[IdTrEither, ExpressionLookup], Set[LambdaViewError])] = {
 
-    var lambdas = Map.empty[Id, WithDocs[quality.LambdaFunction]]
+    var lambdas = Map.empty[Id, WithDocs[LambdaFunction]]
     val docsWarnings = mutable.Set[RuleWarning]()
 
     val viewErrors = ruleSuite.lambdaFunctions.flatMap { f =>
@@ -277,7 +274,7 @@ object Validation {
 
           val args =
             expr match {
-              case lambda: LambdaFunction => lambda.arguments.map(VariablesLookup.toName).toSet
+              case lambda: SLambdaFunction => lambda.arguments.map(VariablesLookup.toName).toSet
               case _ => Set.empty[String]
             }
 

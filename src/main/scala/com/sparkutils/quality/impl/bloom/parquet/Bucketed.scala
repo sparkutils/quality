@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl.bloom.parquet
 
+import com.sparkutils.quality.impl.util.{BytePackingUtils, TSLocal, TransientHolder}
 import java.io._
-import com.sparkutils.quality.utils.{BytePackingUtils, TSLocal, TransientHolder}
 import com.sparkutils.quality.{BloomLookup, BloomModel}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.{DataFrame, SparkSession}

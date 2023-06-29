@@ -1,12 +1,13 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
-import com.sparkutils.quality.impl.RuleEngineRunner
+import com.sparkutils.quality.impl.{RuleEngineRunner, RunOnPassProcessor}
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.{BooleanType, DataType, IntegerType, StructField, StructType}
 import org.junit.Test
 import org.scalatest.FunSuite
+
 import java.io.{ByteArrayOutputStream, ObjectOutputStream}
 
 case class TestOn(product: String, account: String, subcode: Int)

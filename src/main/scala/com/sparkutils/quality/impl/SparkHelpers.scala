@@ -2,7 +2,7 @@ package com.sparkutils.quality.impl
 
 import frameless.{Injection, NotCatalystNullable, TypedColumn, TypedEncoder, TypedExpressionEncoder}
 import com.sparkutils.quality._
-import com.sparkutils.quality.utils.Serializing
+import com.sparkutils.quality.impl.util.Serializing
 import org.apache.spark.sql.{Encoder, Row}
 import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, ArrayData, GenericArrayData, MapData}
 import org.apache.spark.sql.types.{DataType, IntegerType, LongType, MapType, StringType, StructField, StructType}

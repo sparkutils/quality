@@ -1,6 +1,6 @@
 package com.sparkutils.qualityTests
 
-import com.sparkutils.quality.{Id, LambdaFunctionImpl, registerLambdaFunctions}
+import com.sparkutils.quality.{Id, registerLambdaFunctions, LambdaFunction}
 import com.sparkutils.quality.impl.RuleRegistrationFunctions.INC_REWRITE_GENEXP_ERR_MSG
 import com.sparkutils.qualityTests.mapLookup.TradeTests._
 import org.apache.spark.sql.catalyst.expressions.GenericRowWithSchema
@@ -215,10 +215,10 @@ class AggregatesTest extends FunSuite with TestUtils {
 
   @Test
   def decimalPrecisionHofTest = {
-    val sf = LambdaFunctionImpl("myinc", "entry -> entry + dec", Id(0,3))
-    val sf2 = LambdaFunctionImpl("myinc", "(entry, f) -> entry + dec + f", Id(0,3))
-    val rf = LambdaFunctionImpl("myretsum", "(sum, count) -> sum", Id(0,3))
-    val rf2 = LambdaFunctionImpl("myretsum", "(sum, f, count) -> sum + f", Id(0,3))
+    val sf = LambdaFunction("myinc", "entry -> entry + dec", Id(0,3))
+    val sf2 = LambdaFunction("myinc", "(entry, f) -> entry + dec + f", Id(0,3))
+    val rf = LambdaFunction("myretsum", "(sum, count) -> sum", Id(0,3))
+    val rf2 = LambdaFunction("myretsum", "(sum, f, count) -> sum + f", Id(0,3))
     registerLambdaFunctions(Seq(sf, sf2, rf, rf2))
     // NOTE on spark 2.4 it will not auto cast to BigDecimal on part 1 and 3 below
     // as such we wrap sql...

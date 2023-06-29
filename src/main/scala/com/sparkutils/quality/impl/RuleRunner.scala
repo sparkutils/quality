@@ -1,10 +1,10 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality.RuleLogicUtils.mapRules
+import com.sparkutils.quality.impl.RuleLogicUtils.mapRules
 import com.sparkutils.quality.impl.RuleRunnerUtils.flattenExpressions
-import com.sparkutils.quality.utils.{NonPassThrough, PassThrough}
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.imports.RuleRunnerImports
+import com.sparkutils.quality.impl.util.{NonPassThrough, PassThrough}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode}
@@ -244,7 +244,7 @@ case class RuleRunner(ruleSuite: RuleSuite, child: Expression, compileEvals: Boo
 
   // keep it simple for this one. - can return an internal row or whatever..
   override def eval(input: InternalRow): Any = {
-    val res = reincorporated.eval(input)
+    val res = RuleSuiteFunctions.eval(reincorporated, input)
     ruleResultToRow(res)
   }
 

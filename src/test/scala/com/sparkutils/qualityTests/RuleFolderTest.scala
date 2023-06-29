@@ -1,6 +1,7 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
+import com.sparkutils.quality.impl.RunOnPassProcessor
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.catalyst.expressions.Literal
 import org.apache.spark.sql.functions._

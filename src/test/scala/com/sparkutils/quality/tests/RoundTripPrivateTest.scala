@@ -1,7 +1,7 @@
 package com.sparkutils.quality.tests
 
 import com.sparkutils.quality._
-import com.sparkutils.quality.impl.{RuleRegistrationFunctions, RuleRunnerUtils}
+import com.sparkutils.quality.impl.{ExprLogic, RuleRegistrationFunctions, RuleRunnerUtils, ExpressionWrapper}
 import com.sparkutils.qualityTests.TestUtils
 import org.apache.spark.sql.catalyst.expressions.Literal
 import org.apache.spark.sql.types.StringType

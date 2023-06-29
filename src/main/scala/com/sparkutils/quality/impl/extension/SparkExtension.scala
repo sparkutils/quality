@@ -1,10 +1,10 @@
 package com.sparkutils.quality.impl.extension
 
 import com.sparkutils.quality.impl.extension.QualitySparkExtension.{disableRulesConf, forceInjectFunction}
-import com.sparkutils.quality.utils.Testing
+import com.sparkutils.quality.impl.util.Testing
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.{QualitySparkUtils, SparkSession, SparkSessionExtensions}
-import org.apache.spark.sql.catalyst.expressions.{Expression}
+import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.qualityFunctions.utils

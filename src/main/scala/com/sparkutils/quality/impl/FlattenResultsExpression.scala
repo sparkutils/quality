@@ -1,8 +1,7 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality.utils.Serializing
 import com.sparkutils.quality._
-import com.sparkutils.quality.utils.Serializing
+import com.sparkutils.quality.impl.util.Serializing
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder

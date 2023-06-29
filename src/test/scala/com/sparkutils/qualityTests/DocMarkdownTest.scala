@@ -1,7 +1,8 @@
 package com.sparkutils.qualityTests
+
+import com.sparkutils.quality.impl.util.RuleSuiteDocs
 import java.io.FileOutputStream
-import com.sparkutils.quality.utils.RuleSuiteDocs
-import com.sparkutils.quality.utils.RuleSuiteDocs.RelativeWarningsAndErrors
+import RuleSuiteDocs.RelativeWarningsAndErrors
 import com.sparkutils.quality.{ExpressionRule, Id, LambdaFunction, OutputExpression, Rule, RuleSet, RuleSuite, RunOnPassProcessor, validate}
 import org.apache.commons.io.IOUtils
 import org.junit.Test

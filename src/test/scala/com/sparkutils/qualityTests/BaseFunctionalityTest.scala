@@ -6,7 +6,7 @@ import java.util.UUID
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.ExpressionRunner
 import com.sparkutils.quality.impl.longPair.AsUUID
-import com.sparkutils.quality.utils.{Arrays, PrintCode}
+import com.sparkutils.quality.impl.util.{Arrays, PrintCode}
 import org.apache.spark.sql.QualitySparkUtils.newParser
 import org.apache.spark.sql.catalyst.expressions.{Expression, SubqueryExpression}
 import org.apache.spark.sql.catalyst.plans.logical.Project

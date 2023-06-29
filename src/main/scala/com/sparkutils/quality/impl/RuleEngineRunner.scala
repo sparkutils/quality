@@ -1,14 +1,13 @@
 package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.impl.RuleRunnerUtils.RuleSuiteResultArray
-import com.sparkutils.quality.utils.NonPassThrough
-import com.sparkutils.quality.{ExprLogic, ExpressionWrapper, Id, NoOpRunOnPassProcessor, RuleLogic, RuleSuite, RunOnPassProcessor}
+import com.sparkutils.quality.{Id, RunOnPassProcessor}
 import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenExpressions
-import com.sparkutils.quality.impl.RuleRunnerUtils.{RuleSuiteResultArray, genRuleSuiteTerm, packTheId}
-import com.sparkutils.quality.utils.{NonPassThrough, PassThrough}
+import com.sparkutils.quality.impl.RuleRunnerUtils.{genRuleSuiteTerm, packTheId}
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.imports.RuleEngineRunnerImports
+import com.sparkutils.quality.impl.util.{NonPassThrough, PassThrough}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenFallback}
@@ -358,7 +357,7 @@ case class RuleEngineRunner(ruleSuite: RuleSuite, child: Expression, resultDataT
 
   // keep it simple for this one. - can return an internal row or whatever..
   override def eval(input: InternalRow): Any = {
-    val (res, rule, processedRes) = reincorporated.evalWithProcessors(input, debugMode)
+    val (res, rule, processedRes) = RuleSuiteFunctions.evalWithProcessors(reincorporated, input, debugMode)
     InternalRow(com.sparkutils.quality.impl.RuleRunnerUtils.ruleResultToRow(res),
       if (rule eq null) null else
       InternalRow(packId(rule._1),packId(rule._2),packId(rule._3)), processedRes)

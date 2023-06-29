@@ -1,6 +1,5 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality.utils.{PrintCode, StructFunctions}
 import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.impl.aggregates.AggregateExpressions
 import com.sparkutils.quality.impl.bloom.{BucketedArrayParquetAggregator, ParquetAggregator}
@@ -8,12 +7,12 @@ import com.sparkutils.quality.impl.hash.{HashFunctionFactory, HashFunctionsExpre
 import com.sparkutils.quality.impl.id.{AsBase64Fields, AsBase64Struct, GenericLongBasedIDExpression, GuaranteedUniqueID, GuaranteedUniqueIdIDExpression, IDFromBase64, IDToRawIDDataType, SizeOfIDString, model}
 import com.sparkutils.quality.impl.rng.{RandLongsWithJump, RandomBytes, RandomLongs}
 import com.sparkutils.quality.impl.longPair.{AsUUID, LongPairExpression, PrefixedToLongPair}
-import com.sparkutils.quality.impl.util.{ComparableMapConverter, ComparableMapReverser}
-import com.sparkutils.quality.{ExprLogic, QualityException, RuleSuite, impl}
+import com.sparkutils.quality.impl.util.{ComparableMapConverter, ComparableMapReverser, PrintCode, StructFunctions}
+import com.sparkutils.quality.{QualityException, impl}
 import org.apache.commons.rng.simple.RandomSource
 import org.apache.spark.sql.QualitySparkUtils.add
 import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
-import org.apache.spark.sql.catalyst.expressions.{Add, And, AttributeReference, EqualTo, Expression, LambdaFunction, Literal, UnresolvedNamedLambdaVariable}
+import org.apache.spark.sql.catalyst.expressions.{Add, And, AttributeReference, EqualTo, Expression, LambdaFunction => SLambdaFunction, Literal, UnresolvedNamedLambdaVariable}
 import org.apache.spark.sql.qualityFunctions.LambdaFunctions.processTopCallFun
 import org.apache.spark.sql.qualityFunctions._
 import org.apache.spark.sql.types._
@@ -202,7 +201,7 @@ object RuleRegistrationFunctions {
     }, Set(1))
 
     register(LambdaFunctions.CallFun, {
-      case (fun@ FunN(_, l@ LambdaFunction(ff : FunForward, _, _), _, _, _)) +: args =>
+      case (fun@ FunN(_, l@ SLambdaFunction(ff : FunForward, _, _), _, _, _)) +: args =>
         processTopCallFun(fun, l, ff, args)
       case t => qualityException(s"${LambdaFunctions.CallFun} should only be used to process partially applied functions returned by a user lambda, got $t instead")
     })
@@ -289,11 +288,11 @@ object RuleRegistrationFunctions {
       case Seq(Literal(str: UTF8String, StringType), y) =>
         qualityException(INC_REWRITE_GENEXP_ERR_MSG)
       case Seq( y ) =>
-        val LambdaFunction(a: Add, Seq(sum: UnresolvedNamedLambdaVariable), hidden ) = functions.expr("sumWith(sum -> sum + 1)").expr.children(0)
+        val SLambdaFunction(a: Add, Seq(sum: UnresolvedNamedLambdaVariable), hidden ) = functions.expr("sumWith(sum -> sum + 1)").expr.children(0)
         import QualitySparkUtils.{add => addf}
         // could be a cast around x or three attributes plusing each other or....
         FunN(Seq(RefExpression(LongType)),
-          LambdaFunction(addf(a.left, y, LongType), Seq(sum), hidden )
+          SLambdaFunction(addf(a.left, y, LongType), Seq(sum), hidden )
           , Some("inc")) // keep the type
       case Seq() => functions.expr(s"sumWith(sum -> sum + 1)").expr
     }
@@ -381,7 +380,7 @@ object RuleRegistrationFunctions {
 
     register("as_uuid", exps => AsUUID(exps(0), exps(1)), Set(2))
 
-    register("rule_Suite_Result_Details", exps => impl.RuleSuiteResultDetails(exps(0)), Set(1))
+    register("rule_Suite_Result_Details", exps => impl.RuleSuiteResultDetailsExpr(exps(0)), Set(1))
 
     register("digest_To_Longs_Struct", digestToLongs(true))
 

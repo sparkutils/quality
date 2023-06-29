@@ -1,6 +1,6 @@
 package com.sparkutils.qualityTests
 
-import com.sparkutils.quality.RuleLogicUtils.mapRules
+import com.sparkutils.quality.impl.RuleLogicUtils.mapRules
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.rng.RandomBytes
 import com.sparkutils.qualityTests.ResultHelper.longSchema

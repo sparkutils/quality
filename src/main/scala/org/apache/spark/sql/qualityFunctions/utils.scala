@@ -1,6 +1,6 @@
 package org.apache.spark.sql.qualityFunctions
 
-import com.sparkutils.quality.utils.Comparison.compareToOrdering
+import com.sparkutils.quality.impl.util.Comparison.compareToOrdering
 import org.apache.spark.sql.QualitySparkUtils
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.BoundReference

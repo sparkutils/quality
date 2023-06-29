@@ -1,6 +1,7 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
+import impl.util.OutputExpressionRow
 import org.apache.spark.sql.SaveMode
 import org.apache.spark.sql.functions._
 import org.junit.Test

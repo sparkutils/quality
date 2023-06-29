@@ -1,9 +1,9 @@
 package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenExpressions
-import com.sparkutils.quality.utils.{NonPassThrough, PassThrough}
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.imports.RuleFolderRunnerImports
+import com.sparkutils.quality.impl.util.{NonPassThrough, PassThrough}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
@@ -75,7 +75,7 @@ case class RuleFolderRunner(ruleSuite: RuleSuite, left: Expression, right: Expre
   override def eval(input: InternalRow): Any = {
     val starter = startingStruct.eval(input).asInstanceOf[InternalRow] // TODO - throw a decent error message at ruleFolder call
     val (res, processedRes) = //(null, null)
-      reincorporated.foldWithProcessors(input, starter, debugMode)
+      RuleSuiteFunctions.foldWithProcessors(reincorporated, input, starter, debugMode)
     InternalRow(com.sparkutils.quality.impl.RuleRunnerUtils.ruleResultToRow(res), processedRes)
   }
 

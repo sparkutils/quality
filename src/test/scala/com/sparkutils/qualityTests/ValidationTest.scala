@@ -1,8 +1,8 @@
 package com.sparkutils.qualityTests
 
+import com.sparkutils.quality.impl.util.{Docs, RuleSuiteDocs, WithDocs}
 import com.sparkutils.quality.impl.{DataFrameSyntaxError, ExtraDocParameter, HasId, LambdaMultipleImplementationWithSameArityError, LambdaNameError, LambdaPossibleSOE, LambdaSparkFunctionNameError, LambdaStackOverflowError, LambdaSyntaxError, LambdaViewError, NonLambdaDocParameters, OuputSparkFunctionNameError, OutputRuleNameError, OutputRuleSyntaxError, OutputRuleViewError, RuleError, RuleNameError, RuleSyntaxError, RuleViewError, RuleWarning, SparkFunctionNameError, Validation}
-import com.sparkutils.quality.utils.RuleSuiteDocs.{LambdaId, OutputExpressionId, RuleId}
-import com.sparkutils.quality.utils.{Docs, RuleSuiteDocs, WithDocs}
+import com.sparkutils.quality.impl.util.RuleSuiteDocs.{LambdaId, OutputExpressionId, RuleId}
 import com.sparkutils.quality.{ExpressionRule, Id, LambdaFunction, OutputExpression, Rule, RuleSet, RuleSuite, RunOnPassProcessor, emptyDocs, packId, ruleEngineRunner, ruleRunner, validate}
 import org.apache.spark.sql.{Column, DataFrame, Row}
 import org.apache.spark.sql.functions.expr

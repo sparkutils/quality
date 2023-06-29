@@ -1,6 +1,5 @@
 package com.sparkutils.quality.impl.util
 
-import com.sparkutils.quality.utils.Arrays
 import org.apache.spark.sql.Column
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
 import org.apache.spark.sql.catalyst.expressions.{BoundReference, Expression, UnaryExpression}

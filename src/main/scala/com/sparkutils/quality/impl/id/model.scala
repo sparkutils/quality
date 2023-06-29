@@ -1,8 +1,7 @@
 package com.sparkutils.quality.impl.id
 
+import com.sparkutils.quality.impl.util.BytePackingUtils
 import java.util.{Base64, Calendar, TimeZone}
-
-import com.sparkutils.quality.utils.BytePackingUtils
 import org.apache.spark.sql.types.{IntegerType, LongType, StructField, StructType}
 
 import scala.collection.immutable.BitSet
