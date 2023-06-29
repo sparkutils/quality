@@ -6,7 +6,7 @@ ExpressionRunner applies a RuleSuite over a dataset returning any expression.  W
 
 It is important to note that if you are having multiple runners in the same data pipeline they should each use different RuleSuites.
 
-RuleSuites are built per the normal DQ rules:
+RuleSuites are built per the normal DQ rules and executed by adding an expressionRunner column:
 
 ```{.scala #exampleCode}
     val dqRuleSuite = ...
@@ -19,8 +19,7 @@ RuleSuites are built per the normal DQ rules:
     import quality.implicits._
     
     // first add dataQuality, then ExpressionRunner
-    val processed = com.sparkutils.quality.impl.ExpressionRunner.run(aggregateRuleSuite, 
-        taddDataQuality(testDF, dqRuleSuite))
+    val processed = taddDataQuality(sparkSession.range(1000).toDF, dqRuleSuite).select(expressionRunner(aggregateRuleSuite))
     
     val res = processed.selectExpr("expressionResults.*").as[GeneralExpressionsResult].head()
     assert(res == GeneralExpressionsResult(Id(10, 2), Map(Id(20, 1) -> Map(
@@ -37,4 +36,11 @@ RuleSuites are built per the normal DQ rules:
 
 ??? warning "Don't mix aggregation functions with non-aggregation functions"
     Spark may complain before running an action, but it's also possible to produce incorrect results.
+    
+    This is the equivalent of running:
 
+    ```sql
+    select *, sum(id) from table
+    ```
+
+    which will not work without group by's.

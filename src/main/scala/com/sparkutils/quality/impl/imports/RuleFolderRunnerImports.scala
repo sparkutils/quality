@@ -1,14 +1,15 @@
-package com.sparkutils.quality.impl
-
-import java.util.concurrent.atomic.AtomicReference
+package com.sparkutils.quality.impl.imports
 
 import com.sparkutils.quality.RuleSuite
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenExpressions
+import com.sparkutils.quality.impl.RuleFolderRunner
 import com.sparkutils.quality.utils.{NonPassThrough, PassThrough}
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.qualityFunctions.{FunN, RefExpressionLazyType}
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.{Column, DataFrame, QualitySparkUtils}
+
+import java.util.concurrent.atomic.AtomicReference
 
 trait RuleFolderRunnerImports {
 

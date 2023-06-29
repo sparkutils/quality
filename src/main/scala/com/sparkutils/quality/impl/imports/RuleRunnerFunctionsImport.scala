@@ -1,5 +1,6 @@
-package com.sparkutils.quality.impl
+package com.sparkutils.quality.impl.imports
 
+import com.sparkutils.quality.impl.RuleRegistrationFunctions
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.qualityFunctions.utils
 import org.apache.spark.sql.types.DataType

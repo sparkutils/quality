@@ -11,9 +11,9 @@ import org.apache.spark.sql.QualitySparkUtils.newParser
 import org.apache.spark.sql.catalyst.expressions.{Expression, SubqueryExpression}
 import org.apache.spark.sql.catalyst.plans.logical.Project
 import org.apache.spark.sql.catalyst.util.ArrayData
-import org.apache.spark.sql.{Column, DataFrame, Encoder, SaveMode}
+import org.apache.spark.sql.{Column, DataFrame, Encoder, SaveMode, functions}
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.types.IntegerType
+import org.apache.spark.sql.types.{IntegerType, StringType}
 import org.junit.Test
 import org.scalatest.FunSuite
 
@@ -593,7 +593,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
   }
 
   @Test
-  def testSimpleAggregate(): Unit = evalCodeGensNoResolve {
+  def testExpressionsWithAggregate(): Unit = evalCodeGensNoResolve {
     val rowrs = RuleSuite(Id(11, 2), Seq(RuleSet(Id(21, 1), Seq(
       Rule(Id(40, 3), ExpressionRule("iseven(id)"))
     ))), lambdaFunctions = Seq(LambdaFunction("iseven", "p -> p % 2 = 0", Id(1020, 2))))
@@ -606,7 +606,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     import frameless._
     import quality.implicits._
 
-    val processed = ExpressionRunner.run(rs, taddDataQuality(sparkSession.range(1000).toDF, rowrs))
+    val processed = taddDataQuality(sparkSession.range(1000).toDF, rowrs).select(expressionRunner(rs))
 
     val res = processed.selectExpr("expressionResults.*").as[GeneralExpressionsResult].head()
     assert(res == GeneralExpressionsResult(Id(10, 2), Map(Id(20, 1) -> Map(

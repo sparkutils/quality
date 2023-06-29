@@ -3,11 +3,12 @@ package com.sparkutils
 import com.sparkutils.quality.impl.bloom.parquet.{BlockSplitBloomFilterImports, BucketedCreatorFunctionImports}
 import com.sparkutils.quality.impl.bloom.{BloomFilterLookupImports, BloomFilterRegistration, BloomFilterTypes}
 import com.sparkutils.quality.impl.id.{GenericLongBasedImports, GuaranteedUniqueIDImports}
-import com.sparkutils.quality.impl.mapLookup.{MapLookupFunctions, MapLookupImports}
+import com.sparkutils.quality.impl.imports.{ExpressionRunnerImports, ProcessDisableIfMissingImports, RuleEngineRunnerImports, RuleFolderRunnerImports, RuleRunnerFunctionsImport, RuleRunnerImports, ValidationImports}
+import com.sparkutils.quality.impl.mapLookup.MapLookupImports
 import com.sparkutils.quality.impl.util.ComparableMapsImports
 import com.sparkutils.quality.impl.views.ViewLoading
-import com.sparkutils.quality.impl.{ProcessDisableIfMissingImports, RuleEngineRunnerImports, RuleFolderRunnerImports, RuleRunnerFunctionsImport, RuleRunnerImports, RuleSparkTypes, Validation, ValidationImports}
-import com.sparkutils.quality.utils.{AddDataFunctions, AddDataFunctionsImports, LookupIdFunctionsImports, SerializingImports}
+import com.sparkutils.quality.impl.RuleSparkTypes
+import com.sparkutils.quality.utils.{AddDataFunctionsImports, LookupIdFunctionsImports, SerializingImports}
 import org.apache.spark.sql.internal.SQLConf
 import org.slf4j.LoggerFactory
 
@@ -19,7 +20,8 @@ package object quality extends BloomFilterTypes with BucketedCreatorFunctionImpo
   with RuleSparkTypes with BloomFilterLookupImports with BlockSplitBloomFilterImports with SerializingImports
   with AddDataFunctionsImports with LambdaFunctionsImports with LookupIdFunctionsImports
   with GenericLongBasedImports with GuaranteedUniqueIDImports with RuleEngineRunnerImports with ValidationImports
-  with ProcessDisableIfMissingImports with RuleFolderRunnerImports with ComparableMapsImports with ViewLoading {
+  with ProcessDisableIfMissingImports with RuleFolderRunnerImports with ComparableMapsImports with ViewLoading
+  with ExpressionRunnerImports {
   // NB it must inherit Serializable due to the nested types and sparks serialization
 
   val logger = LoggerFactory.getLogger("com.sparkutils.quality")

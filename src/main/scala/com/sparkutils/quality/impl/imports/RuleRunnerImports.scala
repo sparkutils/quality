@@ -1,6 +1,7 @@
-package com.sparkutils.quality.impl
+package com.sparkutils.quality.impl.imports
 
 import com.sparkutils.quality.RuleSuite
+import com.sparkutils.quality.impl.{PackId, RuleRunnerImpl}
 import org.apache.spark.sql.catalyst.expressions.Literal
 import org.apache.spark.sql.types.IntegerType
 import org.apache.spark.sql.{Column, DataFrame}

@@ -3,6 +3,7 @@ package com.sparkutils.quality.impl
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenExpressions
 import com.sparkutils.quality.utils.{NonPassThrough, PassThrough}
 import com.sparkutils.quality._
+import com.sparkutils.quality.impl.imports.RuleFolderRunnerImports
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback

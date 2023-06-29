@@ -2,6 +2,7 @@ package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.RuleLogicUtils.mapRules
 import com.sparkutils.quality.VariablesLookup.{fieldsFromExpression, toName}
+import com.sparkutils.quality.impl.imports.RuleRunnerImports
 import com.sparkutils.quality.utils.LookupIdFunctions
 import com.sparkutils.quality.{ExpressionRule, ExpressionRuleExpr, LambdaFunction, LambdaFunctionParsed, OutputExpression, OutputExpressionExpr, Rule, RuleLogicUtils, RuleSuite, RunOnPassProcessorImpl, namesFromSchema}
 import org.apache.spark.sql.catalyst.analysis.UnresolvedFunction

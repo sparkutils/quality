@@ -619,7 +619,7 @@ case class RuleSuite(id: Id, ruleSets: Seq[RuleSet], lambdaFunctions: Seq[Lambda
    */
   def withProbablePass(probablePass: Double) = copy(probablePass = probablePass)
 
-  def evalAggregates(internalRow: InternalRow): GeneralExpressionsResult = {
+  def evalExpressions(internalRow: InternalRow): GeneralExpressionsResult = {
     val rawRuleSets =
       ruleSets.map { rs =>
         val ruleSetRawRes: Seq[(VersionedId, GeneralExpressionResult)] = rs.rules.map { r =>

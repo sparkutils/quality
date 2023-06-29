@@ -2,28 +2,32 @@ package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.impl.ExpressionRunner.expressionsResultToRow
 import com.sparkutils.quality.impl.RuleRunnerUtils.{flattenExpressions, reincorporateExpressions}
-import com.sparkutils.quality.{GeneralExpressionResult, GeneralExpressionsResult, RuleSuite, VersionedId, expressionsResultsType, packId}
-import org.apache.spark.sql.{Column, DataFrame}
+import com.sparkutils.quality._
 import org.apache.spark.sql.QualitySparkUtils.cast
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{Cast, Expression, NonSQLExpression, UnaryExpression}
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode}
+import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
+import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression}
 import org.apache.spark.sql.catalyst.util.ArrayBasedMapData
-import org.apache.spark.sql.functions.col
 import org.apache.spark.sql.types.{DataType, StringType}
+import org.apache.spark.sql.Column
 import org.apache.spark.unsafe.types.UTF8String
 
 object ExpressionRunner {
-  def run(ruleSuite: RuleSuite, dataFrame: DataFrame, name: String = "expressionResults"): DataFrame = {
+  /**
+   * Runs the ruleSuite expressions saving results as a tuple of (ruleResult: String, resultType: String)
+   *
+   * @param ruleSuite
+   * @param name
+   * @return
+   */
+  def apply(ruleSuite: RuleSuite, name: String = "expressionResults"): Column = {
     com.sparkutils.quality.registerLambdaFunctions( ruleSuite.lambdaFunctions )
     val expressions = flattenExpressions(ruleSuite)
-    val res = dataFrame.select(expressions.zipWithIndex.map( p => new Column(p._1).as(s"f_${p._2}")) :_*)
-    // cast all the results to string
-    val collectExpressions = expressions.indices.map( i => cast(col(s"f_$i").expr, StringType))
-    res.select(new Column(ExpressionRunner(ruleSuite, collectExpressions)).as(name))
+    val collectExpressions = expressions.map( i => cast(i, StringType))
+    new Column(ExpressionRunner(ruleSuite, collectExpressions)).as(name)
   }
 
-  def expressionsResultToRow(ruleSuiteResult: GeneralExpressionsResult): InternalRow =
+  protected[quality] def expressionsResultToRow(ruleSuiteResult: GeneralExpressionsResult): InternalRow =
     InternalRow(
       packId(ruleSuiteResult.id),
       ArrayBasedMapData(
@@ -55,11 +59,11 @@ case class ExpressionRunner(ruleSuite: RuleSuite, children: Seq[Expression])
 
   // keep it simple for this one. - can return an internal row or whatever..
   override def eval(input: InternalRow): Any = {
-    val res = reincorporated.evalAggregates(input)
+    val res = reincorporated.evalExpressions(input)
     expressionsResultToRow(res)
   }
 
-  // not really worth it in this case.
+  // not really worth it in this case for a single row.
   // override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = ???
 
   override def dataType: DataType = expressionsResultsType

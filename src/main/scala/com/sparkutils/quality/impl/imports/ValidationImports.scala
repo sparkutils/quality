@@ -1,6 +1,7 @@
-package com.sparkutils.quality.impl
+package com.sparkutils.quality.impl.imports
 
-import com.sparkutils.quality.utils.{Docs, RuleSuiteDocs}
+import com.sparkutils.quality.impl.{RuleError, RuleWarning, ShowParams, Validation}
+import com.sparkutils.quality.utils.RuleSuiteDocs
 import com.sparkutils.quality.utils.RuleSuiteDocs.IdTrEither
 import com.sparkutils.quality.{ExpressionLookup, RuleSuite}
 import org.apache.spark.sql.types.StructType

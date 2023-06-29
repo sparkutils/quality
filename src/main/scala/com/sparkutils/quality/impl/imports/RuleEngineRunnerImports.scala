@@ -1,10 +1,9 @@
-package com.sparkutils.quality.impl
+package com.sparkutils.quality.impl.imports
 
 import com.sparkutils.quality.RuleSuite
-import com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenExpressions
-import com.sparkutils.quality.utils.{NonPassThrough, PassThrough}
+import com.sparkutils.quality.impl.RuleEngineRunnerImpl
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.{Column, DataFrame, QualitySparkUtils}
+import org.apache.spark.sql.{Column, DataFrame}
 
 trait RuleEngineRunnerImports {
 

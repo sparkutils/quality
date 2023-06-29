@@ -1,10 +1,7 @@
-package com.sparkutils.quality.impl
+package com.sparkutils.quality.impl.imports
 
-import com.sparkutils.quality.RuleLogicUtils.mapRules
 import com.sparkutils.quality.RuleSuite
-import com.sparkutils.quality.impl.ProcessDisableIfMissing.{isCoalesceDisabled, isReplaceCoalesceName, processCoalesceIfAttributeMissing}
-import com.sparkutils.quality.utils.LookupIdFunctions
-import org.apache.spark.sql.catalyst.analysis.UnresolvedFunction
+import com.sparkutils.quality.impl.ProcessDisableIfMissing
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.types.StructType
 
