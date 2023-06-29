@@ -1,4 +1,4 @@
-package com.sparkutils.quality
+package com.sparkutils.quality.impl
 
 import org.apache.spark.sql.catalyst.expressions.{Expression, Literal, PredicateHelper}
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan

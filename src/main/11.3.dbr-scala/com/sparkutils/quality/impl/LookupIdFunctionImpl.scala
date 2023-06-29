@@ -1,6 +1,6 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality.utils.{BloomLookupType, ExpressionLookupResult, MapLookupType}
+import com.sparkutils.quality.impl.util.{BloomLookupType, ExpressionLookupResult, MapLookupType}
 import org.apache.spark.sql.catalyst.analysis.UnresolvedFunction
 import org.apache.spark.sql.catalyst.expressions.{Expression, LeafExpression, Literal}
 import org.apache.spark.sql.types.StringType
