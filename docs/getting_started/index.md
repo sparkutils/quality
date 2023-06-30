@@ -89,6 +89,12 @@ The full list of supported runtimes is below:
     13.0 also works on the 12.2.dbr_ build as of 10th May 2023, despite the Spark version difference.
     13.1 requires its own version as it backports 3.5 functionality. 
 
+## Sql functions vs column dsl
+
+Similar to normal Spark functions there Quality's functions have sql variants to use with select / sql or expr() and the dsl variants built around Column.
+
+You can use both the sql and dsl functions often without any other Quality runner usage, including lambdas.  To use the dsl functions, import quality.functions._, to use the sql functions you can either use the SparkExtension or the regsterXX functions available from the quality package.    
+
 ### Developing for a Databricks Runtime
 
 As there are many compatibility issues that Quality works around between the various Spark runtimes and their Databricks equivalents you will need to use two different runtimes when you do local testing (and of course you _should_ do that):
