@@ -196,6 +196,8 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
         containsTests.foreach{
           test =>
             assert(msg.contains(test) ||
+              // 2/3 uses d on the end
+              msg.contains(test.replaceAll("1.02", "1.02d")) ||
               // 3.4 uses the expression not the name
               msg.contains(test.replaceAll("overallResult","flattenresultsexpression(1)")) ||
               // 3.4 rc4 changes type syntax

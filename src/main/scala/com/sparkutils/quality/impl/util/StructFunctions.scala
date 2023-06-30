@@ -4,7 +4,7 @@ import org.apache.spark.sql.Column
 import org.apache.spark.sql.QualitySparkUtils.{toSQLExpr, toSQLType}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{Resolver, TypeCheckResult, UnresolvedAttribute, UnresolvedExtractValue}
-import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode}
 import org.apache.spark.sql.catalyst.expressions.{CreateNamedStruct, Expression, ExtractValue, GetStructField, If, IsNull, LeafExpression, Literal, UnaryExpression, Unevaluable}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{DataType, StructField, StructType}
@@ -46,7 +46,7 @@ trait StructFunctionsImport {
 /**
  * Represents an operation to be applied to the fields of a struct.
  */
-trait StructFieldsOperation extends Expression with Unevaluable {
+trait StructFieldsOperation extends Expression {
 
   val resolver: Resolver = SQLConf.get.resolver
 
@@ -73,6 +73,8 @@ trait StructFieldsOperation extends Expression with Unevaluable {
 case class WithField(name: String, child: Expression)
   extends UnaryExpression with StructFieldsOperation {
 
+  override def foldable: Boolean = false
+
   override def apply(values: Seq[(StructField, Expression)]): Seq[(StructField, Expression)] = {
     val newFieldExpr = (StructField(name, child.dataType, child.nullable), child)
     val result = ArrayBuffer.empty[(StructField, Expression)]
@@ -93,6 +95,8 @@ case class WithField(name: String, child: Expression)
 
   protected def withNewChildInternal(newChild: Expression): WithField =
     copy(child = newChild)
+
+  override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = ???
 }
 
 /**
@@ -101,6 +105,10 @@ case class WithField(name: String, child: Expression)
 case class DropField(name: String) extends LeafExpression with StructFieldsOperation {
   override def apply(values: Seq[(StructField, Expression)]): Seq[(StructField, Expression)] =
     values.filterNot { case (field, _) => resolver(field.name, name) }
+
+  override def eval(input: InternalRow): Any = ???
+
+  override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = ???
 }
 
 /**
