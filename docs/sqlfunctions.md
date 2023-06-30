@@ -327,11 +327,18 @@ functions:
     description: "as_uuid(lower_long, higher_long) converts two longs into a uuid. Note: this is not functionally equivalent to rng_uuid(longPair(lower, higher)) despite having the same types."
     tags:
       - longs
-  update_Field:
+  drop_field:
     description: |
-      update_Field(structure_expr, 'field.subfield', replaceWith, 'fieldN', replaceWithN) processes structures allowing you to replace sub items (think lens in functional programming) using the structure fields path name.
+      drop_field(structure_expr, 'field.subfield') removes a field from a structure 
 
-      This is wrapped an almost verbatim version of [Make Structs Easier' AddFields](https://raw.githubusercontent.com/fqaiser94/mse/master/src/main/scala/org/apache/spark/sql/catalyst/expressions/AddFields.scala)
+      This is a wrapped version of 3.4.1's dropField implementation.
+    tags:
+      - struct
+  update_field:
+    description: |
+      update_field(structure_expr, 'field.subfield', replaceWith, 'fieldN', replaceWithN) processes structures allowing you to replace sub items (think lens in functional programming) using the structure fields path name.
+
+      This is a wrapped version of 3.4.1's withField implementation.
     tags:
       - struct
   \_:

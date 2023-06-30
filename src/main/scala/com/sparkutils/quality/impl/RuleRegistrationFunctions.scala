@@ -51,7 +51,7 @@ object RuleRegistrationFunctions {
       "hash_Field_Based_ID","za_Longs_Field_Based_ID","za_Hash_Longs_With_Struct", "za_Hash_With_Struct", "za_Field_Based_ID", "prefixed_To_Long_Pair",
       "coalesce_If_Attributes_Missing", "coalesce_If_Attributes_Missing_Disable", "update_Field", LambdaFunctions.PlaceHolder,
       LambdaFunctions.Lambda, LambdaFunctions.CallFun, "print_Expr", "print_Code", "comparable_Maps", "reverse_Comparable_Maps", "as_uuid",
-      "id_size", "id_base64", "id_from_base64", "id_raw_type", "rule_result", "strip_result_ddl"
+      "id_size", "id_base64", "id_from_base64", "id_raw_type", "rule_result", "strip_result_ddl", "drop_field"
     )
     withUnderscores ++ withUnderscores.map(n => if (mustKeepNames(n)) n else n.replaceAll("_",""))
   }
@@ -491,11 +491,13 @@ object RuleRegistrationFunctions {
     register("coalesce_If_Attributes_Missing", _ => qualityException("coalesceIf functions cannot be created") )
     register("coalesce_If_Attributes_Missing_Disable", _ => qualityException("coalesceIf functions cannot be created") )
 
-    // The MSE library adds this lens functionality, 3.1.1 introduces this to dsl but neither does an sql interface
-    //register("update_field", com.sparkutils.quality.impl.util.AddFields(_))
+    // 3.0.1 adds this #37 drops 3.0.0 and we can remove the c+p from 3.4.1 needed due to #36
     register("update_field", exps => {
       update_field(new Column(exps.head), ( exps.tail.grouped(2).map(p => getString(p.head) -> new Column(p.last)).toSeq): _*).expr
     })
+    register("drop_field", exps => {
+      drop_field(new Column(exps.head), getString(exps.last)).expr
+    }, Set(2))
 
     def msgAndExpr(msgDefault: String, exps: Seq[Expression]) = exps match {
       case Seq(Literal(str: UTF8String, StringType), e: Expression) =>

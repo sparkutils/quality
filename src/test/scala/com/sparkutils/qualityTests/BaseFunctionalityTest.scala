@@ -6,7 +6,7 @@ import functions._
 import com.sparkutils.quality.impl.util.{Arrays, PrintCode, UpdateFields}
 import org.apache.spark.sql.catalyst.util.ArrayData
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.types.IntegerType
+import org.apache.spark.sql.types.{IntegerType, StructType}
 import org.apache.spark.sql.{Column, DataFrame, Encoder, SaveMode}
 import org.junit.Test
 import org.scalatest.FunSuite
@@ -667,6 +667,12 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     val updated = og.select(update_field(col("s"), ("b.c", lit(40)), ("b.d.e", lit("mate"))) as "s")
     //val updated = og.select(new Column(UpdateFields.apply(UpdateFields.apply(col("s").expr, "b.c", lit(40).expr), "b.d.e", lit("mate").expr)) as "s")
     assertsbc(updated, 40, "mate")
+
+    // b.d.e doesn't work as it'd force d to be empty.
+    val schema = updated.selectExpr("drop_field(s, 'b.d')").schema
+    val b = schema.fields(0).dataType.asInstanceOf[StructType].fields(1).dataType.asInstanceOf[StructType].fields
+    assert(b.length == 1)
+    assert(b.apply(0).name == "c")
   }
 }
 

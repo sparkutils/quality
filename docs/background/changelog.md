@@ -1,5 +1,9 @@
 ### 0.1.0 <small>10th June, 2023</small>
 
+#36 - improved update_field, added drop_field based on the Spark withField (3.4.1 impl)
+
+#34 - simplified quality package usage, column functions are now under the functions package.
+
 #32 - expressionRunner - saves the results of expressions as strings, suitable for aggregate statistics
 
 #28 - rule_result function - retrieves a rule result directly from a dq or expressionRunner result
