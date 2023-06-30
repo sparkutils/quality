@@ -3,7 +3,7 @@ package com.sparkutils.qualityTests
 import com.sparkutils.quality
 import com.sparkutils.quality._
 import functions._
-import com.sparkutils.quality.impl.util.{Arrays, PrintCode}
+import com.sparkutils.quality.impl.util.{Arrays, PrintCode, UpdateFields}
 import org.apache.spark.sql.catalyst.util.ArrayData
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.IntegerType
@@ -664,8 +664,8 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     assertsbc(og, 4, "wot")
 
 //    val updated = og.select(update_field(col("s"), ("b", update_field(col("s.b"), ("c", lit(40))))) as "s")
-    //val updated = og.select(add_struct_field("s", "b.c", lit(40)) as "s")
     val updated = og.select(update_field(col("s"), ("b.c", lit(40)), ("b.d.e", lit("mate"))) as "s")
+    //val updated = og.select(new Column(UpdateFields.apply(UpdateFields.apply(col("s").expr, "b.c", lit(40).expr), "b.d.e", lit("mate").expr)) as "s")
     assertsbc(updated, 40, "mate")
   }
 }
