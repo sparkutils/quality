@@ -1,13 +1,15 @@
 package org.apache.spark.sql.qualityFunctions
 
 import com.sparkutils.quality.impl.util.Comparison.compareToOrdering
-import org.apache.spark.sql.QualitySparkUtils
+import org.apache.spark.sql.{Column, QualitySparkUtils}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.BoundReference
+import org.apache.spark.sql.catalyst.expressions.{BoundReference, NamedExpression}
 import org.apache.spark.sql.catalyst.util.ArrayData
 import org.apache.spark.sql.types.{ArrayType, AtomicType, DataType, MapType, StructField, StructType}
 
 object utils {
+
+  def named(col: Column): NamedExpression = col.named
 
   private val noopCompare = (dt: DataType) => None
 

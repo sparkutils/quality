@@ -105,4 +105,10 @@ trait RuleRunnerFunctionImports {
   def flatten_folder_results(result: Column): Column =
     new Column(impl.FlattenFolderResultsExpression(result.expr, FlattenStruct.ruleSuiteDeserializer))
 
+  /**
+   * Consumes a RuleSuiteResult and returns RuleSuiteDetails
+   */
+  def rule_suite_result_details(result: Column): Column =
+    new Column( impl.RuleSuiteResultDetailsExpr(result.expr) )
+
 }

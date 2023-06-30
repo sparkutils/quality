@@ -1,10 +1,12 @@
 package com.sparkutils.quality.impl.bloom
 
+import com.sparkutils.quality.impl.bloom.parquet.{BucketedFilesRoot, FileRoot}
 import com.sparkutils.quality.{DataFrameLoader, Id, RuleSuite}
 import com.sparkutils.quality.impl.util.ConfigLoader
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.{Column, DataFrame, QualitySparkUtils, SparkSession}
-import org.apache.spark.sql.catalyst.expressions.Expression
+import org.apache.spark.sql.catalyst.expressions.{Expression, Literal}
+import org.apache.spark.sql.functions.lit
 
 trait BloomFilterRegistration {
 
@@ -112,4 +114,94 @@ trait BloomFilterLookupImports {
    * @return
    */
   def loadBlooms(configs: Seq[BloomConfig]): BloomExpressionLookup.BloomFilterMap = Serializing.loadBlooms(configs)
+}
+
+trait BloomExpressionFunctions {
+  /**
+   * Creates a bloom over the bloomOver expression, with an expected number of rows and fpp to build.
+   *
+   * This bloom fit's in a single byte array, as such it's limited to the number of elements it can fit it and still maintain the fpp, use big_bloom where the item counts are high and fpp must hold.
+   *
+   * @param bloomOver
+   * @param expectedNumberOfRows
+   * @param expectedFPP
+   * @return
+   */
+  def small_bloom(bloomOver: Column, expectedNumberOfRows: Column, expectedFPP: Column): Column =
+    new Column( new ParquetAggregator(bloomOver.expr, expectedNumberOfRows.expr, expectedFPP.expr)
+      .toAggregateExpression())
+
+  /**
+   * Creates a bloom over the bloomOver expression, with an expected number of rows and fpp to build.
+   *
+   * This bloom fit's in a single byte array, as such it's limited to the number of elements it can fit it and still maintain the fpp, use big_bloom where the item counts are high and fpp must hold.
+   *
+   * @param bloomOver
+   * @param expectedNumberOfRows
+   * @param expectedFPP
+   * @return
+   */
+  def small_bloom(bloomOver: Column, expectedNumberOfRows: Long, expectedFPP: Double): Column =
+    small_bloom(bloomOver, lit(expectedNumberOfRows), lit(expectedFPP))
+
+  /**
+   * Creates a bloom over the bloomOver expression, with an expected number of rows and fpp to build.
+   *
+   * This bloom is an array of byte arrays, with the underlying arrays stored on file, as such it is only limited by file system size.
+   *
+   * @param bloomOver
+   * @param expectedNumberOfRows
+   * @param expectedFPP
+   * @param id - the id of this bloom used to separate from other big_blooms - defaults to a uuid, this cannot refer to a row column or expression
+   * @param bucketedFilesRoot - provide this to override the default file root for the underlying arrays - defaults to a temporary file location or /dbfs/ on Databricks.  The config property sparkutils.quality.bloom.root can also be used to set for all blooms in a cluster.
+   * @return
+   */
+  def big_bloom(bloomOver: Column, expectedNumberOfRows: Column, expectedFPP: Column, id: Column = lit(java.util.UUID.randomUUID().toString), bucketedFilesRoot: BucketedFilesRoot = BucketedFilesRoot(FileRoot(com.sparkutils.quality.bloomFileLocation))): Column =
+    new Column( BucketedArrayParquetAggregator(bloomOver.expr, expectedNumberOfRows.expr, expectedFPP.expr, id.expr, bucketedFilesRoot = bucketedFilesRoot )
+      .toAggregateExpression())
+
+
+  /**
+   * Creates a bloom over the bloomOver expression, with an expected number of rows and fpp to build.
+   *
+   * This bloom is an array of byte arrays, with the underlying arrays stored on file, as such it is only limited by file system size.
+   *
+   * @param bloomOver
+   * @param expectedNumberOfRows
+   * @param expectedFPP
+   * @return
+   */
+  def big_bloom(bloomOver: Column, expectedNumberOfRows: Long, expectedFPP: Double): Column =
+    big_bloom(bloomOver, lit(expectedNumberOfRows), lit(expectedFPP))
+
+  /**
+   * Creates a bloom over the bloomOver expression, with an expected number of rows and fpp to build.
+   *
+   * This bloom is an array of byte arrays, with the underlying arrays stored on file, as such it is only limited by file system size.
+   *
+   * @param bloomOver
+   * @param expectedNumberOfRows
+   * @param expectedFPP
+   * @param id                - the id of this bloom used to separate from other big_blooms - defaults to a uuid
+   * @param bucketedFilesRoot - provide this to override the default file root for the underlying arrays - defaults to a temporary file location or /dbfs/ on Databricks.  The config property sparkutils.quality.bloom.root can also be used to set for all blooms in a cluster.
+   * @return
+   */
+  def big_bloom(bloomOver: Column, expectedNumberOfRows: Long, expectedFPP: Double, id: String): Column =
+    big_bloom(bloomOver, lit(expectedNumberOfRows), lit(expectedFPP), lit(id))
+
+  /**
+   * Creates a bloom over the bloomOver expression, with an expected number of rows and fpp to build.
+   *
+   * This bloom is an array of byte arrays, with the underlying arrays stored on file, as such it is only limited by file system size.
+   *
+   * @param bloomOver
+   * @param expectedNumberOfRows
+   * @param expectedFPP
+   * @param id                - the id of this bloom used to separate from other big_blooms - defaults to a uuid
+   * @param bucketedFilesRoot - provide this to override the default file root for the underlying arrays - defaults to a temporary file location or /dbfs/ on Databricks.  The config property sparkutils.quality.bloom.root can also be used to set for all blooms in a cluster.
+   * @return
+   */
+  def big_bloom(bloomOver: Column, expectedNumberOfRows: Long, expectedFPP: Double, id: String, bucketedFilesRoot: BucketedFilesRoot): Column =
+    big_bloom(bloomOver, lit(expectedNumberOfRows), lit(expectedFPP), lit(id), bucketedFilesRoot)
+
 }

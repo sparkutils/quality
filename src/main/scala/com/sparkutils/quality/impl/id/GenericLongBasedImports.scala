@@ -15,6 +15,13 @@ trait GenericLongBasedImports {
       RandLongsWithJump(0L, RandomSource.XO_RO_SHI_RO_128_PP), prefix))
 
   /**
+   * Creates a randomRNG ID based on randomSource with a given seed
+   */
+  def rng_id(prefix: String, randomSource: RandomSource, seed: Long = 0L): Column =
+    new Column( GenericLongBasedIDExpression (model.RandomID,
+      RandLongsWithJump(seed, randomSource), prefix) )
+
+  /**
    * Creates a hash based ID based on a 128 bit MD5 by default
    * @param prefix
    * @return
@@ -23,15 +30,36 @@ trait GenericLongBasedImports {
     new Column(GenericLongBasedIDExpression(model.FieldBasedID,
       HashFunctionsExpression(children.map(_.expr), digestImpl, true, digestFactory(digestImpl)), prefix))
 
+  // NB field_based_id is in HashRelatedFunctionImports, same impl and interface but fits the sql name
+
+  /**
+   * Creates an id from fields using MessageDigests, in line with SQL naming please use field_based_id
+   *
+   * @param prefix
+   * @param digestImpl
+   * @param cols
+   * @return
+   */
+  @deprecated(since = "0.1.0", message = "migrate to field_based_id")
   def fieldBasedID(prefix: String, digestImpl: String, children: Column *): Column =
     fieldBasedID(prefix, children, digestImpl)
 
   /**
-   * Creates a hash based ID based on an upstream compatible long generator
+   * Creates a hash based ID based on an upstream compatible long generator, in line with sql functions please migrate to provided_id
    * @param prefix
    * @return
    */
+  @deprecated(since = "0.1.0", message = "migrate to provided_id")
   def providedID(prefix: String, child: Column): Column =
+    provided_id(prefix, child)
+
+  /**
+   * Creates a hash based ID based on an upstream compatible long generator
+   *
+   * @param prefix
+   * @return
+   */
+  def provided_id(prefix: String, child: Column): Column =
     new Column(GenericLongBasedIDExpression(model.ProvidedID, child.expr, prefix))
 
   /**

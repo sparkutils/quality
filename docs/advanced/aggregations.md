@@ -4,7 +4,7 @@ tags: advanced
 
 # Aggregation Functions
 
-Quality adds a number of aggregation primitives to allow building accross dataset functionality similar to Deequ and others but philisophically staying true to the customisation approach used throughout the library.
+Quality adds a number of aggregation primitives to allow building across dataset functionality similar to Deequ and others but philosophically staying true to the customisation approach used throughout the library.
 
 At it's core all aggregations are formed using any number of aggExpr columns:
 

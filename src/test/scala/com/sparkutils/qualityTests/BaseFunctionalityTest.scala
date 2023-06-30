@@ -3,7 +3,6 @@ package com.sparkutils.qualityTests
 import com.sparkutils.quality
 import com.sparkutils.quality._
 import functions._
-import com.sparkutils.quality.impl.longPair.AsUUID
 import com.sparkutils.quality.impl.util.{Arrays, PrintCode}
 import org.apache.spark.sql.catalyst.util.ArrayData
 import org.apache.spark.sql.functions._
@@ -113,6 +112,16 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
       .filter("p1 = p and s1 = s and d1 = d and f1 = f").count == 1)
   }
 
+  @Test
+  def longPairEqual: Unit = evalCodeGens {
+    import sparkSession.implicits._
+    val (seq, ceq) = sparkSession.range(1).selectExpr("120 a_lower", "304 a_higher", "120 b_lower", "304 b_higher").
+      select(expr("long_pair_equal('a','b') seq"), long_pair_equal("a","b") as "ceq").as[(Boolean, Boolean)].head
+
+    assert(ceq)
+    assert(seq)
+  }
+
   @Test // probabilityIn is covered by bloomtests, flatten by explodeResultsTest
   def verifySimpleExprs: Unit = evalCodeGens {
 
@@ -132,7 +141,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
       selectExpr("*", "rngUUID(longPairFromUUID(uuid())) throwaway").
       selectExpr("*", "rngUUID(named_struct('lower', fparts.lower + id, 'higher', fparts.higher)) as f"," longPair(`id` + 0L, `id` + 1L) as rowid", "unpack(d) as g", "probability(1000) as prob",
         "as_uuid(fparts.lower + id, fparts.higher) as asUUIDExpr"
-      ).select(expr("*"), unpack(col("d")) as "g2", AsUUID(expr("fparts.lower + id"), expr("fparts.higher")).as("asUUIDCol"))
+      ).select(expr("*"), unpack(col("d")) as "g2", as_uuid(expr("fparts.lower + id"), expr("fparts.higher")).as("asUUIDCol"))
 
     import sparkSession.implicits._
     val unpackCheck = df.selectExpr("g", "g2").as[((Int, Int), (Int, Int))].head
@@ -567,6 +576,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     val df = taddDataQuality(dataFrameLong(toWrite, 27, ruleSuiteResultType, null), rules)
 
     doTheRuleResultTest(df.selectExpr("rule_Suite_Result_Details(DataQuality) DataQuality"), toWrite)
+    doTheRuleResultTest(df.select(rule_suite_result_details(col("DataQuality")) as "DataQuality"), toWrite)
   }
 
   def doTheRuleResultTest(df: DataFrame, toWrite: Int): Unit = {
@@ -641,6 +651,23 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     assert(strippedGres == "500")
   }
 
+  @Test
+  def updateFields(): Unit = evalCodeGens {
+    import sparkSession.implicits._
+
+    val og = sparkSession.range(1).selectExpr("named_struct('a', 1, 'b', named_struct('c', 4, 'd', named_struct('e', 'wot'))) s")
+    def assertsbc(df: DataFrame, expected: Int, expectedString: String) = {
+      assert(df.select("s.b.c").as[Int].head() == expected)
+      assert(df.select("s.b.d.e").as[String].head() == expectedString)
+    }
+
+    assertsbc(og, 4, "wot")
+
+//    val updated = og.select(update_field(col("s"), ("b", update_field(col("s.b"), ("c", lit(40))))) as "s")
+    //val updated = og.select(add_struct_field("s", "b.c", lit(40)) as "s")
+    val updated = og.select(update_field(col("s"), ("b.c", lit(40)), ("b.d.e", lit("mate"))) as "s")
+    assertsbc(updated, 40, "mate")
+  }
 }
 
 object Holder {

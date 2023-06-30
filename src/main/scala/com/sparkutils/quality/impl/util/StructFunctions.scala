@@ -1,20 +1,35 @@
 package com.sparkutils.quality.impl.util
 
-import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionDescription, GenericInternalRow}
+import com.sparkutils.quality.QualityException
+import org.apache.spark.sql.Column
+import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
+import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionDescription, GenericInternalRow, NamedExpression}
+import org.apache.spark.sql.catalyst.util.toPrettySQL
+import org.apache.spark.sql.functions.{col, lit}
+import org.apache.spark.sql.qualityFunctions.utils.named
+
+trait StructFunctionsImport {
+
+  /**
+   * Adds fields, in order, for each field path it's paired transformation is applied to the update column
+   *
+   * @param update
+   * @param transformations
+   * @return a new copy of update with the changes applied
+   */
+  def update_field(update: Column, transformations: (String, Column)*): Column =
+    new Column( AddFields(update.expr +: transformations.flatMap{ transformation
+        => Seq(lit(transformation._1).expr, transformation._2.expr)} ) )
+
+}
 
 /**
  * The simple UpdateFields(exps(0), RuleRunnerFunctions.getString(exps(1)), exps(2)) does not work on 3.1.1
  * As such the sme approach must be taken.
  */
-object StructFunctions {
-  val withFieldFunction = (exps: Seq[Expression]) => {
-    AddFields(exps)
-    //UpdateFields(exps(0), RuleRunnerFunctions.getString(exps(1)), exps(2))
-  }
-}
 
 // below c+p'd from https://raw.githubusercontent.com/fqaiser94/mse/master/src/main/scala/org/apache/spark/sql/catalyst/expressions/AddFields.scala , apache 2 but only for 2.4
-// only withNewChildrenInternal is added for 3.2 support
+// only withNewChildrenInternal is added for 3.2 support and fixed nameparts
 
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult

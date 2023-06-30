@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl.imports
 
 import com.sparkutils.quality.impl.UUIDToLongsExpression
-import com.sparkutils.quality.impl.longPair.LongPairExpression
+import com.sparkutils.quality.impl.longPair.{LongPairExpression, PrefixedToLongPair}
 import org.apache.spark.sql.Column
 
 trait LongPairImports {
@@ -23,4 +23,12 @@ trait LongPairImports {
   def long_pair_from_uuid(uuid: Column): Column =
     new Column ( UUIDToLongsExpression(uuid.expr) )
 
+  /**
+   * Converts a prefixed long pair to lower, higher
+   * @param source
+   * @param prefix
+   * @return
+   */
+  def prefixed_to_long_pair(source: Column, prefix: String): Column =
+    new Column( PrefixedToLongPair(source.expr, prefix) )
 }

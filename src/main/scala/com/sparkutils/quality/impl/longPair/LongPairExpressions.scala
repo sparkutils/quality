@@ -43,7 +43,7 @@ case class LongPairExpression(left: Expression, right: Expression) extends Binar
 }
 
 /**
- * Takes a prefixed lower and upper long pair field, must be 128bit with the provided prefix and converts to lower and higher for other functions
+ * Takes a prefixed lower and higher long pair field, must be 128bit with the provided prefix and converts to lower and higher for other functions
  * @param prefix prefix of the nested fields
  * @param child the id field
  */

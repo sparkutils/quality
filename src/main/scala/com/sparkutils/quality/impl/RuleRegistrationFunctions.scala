@@ -1,22 +1,22 @@
 package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.QualityException.qualityException
+import com.sparkutils.quality.functions._
 import com.sparkutils.quality.impl.aggregates.AggregateExpressions
 import com.sparkutils.quality.impl.bloom.{BucketedArrayParquetAggregator, ParquetAggregator}
-import com.sparkutils.quality.impl.hash.{HashFunctionFactory, HashFunctionsExpression, MessageDigestFactory, ZALongHashFunctionFactory, ZALongTupleHashFunctionFactory}
-import com.sparkutils.quality.impl.id.{AsBase64Fields, AsBase64Struct, GenericLongBasedIDExpression, GuaranteedUniqueID, GuaranteedUniqueIdIDExpression, IDFromBase64, IDToRawIDDataType, SizeOfIDString, model}
-import com.sparkutils.quality.impl.rng.{RandLongsWithJump, RandomBytes, RandomLongs}
-import com.sparkutils.quality.impl.longPair.{AsUUID, LongPairExpression, PrefixedToLongPair}
-import com.sparkutils.quality.impl.util.{ComparableMapConverter, ComparableMapReverser, PrintCode, StructFunctions}
+import com.sparkutils.quality.impl.hash.{HashFunctionFactory, HashFunctionsExpression, ZALongHashFunctionFactory, ZALongTupleHashFunctionFactory}
+import com.sparkutils.quality.impl.id.{GenericLongBasedIDExpression, model}
+import com.sparkutils.quality.impl.longPair.{AsUUID, LongPairExpression}
+import com.sparkutils.quality.impl.rng.{RandomBytes, RandomLongs}
+import com.sparkutils.quality.impl.util.{ComparableMapConverter, ComparableMapReverser, PrintCode}
 import com.sparkutils.quality.{QualityException, impl}
 import org.apache.commons.rng.simple.RandomSource
 import org.apache.spark.sql.QualitySparkUtils.add
-import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
-import org.apache.spark.sql.catalyst.expressions.{Add, And, AttributeReference, EqualTo, Expression, LambdaFunction => SLambdaFunction, Literal, UnresolvedNamedLambdaVariable}
+import org.apache.spark.sql.catalyst.expressions.{Add, AttributeReference, Expression, Literal, UnresolvedNamedLambdaVariable, LambdaFunction => SLambdaFunction}
 import org.apache.spark.sql.qualityFunctions.LambdaFunctions.processTopCallFun
 import org.apache.spark.sql.qualityFunctions._
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.{QualitySparkUtils, SparkSession, functions}
+import org.apache.spark.sql.{Column, QualitySparkUtils, SparkSession, functions}
 import org.apache.spark.unsafe.types.UTF8String
 
 object RuleRegistrationFunctions {
@@ -356,25 +356,16 @@ object RuleRegistrationFunctions {
         BucketedArrayParquetAggregator(exps(0), exps(1), exps(2), Literal(java.util.UUID.randomUUID().toString))
     }, Set(3,4))
 
+
     val longPairEqual = (exps: Seq[Expression]) => {
       val Seq(Literal(a, StringType), Literal(b, StringType)) = exps
-
-      def lower(a: Any) = UnresolvedAttribute(s"${a}_lower")
-
-      def higher(a: Any) = UnresolvedAttribute(s"${a}_higher")
-
-      And(EqualTo(lower(a), lower(b)), EqualTo(higher(a), higher(b)))
+      long_pair_equal(a.toString, b.toString).expr
     }
     register("long_Pair_Equal", longPairEqual, Set(2))
 
     val idEqual = (exps: Seq[Expression]) => {
       val Seq(Literal(a, StringType), Literal(b, StringType)) = exps
-
-      def attr(a: Any, field: String) = UnresolvedAttribute(s"${a}_$field")
-
-      And(And(EqualTo(attr(a,"base"), attr(b, "base")),
-        EqualTo(attr(a,"i0"), attr(b, "i0"))),
-        EqualTo(attr(a,"i1"), attr(b, "i1")))
+      id_equal(a.toString, b.toString).expr
     }
     register("idEqual", idEqual, Set(2))
 
@@ -382,28 +373,23 @@ object RuleRegistrationFunctions {
 
     register("rule_Suite_Result_Details", exps => impl.RuleSuiteResultDetailsExpr(exps(0)), Set(1))
 
-    register("digest_To_Longs_Struct", digestToLongs(true))
+    register("digest_To_Longs_Struct",  exps => digest_to_longs_struct(getString(exps.head), exps.tail.map(new Column(_)): _*).expr)
+    register("digest_To_Longs", exps => digest_to_longs(getString(exps.head), exps.tail.map(new Column(_)): _*).expr)
 
-    def digestToLongs(asStruct: Boolean = true) = (exps: Seq[Expression]) => {
-      val digestImpl = getString(exps.head)
-      HashFunctionsExpression(exps.tail, digestImpl, asStruct, MessageDigestFactory(digestImpl))
-    }
-    register("digest_To_Longs", digestToLongs(false))
-
-    def fieldBasedID(factory: String => DigestFactory) = (exps: Seq[Expression]) =>
+    def fieldBasedID(func: (String, String, Seq[Column]) => Column) = (exps: Seq[Expression]) =>
       exps.size match {
         case a if a > 2 =>
           val digestImpl = getString(exps(1))
-          GenericLongBasedIDExpression(model.FieldBasedID,
-            HashFunctionsExpression(exps.drop(2), digestImpl, true, factory(digestImpl)), getString(exps.head))
+          val prefix = getString(exps.head)
+          func(prefix, digestImpl, exps.drop(2).map(new Column(_)) ).expr
 
         case _ => literalsNeeded
       }
 
-    register("field_Based_ID", fieldBasedID(MessageDigestFactory))
-    register("za_Longs_Field_Based_ID", fieldBasedID(ZALongTupleHashFunctionFactory))
-    register("za_Field_Based_ID", fieldBasedID(ZALongHashFunctionFactory))
-    register("hash_Field_Based_ID", fieldBasedID(HashFunctionFactory(_)))
+    register("field_Based_ID", fieldBasedID(field_based_id _))
+    register("za_Longs_Field_Based_ID", fieldBasedID(za_longs_field_based_id _))
+    register("za_Field_Based_ID", fieldBasedID(za_field_based_id _))
+    register("hash_Field_Based_ID", fieldBasedID(hash_field_based_id _))
 
     val providedID = (exps: Seq[Expression]) =>
       exps.size match {
@@ -419,7 +405,7 @@ object RuleRegistrationFunctions {
     val prefixedToLongPair = (exps: Seq[Expression]) =>
       exps.size match {
         case 2 =>
-          PrefixedToLongPair(exps(1), getString(exps.head))
+          prefixed_to_long_pair(new Column(exps(1)), getString(exps.head)).expr
 
         case _ => literalsNeeded
       }
@@ -434,8 +420,7 @@ object RuleRegistrationFunctions {
           case _ => literalsNeeded
         }
 
-      GenericLongBasedIDExpression(model.RandomID,
-        RandLongsWithJump(seed, randomSource), prefix) // only jumpables work
+      rng_id(prefix, randomSource, seed).expr
     }
     register("rng_ID", rngID, Set(1,2,3))
 
@@ -446,23 +431,17 @@ object RuleRegistrationFunctions {
           case _ => literalsNeeded
         }
 
-      GuaranteedUniqueIdIDExpression(
-        GuaranteedUniqueID()
-        , prefix
-      )
+      unique_id(prefix).expr
     }
     register("unique_ID", uniqueID, Set(1))
 
-    register("id_size", exps => SizeOfIDString(exps.head), Set(1))
-    register("id_base64", {
-      case Seq(e) => AsBase64Struct(e)
-      case s => AsBase64Fields(s)
-    })
+    register("id_size", exps => id_size(new Column(exps.head)).expr, Set(1))
+    register("id_base64", exps => id_base64(exps.map(new Column(_)): _*).expr)
     register("id_from_base64", {
-      case Seq(e) => IDFromBase64(e, 2) // default assumption
-      case Seq(e, s) => IDFromBase64(e, getInteger(s))
+      case Seq(e) => id_from_base64(new Column(e)).expr
+      case Seq(e, s) => id_from_base64(new Column(e), getInteger(s)).expr
     }, Set(1,2))
-    register("id_raw_type", exps => IDToRawIDDataType(exps.head), Set(1))
+    register("id_raw_type", exps => id_raw_type(new Column(exps.head)).expr, Set(1))
 
     val Murmur3_128_64 = (exps: Seq[Expression]) => {
       val (prefix) =
@@ -513,7 +492,10 @@ object RuleRegistrationFunctions {
     register("coalesce_If_Attributes_Missing_Disable", _ => qualityException("coalesceIf functions cannot be created") )
 
     // The MSE library adds this lens functionality, 3.1.1 introduces this to dsl but neither does an sql interface
-    register("update_Field", StructFunctions.withFieldFunction)
+    //register("update_field", com.sparkutils.quality.impl.util.AddFields(_))
+    register("update_field", exps => {
+      update_field(new Column(exps.head), ( exps.tail.grouped(2).map(p => getString(p.head) -> new Column(p.last)).toSeq): _*).expr
+    })
 
     def msgAndExpr(msgDefault: String, exps: Seq[Expression]) = exps match {
       case Seq(Literal(str: UTF8String, StringType), e: Expression) =>

@@ -63,7 +63,7 @@ class RuleFolderTest extends FunSuite with TestUtils {
         (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1000, Id(1043,1),
           OutputExpression("thecurrent -> updateField(thecurrent, 'transfer_type', 'from')"))),
         (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1001, Id(1044,1),
-          OutputExpression("thecurrent -> updateField(thecurrent, 'account', concat(account,'_fruit'))")))
+          OutputExpression("thecurrent -> update_field(thecurrent, 'account', concat(account,'_fruit'))")))
       ), compileEvals = true, debugMode = true
     ) // compileEvals + codeGens IS NOT forcing a code gen on >Spark3
 

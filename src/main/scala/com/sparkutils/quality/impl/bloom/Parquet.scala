@@ -105,7 +105,12 @@ case class BucketedArrayParquetAggregator(child: Expression, expectedSizeE: Expr
   with ParquetBloomFPP {
 
   protected lazy val numBuckets: Int = {
-    val longRes = com.sparkutils.quality.optimalNumberOfBuckets(expectedSizeE.eval().asInstanceOf[Int],
+    val longRes = com.sparkutils.quality.optimalNumberOfBuckets(
+      expectedSizeE.dataType match {
+        case LongType => expectedSizeE.eval().asInstanceOf[Long]
+        case IntegerType => expectedSizeE.eval().asInstanceOf[Int]
+        case ShortType => expectedSizeE.eval().asInstanceOf[Short]
+      },
       fpp)
     longRes.toByte
   }

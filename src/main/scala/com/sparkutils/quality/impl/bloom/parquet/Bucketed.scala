@@ -1,10 +1,12 @@
 package com.sparkutils.quality.impl.bloom.parquet
 
+import com.sparkutils.quality.functions.big_bloom
 import com.sparkutils.quality.impl.util.{BytePackingUtils, TSLocal, TransientHolder}
+
 import java.io._
 import com.sparkutils.quality.{BloomLookup, BloomModel}
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.sql.{Column, DataFrame, SparkSession}
 
 object Bucketed {
 
@@ -59,7 +61,7 @@ object BucketedCreator {
    * @param partitions
    * @return
    */
-  def bloomFrom(dataFrame: DataFrame, bloomOn: String, expectedSize: Long,
+  def bloomFrom(dataFrame: DataFrame, bloomOn: Column, expectedSize: Long,
                 fpp: Double = 0.01, bloomId: String = java.util.UUID.randomUUID().toString, partitions: Int = 0): BloomModel = {
     val df =
       if (partitions != 0)
@@ -67,14 +69,14 @@ object BucketedCreator {
       else
         dataFrame
 
-    val interim = df.selectExpr(s"bigBloom($bloomOn, $expectedSize, cast($fpp as double), '$bloomId')").head.getAs[Array[Byte]](0)
+    val interim = df.select( big_bloom(bloomOn, expectedSize, fpp, bloomId) ).head.getAs[Array[Byte]](0)
     val bloom = BloomModel.deserialize(interim)
     bloom.cleanupOthers()
     bloom
   }
 
   val bloomFileLocation = {
-    val defaultRoot = SQLConf.get.getConfString("sparkutils.quality.bloom.root", "/dbfs/")
+    val defaultRoot = com.sparkutils.quality.getConfig("sparkutils.quality.bloom.root", "/dbfs/")
 
     // if it's running on databricks use a dbfs dir
     val dbfs = new File(defaultRoot)
