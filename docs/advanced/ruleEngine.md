@@ -113,7 +113,8 @@ This sql function behaves the same way as per flattenResults, however there are 
     1. Using filter then count will stop necessary attributes being produced for resolving, Spark optimises them out as count doesn't need them, however the rules definitely do need some attributes to be useful.
     2. You may not select different attributes, remove any, re-order them, or add extra attributes, this is likely to cause failure in show'ing or write'ing
     3. Spark is free to optimise other actions than just count, ymmv in which ones work.     
-     
+    4. The 0.1.0 implementation of update_field (based on the Spark impl) does not work in some circumstances (testSimpleProductionRules will fail) - see #36
+
 resolveWith attempts to improve performance of planning for general spark operations by first using a reduced plan against the source dataframe.  The resulting Expression will have all functions and attributes resolved and is hidden from further processing by Spark until your rules actually run. 
 
 ```scala

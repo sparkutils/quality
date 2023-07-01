@@ -57,7 +57,7 @@ class RuleEngineTest extends FunSuite with TestUtils {
   }
 
   @Test
-  def testSimpleProductionRules(): Unit = evalCodeGens {
+  def testSimpleProductionRules(): Unit = evalCodeGensNoResolve {
     val rer = irules(
       Seq((ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040,1),
         OutputExpression("array(account_row('from'), account_row('to', 'other_account1'))"))),
