@@ -22,23 +22,35 @@ trait StructFunctionsImport {
    */
   def update_field(update: Column, transformations: (String, Column)*): Column =
     new Column(
-      transformations.foldRight(update.expr) {
-        case ((path, col), origin) =>
-          UpdateFields.apply(origin, path, col.expr)
-      }.transform{ // simplify, normally done in optimizer UpdateFields
-        case UpdateFields(UpdateFields(struct +: fieldOps1) +: fieldOps2) =>
-            UpdateFields(struct +: ( fieldOps1 ++ fieldOps2) )
+      transformFields{
+        transformations.foldRight(update.expr) {
+          case ((path, col), origin) =>
+            UpdateFields.apply(origin, path, col.expr)
+        }
       }
     )
+
+  protected def transformFields(exp: Expression): Expression =
+    exp.transform { // simplify, normally done in optimizer UpdateFields
+      case UpdateFields(UpdateFields(struct +: fieldOps1) +: fieldOps2) =>
+        UpdateFields(struct +: ( fieldOps1 ++ fieldOps2) )
+    }
 
   /**
    * Drops a field from a structure
    * @param update
-   * @param fieldName may be nested
+   * @param fieldNames may be nested
    * @return
    */
-  def drop_field(update: Column, fieldName: String): Column =
-    new Column( UpdateFields.apply(update.expr, fieldName) )
+  def drop_field(update: Column, fieldNames: String*): Column =
+    new Column(
+      transformFields{
+        fieldNames.foldRight(update.expr) {
+          case (fieldName, origin) =>
+            UpdateFields.apply(origin, fieldName)
+        }
+      }
+    )
 }
 
 // Below is lifted from 3.4.1 complexTypeCreator

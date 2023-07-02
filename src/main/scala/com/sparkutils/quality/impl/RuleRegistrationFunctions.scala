@@ -139,7 +139,7 @@ object RuleRegistrationFunctions {
           argsf
         else
           (exps: Seq[Expression]) => {
-            if (!paramNumbers.contains(exps.size) || (minimum > -1 && minimum < exps.size)) {
+            if ((paramNumbers.nonEmpty && !paramNumbers.contains(exps.size)) || (minimum > exps.size)) {
               val sizeerr =
                 if (paramNumbers.nonEmpty)
                   s"Valid parameter counts are ${paramNumbers.mkString(", ")}"
@@ -443,7 +443,7 @@ object RuleRegistrationFunctions {
     register("unique_ID", uniqueID, Set(1))
 
     register("id_size", exps => id_size(new Column(exps.head)).expr, Set(1))
-    register("id_base64", exps => id_base64(exps.map(new Column(_)): _*).expr, minimum = 3)
+    register("id_base64", exps => id_base64(exps.map(new Column(_)): _*).expr, minimum = 1)
     register("id_from_base64", {
       case Seq(e) => id_from_base64(new Column(e)).expr
       case Seq(e, s) => id_from_base64(new Column(e), getInteger(s)).expr
@@ -479,7 +479,7 @@ object RuleRegistrationFunctions {
       update_field(new Column(exps.head), ( exps.tail.grouped(2).map(p => getString(p.head, 0) -> new Column(p.last)).toSeq): _*).expr
     }, minimum = 3)
     register("drop_field", exps => {
-      drop_field(new Column(exps.head), getString(exps.last, 1)).expr
+      drop_field(new Column(exps.head), exps.tail.zipWithIndex.map{case (p, i) => getString(p, i+1)} : _*).expr
     }, minimum = 2)
 
     def msgAndExpr(msgDefault: String, exps: Seq[Expression]) = exps match {

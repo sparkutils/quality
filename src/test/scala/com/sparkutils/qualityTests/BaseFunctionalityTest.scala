@@ -660,7 +660,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
   def updateFields(): Unit = evalCodeGens {
     import sparkSession.implicits._
 
-    val og = sparkSession.range(1).selectExpr("named_struct('a', 1, 'b', named_struct('c', 4, 'd', named_struct('e', 'wot'))) s")
+    val og = sparkSession.range(1).selectExpr("named_struct('a', 1, 'b', named_struct('c', 4, 'd', named_struct('e', 'wot')), 'f', 'string', 'g', 134) s")
     def assertsbc(df: DataFrame, expected: Int, expectedString: String) = {
       assert(df.select("s.b.c").as[Int].head() == expected)
       assert(df.select("s.b.d.e").as[String].head() == expectedString)
@@ -668,9 +668,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
     assertsbc(og, 4, "wot")
 
-//    val updated = og.select(update_field(col("s"), ("b", update_field(col("s.b"), ("c", lit(40))))) as "s")
     val updated = og.select(update_field(col("s"), ("b.c", lit(40)), ("b.d.e", lit("mate"))) as "s")
-    //val updated = og.select(new Column(UpdateFields.apply(UpdateFields.apply(col("s").expr, "b.c", lit(40).expr), "b.d.e", lit("mate").expr)) as "s")
     assertsbc(updated, 40, "mate")
 
     // b.d.e doesn't work as it'd force d to be empty.
@@ -678,6 +676,13 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     val b = schema.fields(0).dataType.asInstanceOf[StructType].fields(1).dataType.asInstanceOf[StructType].fields
     assert(b.length == 1)
     assert(b.apply(0).name == "c")
+
+    val schema2 = updated.selectExpr("drop_field(s, 'b.d', 'f', 'g')").schema
+    val b2 = schema2.fields(0).dataType.asInstanceOf[StructType].fields(1).dataType.asInstanceOf[StructType].fields
+    assert(b2.length == 1)
+    assert(b2.apply(0).name == "c")
+
+    assert(schema2.fields(0).dataType.asInstanceOf[StructType].fields.length == 2)
   }
 
   @Test

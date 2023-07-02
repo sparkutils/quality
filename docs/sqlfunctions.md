@@ -329,7 +329,7 @@ functions:
       - longs
   drop_field:
     description: |
-      drop_field(structure_expr, 'field.subfield') removes a field from a structure 
+      drop_field(structure_expr, 'field.subfield'*) removes fields from a structure, but will not remove parent nodes. 
 
       This is a wrapped version of 3.4.1's dropField implementation.
     tags:
