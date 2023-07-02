@@ -173,7 +173,10 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     val tests = Seq("cannot resolve", "requires (int or bigint) type")
     doTypeCheck("probability('a')", tests :+ "however, a is of string type")
     doTypeCheck("probability(1.02)", tests :+ "however, 1.02 is of decimal(3,2) type") // NB will be double in Spark 3.0
-    doTypeCheck(probability(lit(1.02)), tests :+ "however, 1.02 is of double type") // double as the lit input is a double
+    not3_3 {
+      // 3_3 has two keys with the same name, one boolean the other string so a CCE occurs when accessing the boolean thinking it's the string
+      doTypeCheck(probability(lit(1.02)), tests :+ "however, 1.02 is of double type") // double as the lit input is a double
+    }
   }
 
   def doTypeCheck(eval: String, containsTests: Seq[String]) : Unit =
