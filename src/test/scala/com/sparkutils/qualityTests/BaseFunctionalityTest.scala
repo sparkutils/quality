@@ -679,6 +679,16 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     assert(b.length == 1)
     assert(b.apply(0).name == "c")
   }
+
+  @Test
+  def checkMinimumLengthWorks(): Unit =
+    try {
+      sparkSession.range(1).selectExpr("hash_with()").show
+      fail("should have thrown")
+    } catch {
+      case t: Throwable if t.getMessage.contains("A minimum of 2 parameters is required") =>
+        ()
+    }
 }
 
 object Holder {
