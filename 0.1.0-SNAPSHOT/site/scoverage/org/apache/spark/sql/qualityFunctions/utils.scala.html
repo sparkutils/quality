@@ -24,124 +24,159 @@
           <div class="tab-pane active" id="codegrid">
             <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package org.apache.spark.sql.qualityFunctions
 </span>2 <span style=''>
-</span>3 <span style=''>import com.sparkutils.quality.impl.util.Comparison.compareToOrdering
-</span>4 <span style=''>import org.apache.spark.sql.{Column, QualitySparkUtils}
-</span>5 <span style=''>import org.apache.spark.sql.catalyst.InternalRow
-</span>6 <span style=''>import org.apache.spark.sql.catalyst.expressions.{BoundReference, NamedExpression}
-</span>7 <span style=''>import org.apache.spark.sql.catalyst.util.ArrayData
-</span>8 <span style=''>import org.apache.spark.sql.types.{ArrayType, AtomicType, DataType, MapType, StructField, StructType}
-</span>9 <span style=''>
-</span>10 <span style=''>object utils {
+</span>3 <span style=''>import java.util.concurrent.atomic.AtomicInteger
+</span>4 <span style=''>
+</span>5 <span style=''>import com.sparkutils.quality.impl.util.Comparison.compareToOrdering
+</span>6 <span style=''>import org.apache.spark.sql.{Column, QualitySparkUtils}
+</span>7 <span style=''>import org.apache.spark.sql.catalyst.InternalRow
+</span>8 <span style=''>import org.apache.spark.sql.catalyst.expressions.{BoundReference, LambdaFunction, NamedExpression, UnresolvedNamedLambdaVariable}
+</span>9 <span style=''>import org.apache.spark.sql.catalyst.util.ArrayData
+</span>10 <span style=''>import org.apache.spark.sql.types.{ArrayType, AtomicType, DataType, MapType, StructField, StructType}
 </span>11 <span style=''>
-</span>12 <span style=''>  def named(col: Column): NamedExpression = </span><span style='background: #F0ADAD'>col.named</span><span style=''>
+</span>12 <span style=''>object utils {
 </span>13 <span style=''>
-</span>14 <span style=''>  private val noopCompare = (dt: DataType) =&gt; </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>14 <span style=''>  def named(col: Column): NamedExpression = </span><span style='background: #F0ADAD'>col.named</span><span style=''>
 </span>15 <span style=''>
-</span>16 <span style=''>  object KeyValueArray {
-</span>17 <span style=''>    def unapply(dataType: DataType): Option[(DataType, DataType)] =
-</span>18 <span style=''>      dataType match {
-</span>19 <span style=''>        case arrayType: ArrayType =&gt;
-</span>20 <span style=''>          </span><span style='background: #AEF1AE'>arrayType.elementType</span><span style=''> match {
-</span>21 <span style=''>            case s: StructType if </span><span style='background: #AEF1AE'>s.fields.size == 2 &amp;&amp; s.fields(0).name == &quot;key&quot; &amp;&amp; s.fields(1).name == &quot;value&quot;</span><span style=''> =&gt;
-</span>22 <span style=''>              </span><span style='background: #AEF1AE'>Some((s.fields(0).dataType, s.fields(1).dataType))</span><span style=''>
-</span>23 <span style=''>            case _ =&gt; </span><span style='background: #AEF1AE'>None</span><span style=''>
-</span>24 <span style=''>          }
-</span>25 <span style=''>        case _ =&gt; </span><span style='background: #AEF1AE'>None</span><span style=''>
-</span>26 <span style=''>      }
-</span>27 <span style=''>  }
-</span>28 <span style=''>
-</span>29 <span style=''>  def keyValueType(keyType: DataType, valueType: DataType) =
-</span>30 <span style=''>    </span><span style='background: #AEF1AE'>ArrayType(StructType(
-</span>31 <span style=''></span><span style='background: #AEF1AE'>      Seq(StructField(&quot;key&quot;, keyType, false), StructField(&quot;value&quot;, valueType, false))
-</span>32 <span style=''></span><span style='background: #AEF1AE'>    ), false)</span><span style=''>
-</span>33 <span style=''>
-</span>34 <span style=''>  def genArrayCompare(elementType: DataType, elComp: (Any, Any) =&gt; Int): (Any, Any) =&gt; Int = (oleft, oright) =&gt; {
-</span>35 <span style=''>    val left = </span><span style='background: #AEF1AE'>oleft.asInstanceOf[ArrayData]</span><span style=''>
-</span>36 <span style=''>    val right = </span><span style='background: #AEF1AE'>oright.asInstanceOf[ArrayData]</span><span style=''>
-</span>37 <span style=''>    if (</span><span style='background: #AEF1AE'>left.numElements() &gt; right.numElements()</span><span style=''>)
-</span>38 <span style=''>      </span><span style='background: #AEF1AE'>1</span><span style=''>
-</span>39 <span style=''>    else </span><span style='background: #AEF1AE'>if (left.numElements() &lt; right.numElements())
-</span>40 <span style=''></span><span style='background: #AEF1AE'>      -1
-</span>41 <span style=''></span><span style='background: #AEF1AE'>    else {
-</span>42 <span style=''></span><span style='background: #AEF1AE'>      // same
-</span>43 <span style=''></span><span style='background: #AEF1AE'>      var i = 0
-</span>44 <span style=''></span><span style='background: #AEF1AE'>      var res = 0
-</span>45 <span style=''></span><span style='background: #AEF1AE'>      val al = (idx: Int) =&gt; left.get(idx, elementType)// Arrays.toArray(left, elementType)
-</span>46 <span style=''></span><span style='background: #AEF1AE'>      val ar = (idx: Int) =&gt; right.get(idx, elementType)// Arrays.toArray(right, elementType)
-</span>47 <span style=''></span><span style='background: #AEF1AE'>      while (i &lt; left.numElements() &amp;&amp; res == 0) {
-</span>48 <span style=''></span><span style='background: #AEF1AE'>        res = elComp(al(i), ar(i))
-</span>49 <span style=''></span><span style='background: #AEF1AE'>        i += 1
-</span>50 <span style=''></span><span style='background: #AEF1AE'>      }
-</span>51 <span style=''></span><span style='background: #AEF1AE'>      res
-</span>52 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
-</span>53 <span style=''>  }
-</span>54 <span style=''>
-</span>55 <span style=''>  def defaultMapCompare(dataType: DataType, extension: DataType =&gt; Option[(Any, Any) =&gt; Int] = noopCompare): Option[(Any, Any) =&gt; Int] =
-</span>56 <span style=''>    dataType match {
-</span>57 <span style=''>      case mt: MapType =&gt; {
-</span>58 <span style=''>        val kt = </span><span style='background: #AEF1AE'>defaultMapCompare(mt.keyType, extension).
-</span>59 <span style=''></span><span style='background: #AEF1AE'>          getOrElse(sys.error(</span><span style='background: #F0ADAD'>s&quot;Could not find compare function for map key type ${mt.keyType}&quot;</span><span style='background: #AEF1AE'>))</span><span style=''>
-</span>60 <span style=''>
-</span>61 <span style=''>        val kr = </span><span style='background: #AEF1AE'>BoundReference(0, mt.keyType, nullable = true)</span><span style=''>
+</span>16 <span style=''>  private val noopCompare = (dt: DataType) =&gt; </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>17 <span style=''>
+</span>18 <span style=''>  object KeyValueArray {
+</span>19 <span style=''>    def unapply(dataType: DataType): Option[(DataType, DataType)] =
+</span>20 <span style=''>      dataType match {
+</span>21 <span style=''>        case arrayType: ArrayType =&gt;
+</span>22 <span style=''>          </span><span style='background: #AEF1AE'>arrayType.elementType</span><span style=''> match {
+</span>23 <span style=''>            case s: StructType if </span><span style='background: #AEF1AE'>s.fields.size == 2 &amp;&amp; s.fields(0).name == &quot;key&quot; &amp;&amp; s.fields(1).name == &quot;value&quot;</span><span style=''> =&gt;
+</span>24 <span style=''>              </span><span style='background: #AEF1AE'>Some((s.fields(0).dataType, s.fields(1).dataType))</span><span style=''>
+</span>25 <span style=''>            case _ =&gt; </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>26 <span style=''>          }
+</span>27 <span style=''>        case _ =&gt; </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>28 <span style=''>      }
+</span>29 <span style=''>  }
+</span>30 <span style=''>
+</span>31 <span style=''>  def keyValueType(keyType: DataType, valueType: DataType) =
+</span>32 <span style=''>    </span><span style='background: #AEF1AE'>ArrayType(StructType(
+</span>33 <span style=''></span><span style='background: #AEF1AE'>      Seq(StructField(&quot;key&quot;, keyType, false), StructField(&quot;value&quot;, valueType, false))
+</span>34 <span style=''></span><span style='background: #AEF1AE'>    ), false)</span><span style=''>
+</span>35 <span style=''>
+</span>36 <span style=''>  def genArrayCompare(elementType: DataType, elComp: (Any, Any) =&gt; Int): (Any, Any) =&gt; Int = (oleft, oright) =&gt; {
+</span>37 <span style=''>    val left = </span><span style='background: #AEF1AE'>oleft.asInstanceOf[ArrayData]</span><span style=''>
+</span>38 <span style=''>    val right = </span><span style='background: #AEF1AE'>oright.asInstanceOf[ArrayData]</span><span style=''>
+</span>39 <span style=''>    if (</span><span style='background: #AEF1AE'>left.numElements() &gt; right.numElements()</span><span style=''>)
+</span>40 <span style=''>      </span><span style='background: #AEF1AE'>1</span><span style=''>
+</span>41 <span style=''>    else </span><span style='background: #AEF1AE'>if (left.numElements() &lt; right.numElements())
+</span>42 <span style=''></span><span style='background: #AEF1AE'>      -1
+</span>43 <span style=''></span><span style='background: #AEF1AE'>    else {
+</span>44 <span style=''></span><span style='background: #AEF1AE'>      // same
+</span>45 <span style=''></span><span style='background: #AEF1AE'>      var i = 0
+</span>46 <span style=''></span><span style='background: #AEF1AE'>      var res = 0
+</span>47 <span style=''></span><span style='background: #AEF1AE'>      val al = (idx: Int) =&gt; left.get(idx, elementType)// Arrays.toArray(left, elementType)
+</span>48 <span style=''></span><span style='background: #AEF1AE'>      val ar = (idx: Int) =&gt; right.get(idx, elementType)// Arrays.toArray(right, elementType)
+</span>49 <span style=''></span><span style='background: #AEF1AE'>      while (i &lt; left.numElements() &amp;&amp; res == 0) {
+</span>50 <span style=''></span><span style='background: #AEF1AE'>        res = elComp(al(i), ar(i))
+</span>51 <span style=''></span><span style='background: #AEF1AE'>        i += 1
+</span>52 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>53 <span style=''></span><span style='background: #AEF1AE'>      res
+</span>54 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>55 <span style=''>  }
+</span>56 <span style=''>
+</span>57 <span style=''>  def defaultMapCompare(dataType: DataType, extension: DataType =&gt; Option[(Any, Any) =&gt; Int] = noopCompare): Option[(Any, Any) =&gt; Int] =
+</span>58 <span style=''>    dataType match {
+</span>59 <span style=''>      case mt: MapType =&gt; {
+</span>60 <span style=''>        val kt = </span><span style='background: #AEF1AE'>defaultMapCompare(mt.keyType, extension).
+</span>61 <span style=''></span><span style='background: #AEF1AE'>          getOrElse(sys.error(</span><span style='background: #F0ADAD'>s&quot;Could not find compare function for map key type ${mt.keyType}&quot;</span><span style='background: #AEF1AE'>))</span><span style=''>
 </span>62 <span style=''>
-</span>63 <span style=''>        // actual field is in a key val struct
-</span>64 <span style=''>        </span><span style='background: #AEF1AE'>Some(
-</span>65 <span style=''></span><span style='background: #AEF1AE'>          genArrayCompare(keyValueType(mt.keyType, mt.valueType),
-</span>66 <span style=''></span><span style='background: #AEF1AE'>            (left, right) =&gt; {
-</span>67 <span style=''></span><span style='background: #AEF1AE'>              val lkv = kr.eval(left.asInstanceOf[InternalRow])
-</span>68 <span style=''></span><span style='background: #AEF1AE'>              val rkv = kr.eval(right.asInstanceOf[InternalRow])
-</span>69 <span style=''></span><span style='background: #AEF1AE'>
-</span>70 <span style=''></span><span style='background: #AEF1AE'>              val r = kt(lkv, rkv)
-</span>71 <span style=''></span><span style='background: #AEF1AE'>              if (r != 0)
-</span>72 <span style=''></span><span style='background: #AEF1AE'>                r
-</span>73 <span style=''></span><span style='background: #AEF1AE'>              else {
-</span>74 <span style=''></span><span style='background: #AEF1AE'>                /* shouldn't happen unless MapData is created directly and it's not
-</span>75 <span style=''></span><span style='background: #AEF1AE'>                   actually a map checking on key uniqueness, here for completeness */
-</span>76 <span style=''></span><span style='background: #AEF1AE'>                val vt = </span><span style='background: #F0ADAD'>defaultMapCompare(mt.valueType, extension).
-</span>77 <span style=''></span><span style='background: #F0ADAD'>                  getOrElse(sys.error(s&quot;Could not find compare function for map value type ${mt.valueType}&quot;))</span><span style='background: #AEF1AE'>
-</span>78 <span style=''></span><span style='background: #AEF1AE'>                val vr = </span><span style='background: #F0ADAD'>BoundReference(1, mt.valueType, nullable = true)</span><span style='background: #AEF1AE'>
-</span>79 <span style=''></span><span style='background: #AEF1AE'>
-</span>80 <span style=''></span><span style='background: #AEF1AE'>                val lvv = </span><span style='background: #F0ADAD'>vr.eval(left.asInstanceOf[InternalRow])</span><span style='background: #AEF1AE'>
-</span>81 <span style=''></span><span style='background: #AEF1AE'>                val rvv = </span><span style='background: #F0ADAD'>vr.eval(right.asInstanceOf[InternalRow])</span><span style='background: #AEF1AE'>
-</span>82 <span style=''></span><span style='background: #AEF1AE'>
-</span>83 <span style=''></span><span style='background: #AEF1AE'>                </span><span style='background: #F0ADAD'>vt(lvv, rvv)</span><span style='background: #AEF1AE'>
-</span>84 <span style=''></span><span style='background: #AEF1AE'>              }
-</span>85 <span style=''></span><span style='background: #AEF1AE'>            })
-</span>86 <span style=''></span><span style='background: #AEF1AE'>        )</span><span style=''>
-</span>87 <span style=''>      }
-</span>88 <span style=''>      case dt: AtomicType =&gt; </span><span style='background: #AEF1AE'>Some(compareToOrdering(QualitySparkUtils.sparkOrdering(dt)))</span><span style=''>
-</span>89 <span style=''>      case arrayType: ArrayType =&gt;
-</span>90 <span style=''>        val oelcomp = </span><span style='background: #AEF1AE'>defaultMapCompare(arrayType.elementType, extension)</span><span style=''>
-</span>91 <span style=''>        </span><span style='background: #AEF1AE'>oelcomp.map{
-</span>92 <span style=''></span><span style='background: #AEF1AE'>          elcomp =&gt;
-</span>93 <span style=''></span><span style='background: #AEF1AE'>            genArrayCompare(arrayType.elementType, elcomp)
-</span>94 <span style=''></span><span style='background: #AEF1AE'>        }</span><span style=''>
-</span>95 <span style=''>      case structType: StructType =&gt;
-</span>96 <span style=''>        val allFields = </span><span style='background: #AEF1AE'>structType.fields.zipWithIndex.map{
-</span>97 <span style=''></span><span style='background: #AEF1AE'>          case (f, index) =&gt;
-</span>98 <span style=''></span><span style='background: #AEF1AE'>            defaultMapCompare( f.dataType, extension).map(cf =&gt; (BoundReference(index, f.dataType, nullable = true), cf)).
-</span>99 <span style=''></span><span style='background: #AEF1AE'>              getOrElse(sys.error(</span><span style='background: #F0ADAD'>s&quot;Could not find compare function for ${f.dataType} in struct $structType&quot;</span><span style='background: #AEF1AE'>))
-</span>100 <span style=''></span><span style='background: #AEF1AE'>        }</span><span style=''>
-</span>101 <span style=''>        </span><span style='background: #AEF1AE'>Some(
-</span>102 <span style=''></span><span style='background: #AEF1AE'>          // fail early for any non 0
-</span>103 <span style=''></span><span style='background: #AEF1AE'>          (left, right) =&gt; {
-</span>104 <span style=''></span><span style='background: #AEF1AE'>            var i = 0
-</span>105 <span style=''></span><span style='background: #AEF1AE'>            var res = 0
-</span>106 <span style=''></span><span style='background: #AEF1AE'>            while (i &lt; allFields.size &amp;&amp; res == 0) {
-</span>107 <span style=''></span><span style='background: #AEF1AE'>              val leftV = allFields(i)._1.eval(left.asInstanceOf[InternalRow])
-</span>108 <span style=''></span><span style='background: #AEF1AE'>              val rightV = allFields(i)._1.eval(right.asInstanceOf[InternalRow])
-</span>109 <span style=''></span><span style='background: #AEF1AE'>              res = allFields(i)._2(leftV, rightV)
-</span>110 <span style=''></span><span style='background: #AEF1AE'>              i += 1
-</span>111 <span style=''></span><span style='background: #AEF1AE'>            }
-</span>112 <span style=''></span><span style='background: #AEF1AE'>            res
-</span>113 <span style=''></span><span style='background: #AEF1AE'>          }
-</span>114 <span style=''></span><span style='background: #AEF1AE'>        )</span><span style=''>
-</span>115 <span style=''>      case _ =&gt; </span><span style='background: #F0ADAD'>extension(dataType).orElse(
-</span>116 <span style=''></span><span style='background: #F0ADAD'>        sys.error(s&quot;Could not find compare function for ${dataType}&quot;)
-</span>117 <span style=''></span><span style='background: #F0ADAD'>      )</span><span style=''>
-</span>118 <span style=''>    }
-</span>119 <span style=''>
-</span>120 <span style=''>}
+</span>63 <span style=''>        val kr = </span><span style='background: #AEF1AE'>BoundReference(0, mt.keyType, nullable = true)</span><span style=''>
+</span>64 <span style=''>
+</span>65 <span style=''>        // actual field is in a key val struct
+</span>66 <span style=''>        </span><span style='background: #AEF1AE'>Some(
+</span>67 <span style=''></span><span style='background: #AEF1AE'>          genArrayCompare(keyValueType(mt.keyType, mt.valueType),
+</span>68 <span style=''></span><span style='background: #AEF1AE'>            (left, right) =&gt; {
+</span>69 <span style=''></span><span style='background: #AEF1AE'>              val lkv = kr.eval(left.asInstanceOf[InternalRow])
+</span>70 <span style=''></span><span style='background: #AEF1AE'>              val rkv = kr.eval(right.asInstanceOf[InternalRow])
+</span>71 <span style=''></span><span style='background: #AEF1AE'>
+</span>72 <span style=''></span><span style='background: #AEF1AE'>              val r = kt(lkv, rkv)
+</span>73 <span style=''></span><span style='background: #AEF1AE'>              if (r != 0)
+</span>74 <span style=''></span><span style='background: #AEF1AE'>                r
+</span>75 <span style=''></span><span style='background: #AEF1AE'>              else {
+</span>76 <span style=''></span><span style='background: #AEF1AE'>                /* shouldn't happen unless MapData is created directly and it's not
+</span>77 <span style=''></span><span style='background: #AEF1AE'>                   actually a map checking on key uniqueness, here for completeness */
+</span>78 <span style=''></span><span style='background: #AEF1AE'>                val vt = </span><span style='background: #F0ADAD'>defaultMapCompare(mt.valueType, extension).
+</span>79 <span style=''></span><span style='background: #F0ADAD'>                  getOrElse(sys.error(s&quot;Could not find compare function for map value type ${mt.valueType}&quot;))</span><span style='background: #AEF1AE'>
+</span>80 <span style=''></span><span style='background: #AEF1AE'>                val vr = </span><span style='background: #F0ADAD'>BoundReference(1, mt.valueType, nullable = true)</span><span style='background: #AEF1AE'>
+</span>81 <span style=''></span><span style='background: #AEF1AE'>
+</span>82 <span style=''></span><span style='background: #AEF1AE'>                val lvv = </span><span style='background: #F0ADAD'>vr.eval(left.asInstanceOf[InternalRow])</span><span style='background: #AEF1AE'>
+</span>83 <span style=''></span><span style='background: #AEF1AE'>                val rvv = </span><span style='background: #F0ADAD'>vr.eval(right.asInstanceOf[InternalRow])</span><span style='background: #AEF1AE'>
+</span>84 <span style=''></span><span style='background: #AEF1AE'>
+</span>85 <span style=''></span><span style='background: #AEF1AE'>                </span><span style='background: #F0ADAD'>vt(lvv, rvv)</span><span style='background: #AEF1AE'>
+</span>86 <span style=''></span><span style='background: #AEF1AE'>              }
+</span>87 <span style=''></span><span style='background: #AEF1AE'>            })
+</span>88 <span style=''></span><span style='background: #AEF1AE'>        )</span><span style=''>
+</span>89 <span style=''>      }
+</span>90 <span style=''>      case dt: AtomicType =&gt; </span><span style='background: #AEF1AE'>Some(compareToOrdering(QualitySparkUtils.sparkOrdering(dt)))</span><span style=''>
+</span>91 <span style=''>      case arrayType: ArrayType =&gt;
+</span>92 <span style=''>        val oelcomp = </span><span style='background: #AEF1AE'>defaultMapCompare(arrayType.elementType, extension)</span><span style=''>
+</span>93 <span style=''>        </span><span style='background: #AEF1AE'>oelcomp.map{
+</span>94 <span style=''></span><span style='background: #AEF1AE'>          elcomp =&gt;
+</span>95 <span style=''></span><span style='background: #AEF1AE'>            genArrayCompare(arrayType.elementType, elcomp)
+</span>96 <span style=''></span><span style='background: #AEF1AE'>        }</span><span style=''>
+</span>97 <span style=''>      case structType: StructType =&gt;
+</span>98 <span style=''>        val allFields = </span><span style='background: #AEF1AE'>structType.fields.zipWithIndex.map{
+</span>99 <span style=''></span><span style='background: #AEF1AE'>          case (f, index) =&gt;
+</span>100 <span style=''></span><span style='background: #AEF1AE'>            defaultMapCompare( f.dataType, extension).map(cf =&gt; (BoundReference(index, f.dataType, nullable = true), cf)).
+</span>101 <span style=''></span><span style='background: #AEF1AE'>              getOrElse(sys.error(</span><span style='background: #F0ADAD'>s&quot;Could not find compare function for ${f.dataType} in struct $structType&quot;</span><span style='background: #AEF1AE'>))
+</span>102 <span style=''></span><span style='background: #AEF1AE'>        }</span><span style=''>
+</span>103 <span style=''>        </span><span style='background: #AEF1AE'>Some(
+</span>104 <span style=''></span><span style='background: #AEF1AE'>          // fail early for any non 0
+</span>105 <span style=''></span><span style='background: #AEF1AE'>          (left, right) =&gt; {
+</span>106 <span style=''></span><span style='background: #AEF1AE'>            var i = 0
+</span>107 <span style=''></span><span style='background: #AEF1AE'>            var res = 0
+</span>108 <span style=''></span><span style='background: #AEF1AE'>            while (i &lt; allFields.size &amp;&amp; res == 0) {
+</span>109 <span style=''></span><span style='background: #AEF1AE'>              val leftV = allFields(i)._1.eval(left.asInstanceOf[InternalRow])
+</span>110 <span style=''></span><span style='background: #AEF1AE'>              val rightV = allFields(i)._1.eval(right.asInstanceOf[InternalRow])
+</span>111 <span style=''></span><span style='background: #AEF1AE'>              res = allFields(i)._2(leftV, rightV)
+</span>112 <span style=''></span><span style='background: #AEF1AE'>              i += 1
+</span>113 <span style=''></span><span style='background: #AEF1AE'>            }
+</span>114 <span style=''></span><span style='background: #AEF1AE'>            res
+</span>115 <span style=''></span><span style='background: #AEF1AE'>          }
+</span>116 <span style=''></span><span style='background: #AEF1AE'>        )</span><span style=''>
+</span>117 <span style=''>      case _ =&gt; </span><span style='background: #AEF1AE'>extension(dataType).orElse(
+</span>118 <span style=''></span><span style='background: #AEF1AE'>        </span><span style='background: #F0ADAD'>sys.error(s&quot;Could not find compare function for ${dataType}&quot;)</span><span style='background: #AEF1AE'>
+</span>119 <span style=''></span><span style='background: #AEF1AE'>      )</span><span style=''>
+</span>120 <span style=''>    }
+</span>121 <span style=''>
+</span>122 <span style=''>  // taken from functions, where they are private
+</span>123 <span style=''>  def createLambda(f: Column =&gt; Column) = {
+</span>124 <span style=''>    val x = </span><span style='background: #AEF1AE'>UnresolvedNamedLambdaVariable(Seq(UnresolvedNamedLambdaVariableT.freshVarName(&quot;x&quot;)))</span><span style=''>
+</span>125 <span style=''>    val function = </span><span style='background: #AEF1AE'>f(Column(x)).expr</span><span style=''>
+</span>126 <span style=''>    </span><span style='background: #AEF1AE'>LambdaFunction(function, Seq(x))</span><span style=''>
+</span>127 <span style=''>  }
+</span>128 <span style=''>
+</span>129 <span style=''>  def createLambda(f: (Column, Column) =&gt; Column) = {
+</span>130 <span style=''>    val x = </span><span style='background: #AEF1AE'>UnresolvedNamedLambdaVariable(Seq(UnresolvedNamedLambdaVariableT.freshVarName(&quot;x&quot;)))</span><span style=''>
+</span>131 <span style=''>    val y = </span><span style='background: #AEF1AE'>UnresolvedNamedLambdaVariable(Seq(UnresolvedNamedLambdaVariableT.freshVarName(&quot;y&quot;)))</span><span style=''>
+</span>132 <span style=''>    val function = </span><span style='background: #AEF1AE'>f(Column(x), Column(y)).expr</span><span style=''>
+</span>133 <span style=''>    </span><span style='background: #AEF1AE'>LambdaFunction(function, Seq(x, y))</span><span style=''>
+</span>134 <span style=''>  }
+</span>135 <span style=''>
+</span>136 <span style=''>  def createLambda(f: (Column, Column, Column) =&gt; Column) = {
+</span>137 <span style=''>    val x = </span><span style='background: #F0ADAD'>UnresolvedNamedLambdaVariable(Seq(UnresolvedNamedLambdaVariableT.freshVarName(&quot;x&quot;)))</span><span style=''>
+</span>138 <span style=''>    val y = </span><span style='background: #F0ADAD'>UnresolvedNamedLambdaVariable(Seq(UnresolvedNamedLambdaVariableT.freshVarName(&quot;y&quot;)))</span><span style=''>
+</span>139 <span style=''>    val z = </span><span style='background: #F0ADAD'>UnresolvedNamedLambdaVariable(Seq(UnresolvedNamedLambdaVariableT.freshVarName(&quot;z&quot;)))</span><span style=''>
+</span>140 <span style=''>    val function = </span><span style='background: #F0ADAD'>f(Column(x), Column(y), Column(z)).expr</span><span style=''>
+</span>141 <span style=''>    </span><span style='background: #AEF1AE'>LambdaFunction(function, </span><span style='background: #F0ADAD'>Seq(x, y, z)</span><span style='background: #AEF1AE'>)</span><span style=''>
+</span>142 <span style=''>  }
+</span>143 <span style=''>
+</span>144 <span style=''>}
+</span>145 <span style=''>
+</span>146 <span style=''>// TODO remove with 2.4, it's only here until 0.2.0 as 3 introduced freshVarName
+</span>147 <span style=''>object UnresolvedNamedLambdaVariableT {
+</span>148 <span style=''>
+</span>149 <span style=''>  // Counter to ensure lambda variable names are unique
+</span>150 <span style=''>  private val nextVarNameId = </span><span style='background: #AEF1AE'>new AtomicInteger(0)</span><span style=''>
+</span>151 <span style=''>
+</span>152 <span style=''>  def freshVarName(name: String): String = {
+</span>153 <span style=''>    </span><span style='background: #AEF1AE'>s&quot;${name}_${nextVarNameId.getAndIncrement()}&quot;</span><span style=''>
+</span>154 <span style=''>  }
+</span>155 <span style=''>}
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -156,15 +191,15 @@
         <th>Code</th>
       </tr><tr>
         <td>
-          12
+          14
         </td>
         <td>
-          8316
+          8472
         </td>
         <td>
-          519
+          616
           -
-          528
+          625
         </td>
         <td>
           Select
@@ -180,15 +215,15 @@
         </td>
       </tr><tr>
         <td>
-          14
+          16
         </td>
         <td>
-          8317
+          8473
         </td>
         <td>
-          576
+          673
           -
-          580
+          677
         </td>
         <td>
           Select
@@ -204,15 +239,15 @@
         </td>
       </tr><tr>
         <td>
-          20
+          22
         </td>
         <td>
-          8318
+          8474
         </td>
         <td>
-          745
+          842
           -
-          766
+          863
         </td>
         <td>
           Select
@@ -228,39 +263,15 @@
         </td>
       </tr><tr>
         <td>
-          21
+          23
         </td>
         <td>
-          8322
+          8475
         </td>
         <td>
-          860
+          906
           -
-          887
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          java.lang.Object.==
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          s.fields.apply(1).name.==(&quot;value&quot;)
-        </td>
-      </tr><tr>
-        <td>
-          21
-        </td>
-        <td>
-          8319
-        </td>
-        <td>
-          809
-          -
-          817
+          914
         </td>
         <td>
           Select
@@ -276,15 +287,15 @@
         </td>
       </tr><tr>
         <td>
-          21
+          23
         </td>
         <td>
-          8321
+          8477
         </td>
         <td>
-          831
+          928
           -
-          856
+          953
         </td>
         <td>
           Apply
@@ -300,39 +311,15 @@
         </td>
       </tr><tr>
         <td>
-          21
+          23
         </td>
         <td>
-          8320
+          8479
         </td>
         <td>
-          826
+          906
           -
-          827
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          2
-        </td>
-      </tr><tr>
-        <td>
-          21
-        </td>
-        <td>
-          8323
-        </td>
-        <td>
-          809
-          -
-          887
+          984
         </td>
         <td>
           Apply
@@ -348,15 +335,63 @@
         </td>
       </tr><tr>
         <td>
-          22
+          23
         </td>
         <td>
-          8325
+          8476
         </td>
         <td>
-          911
+          923
           -
-          931
+          924
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          2
+        </td>
+      </tr><tr>
+        <td>
+          23
+        </td>
+        <td>
+          8478
+        </td>
+        <td>
+          957
+          -
+          984
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          s.fields.apply(1).name.==(&quot;value&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          8481
+        </td>
+        <td>
+          1008
+          -
+          1028
         </td>
         <td>
           Select
@@ -372,39 +407,15 @@
         </td>
       </tr><tr>
         <td>
-          22
+          24
         </td>
         <td>
-          8328
+          8483
         </td>
         <td>
-          910
+          1030
           -
-          954
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Tuple2.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.Tuple2.apply[org.apache.spark.sql.types.DataType, org.apache.spark.sql.types.DataType](s.fields.apply(0).dataType, s.fields.apply(1).dataType)
-        </td>
-      </tr><tr>
-        <td>
-          22
-        </td>
-        <td>
-          8327
-        </td>
-        <td>
-          933
-          -
-          953
+          1050
         </td>
         <td>
           Select
@@ -420,15 +431,15 @@
         </td>
       </tr><tr>
         <td>
-          22
+          24
         </td>
         <td>
-          8324
+          8480
         </td>
         <td>
-          920
+          1017
           -
-          921
+          1018
         </td>
         <td>
           Literal
@@ -444,15 +455,15 @@
         </td>
       </tr><tr>
         <td>
-          22
+          24
         </td>
         <td>
-          8326
+          8482
         </td>
         <td>
-          942
+          1039
           -
-          943
+          1040
         </td>
         <td>
           Literal
@@ -468,15 +479,15 @@
         </td>
       </tr><tr>
         <td>
-          22
+          24
         </td>
         <td>
-          8329
+          8485
         </td>
         <td>
-          905
+          1002
           -
-          955
+          1052
         </td>
         <td>
           Apply
@@ -492,39 +503,39 @@
         </td>
       </tr><tr>
         <td>
-          23
+          24
         </td>
         <td>
-          8330
+          8484
         </td>
         <td>
-          978
+          1007
           -
-          982
+          1051
         </td>
         <td>
-          Select
+          Apply
         </td>
         <td>
-          scala.None
+          scala.Tuple2.apply
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          scala.None
+          scala.Tuple2.apply[org.apache.spark.sql.types.DataType, org.apache.spark.sql.types.DataType](s.fields.apply(0).dataType, s.fields.apply(1).dataType)
         </td>
       </tr><tr>
         <td>
           25
         </td>
         <td>
-          8331
+          8486
         </td>
         <td>
-          1013
+          1075
           -
-          1017
+          1079
         </td>
         <td>
           Select
@@ -540,15 +551,39 @@
         </td>
       </tr><tr>
         <td>
-          30
+          27
         </td>
         <td>
-          8343
+          8487
         </td>
         <td>
-          1096
+          1110
           -
-          1217
+          1114
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          8499
+        </td>
+        <td>
+          1193
+          -
+          1314
         </td>
         <td>
           Apply
@@ -564,15 +599,15 @@
         </td>
       </tr><tr>
         <td>
-          30
+          32
         </td>
         <td>
-          8341
+          8497
         </td>
         <td>
-          1106
+          1203
           -
-          1209
+          1306
         </td>
         <td>
           Apply
@@ -588,39 +623,15 @@
         </td>
       </tr><tr>
         <td>
-          31
+          33
         </td>
         <td>
-          8340
+          8490
         </td>
         <td>
-          1124
+          1225
           -
-          1203
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.collection.generic.GenericCompanion.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.collection.Seq.apply[org.apache.spark.sql.types.StructField](org.apache.spark.sql.types.StructField.apply(&quot;key&quot;, keyType, false, org.apache.spark.sql.types.StructField.apply$default$4), org.apache.spark.sql.types.StructField.apply(&quot;value&quot;, valueType, false, org.apache.spark.sql.types.StructField.apply$default$4))
-        </td>
-      </tr><tr>
-        <td>
-          31
-        </td>
-        <td>
-          8334
-        </td>
-        <td>
-          1128
-          -
-          1128
+          1225
         </td>
         <td>
           Select
@@ -636,39 +647,15 @@
         </td>
       </tr><tr>
         <td>
-          31
+          33
         </td>
         <td>
-          8337
+          8492
         </td>
         <td>
-          1196
+          1273
           -
-          1201
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          false
-        </td>
-      </tr><tr>
-        <td>
-          31
-        </td>
-        <td>
-          8336
-        </td>
-        <td>
-          1176
-          -
-          1183
+          1280
         </td>
         <td>
           Literal
@@ -684,15 +671,15 @@
         </td>
       </tr><tr>
         <td>
-          31
+          33
         </td>
         <td>
-          8339
+          8495
         </td>
         <td>
-          1164
+          1261
           -
-          1202
+          1299
         </td>
         <td>
           Apply
@@ -708,15 +695,15 @@
         </td>
       </tr><tr>
         <td>
-          31
+          33
         </td>
         <td>
-          8333
+          8489
         </td>
         <td>
-          1156
+          1253
           -
-          1161
+          1258
         </td>
         <td>
           Literal
@@ -732,63 +719,15 @@
         </td>
       </tr><tr>
         <td>
-          31
+          33
         </td>
         <td>
-          8335
+          8488
         </td>
         <td>
-          1128
+          1237
           -
-          1162
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.apache.spark.sql.types.StructField.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          org.apache.spark.sql.types.StructField.apply(&quot;key&quot;, keyType, false, org.apache.spark.sql.types.StructField.apply$default$4)
-        </td>
-      </tr><tr>
-        <td>
-          31
-        </td>
-        <td>
-          8338
-        </td>
-        <td>
-          1164
-          -
-          1164
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          org.apache.spark.sql.types.StructField.apply$default$4
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          org.apache.spark.sql.types.StructField.apply$default$4
-        </td>
-      </tr><tr>
-        <td>
-          31
-        </td>
-        <td>
-          8332
-        </td>
-        <td>
-          1140
-          -
-          1145
+          1242
         </td>
         <td>
           Literal
@@ -804,15 +743,63 @@
         </td>
       </tr><tr>
         <td>
-          32
+          33
         </td>
         <td>
-          8342
+          8491
         </td>
         <td>
-          1211
+          1225
           -
-          1216
+          1259
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply(&quot;key&quot;, keyType, false, org.apache.spark.sql.types.StructField.apply$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          8494
+        </td>
+        <td>
+          1261
+          -
+          1261
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          8493
+        </td>
+        <td>
+          1293
+          -
+          1298
         </td>
         <td>
           Literal
@@ -828,15 +815,63 @@
         </td>
       </tr><tr>
         <td>
-          35
+          33
         </td>
         <td>
-          8344
+          8496
         </td>
         <td>
-          1348
+          1221
           -
-          1377
+          1300
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.Seq.apply[org.apache.spark.sql.types.StructField](org.apache.spark.sql.types.StructField.apply(&quot;key&quot;, keyType, false, org.apache.spark.sql.types.StructField.apply$default$4), org.apache.spark.sql.types.StructField.apply(&quot;value&quot;, valueType, false, org.apache.spark.sql.types.StructField.apply$default$4))
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          8498
+        </td>
+        <td>
+          1308
+          -
+          1313
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          8500
+        </td>
+        <td>
+          1445
+          -
+          1474
         </td>
         <td>
           TypeApply
@@ -852,15 +887,15 @@
         </td>
       </tr><tr>
         <td>
-          36
+          38
         </td>
         <td>
-          8345
+          8501
         </td>
         <td>
-          1394
+          1491
           -
-          1424
+          1521
         </td>
         <td>
           TypeApply
@@ -876,39 +911,15 @@
         </td>
       </tr><tr>
         <td>
-          37
+          39
         </td>
         <td>
-          8346
+          8503
         </td>
         <td>
-          1454
+          1530
           -
-          1473
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.apache.spark.sql.catalyst.util.ArrayData.numElements
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          right.numElements()
-        </td>
-      </tr><tr>
-        <td>
-          37
-        </td>
-        <td>
-          8347
-        </td>
-        <td>
-          1433
-          -
-          1473
+          1570
         </td>
         <td>
           Apply
@@ -924,39 +935,39 @@
         </td>
       </tr><tr>
         <td>
-          38
+          39
         </td>
         <td>
-          8349
+          8502
         </td>
         <td>
-          1481
+          1551
           -
-          1482
+          1570
         </td>
         <td>
-          Block
+          Apply
         </td>
         <td>
-          &lt;nosymbol&gt;
+          org.apache.spark.sql.catalyst.util.ArrayData.numElements
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          1
+          right.numElements()
         </td>
       </tr><tr>
         <td>
-          38
+          40
         </td>
         <td>
-          8348
+          8504
         </td>
         <td>
-          1481
+          1578
           -
-          1482
+          1579
         </td>
         <td>
           Literal
@@ -972,15 +983,39 @@
         </td>
       </tr><tr>
         <td>
-          39
+          40
         </td>
         <td>
-          8370
+          8505
         </td>
         <td>
-          1492
+          1578
           -
-          1916
+          1579
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          8526
+        </td>
+        <td>
+          1589
+          -
+          2013
         </td>
         <td>
           If
@@ -1017,15 +1052,15 @@ else
         </td>
       </tr><tr>
         <td>
-          39
+          41
         </td>
         <td>
-          8351
+          8507
         </td>
         <td>
-          1496
+          1593
           -
-          1536
+          1633
         </td>
         <td>
           Apply
@@ -1041,15 +1076,15 @@ else
         </td>
       </tr><tr>
         <td>
-          39
+          41
         </td>
         <td>
-          8350
+          8506
         </td>
         <td>
-          1517
+          1614
           -
-          1536
+          1633
         </td>
         <td>
           Apply
@@ -1065,15 +1100,15 @@ else
         </td>
       </tr><tr>
         <td>
-          40
+          42
         </td>
         <td>
-          8352
+          8508
         </td>
         <td>
-          1544
+          1641
           -
-          1546
+          1643
         </td>
         <td>
           Literal
@@ -1089,15 +1124,15 @@ else
         </td>
       </tr><tr>
         <td>
-          40
+          42
         </td>
         <td>
-          8353
+          8509
         </td>
         <td>
-          1544
+          1641
           -
-          1546
+          1643
         </td>
         <td>
           Block
@@ -1113,15 +1148,15 @@ else
         </td>
       </tr><tr>
         <td>
-          41
+          43
         </td>
         <td>
-          8369
+          8525
         </td>
         <td>
-          1556
+          1653
           -
-          1916
+          2013
         </td>
         <td>
           Block
@@ -1155,63 +1190,63 @@ else
         </td>
       </tr><tr>
         <td>
-          43
-        </td>
-        <td>
-          8354
-        </td>
-        <td>
-          1586
-          -
-          1587
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          0
-        </td>
-      </tr><tr>
-        <td>
-          44
-        </td>
-        <td>
-          8355
-        </td>
-        <td>
-          1604
-          -
-          1605
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          0
-        </td>
-      </tr><tr>
-        <td>
           45
         </td>
         <td>
-          8356
+          8510
         </td>
         <td>
-          1635
+          1683
           -
-          1661
+          1684
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          8511
+        </td>
+        <td>
+          1701
+          -
+          1702
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          8512
+        </td>
+        <td>
+          1732
+          -
+          1758
         </td>
         <td>
           Apply
@@ -1227,15 +1262,15 @@ else
         </td>
       </tr><tr>
         <td>
-          46
+          48
         </td>
         <td>
-          8357
+          8513
         </td>
         <td>
-          1727
+          1824
           -
-          1754
+          1851
         </td>
         <td>
           Apply
@@ -1251,63 +1286,39 @@ else
         </td>
       </tr><tr>
         <td>
-          47
+          49
         </td>
         <td>
-          8367
+          8516
         </td>
         <td>
-          1798
+          1902
           -
-          1798
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          47
-        </td>
-        <td>
-          8358
-        </td>
-        <td>
-          1809
-          -
-          1827
+          1936
         </td>
         <td>
           Apply
         </td>
         <td>
-          org.apache.spark.sql.catalyst.util.ArrayData.numElements
+          scala.Boolean.&amp;&amp;
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          left.numElements()
+          i.&lt;(left.numElements()).&amp;&amp;(res.==(0))
         </td>
       </tr><tr>
         <td>
-          47
+          49
         </td>
         <td>
-          8366
+          8522
         </td>
         <td>
-          1841
+          1938
           -
-          1900
+          1997
         </td>
         <td>
           Block
@@ -1329,63 +1340,15 @@ else
         </td>
       </tr><tr>
         <td>
-          47
+          49
         </td>
         <td>
-          8360
+          8515
         </td>
         <td>
-          1805
+          1928
           -
-          1839
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Boolean.&amp;&amp;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          i.&lt;(left.numElements()).&amp;&amp;(res.==(0))
-        </td>
-      </tr><tr>
-        <td>
-          47
-        </td>
-        <td>
-          8368
-        </td>
-        <td>
-          1798
-          -
-          1798
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          47
-        </td>
-        <td>
-          8359
-        </td>
-        <td>
-          1831
-          -
-          1839
+          1936
         </td>
         <td>
           Apply
@@ -1401,15 +1364,39 @@ else
         </td>
       </tr><tr>
         <td>
-          47
+          49
         </td>
         <td>
-          8365
+          8524
         </td>
         <td>
-          1841
+          1895
           -
-          1841
+          1895
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          8521
+        </td>
+        <td>
+          1938
+          -
+          1938
         </td>
         <td>
           Apply
@@ -1425,15 +1412,63 @@ else
         </td>
       </tr><tr>
         <td>
-          48
+          49
         </td>
         <td>
-          8361
+          8514
         </td>
         <td>
-          1864
+          1906
           -
-          1869
+          1924
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.ArrayData.numElements
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          left.numElements()
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          8523
+        </td>
+        <td>
+          1895
+          -
+          1895
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          8517
+        </td>
+        <td>
+          1961
+          -
+          1966
         </td>
         <td>
           Apply
@@ -1449,15 +1484,15 @@ else
         </td>
       </tr><tr>
         <td>
-          48
+          50
         </td>
         <td>
-          8363
+          8519
         </td>
         <td>
-          1857
+          1954
           -
-          1877
+          1974
         </td>
         <td>
           Apply
@@ -1473,15 +1508,15 @@ else
         </td>
       </tr><tr>
         <td>
-          48
+          50
         </td>
         <td>
-          8362
+          8518
         </td>
         <td>
-          1871
+          1968
           -
-          1876
+          1973
         </td>
         <td>
           Apply
@@ -1497,15 +1532,15 @@ else
         </td>
       </tr><tr>
         <td>
-          49
+          51
         </td>
         <td>
-          8364
+          8520
         </td>
         <td>
-          1886
+          1983
           -
-          1892
+          1989
         </td>
         <td>
           Apply
@@ -1521,15 +1556,15 @@ else
         </td>
       </tr><tr>
         <td>
-          58
+          60
         </td>
         <td>
-          8371
+          8527
         </td>
         <td>
-          2143
+          2240
           -
-          2153
+          2250
         </td>
         <td>
           Select
@@ -1545,63 +1580,15 @@ else
         </td>
       </tr><tr>
         <td>
-          59
+          61
         </td>
         <td>
-          8373
+          8528
         </td>
         <td>
-          2261
+          2296
           -
-          2262
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;&quot;
-        </td>
-      </tr><tr>
-        <td>
-          59
-        </td>
-        <td>
-          8376
-        </td>
-        <td>
-          2187
-          -
-          2263
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.sys.error
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.sys.`package`.error(scala.StringContext.apply(&quot;Could not find compare function for map key type &quot;, &quot;&quot;).s(mt.keyType))
-        </td>
-      </tr><tr>
-        <td>
-          59
-        </td>
-        <td>
-          8372
-        </td>
-        <td>
-          2199
-          -
-          2249
+          2346
         </td>
         <td>
           Literal
@@ -1617,15 +1604,15 @@ else
         </td>
       </tr><tr>
         <td>
-          59
+          61
         </td>
         <td>
-          8375
+          8531
         </td>
         <td>
-          2197
+          2294
           -
-          2262
+          2359
         </td>
         <td>
           Apply
@@ -1641,39 +1628,15 @@ else
         </td>
       </tr><tr>
         <td>
-          59
+          61
         </td>
         <td>
-          8377
+          8530
         </td>
         <td>
-          2125
+          2347
           -
-          2264
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Option.getOrElse
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          utils.this.defaultMapCompare(mt.keyType, extension).getOrElse[(Any, Any) =&gt; Int](scala.sys.`package`.error(scala.StringContext.apply(&quot;Could not find compare function for map key type &quot;, &quot;&quot;).s(mt.keyType)))
-        </td>
-      </tr><tr>
-        <td>
-          59
-        </td>
-        <td>
-          8374
-        </td>
-        <td>
-          2250
-          -
-          2260
+          2357
         </td>
         <td>
           Select
@@ -1692,12 +1655,84 @@ else
           61
         </td>
         <td>
-          8379
+          8533
         </td>
         <td>
-          2301
+          2222
           -
-          2311
+          2361
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          utils.this.defaultMapCompare(mt.keyType, extension).getOrElse[(Any, Any) =&gt; Int](scala.sys.`package`.error(scala.StringContext.apply(&quot;Could not find compare function for map key type &quot;, &quot;&quot;).s(mt.keyType)))
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          8529
+        </td>
+        <td>
+          2358
+          -
+          2359
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          8532
+        </td>
+        <td>
+          2284
+          -
+          2360
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.sys.error
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.sys.`package`.error(scala.StringContext.apply(&quot;Could not find compare function for map key type &quot;, &quot;&quot;).s(mt.keyType))
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          8535
+        </td>
+        <td>
+          2398
+          -
+          2408
         </td>
         <td>
           Select
@@ -1713,39 +1748,15 @@ else
         </td>
       </tr><tr>
         <td>
-          61
+          63
         </td>
         <td>
-          8381
+          8534
         </td>
         <td>
-          2283
+          2395
           -
-          2329
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.apache.spark.sql.catalyst.expressions.BoundReference.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          org.apache.spark.sql.catalyst.expressions.BoundReference.apply(0, mt.keyType, true)
-        </td>
-      </tr><tr>
-        <td>
-          61
-        </td>
-        <td>
-          8378
-        </td>
-        <td>
-          2298
-          -
-          2299
+          2396
         </td>
         <td>
           Literal
@@ -1761,15 +1772,39 @@ else
         </td>
       </tr><tr>
         <td>
-          61
+          63
         </td>
         <td>
-          8380
+          8537
         </td>
         <td>
-          2324
+          2380
           -
-          2328
+          2426
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.BoundReference.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.BoundReference.apply(0, mt.keyType, true)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          8536
+        </td>
+        <td>
+          2421
+          -
+          2425
         </td>
         <td>
           Literal
@@ -1785,15 +1820,15 @@ else
         </td>
       </tr><tr>
         <td>
-          64
+          66
         </td>
         <td>
-          8410
+          8566
         </td>
         <td>
-          2386
+          2483
           -
-          3347
+          3444
         </td>
         <td>
           Apply
@@ -1823,15 +1858,87 @@ else
         </td>
       </tr><tr>
         <td>
-          65
+          67
         </td>
         <td>
-          8409
+          8540
         </td>
         <td>
-          2402
+          2515
           -
-          3337
+          2553
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.utils.keyValueType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          utils.this.keyValueType(mt.keyType, mt.valueType)
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          8539
+        </td>
+        <td>
+          2540
+          -
+          2552
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.MapType.valueType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          mt.valueType
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          8538
+        </td>
+        <td>
+          2528
+          -
+          2538
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.MapType.keyType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          mt.keyType
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          8565
+        </td>
+        <td>
+          2499
+          -
+          3434
         </td>
         <td>
           Apply
@@ -1861,111 +1968,15 @@ else
         </td>
       </tr><tr>
         <td>
-          65
+          69
         </td>
         <td>
-          8382
+          8542
         </td>
         <td>
-          2431
+          2610
           -
-          2441
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          org.apache.spark.sql.types.MapType.keyType
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          mt.keyType
-        </td>
-      </tr><tr>
-        <td>
-          65
-        </td>
-        <td>
-          8384
-        </td>
-        <td>
-          2418
-          -
-          2456
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.apache.spark.sql.qualityFunctions.utils.keyValueType
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          utils.this.keyValueType(mt.keyType, mt.valueType)
-        </td>
-      </tr><tr>
-        <td>
-          65
-        </td>
-        <td>
-          8383
-        </td>
-        <td>
-          2443
-          -
-          2455
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          org.apache.spark.sql.types.MapType.valueType
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          mt.valueType
-        </td>
-      </tr><tr>
-        <td>
-          67
-        </td>
-        <td>
-          8385
-        </td>
-        <td>
-          2521
-          -
-          2551
-        </td>
-        <td>
-          TypeApply
-        </td>
-        <td>
-          scala.Any.asInstanceOf
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          left.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow]
-        </td>
-      </tr><tr>
-        <td>
-          67
-        </td>
-        <td>
-          8386
-        </td>
-        <td>
-          2513
-          -
-          2552
+          2649
         </td>
         <td>
           Apply
@@ -1981,39 +1992,39 @@ else
         </td>
       </tr><tr>
         <td>
-          68
+          69
         </td>
         <td>
-          8388
+          8541
         </td>
         <td>
-          2577
+          2618
           -
-          2617
+          2648
         </td>
         <td>
-          Apply
+          TypeApply
         </td>
         <td>
-          org.apache.spark.sql.catalyst.expressions.BoundReference.eval
+          scala.Any.asInstanceOf
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          kr.eval(right.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow])
+          left.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow]
         </td>
       </tr><tr>
         <td>
-          68
+          70
         </td>
         <td>
-          8387
+          8543
         </td>
         <td>
-          2585
+          2682
           -
-          2616
+          2713
         </td>
         <td>
           TypeApply
@@ -2032,12 +2043,36 @@ else
           70
         </td>
         <td>
-          8389
+          8544
         </td>
         <td>
-          2641
+          2674
           -
-          2653
+          2714
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.BoundReference.eval
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          kr.eval(right.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow])
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          8545
+        </td>
+        <td>
+          2738
+          -
+          2750
         </td>
         <td>
           Apply
@@ -2053,15 +2088,15 @@ else
         </td>
       </tr><tr>
         <td>
-          71
+          73
         </td>
         <td>
-          8390
+          8546
         </td>
         <td>
-          2672
+          2769
           -
-          2678
+          2775
         </td>
         <td>
           Apply
@@ -2077,15 +2112,15 @@ else
         </td>
       </tr><tr>
         <td>
-          72
+          74
         </td>
         <td>
-          8391
+          8547
         </td>
         <td>
-          2696
+          2793
           -
-          2697
+          2794
         </td>
         <td>
           Ident
@@ -2101,15 +2136,15 @@ else
         </td>
       </tr><tr>
         <td>
-          73
+          75
         </td>
         <td>
-          8408
+          8564
         </td>
         <td>
-          2717
+          2814
           -
-          3322
+          3419
         </td>
         <td>
           Block
@@ -2131,15 +2166,15 @@ else
         </td>
       </tr><tr>
         <td>
-          76
+          78
         </td>
         <td>
-          8392
+          8548
         </td>
         <td>
-          2933
+          3030
           -
-          2945
+          3042
         </td>
         <td>
           Select
@@ -2155,63 +2190,15 @@ else
         </td>
       </tr><tr>
         <td>
-          77
+          79
         </td>
         <td>
-          8394
+          8552
         </td>
         <td>
-          3065
+          3094
           -
-          3066
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;&quot;
-        </td>
-      </tr><tr>
-        <td>
-          77
-        </td>
-        <td>
-          8397
-        </td>
-        <td>
-          2987
-          -
-          3067
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.sys.error
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          scala.sys.`package`.error(scala.StringContext.apply(&quot;Could not find compare function for map value type &quot;, &quot;&quot;).s(mt.valueType))
-        </td>
-      </tr><tr>
-        <td>
-          77
-        </td>
-        <td>
-          8396
-        </td>
-        <td>
-          2997
-          -
-          3066
+          3163
         </td>
         <td>
           Apply
@@ -2227,15 +2214,15 @@ else
         </td>
       </tr><tr>
         <td>
-          77
+          79
         </td>
         <td>
-          8393
+          8549
         </td>
         <td>
-          2999
+          3096
           -
-          3051
+          3148
         </td>
         <td>
           Literal
@@ -2251,15 +2238,15 @@ else
         </td>
       </tr><tr>
         <td>
-          77
+          79
         </td>
         <td>
-          8395
+          8551
         </td>
         <td>
-          3052
+          3149
           -
-          3064
+          3161
         </td>
         <td>
           Select
@@ -2275,15 +2262,15 @@ else
         </td>
       </tr><tr>
         <td>
-          77
+          79
         </td>
         <td>
-          8398
+          8554
         </td>
         <td>
-          2915
+          3012
           -
-          3068
+          3165
         </td>
         <td>
           Apply
@@ -2299,39 +2286,63 @@ else
         </td>
       </tr><tr>
         <td>
-          78
+          79
         </td>
         <td>
-          8400
+          8553
         </td>
         <td>
-          3112
+          3084
           -
-          3124
+          3164
         </td>
         <td>
-          Select
+          Apply
         </td>
         <td>
-          org.apache.spark.sql.types.MapType.valueType
+          scala.sys.error
         </td>
         <td>
           
         </td>
         <td style="background: #F0ADAD">
-          mt.valueType
+          scala.sys.`package`.error(scala.StringContext.apply(&quot;Could not find compare function for map value type &quot;, &quot;&quot;).s(mt.valueType))
         </td>
       </tr><tr>
         <td>
-          78
+          79
         </td>
         <td>
-          8399
+          8550
         </td>
         <td>
-          3109
+          3162
           -
-          3110
+          3163
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          8555
+        </td>
+        <td>
+          3206
+          -
+          3207
         </td>
         <td>
           Literal
@@ -2347,15 +2358,15 @@ else
         </td>
       </tr><tr>
         <td>
-          78
+          80
         </td>
         <td>
-          8402
+          8558
         </td>
         <td>
-          3094
+          3191
           -
-          3142
+          3239
         </td>
         <td>
           Apply
@@ -2371,15 +2382,15 @@ else
         </td>
       </tr><tr>
         <td>
-          78
+          80
         </td>
         <td>
-          8401
+          8557
         </td>
         <td>
-          3137
+          3234
           -
-          3141
+          3238
         </td>
         <td>
           Literal
@@ -2398,36 +2409,36 @@ else
           80
         </td>
         <td>
-          8403
+          8556
         </td>
         <td>
-          3178
+          3209
           -
-          3208
+          3221
         </td>
         <td>
-          TypeApply
+          Select
         </td>
         <td>
-          scala.Any.asInstanceOf
+          org.apache.spark.sql.types.MapType.valueType
         </td>
         <td>
           
         </td>
         <td style="background: #F0ADAD">
-          left.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow]
+          mt.valueType
         </td>
       </tr><tr>
         <td>
-          80
+          82
         </td>
         <td>
-          8404
+          8560
         </td>
         <td>
-          3170
+          3267
           -
-          3209
+          3306
         </td>
         <td>
           Apply
@@ -2443,39 +2454,39 @@ else
         </td>
       </tr><tr>
         <td>
-          81
+          82
         </td>
         <td>
-          8406
+          8559
         </td>
         <td>
-          3236
+          3275
           -
-          3276
+          3305
         </td>
         <td>
-          Apply
+          TypeApply
         </td>
         <td>
-          org.apache.spark.sql.catalyst.expressions.BoundReference.eval
+          scala.Any.asInstanceOf
         </td>
         <td>
           
         </td>
         <td style="background: #F0ADAD">
-          vr.eval(right.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow])
+          left.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow]
         </td>
       </tr><tr>
         <td>
-          81
+          83
         </td>
         <td>
-          8405
+          8561
         </td>
         <td>
-          3244
+          3341
           -
-          3275
+          3372
         </td>
         <td>
           TypeApply
@@ -2494,12 +2505,36 @@ else
           83
         </td>
         <td>
-          8407
+          8562
         </td>
         <td>
-          3294
+          3333
           -
-          3306
+          3373
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.BoundReference.eval
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          vr.eval(right.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow])
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          8563
+        </td>
+        <td>
+          3391
+          -
+          3403
         </td>
         <td>
           Apply
@@ -2515,42 +2550,15 @@ else
         </td>
       </tr><tr>
         <td>
-          88
+          90
         </td>
         <td>
-          8412
+          8567
         </td>
         <td>
-          3385
+          3487
           -
-          3445
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Some.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.Some.apply[(Any, Any) =&gt; Int]({
-  &lt;synthetic&gt; val eta$0$1: Ordering[_$1] = org.apache.spark.sql.QualitySparkUtils.sparkOrdering(dt);
-  ((left: Any, right: Any) =&gt; com.sparkutils.quality.impl.util.Comparison.compareToOrdering[_$1](eta$0$1)(left, right))
-})
-        </td>
-      </tr><tr>
-        <td>
-          88
-        </td>
-        <td>
-          8411
-        </td>
-        <td>
-          3390
-          -
-          3444
+          3541
         </td>
         <td>
           Apply
@@ -2569,12 +2577,39 @@ else
           90
         </td>
         <td>
-          8414
+          8568
         </td>
         <td>
-          3503
+          3482
           -
-          3554
+          3542
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[(Any, Any) =&gt; Int]({
+  &lt;synthetic&gt; val eta$0$1: Ordering[_$1] = org.apache.spark.sql.QualitySparkUtils.sparkOrdering(dt);
+  ((left: Any, right: Any) =&gt; com.sparkutils.quality.impl.util.Comparison.compareToOrdering[_$1](eta$0$1)(left, right))
+})
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          8570
+        </td>
+        <td>
+          3600
+          -
+          3651
         </td>
         <td>
           Apply
@@ -2590,15 +2625,15 @@ else
         </td>
       </tr><tr>
         <td>
-          90
+          92
         </td>
         <td>
-          8413
+          8569
         </td>
         <td>
-          3521
+          3618
           -
-          3542
+          3639
         </td>
         <td>
           Select
@@ -2614,15 +2649,15 @@ else
         </td>
       </tr><tr>
         <td>
-          91
+          93
         </td>
         <td>
-          8417
+          8573
         </td>
         <td>
-          3563
+          3660
           -
-          3664
+          3761
         </td>
         <td>
           Apply
@@ -2638,39 +2673,15 @@ else
         </td>
       </tr><tr>
         <td>
-          93
+          95
         </td>
         <td>
-          8415
+          8572
         </td>
         <td>
-          3624
+          3705
           -
-          3645
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          org.apache.spark.sql.types.ArrayType.elementType
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          arrayType.elementType
-        </td>
-      </tr><tr>
-        <td>
-          93
-        </td>
-        <td>
-          8416
-        </td>
-        <td>
-          3608
-          -
-          3654
+          3751
         </td>
         <td>
           Apply
@@ -2686,39 +2697,39 @@ else
         </td>
       </tr><tr>
         <td>
-          96
+          95
         </td>
         <td>
-          8418
+          8571
         </td>
         <td>
-          3726
+          3721
           -
-          3743
+          3742
         </td>
         <td>
           Select
         </td>
         <td>
-          org.apache.spark.sql.types.StructType.fields
+          org.apache.spark.sql.types.ArrayType.elementType
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          structType.fields
+          arrayType.elementType
         </td>
       </tr><tr>
         <td>
-          96
+          98
         </td>
         <td>
-          8420
+          8576
         </td>
         <td>
-          3726
+          3823
           -
-          3756
+          3853
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2734,39 +2745,15 @@ else
         </td>
       </tr><tr>
         <td>
-          96
+          98
         </td>
         <td>
-          8419
+          8590
         </td>
         <td>
-          3744
+          3823
           -
-          3744
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          scala.Array.canBuildFrom
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.this.Array.canBuildFrom[(org.apache.spark.sql.types.StructField, Int)]((ClassTag.apply[(org.apache.spark.sql.types.StructField, Int)](classOf[scala.Tuple2]): scala.reflect.ClassTag[(org.apache.spark.sql.types.StructField, Int)]))
-        </td>
-      </tr><tr>
-        <td>
-          96
-        </td>
-        <td>
-          8434
-        </td>
-        <td>
-          3726
-          -
-          4034
+          4131
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2784,15 +2771,39 @@ else
         </td>
       </tr><tr>
         <td>
-          96
+          98
         </td>
         <td>
-          8433
+          8575
         </td>
         <td>
-          3760
+          3841
           -
-          3760
+          3841
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Array.canBuildFrom[(org.apache.spark.sql.types.StructField, Int)]((ClassTag.apply[(org.apache.spark.sql.types.StructField, Int)](classOf[scala.Tuple2]): scala.reflect.ClassTag[(org.apache.spark.sql.types.StructField, Int)]))
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          8589
+        </td>
+        <td>
+          3857
+          -
+          3857
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2811,36 +2822,36 @@ else
           98
         </td>
         <td>
-          8421
+          8574
         </td>
         <td>
-          3822
+          3823
           -
-          3832
+          3840
         </td>
         <td>
           Select
         </td>
         <td>
-          org.apache.spark.sql.types.StructField.dataType
+          org.apache.spark.sql.types.StructType.fields
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          f.dataType
+          structType.fields
         </td>
       </tr><tr>
         <td>
-          98
+          100
         </td>
         <td>
-          8423
+          8579
         </td>
         <td>
-          3901
+          3998
           -
-          3905
+          4002
         </td>
         <td>
           Literal
@@ -2856,39 +2867,15 @@ else
         </td>
       </tr><tr>
         <td>
-          98
+          100
         </td>
         <td>
-          8422
+          8581
         </td>
         <td>
-          3878
+          3952
           -
-          3888
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          org.apache.spark.sql.types.StructField.dataType
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          f.dataType
-        </td>
-      </tr><tr>
-        <td>
-          98
-        </td>
-        <td>
-          8425
-        </td>
-        <td>
-          3855
-          -
-          3911
+          4008
         </td>
         <td>
           Apply
@@ -2904,15 +2891,39 @@ else
         </td>
       </tr><tr>
         <td>
-          98
+          100
         </td>
         <td>
-          8424
+          8578
         </td>
         <td>
-          3856
+          3975
           -
-          3906
+          3985
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          f.dataType
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          8580
+        </td>
+        <td>
+          3953
+          -
+          4003
         </td>
         <td>
           Apply
@@ -2928,111 +2939,39 @@ else
         </td>
       </tr><tr>
         <td>
-          99
+          100
         </td>
         <td>
-          8427
+          8577
         </td>
         <td>
-          3999
+          3919
           -
-          4011
+          3929
         </td>
         <td>
-          Literal
+          Select
         </td>
         <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          &quot; in struct &quot;
-        </td>
-      </tr><tr>
-        <td>
-          99
-        </td>
-        <td>
-          8430
-        </td>
-        <td>
-          3948
-          -
-          4022
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.StringContext.s
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          scala.StringContext.apply(&quot;Could not find compare function for &quot;, &quot; in struct &quot;, &quot;&quot;).s(f.dataType, structType)
-        </td>
-      </tr><tr>
-        <td>
-          99
-        </td>
-        <td>
-          8432
-        </td>
-        <td>
-          3803
-          -
-          4024
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Option.getOrElse
+          org.apache.spark.sql.types.StructField.dataType
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          utils.this.defaultMapCompare(f.dataType, extension).map[(org.apache.spark.sql.catalyst.expressions.BoundReference, (Any, Any) =&gt; Int)](((cf: (Any, Any) =&gt; Int) =&gt; scala.Tuple2.apply[org.apache.spark.sql.catalyst.expressions.BoundReference, (Any, Any) =&gt; Int](org.apache.spark.sql.catalyst.expressions.BoundReference.apply(index, f.dataType, true), cf))).getOrElse[(org.apache.spark.sql.catalyst.expressions.BoundReference, (Any, Any) =&gt; Int)](scala.sys.`package`.error(scala.StringContext.apply(&quot;Could not find compare function for &quot;, &quot; in struct &quot;, &quot;&quot;).s(f.dataType, structType)))
+          f.dataType
         </td>
       </tr><tr>
         <td>
-          99
+          101
         </td>
         <td>
-          8426
+          8585
         </td>
         <td>
-          3950
+          4085
           -
-          3987
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;Could not find compare function for &quot;
-        </td>
-      </tr><tr>
-        <td>
-          99
-        </td>
-        <td>
-          8429
-        </td>
-        <td>
-          3988
-          -
-          3998
+          4095
         </td>
         <td>
           Select
@@ -3048,15 +2987,63 @@ else
         </td>
       </tr><tr>
         <td>
-          99
+          101
         </td>
         <td>
-          8428
+          8588
         </td>
         <td>
-          4021
+          3900
           -
-          4022
+          4121
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          utils.this.defaultMapCompare(f.dataType, extension).map[(org.apache.spark.sql.catalyst.expressions.BoundReference, (Any, Any) =&gt; Int)](((cf: (Any, Any) =&gt; Int) =&gt; scala.Tuple2.apply[org.apache.spark.sql.catalyst.expressions.BoundReference, (Any, Any) =&gt; Int](org.apache.spark.sql.catalyst.expressions.BoundReference.apply(index, f.dataType, true), cf))).getOrElse[(org.apache.spark.sql.catalyst.expressions.BoundReference, (Any, Any) =&gt; Int)](scala.sys.`package`.error(scala.StringContext.apply(&quot;Could not find compare function for &quot;, &quot; in struct &quot;, &quot;&quot;).s(f.dataType, structType)))
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          8582
+        </td>
+        <td>
+          4047
+          -
+          4084
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Could not find compare function for &quot;
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          8584
+        </td>
+        <td>
+          4118
+          -
+          4119
         </td>
         <td>
           Literal
@@ -3072,15 +3059,15 @@ else
         </td>
       </tr><tr>
         <td>
-          99
+          101
         </td>
         <td>
-          8431
+          8587
         </td>
         <td>
-          3938
+          4035
           -
-          4023
+          4120
         </td>
         <td>
           Apply
@@ -3099,12 +3086,60 @@ else
           101
         </td>
         <td>
-          8450
+          8583
         </td>
         <td>
-          4043
+          4096
           -
-          4498
+          4108
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; in struct &quot;
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          8586
+        </td>
+        <td>
+          4045
+          -
+          4119
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Could not find compare function for &quot;, &quot; in struct &quot;, &quot;&quot;).s(f.dataType, structType)
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          8606
+        </td>
+        <td>
+          4140
+          -
+          4595
         </td>
         <td>
           Apply
@@ -3138,15 +3173,15 @@ else
         </td>
       </tr><tr>
         <td>
-          104
+          106
         </td>
         <td>
-          8435
+          8591
         </td>
         <td>
-          4136
+          4233
           -
-          4137
+          4234
         </td>
         <td>
           Literal
@@ -3162,15 +3197,15 @@ else
         </td>
       </tr><tr>
         <td>
-          105
+          107
         </td>
         <td>
-          8436
+          8592
         </td>
         <td>
-          4160
+          4257
           -
-          4161
+          4258
         </td>
         <td>
           Literal
@@ -3186,63 +3221,39 @@ else
         </td>
       </tr><tr>
         <td>
-          106
+          108
         </td>
         <td>
-          8448
+          8594
         </td>
         <td>
-          4174
+          4300
           -
-          4174
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          106
-        </td>
-        <td>
-          8439
-        </td>
-        <td>
-          4181
-          -
-          4211
+          4308
         </td>
         <td>
           Apply
         </td>
         <td>
-          scala.Boolean.&amp;&amp;
+          scala.Int.==
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          i.&lt;(scala.Predef.refArrayOps[(org.apache.spark.sql.catalyst.expressions.BoundReference, (Any, Any) =&gt; Int)](allFields).size).&amp;&amp;(res.==(0))
+          res.==(0)
         </td>
       </tr><tr>
         <td>
-          106
+          108
         </td>
         <td>
-          8447
+          8603
         </td>
         <td>
-          4213
+          4310
           -
-          4460
+          4557
         </td>
         <td>
           Block
@@ -3266,63 +3277,15 @@ else
         </td>
       </tr><tr>
         <td>
-          106
+          108
         </td>
         <td>
-          8438
+          8593
         </td>
         <td>
-          4203
+          4282
           -
-          4211
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Int.==
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          res.==(0)
-        </td>
-      </tr><tr>
-        <td>
-          106
-        </td>
-        <td>
-          8446
-        </td>
-        <td>
-          4213
-          -
-          4213
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.apache.spark.sql.qualityFunctions.utils.while$2
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          while$2()
-        </td>
-      </tr><tr>
-        <td>
-          106
-        </td>
-        <td>
-          8437
-        </td>
-        <td>
-          4185
-          -
-          4199
+          4296
         </td>
         <td>
           Select
@@ -3338,15 +3301,39 @@ else
         </td>
       </tr><tr>
         <td>
-          106
+          108
         </td>
         <td>
-          8449
+          8602
         </td>
         <td>
-          4174
+          4310
           -
-          4174
+          4310
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.utils.while$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          while$2()
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          8605
+        </td>
+        <td>
+          4271
+          -
+          4271
         </td>
         <td>
           Block
@@ -3362,15 +3349,63 @@ else
         </td>
       </tr><tr>
         <td>
-          107
+          108
         </td>
         <td>
-          8441
+          8604
         </td>
         <td>
-          4241
+          4271
           -
-          4293
+          4271
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          8595
+        </td>
+        <td>
+          4278
+          -
+          4308
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          i.&lt;(scala.Predef.refArrayOps[(org.apache.spark.sql.catalyst.expressions.BoundReference, (Any, Any) =&gt; Int)](allFields).size).&amp;&amp;(res.==(0))
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          8597
+        </td>
+        <td>
+          4338
+          -
+          4390
         </td>
         <td>
           Apply
@@ -3386,15 +3421,15 @@ else
         </td>
       </tr><tr>
         <td>
-          107
+          109
         </td>
         <td>
-          8440
+          8596
         </td>
         <td>
-          4262
+          4359
           -
-          4292
+          4389
         </td>
         <td>
           TypeApply
@@ -3410,15 +3445,15 @@ else
         </td>
       </tr><tr>
         <td>
-          108
+          110
         </td>
         <td>
-          8443
+          8599
         </td>
         <td>
-          4321
+          4418
           -
-          4374
+          4471
         </td>
         <td>
           Apply
@@ -3434,15 +3469,15 @@ else
         </td>
       </tr><tr>
         <td>
-          108
+          110
         </td>
         <td>
-          8442
+          8598
         </td>
         <td>
-          4342
+          4439
           -
-          4373
+          4470
         </td>
         <td>
           TypeApply
@@ -3458,15 +3493,15 @@ else
         </td>
       </tr><tr>
         <td>
-          109
+          111
         </td>
         <td>
-          8444
+          8600
         </td>
         <td>
-          4395
+          4492
           -
-          4425
+          4522
         </td>
         <td>
           Apply
@@ -3482,15 +3517,15 @@ else
         </td>
       </tr><tr>
         <td>
-          110
+          112
         </td>
         <td>
-          8445
+          8601
         </td>
         <td>
-          4440
+          4537
           -
-          4446
+          4543
         </td>
         <td>
           Apply
@@ -3506,15 +3541,15 @@ else
         </td>
       </tr><tr>
         <td>
-          115
+          117
         </td>
         <td>
-          8453
+          8609
         </td>
         <td>
-          4515
+          4612
           -
-          4620
+          4717
         </td>
         <td>
           Apply
@@ -3525,20 +3560,20 @@ else
         <td>
           
         </td>
-        <td style="background: #F0ADAD">
+        <td style="background: #AEF1AE">
           extension.apply(dataType).orElse[(Any, Any) =&gt; Int](scala.sys.`package`.error(scala.StringContext.apply(&quot;Could not find compare function for &quot;, &quot;&quot;).s(dataType)))
         </td>
       </tr><tr>
         <td>
-          116
+          118
         </td>
         <td>
-          8452
+          8608
         </td>
         <td>
-          4551
+          4648
           -
-          4612
+          4709
         </td>
         <td>
           Apply
@@ -3554,15 +3589,15 @@ else
         </td>
       </tr><tr>
         <td>
-          116
+          118
         </td>
         <td>
-          8451
+          8607
         </td>
         <td>
-          4561
+          4658
           -
-          4611
+          4708
         </td>
         <td>
           Apply
@@ -3575,6 +3610,1014 @@ else
         </td>
         <td style="background: #F0ADAD">
           scala.StringContext.apply(&quot;Could not find compare function for &quot;, &quot;&quot;).s(dataType)
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          8612
+        </td>
+        <td>
+          4831
+          -
+          4915
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable.apply(scala.collection.Seq.apply[String](UnresolvedNamedLambdaVariableT.freshVarName(&quot;x&quot;)))
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          8611
+        </td>
+        <td>
+          4861
+          -
+          4914
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.Seq.apply[String](UnresolvedNamedLambdaVariableT.freshVarName(&quot;x&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          8610
+        </td>
+        <td>
+          4865
+          -
+          4913
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.UnresolvedNamedLambdaVariableT.freshVarName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          UnresolvedNamedLambdaVariableT.freshVarName(&quot;x&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          8614
+        </td>
+        <td>
+          4935
+          -
+          4952
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.Column.expr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          f.apply(org.apache.spark.sql.Column.apply(x)).expr
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          8613
+        </td>
+        <td>
+          4937
+          -
+          4946
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.Column.apply(x)
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          8615
+        </td>
+        <td>
+          4982
+          -
+          4988
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.Seq.apply[org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable](x)
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          8617
+        </td>
+        <td>
+          4957
+          -
+          4989
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.LambdaFunction.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.LambdaFunction.apply(function, scala.collection.Seq.apply[org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable](x), org.apache.spark.sql.catalyst.expressions.LambdaFunction.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          8616
+        </td>
+        <td>
+          4957
+          -
+          4957
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.LambdaFunction.apply$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.LambdaFunction.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          8618
+        </td>
+        <td>
+          5095
+          -
+          5143
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.UnresolvedNamedLambdaVariableT.freshVarName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          UnresolvedNamedLambdaVariableT.freshVarName(&quot;x&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          8620
+        </td>
+        <td>
+          5061
+          -
+          5145
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable.apply(scala.collection.Seq.apply[String](UnresolvedNamedLambdaVariableT.freshVarName(&quot;x&quot;)))
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          8619
+        </td>
+        <td>
+          5091
+          -
+          5144
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.Seq.apply[String](UnresolvedNamedLambdaVariableT.freshVarName(&quot;x&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          8621
+        </td>
+        <td>
+          5192
+          -
+          5240
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.UnresolvedNamedLambdaVariableT.freshVarName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          UnresolvedNamedLambdaVariableT.freshVarName(&quot;y&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          8623
+        </td>
+        <td>
+          5158
+          -
+          5242
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable.apply(scala.collection.Seq.apply[String](UnresolvedNamedLambdaVariableT.freshVarName(&quot;y&quot;)))
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          8622
+        </td>
+        <td>
+          5188
+          -
+          5241
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.Seq.apply[String](UnresolvedNamedLambdaVariableT.freshVarName(&quot;y&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          8624
+        </td>
+        <td>
+          5264
+          -
+          5273
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.Column.apply(x)
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          8626
+        </td>
+        <td>
+          5262
+          -
+          5290
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.Column.expr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          f.apply(org.apache.spark.sql.Column.apply(x), org.apache.spark.sql.Column.apply(y)).expr
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          8625
+        </td>
+        <td>
+          5275
+          -
+          5284
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.Column.apply(y)
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          8627
+        </td>
+        <td>
+          5320
+          -
+          5329
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.Seq.apply[org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable](x, y)
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          8629
+        </td>
+        <td>
+          5295
+          -
+          5330
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.LambdaFunction.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.LambdaFunction.apply(function, scala.collection.Seq.apply[org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable](x, y), org.apache.spark.sql.catalyst.expressions.LambdaFunction.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          8628
+        </td>
+        <td>
+          5295
+          -
+          5295
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.LambdaFunction.apply$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.LambdaFunction.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          8630
+        </td>
+        <td>
+          5444
+          -
+          5492
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.UnresolvedNamedLambdaVariableT.freshVarName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          UnresolvedNamedLambdaVariableT.freshVarName(&quot;x&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          8632
+        </td>
+        <td>
+          5410
+          -
+          5494
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable.apply(scala.collection.Seq.apply[String](UnresolvedNamedLambdaVariableT.freshVarName(&quot;x&quot;)))
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          8631
+        </td>
+        <td>
+          5440
+          -
+          5493
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.Seq.apply[String](UnresolvedNamedLambdaVariableT.freshVarName(&quot;x&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          8633
+        </td>
+        <td>
+          5541
+          -
+          5589
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.UnresolvedNamedLambdaVariableT.freshVarName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          UnresolvedNamedLambdaVariableT.freshVarName(&quot;y&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          8635
+        </td>
+        <td>
+          5507
+          -
+          5591
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable.apply(scala.collection.Seq.apply[String](UnresolvedNamedLambdaVariableT.freshVarName(&quot;y&quot;)))
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          8634
+        </td>
+        <td>
+          5537
+          -
+          5590
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.Seq.apply[String](UnresolvedNamedLambdaVariableT.freshVarName(&quot;y&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          8636
+        </td>
+        <td>
+          5638
+          -
+          5686
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.UnresolvedNamedLambdaVariableT.freshVarName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          UnresolvedNamedLambdaVariableT.freshVarName(&quot;z&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          8638
+        </td>
+        <td>
+          5604
+          -
+          5688
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable.apply(scala.collection.Seq.apply[String](UnresolvedNamedLambdaVariableT.freshVarName(&quot;z&quot;)))
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          8637
+        </td>
+        <td>
+          5634
+          -
+          5687
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.Seq.apply[String](UnresolvedNamedLambdaVariableT.freshVarName(&quot;z&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          8639
+        </td>
+        <td>
+          5710
+          -
+          5719
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.Column.apply(x)
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          8642
+        </td>
+        <td>
+          5708
+          -
+          5747
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.Column.expr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          f.apply(org.apache.spark.sql.Column.apply(x), org.apache.spark.sql.Column.apply(y), org.apache.spark.sql.Column.apply(z)).expr
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          8641
+        </td>
+        <td>
+          5732
+          -
+          5741
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.Column.apply(z)
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          8640
+        </td>
+        <td>
+          5721
+          -
+          5730
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.Column.apply(y)
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          8645
+        </td>
+        <td>
+          5752
+          -
+          5790
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.LambdaFunction.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.LambdaFunction.apply(function, scala.collection.Seq.apply[org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable](x, y, z), org.apache.spark.sql.catalyst.expressions.LambdaFunction.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          8644
+        </td>
+        <td>
+          5752
+          -
+          5752
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.LambdaFunction.apply$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.catalyst.expressions.LambdaFunction.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          8643
+        </td>
+        <td>
+          5777
+          -
+          5789
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.Seq.apply[org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable](x, y, z)
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          8646
+        </td>
+        <td>
+          6007
+          -
+          6027
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.AtomicInteger.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new java.util.concurrent.atomic.AtomicInteger(0)
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          8648
+        </td>
+        <td>
+          6087
+          -
+          6089
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;_&quot;
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          8651
+        </td>
+        <td>
+          6078
+          -
+          6123
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;&quot;, &quot;_&quot;, &quot;&quot;).s(name, UnresolvedNamedLambdaVariableT.this.nextVarNameId.getAndIncrement())
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          8650
+        </td>
+        <td>
+          6090
+          -
+          6121
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.AtomicInteger.getAndIncrement
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          UnresolvedNamedLambdaVariableT.this.nextVarNameId.getAndIncrement()
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          8647
+        </td>
+        <td>
+          6080
+          -
+          6081
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          8649
+        </td>
+        <td>
+          6122
+          -
+          6123
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
         </td>
       </tr>
     </table>
