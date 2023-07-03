@@ -24,313 +24,315 @@
           <div class="tab-pane active" id="codegrid">
             <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality.impl.bloom.parquet
 </span>2 <span style=''>
-</span>3 <span style=''>import com.sparkutils.quality.impl.util.{BytePackingUtils, TSLocal, TransientHolder}
-</span>4 <span style=''>import java.io._
-</span>5 <span style=''>import com.sparkutils.quality.{BloomLookup, BloomModel}
-</span>6 <span style=''>import org.apache.spark.sql.internal.SQLConf
-</span>7 <span style=''>import org.apache.spark.sql.{DataFrame, SparkSession}
-</span>8 <span style=''>
-</span>9 <span style=''>object Bucketed {
+</span>3 <span style=''>import com.sparkutils.quality.functions.big_bloom
+</span>4 <span style=''>import com.sparkutils.quality.impl.util.{BytePackingUtils, TSLocal, TransientHolder}
+</span>5 <span style=''>
+</span>6 <span style=''>import java.io._
+</span>7 <span style=''>import com.sparkutils.quality.{BloomLookup, BloomModel}
+</span>8 <span style=''>import org.apache.spark.sql.internal.SQLConf
+</span>9 <span style=''>import org.apache.spark.sql.{Column, DataFrame, SparkSession}
 </span>10 <span style=''>
-</span>11 <span style=''>  // just two is:
-</span>12 <span style=''>  //generated bloom map of 1000000000 entries in 9 m
-</span>13 <span style=''>  //before actual count 0 824404383 (824404383) false positives took 9 m
-</span>14 <span style=''>
-</span>15 <span style=''>  //generated bloom map of 1000000000 entries in 9 m
-</span>16 <span style=''>  //before actual count 0 273489593 (273489593) false positives took 11 m &lt;-- saturated even with 4, so need some math to figure out buckets to use
-</span>17 <span style=''>
-</span>18 <span style=''>  // generated bloom map of 1000000000 entries in 10 m
-</span>19 <span style=''>  //before actual count 0     24650171 (24650171) false positives took 9 m &lt;-- 8 buckets max on each at 0.001 configured but then only 0.024 real with 8 buckets - still not &quot;bad&quot;
-</span>20 <span style=''>
-</span>21 <span style=''>  // generated bloom map of 1000000000 entries in 11 m
-</span>22 <span style=''>  //before actual count 0      1270757 (1270757) false positives took 12 m &lt;-- 15 0.0012
-</span>23 <span style=''>
-</span>24 <span style=''>  def whichBloom(hash: Long, buckets: Int): Int = {
-</span>25 <span style=''>    (</span><span style='background: #AEF1AE'>hash % buckets).abs.toInt</span><span style=''>  // the below is either 2, 4, or 8 to be useful, 16 is already too many buckets for a byte array
-</span>26 <span style=''>  }
-</span>27 <span style=''>
-</span>28 <span style=''>
-</span>29 <span style=''>}
+</span>11 <span style=''>object Bucketed {
+</span>12 <span style=''>
+</span>13 <span style=''>  // just two is:
+</span>14 <span style=''>  //generated bloom map of 1000000000 entries in 9 m
+</span>15 <span style=''>  //before actual count 0 824404383 (824404383) false positives took 9 m
+</span>16 <span style=''>
+</span>17 <span style=''>  //generated bloom map of 1000000000 entries in 9 m
+</span>18 <span style=''>  //before actual count 0 273489593 (273489593) false positives took 11 m &lt;-- saturated even with 4, so need some math to figure out buckets to use
+</span>19 <span style=''>
+</span>20 <span style=''>  // generated bloom map of 1000000000 entries in 10 m
+</span>21 <span style=''>  //before actual count 0     24650171 (24650171) false positives took 9 m &lt;-- 8 buckets max on each at 0.001 configured but then only 0.024 real with 8 buckets - still not &quot;bad&quot;
+</span>22 <span style=''>
+</span>23 <span style=''>  // generated bloom map of 1000000000 entries in 11 m
+</span>24 <span style=''>  //before actual count 0      1270757 (1270757) false positives took 12 m &lt;-- 15 0.0012
+</span>25 <span style=''>
+</span>26 <span style=''>  def whichBloom(hash: Long, buckets: Int): Int = {
+</span>27 <span style=''>    (</span><span style='background: #AEF1AE'>hash % buckets).abs.toInt</span><span style=''>  // the below is either 2, 4, or 8 to be useful, 16 is already too many buckets for a byte array
+</span>28 <span style=''>  }
+</span>29 <span style=''>
 </span>30 <span style=''>
-</span>31 <span style=''>case class FileRoot(location: String) {
-</span>32 <span style=''>  def asFile = </span><span style='background: #AEF1AE'>new File(location)</span><span style=''>
-</span>33 <span style=''>}
-</span>34 <span style=''>
-</span>35 <span style=''>case class BucketedFilesRoot(bloomFileLocation: FileRoot, bloomId: String = java.util.UUID.randomUUID().toString) {
-</span>36 <span style=''>  def fileLocation: File = {
-</span>37 <span style=''>    val root = </span><span style='background: #AEF1AE'>new File(bloomFileLocation.asFile, bloomId)</span><span style=''>
-</span>38 <span style=''>    </span><span style='background: #AEF1AE'>root.mkdir()</span><span style=''>
-</span>39 <span style=''>    root
-</span>40 <span style=''>  }
-</span>41 <span style=''>}
-</span>42 <span style=''>
-</span>43 <span style=''>trait ToSerializedType[T, H] extends Serializable {
-</span>44 <span style=''>  def serializeBuckets(filters: Seq[BlockSplitBloomFilterImpl], fpp: Double, numBuckets: Int, hint: H): Array[Byte]
-</span>45 <span style=''>}
-</span>46 <span style=''>
-</span>47 <span style=''>object BucketedCreator {
+</span>31 <span style=''>}
+</span>32 <span style=''>
+</span>33 <span style=''>case class FileRoot(location: String) {
+</span>34 <span style=''>  def asFile = </span><span style='background: #AEF1AE'>new File(location)</span><span style=''>
+</span>35 <span style=''>}
+</span>36 <span style=''>
+</span>37 <span style=''>case class BucketedFilesRoot(bloomFileLocation: FileRoot, bloomId: String = java.util.UUID.randomUUID().toString) {
+</span>38 <span style=''>  def fileLocation: File = {
+</span>39 <span style=''>    val root = </span><span style='background: #AEF1AE'>new File(bloomFileLocation.asFile, bloomId)</span><span style=''>
+</span>40 <span style=''>    </span><span style='background: #AEF1AE'>root.mkdir()</span><span style=''>
+</span>41 <span style=''>    root
+</span>42 <span style=''>  }
+</span>43 <span style=''>}
+</span>44 <span style=''>
+</span>45 <span style=''>trait ToSerializedType[T, H] extends Serializable {
+</span>46 <span style=''>  def serializeBuckets(filters: Seq[BlockSplitBloomFilterImpl], fpp: Double, numBuckets: Int, hint: H): Array[Byte]
+</span>47 <span style=''>}
 </span>48 <span style=''>
-</span>49 <span style=''>  /**
-</span>50 <span style=''>   * Generates a bloom filter using the expression passed via bloomOn with optional repartitioning and a default fpp of 0.01.
-</span>51 <span style=''>   * A unique run will be created so other results can co-exist but this can be overridden by specifying bloomId.
-</span>52 <span style=''>   * The other interim result files will be removed and the resulting BucketedFiles can be used in lookups or stored elsewhere.
-</span>53 <span style=''>   *
-</span>54 <span style=''>   * @param dataFrame
-</span>55 <span style=''>   * @param bloomOn a compatible expression to generate the bloom hashes against
-</span>56 <span style=''>   * @param expectedSize
-</span>57 <span style=''>   * @param fpp
-</span>58 <span style=''>   * @param bloomId
-</span>59 <span style=''>   * @param partitions
-</span>60 <span style=''>   * @return
-</span>61 <span style=''>   */
-</span>62 <span style=''>  def bloomFrom(dataFrame: DataFrame, bloomOn: String, expectedSize: Long,
-</span>63 <span style=''>                fpp: Double = 0.01, bloomId: String = java.util.UUID.randomUUID().toString, partitions: Int = 0): BloomModel = {
-</span>64 <span style=''>    val df =
-</span>65 <span style=''>      if (</span><span style='background: #AEF1AE'>partitions != 0</span><span style=''>)
-</span>66 <span style=''>        </span><span style='background: #F0ADAD'>dataFrame.repartition(partitions)</span><span style=''>
-</span>67 <span style=''>      else
-</span>68 <span style=''>        </span><span style='background: #AEF1AE'>dataFrame</span><span style=''>
-</span>69 <span style=''>
-</span>70 <span style=''>    val interim = </span><span style='background: #AEF1AE'>df.selectExpr(s&quot;bigBloom($bloomOn, $expectedSize, cast($fpp as double), '$bloomId')&quot;).head.getAs[Array[Byte]](0)</span><span style=''>
-</span>71 <span style=''>    val bloom = </span><span style='background: #AEF1AE'>BloomModel.deserialize(interim)</span><span style=''>
-</span>72 <span style=''>    </span><span style='background: #AEF1AE'>bloom.cleanupOthers()</span><span style=''>
-</span>73 <span style=''>    bloom
-</span>74 <span style=''>  }
-</span>75 <span style=''>
-</span>76 <span style=''>  val bloomFileLocation = {
-</span>77 <span style=''>    val defaultRoot = </span><span style='background: #AEF1AE'>SQLConf.get.getConfString(&quot;sparkutils.quality.bloom.root&quot;, &quot;/dbfs/&quot;)</span><span style=''>
-</span>78 <span style=''>
-</span>79 <span style=''>    // if it's running on databricks use a dbfs dir
-</span>80 <span style=''>    val dbfs = </span><span style='background: #AEF1AE'>new File(defaultRoot)</span><span style=''>
-</span>81 <span style=''>    val root =
-</span>82 <span style=''>      if (</span><span style='background: #AEF1AE'>dbfs.exists()</span><span style=''>)
-</span>83 <span style=''>        </span><span style='background: #AEF1AE'>dbfs</span><span style=''>
-</span>84 <span style=''>      else </span><span style='background: #AEF1AE'>{
-</span>85 <span style=''></span><span style='background: #AEF1AE'>        val temp = File.createTempFile(&quot;quality&quot;, &quot;bloom&quot;)
-</span>86 <span style=''></span><span style='background: #AEF1AE'>        val tempPath = temp.getAbsolutePath
-</span>87 <span style=''></span><span style='background: #AEF1AE'>        temp.delete()
-</span>88 <span style=''></span><span style='background: #AEF1AE'>        new File(tempPath)
-</span>89 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
-</span>90 <span style=''>
-</span>91 <span style=''>    val fl = </span><span style='background: #AEF1AE'>new File(root, &quot;quality_bloom&quot;)</span><span style=''>
-</span>92 <span style=''>    </span><span style='background: #AEF1AE'>fl.mkdirs()</span><span style=''>
-</span>93 <span style=''>    </span><span style='background: #AEF1AE'>fl.getAbsolutePath</span><span style=''>
-</span>94 <span style=''>  }
-</span>95 <span style=''>
-</span>96 <span style=''>  implicit val toLocalFiles = </span><span style='background: #AEF1AE'>new</span><span style=''> ToSerializedType[Array[Array[Byte]], BucketedFilesRoot] {
-</span>97 <span style=''>    def serializeBuckets(filters: Seq[BlockSplitBloomFilterImpl], fpp: Double, numBuckets: Int, hint: BucketedFilesRoot): Array[Byte] = {
-</span>98 <span style=''>      // verify there is no file, get id until it's done
-</span>99 <span style=''>      var id: String = </span><span style='background: #AEF1AE'>null</span><span style=''>
-</span>100 <span style=''>      var dir: File = </span><span style='background: #AEF1AE'>null</span><span style=''>
-</span>101 <span style=''>      do {
-</span>102 <span style=''>        id = </span><span style='background: #AEF1AE'>java.util.UUID.randomUUID().toString</span><span style=''>
-</span>103 <span style=''>        dir = </span><span style='background: #AEF1AE'>new File(hint.fileLocation, id)</span><span style=''>
-</span>104 <span style=''>      } while (</span><span style='background: #AEF1AE'>dir.exists()</span><span style=''>)
-</span>105 <span style=''>      </span><span style='background: #AEF1AE'>dir.mkdirs()</span><span style=''>
-</span>106 <span style=''>
-</span>107 <span style=''>      </span><span style='background: #AEF1AE'>for {i &lt;- 0 until numBuckets} {
-</span>108 <span style=''></span><span style='background: #AEF1AE'>        val fos = new FileOutputStream(new File(dir, i.toString))
-</span>109 <span style=''></span><span style='background: #AEF1AE'>        filters(i).intBufferGen.get().bytes.fold(
-</span>110 <span style=''></span><span style='background: #AEF1AE'>          for {j &lt;- </span><span style='background: #F0ADAD'>0</span><span style='background: #AEF1AE'> until </span><span style='background: #F0ADAD'>filters(i).intBuffer.limit</span><span style='background: #AEF1AE'>} {
-</span>111 <span style=''></span><span style='background: #AEF1AE'>            val theInt = </span><span style='background: #F0ADAD'>filters(i).intBuffer.get(j)</span><span style='background: #AEF1AE'>
-</span>112 <span style=''></span><span style='background: #AEF1AE'>            </span><span style='background: #F0ADAD'>fos.write(theInt.toByte)</span><span style='background: #AEF1AE'>
-</span>113 <span style=''></span><span style='background: #AEF1AE'>            </span><span style='background: #F0ADAD'>fos.write((theInt &gt;&gt; 8).toByte)</span><span style='background: #AEF1AE'>
-</span>114 <span style=''></span><span style='background: #AEF1AE'>            </span><span style='background: #F0ADAD'>fos.write((theInt &gt;&gt; 16).toByte)</span><span style='background: #AEF1AE'>
-</span>115 <span style=''></span><span style='background: #AEF1AE'>            </span><span style='background: #F0ADAD'>fos.write((theInt &gt;&gt; 24).toByte)</span><span style='background: #AEF1AE'>
-</span>116 <span style=''></span><span style='background: #AEF1AE'>          }
-</span>117 <span style=''></span><span style='background: #AEF1AE'>        ) {
-</span>118 <span style=''></span><span style='background: #AEF1AE'>          bytes =&gt; // faster if we have the underlying
-</span>119 <span style=''></span><span style='background: #AEF1AE'>            fos.write(bytes)
-</span>120 <span style=''></span><span style='background: #AEF1AE'>        }
-</span>121 <span style=''></span><span style='background: #AEF1AE'>        fos.close()
-</span>122 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
-</span>123 <span style=''>
-</span>124 <span style=''>      val bucketedFiles = </span><span style='background: #AEF1AE'>BloomModel(dir.getAbsolutePath, fpp, numBuckets)</span><span style=''>
-</span>125 <span style=''>      </span><span style='background: #AEF1AE'>bucketedFiles.serialize</span><span style=''>
-</span>126 <span style=''>    }
-</span>127 <span style=''>  }
-</span>128 <span style=''>
-</span>129 <span style=''>  /**
-</span>130 <span style=''>   * Creates Buckets of Blooms based on assuming rounding and overflow behaviour for the Array[Byte] produced, leaving a maximum number of buckets of 15.
-</span>131 <span style=''>   *
-</span>132 <span style=''>   * To give an idea of what this means in practice:
-</span>133 <span style=''>   * {{{
-</span>134 <span style=''>   * 2750000000L for 0.1 will yield the max 15 buckets, anything below will be 0.1 (2.7b and below)
-</span>135 <span style=''>   * 1663500000L for 0.01 will yield the max 15 buckets, anything below will be 0.01 (1.6b and below)
-</span>136 <span style=''>   * 1102000000L for 0.001 will yield the max 15 buckets
-</span>137 <span style=''>   *  760000000L for 0.0001 will yield the max 15 buckets
-</span>138 <span style=''>   * }}}
-</span>139 <span style=''>   *
-</span>140 <span style=''>   * NOTE In the current impl overflows and weird results will occur with higher numbers of elements than 2.7b and 0.1.
+</span>49 <span style=''>object BucketedCreator {
+</span>50 <span style=''>
+</span>51 <span style=''>  /**
+</span>52 <span style=''>   * Generates a bloom filter using the expression passed via bloomOn with optional repartitioning and a default fpp of 0.01.
+</span>53 <span style=''>   * A unique run will be created so other results can co-exist but this can be overridden by specifying bloomId.
+</span>54 <span style=''>   * The other interim result files will be removed and the resulting BucketedFiles can be used in lookups or stored elsewhere.
+</span>55 <span style=''>   *
+</span>56 <span style=''>   * @param dataFrame
+</span>57 <span style=''>   * @param bloomOn a compatible expression to generate the bloom hashes against
+</span>58 <span style=''>   * @param expectedSize
+</span>59 <span style=''>   * @param fpp
+</span>60 <span style=''>   * @param bloomId
+</span>61 <span style=''>   * @param partitions
+</span>62 <span style=''>   * @return
+</span>63 <span style=''>   */
+</span>64 <span style=''>  def bloomFrom(dataFrame: DataFrame, bloomOn: Column, expectedSize: Long,
+</span>65 <span style=''>                fpp: Double = 0.01, bloomId: String = java.util.UUID.randomUUID().toString, partitions: Int = 0): BloomModel = {
+</span>66 <span style=''>    val df =
+</span>67 <span style=''>      if (</span><span style='background: #AEF1AE'>partitions != 0</span><span style=''>)
+</span>68 <span style=''>        </span><span style='background: #F0ADAD'>dataFrame.repartition(partitions)</span><span style=''>
+</span>69 <span style=''>      else
+</span>70 <span style=''>        </span><span style='background: #AEF1AE'>dataFrame</span><span style=''>
+</span>71 <span style=''>
+</span>72 <span style=''>    val interim = </span><span style='background: #AEF1AE'>df.select( big_bloom(bloomOn, expectedSize, fpp, bloomId) ).head.getAs[Array[Byte]](0)</span><span style=''>
+</span>73 <span style=''>    val bloom = </span><span style='background: #AEF1AE'>BloomModel.deserialize(interim)</span><span style=''>
+</span>74 <span style=''>    </span><span style='background: #AEF1AE'>bloom.cleanupOthers()</span><span style=''>
+</span>75 <span style=''>    bloom
+</span>76 <span style=''>  }
+</span>77 <span style=''>
+</span>78 <span style=''>  val bloomFileLocation = {
+</span>79 <span style=''>    val defaultRoot = </span><span style='background: #AEF1AE'>com.sparkutils.quality.getConfig(&quot;sparkutils.quality.bloom.root&quot;, &quot;/dbfs/&quot;)</span><span style=''>
+</span>80 <span style=''>
+</span>81 <span style=''>    // if it's running on databricks use a dbfs dir
+</span>82 <span style=''>    val dbfs = </span><span style='background: #AEF1AE'>new File(defaultRoot)</span><span style=''>
+</span>83 <span style=''>    val root =
+</span>84 <span style=''>      if (</span><span style='background: #AEF1AE'>dbfs.exists()</span><span style=''>)
+</span>85 <span style=''>        </span><span style='background: #AEF1AE'>dbfs</span><span style=''>
+</span>86 <span style=''>      else </span><span style='background: #AEF1AE'>{
+</span>87 <span style=''></span><span style='background: #AEF1AE'>        val temp = File.createTempFile(&quot;quality&quot;, &quot;bloom&quot;)
+</span>88 <span style=''></span><span style='background: #AEF1AE'>        val tempPath = temp.getAbsolutePath
+</span>89 <span style=''></span><span style='background: #AEF1AE'>        temp.delete()
+</span>90 <span style=''></span><span style='background: #AEF1AE'>        new File(tempPath)
+</span>91 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>92 <span style=''>
+</span>93 <span style=''>    val fl = </span><span style='background: #AEF1AE'>new File(root, &quot;quality_bloom&quot;)</span><span style=''>
+</span>94 <span style=''>    </span><span style='background: #AEF1AE'>fl.mkdirs()</span><span style=''>
+</span>95 <span style=''>    </span><span style='background: #AEF1AE'>fl.getAbsolutePath</span><span style=''>
+</span>96 <span style=''>  }
+</span>97 <span style=''>
+</span>98 <span style=''>  implicit val toLocalFiles = </span><span style='background: #AEF1AE'>new</span><span style=''> ToSerializedType[Array[Array[Byte]], BucketedFilesRoot] {
+</span>99 <span style=''>    def serializeBuckets(filters: Seq[BlockSplitBloomFilterImpl], fpp: Double, numBuckets: Int, hint: BucketedFilesRoot): Array[Byte] = {
+</span>100 <span style=''>      // verify there is no file, get id until it's done
+</span>101 <span style=''>      var id: String = </span><span style='background: #AEF1AE'>null</span><span style=''>
+</span>102 <span style=''>      var dir: File = </span><span style='background: #AEF1AE'>null</span><span style=''>
+</span>103 <span style=''>      do {
+</span>104 <span style=''>        id = </span><span style='background: #AEF1AE'>java.util.UUID.randomUUID().toString</span><span style=''>
+</span>105 <span style=''>        dir = </span><span style='background: #AEF1AE'>new File(hint.fileLocation, id)</span><span style=''>
+</span>106 <span style=''>      } while (</span><span style='background: #AEF1AE'>dir.exists()</span><span style=''>)
+</span>107 <span style=''>      </span><span style='background: #AEF1AE'>dir.mkdirs()</span><span style=''>
+</span>108 <span style=''>
+</span>109 <span style=''>      </span><span style='background: #AEF1AE'>for {i &lt;- 0 until numBuckets} {
+</span>110 <span style=''></span><span style='background: #AEF1AE'>        val fos = new FileOutputStream(new File(dir, i.toString))
+</span>111 <span style=''></span><span style='background: #AEF1AE'>        filters(i).intBufferGen.get().bytes.fold(
+</span>112 <span style=''></span><span style='background: #AEF1AE'>          for {j &lt;- </span><span style='background: #F0ADAD'>0</span><span style='background: #AEF1AE'> until </span><span style='background: #F0ADAD'>filters(i).intBuffer.limit</span><span style='background: #AEF1AE'>} {
+</span>113 <span style=''></span><span style='background: #AEF1AE'>            val theInt = </span><span style='background: #F0ADAD'>filters(i).intBuffer.get(j)</span><span style='background: #AEF1AE'>
+</span>114 <span style=''></span><span style='background: #AEF1AE'>            </span><span style='background: #F0ADAD'>fos.write(theInt.toByte)</span><span style='background: #AEF1AE'>
+</span>115 <span style=''></span><span style='background: #AEF1AE'>            </span><span style='background: #F0ADAD'>fos.write((theInt &gt;&gt; 8).toByte)</span><span style='background: #AEF1AE'>
+</span>116 <span style=''></span><span style='background: #AEF1AE'>            </span><span style='background: #F0ADAD'>fos.write((theInt &gt;&gt; 16).toByte)</span><span style='background: #AEF1AE'>
+</span>117 <span style=''></span><span style='background: #AEF1AE'>            </span><span style='background: #F0ADAD'>fos.write((theInt &gt;&gt; 24).toByte)</span><span style='background: #AEF1AE'>
+</span>118 <span style=''></span><span style='background: #AEF1AE'>          }
+</span>119 <span style=''></span><span style='background: #AEF1AE'>        ) {
+</span>120 <span style=''></span><span style='background: #AEF1AE'>          bytes =&gt; // faster if we have the underlying
+</span>121 <span style=''></span><span style='background: #AEF1AE'>            fos.write(bytes)
+</span>122 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>123 <span style=''></span><span style='background: #AEF1AE'>        fos.close()
+</span>124 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>125 <span style=''>
+</span>126 <span style=''>      val bucketedFiles = </span><span style='background: #AEF1AE'>BloomModel(dir.getAbsolutePath, fpp, numBuckets)</span><span style=''>
+</span>127 <span style=''>      </span><span style='background: #AEF1AE'>bucketedFiles.serialize</span><span style=''>
+</span>128 <span style=''>    }
+</span>129 <span style=''>  }
+</span>130 <span style=''>
+</span>131 <span style=''>  /**
+</span>132 <span style=''>   * Creates Buckets of Blooms based on assuming rounding and overflow behaviour for the Array[Byte] produced, leaving a maximum number of buckets of 15.
+</span>133 <span style=''>   *
+</span>134 <span style=''>   * To give an idea of what this means in practice:
+</span>135 <span style=''>   * {{{
+</span>136 <span style=''>   * 2750000000L for 0.1 will yield the max 15 buckets, anything below will be 0.1 (2.7b and below)
+</span>137 <span style=''>   * 1663500000L for 0.01 will yield the max 15 buckets, anything below will be 0.01 (1.6b and below)
+</span>138 <span style=''>   * 1102000000L for 0.001 will yield the max 15 buckets
+</span>139 <span style=''>   *  760000000L for 0.0001 will yield the max 15 buckets
+</span>140 <span style=''>   * }}}
 </span>141 <span style=''>   *
-</span>142 <span style=''>   * @param numBytes - calculate with optimalNumOfBits
-</span>143 <span style=''>   * @param numBuckets - calculate with optimalNumberOfBuckets, only 15 max are possible with SerializedType as Array[Byte]
-</span>144 <span style=''>   * @return
-</span>145 <span style=''>   */
-</span>146 <span style=''>  def apply[H, SerializedType: ({ type T[SerializedType] = ToSerializedType[SerializedType, H]})#T](numBytes: Int, numBuckets: Int, fpp: Double, hashImpl: BloomHash, hint: H): BucketedCreator[H, SerializedType] =
-</span>147 <span style=''>    </span><span style='background: #AEF1AE'>BucketedCreator(numBytes, BlockSplitBloomFilterImpl.LOWER_BOUND_BYTES, BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES,
-</span>148 <span style=''></span><span style='background: #AEF1AE'>      hashImpl, fpp, numBuckets, implicitly[ToSerializedType[SerializedType, H]], hint)()</span><span style=''>
-</span>149 <span style=''>
-</span>150 <span style=''>  def apply[H, SerializedType: ({ type T[SerializedType] = ToSerializedType[SerializedType, H]})#T](numBytes: Int, numBuckets: Int, fpp: Double, hint: H): BucketedCreator[H, SerializedType] =
-</span>151 <span style=''>    </span><span style='background: #AEF1AE'>apply(numBytes, numBuckets, fpp, new BloomHashImpl(BloomFilter.XXH64), hint)</span><span style=''>
-</span>152 <span style=''>
-</span>153 <span style=''>  def impl[H, SerializedType: ({ type T[SerializedType] = ToSerializedType[SerializedType, H]})#T](bitArrays: Array[Array[Byte]], hashImpl: BloomHash, fpp: Double, hint: H): BucketedCreator[H, SerializedType] =
-</span>154 <span style=''>    </span><span style='background: #AEF1AE'>BucketedCreator[H, SerializedType](0, BlockSplitBloomFilterImpl.LOWER_BOUND_BYTES, BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES,
-</span>155 <span style=''></span><span style='background: #AEF1AE'>      hashImpl, fpp, bitArrays.length, implicitly[ToSerializedType[SerializedType, H]], hint)( {
-</span>156 <span style=''></span><span style='background: #AEF1AE'>      (0 until bitArrays.length).map { i =&gt;
-</span>157 <span style=''></span><span style='background: #AEF1AE'>        BlockSplitBloomFilterImpl.fromBytes(bitArrays(i))
-</span>158 <span style=''></span><span style='background: #AEF1AE'>      }
-</span>159 <span style=''></span><span style='background: #AEF1AE'>    })</span><span style=''>
-</span>160 <span style=''>
-</span>161 <span style=''>  def apply(bitArrays: Array[Array[Byte]], hashImpl: BloomHash, fpp: Double, hint: BucketedFilesRoot): BucketedCreator[BucketedFilesRoot, Array[Array[Byte]]] =
-</span>162 <span style=''>    </span><span style='background: #AEF1AE'>impl(bitArrays, hashImpl, fpp, hint)</span><span style=''>
-</span>163 <span style=''>
-</span>164 <span style=''>  def apply(bitArrays: Array[Array[Byte]], fpp: Double, hint: BucketedFilesRoot): BucketedCreator[BucketedFilesRoot, Array[Array[Byte]]] =
-</span>165 <span style=''>    </span><span style='background: #AEF1AE'>apply(bitArrays, new BloomHashImpl(BloomFilter.XXH64), fpp, hint)</span><span style=''>
-</span>166 <span style=''>
-</span>167 <span style=''>}
+</span>142 <span style=''>   * NOTE In the current impl overflows and weird results will occur with higher numbers of elements than 2.7b and 0.1.
+</span>143 <span style=''>   *
+</span>144 <span style=''>   * @param numBytes - calculate with optimalNumOfBits
+</span>145 <span style=''>   * @param numBuckets - calculate with optimalNumberOfBuckets, only 15 max are possible with SerializedType as Array[Byte]
+</span>146 <span style=''>   * @return
+</span>147 <span style=''>   */
+</span>148 <span style=''>  def apply[H, SerializedType: ({ type T[SerializedType] = ToSerializedType[SerializedType, H]})#T](numBytes: Int, numBuckets: Int, fpp: Double, hashImpl: BloomHash, hint: H): BucketedCreator[H, SerializedType] =
+</span>149 <span style=''>    </span><span style='background: #AEF1AE'>BucketedCreator(numBytes, BlockSplitBloomFilterImpl.LOWER_BOUND_BYTES, BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES,
+</span>150 <span style=''></span><span style='background: #AEF1AE'>      hashImpl, fpp, numBuckets, implicitly[ToSerializedType[SerializedType, H]], hint)()</span><span style=''>
+</span>151 <span style=''>
+</span>152 <span style=''>  def apply[H, SerializedType: ({ type T[SerializedType] = ToSerializedType[SerializedType, H]})#T](numBytes: Int, numBuckets: Int, fpp: Double, hint: H): BucketedCreator[H, SerializedType] =
+</span>153 <span style=''>    </span><span style='background: #AEF1AE'>apply(numBytes, numBuckets, fpp, new BloomHashImpl(BloomFilter.XXH64), hint)</span><span style=''>
+</span>154 <span style=''>
+</span>155 <span style=''>  def impl[H, SerializedType: ({ type T[SerializedType] = ToSerializedType[SerializedType, H]})#T](bitArrays: Array[Array[Byte]], hashImpl: BloomHash, fpp: Double, hint: H): BucketedCreator[H, SerializedType] =
+</span>156 <span style=''>    </span><span style='background: #AEF1AE'>BucketedCreator[H, SerializedType](0, BlockSplitBloomFilterImpl.LOWER_BOUND_BYTES, BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES,
+</span>157 <span style=''></span><span style='background: #AEF1AE'>      hashImpl, fpp, bitArrays.length, implicitly[ToSerializedType[SerializedType, H]], hint)( {
+</span>158 <span style=''></span><span style='background: #AEF1AE'>      (0 until bitArrays.length).map { i =&gt;
+</span>159 <span style=''></span><span style='background: #AEF1AE'>        BlockSplitBloomFilterImpl.fromBytes(bitArrays(i))
+</span>160 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>161 <span style=''></span><span style='background: #AEF1AE'>    })</span><span style=''>
+</span>162 <span style=''>
+</span>163 <span style=''>  def apply(bitArrays: Array[Array[Byte]], hashImpl: BloomHash, fpp: Double, hint: BucketedFilesRoot): BucketedCreator[BucketedFilesRoot, Array[Array[Byte]]] =
+</span>164 <span style=''>    </span><span style='background: #AEF1AE'>impl(bitArrays, hashImpl, fpp, hint)</span><span style=''>
+</span>165 <span style=''>
+</span>166 <span style=''>  def apply(bitArrays: Array[Array[Byte]], fpp: Double, hint: BucketedFilesRoot): BucketedCreator[BucketedFilesRoot, Array[Array[Byte]]] =
+</span>167 <span style=''>    </span><span style='background: #AEF1AE'>apply(bitArrays, new BloomHashImpl(BloomFilter.XXH64), fpp, hint)</span><span style=''>
 </span>168 <span style=''>
-</span>169 <span style=''>/**
-</span>170 <span style=''> * Buckets smaller optimised blooms by a mod on bucket size with array backing by default
-</span>171 <span style=''> *
-</span>172 <span style=''> * @param numBytes
-</span>173 <span style=''> * @param iMinimumBytes
-</span>174 <span style=''> * @param iMaximumBytes
-</span>175 <span style=''> * @param hashImpl
-</span>176 <span style=''> * @param numBuckets max is 15 algo wise but 8 breaks defaults for  spark.driver.maxResultSize on local 1gb it's 4g on db
-</span>177 <span style=''> */
-</span>178 <span style=''>case class BucketedCreator[H, SerializedType](numBytes: Int, iMinimumBytes: Int, iMaximumBytes: Int, hashImpl: BloomHash, fpp: Double, numBuckets: Int,
-</span>179 <span style=''>                                           toType: ToSerializedType[SerializedType, H], hint: H)(
-</span>180 <span style=''>  val filters: Seq[BlockSplitBloomFilterImpl] = (1 to numBuckets).map(_ =&gt; BlockSplitBloomFilterImpl(numBytes, iMinimumBytes, iMaximumBytes, hashImpl)),
-</span>181 <span style=''>  val bucketedFiles: Option[BloomModel] = None
-</span>182 <span style=''>) extends Bloom[SerializedType] {
-</span>183 <span style=''>  type BloomType = BucketedCreator[H, SerializedType]
-</span>184 <span style=''>
-</span>185 <span style=''>  /** CTw added the or'ing */
-</span>186 <span style=''>  def |= (that: BucketedCreator[H, SerializedType]): BucketedCreator[H, SerializedType] = {
-</span>187 <span style=''>    </span><span style='background: #AEF1AE'>checkCompatibility(that)</span><span style=''>
-</span>188 <span style=''>    // Breeze copies but we'll do in place
-</span>189 <span style=''>    </span><span style='background: #AEF1AE'>for(i &lt;- 0 until numBuckets) {
-</span>190 <span style=''></span><span style='background: #AEF1AE'>      filters(i) |= that.filters(i)</span><span style=''>
-</span>191 <span style=''>    }
-</span>192 <span style=''>    this
-</span>193 <span style=''>  }
-</span>194 <span style=''>
-</span>195 <span style=''>  private def checkCompatibility(that: BucketedCreator[H, SerializedType]): Unit =
-</span>196 <span style=''>    </span><span style='background: #AEF1AE'>require(iMaximumBytes == that.iMaximumBytes
-</span>197 <span style=''></span><span style='background: #AEF1AE'>      &amp;&amp; iMinimumBytes == that.iMinimumBytes &amp;&amp;
-</span>198 <span style=''></span><span style='background: #AEF1AE'>      hashImpl.hashStrategy == that.hashImpl.hashStrategy
-</span>199 <span style=''></span><span style='background: #AEF1AE'>      &amp;&amp; filters.zip( that.filters ).forall( p =&gt; p._1.intBuffer.limit() == p._2.intBuffer.limit() )
-</span>200 <span style=''></span><span style='background: #AEF1AE'>      , &quot;Must have the hash and bitset length to intersect&quot;)</span><span style=''>
-</span>201 <span style=''>
-</span>202 <span style=''>  def += (value: Any) = {
-</span>203 <span style=''>    val h = </span><span style='background: #AEF1AE'>hashImpl.hash(value)</span><span style=''>
-</span>204 <span style=''>    </span><span style='background: #AEF1AE'>filters(Bucketed.whichBloom(h, numBuckets)).insertHash(h)</span><span style=''>
-</span>205 <span style=''>    </span><span style='background: #AEF1AE'>this.asInstanceOf[BloomType]</span><span style=''>
-</span>206 <span style=''>  }
-</span>207 <span style=''>
-</span>208 <span style=''>  /**
-</span>209 <span style=''>   * Combines all the buckets together via the serialize type.  If this is already linked to memory mapped files
-</span>210 <span style=''>   * do not re-write, just serialize the bucketedFiles reference
-</span>211 <span style=''>   * @return combined serialized blooms
-</span>212 <span style=''>   */
-</span>213 <span style=''>  override def serialized: Array[Byte] = </span><span style='background: #AEF1AE'>bucketedFiles.fold(toType.serializeBuckets(filters, fpp, numBuckets, hint))(_.serialize)</span><span style=''>
-</span>214 <span style=''>}
-</span>215 <span style=''>
-</span>216 <span style=''>case class ThreadBucketedLookup(arrays: Array[Array[Byte]], hashImpl: BloomHash) extends com.sparkutils.quality.BloomLookup {
+</span>169 <span style=''>}
+</span>170 <span style=''>
+</span>171 <span style=''>/**
+</span>172 <span style=''> * Buckets smaller optimised blooms by a mod on bucket size with array backing by default
+</span>173 <span style=''> *
+</span>174 <span style=''> * @param numBytes
+</span>175 <span style=''> * @param iMinimumBytes
+</span>176 <span style=''> * @param iMaximumBytes
+</span>177 <span style=''> * @param hashImpl
+</span>178 <span style=''> * @param numBuckets max is 15 algo wise but 8 breaks defaults for  spark.driver.maxResultSize on local 1gb it's 4g on db
+</span>179 <span style=''> */
+</span>180 <span style=''>case class BucketedCreator[H, SerializedType](numBytes: Int, iMinimumBytes: Int, iMaximumBytes: Int, hashImpl: BloomHash, fpp: Double, numBuckets: Int,
+</span>181 <span style=''>                                           toType: ToSerializedType[SerializedType, H], hint: H)(
+</span>182 <span style=''>  val filters: Seq[BlockSplitBloomFilterImpl] = (1 to numBuckets).map(_ =&gt; BlockSplitBloomFilterImpl(numBytes, iMinimumBytes, iMaximumBytes, hashImpl)),
+</span>183 <span style=''>  val bucketedFiles: Option[BloomModel] = None
+</span>184 <span style=''>) extends Bloom[SerializedType] {
+</span>185 <span style=''>  type BloomType = BucketedCreator[H, SerializedType]
+</span>186 <span style=''>
+</span>187 <span style=''>  /** CTw added the or'ing */
+</span>188 <span style=''>  def |= (that: BucketedCreator[H, SerializedType]): BucketedCreator[H, SerializedType] = {
+</span>189 <span style=''>    </span><span style='background: #AEF1AE'>checkCompatibility(that)</span><span style=''>
+</span>190 <span style=''>    // Breeze copies but we'll do in place
+</span>191 <span style=''>    </span><span style='background: #AEF1AE'>for(i &lt;- 0 until numBuckets) {
+</span>192 <span style=''></span><span style='background: #AEF1AE'>      filters(i) |= that.filters(i)</span><span style=''>
+</span>193 <span style=''>    }
+</span>194 <span style=''>    this
+</span>195 <span style=''>  }
+</span>196 <span style=''>
+</span>197 <span style=''>  private def checkCompatibility(that: BucketedCreator[H, SerializedType]): Unit =
+</span>198 <span style=''>    </span><span style='background: #AEF1AE'>require(iMaximumBytes == that.iMaximumBytes
+</span>199 <span style=''></span><span style='background: #AEF1AE'>      &amp;&amp; iMinimumBytes == that.iMinimumBytes &amp;&amp;
+</span>200 <span style=''></span><span style='background: #AEF1AE'>      hashImpl.hashStrategy == that.hashImpl.hashStrategy
+</span>201 <span style=''></span><span style='background: #AEF1AE'>      &amp;&amp; filters.zip( that.filters ).forall( p =&gt; p._1.intBuffer.limit() == p._2.intBuffer.limit() )
+</span>202 <span style=''></span><span style='background: #AEF1AE'>      , &quot;Must have the hash and bitset length to intersect&quot;)</span><span style=''>
+</span>203 <span style=''>
+</span>204 <span style=''>  def += (value: Any) = {
+</span>205 <span style=''>    val h = </span><span style='background: #AEF1AE'>hashImpl.hash(value)</span><span style=''>
+</span>206 <span style=''>    </span><span style='background: #AEF1AE'>filters(Bucketed.whichBloom(h, numBuckets)).insertHash(h)</span><span style=''>
+</span>207 <span style=''>    </span><span style='background: #AEF1AE'>this.asInstanceOf[BloomType]</span><span style=''>
+</span>208 <span style=''>  }
+</span>209 <span style=''>
+</span>210 <span style=''>  /**
+</span>211 <span style=''>   * Combines all the buckets together via the serialize type.  If this is already linked to memory mapped files
+</span>212 <span style=''>   * do not re-write, just serialize the bucketedFiles reference
+</span>213 <span style=''>   * @return combined serialized blooms
+</span>214 <span style=''>   */
+</span>215 <span style=''>  override def serialized: Array[Byte] = </span><span style='background: #AEF1AE'>bucketedFiles.fold(toType.serializeBuckets(filters, fpp, numBuckets, hint))(_.serialize)</span><span style=''>
+</span>216 <span style=''>}
 </span>217 <span style=''>
-</span>218 <span style=''>  val filters = </span><span style='background: #AEF1AE'>TransientHolder{ () =&gt;
-</span>219 <span style=''></span><span style='background: #AEF1AE'>    arrays.map( ThreadLookup(_, hashImpl) )
-</span>220 <span style=''></span><span style='background: #AEF1AE'>  }</span><span style=''>
-</span>221 <span style=''>
-</span>222 <span style=''>  override def mightContain(value: Any): Boolean = {
-</span>223 <span style=''>    val h = </span><span style='background: #AEF1AE'>hashImpl.hash(value)</span><span style=''>
-</span>224 <span style=''>    </span><span style='background: #AEF1AE'>filters.get.apply(Bucketed.whichBloom(h, arrays.length)).findHash(h)</span><span style=''>
-</span>225 <span style=''>  }
-</span>226 <span style=''>}
-</span>227 <span style=''>
-</span>228 <span style=''>/**
-</span>229 <span style=''> * The default BlockSplitBloomFilter is not threadsafe for lookup.
-</span>230 <span style=''> * This implementation uses a thread local hash preparation for lookup
-</span>231 <span style=''> *
-</span>232 <span style=''> * @param bucketedFiles the bloom
-</span>233 <span style=''> */
-</span>234 <span style=''>case class ThreadSafeBucketedBloomLookupLazy(bucketedFiles: BloomModel,
-</span>235 <span style=''>                                             hashStrategy: BloomFilter.HashStrategy = BloomFilter.XXH64) extends com.sparkutils.quality.BloomLookup {
-</span>236 <span style=''>
-</span>237 <span style=''>  // don't ship the bytes but lazy load on each box
-</span>238 <span style=''>  val arrays = </span><span style='background: #AEF1AE'>TransientHolder{ () =&gt;
-</span>239 <span style=''></span><span style='background: #AEF1AE'>    bucketedFiles.read
-</span>240 <span style=''></span><span style='background: #AEF1AE'>  }</span><span style=''>
-</span>241 <span style=''>
-</span>242 <span style=''>  private val impl: TSLocal[ThreadBucketedLookup] = </span><span style='background: #AEF1AE'>TSLocal[ThreadBucketedLookup]{ () =&gt;
-</span>243 <span style=''></span><span style='background: #AEF1AE'>
-</span>244 <span style=''></span><span style='background: #AEF1AE'>    ThreadBucketedLookup(arrays.get(), new BloomHashImpl(hashStrategy))
-</span>245 <span style=''></span><span style='background: #AEF1AE'>  }</span><span style=''>
-</span>246 <span style=''>
-</span>247 <span style=''>  override def mightContain(value: Any): Boolean = </span><span style='background: #AEF1AE'>impl.get().mightContain(value)</span><span style=''>
+</span>218 <span style=''>case class ThreadBucketedLookup(arrays: Array[Array[Byte]], hashImpl: BloomHash) extends com.sparkutils.quality.BloomLookup {
+</span>219 <span style=''>
+</span>220 <span style=''>  val filters = </span><span style='background: #AEF1AE'>TransientHolder{ () =&gt;
+</span>221 <span style=''></span><span style='background: #AEF1AE'>    arrays.map( ThreadLookup(_, hashImpl) )
+</span>222 <span style=''></span><span style='background: #AEF1AE'>  }</span><span style=''>
+</span>223 <span style=''>
+</span>224 <span style=''>  override def mightContain(value: Any): Boolean = {
+</span>225 <span style=''>    val h = </span><span style='background: #AEF1AE'>hashImpl.hash(value)</span><span style=''>
+</span>226 <span style=''>    </span><span style='background: #AEF1AE'>filters.get.apply(Bucketed.whichBloom(h, arrays.length)).findHash(h)</span><span style=''>
+</span>227 <span style=''>  }
+</span>228 <span style=''>}
+</span>229 <span style=''>
+</span>230 <span style=''>/**
+</span>231 <span style=''> * The default BlockSplitBloomFilter is not threadsafe for lookup.
+</span>232 <span style=''> * This implementation uses a thread local hash preparation for lookup
+</span>233 <span style=''> *
+</span>234 <span style=''> * @param bucketedFiles the bloom
+</span>235 <span style=''> */
+</span>236 <span style=''>case class ThreadSafeBucketedBloomLookupLazy(bucketedFiles: BloomModel,
+</span>237 <span style=''>                                             hashStrategy: BloomFilter.HashStrategy = BloomFilter.XXH64) extends com.sparkutils.quality.BloomLookup {
+</span>238 <span style=''>
+</span>239 <span style=''>  // don't ship the bytes but lazy load on each box
+</span>240 <span style=''>  val arrays = </span><span style='background: #AEF1AE'>TransientHolder{ () =&gt;
+</span>241 <span style=''></span><span style='background: #AEF1AE'>    bucketedFiles.read
+</span>242 <span style=''></span><span style='background: #AEF1AE'>  }</span><span style=''>
+</span>243 <span style=''>
+</span>244 <span style=''>  private val impl: TSLocal[ThreadBucketedLookup] = </span><span style='background: #AEF1AE'>TSLocal[ThreadBucketedLookup]{ () =&gt;
+</span>245 <span style=''></span><span style='background: #AEF1AE'>
+</span>246 <span style=''></span><span style='background: #AEF1AE'>    ThreadBucketedLookup(arrays.get(), new BloomHashImpl(hashStrategy))
+</span>247 <span style=''></span><span style='background: #AEF1AE'>  }</span><span style=''>
 </span>248 <span style=''>
-</span>249 <span style=''>}
+</span>249 <span style=''>  override def mightContain(value: Any): Boolean = </span><span style='background: #AEF1AE'>impl.get().mightContain(value)</span><span style=''>
 </span>250 <span style=''>
-</span>251 <span style=''>/**
-</span>252 <span style=''> * By default eager, optionally lazy which will read the files from the executor
-</span>253 <span style=''> */
-</span>254 <span style=''>object ThreadSafeBucketedBloomLookup {
-</span>255 <span style=''>  def lazyLookup(bucketedFiles: BloomModel) = </span><span style='background: #AEF1AE'>ThreadSafeBucketedBloomLookupLazy(bucketedFiles)</span><span style=''>
-</span>256 <span style=''>  def apply(bucketedFiles: BloomModel) = {
-</span>257 <span style=''>    val arrays = </span><span style='background: #AEF1AE'>bucketedFiles.read</span><span style=''>
-</span>258 <span style=''>
-</span>259 <span style=''>    </span><span style='background: #AEF1AE'>ThreadSafeBucketedBloomLookupEager(arrays)</span><span style=''>
-</span>260 <span style=''>  }
-</span>261 <span style=''>  def mappedLookup(bucketedFiles: BloomModel) = </span><span style='background: #AEF1AE'>ThreadSafeBucketedBloomLookupMapped(bucketedFiles)</span><span style=''>
-</span>262 <span style=''>}
-</span>263 <span style=''>
-</span>264 <span style=''>/**
-</span>265 <span style=''> * The default BlockSplitBloomFilter is not threadsafe for lookup.
-</span>266 <span style=''> * This implementation uses a thread local hash preparation for lookup
-</span>267 <span style=''> *
-</span>268 <span style=''> * @param arrays the bloom
-</span>269 <span style=''> */
-</span>270 <span style=''>case class ThreadSafeBucketedBloomLookupEager(arrays: Array[Array[Byte]],
-</span>271 <span style=''>                                         hashStrategy: BloomFilter.HashStrategy = BloomFilter.XXH64) extends BloomLookup {
-</span>272 <span style=''>
-</span>273 <span style=''>  private val impl: TSLocal[ThreadBucketedLookup] = </span><span style='background: #AEF1AE'>TSLocal[ThreadBucketedLookup]{ () =&gt;
-</span>274 <span style=''></span><span style='background: #AEF1AE'>    ThreadBucketedLookup(arrays, new BloomHashImpl(hashStrategy))
-</span>275 <span style=''></span><span style='background: #AEF1AE'>  }</span><span style=''>
-</span>276 <span style=''>
-</span>277 <span style=''>  override def mightContain(value: Any): Boolean = </span><span style='background: #AEF1AE'>impl.get().mightContain(value)</span><span style=''>
+</span>251 <span style=''>}
+</span>252 <span style=''>
+</span>253 <span style=''>/**
+</span>254 <span style=''> * By default eager, optionally lazy which will read the files from the executor
+</span>255 <span style=''> */
+</span>256 <span style=''>object ThreadSafeBucketedBloomLookup {
+</span>257 <span style=''>  def lazyLookup(bucketedFiles: BloomModel) = </span><span style='background: #AEF1AE'>ThreadSafeBucketedBloomLookupLazy(bucketedFiles)</span><span style=''>
+</span>258 <span style=''>  def apply(bucketedFiles: BloomModel) = {
+</span>259 <span style=''>    val arrays = </span><span style='background: #AEF1AE'>bucketedFiles.read</span><span style=''>
+</span>260 <span style=''>
+</span>261 <span style=''>    </span><span style='background: #AEF1AE'>ThreadSafeBucketedBloomLookupEager(arrays)</span><span style=''>
+</span>262 <span style=''>  }
+</span>263 <span style=''>  def mappedLookup(bucketedFiles: BloomModel) = </span><span style='background: #AEF1AE'>ThreadSafeBucketedBloomLookupMapped(bucketedFiles)</span><span style=''>
+</span>264 <span style=''>}
+</span>265 <span style=''>
+</span>266 <span style=''>/**
+</span>267 <span style=''> * The default BlockSplitBloomFilter is not threadsafe for lookup.
+</span>268 <span style=''> * This implementation uses a thread local hash preparation for lookup
+</span>269 <span style=''> *
+</span>270 <span style=''> * @param arrays the bloom
+</span>271 <span style=''> */
+</span>272 <span style=''>case class ThreadSafeBucketedBloomLookupEager(arrays: Array[Array[Byte]],
+</span>273 <span style=''>                                         hashStrategy: BloomFilter.HashStrategy = BloomFilter.XXH64) extends BloomLookup {
+</span>274 <span style=''>
+</span>275 <span style=''>  private val impl: TSLocal[ThreadBucketedLookup] = </span><span style='background: #AEF1AE'>TSLocal[ThreadBucketedLookup]{ () =&gt;
+</span>276 <span style=''></span><span style='background: #AEF1AE'>    ThreadBucketedLookup(arrays, new BloomHashImpl(hashStrategy))
+</span>277 <span style=''></span><span style='background: #AEF1AE'>  }</span><span style=''>
 </span>278 <span style=''>
-</span>279 <span style=''>}
+</span>279 <span style=''>  override def mightContain(value: Any): Boolean = </span><span style='background: #AEF1AE'>impl.get().mightContain(value)</span><span style=''>
 </span>280 <span style=''>
-</span>281 <span style=''>case class ThreadBucketedMappedLookup(bucketedFiles: BloomModel, hashImpl: BloomHash) extends BloomLookup {
+</span>281 <span style=''>}
 </span>282 <span style=''>
-</span>283 <span style=''>  val filters = </span><span style='background: #AEF1AE'>TransientHolder{ () =&gt;
-</span>284 <span style=''></span><span style='background: #AEF1AE'>    bucketedFiles.maps.map( ThreadBufferLookup(_, hashImpl) )
-</span>285 <span style=''></span><span style='background: #AEF1AE'>  }</span><span style=''>
-</span>286 <span style=''>
-</span>287 <span style=''>  override def mightContain(value: Any): Boolean = {
-</span>288 <span style=''>    val h = </span><span style='background: #AEF1AE'>hashImpl.hash(value)</span><span style=''>
-</span>289 <span style=''>    </span><span style='background: #AEF1AE'>filters.get.apply(Bucketed.whichBloom(h, bucketedFiles.numBuckets)).findHash(h)</span><span style=''>
-</span>290 <span style=''>  }
-</span>291 <span style=''>}
-</span>292 <span style=''>
-</span>293 <span style=''>/**
-</span>294 <span style=''> * The default BlockSplitBloomFilter is not threadsafe for lookup.
-</span>295 <span style=''> * This implementation uses a thread local hash preparation for lookup
-</span>296 <span style=''> *
-</span>297 <span style=''> * @param bucketedFiles the bloom
-</span>298 <span style=''> */
-</span>299 <span style=''>case class ThreadSafeBucketedBloomLookupMapped(bucketedFiles: BloomModel,
-</span>300 <span style=''>                                               hashStrategy: BloomFilter.HashStrategy = BloomFilter.XXH64) extends BloomLookup {
-</span>301 <span style=''>
-</span>302 <span style=''>  private val impl: TSLocal[ThreadBucketedMappedLookup] = </span><span style='background: #AEF1AE'>TSLocal[ThreadBucketedMappedLookup]{ () =&gt;
-</span>303 <span style=''></span><span style='background: #AEF1AE'>
-</span>304 <span style=''></span><span style='background: #AEF1AE'>    ThreadBucketedMappedLookup(bucketedFiles, new BloomHashImpl(hashStrategy))
-</span>305 <span style=''></span><span style='background: #AEF1AE'>  }</span><span style=''>
-</span>306 <span style=''>
-</span>307 <span style=''>  override def mightContain(value: Any): Boolean = </span><span style='background: #AEF1AE'>impl.get().mightContain(value)</span><span style=''>
+</span>283 <span style=''>case class ThreadBucketedMappedLookup(bucketedFiles: BloomModel, hashImpl: BloomHash) extends BloomLookup {
+</span>284 <span style=''>
+</span>285 <span style=''>  val filters = </span><span style='background: #AEF1AE'>TransientHolder{ () =&gt;
+</span>286 <span style=''></span><span style='background: #AEF1AE'>    bucketedFiles.maps.map( ThreadBufferLookup(_, hashImpl) )
+</span>287 <span style=''></span><span style='background: #AEF1AE'>  }</span><span style=''>
+</span>288 <span style=''>
+</span>289 <span style=''>  override def mightContain(value: Any): Boolean = {
+</span>290 <span style=''>    val h = </span><span style='background: #AEF1AE'>hashImpl.hash(value)</span><span style=''>
+</span>291 <span style=''>    </span><span style='background: #AEF1AE'>filters.get.apply(Bucketed.whichBloom(h, bucketedFiles.numBuckets)).findHash(h)</span><span style=''>
+</span>292 <span style=''>  }
+</span>293 <span style=''>}
+</span>294 <span style=''>
+</span>295 <span style=''>/**
+</span>296 <span style=''> * The default BlockSplitBloomFilter is not threadsafe for lookup.
+</span>297 <span style=''> * This implementation uses a thread local hash preparation for lookup
+</span>298 <span style=''> *
+</span>299 <span style=''> * @param bucketedFiles the bloom
+</span>300 <span style=''> */
+</span>301 <span style=''>case class ThreadSafeBucketedBloomLookupMapped(bucketedFiles: BloomModel,
+</span>302 <span style=''>                                               hashStrategy: BloomFilter.HashStrategy = BloomFilter.XXH64) extends BloomLookup {
+</span>303 <span style=''>
+</span>304 <span style=''>  private val impl: TSLocal[ThreadBucketedMappedLookup] = </span><span style='background: #AEF1AE'>TSLocal[ThreadBucketedMappedLookup]{ () =&gt;
+</span>305 <span style=''></span><span style='background: #AEF1AE'>
+</span>306 <span style=''></span><span style='background: #AEF1AE'>    ThreadBucketedMappedLookup(bucketedFiles, new BloomHashImpl(hashStrategy))
+</span>307 <span style=''></span><span style='background: #AEF1AE'>  }</span><span style=''>
 </span>308 <span style=''>
-</span>309 <span style=''>}
+</span>309 <span style=''>  override def mightContain(value: Any): Boolean = </span><span style='background: #AEF1AE'>impl.get().mightContain(value)</span><span style=''>
+</span>310 <span style=''>
+</span>311 <span style=''>}
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -345,15 +347,15 @@
         <th>Code</th>
       </tr><tr>
         <td>
-          25
+          27
         </td>
         <td>
-          4004
+          4117
         </td>
         <td>
-          1112
+          1171
           -
-          1126
+          1185
         </td>
         <td>
           Apply
@@ -369,15 +371,15 @@
         </td>
       </tr><tr>
         <td>
-          25
+          27
         </td>
         <td>
-          4005
+          4118
         </td>
         <td>
-          1112
+          1171
           -
-          1137
+          1196
         </td>
         <td>
           Select
@@ -393,15 +395,15 @@
         </td>
       </tr><tr>
         <td>
-          32
+          34
         </td>
         <td>
-          4007
+          4120
         </td>
         <td>
-          1299
+          1358
           -
-          1317
+          1376
         </td>
         <td>
           Apply
@@ -417,15 +419,15 @@
         </td>
       </tr><tr>
         <td>
-          32
+          34
         </td>
         <td>
-          4006
+          4119
         </td>
         <td>
-          1308
+          1367
           -
-          1316
+          1375
         </td>
         <td>
           Select
@@ -441,63 +443,15 @@
         </td>
       </tr><tr>
         <td>
-          37
+          39
         </td>
         <td>
-          4009
+          4123
         </td>
         <td>
-          1516
+          1540
           -
-          1523
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.BucketedFilesRoot.bloomId
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          BucketedFilesRoot.this.bloomId
-        </td>
-      </tr><tr>
-        <td>
-          37
-        </td>
-        <td>
-          4008
-        </td>
-        <td>
-          1490
-          -
-          1514
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.FileRoot.asFile
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          BucketedFilesRoot.this.bloomFileLocation.asFile
-        </td>
-      </tr><tr>
-        <td>
-          37
-        </td>
-        <td>
-          4010
-        </td>
-        <td>
-          1481
-          -
-          1524
+          1583
         </td>
         <td>
           Apply
@@ -513,15 +467,63 @@
         </td>
       </tr><tr>
         <td>
-          38
+          39
         </td>
         <td>
-          4011
+          4122
         </td>
         <td>
-          1529
+          1575
           -
-          1541
+          1582
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BucketedFilesRoot.bloomId
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BucketedFilesRoot.this.bloomId
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          4121
+        </td>
+        <td>
+          1549
+          -
+          1573
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.FileRoot.asFile
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BucketedFilesRoot.this.bloomFileLocation.asFile
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          4124
+        </td>
+        <td>
+          1588
+          -
+          1600
         </td>
         <td>
           Apply
@@ -537,15 +539,15 @@
         </td>
       </tr><tr>
         <td>
-          65
+          67
         </td>
         <td>
-          4012
+          4125
         </td>
         <td>
-          2567
+          2626
           -
-          2582
+          2641
         </td>
         <td>
           Apply
@@ -561,15 +563,15 @@
         </td>
       </tr><tr>
         <td>
-          66
+          68
         </td>
         <td>
-          4013
+          4126
         </td>
         <td>
-          2592
+          2651
           -
-          2625
+          2684
         </td>
         <td>
           Apply
@@ -585,15 +587,15 @@
         </td>
       </tr><tr>
         <td>
-          66
+          68
         </td>
         <td>
-          4014
+          4127
         </td>
         <td>
-          2592
+          2651
           -
-          2625
+          2684
         </td>
         <td>
           Block
@@ -609,15 +611,15 @@
         </td>
       </tr><tr>
         <td>
-          68
+          70
         </td>
         <td>
-          4015
+          4128
         </td>
         <td>
-          2645
+          2704
           -
-          2654
+          2713
         </td>
         <td>
           Ident
@@ -633,15 +635,15 @@
         </td>
       </tr><tr>
         <td>
-          70
+          72
         </td>
         <td>
-          4016
+          4129
         </td>
         <td>
-          2674
+          2733
           -
-          2786
+          2819
         </td>
         <td>
           Apply
@@ -653,19 +655,19 @@
           
         </td>
         <td style="background: #AEF1AE">
-          df.selectExpr(scala.StringContext.apply(&quot;bigBloom(&quot;, &quot;, &quot;, &quot;, cast(&quot;, &quot; as double), \'&quot;, &quot;\')&quot;).s(bloomOn, expectedSize, fpp, bloomId)).head().getAs[Array[Byte]](0)
+          df.select(com.sparkutils.quality.functions.`package`.big_bloom(bloomOn, expectedSize, fpp, bloomId)).head().getAs[Array[Byte]](0)
         </td>
       </tr><tr>
         <td>
-          71
+          73
         </td>
         <td>
-          4017
+          4130
         </td>
         <td>
-          2803
+          2836
           -
-          2834
+          2867
         </td>
         <td>
           Apply
@@ -681,15 +683,15 @@
         </td>
       </tr><tr>
         <td>
-          72
+          74
         </td>
         <td>
-          4018
+          4131
         </td>
         <td>
-          2839
+          2872
           -
-          2860
+          2893
         </td>
         <td>
           Apply
@@ -705,39 +707,39 @@
         </td>
       </tr><tr>
         <td>
-          77
+          79
         </td>
         <td>
-          4019
+          4132
         </td>
         <td>
-          2926
+          2959
           -
-          2994
+          3034
         </td>
         <td>
           Apply
         </td>
         <td>
-          org.apache.spark.sql.internal.SQLConf.getConfString
+          com.sparkutils.quality.getConfig
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          org.apache.spark.sql.internal.SQLConf.get.getConfString(&quot;sparkutils.quality.bloom.root&quot;, &quot;/dbfs/&quot;)
+          com.sparkutils.quality.`package`.getConfig(&quot;sparkutils.quality.bloom.root&quot;, &quot;/dbfs/&quot;)
         </td>
       </tr><tr>
         <td>
-          80
+          82
         </td>
         <td>
-          4020
+          4133
         </td>
         <td>
-          3063
+          3103
           -
-          3084
+          3124
         </td>
         <td>
           Apply
@@ -753,15 +755,15 @@
         </td>
       </tr><tr>
         <td>
-          82
+          84
         </td>
         <td>
-          4021
+          4134
         </td>
         <td>
-          3110
+          3150
           -
-          3123
+          3163
         </td>
         <td>
           Apply
@@ -777,15 +779,15 @@
         </td>
       </tr><tr>
         <td>
-          83
+          85
         </td>
         <td>
-          4022
+          4135
         </td>
         <td>
-          3133
+          3173
           -
-          3137
+          3177
         </td>
         <td>
           Ident
@@ -801,15 +803,15 @@
         </td>
       </tr><tr>
         <td>
-          84
+          86
         </td>
         <td>
-          4027
+          4140
         </td>
         <td>
-          3149
+          3189
           -
-          3310
+          3350
         </td>
         <td>
           Block
@@ -830,15 +832,15 @@
         </td>
       </tr><tr>
         <td>
-          85
+          87
         </td>
         <td>
-          4023
+          4136
         </td>
         <td>
-          3170
+          3210
           -
-          3209
+          3249
         </td>
         <td>
           Apply
@@ -854,15 +856,15 @@
         </td>
       </tr><tr>
         <td>
-          86
+          88
         </td>
         <td>
-          4024
+          4137
         </td>
         <td>
-          3233
+          3273
           -
-          3253
+          3293
         </td>
         <td>
           Apply
@@ -878,15 +880,15 @@
         </td>
       </tr><tr>
         <td>
-          87
+          89
         </td>
         <td>
-          4025
+          4138
         </td>
         <td>
-          3262
+          3302
           -
-          3275
+          3315
         </td>
         <td>
           Apply
@@ -902,15 +904,15 @@
         </td>
       </tr><tr>
         <td>
-          88
+          90
         </td>
         <td>
-          4026
+          4139
         </td>
         <td>
-          3284
+          3324
           -
-          3302
+          3342
         </td>
         <td>
           Apply
@@ -926,15 +928,15 @@
         </td>
       </tr><tr>
         <td>
-          91
+          93
         </td>
         <td>
-          4028
+          4141
         </td>
         <td>
-          3325
+          3365
           -
-          3356
+          3396
         </td>
         <td>
           Apply
@@ -950,15 +952,15 @@
         </td>
       </tr><tr>
         <td>
-          92
+          94
         </td>
         <td>
-          4029
+          4142
         </td>
         <td>
-          3361
+          3401
           -
-          3372
+          3412
         </td>
         <td>
           Apply
@@ -974,15 +976,15 @@
         </td>
       </tr><tr>
         <td>
-          93
+          95
         </td>
         <td>
-          4030
+          4143
         </td>
         <td>
-          3377
+          3417
           -
-          3395
+          3435
         </td>
         <td>
           Apply
@@ -998,15 +1000,15 @@
         </td>
       </tr><tr>
         <td>
-          96
+          98
         </td>
         <td>
-          4068
+          4181
         </td>
         <td>
-          3431
+          3471
           -
-          3434
+          3474
         </td>
         <td>
           Apply
@@ -1022,15 +1024,15 @@
         </td>
       </tr><tr>
         <td>
-          99
+          101
         </td>
         <td>
-          4031
+          4144
         </td>
         <td>
-          3711
+          3751
           -
-          3715
+          3755
         </td>
         <td>
           Literal
@@ -1046,15 +1048,15 @@
         </td>
       </tr><tr>
         <td>
-          100
+          102
         </td>
         <td>
-          4032
+          4145
         </td>
         <td>
-          3738
+          3778
           -
-          3742
+          3782
         </td>
         <td>
           Literal
@@ -1070,15 +1072,15 @@
         </td>
       </tr><tr>
         <td>
-          101
+          103
         </td>
         <td>
-          4040
+          4153
         </td>
         <td>
-          3749
+          3789
           -
-          3749
+          3789
         </td>
         <td>
           Block
@@ -1094,63 +1096,15 @@
         </td>
       </tr><tr>
         <td>
-          101
+          103
         </td>
         <td>
-          4039
+          4150
         </td>
         <td>
-          3749
+          3789
           -
-          3749
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          101
-        </td>
-        <td>
-          4038
-        </td>
-        <td>
-          3749
-          -
-          3749
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.BucketedCreator.$anon.doWhile$1
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          doWhile$1()
-        </td>
-      </tr><tr>
-        <td>
-          101
-        </td>
-        <td>
-          4037
-        </td>
-        <td>
-          3749
-          -
-          3749
+          3789
         </td>
         <td>
           Apply
@@ -1166,15 +1120,63 @@
         </td>
       </tr><tr>
         <td>
-          102
+          103
         </td>
         <td>
-          4033
+          4152
         </td>
         <td>
-          3767
+          3789
           -
-          3803
+          3789
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          4151
+        </td>
+        <td>
+          3789
+          -
+          3789
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BucketedCreator.$anon.doWhile$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          doWhile$1()
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          4146
+        </td>
+        <td>
+          3807
+          -
+          3843
         </td>
         <td>
           Apply
@@ -1190,39 +1192,15 @@
         </td>
       </tr><tr>
         <td>
-          103
+          105
         </td>
         <td>
-          4035
+          4147
         </td>
         <td>
-          3818
+          3867
           -
-          3849
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          java.io.File.&lt;init&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          new java.io.File(hint.fileLocation, id)
-        </td>
-      </tr><tr>
-        <td>
-          103
-        </td>
-        <td>
-          4034
-        </td>
-        <td>
-          3827
-          -
-          3844
+          3884
         </td>
         <td>
           Select
@@ -1238,15 +1216,39 @@
         </td>
       </tr><tr>
         <td>
-          104
+          105
         </td>
         <td>
-          4036
+          4148
         </td>
         <td>
-          3865
+          3858
           -
-          3877
+          3889
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.File.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new java.io.File(hint.fileLocation, id)
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          4149
+        </td>
+        <td>
+          3905
+          -
+          3917
         </td>
         <td>
           Apply
@@ -1262,15 +1264,15 @@
         </td>
       </tr><tr>
         <td>
-          105
+          107
         </td>
         <td>
-          4041
+          4154
         </td>
         <td>
-          3885
+          3925
           -
-          3897
+          3937
         </td>
         <td>
           Apply
@@ -1286,39 +1288,15 @@
         </td>
       </tr><tr>
         <td>
-          107
+          109
         </td>
         <td>
-          4042
+          4177
         </td>
         <td>
-          3915
+          3945
           -
-          3916
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          0
-        </td>
-      </tr><tr>
-        <td>
-          107
-        </td>
-        <td>
-          4064
-        </td>
-        <td>
-          3905
-          -
-          4480
+          4520
         </td>
         <td>
           Apply
@@ -1344,63 +1322,39 @@
         </td>
       </tr><tr>
         <td>
-          108
+          109
         </td>
         <td>
-          4045
+          4155
         </td>
         <td>
           3955
           -
-          4002
+          3956
         </td>
         <td>
-          Apply
+          Literal
         </td>
         <td>
-          java.io.FileOutputStream.&lt;init&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          new java.io.FileOutputStream(new java.io.File(dir, i.toString()))
-        </td>
-      </tr><tr>
-        <td>
-          108
-        </td>
-        <td>
-          4044
-        </td>
-        <td>
-          3976
-          -
-          4001
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          java.io.File.&lt;init&gt;
+          &lt;nosymbol&gt;
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          new java.io.File(dir, i.toString())
+          0
         </td>
       </tr><tr>
         <td>
-          108
+          110
         </td>
         <td>
-          4043
+          4156
         </td>
         <td>
-          3990
+          4030
           -
-          4000
+          4040
         </td>
         <td>
           Apply
@@ -1419,12 +1373,84 @@
           110
         </td>
         <td>
-          4060
+          4158
         </td>
         <td>
-          4063
+          3995
           -
-          4346
+          4042
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.FileOutputStream.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new java.io.FileOutputStream(new java.io.File(dir, i.toString()))
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          4157
+        </td>
+        <td>
+          4016
+          -
+          4041
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.File.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new java.io.File(dir, i.toString())
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          4159
+        </td>
+        <td>
+          4113
+          -
+          4114
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          4173
+        </td>
+        <td>
+          4103
+          -
+          4386
         </td>
         <td>
           Apply
@@ -1446,15 +1472,15 @@
         </td>
       </tr><tr>
         <td>
-          110
+          112
         </td>
         <td>
-          4047
+          4160
         </td>
         <td>
-          4081
+          4121
           -
-          4107
+          4147
         </td>
         <td>
           Apply
@@ -1470,39 +1496,15 @@
         </td>
       </tr><tr>
         <td>
-          110
+          113
         </td>
         <td>
-          4046
+          4161
         </td>
         <td>
-          4073
+          4176
           -
-          4074
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          0
-        </td>
-      </tr><tr>
-        <td>
-          111
-        </td>
-        <td>
-          4048
-        </td>
-        <td>
-          4136
-          -
-          4163
+          4203
         </td>
         <td>
           Apply
@@ -1518,15 +1520,15 @@
         </td>
       </tr><tr>
         <td>
-          112
+          114
         </td>
         <td>
-          4049
+          4162
         </td>
         <td>
-          4186
+          4226
           -
-          4199
+          4239
         </td>
         <td>
           Select
@@ -1542,15 +1544,15 @@
         </td>
       </tr><tr>
         <td>
-          112
+          114
         </td>
         <td>
-          4050
+          4163
         </td>
         <td>
-          4176
+          4216
           -
-          4200
+          4240
         </td>
         <td>
           Apply
@@ -1566,63 +1568,15 @@
         </td>
       </tr><tr>
         <td>
-          113
+          115
         </td>
         <td>
-          4051
+          4165
         </td>
         <td>
-          4234
+          4264
           -
-          4235
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          8
-        </td>
-      </tr><tr>
-        <td>
-          113
-        </td>
-        <td>
-          4053
-        </td>
-        <td>
-          4213
-          -
-          4244
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          java.io.FileOutputStream.write
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #F0ADAD">
-          fos.write(theInt.&gt;&gt;(8).toByte.toInt)
-        </td>
-      </tr><tr>
-        <td>
-          113
-        </td>
-        <td>
-          4052
-        </td>
-        <td>
-          4224
-          -
-          4243
+          4283
         </td>
         <td>
           Select
@@ -1638,15 +1592,15 @@
         </td>
       </tr><tr>
         <td>
-          114
+          115
         </td>
         <td>
-          4054
+          4164
         </td>
         <td>
-          4278
+          4274
           -
-          4280
+          4275
         </td>
         <td>
           Literal
@@ -1658,19 +1612,19 @@
           
         </td>
         <td style="background: #F0ADAD">
-          16
+          8
         </td>
       </tr><tr>
         <td>
-          114
+          115
         </td>
         <td>
-          4056
+          4166
         </td>
         <td>
-          4257
+          4253
           -
-          4289
+          4284
         </td>
         <td>
           Apply
@@ -1682,19 +1636,19 @@
           
         </td>
         <td style="background: #F0ADAD">
-          fos.write(theInt.&gt;&gt;(16).toByte.toInt)
+          fos.write(theInt.&gt;&gt;(8).toByte.toInt)
         </td>
       </tr><tr>
         <td>
-          114
+          116
         </td>
         <td>
-          4055
+          4168
         </td>
         <td>
-          4268
+          4308
           -
-          4288
+          4328
         </td>
         <td>
           Select
@@ -1710,15 +1664,63 @@
         </td>
       </tr><tr>
         <td>
-          115
+          116
         </td>
         <td>
-          4058
+          4167
         </td>
         <td>
-          4313
+          4318
           -
-          4333
+          4320
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          16
+        </td>
+      </tr><tr>
+        <td>
+          116
+        </td>
+        <td>
+          4169
+        </td>
+        <td>
+          4297
+          -
+          4329
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.FileOutputStream.write
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          fos.write(theInt.&gt;&gt;(16).toByte.toInt)
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          4171
+        </td>
+        <td>
+          4353
+          -
+          4373
         </td>
         <td>
           Select
@@ -1734,15 +1736,15 @@
         </td>
       </tr><tr>
         <td>
-          115
+          117
         </td>
         <td>
-          4057
+          4170
         </td>
         <td>
-          4323
+          4363
           -
-          4325
+          4365
         </td>
         <td>
           Literal
@@ -1758,15 +1760,15 @@
         </td>
       </tr><tr>
         <td>
-          115
+          117
         </td>
         <td>
-          4059
+          4172
         </td>
         <td>
-          4302
+          4342
           -
-          4334
+          4374
         </td>
         <td>
           Apply
@@ -1782,15 +1784,15 @@
         </td>
       </tr><tr>
         <td>
-          117
+          119
         </td>
         <td>
-          4062
+          4175
         </td>
         <td>
-          4011
+          4051
           -
-          4452
+          4492
         </td>
         <td>
           Apply
@@ -1812,15 +1814,15 @@
         </td>
       </tr><tr>
         <td>
-          119
+          121
         </td>
         <td>
-          4061
+          4174
         </td>
         <td>
-          4426
+          4466
           -
-          4442
+          4482
         </td>
         <td>
           Apply
@@ -1836,15 +1838,15 @@
         </td>
       </tr><tr>
         <td>
-          121
+          123
         </td>
         <td>
-          4063
+          4176
         </td>
         <td>
-          4461
+          4501
           -
-          4472
+          4512
         </td>
         <td>
           Apply
@@ -1860,15 +1862,15 @@
         </td>
       </tr><tr>
         <td>
-          124
+          126
         </td>
         <td>
-          4066
+          4179
         </td>
         <td>
-          4508
+          4548
           -
-          4556
+          4596
         </td>
         <td>
           Apply
@@ -1884,15 +1886,15 @@
         </td>
       </tr><tr>
         <td>
-          124
+          126
         </td>
         <td>
-          4065
+          4178
         </td>
         <td>
-          4519
+          4559
           -
-          4538
+          4578
         </td>
         <td>
           Apply
@@ -1908,15 +1910,15 @@
         </td>
       </tr><tr>
         <td>
-          125
+          127
         </td>
         <td>
-          4067
+          4180
         </td>
         <td>
-          4563
+          4603
           -
-          4586
+          4626
         </td>
         <td>
           Select
@@ -1932,15 +1934,63 @@
         </td>
       </tr><tr>
         <td>
-          147
+          149
         </td>
         <td>
-          4069
+          4186
         </td>
         <td>
-          5722
+          5751
           -
-          5765
+          5751
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BucketedCreator.apply$default$10
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BucketedCreator.apply$default$10[H, SerializedType](x$1, x$2, x$3, x$4, x$5, x$6, x$7, x$8)
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          4183
+        </td>
+        <td>
+          5807
+          -
+          5850
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          4182
+        </td>
+        <td>
+          5762
+          -
+          5805
         </td>
         <td>
           Select
@@ -1956,15 +2006,15 @@
         </td>
       </tr><tr>
         <td>
-          147
+          149
         </td>
         <td>
-          4072
+          4185
         </td>
         <td>
-          5711
+          5751
           -
-          5711
+          5751
         </td>
         <td>
           Apply
@@ -1980,63 +2030,15 @@
         </td>
       </tr><tr>
         <td>
-          147
+          150
         </td>
         <td>
-          4070
+          4184
         </td>
         <td>
-          5767
+          5885
           -
-          5810
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          BlockSplitBloomFilterImpl.UPPER_BOUND_BYTES
-        </td>
-      </tr><tr>
-        <td>
-          147
-        </td>
-        <td>
-          4073
-        </td>
-        <td>
-          5711
-          -
-          5711
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.BucketedCreator.apply$default$10
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          BucketedCreator.apply$default$10[H, SerializedType](x$1, x$2, x$3, x$4, x$5, x$6, x$7, x$8)
-        </td>
-      </tr><tr>
-        <td>
-          148
-        </td>
-        <td>
-          4071
-        </td>
-        <td>
-          5845
-          -
-          5892
+          5932
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2052,15 +2054,15 @@
         </td>
       </tr><tr>
         <td>
-          148
+          150
         </td>
         <td>
-          4074
+          4187
         </td>
         <td>
-          5696
+          5736
           -
-          5901
+          5941
         </td>
         <td>
           Apply
@@ -2076,15 +2078,15 @@
         </td>
       </tr><tr>
         <td>
-          151
+          153
         </td>
         <td>
-          4075
+          4188
         </td>
         <td>
-          6099
+          6139
           -
-          6175
+          6215
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2100,15 +2102,15 @@
         </td>
       </tr><tr>
         <td>
-          154
+          156
         </td>
         <td>
-          4076
+          4189
         </td>
         <td>
-          6427
+          6467
           -
-          6428
+          6468
         </td>
         <td>
           Literal
@@ -2124,15 +2126,15 @@
         </td>
       </tr><tr>
         <td>
-          154
+          156
         </td>
         <td>
-          4087
+          4200
         </td>
         <td>
-          6426
+          6466
           -
-          6426
+          6466
         </td>
         <td>
           Apply
@@ -2148,15 +2150,15 @@
         </td>
       </tr><tr>
         <td>
-          154
+          156
         </td>
         <td>
-          4078
+          4191
         </td>
         <td>
-          6475
+          6515
           -
-          6518
+          6558
         </td>
         <td>
           Select
@@ -2172,15 +2174,15 @@
         </td>
       </tr><tr>
         <td>
-          154
+          156
         </td>
         <td>
-          4077
+          4190
         </td>
         <td>
-          6430
+          6470
           -
-          6473
+          6513
         </td>
         <td>
           Select
@@ -2196,39 +2198,15 @@
         </td>
       </tr><tr>
         <td>
-          155
+          157
         </td>
         <td>
-          4080
+          4201
         </td>
         <td>
-          6559
+          6432
           -
-          6606
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          scala.Predef.implicitly
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.Predef.implicitly[com.sparkutils.quality.impl.bloom.parquet.ToSerializedType[SerializedType,H]](evidence$3)
-        </td>
-      </tr><tr>
-        <td>
-          155
-        </td>
-        <td>
-          4088
-        </td>
-        <td>
-          6392
-          -
-          6733
+          6773
         </td>
         <td>
           Apply
@@ -2244,15 +2222,15 @@
         </td>
       </tr><tr>
         <td>
-          155
+          157
         </td>
         <td>
-          4079
+          4192
         </td>
         <td>
-          6541
+          6581
           -
-          6557
+          6597
         </td>
         <td>
           Select
@@ -2268,63 +2246,63 @@
         </td>
       </tr><tr>
         <td>
-          156
+          157
         </td>
         <td>
-          4081
+          4193
         </td>
         <td>
-          6624
+          6599
           -
-          6625
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          0
-        </td>
-      </tr><tr>
-        <td>
-          156
-        </td>
-        <td>
-          4086
-        </td>
-        <td>
-          6624
-          -
-          6726
+          6646
         </td>
         <td>
           ApplyToImplicitArgs
         </td>
         <td>
-          scala.collection.TraversableLike.map
+          scala.Predef.implicitly
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          scala.Predef.intWrapper(0).until(bitArrays.length).map[com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl, Seq[com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl]](((i: Int) =&gt; BlockSplitBloomFilterImpl.fromBytes(bitArrays.apply(i))))(immutable.this.IndexedSeq.canBuildFrom[com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl])
+          scala.Predef.implicitly[com.sparkutils.quality.impl.bloom.parquet.ToSerializedType[SerializedType,H]](evidence$3)
         </td>
       </tr><tr>
         <td>
-          156
+          158
         </td>
         <td>
-          4085
+          4195
         </td>
         <td>
-          6654
+          6672
           -
-          6654
+          6688
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Array.length
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          bitArrays.length
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          4198
+        </td>
+        <td>
+          6694
+          -
+          6694
         </td>
         <td>
           TypeApply
@@ -2340,279 +2318,15 @@
         </td>
       </tr><tr>
         <td>
-          156
+          158
         </td>
         <td>
-          4082
+          4194
         </td>
         <td>
-          6632
+          6664
           -
-          6648
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.Array.length
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          bitArrays.length
-        </td>
-      </tr><tr>
-        <td>
-          157
-        </td>
-        <td>
-          4084
-        </td>
-        <td>
-          6669
-          -
-          6718
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.fromBytes
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          BlockSplitBloomFilterImpl.fromBytes(bitArrays.apply(i))
-        </td>
-      </tr><tr>
-        <td>
-          157
-        </td>
-        <td>
-          4083
-        </td>
-        <td>
-          6705
-          -
-          6717
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Array.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          bitArrays.apply(i)
-        </td>
-      </tr><tr>
-        <td>
-          162
-        </td>
-        <td>
-          4090
-        </td>
-        <td>
-          6899
-          -
-          6935
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.BucketedCreator.impl
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          BucketedCreator.this.impl[com.sparkutils.quality.impl.bloom.parquet.BucketedFilesRoot, Array[Array[Byte]]](bitArrays, hashImpl, fpp, hint)(BucketedCreator.this.toLocalFiles)
-        </td>
-      </tr><tr>
-        <td>
-          162
-        </td>
-        <td>
-          4089
-        </td>
-        <td>
-          6903
-          -
-          6903
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.BucketedCreator.toLocalFiles
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          BucketedCreator.this.toLocalFiles
-        </td>
-      </tr><tr>
-        <td>
-          165
-        </td>
-        <td>
-          4093
-        </td>
-        <td>
-          7080
-          -
-          7145
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.BucketedCreator.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          BucketedCreator.this.apply(bitArrays, new BloomHashImpl(BloomFilter.XXH64), fpp, hint)
-        </td>
-      </tr><tr>
-        <td>
-          165
-        </td>
-        <td>
-          4092
-        </td>
-        <td>
-          7097
-          -
-          7133
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.BloomHashImpl.&lt;init&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          new BloomHashImpl(BloomFilter.XXH64)
-        </td>
-      </tr><tr>
-        <td>
-          165
-        </td>
-        <td>
-          4091
-        </td>
-        <td>
-          7115
-          -
-          7132
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.BloomFilter.XXH64
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          BloomFilter.XXH64
-        </td>
-      </tr><tr>
-        <td>
-          187
-        </td>
-        <td>
-          4094
-        </td>
-        <td>
-          8124
-          -
-          8148
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.BucketedCreator.checkCompatibility
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          BucketedCreator.this.checkCompatibility(that)
-        </td>
-      </tr><tr>
-        <td>
-          189
-        </td>
-        <td>
-          4096
-        </td>
-        <td>
-          8213
-          -
-          8223
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.BucketedCreator.numBuckets
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          BucketedCreator.this.numBuckets
-        </td>
-      </tr><tr>
-        <td>
-          189
-        </td>
-        <td>
-          4099
-        </td>
-        <td>
-          8196
-          -
-          8262
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.collection.immutable.Range.foreach
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.Predef.intWrapper(0).until(BucketedCreator.this.numBuckets).foreach[com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl](((i: Int) =&gt; BucketedCreator.this.filters.apply(i).|=(that.filters.apply(i))))
-        </td>
-      </tr><tr>
-        <td>
-          189
-        </td>
-        <td>
-          4095
-        </td>
-        <td>
-          8205
-          -
-          8206
+          6665
         </td>
         <td>
           Literal
@@ -2628,591 +2342,231 @@
         </td>
       </tr><tr>
         <td>
-          190
+          158
         </td>
         <td>
-          4098
+          4199
         </td>
         <td>
-          8233
+          6664
           -
-          8262
+          6766
         </td>
         <td>
-          Apply
+          ApplyToImplicitArgs
         </td>
         <td>
-          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.|=
+          scala.collection.TraversableLike.map
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          BucketedCreator.this.filters.apply(i).|=(that.filters.apply(i))
+          scala.Predef.intWrapper(0).until(bitArrays.length).map[com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl, Seq[com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl]](((i: Int) =&gt; BlockSplitBloomFilterImpl.fromBytes(bitArrays.apply(i))))(immutable.this.IndexedSeq.canBuildFrom[com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl])
         </td>
       </tr><tr>
         <td>
-          190
+          159
         </td>
         <td>
-          4097
+          4197
         </td>
         <td>
-          8247
+          6709
           -
-          8262
+          6758
         </td>
         <td>
           Apply
         </td>
         <td>
-          scala.collection.SeqLike.apply
+          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.fromBytes
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          that.filters.apply(i)
+          BlockSplitBloomFilterImpl.fromBytes(bitArrays.apply(i))
         </td>
       </tr><tr>
         <td>
-          196
+          159
         </td>
         <td>
-          4112
+          4196
         </td>
         <td>
-          8370
+          6745
           -
-          8681
+          6757
         </td>
         <td>
           Apply
         </td>
         <td>
-          scala.Predef.require
+          scala.Array.apply
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          scala.Predef.require(BucketedCreator.this.iMaximumBytes.==(that.iMaximumBytes).&amp;&amp;(BucketedCreator.this.iMinimumBytes.==(that.iMinimumBytes)).&amp;&amp;(BucketedCreator.this.hashImpl.hashStrategy.==(that.hashImpl.hashStrategy)).&amp;&amp;(BucketedCreator.this.filters.zip[com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl, com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl, Seq[(com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl, com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl)]](that.filters)(collection.this.Seq.canBuildFrom[(com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl, com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl)]).forall(((p: (com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl, com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl)) =&gt; p._1.intBuffer.limit().==(p._2.intBuffer.limit())))), &quot;Must have the hash and bitset length to intersect&quot;)
+          bitArrays.apply(i)
         </td>
       </tr><tr>
         <td>
-          196
+          164
         </td>
         <td>
-          4100
+          4203
         </td>
         <td>
-          8395
+          6939
           -
-          8413
+          6975
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BucketedCreator.impl
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BucketedCreator.this.impl[com.sparkutils.quality.impl.bloom.parquet.BucketedFilesRoot, Array[Array[Byte]]](bitArrays, hashImpl, fpp, hint)(BucketedCreator.this.toLocalFiles)
+        </td>
+      </tr><tr>
+        <td>
+          164
+        </td>
+        <td>
+          4202
+        </td>
+        <td>
+          6943
+          -
+          6943
         </td>
         <td>
           Select
         </td>
         <td>
-          com.sparkutils.quality.impl.bloom.parquet.BucketedCreator.iMaximumBytes
+          com.sparkutils.quality.impl.bloom.parquet.BucketedCreator.toLocalFiles
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          that.iMaximumBytes
+          BucketedCreator.this.toLocalFiles
         </td>
       </tr><tr>
         <td>
-          197
+          167
         </td>
         <td>
-          4102
+          4204
         </td>
         <td>
-          8423
+          7155
           -
-          8458
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Int.==
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          BucketedCreator.this.iMinimumBytes.==(that.iMinimumBytes)
-        </td>
-      </tr><tr>
-        <td>
-          197
-        </td>
-        <td>
-          4101
-        </td>
-        <td>
-          8440
-          -
-          8458
+          7172
         </td>
         <td>
           Select
         </td>
         <td>
-          com.sparkutils.quality.impl.bloom.parquet.BucketedCreator.iMinimumBytes
+          com.sparkutils.quality.impl.bloom.parquet.BloomFilter.XXH64
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          that.iMinimumBytes
+          BloomFilter.XXH64
         </td>
       </tr><tr>
         <td>
-          198
+          167
         </td>
         <td>
-          4104
+          4206
         </td>
         <td>
-          8468
+          7120
           -
-          8519
+          7185
         </td>
         <td>
           Apply
         </td>
         <td>
-          java.lang.Object.==
+          com.sparkutils.quality.impl.bloom.parquet.BucketedCreator.apply
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          BucketedCreator.this.hashImpl.hashStrategy.==(that.hashImpl.hashStrategy)
+          BucketedCreator.this.apply(bitArrays, new BloomHashImpl(BloomFilter.XXH64), fpp, hint)
         </td>
       </tr><tr>
         <td>
-          198
+          167
         </td>
         <td>
-          4103
+          4205
         </td>
         <td>
-          8493
+          7137
           -
-          8519
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.BloomHash.hashStrategy
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          that.hashImpl.hashStrategy
-        </td>
-      </tr><tr>
-        <td>
-          199
-        </td>
-        <td>
-          4108
-        </td>
-        <td>
-          8570
-          -
-          8618
+          7173
         </td>
         <td>
           Apply
         </td>
         <td>
-          scala.Int.==
+          com.sparkutils.quality.impl.bloom.parquet.BloomHashImpl.&lt;init&gt;
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          p._1.intBuffer.limit().==(p._2.intBuffer.limit())
+          new BloomHashImpl(BloomFilter.XXH64)
         </td>
       </tr><tr>
         <td>
-          199
+          189
         </td>
         <td>
-          4105
+          4207
         </td>
         <td>
-          8542
+          8164
           -
-          8554
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.BucketedCreator.filters
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          that.filters
-        </td>
-      </tr><tr>
-        <td>
-          199
-        </td>
-        <td>
-          4107
-        </td>
-        <td>
-          8596
-          -
-          8618
+          8188
         </td>
         <td>
           Apply
         </td>
         <td>
-          java.nio.Buffer.limit
+          com.sparkutils.quality.impl.bloom.parquet.BucketedCreator.checkCompatibility
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          p._2.intBuffer.limit()
+          BucketedCreator.this.checkCompatibility(that)
         </td>
       </tr><tr>
         <td>
-          199
+          191
         </td>
         <td>
-          4110
+          4209
         </td>
         <td>
-          8378
+          8253
           -
-          8620
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Boolean.&amp;&amp;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          BucketedCreator.this.iMaximumBytes.==(that.iMaximumBytes).&amp;&amp;(BucketedCreator.this.iMinimumBytes.==(that.iMinimumBytes)).&amp;&amp;(BucketedCreator.this.hashImpl.hashStrategy.==(that.hashImpl.hashStrategy)).&amp;&amp;(BucketedCreator.this.filters.zip[com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl, com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl, Seq[(com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl, com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl)]](that.filters)(collection.this.Seq.canBuildFrom[(com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl, com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl)]).forall(((p: (com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl, com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl)) =&gt; p._1.intBuffer.limit().==(p._2.intBuffer.limit()))))
-        </td>
-      </tr><tr>
-        <td>
-          199
-        </td>
-        <td>
-          4106
-        </td>
-        <td>
-          8540
-          -
-          8540
-        </td>
-        <td>
-          TypeApply
-        </td>
-        <td>
-          scala.collection.Seq.canBuildFrom
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          collection.this.Seq.canBuildFrom[(com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl, com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl)]
-        </td>
-      </tr><tr>
-        <td>
-          199
-        </td>
-        <td>
-          4109
-        </td>
-        <td>
-          8529
-          -
-          8620
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.collection.IterableLike.forall
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          BucketedCreator.this.filters.zip[com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl, com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl, Seq[(com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl, com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl)]](that.filters)(collection.this.Seq.canBuildFrom[(com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl, com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl)]).forall(((p: (com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl, com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl)) =&gt; p._1.intBuffer.limit().==(p._2.intBuffer.limit())))
-        </td>
-      </tr><tr>
-        <td>
-          200
-        </td>
-        <td>
-          4111
-        </td>
-        <td>
-          8629
-          -
-          8680
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          &quot;Must have the hash and bitset length to intersect&quot;
-        </td>
-      </tr><tr>
-        <td>
-          203
-        </td>
-        <td>
-          4113
-        </td>
-        <td>
-          8721
-          -
-          8741
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.BloomHash.hash
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          BucketedCreator.this.hashImpl.hash(value)
-        </td>
-      </tr><tr>
-        <td>
-          204
-        </td>
-        <td>
-          4114
-        </td>
-        <td>
-          8746
-          -
-          8803
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.insertHash
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          BucketedCreator.this.filters.apply(Bucketed.whichBloom(h, BucketedCreator.this.numBuckets)).insertHash(h)
-        </td>
-      </tr><tr>
-        <td>
-          205
-        </td>
-        <td>
-          4115
-        </td>
-        <td>
-          8808
-          -
-          8836
-        </td>
-        <td>
-          TypeApply
-        </td>
-        <td>
-          scala.Any.asInstanceOf
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          this.asInstanceOf[BucketedCreator.this.BloomType]
-        </td>
-      </tr><tr>
-        <td>
-          213
-        </td>
-        <td>
-          4117
-        </td>
-        <td>
-          9165
-          -
-          9168
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.BucketedCreator.fpp
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          BucketedCreator.this.fpp
-        </td>
-      </tr><tr>
-        <td>
-          213
-        </td>
-        <td>
-          4120
-        </td>
-        <td>
-          9132
-          -
-          9187
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.ToSerializedType.serializeBuckets
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          BucketedCreator.this.toType.serializeBuckets(BucketedCreator.this.filters, BucketedCreator.this.fpp, BucketedCreator.this.numBuckets, BucketedCreator.this.hint)
-        </td>
-      </tr><tr>
-        <td>
-          213
-        </td>
-        <td>
-          4122
-        </td>
-        <td>
-          9113
-          -
-          9201
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Option.fold
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          BucketedCreator.this.bucketedFiles.fold[Array[Byte]](BucketedCreator.this.toType.serializeBuckets(BucketedCreator.this.filters, BucketedCreator.this.fpp, BucketedCreator.this.numBuckets, BucketedCreator.this.hint))(((x$2: com.sparkutils.quality.BloomModel) =&gt; x$2.serialize))
-        </td>
-      </tr><tr>
-        <td>
-          213
-        </td>
-        <td>
-          4116
-        </td>
-        <td>
-          9156
-          -
-          9163
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.BucketedCreator.filters
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          BucketedCreator.this.filters
-        </td>
-      </tr><tr>
-        <td>
-          213
-        </td>
-        <td>
-          4119
-        </td>
-        <td>
-          9182
-          -
-          9186
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.BucketedCreator.hint
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          BucketedCreator.this.hint
-        </td>
-      </tr><tr>
-        <td>
-          213
-        </td>
-        <td>
-          4121
-        </td>
-        <td>
-          9189
-          -
-          9200
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.BloomModel.serialize
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          x$2.serialize
-        </td>
-      </tr><tr>
-        <td>
-          213
-        </td>
-        <td>
-          4118
-        </td>
-        <td>
-          9170
-          -
-          9180
+          8263
         </td>
         <td>
           Select
@@ -3228,15 +2582,663 @@
         </td>
       </tr><tr>
         <td>
-          218
+          191
         </td>
         <td>
-          4128
+          4212
         </td>
         <td>
-          9348
+          8236
           -
-          9418
+          8302
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.Range.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.intWrapper(0).until(BucketedCreator.this.numBuckets).foreach[com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl](((i: Int) =&gt; BucketedCreator.this.filters.apply(i).|=(that.filters.apply(i))))
+        </td>
+      </tr><tr>
+        <td>
+          191
+        </td>
+        <td>
+          4208
+        </td>
+        <td>
+          8245
+          -
+          8246
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          192
+        </td>
+        <td>
+          4210
+        </td>
+        <td>
+          8287
+          -
+          8302
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqLike.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          that.filters.apply(i)
+        </td>
+      </tr><tr>
+        <td>
+          192
+        </td>
+        <td>
+          4211
+        </td>
+        <td>
+          8273
+          -
+          8302
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.|=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BucketedCreator.this.filters.apply(i).|=(that.filters.apply(i))
+        </td>
+      </tr><tr>
+        <td>
+          198
+        </td>
+        <td>
+          4213
+        </td>
+        <td>
+          8435
+          -
+          8453
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BucketedCreator.iMaximumBytes
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          that.iMaximumBytes
+        </td>
+      </tr><tr>
+        <td>
+          198
+        </td>
+        <td>
+          4225
+        </td>
+        <td>
+          8410
+          -
+          8721
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.require
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.require(BucketedCreator.this.iMaximumBytes.==(that.iMaximumBytes).&amp;&amp;(BucketedCreator.this.iMinimumBytes.==(that.iMinimumBytes)).&amp;&amp;(BucketedCreator.this.hashImpl.hashStrategy.==(that.hashImpl.hashStrategy)).&amp;&amp;(BucketedCreator.this.filters.zip[com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl, com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl, Seq[(com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl, com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl)]](that.filters)(collection.this.Seq.canBuildFrom[(com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl, com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl)]).forall(((p: (com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl, com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl)) =&gt; p._1.intBuffer.limit().==(p._2.intBuffer.limit())))), &quot;Must have the hash and bitset length to intersect&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          199
+        </td>
+        <td>
+          4215
+        </td>
+        <td>
+          8463
+          -
+          8498
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BucketedCreator.this.iMinimumBytes.==(that.iMinimumBytes)
+        </td>
+      </tr><tr>
+        <td>
+          199
+        </td>
+        <td>
+          4214
+        </td>
+        <td>
+          8480
+          -
+          8498
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BucketedCreator.iMinimumBytes
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          that.iMinimumBytes
+        </td>
+      </tr><tr>
+        <td>
+          200
+        </td>
+        <td>
+          4216
+        </td>
+        <td>
+          8533
+          -
+          8559
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BloomHash.hashStrategy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          that.hashImpl.hashStrategy
+        </td>
+      </tr><tr>
+        <td>
+          200
+        </td>
+        <td>
+          4217
+        </td>
+        <td>
+          8508
+          -
+          8559
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BucketedCreator.this.hashImpl.hashStrategy.==(that.hashImpl.hashStrategy)
+        </td>
+      </tr><tr>
+        <td>
+          201
+        </td>
+        <td>
+          4222
+        </td>
+        <td>
+          8569
+          -
+          8660
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.forall
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BucketedCreator.this.filters.zip[com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl, com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl, Seq[(com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl, com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl)]](that.filters)(collection.this.Seq.canBuildFrom[(com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl, com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl)]).forall(((p: (com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl, com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl)) =&gt; p._1.intBuffer.limit().==(p._2.intBuffer.limit())))
+        </td>
+      </tr><tr>
+        <td>
+          201
+        </td>
+        <td>
+          4219
+        </td>
+        <td>
+          8580
+          -
+          8580
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[(com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl, com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl)]
+        </td>
+      </tr><tr>
+        <td>
+          201
+        </td>
+        <td>
+          4218
+        </td>
+        <td>
+          8582
+          -
+          8594
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BucketedCreator.filters
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          that.filters
+        </td>
+      </tr><tr>
+        <td>
+          201
+        </td>
+        <td>
+          4221
+        </td>
+        <td>
+          8610
+          -
+          8658
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          p._1.intBuffer.limit().==(p._2.intBuffer.limit())
+        </td>
+      </tr><tr>
+        <td>
+          201
+        </td>
+        <td>
+          4223
+        </td>
+        <td>
+          8418
+          -
+          8660
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BucketedCreator.this.iMaximumBytes.==(that.iMaximumBytes).&amp;&amp;(BucketedCreator.this.iMinimumBytes.==(that.iMinimumBytes)).&amp;&amp;(BucketedCreator.this.hashImpl.hashStrategy.==(that.hashImpl.hashStrategy)).&amp;&amp;(BucketedCreator.this.filters.zip[com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl, com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl, Seq[(com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl, com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl)]](that.filters)(collection.this.Seq.canBuildFrom[(com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl, com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl)]).forall(((p: (com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl, com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl)) =&gt; p._1.intBuffer.limit().==(p._2.intBuffer.limit()))))
+        </td>
+      </tr><tr>
+        <td>
+          201
+        </td>
+        <td>
+          4220
+        </td>
+        <td>
+          8636
+          -
+          8658
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.nio.Buffer.limit
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          p._2.intBuffer.limit()
+        </td>
+      </tr><tr>
+        <td>
+          202
+        </td>
+        <td>
+          4224
+        </td>
+        <td>
+          8669
+          -
+          8720
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Must have the hash and bitset length to intersect&quot;
+        </td>
+      </tr><tr>
+        <td>
+          205
+        </td>
+        <td>
+          4226
+        </td>
+        <td>
+          8761
+          -
+          8781
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BloomHash.hash
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BucketedCreator.this.hashImpl.hash(value)
+        </td>
+      </tr><tr>
+        <td>
+          206
+        </td>
+        <td>
+          4227
+        </td>
+        <td>
+          8786
+          -
+          8843
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.insertHash
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BucketedCreator.this.filters.apply(Bucketed.whichBloom(h, BucketedCreator.this.numBuckets)).insertHash(h)
+        </td>
+      </tr><tr>
+        <td>
+          207
+        </td>
+        <td>
+          4228
+        </td>
+        <td>
+          8848
+          -
+          8876
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          this.asInstanceOf[BucketedCreator.this.BloomType]
+        </td>
+      </tr><tr>
+        <td>
+          215
+        </td>
+        <td>
+          4231
+        </td>
+        <td>
+          9210
+          -
+          9220
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BucketedCreator.numBuckets
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BucketedCreator.this.numBuckets
+        </td>
+      </tr><tr>
+        <td>
+          215
+        </td>
+        <td>
+          4234
+        </td>
+        <td>
+          9229
+          -
+          9240
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.BloomModel.serialize
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$2.serialize
+        </td>
+      </tr><tr>
+        <td>
+          215
+        </td>
+        <td>
+          4230
+        </td>
+        <td>
+          9205
+          -
+          9208
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BucketedCreator.fpp
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BucketedCreator.this.fpp
+        </td>
+      </tr><tr>
+        <td>
+          215
+        </td>
+        <td>
+          4233
+        </td>
+        <td>
+          9172
+          -
+          9227
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.ToSerializedType.serializeBuckets
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BucketedCreator.this.toType.serializeBuckets(BucketedCreator.this.filters, BucketedCreator.this.fpp, BucketedCreator.this.numBuckets, BucketedCreator.this.hint)
+        </td>
+      </tr><tr>
+        <td>
+          215
+        </td>
+        <td>
+          4232
+        </td>
+        <td>
+          9222
+          -
+          9226
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BucketedCreator.hint
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BucketedCreator.this.hint
+        </td>
+      </tr><tr>
+        <td>
+          215
+        </td>
+        <td>
+          4235
+        </td>
+        <td>
+          9153
+          -
+          9241
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.fold
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BucketedCreator.this.bucketedFiles.fold[Array[Byte]](BucketedCreator.this.toType.serializeBuckets(BucketedCreator.this.filters, BucketedCreator.this.fpp, BucketedCreator.this.numBuckets, BucketedCreator.this.hint))(((x$2: com.sparkutils.quality.BloomModel) =&gt; x$2.serialize))
+        </td>
+      </tr><tr>
+        <td>
+          215
+        </td>
+        <td>
+          4229
+        </td>
+        <td>
+          9196
+          -
+          9203
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BucketedCreator.filters
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BucketedCreator.this.filters
+        </td>
+      </tr><tr>
+        <td>
+          220
+        </td>
+        <td>
+          4241
+        </td>
+        <td>
+          9388
+          -
+          9458
         </td>
         <td>
           Apply
@@ -3252,87 +3254,15 @@
         </td>
       </tr><tr>
         <td>
-          219
+          221
         </td>
         <td>
-          4126
+          4237
         </td>
         <td>
-          9385
+          9443
           -
-          9385
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          scala.Array.canBuildFrom
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.this.Array.canBuildFrom[com.sparkutils.quality.impl.bloom.parquet.ThreadLookup]((ClassTag.apply[com.sparkutils.quality.impl.bloom.parquet.ThreadLookup](classOf[com.sparkutils.quality.impl.bloom.parquet.ThreadLookup]): scala.reflect.ClassTag[com.sparkutils.quality.impl.bloom.parquet.ThreadLookup]))
-        </td>
-      </tr><tr>
-        <td>
-          219
-        </td>
-        <td>
-          4123
-        </td>
-        <td>
-          9375
-          -
-          9381
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.ThreadBucketedLookup.arrays
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ThreadBucketedLookup.this.arrays
-        </td>
-      </tr><tr>
-        <td>
-          219
-        </td>
-        <td>
-          4125
-        </td>
-        <td>
-          9387
-          -
-          9412
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.ThreadLookup.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ThreadLookup.apply(x$3, ThreadBucketedLookup.this.hashImpl)
-        </td>
-      </tr><tr>
-        <td>
-          219
-        </td>
-        <td>
-          4124
-        </td>
-        <td>
-          9403
-          -
-          9411
+          9451
         </td>
         <td>
           Select
@@ -3348,15 +3278,15 @@
         </td>
       </tr><tr>
         <td>
-          219
+          221
         </td>
         <td>
-          4127
+          4240
         </td>
         <td>
-          9375
+          9415
           -
-          9414
+          9454
         </td>
         <td>
           ApplyToImplicitArgs
@@ -3372,15 +3302,87 @@
         </td>
       </tr><tr>
         <td>
-          223
+          221
         </td>
         <td>
-          4129
+          4236
         </td>
         <td>
-          9485
+          9415
           -
-          9505
+          9421
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.ThreadBucketedLookup.arrays
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ThreadBucketedLookup.this.arrays
+        </td>
+      </tr><tr>
+        <td>
+          221
+        </td>
+        <td>
+          4239
+        </td>
+        <td>
+          9425
+          -
+          9425
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Array.canBuildFrom[com.sparkutils.quality.impl.bloom.parquet.ThreadLookup]((ClassTag.apply[com.sparkutils.quality.impl.bloom.parquet.ThreadLookup](classOf[com.sparkutils.quality.impl.bloom.parquet.ThreadLookup]): scala.reflect.ClassTag[com.sparkutils.quality.impl.bloom.parquet.ThreadLookup]))
+        </td>
+      </tr><tr>
+        <td>
+          221
+        </td>
+        <td>
+          4238
+        </td>
+        <td>
+          9427
+          -
+          9452
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.ThreadLookup.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ThreadLookup.apply(x$3, ThreadBucketedLookup.this.hashImpl)
+        </td>
+      </tr><tr>
+        <td>
+          225
+        </td>
+        <td>
+          4242
+        </td>
+        <td>
+          9525
+          -
+          9545
         </td>
         <td>
           Apply
@@ -3396,15 +3398,15 @@
         </td>
       </tr><tr>
         <td>
-          224
+          226
         </td>
         <td>
-          4130
+          4243
         </td>
         <td>
-          9510
+          9550
           -
-          9578
+          9618
         </td>
         <td>
           Apply
@@ -3420,15 +3422,15 @@
         </td>
       </tr><tr>
         <td>
-          238
+          240
         </td>
         <td>
-          4132
+          4245
         </td>
         <td>
-          10059
+          10099
           -
-          10108
+          10148
         </td>
         <td>
           Apply
@@ -3444,15 +3446,15 @@
         </td>
       </tr><tr>
         <td>
-          239
+          241
         </td>
         <td>
-          4131
+          4244
         </td>
         <td>
-          10086
+          10126
           -
-          10104
+          10144
         </td>
         <td>
           Select
@@ -3468,15 +3470,15 @@
         </td>
       </tr><tr>
         <td>
-          242
+          244
         </td>
         <td>
-          4137
+          4250
         </td>
         <td>
-          10162
+          10202
           -
-          10275
+          10315
         </td>
         <td>
           Apply
@@ -3492,63 +3494,15 @@
         </td>
       </tr><tr>
         <td>
-          244
+          246
         </td>
         <td>
-          4135
+          4246
         </td>
         <td>
-          10239
+          10265
           -
-          10270
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.BloomHashImpl.&lt;init&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          new BloomHashImpl(ThreadSafeBucketedBloomLookupLazy.this.hashStrategy)
-        </td>
-      </tr><tr>
-        <td>
-          244
-        </td>
-        <td>
-          4134
-        </td>
-        <td>
-          10257
-          -
-          10269
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.ThreadSafeBucketedBloomLookupLazy.hashStrategy
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ThreadSafeBucketedBloomLookupLazy.this.hashStrategy
-        </td>
-      </tr><tr>
-        <td>
-          244
-        </td>
-        <td>
-          4133
-        </td>
-        <td>
-          10225
-          -
-          10237
+          10277
         </td>
         <td>
           Apply
@@ -3564,15 +3518,15 @@
         </td>
       </tr><tr>
         <td>
-          244
+          246
         </td>
         <td>
-          4136
+          4249
         </td>
         <td>
-          10204
+          10244
           -
-          10271
+          10311
         </td>
         <td>
           Apply
@@ -3588,15 +3542,63 @@
         </td>
       </tr><tr>
         <td>
-          247
+          246
         </td>
         <td>
-          4138
+          4248
         </td>
         <td>
-          10328
+          10279
           -
-          10358
+          10310
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BloomHashImpl.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new BloomHashImpl(ThreadSafeBucketedBloomLookupLazy.this.hashStrategy)
+        </td>
+      </tr><tr>
+        <td>
+          246
+        </td>
+        <td>
+          4247
+        </td>
+        <td>
+          10297
+          -
+          10309
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.ThreadSafeBucketedBloomLookupLazy.hashStrategy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ThreadSafeBucketedBloomLookupLazy.this.hashStrategy
+        </td>
+      </tr><tr>
+        <td>
+          249
+        </td>
+        <td>
+          4251
+        </td>
+        <td>
+          10368
+          -
+          10398
         </td>
         <td>
           Apply
@@ -3612,39 +3614,15 @@
         </td>
       </tr><tr>
         <td>
-          255
+          257
         </td>
         <td>
-          4140
+          4252
         </td>
         <td>
-          10537
+          10577
           -
-          10585
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.ThreadSafeBucketedBloomLookupLazy.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ThreadSafeBucketedBloomLookupLazy.apply(bucketedFiles, ThreadSafeBucketedBloomLookupLazy.apply$default$2)
-        </td>
-      </tr><tr>
-        <td>
-          255
-        </td>
-        <td>
-          4139
-        </td>
-        <td>
-          10537
-          -
-          10537
+          10577
         </td>
         <td>
           Select
@@ -3663,12 +3641,36 @@
           257
         </td>
         <td>
-          4141
+          4253
         </td>
         <td>
-          10646
+          10577
           -
-          10664
+          10625
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.ThreadSafeBucketedBloomLookupLazy.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ThreadSafeBucketedBloomLookupLazy.apply(bucketedFiles, ThreadSafeBucketedBloomLookupLazy.apply$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          259
+        </td>
+        <td>
+          4254
+        </td>
+        <td>
+          10686
+          -
+          10704
         </td>
         <td>
           Select
@@ -3684,39 +3686,15 @@
         </td>
       </tr><tr>
         <td>
-          259
+          261
         </td>
         <td>
-          4143
+          4255
         </td>
         <td>
-          10670
+          10710
           -
-          10712
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.ThreadSafeBucketedBloomLookupEager.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ThreadSafeBucketedBloomLookupEager.apply(arrays, ThreadSafeBucketedBloomLookupEager.apply$default$2)
-        </td>
-      </tr><tr>
-        <td>
-          259
-        </td>
-        <td>
-          4142
-        </td>
-        <td>
-          10670
-          -
-          10670
+          10710
         </td>
         <td>
           Select
@@ -3735,36 +3713,36 @@
           261
         </td>
         <td>
-          4144
+          4256
         </td>
         <td>
-          10765
+          10710
           -
-          10765
+          10752
         </td>
         <td>
-          Select
+          Apply
         </td>
         <td>
-          com.sparkutils.quality.impl.bloom.parquet.ThreadSafeBucketedBloomLookupMapped.apply$default$2
+          com.sparkutils.quality.impl.bloom.parquet.ThreadSafeBucketedBloomLookupEager.apply
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          ThreadSafeBucketedBloomLookupMapped.apply$default$2
+          ThreadSafeBucketedBloomLookupEager.apply(arrays, ThreadSafeBucketedBloomLookupEager.apply$default$2)
         </td>
       </tr><tr>
         <td>
-          261
+          263
         </td>
         <td>
-          4145
+          4258
         </td>
         <td>
-          10765
+          10805
           -
-          10815
+          10855
         </td>
         <td>
           Apply
@@ -3780,15 +3758,39 @@
         </td>
       </tr><tr>
         <td>
-          273
+          263
         </td>
         <td>
-          4150
+          4257
         </td>
         <td>
-          11245
+          10805
           -
-          11351
+          10805
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.ThreadSafeBucketedBloomLookupMapped.apply$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ThreadSafeBucketedBloomLookupMapped.apply$default$2
+        </td>
+      </tr><tr>
+        <td>
+          275
+        </td>
+        <td>
+          4263
+        </td>
+        <td>
+          11285
+          -
+          11391
         </td>
         <td>
           Apply
@@ -3804,87 +3806,15 @@
         </td>
       </tr><tr>
         <td>
-          274
+          276
         </td>
         <td>
-          4147
+          4261
         </td>
         <td>
-          11333
+          11355
           -
-          11345
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.ThreadSafeBucketedBloomLookupEager.hashStrategy
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ThreadSafeBucketedBloomLookupEager.this.hashStrategy
-        </td>
-      </tr><tr>
-        <td>
-          274
-        </td>
-        <td>
-          4149
-        </td>
-        <td>
-          11286
-          -
-          11347
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.ThreadBucketedLookup.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ThreadBucketedLookup.apply(ThreadSafeBucketedBloomLookupEager.this.arrays, new BloomHashImpl(ThreadSafeBucketedBloomLookupEager.this.hashStrategy))
-        </td>
-      </tr><tr>
-        <td>
-          274
-        </td>
-        <td>
-          4146
-        </td>
-        <td>
-          11307
-          -
-          11313
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.ThreadSafeBucketedBloomLookupEager.arrays
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ThreadSafeBucketedBloomLookupEager.this.arrays
-        </td>
-      </tr><tr>
-        <td>
-          274
-        </td>
-        <td>
-          4148
-        </td>
-        <td>
-          11315
-          -
-          11346
+          11386
         </td>
         <td>
           Apply
@@ -3900,15 +3830,87 @@
         </td>
       </tr><tr>
         <td>
-          277
+          276
         </td>
         <td>
-          4151
+          4260
         </td>
         <td>
-          11404
+          11373
           -
-          11434
+          11385
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.ThreadSafeBucketedBloomLookupEager.hashStrategy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ThreadSafeBucketedBloomLookupEager.this.hashStrategy
+        </td>
+      </tr><tr>
+        <td>
+          276
+        </td>
+        <td>
+          4259
+        </td>
+        <td>
+          11347
+          -
+          11353
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.ThreadSafeBucketedBloomLookupEager.arrays
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ThreadSafeBucketedBloomLookupEager.this.arrays
+        </td>
+      </tr><tr>
+        <td>
+          276
+        </td>
+        <td>
+          4262
+        </td>
+        <td>
+          11326
+          -
+          11387
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.ThreadBucketedLookup.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ThreadBucketedLookup.apply(ThreadSafeBucketedBloomLookupEager.this.arrays, new BloomHashImpl(ThreadSafeBucketedBloomLookupEager.this.hashStrategy))
+        </td>
+      </tr><tr>
+        <td>
+          279
+        </td>
+        <td>
+          4264
+        </td>
+        <td>
+          11444
+          -
+          11474
         </td>
         <td>
           Apply
@@ -3924,15 +3926,15 @@
         </td>
       </tr><tr>
         <td>
-          283
+          285
         </td>
         <td>
-          4156
+          4269
         </td>
         <td>
-          11564
+          11604
           -
-          11652
+          11692
         </td>
         <td>
           Apply
@@ -3948,87 +3950,15 @@
         </td>
       </tr><tr>
         <td>
-          284
+          286
         </td>
         <td>
-          4153
+          4267
         </td>
         <td>
-          11615
+          11653
           -
-          11646
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.ThreadBufferLookup.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ThreadBufferLookup.apply(x$4, ThreadBucketedMappedLookup.this.hashImpl)
-        </td>
-      </tr><tr>
-        <td>
-          284
-        </td>
-        <td>
-          4152
-        </td>
-        <td>
-          11637
-          -
-          11645
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.ThreadBucketedMappedLookup.hashImpl
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ThreadBucketedMappedLookup.this.hashImpl
-        </td>
-      </tr><tr>
-        <td>
-          284
-        </td>
-        <td>
-          4155
-        </td>
-        <td>
-          11591
-          -
-          11648
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          scala.collection.TraversableLike.map
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ThreadBucketedMappedLookup.this.bucketedFiles.maps.map[com.sparkutils.quality.impl.bloom.parquet.ThreadBufferLookup, Seq[com.sparkutils.quality.impl.bloom.parquet.ThreadBufferLookup]](((x$4: java.nio.IntBuffer) =&gt; ThreadBufferLookup.apply(x$4, ThreadBucketedMappedLookup.this.hashImpl)))(collection.this.Seq.canBuildFrom[com.sparkutils.quality.impl.bloom.parquet.ThreadBufferLookup])
-        </td>
-      </tr><tr>
-        <td>
-          284
-        </td>
-        <td>
-          4154
-        </td>
-        <td>
-          11613
-          -
-          11613
+          11653
         </td>
         <td>
           TypeApply
@@ -4044,15 +3974,87 @@
         </td>
       </tr><tr>
         <td>
-          288
+          286
         </td>
         <td>
-          4157
+          4266
         </td>
         <td>
-          11719
+          11655
           -
-          11739
+          11686
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.ThreadBufferLookup.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ThreadBufferLookup.apply(x$4, ThreadBucketedMappedLookup.this.hashImpl)
+        </td>
+      </tr><tr>
+        <td>
+          286
+        </td>
+        <td>
+          4265
+        </td>
+        <td>
+          11677
+          -
+          11685
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.ThreadBucketedMappedLookup.hashImpl
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ThreadBucketedMappedLookup.this.hashImpl
+        </td>
+      </tr><tr>
+        <td>
+          286
+        </td>
+        <td>
+          4268
+        </td>
+        <td>
+          11631
+          -
+          11688
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ThreadBucketedMappedLookup.this.bucketedFiles.maps.map[com.sparkutils.quality.impl.bloom.parquet.ThreadBufferLookup, Seq[com.sparkutils.quality.impl.bloom.parquet.ThreadBufferLookup]](((x$4: java.nio.IntBuffer) =&gt; ThreadBufferLookup.apply(x$4, ThreadBucketedMappedLookup.this.hashImpl)))(collection.this.Seq.canBuildFrom[com.sparkutils.quality.impl.bloom.parquet.ThreadBufferLookup])
+        </td>
+      </tr><tr>
+        <td>
+          290
+        </td>
+        <td>
+          4270
+        </td>
+        <td>
+          11759
+          -
+          11779
         </td>
         <td>
           Apply
@@ -4068,15 +4070,15 @@
         </td>
       </tr><tr>
         <td>
-          289
+          291
         </td>
         <td>
-          4158
+          4271
         </td>
         <td>
-          11744
+          11784
           -
-          11823
+          11863
         </td>
         <td>
           Apply
@@ -4092,15 +4094,15 @@
         </td>
       </tr><tr>
         <td>
-          302
+          304
         </td>
         <td>
-          4163
+          4276
         </td>
         <td>
-          12276
+          12316
           -
-          12402
+          12442
         </td>
         <td>
           Apply
@@ -4116,87 +4118,15 @@
         </td>
       </tr><tr>
         <td>
-          304
+          306
         </td>
         <td>
-          4162
+          4273
         </td>
         <td>
-          12324
+          12424
           -
-          12398
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.ThreadBucketedMappedLookup.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ThreadBucketedMappedLookup.apply(ThreadSafeBucketedBloomLookupMapped.this.bucketedFiles, new BloomHashImpl(ThreadSafeBucketedBloomLookupMapped.this.hashStrategy))
-        </td>
-      </tr><tr>
-        <td>
-          304
-        </td>
-        <td>
-          4159
-        </td>
-        <td>
-          12351
-          -
-          12364
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.ThreadSafeBucketedBloomLookupMapped.bucketedFiles
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ThreadSafeBucketedBloomLookupMapped.this.bucketedFiles
-        </td>
-      </tr><tr>
-        <td>
-          304
-        </td>
-        <td>
-          4161
-        </td>
-        <td>
-          12366
-          -
-          12397
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.bloom.parquet.BloomHashImpl.&lt;init&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          new BloomHashImpl(ThreadSafeBucketedBloomLookupMapped.this.hashStrategy)
-        </td>
-      </tr><tr>
-        <td>
-          304
-        </td>
-        <td>
-          4160
-        </td>
-        <td>
-          12384
-          -
-          12396
+          12436
         </td>
         <td>
           Select
@@ -4212,15 +4142,87 @@
         </td>
       </tr><tr>
         <td>
-          307
+          306
         </td>
         <td>
-          4164
+          4272
         </td>
         <td>
-          12455
+          12391
           -
-          12485
+          12404
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.ThreadSafeBucketedBloomLookupMapped.bucketedFiles
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ThreadSafeBucketedBloomLookupMapped.this.bucketedFiles
+        </td>
+      </tr><tr>
+        <td>
+          306
+        </td>
+        <td>
+          4275
+        </td>
+        <td>
+          12364
+          -
+          12438
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.ThreadBucketedMappedLookup.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ThreadBucketedMappedLookup.apply(ThreadSafeBucketedBloomLookupMapped.this.bucketedFiles, new BloomHashImpl(ThreadSafeBucketedBloomLookupMapped.this.hashStrategy))
+        </td>
+      </tr><tr>
+        <td>
+          306
+        </td>
+        <td>
+          4274
+        </td>
+        <td>
+          12406
+          -
+          12437
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BloomHashImpl.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new BloomHashImpl(ThreadSafeBucketedBloomLookupMapped.this.hashStrategy)
+        </td>
+      </tr><tr>
+        <td>
+          309
+        </td>
+        <td>
+          4277
+        </td>
+        <td>
+          12495
+          -
+          12525
         </td>
         <td>
           Apply
