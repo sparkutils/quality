@@ -1,5 +1,6 @@
 package com.sparkutils.quality
 
+import com.sparkutils.quality.impl.aggregates.AggregateFunctionImports
 import com.sparkutils.quality.impl.bloom.{BloomExpressionFunctions, BloomFilterLookupFunctionImport}
 import com.sparkutils.quality.impl.hash.HashRelatedFunctionImports
 import com.sparkutils.quality.impl.id.{GenericLongBasedImports, GuaranteedUniqueIDImports}
@@ -17,7 +18,7 @@ import org.apache.spark.sql.catalyst.expressions.{And, EqualTo}
 package object functions extends ComparableMapsImports with GuaranteedUniqueIDImports with GenericLongBasedImports
   with BloomFilterLookupFunctionImport with StripResultTypesFunction with RuleResultImport with PackIdImports
   with RuleRunnerFunctionImports with RngFunctionImports with LongPairImports with BloomExpressionFunctions
-  with HashRelatedFunctionImports with StructFunctionsImport {
+  with HashRelatedFunctionImports with StructFunctionsImport with AggregateFunctionImports {
 
   /**
    * Compares aPrefix_lower = bPrefix_lower and aPrefix_higher = bPrefix_higher

@@ -80,8 +80,6 @@ trait RefCodeGen {
  * Getter, trimmed version of NamedLambdaVariable as it should never be resolved
  * @param dataType
  * @param nullable
- * @param exprId
- * @param value
  */
 case class RefExpression(dataType: DataType,
                          nullable: Boolean = true, index: Int = -1)
@@ -99,8 +97,6 @@ case class RefExpression(dataType: DataType,
  * Getter, trimmed version of NamedLambdaVariable as it should never be resolved
  * @param dataTypeF
  * @param nullable
- * @param exprId
- * @param value
  */
 case class RefExpressionLazyType(dataTypeF: () => DataType,
                                  nullable: Boolean)
@@ -252,7 +248,6 @@ case class FunN(arguments: Seq[Expression], function: Expression, name: Option[S
    * Called from an initial doGenCode and then by processLambda
    * @param ctx
    * @param ev
-   * @param scope
    * @return
    */
   def doActualGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {

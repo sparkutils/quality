@@ -12,15 +12,42 @@ import org.apache.spark.sql.QualitySparkUtils.{cast => castf}
 
 object AggregateExpressions {
 
+  def transformSumType(function: Expression, param: NamedLambdaVariable, newDT: DataType) =
+    function.transform {
+      case n: NamedLambdaVariable if n.exprId == param.exprId =>
+        n.copy(dataType = newDT)
+      // spark for decimals already gets the type wrong for 0.7.1 syntax type and double wraps it (only checking single breaks deprecated syntax), so
+      // ugly workarounds for types not matching.. see above comment
+      case cast: Cast if cast.child.isInstanceOf[Cast] && cast.child.asInstanceOf[Cast].child.isInstanceOf[NamedLambdaVariable] =>
+        val nvl = cast.child.asInstanceOf[Cast].child.asInstanceOf[NamedLambdaVariable]
+        if (nvl.exprId == param.exprId)
+          castf(castf(nvl.copy(dataType = newDT), newDT), cast.dataType)
+        else
+          cast
+      // for dbr > 11.2, the cast is on the variable not the expression
+      case cast: Cast if cast.child.isInstanceOf[NamedLambdaVariable] =>
+        val nvl = cast.child.asInstanceOf[NamedLambdaVariable]
+        if (nvl.exprId == param.exprId)
+          castf( child = cast.child.asInstanceOf[NamedLambdaVariable].
+            copy(dataType = newDT), newDT)
+        else
+          cast
+
+    }
+
   /**
    * Should only be created from within the RuleRunnerObject functions, not doing so will lead to unresolved functions and lambda variables - use sql strings only to construct.
+   *
    * @param sumType when non-null it triggers a rewrite of both sum and evaluate expressions to set their parameter types to sumType, otherwise it takes those specified in the expressions already
    * @param ifExpr count if true/1 etc.
    * @param sum called lambda expression when ifExpr is true, with the current sum value and returns the new sum value (e.g. current -> current + col2 would total all col2's)
    * @param evaluate combines the count and overall result of combinations in lambda to provide the overall results (e.g. (current, count) -> current / count)
-   * @param zero lookup function to get the zero value for the sum type
+   * @param zero     lookup function to get the zero value for the sum type
+   * @param notYetResolved additional casts are needed for the dsl due to decimal precision handling.
+   *                 adding them in at the dsl level, however, prevents resolving the lambdas, using Column cast doesn't work either, so they are added in the expression itself
+   *                 As the lambda's won't be resolved when calling this the existing matching for the expr sql variant cannot work.
    */
-  def apply(sumType: DataType, ifExpr: Expression, sum: Expression, evaluate: Expression, zero: DataType => Option[Any], add: DataType => Option[( Expression, Expression ) => Expression] ): Expression = {
+  def apply(sumType: DataType, ifExpr: Expression, sum: Expression, evaluate: Expression, zero: DataType => Option[Any], add: DataType => Option[( Expression, Expression ) => Expression], notYetResolved: Boolean = false ): Expression = {
     /*
      * in the case of decimal's being used the DecimalPrecision analysis can change the types such that the
      * precision is ignored e.g.
@@ -28,101 +55,17 @@ object AggregateExpressions {
      * may end up with 38,17 for the lambda despite 38,17 being the input as such this must be casted.
      */
 
-    def transformSumType(function: Expression, param: NamedLambdaVariable, newDT: DataType = sumType) =
-      function.transform {
-        case n: NamedLambdaVariable if n.exprId == param.exprId =>
-          n.copy(dataType = newDT)
-        // spark for decimals already gets the type wrong for 0.7.1 syntax type and double wraps it (only checking single breaks deprecated syntax), so
-        // ugly workarounds for types not matching.. see above comment
-        case cast: Cast if cast.child.isInstanceOf[Cast] && cast.child.asInstanceOf[Cast].child.isInstanceOf[NamedLambdaVariable] =>
-          val nvl = cast.child.asInstanceOf[Cast].child.asInstanceOf[NamedLambdaVariable]
-          if (nvl.exprId == param.exprId)
-            castf(castf(nvl.copy(dataType = newDT), newDT), cast.dataType)
-          else
-            cast
-        // for dbr > 11.2, the cast is on the variable not the expression
-        case cast: Cast if cast.child.isInstanceOf[NamedLambdaVariable] =>
-          val nvl = cast.child.asInstanceOf[NamedLambdaVariable]
-          if (nvl.exprId == param.exprId)
-            castf( child = cast.child.asInstanceOf[NamedLambdaVariable].
-              copy(dataType = newDT), newDT)
-          else
-            cast
+    lazy val correctedSum: Expression =
+      if (notYetResolved)
+        sum
+      else
+        correctSum(sumType, sum)
 
-      }
-
-    lazy val correctedSum =
-      sum match {
-        // re-pack with new type
-
-        // for sumWith
-        case FunN(Seq(RefExpression(_, nullable, _)),
-          LambdaFunction(fun, Seq(param: NamedLambdaVariable), hidden),
-          name, _, _) =>
-
-          val correctedFunction = transformSumType(fun, param)
-
-          FunN(Seq(RefExpression(sumType, nullable)),
-            LambdaFunction(cast(correctedFunction, sumType), // see above comment for cast justification
-              Seq(param.copy(dataType = sumType)), hidden), name)
-
-        // for mapWith
-        case MapTransform(r: RefExpression, key, LambdaFunction(function, Seq(param: NamedLambdaVariable), hidden), zeroF) =>
-
-          val MapType(_, valueType, _) = sumType
-
-          val correctedFunction = transformSumType(function, param, valueType)
-
-          MapTransform( RefExpression(sumType, r.nullable), key,
-            LambdaFunction(cast(correctedFunction, valueType), // see above comment for cast justification
-              Seq(param.copy(dataType = valueType)), hidden), zeroF)
-
-        // when we partially apply the lambda is further down
-        case FunForward(Seq(RefExpression(_, nullable, paramIndex)) :+ (
-          i @ FunN(funparams, LambdaFunction(function, params, hidden), _, _, _)
-          )) =>
-          // params can be longer and not 1:1 due to placeholders
-          val sparam = params(paramIndex).asInstanceOf[NamedLambdaVariable]
-          val correctedFunction = transformSumType(function, sparam)
-
-          FunForward( Seq(RefExpression(sumType, nullable, paramIndex)) :+
-            i.copy(function = LambdaFunction(cast(correctedFunction, sumType), // see above comment for cast justification
-              sparam.copy(dataType = sumType) +: params.drop(1), hidden),
-              arguments = funparams.updated(paramIndex,
-                funparams(paramIndex).asInstanceOf[RefExpression].copy( dataType = sumType )
-              ) ))
-
-        case _ => sum // not expected but better errors will come form Spark
-      }
-
-    lazy val correctedEvaluate = evaluate match {
-      case FunN(Seq(RefExpression(_, nullable, _), cref),
-        LambdaFunction(function, Seq(sparam: NamedLambdaVariable, cparam: NamedLambdaVariable), hidden),
-        name, _, _) =>
-
-        val correctedFunction = transformSumType(function, sparam)
-
-        FunN(Seq(RefExpression(sumType, nullable), cref),
-          LambdaFunction(correctedFunction,
-            Seq(sparam.copy(dataType = sumType), cparam), hidden), name)
-
-      // when we partially apply the lambda is further down
-      case FunForward(Seq(RefExpression(_, nullable, paramIndex), cref) :+ (
-        i @ FunN(funparams, LambdaFunction(function, params, hidden), _, _, _)
-        )) =>
-        // params can be longer and not 1:1 due to placeholders
-        val sparam = params(paramIndex).asInstanceOf[NamedLambdaVariable]
-        val correctedFunction = transformSumType(function, sparam)
-
-        FunForward( Seq(RefExpression(sumType, nullable, paramIndex), cref) :+
-          i.copy(function = LambdaFunction(correctedFunction,
-            sparam.copy(dataType = sumType) +: params.drop(1), hidden),
-            arguments = funparams.updated(paramIndex,
-              funparams(paramIndex).asInstanceOf[RefExpression].copy( dataType = sumType )
-          ) ))
-
-      case _ => evaluate // shouldn't happen but better from spark than a match error
-   }
+    lazy val correctedEvaluate: Expression =
+      if (notYetResolved)
+        evaluate
+      else
+        correctEvaluate(sumType, evaluate)
 
     val (SeqArgs(sum1 +: _, _), SeqArgs(Seq(sum2, count), _), useSum, useEvaluate) =
       if (sumType eq null)
@@ -132,8 +75,102 @@ object AggregateExpressions {
         temp
       }
 
-    ExpressionAggregates(Seq(count, sum1, sum2, ifExpr, useSum, useEvaluate), zero, add).toAggregateExpression()
+    ExpressionAggregates(Seq(count, sum1, sum2, ifExpr, useSum, useEvaluate), zero, add, notYetResolved, sumType).toAggregateExpression()
   }
+
+  def correctEvaluate(sumType: DataType, evaluate: Expression, wrapCastOnly: Boolean = false) =
+    evaluate match {
+      case FunN(Seq(RefExpression(_, nullable, _), cref),
+      LambdaFunction(function, Seq(sparam: NamedLambdaVariable, cparam: NamedLambdaVariable), hidden),
+      name, _, _) =>
+
+        val correctedFunction =
+          if (wrapCastOnly)
+            function
+          else
+            transformSumType(function, sparam, sumType)
+
+        FunN(Seq(RefExpression(sumType, nullable), cref),
+          LambdaFunction(correctedFunction,
+            Seq(sparam.copy(dataType = sumType), cparam), hidden), name)
+
+      // when we partially apply the lambda is further down
+      case FunForward(Seq(RefExpression(_, nullable, paramIndex), cref) :+ (
+        i@FunN(funparams, LambdaFunction(function, params, hidden), _, _, _)
+        )) =>
+        // params can be longer and not 1:1 due to placeholders
+        val sparam = params(paramIndex).asInstanceOf[NamedLambdaVariable]
+        val correctedFunction =
+          if (wrapCastOnly)
+            function
+          else
+            transformSumType(function, sparam, sumType)
+
+        FunForward(Seq(RefExpression(sumType, nullable, paramIndex), cref) :+
+          i.copy(function = LambdaFunction(correctedFunction,
+            sparam.copy(dataType = sumType) +: params.drop(1), hidden),
+            arguments = funparams.updated(paramIndex,
+              funparams(paramIndex).asInstanceOf[RefExpression].copy(dataType = sumType)
+            )))
+
+      case _ => evaluate // shouldn't happen but better from spark than a match error
+    }
+
+  def correctSum(sumType: DataType, sum: Expression, wrapCastOnly: Boolean = false) =
+    sum match {
+      // re-pack with new type
+
+      // for sumWith
+      case FunN(Seq(RefExpression(_, nullable, _)),
+      LambdaFunction(fun, Seq(param: NamedLambdaVariable), hidden),
+      name, _, _) =>
+
+        val correctedFunction =
+          if (wrapCastOnly)
+            fun
+          else
+            transformSumType(fun, param, sumType)
+
+        FunN(Seq(RefExpression(sumType, nullable)),
+          LambdaFunction(cast(correctedFunction, sumType), // see above comment for cast justification
+            Seq(param.copy(dataType = sumType)), hidden), name)
+
+      // for mapWith
+      case MapTransform(r: RefExpression, key, LambdaFunction(function, Seq(param: NamedLambdaVariable), hidden), zeroF) =>
+
+        val MapType(_, valueType, _) = sumType
+
+        val correctedFunction =
+          if (wrapCastOnly)
+            function
+          else
+            transformSumType(function, param, valueType)
+
+        MapTransform(RefExpression(sumType, r.nullable), key,
+          LambdaFunction(cast(correctedFunction, valueType), // see above comment for cast justification
+            Seq(param.copy(dataType = valueType)), hidden), zeroF)
+
+      // when we partially apply the lambda is further down
+      case FunForward(Seq(RefExpression(_, nullable, paramIndex)) :+ (
+        i@FunN(funparams, LambdaFunction(function, params, hidden), _, _, _)
+        )) =>
+        // params can be longer and not 1:1 due to placeholders
+        val sparam = params(paramIndex).asInstanceOf[NamedLambdaVariable]
+        val correctedFunction =
+          if (wrapCastOnly)
+            function
+          else
+            transformSumType(function, sparam, sumType)
+
+        FunForward(Seq(RefExpression(sumType, nullable, paramIndex)) :+
+          i.copy(function = LambdaFunction(cast(correctedFunction, sumType), // see above comment for cast justification
+            sparam.copy(dataType = sumType) +: params.drop(1), hidden),
+            arguments = funparams.updated(paramIndex,
+              funparams(paramIndex).asInstanceOf[RefExpression].copy(dataType = sumType)
+            )))
+
+      case _ => sum // not expected but better errors will come form Spark
+    }
 }
 
 /**
@@ -141,9 +178,28 @@ object AggregateExpressions {
  * count of filter hits and the sum as parameters.
  * @param children
  */
-case class ExpressionAggregates(override val children: Seq[Expression], zero: DataType => Option[Any], addF: DataType => Option[( Expression, Expression ) => Expression]) extends DeclarativeAggregate {
+case class ExpressionAggregates(override val children: Seq[Expression], zero: DataType => Option[Any], addF: DataType => Option[( Expression, Expression ) => Expression], val notYetResolved: Boolean, sumType: DataType) extends DeclarativeAggregate {
   // extending higherorder fun is needed otherwise case other => other.failAnalysis( is thrown in analysis/higherOrderFunctions
-  lazy val Seq(countLeaf: RefExpression, sumLeaf: RefExpression, evalSumLeaf: RefExpression, ifExpr, sumWith, evaluate) = children
+  lazy val Seq(countLeaf: RefExpression, sumLeaf: RefExpression, evalSumLeaf: RefExpression, ifExpr, sumWith, evaluate) =
+    if (!notYetResolved)
+      children
+    else {
+      import AggregateExpressions.{correctEvaluate, correctSum}
+      val Seq(_, _, _, ifExpr, sumWith, evaluate) = children
+
+      val correctedEvaluate = correctEvaluate(sumType, evaluate, wrapCastOnly = true)
+      val correctedSum = correctSum(sumType, sumWith, wrapCastOnly = true)
+
+      val (SeqArgs(sum1 +: _, _), SeqArgs(Seq(sum2, count), _), useSum, useEvaluate) =
+        if (sumType eq null)
+          (sum, evaluate, sum, evaluate)
+        else {
+          val temp = (correctedSum, correctedEvaluate, correctedSum, correctedEvaluate)
+          temp
+        }
+
+      Seq(count, sum1, sum2, ifExpr, useSum, useEvaluate)
+    }
 
   lazy val sumRef = AttributeReference("sum", sumLeaf.dataType, true)()
   lazy val countRef = AttributeReference("count", countLeaf.dataType)()

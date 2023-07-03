@@ -31,7 +31,7 @@ case class PackExpression(left: Expression, right: Expression) extends BinaryExp
     packId(Id(id.asInstanceOf[Int], version.asInstanceOf[Int]))
   }
   override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode =
-    defineCodeGen(ctx, ev, (l, r) => s"(Long)com.sparkutils.quality.package$$.MODULE$$.packId().apply(new com.sparkutils.quality.Id((Integer)($l), (Integer)($r)))")
+    defineCodeGen(ctx, ev, (l, r) => s"(Long)com.sparkutils.quality.impl.PackId.packId(new com.sparkutils.quality.Id((Integer)($l), (Integer)($r)))")
 
   override def nullable: Boolean = false
 

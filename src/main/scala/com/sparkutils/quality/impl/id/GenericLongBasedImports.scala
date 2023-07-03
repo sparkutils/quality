@@ -37,7 +37,7 @@ trait GenericLongBasedImports {
    *
    * @param prefix
    * @param digestImpl
-   * @param cols
+   * @param children
    * @return
    */
   @deprecated(since = "0.1.0", message = "migrate to field_based_id")

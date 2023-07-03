@@ -1,5 +1,7 @@
 ### 0.1.0 <small>10th June, 2023</small>
 
+#35 - agg_expr and associated lambda support in the functions package 
+
 #36 - improved update_field, added drop_field based on the Spark withField (3.4.1 impl)
 
 #34 - simplified quality package usage, column functions are now under the functions package.
