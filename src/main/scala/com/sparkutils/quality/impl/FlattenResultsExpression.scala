@@ -1,12 +1,12 @@
 package com.sparkutils.quality.impl
 
 import com.sparkutils.quality._
+import types._
 import com.sparkutils.quality.impl.util.Serializing
-import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
-import org.apache.spark.sql.catalyst.expressions.{AttributeReference, BinaryExpression, Expression, ExpressionDescription, GenericInternalRow, NullIntolerant, UnaryExpression}
+import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionDescription, NullIntolerant, UnaryExpression}
 import org.apache.spark.sql.catalyst.util.GenericArrayData
 import org.apache.spark.sql.qualityFunctions.InputTypeChecks
 import org.apache.spark.sql.types._
@@ -100,7 +100,7 @@ case class FlattenRulesResultsExpression(child: Expression, deserializer: Expres
 
   override def eval(input: InternalRow): Any = {
     val field = child.eval(input).asInstanceOf[InternalRow]
-    val res = deserializerW.internalEval(field.get(0, com.sparkutils.quality.ruleSuiteResultType).asInstanceOf[InternalRow]).asInstanceOf[RuleSuiteResult]
+    val res = deserializerW.internalEval(field.get(0, ruleSuiteResultType).asInstanceOf[InternalRow]).asInstanceOf[RuleSuiteResult]
     val flattened = Serializing.flatten(res)
     new GenericArrayData(flattened.map {
       row =>
@@ -114,7 +114,7 @@ case class FlattenRulesResultsExpression(child: Expression, deserializer: Expres
           ruleSetVersion,
           ruleId,
           ruleVersion,
-          ruleResult, field.get(1, com.sparkutils.quality.fullRuleIdType), field.get(2, ruleProductType)
+          ruleResult, field.get(1, fullRuleIdType), field.get(2, ruleProductType)
         )
     })
   }
@@ -122,7 +122,7 @@ case class FlattenRulesResultsExpression(child: Expression, deserializer: Expres
   override def nullable: Boolean = false
 
   override def dataType: DataType = ArrayType(FlattenStruct.dataType.copy(fields = (FlattenStruct.dataType.fields :+
-    StructField("salientRule", com.sparkutils.quality.fullRuleIdType)) :+ StructField("result", ruleProductType) ))
+    StructField("salientRule", fullRuleIdType)) :+ StructField("result", ruleProductType) ))
 
   protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
 }
@@ -154,7 +154,7 @@ case class FlattenFolderResultsExpression(child: Expression, deserializer: Expre
 
   override def eval(input: InternalRow): Any = {
     val field = child.eval(input).asInstanceOf[InternalRow]
-    val res = deserializerW.internalEval(field.get(0, com.sparkutils.quality.ruleSuiteResultType).asInstanceOf[InternalRow]).asInstanceOf[RuleSuiteResult]
+    val res = deserializerW.internalEval(field.get(0, ruleSuiteResultType).asInstanceOf[InternalRow]).asInstanceOf[RuleSuiteResult]
     val flattened = Serializing.flatten(res)
     new GenericArrayData(flattened.map {
       row =>

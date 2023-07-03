@@ -1,10 +1,10 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
+import types._
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions.expr
 import org.apache.spark.sql.types.{DataType, LongType}
-import org.junit.Ignore
 // 3.4 drops this import org.codehaus.janino.InternalCompilerException
 import org.junit.Assert.fail
 import org.junit.Test

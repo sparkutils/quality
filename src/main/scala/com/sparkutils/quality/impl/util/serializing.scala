@@ -2,7 +2,7 @@ package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality.impl.util.RuleModel.RuleSuiteMap
 import com.sparkutils.quality.impl.{LambdaFunction, NoOpRunOnPassProcessor, RuleRunnerUtils, RunOnPassProcessor, RunOnPassProcessorHolder, VersionedId}
-import com.sparkutils.quality.impl.RuleRunnerUtils.packId
+import com.sparkutils.quality.impl.imports.RuleResultsImports.packId
 import com.sparkutils.quality._
 import org.apache.spark.sql._
 import org.apache.spark.sql.functions.expr

@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.impl.MapUtils.getMapEntry
-import com.sparkutils.quality.ruleSetType
+import com.sparkutils.quality.types._
 import org.apache.spark.sql.Column
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, ExprCode}
@@ -30,7 +30,7 @@ case class RuleResultExpression(children: Seq[Expression]) extends
     copy(children = newChildren)
 
   protected lazy val extractResults =
-    if (children(0).dataType == com.sparkutils.quality.ruleSuiteResultType)
+    if (children(0).dataType == ruleSuiteResultType)
       2
     else
       1
@@ -140,12 +140,12 @@ case class RuleResultExpression(children: Seq[Expression]) extends
 
   lazy val (resultType, entryType, accessF) =
     children(0).dataType match {
-      case com.sparkutils.quality.expressionsResultsType =>
-        (com.sparkutils.quality.expressionResultType, com.sparkutils.quality.expressionsRuleSetType, (a: Any) => a.asInstanceOf[MapData] )
-      case com.sparkutils.quality.expressionsResultsNoDDLType =>
-        (StringType, com.sparkutils.quality.expressionsRuleSetNoDDLType, (a: Any) => a.asInstanceOf[MapData])
+      case com.sparkutils.quality.types.expressionsResultsType =>
+        (expressionResultType, expressionsRuleSetType, (a: Any) => a.asInstanceOf[MapData] )
+      case com.sparkutils.quality.types.expressionsResultsNoDDLType =>
+        (StringType, expressionsRuleSetNoDDLType, (a: Any) => a.asInstanceOf[MapData])
       case _ =>
-        (IntegerType, com.sparkutils.quality.ruleSetType, (a: Any) => a.asInstanceOf[InternalRow].getMap (1) )
+        (IntegerType, ruleSetType, (a: Any) => a.asInstanceOf[InternalRow].getMap (1) )
     }
 
   def getEntryType = entryType
@@ -155,7 +155,7 @@ case class RuleResultExpression(children: Seq[Expression]) extends
   override def dataType: DataType = resultType
 
   override def inputDataTypes: Seq[Seq[DataType]] = Seq(
-    Seq(com.sparkutils.quality.ruleSuiteResultType, com.sparkutils.quality.ruleSuiteDetailsResultType,
-      com.sparkutils.quality.expressionsResultsType, com.sparkutils.quality.expressionsResultsNoDDLType),
+    Seq(ruleSuiteResultType, ruleSuiteDetailsResultType,
+      expressionsResultsType, expressionsResultsNoDDLType),
     Seq(LongType), Seq(LongType), Seq(LongType))
 }

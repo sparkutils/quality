@@ -1,6 +1,8 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
+import types._
+import impl.imports.RuleResultsImports.packId
 import impl.util.OutputExpressionRow
 import org.apache.spark.sql.SaveMode
 import org.apache.spark.sql.functions._

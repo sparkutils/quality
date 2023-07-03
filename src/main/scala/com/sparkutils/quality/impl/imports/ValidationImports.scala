@@ -9,8 +9,6 @@ import org.apache.spark.sql.{Column, DataFrame}
 
 trait ValidationImports {
 
-  val emptyDocs = Validation.emptyDocs
-
   /**
    * For a given dataFrame provide a full set of any validation errors for a given ruleSuite.
    *

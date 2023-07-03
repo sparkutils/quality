@@ -7,6 +7,8 @@ import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression, 
 import org.apache.spark.sql.qualityFunctions.InputTypeChecks
 import org.apache.spark.sql.types._
 
+import com.sparkutils.quality.types.{ruleSuiteResultType, ruleSuiteDetailsResultType}
+
 object RuleSuiteResultDetailsExpr {
   def getDetails(input: scala.Any): InternalRow = {
     // should actually be a row
@@ -20,11 +22,11 @@ object RuleSuiteResultDetailsExpr {
   */
 case class RuleSuiteResultDetailsExpr(child: Expression) extends UnaryExpression with NonSQLExpression with InputTypeChecks {
 
-  override def inputDataTypes: Seq[Seq[DataType]] = Seq(Seq(com.sparkutils.quality.ruleSuiteResultType))
+  override def inputDataTypes: Seq[Seq[DataType]] = Seq(Seq(ruleSuiteResultType))
 
   override protected def nullSafeEval(input : scala.Any) : scala.Any = RuleSuiteResultDetailsExpr.getDetails(input)
 
-  def dataType: DataType = com.sparkutils.quality.ruleSuiteDetailsResultType
+  def dataType: DataType = ruleSuiteDetailsResultType
 
   override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode =
     defineCodeGen(ctx, ev, c => s"com.sparkutils.quality.impl.RuleSuiteResultDetailsExpr.getDetails($c)")

@@ -166,10 +166,10 @@ object RuleRegistrationFunctions {
     register("flatten_Rule_Results", exps => FlattenRulesResultsExpression(exps.head, FlattenStruct.ruleSuiteDeserializer), Set(1))
     register("flatten_Folder_Results", exps => FlattenFolderResultsExpression(exps.head, FlattenStruct.ruleSuiteDeserializer), Set(1))
 
-    register("passed", _ => com.sparkutils.quality.impl.imports.RuleResults.PassedExpr, Set(0))
-    register("failed", _ => com.sparkutils.quality.impl.imports.RuleResults.FailedExpr, Set(0))
-    register("soft_Failed", _ => com.sparkutils.quality.impl.imports.RuleResults.SoftFailedExpr, Set(0))
-    register("disabled_Rule", _ => com.sparkutils.quality.impl.imports.RuleResults.DisabledRuleExpr, Set(0))
+    register("passed", _ => com.sparkutils.quality.impl.imports.RuleResultsImports.PassedExpr, Set(0))
+    register("failed", _ => com.sparkutils.quality.impl.imports.RuleResultsImports.FailedExpr, Set(0))
+    register("soft_Failed", _ => com.sparkutils.quality.impl.imports.RuleResultsImports.SoftFailedExpr, Set(0))
+    register("disabled_Rule", _ => com.sparkutils.quality.impl.imports.RuleResultsImports.DisabledRuleExpr, Set(0))
 
     register("pack_Ints", exps => Pack(exps(0), exps(1)), Set(2))
 

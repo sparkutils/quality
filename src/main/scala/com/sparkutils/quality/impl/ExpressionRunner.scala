@@ -3,7 +3,10 @@ package com.sparkutils.quality.impl
 import com.sparkutils.quality.impl.ExpressionRunner.expressionsResultToRow
 import com.sparkutils.quality.impl.RuleRunnerUtils.{flattenExpressions, reincorporateExpressions}
 import com.sparkutils.quality._
+import com.sparkutils.quality.impl.imports.RuleResultsImports
+import com.sparkutils.quality.impl.imports.RuleResultsImports.packId
 import com.sparkutils.quality.impl.util.Arrays
+import types._
 import org.apache.spark.sql.QualitySparkUtils.cast
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback

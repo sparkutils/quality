@@ -80,7 +80,7 @@ case class RuleFolderRunner(ruleSuite: RuleSuite, left: Expression, right: Expre
   }
 
   def dataType: DataType = StructType( Seq(
-      StructField(name = "ruleSuiteResults", dataType = com.sparkutils.quality.ruleSuiteResultType),
+      StructField(name = "ruleSuiteResults", dataType = com.sparkutils.quality.types.ruleSuiteResultType),
       StructField(name = "result", dataType = resultDataType(), nullable = true)
     ))
 

@@ -1,6 +1,7 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality.{Id, packId}
+import com.sparkutils.quality.Id
+import com.sparkutils.quality.impl.imports.RuleResultsImports.packId
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.Column
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
@@ -128,7 +129,7 @@ case class UnPackIdTripleExpression(child: Expression) extends UnaryExpression w
     StructField(name = "ruleVersion", dataType = IntegerType)
   ))
 
-  override def inputDataTypes: Seq[Seq[DataType]] = Seq(Seq(com.sparkutils.quality.fullRuleIdType))
+  override def inputDataTypes: Seq[Seq[DataType]] = Seq(Seq(com.sparkutils.quality.types.fullRuleIdType))
 
   protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
 }

@@ -3,7 +3,9 @@ package com.sparkutils.qualityTests
 import com.sparkutils.quality
 import com.sparkutils.quality._
 import functions._
-import com.sparkutils.quality.impl.util.{Arrays, PrintCode, UpdateFields}
+import types._
+import impl.imports.RuleResultsImports.packId
+import com.sparkutils.quality.impl.util.{Arrays, PrintCode}
 import org.apache.spark.sql.catalyst.util.ArrayData
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.{IntegerType, StructType}

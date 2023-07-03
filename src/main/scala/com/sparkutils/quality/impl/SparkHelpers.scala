@@ -17,6 +17,9 @@ trait IntEncodersImplicits extends Serializable {
 
   // RuleResultWithProcessor's are lost in serialization by design, they only make sense in a given run
 
+  /**
+   * Converts the DQ results to and from Int and RuleResult's.  Probability is processed by the value / PassedInt
+   */
   implicit val ruleResultToInt: Injection[RuleResult, Int] = Injection(
     {
       case r: RuleResult => Serializing.ruleResultToInt(r)

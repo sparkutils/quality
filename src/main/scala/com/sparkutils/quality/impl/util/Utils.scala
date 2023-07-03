@@ -7,8 +7,24 @@ import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
 import org.apache.spark.sql.catalyst.expressions.{Expression, Literal, Unevaluable, UnsafeArrayData}
 import org.apache.spark.sql.catalyst.util.ArrayData
 import org.apache.spark.sql.types.{BooleanType, DataType, StructType}
-
 import java.util.concurrent.atomic.AtomicBoolean
+
+import org.apache.spark.internal.Logging
+
+object DebugTime extends Logging {
+
+  def debugTime[T](what: String, log: (Long, String)=>Unit = (i, what) => {logDebug(s"----> ${i}ms for $what")} )( thunk: => T): T = {
+    val start = System.currentTimeMillis
+    try {
+      thunk
+    } finally {
+      val stop = System.currentTimeMillis
+
+      log(stop - start, what)
+    }
+  }
+
+}
 
 /**
  * Same as unevaluable but the queryplan runs
@@ -106,10 +122,6 @@ object LookupIdFunctions {
     LookupResults(ruleSuite, ExpressionLookupResults(Map.empty, Set.empty), lambdaResults)
   }
 }
-
-
-
-
 
 case class TSLocal[T](val initialValue: () => T) extends Serializable {
   @volatile @transient private var threadLocal: ThreadLocal[T] = _

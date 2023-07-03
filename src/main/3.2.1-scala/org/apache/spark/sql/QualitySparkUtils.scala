@@ -3,7 +3,8 @@ package org.apache.spark.sql
 import java.util.Locale
 
 import com.sparkutils.quality.impl.{RuleEngineRunner, RuleFolderRunner, RuleRunner, ShowParams}
-import com.sparkutils.quality.{RuleSuite, debugTime}
+import com.sparkutils.quality.RuleSuite
+import com.sparkutils.quality.impl.util.DebugTime.debugTime
 import com.sparkutils.quality.impl.util.PassThrough
 import org.apache.spark.sql.catalyst.{CatalystTypeConverters, FunctionIdentifier}
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, FunctionRegistry, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveHigherOrderFunctions, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCheckResult, TypeCoercion, UnresolvedFunction}

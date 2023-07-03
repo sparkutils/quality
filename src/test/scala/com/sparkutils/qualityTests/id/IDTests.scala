@@ -292,7 +292,7 @@ class IDTests extends FunSuite with TestUtils {
     testRes(md5Exploded)
 
     // same with text version
-    val md5Res = df.selectExpr("*", s"$digestFun('$digestImpl', f1, f2, f3) as digest" ).withColumn("md5_id", providedID("md5_id", $"digest")).selectExpr("id","md5_id.*")
+    val md5Res = df.selectExpr("*", s"$digestFun('$digestImpl', f1, f2, f3) as digest" ).withColumn("md5_id", provided_id("md5_id", $"digest")).selectExpr("id","md5_id.*")
     testRes(md5Res)
 
     assert(md5Exploded.union(md5Res).distinct.count == md5Exploded.count, "should be able to diff these to the same count...")
@@ -339,7 +339,7 @@ class IDTests extends FunSuite with TestUtils {
     registerQualityFunctions()
 
     val df = sparkSession.range(0, 6000)
-    val uniqueExploded = df.withColumn("unique_id", uniqueID("unique_id")).selectExpr("id","unique_id.*")
+    val uniqueExploded = df.withColumn("unique_id", unique_id("unique_id")).selectExpr("id","unique_id.*")
     uniqueExploded.show
     assert(uniqueExploded.schema.fields.map(_.name).toSeq
       == Seq("id", "unique_id_base", "unique_id_i0", "unique_id_i1"), "Column names incorrect")
@@ -375,7 +375,7 @@ class IDTests extends FunSuite with TestUtils {
     registerQualityFunctions()
 
     val df = sparkSession.range(0, 6000)
-    val uniqueExploded = df.withColumn("unique_id", uniqueID("unique_id")).selectExpr("id","unique_id.*")
+    val uniqueExploded = df.withColumn("unique_id", unique_id("unique_id")).selectExpr("id","unique_id.*")
     val cached = uniqueExploded.cache
 
     val count = uniqueExploded.count
@@ -507,13 +507,13 @@ object SumIdGenTest extends Bench.OfflineReport with RowTools {
       using(rowgenerator) in evaluate(_.withColumn("rng_id", rngID("rng_id")).selectExpr("id","rng_id.*"), "rng_id_i0")
     }
     measure method "globalIDBased" in {
-      using(rowgenerator) in evaluate(_.withColumn("unique_id", uniqueID("unique_id")).selectExpr("id","unique_id.*"), "unique_id_i0")
+      using(rowgenerator) in evaluate(_.withColumn("unique_id", unique_id("unique_id")).selectExpr("id","unique_id.*"), "unique_id_i0")
     }
     measure method "md5Based" in {
       using(rowgenerator) in evaluate(_.withColumn("murmur3ID", murmur3ID("unique_id", $"f1", $"f2", $"f3")).selectExpr("id","murmur3ID.*"), "unique_id_i0")
     }
     measure method "fieldBasedID" in {
-      using(rowgenerator) in evaluate(_.withColumn("fieldBasedID", fieldBasedID("unique_id", "MD5", $"f1", $"f2", $"f3")).selectExpr("id","fieldBasedID.*"), "unique_id_i0")
+      using(rowgenerator) in evaluate(_.withColumn("fieldBasedID", field_based_id("unique_id", "MD5", $"f1", $"f2", $"f3")).selectExpr("id","fieldBasedID.*"), "unique_id_i0")
     }
   }
 

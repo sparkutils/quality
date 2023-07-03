@@ -2,7 +2,7 @@ package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.impl.RuleLogicUtils.mapRules
 import VariablesLookup.{fieldsFromExpression, toName}
-import com.sparkutils.quality.impl.imports.RuleResults.DisabledRuleExpr
+import com.sparkutils.quality.impl.imports.RuleResultsImports.DisabledRuleExpr
 import com.sparkutils.quality.impl.imports.RuleRunnerImports
 import com.sparkutils.quality.impl.util.LookupIdFunctions
 import com.sparkutils.quality.{ExpressionRule, OutputExpression, Rule, RuleSuite}

@@ -6,7 +6,8 @@ import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenExpressions
 import com.sparkutils.quality.impl.RuleRunnerUtils.{genRuleSuiteTerm, packTheId}
 import com.sparkutils.quality._
-import com.sparkutils.quality.impl.imports.RuleEngineRunnerImports
+import com.sparkutils.quality.impl.imports.{RuleEngineRunnerImports, RuleResultsImports}
+import RuleResultsImports.packId
 import com.sparkutils.quality.impl.util.{NonPassThrough, PassThrough}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
@@ -364,8 +365,8 @@ case class RuleEngineRunner(ruleSuite: RuleSuite, child: Expression, resultDataT
   }
 
   def dataType: DataType = StructType( Seq(
-      StructField(name = "ruleSuiteResults", dataType = com.sparkutils.quality.ruleSuiteResultType),
-      StructField(name = "salientRule", dataType = com.sparkutils.quality.fullRuleIdType, nullable = true),
+      StructField(name = "ruleSuiteResults", dataType = com.sparkutils.quality.types.ruleSuiteResultType),
+      StructField(name = "salientRule", dataType = com.sparkutils.quality.types.fullRuleIdType, nullable = true),
       StructField(name = "result", dataType = resultDataType, nullable = true)
     ))
 

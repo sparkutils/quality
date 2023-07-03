@@ -23,6 +23,27 @@ trait RuleRunnerImports {
   def ruleRunner(ruleSuite: RuleSuite, compileEvals: Boolean = true, resolveWith: Option[DataFrame] = None, variablesPerFunc: Int = 40, variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false): Column =
     RuleRunnerImpl.ruleRunnerImpl(ruleSuite, compileEvals, resolveWith, variablesPerFunc, variableFuncGroup, forceRunnerEval)
 
+  /**
+   * The integer value for soft failed dq rules
+   */
+  val SoftFailedInt = RuleResultsImports.SoftFailedInt
+  /**
+   * The integer value for disabled dq rules
+   */
+  val DisabledRuleInt = RuleResultsImports.DisabledRuleInt
+  /**
+   * The integer value for passed dq rules
+   */
+  val PassedInt = RuleResultsImports.PassedInt
+  /**
+   * The integer value for failed dq rules
+   */
+  val FailedInt = RuleResultsImports.FailedInt
+
+}
+
+object RuleResultsImports {
+
   def strLit(str: String) =
     UTF8String.fromString(str)
 
@@ -31,15 +52,6 @@ trait RuleRunnerImports {
 
   val packId = PackId.packId _
   val unpackId = PackId.unpack _
-
-  val SoftFailedInt = RuleResults.SoftFailedInt
-  val DisabledRuleInt = RuleResults.DisabledRuleInt
-  val PassedInt = RuleResults.PassedInt
-  val FailedInt = RuleResults.FailedInt
-
-}
-
-object RuleResults {
 
   val SoftFailedInt = -1
   val DisabledRuleInt = -2
@@ -65,19 +77,19 @@ trait RuleRunnerFunctionImports {
   /**
    * The soft_failed value
    */
-  val soft_failed = new Column(RuleResults.SoftFailedExpr)
+  val soft_failed = new Column(RuleResultsImports.SoftFailedExpr)
   /**
    * The disabled_rule value
    */
-  val disabled_rule = new Column(RuleResults.DisabledRuleExpr)
+  val disabled_rule = new Column(RuleResultsImports.DisabledRuleExpr)
   /**
    * The passed value
    */
-  val passed = new Column(RuleResults.PassedExpr)
+  val passed = new Column(RuleResultsImports.PassedExpr)
   /**
    * The failed value
    */
-  val failed = new Column(RuleResults.FailedExpr)
+  val failed = new Column(RuleResultsImports.FailedExpr)
 
   /**
    * Flattens DQ results, unpacking the nested structure into a simple relation

@@ -2,7 +2,9 @@ package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.impl.RuleLogicUtils.mapRules
 import com.sparkutils.quality.impl.RuleRunnerUtils.flattenExpressions
+import com.sparkutils.quality.impl.imports.RuleResultsImports.packId
 import com.sparkutils.quality._
+import types.ruleSuiteResultType
 import com.sparkutils.quality.impl.imports.RuleRunnerImports
 import com.sparkutils.quality.impl.util.{NonPassThrough, PassThrough}
 import org.apache.spark.sql.catalyst.InternalRow
@@ -248,7 +250,7 @@ case class RuleRunner(ruleSuite: RuleSuite, child: Expression, compileEvals: Boo
     ruleResultToRow(res)
   }
 
-  def dataType: DataType = com.sparkutils.quality.ruleSuiteResultType
+  def dataType: DataType = ruleSuiteResultType
 
   /**
    * Instead of evaluating through the RuleSuite structure the expressions are evaluated back to back, then

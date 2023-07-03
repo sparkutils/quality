@@ -140,7 +140,7 @@ object Validation {
   protected[quality] val defaultViewLookup: String => Boolean =
     SparkSession.active.catalog.tableExists(_)
 
-  protected[quality] val emptyDocs = Docs()
+  protected[sparkutils] val emptyDocs = Docs()
 
   /**
    * For a given dataFrame provide a full set of any validation errors for a given ruleSuite.
