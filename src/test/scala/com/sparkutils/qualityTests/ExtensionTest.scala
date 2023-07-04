@@ -227,11 +227,11 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
 
       sparkSession.sql(s"create or replace view testfunctionview as select alower, ahigher, as_uuid(alower, ahigher) context from testme");
       import sparkSession.implicits._
-      val resdf = sparkSession.sql(s"select context from testfunctionview where context = '${theuuid + "6"}'")
+      val resdf = sparkSession.sql(s"select context from testfunctionview where context = '${theuuid + "6"}' limit 10")
       /*val res = resdf.as[String].collect()
       assert(res.length == 1)
       assert(res.head == (theuuid + "6"))
-*/resdf.show()
+*/
       // verify push downs
       val pushdowns = getPushDowns( resdf.queryExecution.executedPlan )
 
@@ -241,7 +241,6 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
       assert(pushdowns.contains(theuuid6Higher), s"did not have a pushdown with the correct predicates including $theuuid6Higher but $pushdowns")
     }, withHive = true)
   }}
-
 
   @Test
   def testAsymmetricFilterPlanJoinEqViaExistingSession(): Unit = onlyWithExtension {
@@ -761,25 +760,6 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
   def testAsymmetricFilterPlanJoinMixedGtEqViaExistingSession(): Unit = onlyWithExtension {
     doTestAsymmetricFilterPlanJoinIDS(wrapWithExistingSession _, "gte", (l, r) => l.>=(r), viaJoinIDsMixed)
   }
-/*
-attempts under #19 doesn't seem possible, keeping here for reference
-
-  @Test
-  def testPushdownOnString(): Unit = wrapWithExtension {
-    session =>
-      // PushedFilters: [IsNotNull(pasString), EqualTo(pasString,123e4567-e89b-12d3-a456-426614174006)],
-//      val ds = uuidPairsWithContext("p").apply(session).filter(s"pasString = '${ theuuid + "6" }' ")
-
-      val uuid = theuuid + "6"
-      val uuidobj = java.util.UUID.fromString(uuid)
-      val lower = uuidobj.getLeastSignificantBits
-      val higher = uuidobj.getMostSignificantBits
-//endsWith(pasString, '6')
-      val ds = uuidPairsWithContext("p").apply(session).filter(s"pasString = as_uuid(plower, phigher) and pasString = '${ theuuid + "6" }' ")
-      ds.explain(true)
-    ()
-  }
-*/
 }
 
 case class TestRow(lower: Long, higher: Long, asString: String)
