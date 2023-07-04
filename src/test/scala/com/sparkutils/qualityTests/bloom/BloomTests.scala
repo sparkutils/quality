@@ -94,7 +94,7 @@ class BloomTests extends FunSuite with TestUtils {
     doVerifyMeasurement((bloomFilterMap, df) => {
       val bloomMap = SparkSession.getActiveSession.get.sparkContext.broadcast(bloomFilterMap)
 
-      df.withColumn("probability", bloomFilterLookup(col("a") + col("b"), lit("ids"), bloomMap))},
+      df.withColumn("probability", probability_in(col("a") + col("b"),"ids", bloomMap))},
       bloomsF)
 
   def doVerifyMeasurementSQL(bloomsF: () => (BloomFilterMap, Double)): Unit =

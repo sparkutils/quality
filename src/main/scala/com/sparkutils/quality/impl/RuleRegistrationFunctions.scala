@@ -116,6 +116,29 @@ object RuleRegistrationFunctions {
 
   val INC_REWRITE_GENEXP_ERR_MSG: String = "inc('DDL', generic expression) is not supported in NO_REWRITE mode, use inc(generic expression) without NO_REWRITE mode enabled"
 
+  // #12 - use underscore names but keep the old camel case approach around for compat
+  def registerWithChecks(registerFunction: (String, Seq[Expression] => Expression) => Unit, name: String, argsf: Seq[Expression] => Expression, paramNumbers: Set[Int] = Set.empty, minimum: Int = -1) = {
+    val create =
+      if (paramNumbers.isEmpty && minimum == -1 )
+        argsf
+      else
+        (exps: Seq[Expression]) => {
+          if ((paramNumbers.nonEmpty && !paramNumbers.contains(exps.size)) || (minimum > exps.size)) {
+            val sizeerr =
+              if (paramNumbers.nonEmpty)
+                s"Valid parameter counts are ${paramNumbers.mkString(", ")}"
+              else
+                s"A minimum of $minimum parameters is required."
+            throw QualityException(s"Wrong number of arguments provided to Quality function $name. $sizeerr")
+          }
+          argsf(exps)
+        }
+    registerFunction(name, create)
+    if (!mustKeepNames(name)) {
+      registerFunction(name.replaceAll("_",""), create)
+    }
+  }
+
   /**
    * Must be called before using any functions like Passed, Failed or Probability(X)
    * @param parseTypes override type parsing (e.g. DDL, defaults to defaultParseTypes / DataType.fromDDL)
@@ -130,30 +153,10 @@ object RuleRegistrationFunctions {
                                mapCompare: DataType => Option[(Any, Any) => Int] = (dataType: DataType) => utils.defaultMapCompare(dataType),
                                writer: String => Unit = println(_),
                                registerFunction: (String, Seq[Expression] => Expression) => Unit =
-                               QualitySparkUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
+                                 QualitySparkUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
                               ) {
-    // #12 - use underscore names but keep the old camel case approach around for compat
-    def register(name: String, argsf: Seq[Expression] => Expression, paramNumbers: Set[Int] = Set.empty, minimum: Int = -1) = {
-      val create =
-        if (paramNumbers.isEmpty && minimum == -1 )
-          argsf
-        else
-          (exps: Seq[Expression]) => {
-            if ((paramNumbers.nonEmpty && !paramNumbers.contains(exps.size)) || (minimum > exps.size)) {
-              val sizeerr =
-                if (paramNumbers.nonEmpty)
-                  s"Valid parameter counts are ${paramNumbers.mkString(", ")}"
-                else
-                  s"A minimum of $minimum parameters is required."
-              throw QualityException(s"Wrong number of arguments provided to Quality function $name. $sizeerr")
-            }
-            argsf(exps)
-          }
-      registerFunction(name, create)
-      if (!mustKeepNames(name)) {
-        registerFunction(name.replaceAll("_",""), create)
-      }
-    }
+    def register(name: String, argsf: Seq[Expression] => Expression, paramNumbers: Set[Int] = Set.empty, minimum: Int = -1) =
+      registerWithChecks(registerFunction, name, argsf, paramNumbers, minimum)
 
     register("strip_result_ddl", exps => StripResultTypes(exps.head), Set(1))
     register("rule_result", exps => RuleResultExpression(Seq(exps(0), exps(1), exps(2), exps(3))), Set(4))

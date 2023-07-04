@@ -6,6 +6,7 @@ import com.sparkutils.quality.impl.hash.HashRelatedFunctionImports
 import com.sparkutils.quality.impl.id.{GenericLongBasedImports, GuaranteedUniqueIDImports}
 import com.sparkutils.quality.impl.imports._
 import com.sparkutils.quality.impl.longPair.AsUUID
+import com.sparkutils.quality.impl.mapLookup.MapLookupFunctionImports
 import com.sparkutils.quality.impl.rng.RngFunctionImports
 import com.sparkutils.quality.impl.util.{ComparableMapsImports, StructFunctionsImport}
 import org.apache.spark.sql.Column
@@ -18,7 +19,7 @@ import org.apache.spark.sql.catalyst.expressions.{And, EqualTo}
 package object functions extends ComparableMapsImports with GuaranteedUniqueIDImports with GenericLongBasedImports
   with BloomFilterLookupFunctionImport with StripResultTypesFunction with RuleResultImport with PackIdImports
   with RuleRunnerFunctionImports with RngFunctionImports with LongPairImports with BloomExpressionFunctions
-  with HashRelatedFunctionImports with StructFunctionsImport with AggregateFunctionImports {
+  with HashRelatedFunctionImports with StructFunctionsImport with AggregateFunctionImports with MapLookupFunctionImports {
 
   /**
    * Compares aPrefix_lower = bPrefix_lower and aPrefix_higher = bPrefix_higher

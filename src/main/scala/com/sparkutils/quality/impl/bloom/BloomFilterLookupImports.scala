@@ -1,5 +1,6 @@
 package com.sparkutils.quality.impl.bloom
 
+import com.sparkutils.quality.impl.RuleRegistrationFunctions.registerWithChecks
 import com.sparkutils.quality.impl.bloom.parquet.{BucketedFilesRoot, FileRoot}
 import com.sparkutils.quality.{DataFrameLoader, Id, RuleSuite}
 import com.sparkutils.quality.impl.util.ConfigLoader
@@ -16,9 +17,11 @@ trait BloomFilterRegistration {
    */
   def registerBloomMapAndFunction(bloomFilterMap: Broadcast[BloomExpressionLookup.BloomFilterMap]) {
     val funcReg = SparkSession.getActiveSession.get.sessionState.functionRegistry
+    def register(name: String, argsf: Seq[Expression] => Expression, paramNumbers: Set[Int] = Set.empty, minimum: Int = -1) =
+      registerWithChecks(QualitySparkUtils.registerFunction(funcReg), name, argsf, paramNumbers, minimum)
 
     val f = (exps: Seq[Expression]) => BloomFilterLookupExpression(exps(0), exps(1), bloomFilterMap)
-    QualitySparkUtils.registerFunction(funcReg)("probabilityIn", f)
+    register("probability_In", f, Set(2))
   }
 
 }
@@ -26,16 +29,27 @@ trait BloomFilterRegistration {
 trait BloomFilterLookupFunctionImport {
 
   /**
-   * Lookup the value against a bloom filter from bloomMap with name bloomFilterName
+   * Lookup the value against a bloom filter from bloomMap with name bloomFilterName.  In line with the sql functions please migrate to probability_in
    *
    * @param bloomFilterName
    * @param lookupValue
    * @param bloomMap
    * @return
    */
-  def bloomFilterLookup(bloomFilterName: Column, lookupValue: Column, bloomMap: Broadcast[BloomExpressionLookup.BloomFilterMap]): Column =
-    BloomFilterLookup(bloomFilterName, lookupValue, bloomMap)
+  @deprecated(since="0.1.0", message="Please migrate to bloom_lookup")
+  def bloomFilterLookup(lookupValue: Column, bloomFilterName: Column, bloomMap: Broadcast[BloomExpressionLookup.BloomFilterMap]): Column =
+    BloomFilterLookup(lookupValue, bloomFilterName, bloomMap)
 
+  /**
+   * Lookup the value against a bloom filter from bloomMap with name filterName.
+   *
+   * @param filterName
+   * @param lookupValue
+   * @param bloomMap
+   * @return
+   */
+  def probability_in(lookupValue: Column, filterName: String, bloomMap: Broadcast[BloomExpressionLookup.BloomFilterMap]): Column =
+    BloomFilterLookup(lookupValue, lit(filterName), bloomMap)
 }
 
 trait BloomFilterLookupImports {
@@ -183,7 +197,6 @@ trait BloomExpressionFunctions {
    * @param expectedNumberOfRows
    * @param expectedFPP
    * @param id                - the id of this bloom used to separate from other big_blooms - defaults to a uuid
-   * @param bucketedFilesRoot - provide this to override the default file root for the underlying arrays - defaults to a temporary file location or /dbfs/ on Databricks.  The config property sparkutils.quality.bloom.root can also be used to set for all blooms in a cluster.
    * @return
    */
   def big_bloom(bloomOver: Column, expectedNumberOfRows: Long, expectedFPP: Double, id: String): Column =

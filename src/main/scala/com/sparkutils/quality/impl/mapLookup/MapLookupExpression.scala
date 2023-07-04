@@ -16,15 +16,15 @@ object MapLookup {
   /**
     * For withColumn / select usage, the map generation and lookup expressions must be of the same type
     */
-  def apply(mapLookupName: Column, lookupValue: Column, mapLookups: MapLookups): Column = {
-    new Column(apply(mapLookupName.expr, lookupValue.expr, mapLookups))
+  def apply(mapLookupName: Column, lookupKey: Column, mapLookups: MapLookups): Column = {
+    new Column(apply(mapLookupName.expr, lookupKey.expr, mapLookups))
   }
 
-  def apply(mapLookupName: Expression, lookupValue: Expression, mapLookups: MapLookups): MapLookupExpression = {
+  def apply(mapLookupName: Expression, lookupKey: Expression, mapLookups: MapLookups): MapLookupExpression = {
     val id = RuleRegistrationFunctions.getString(mapLookupName) // Must be hard coded, can't give a dynamic data type otherwise it will fail at runtime not analysis
     val (bv, dt) = mapLookups.getOrElse(id, mapDoesNotExist(id))
 
-    MapLookupExpression(id, lookupValue, bv, dt)
+    MapLookupExpression(id, lookupKey, bv, dt)
   }
 
   private[mapLookup] def mapDoesNotExist(map: String) = qualityException(s"The bloom filter: $map, does not exist in the provided bloomMap")

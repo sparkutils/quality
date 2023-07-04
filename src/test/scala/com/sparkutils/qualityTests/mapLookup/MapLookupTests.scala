@@ -1,6 +1,7 @@
 package com.sparkutils.qualityTests.mapLookup
 
 import com.sparkutils.quality._
+import functions.map_contains
 import com.sparkutils.qualityTests._
 import com.sparkutils.qualityTests.mapLookup.TradeTests.{ccyRate, countryCodeCCY, simpleTrades, tradeCols}
 import org.apache.spark.sql.catalyst.expressions.GenericRowWithSchema
@@ -141,6 +142,11 @@ class MapLookupTests extends FunSuite with TestUtils {
     val res = df.select(col("*"), expr("mapContains('empty', country)").as("doesCountryExist")).
       filter("doesCountryExist = false")
     assert(res.count == df.count,"all of the rows should be false" )
+
+    // tests both map_contains and lookup
+    val res2 = df.select(col("*"), map_contains("empty", col("country"), lookups).as("doesCountryExist")).
+      filter("doesCountryExist = false")
+    assert(res2.count == df.count,"all of the rows should be false" )
   }
 
   @Test
