@@ -247,7 +247,7 @@ class AggregatesTest extends FunSuite with TestUtils {
   def decimalPrecisionTest = doDecimalPrecisionTest(  expr("aggExpr('DECIMAL(38,18)', dec IS NOT NULL, sumWith(entry -> dec + entry ), returnSum()) as agg" ))
 
   @Test
-  def decimalPrecisionExprDSLTest = doDecimalPrecisionTestF( df => agg_expr(DecimalType(38,18), df("dec") isNotNull, sum_with(entry => df("dec") + entry ), return_sum) as "agg")
+  def decimalPrecisionExprDSLTest = doDecimalPrecisionTestF( df => agg_expr(DecimalType(38,18), df("dec").isNotNull, sum_with(entry => df("dec") + entry ), return_sum) as "agg")
 
   @Test
   def decimalPrecisionNO_REWRITETest = doDecimalPrecisionTest(  expr("aggExpr('NO_REWRITE', dec IS NOT NULL, sumWith('DECIMAL(38,18)', entry -> cast( (dec + entry) as DECIMAL(38,18)) ), returnSum('DECIMAL(38,18)')) as agg" ))
@@ -259,7 +259,7 @@ class AggregatesTest extends FunSuite with TestUtils {
   def decimalPrecisionIncTest = doDecimalPrecisionTest(  expr("aggExpr('DECIMAL(38,18)', dec IS NOT NULL, inc(dec), returnSum()) as agg" ))
 
   @Test
-  def decimalPrecisionIncDSLTest = doDecimalPrecisionTestF( df => agg_expr(DecimalType(38,18), df("dec") isNotNull, inc(df("dec")), return_sum) as "agg" )
+  def decimalPrecisionIncDSLTest = doDecimalPrecisionTestF( df => agg_expr(DecimalType(38,18), df("dec").isNotNull, inc(df("dec")), return_sum) as "agg" )
 
   @Test
   def decimalPrecisionHofTest = {
@@ -289,7 +289,7 @@ class AggregatesTest extends FunSuite with TestUtils {
   def decimalPrecisionIncExprTest = doDecimalPrecisionTest( expr(  "aggExpr('DECIMAL(38,18)', dec IS NOT NULL, inc(dec + 0), returnSum()) as agg" ) )
 
   @Test
-  def decimalPrecisionIncExprDSLTest = doDecimalPrecisionTestF( df => agg_expr(DecimalType(38,18), df("dec") isNotNull, inc(df("dec") + 0 ), return_sum) as "agg")
+  def decimalPrecisionIncExprDSLTest = doDecimalPrecisionTestF( df => agg_expr(DecimalType(38,18), df("dec").isNotNull, inc(df("dec") + 0 ), return_sum) as "agg")
 
   @Test
   def decimalPrecisionNO_REWRITEIncTest = try {

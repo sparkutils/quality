@@ -12,8 +12,8 @@ import org.apache.spark.sql.types.{IntegerType, StructType}
 import org.apache.spark.sql.{Column, DataFrame, Encoder, SaveMode}
 import org.junit.Test
 import org.scalatest.FunSuite
-
 import java.util.UUID
+
 import scala.language.postfixOps
 
 class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
@@ -175,16 +175,13 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     val tests = Seq("cannot resolve", "requires (int or bigint) type")
     doTypeCheck("probability('a')", tests :+ "however, a is of string type")
     doTypeCheck("probability(1.02)", tests :+ "however, 1.02 is of decimal(3,2) type") // NB will be double in Spark 3.0
-    not3_3 {
-      // 3_3 has two keys with the same name, one boolean the other string so a CCE occurs when accessing the boolean thinking it's the string
-      doTypeCheck(probability(lit(1.02)), tests :+ "however, 1.02 is of double type") // double as the lit input is a double
-    }
+    doTypeCheck(probability(lit(1.02)), tests :+ "however, 1.02 is of double type") // double as the lit input is a double
   }
 
   def doTypeCheck(eval: String, containsTests: Seq[String]) : Unit =
     doTypeCheck(expr(eval), containsTests)
 
-  def doTypeCheck(expr: Column, containsTests: Seq[String]) : Unit = evalCodeGens {
+  def doTypeCheck(expr: Column, containsTests: Seq[String]) : Unit = {
     val df = dataFrameLong(writeRows, 27, ruleSuiteResultType, null)
 
     var failed = false

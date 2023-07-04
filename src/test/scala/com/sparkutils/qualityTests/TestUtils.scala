@@ -253,15 +253,6 @@ trait TestUtils {
     if (sparkVersion != "3.4") thunk
 
   /**
-   * Don't run this test on 3.3.2 - one case is on type checking probability types - Spark has a bug in this version (https://github.com/apache/spark/blob/branch-3.3/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/analysis/CheckAnalysis.scala#L52C1-L55C1)
-   * both keys are the same so you get:
-   * java.lang.ClassCastException: java.lang.Boolean cannot be cast to java.lang.String
-   *  at org.apache.spark.sql.catalyst.analysis.CheckAnalysis.$anonfun$checkAnalysis$5(CheckAnalysis.scala:185)
-   */
-  def not3_3(thunk: => Unit) =
-    if (sparkVersion != "3.3") thunk
-
-  /**
    * Don't run this test on 3.4 or greater - gc's on code gen
    */
   def not3_4_or_above(thunk: => Unit) =

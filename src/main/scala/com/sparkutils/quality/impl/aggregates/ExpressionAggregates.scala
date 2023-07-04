@@ -75,7 +75,7 @@ object AggregateExpressions {
         temp
       }
 
-    ExpressionAggregates(Seq(count, sum1, sum2, ifExpr, useSum, useEvaluate), zero, add, notYetResolved, sumType).toAggregateExpression()
+    ExpressionAggregates(Seq(count, sum1, sum2, ifExpr, useSum, useEvaluate), zero, add, notYetResolved, sumType, 0).toAggregateExpression()
   }
 
   def correctEvaluate(sumType: DataType, evaluate: Expression, wrapCastOnly: Boolean = false) =
@@ -178,28 +178,31 @@ object AggregateExpressions {
  * count of filter hits and the sum as parameters.
  * @param children
  */
-case class ExpressionAggregates(override val children: Seq[Expression], zero: DataType => Option[Any], addF: DataType => Option[( Expression, Expression ) => Expression], val notYetResolved: Boolean, sumType: DataType) extends DeclarativeAggregate {
+case class ExpressionAggregates(override val children: Seq[Expression], zero: DataType => Option[Any], addF: DataType => Option[( Expression, Expression ) => Expression], notYetResolved: Boolean, sumType: DataType, resolvedCount: Int) extends DeclarativeAggregate {
   // extending higherorder fun is needed otherwise case other => other.failAnalysis( is thrown in analysis/higherOrderFunctions
   lazy val Seq(countLeaf: RefExpression, sumLeaf: RefExpression, evalSumLeaf: RefExpression, ifExpr, sumWith, evaluate) =
     if (!notYetResolved)
       children
-    else {
-      import AggregateExpressions.{correctEvaluate, correctSum}
-      val Seq(_, _, _, ifExpr, sumWith, evaluate) = children
+    else
+      rewriteChildren(children)
 
-      val correctedEvaluate = correctEvaluate(sumType, evaluate, wrapCastOnly = true)
-      val correctedSum = correctSum(sumType, sumWith, wrapCastOnly = true)
+  private def rewriteChildren(children: Seq[Expression]) = {
+    import AggregateExpressions.{correctEvaluate, correctSum}
+    val Seq(_, _, _, ifExpr, sumWith, evaluate) = children
 
-      val (SeqArgs(sum1 +: _, _), SeqArgs(Seq(sum2, count), _), useSum, useEvaluate) =
-        if (sumType eq null)
-          (sum, evaluate, sum, evaluate)
-        else {
-          val temp = (correctedSum, correctedEvaluate, correctedSum, correctedEvaluate)
-          temp
-        }
+    val correctedEvaluate = correctEvaluate(sumType, evaluate, wrapCastOnly = true)
+    val correctedSum = correctSum(sumType, sumWith, wrapCastOnly = true)
 
-      Seq(count, sum1, sum2, ifExpr, useSum, useEvaluate)
-    }
+    val (SeqArgs(sum1 +: _, _), SeqArgs(Seq(sum2, count), _), useSum, useEvaluate) =
+      if (sumType eq null)
+        (sumWith, evaluate, sumWith, evaluate)
+      else {
+        val temp = (correctedSum, correctedEvaluate, correctedSum, correctedEvaluate)
+        temp
+      }
+
+    Seq(count, sum1, sum2, ifExpr, useSum, useEvaluate)
+  }
 
   lazy val sumRef = AttributeReference("sum", sumLeaf.dataType, true)()
   lazy val countRef = AttributeReference("count", countLeaf.dataType)()
@@ -251,5 +254,14 @@ case class ExpressionAggregates(override val children: Seq[Expression], zero: Da
     def right: AttributeReference = inputAggBufferAttributes(aggBufferAttributes.indexOf(a.from))
   }
 
-  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
+  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = {
+    // only works on 3's 2.4 must reconstruct for each copy
+    val useChildren =
+      if (notYetResolved)
+        rewriteChildren(newChildren)
+      else
+        newChildren
+
+    copy(children = useChildren, notYetResolved = resolvedCount < 1, resolvedCount = resolvedCount + 1)
+  }
 }

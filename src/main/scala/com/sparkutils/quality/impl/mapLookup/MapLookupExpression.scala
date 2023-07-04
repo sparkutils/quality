@@ -70,7 +70,5 @@ case class MapLookupExpression(mapId: String, child: Expression, arrayMap: Broad
 
   override def sql: String = s"(mapLookup($mapId, ${child.sql}))"
 
-  override def nullable: Boolean = true
-
   protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
 }

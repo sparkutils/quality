@@ -30,8 +30,6 @@ case class SoftFailExpr(child: Expression) extends UnaryExpression with NullInto
   override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode =
     defineCodeGen(ctx, ev, c => s"com.sparkutils.quality.impl.SoftFailedUtils.softFail($c)")
 
-  override def nullable: Boolean = false
-
   override def dataType: DataType = IntegerType
 
   protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)

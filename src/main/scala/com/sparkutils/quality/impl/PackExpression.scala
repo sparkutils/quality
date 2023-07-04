@@ -33,8 +33,6 @@ case class PackExpression(left: Expression, right: Expression) extends BinaryExp
   override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode =
     defineCodeGen(ctx, ev, (l, r) => s"(Long)com.sparkutils.quality.impl.PackId.packId(new com.sparkutils.quality.Id((Integer)($l), (Integer)($r)))")
 
-  override def nullable: Boolean = false
-
   override def dataType: DataType = LongType
 
   override def inputDataTypes: Seq[Seq[DataType]] = Seq(Seq(IntegerType), Seq(IntegerType))
@@ -69,8 +67,6 @@ case class UnPackExpression(child: Expression) extends UnaryExpression
 
   override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode =
     defineCodeGen(ctx, ev, (c) => s"com.sparkutils.quality.impl.UnPack.toRow( com.sparkutils.quality.impl.PackId.unpack((Long)$c) )")
-
-  override def nullable: Boolean = false
 
   override def dataType: DataType = StructType( Seq(
     StructField(name = "id", dataType = IntegerType),

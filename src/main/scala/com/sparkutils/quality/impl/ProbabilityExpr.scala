@@ -26,8 +26,6 @@ case class ProbabilityExpr(child: Expression) extends UnaryExpression with NullI
   override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode =
     defineCodeGen(ctx, ev, c => s"((double)($c)) / ${PassedInt}")
 
-  override def nullable: Boolean = false
-
   override def dataType: DataType = DoubleType
 
   override def inputDataTypes: Seq[Seq[DataType]] = Seq(Seq(IntegerType, LongType))
