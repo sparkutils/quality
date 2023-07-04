@@ -46,7 +46,7 @@ object MapLookup {
        0.9
   """,
   since = "1.5.0")
-case class MapLookupExpression(mapId: String, child: Expression, arrayMap: Broadcast[MapData], dataType: DataType) extends UnaryExpression with NullIntolerant with CodegenFallback {
+case class MapLookupExpression(mapId: String, child: Expression, arrayMap: Broadcast[MapData], dataType: DataType) extends UnaryExpression with CodegenFallback {
   lazy val theMap = MapUtils.toScalaMap(arrayMap.value, child.dataType, dataType)
 
   lazy val converter = CatalystTypeConverters.createToScalaConverter(child.dataType)
@@ -67,6 +67,8 @@ case class MapLookupExpression(mapId: String, child: Expression, arrayMap: Broad
         null
     }
   }
+
+  override def nullable: Boolean = true
 
   override def sql: String = s"(mapLookup($mapId, ${child.sql}))"
 

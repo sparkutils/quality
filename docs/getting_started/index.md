@@ -5,6 +5,21 @@ tags:
    - beginner
 ---
 
+## Migrating from 0.0.3 to 0.1.0
+
+The quality package has been trimmed down to common functionality only.  DSL / Column based functions and types have moved to specific packages similar to implicits:
+
+```scala
+import com.sparkutils.quality._
+import functions._
+import types._
+import implicits._
+```  
+
+The functions package aims to have an equivalent column dsl function for each bit of sql based functionality.  The notable exception to this is the lambda, callFun and _() functions, for which you are better off using your languages normal support for abstraction.  A number of the functions have been, due to naming choice, deprecated they will be removed in 0.2.0.   
+
+Spark 2.4 support is, as of this release, deprecated but not removed, future 0.1.x versions will continue to support but 0.2.0 will remove it entirely. 
+
 ## Building The Library
 
 * fork, 

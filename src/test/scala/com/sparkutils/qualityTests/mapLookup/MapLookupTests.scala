@@ -162,7 +162,7 @@ class MapLookupTests extends FunSuite with TestUtils {
   }
 
   @Test
-  def taxonomyLookup: Unit = evalCodeGensNoResolve {
+  def taxonomyLookup: Unit = forceInterpreted {
     val orchid = Seq("open","difficult","prized")
 
     // 1) if a hierarchy is not given whole term is null and default to input (null, null) key
