@@ -56,9 +56,9 @@ It's possible to have multiple fields used as the key, where all must match, jus
     Repeated calls and streaming use cases have not been thoroughly tested, the Spark distribution method guarantees an object can be broadcast but no merging is automatically possible, users would be required to code this by hand.
 
 ## Expressions which take expression parameters
-* mapLookup('map name', x) - looks up x against the map specified in map name, full type transparency from the underlying map values are supported including deeply nested structures
+* map_lookup('map name', x) - looks up x against the map specified in map name, full type transparency from the underlying map values are supported including deeply nested structures
 ```scala
 // show the map of data 'country' field against country code and get back the currency
-df.select(col("*"), expr("mapLookup('countryCode', country).ccy")).show()
+df.select(col("*"), expr("map_lookup('countryCode', country).ccy")).show()
 ```
-* mapContains('map name', x) - returns true or false if an item is present as a key in the map
+* map_contains('map name', x) - returns true or false if an item is present as a key in the map

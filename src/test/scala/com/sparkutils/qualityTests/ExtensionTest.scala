@@ -1,19 +1,23 @@
 package com.sparkutils.qualityTests
 
+import java.io.File
+
 import com.sparkutils.quality.impl.extension.{AsUUIDFilter, ExtensionTesting, IDBase64Filter, QualitySparkExtension}
 import com.sparkutils.quality.impl.extension.QualitySparkExtension.disableRulesConf
-import com.sparkutils.quality.utils.Testing
-import org.apache.spark.sql.catalyst.expressions.{And, Attribute, BinaryComparison, EqualTo, Equality, Or}
+import com.sparkutils.quality.impl.util.Testing
+import org.apache.spark.sql.catalyst.expressions.{And, Attribute, BinaryComparison, EqualTo, Equality, Expression, Or}
 import org.apache.spark.sql.catalyst.plans.logical.Join
-import org.apache.spark.sql.sources.{Filter, EqualTo => SEqualTo, GreaterThanOrEqual => SGreaterThanOrEqual, GreaterThan => SGreaterThan, In => SIn, And => SAnd, Or => SOr}
+import org.apache.spark.sql.sources.{Filter, And => SAnd, EqualTo => SEqualTo, GreaterThan => SGreaterThan, GreaterThanOrEqual => SGreaterThanOrEqual, In => SIn, Or => SOr}
 import org.apache.spark.sql.{Column, DataFrame, SparkSession}
 import org.junit.{Before, Test}
 import org.scalatest.FunSuite
-
 import java.util.UUID
 
+import org.apache.spark.sql.catalyst.FunctionIdentifier
+import org.apache.spark.sql.catalyst.analysis.FunctionRegistry
+
 // including rowtools so standalone tests behave as if all of them are running and for verify compatibility
-class ExtensionTest extends FunSuite with TestUtils {
+abstract class ExtensionTestBase extends FunSuite with TestUtils {
 
   @Before
   override def setup(): Unit = {
@@ -22,7 +26,7 @@ class ExtensionTest extends FunSuite with TestUtils {
 
   def wrapWithExtension(thunk: SparkSession => Unit): Unit = wrapWithExtensionT(thunk)
 
-  def wrapWithExtensionT(thunk: SparkSession => Unit, disableConf: String = "", forceInjection: String = null): Unit = {
+  def wrapWithExtensionT(thunk: SparkSession => Unit, disableConf: String = "", forceInjection: String = null, withHive: Boolean = false): Unit = {
     var tsparkSession: SparkSession = null
 
     try {
@@ -37,9 +41,22 @@ class ExtensionTest extends FunSuite with TestUtils {
       else
         System.setProperty(QualitySparkExtension.forceInjectFunction, forceInjection)
 
+      val enableHive = (builder: SparkSession.Builder ) =>
+        if (withHive)
+          builder.enableHiveSupport()
+        else
+          builder
+
+      val enableDelta = (builder: SparkSession.Builder) =>
+        if (format == "delta")
+          builder.config("spark.sql.extensions", classOf[QualitySparkExtension].getName() + ",io.delta.sql.DeltaSparkSessionExtension")
+            .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+        else
+          builder
+
       // attempt to create a new session
-      tsparkSession = registerFS(SparkSession.builder()).config("spark.master", s"local[$hostMode]").config("spark.ui.enabled", false).
-        config("spark.sql.extensions", classOf[QualitySparkExtension].getName())
+      tsparkSession = enableDelta( enableHive( registerFS(SparkSession.builder()).config("spark.master", s"local[$hostMode]").config("spark.ui.enabled", false).
+        config("spark.sql.extensions", classOf[QualitySparkExtension].getName()) ) )
         .getOrCreate()
       tsparkSession.sparkContext.setLogLevel("ERROR")
 
@@ -53,34 +70,40 @@ class ExtensionTest extends FunSuite with TestUtils {
       } finally {
         System.clearProperty(QualitySparkExtension.disableRulesConf)
         System.clearProperty(QualitySparkExtension.forceInjectFunction)
+
+        if (format == "delta") {
+          // https://github.com/delta-io/delta/issues/629 workaround
+          org.apache.spark.sql.delta.DeltaLog.clearCache()
+        }
       }
     }
 
   }
 
-
   @Test
-  def testExtension(): Unit = not2_4 { not_Databricks { // will never work on 2.4 and Databricks has a fixed session
-    wrapWithExtension{ tsparkSession =>
-      import tsparkSession.implicits._
+  def testExtension(): Unit = not2_4 {
+    not_Databricks { // will never work on 2.4 and Databricks has a fixed session
+      wrapWithExtension { tsparkSession =>
+        import tsparkSession.implicits._
 
-      val orig = UUID.randomUUID()
-      val uuid = orig.toString
+        val orig = UUID.randomUUID()
+        val uuid = orig.toString
 
-      val res = tsparkSession.sql(s"select longPairFromUUID('$uuid') as fparts").selectExpr( "as_uuid(fparts.lower, fparts.higher) as asUUIDExpr")
-      val sres = res.as[String].head()
-      assert(sres == uuid)
+        val res = tsparkSession.sql(s"select longPairFromUUID('$uuid') as fparts").selectExpr("as_uuid(fparts.lower, fparts.higher) as asUUIDExpr")
+        val sres = res.as[String].head()
+        assert(sres == uuid)
+      }
     }
-  }}
+  }
 
   @Test
   def testExtensionDisableSpecific(): Unit = not2_4 {
     not_Databricks { // will never work on 2.4 and Databricks has a fixed session
       Testing.test {
-        wrapWithExtensionT(tsparkSession => { }, AsUUIDFilter.getClass.getName)
+        wrapWithExtensionT(tsparkSession => {}, AsUUIDFilter.getClass.getName)
       }
       val str = ExtensionTesting.disableRuleResult
-      assert(str.indexOf(s"${disableRulesConf} = Set(${AsUUIDFilter.getClass.getName}) leaving List(${IDBase64Filter.getClass.getName}) remaining" ) > -1, s"str didn't have the expected contents, got $str")
+      assert(str.indexOf(s"${disableRulesConf} = Set(${AsUUIDFilter.getClass.getName}) leaving List(${IDBase64Filter.getClass.getName}) remaining") > -1, s"str didn't have the expected contents, got $str")
     }
   }
 
@@ -100,13 +123,18 @@ class ExtensionTest extends FunSuite with TestUtils {
     import sparkSession.implicits._
     val res = sparkSession.sql("select context from testfunctionview").as[String].collect()
     assert(res.length == 1)
-    assert(res.head == (theuuid+"6"))
+    assert(res.head == (theuuid + "6"))
     ()
   }
 
   @Test
   def testForceFunctionInjection(): Unit = not2_4 {
     not_Databricks { // will never work on 2.4 and Databricks has a fixed session
+      // need to clear the existing quality functions out first
+      com.sparkutils.quality.registerQualityFunctions(
+        registerFunction = (str: String, f: Seq[Expression] => Expression) => FunctionRegistry.builtin.dropFunction(FunctionIdentifier(str))
+      )
+
       Testing.test {
         try {
           wrapWithExtensionT(createview, forceInjection = "true")
@@ -147,6 +175,7 @@ class ExtensionTest extends FunSuite with TestUtils {
   }
 
   val theuuid6HigherNoA = SEqualTo("higher", 1314564453825188563L)
+
   def doAsymmetricFilterPlanCall(viaExtension: (SparkSession => Unit) => Unit = wrapWithExtension _): Unit = {
     val uu = java.util.UUID.fromString(theuuid + 6)
     doTestAsymmetricFilterPlan(uuidPairsWithContext(""), Seq(
@@ -160,6 +189,8 @@ class ExtensionTest extends FunSuite with TestUtils {
     ), viaExtension = viaExtension)
   }
 
+  def format: String
+
   val uuidPairsWithContext = (prefix: String) => (tsparkSession: SparkSession) => {
     import tsparkSession.implicits._
 
@@ -172,9 +203,9 @@ class ExtensionTest extends FunSuite with TestUtils {
     }
 
     // if this is not read from file a LocalRelation will be used and there is no Filter to be pushed down
-    therows.toDS.selectExpr(s"lower as ${prefix}lower", s"higher as ${prefix}higher", s"asString as ${prefix}asString").write.mode("overwrite").parquet(outputDir + s"/${prefix}asymfilter")
+    therows.toDS.selectExpr(s"lower as ${prefix}lower", s"higher as ${prefix}higher", s"asString as ${prefix}asString").write.mode("overwrite").format(format).save(outputDir + s"/${prefix}asymfilter")
 
-    val reread = tsparkSession.read.parquet(outputDir + s"/${prefix}asymfilter")
+    val reread = tsparkSession.read.format(format).load(outputDir + s"/${prefix}asymfilter")
     val withcontext = reread.selectExpr("*", s"as_uuid(${prefix}lower, ${prefix}higher) as ${prefix}context")
     withcontext
   }
@@ -183,6 +214,33 @@ class ExtensionTest extends FunSuite with TestUtils {
   def testAsymmetricFilterPlanJoinEq(): Unit = not_Databricks {
     doTestAsymmetricFilterPlanJoin(wrapWithExtension _, "eq", (l, r) => l.===(r))
   }
+
+  @Test
+  def testAsymmetricFilterEqSQL(): Unit = not_Databricks { not2_4 {
+    cleanUp("./metastore_db")
+
+    wrapWithExtensionT(sparkSession => {
+      val ds = uuidPairsWithContext("a")(sparkSession)
+      val abspath = new File(ds.inputFiles.head).getParentFile.getPath.replaceAll("\\\\", "/")
+      sparkSession.sql(s"drop table if exists testme")
+      sparkSession.sql(s"create table testme using $format location '$abspath'")
+
+      sparkSession.sql(s"create or replace view testfunctionview as select alower, ahigher, as_uuid(alower, ahigher) context from testme");
+      import sparkSession.implicits._
+      val resdf = sparkSession.sql(s"select context from testfunctionview where context = '${theuuid + "6"}' limit 10")
+      /*val res = resdf.as[String].collect()
+      assert(res.length == 1)
+      assert(res.head == (theuuid + "6"))
+*/
+      // verify push downs
+      val pushdowns = getPushDowns( resdf.queryExecution.executedPlan )
+
+      // with joins both sides should have pushdown for equals, but for gt,lt etc. it'll be one sided for some, not for others
+      assert(pushdowns.nonEmpty, s"did not have any pushed down filters")
+
+      assert(pushdowns.contains(theuuid6Higher), s"did not have a pushdown with the correct predicates including $theuuid6Higher but $pushdowns")
+    }, withHive = true)
+  }}
 
   @Test
   def testAsymmetricFilterPlanJoinEqViaExistingSession(): Unit = onlyWithExtension {
@@ -393,9 +451,9 @@ class ExtensionTest extends FunSuite with TestUtils {
     }
 
     // if this is not read from file a LocalRelation will be used and there is no Filter to be pushed down
-    therows.toDS.selectExpr(s"base as ${prefix}base", s"i0 as ${prefix}i0", s"i1 as ${prefix}i1").write.mode("overwrite").parquet(outputDir + s"/${prefix}asymfilter")
+    therows.toDS.selectExpr(s"base as ${prefix}base", s"i0 as ${prefix}i0", s"i1 as ${prefix}i1").write.mode("overwrite").format(format).save(outputDir + s"/${prefix}asymfilter")
 
-    val reread = tsparkSession.read.parquet(outputDir + s"/${prefix}asymfilter")
+    val reread = tsparkSession.read.format(format).load(outputDir + s"/${prefix}asymfilter")
     val withcontext = reread.selectExpr("*", select)
     withcontext
   }
@@ -702,26 +760,15 @@ class ExtensionTest extends FunSuite with TestUtils {
   def testAsymmetricFilterPlanJoinMixedGtEqViaExistingSession(): Unit = onlyWithExtension {
     doTestAsymmetricFilterPlanJoinIDS(wrapWithExistingSession _, "gte", (l, r) => l.>=(r), viaJoinIDsMixed)
   }
-/*
-attempts under #19 doesn't seem possible, keeping here for reference
-
-  @Test
-  def testPushdownOnString(): Unit = wrapWithExtension {
-    session =>
-      // PushedFilters: [IsNotNull(pasString), EqualTo(pasString,123e4567-e89b-12d3-a456-426614174006)],
-//      val ds = uuidPairsWithContext("p").apply(session).filter(s"pasString = '${ theuuid + "6" }' ")
-
-      val uuid = theuuid + "6"
-      val uuidobj = java.util.UUID.fromString(uuid)
-      val lower = uuidobj.getLeastSignificantBits
-      val higher = uuidobj.getMostSignificantBits
-//endsWith(pasString, '6')
-      val ds = uuidPairsWithContext("p").apply(session).filter(s"pasString = as_uuid(plower, phigher) and pasString = '${ theuuid + "6" }' ")
-      ds.explain(true)
-    ()
-  }
-*/
 }
 
 case class TestRow(lower: Long, higher: Long, asString: String)
 case class TestID(base: Int, i0: Long, i1: Long)
+
+class ExtensionParquetTest extends ExtensionTestBase {
+  val format = "parquet"
+}
+
+class ExtensionDeltaTest extends ExtensionTestBase {
+  val format = "delta"
+}

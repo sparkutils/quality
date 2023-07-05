@@ -1,6 +1,6 @@
 package com.sparkutils.qualityTests
 
-import com.sparkutils.quality.utils.{BloomLookupType, MapLookupType}
+import com.sparkutils.quality.impl.util.{BloomLookupType, MapLookupType}
 import org.junit.Test
 import org.scalatest.FunSuite
 

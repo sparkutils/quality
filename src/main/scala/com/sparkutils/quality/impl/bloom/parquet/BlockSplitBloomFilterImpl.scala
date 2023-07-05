@@ -3,9 +3,8 @@ package com.sparkutils.quality.impl.bloom.parquet
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.IntBuffer
-
-import com.sparkutils.quality.utils.TransientHolder
 import com.sparkutils.quality.BloomLookup
+import com.sparkutils.quality.impl.util.TransientHolder
 
 /*
  * Licensed to the Apache Software Foundation (ASF) under one

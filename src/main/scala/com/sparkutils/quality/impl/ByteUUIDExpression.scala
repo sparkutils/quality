@@ -4,10 +4,10 @@ import com.sparkutils.quality.impl.longPair.LongPair
 
 import java.util.UUID
 import com.sparkutils.quality.impl.rng.RandomLongs
-import org.apache.spark.sql.InputTypeChecks
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
 import org.apache.spark.sql.catalyst.expressions.{Expression, UnaryExpression}
+import org.apache.spark.sql.qualityFunctions.InputTypeChecks
 import org.apache.spark.sql.types.{BinaryType, DataType, StringType}
 import org.apache.spark.unsafe.types.UTF8String
 
@@ -33,6 +33,7 @@ object RngUUIDExpression {
     (l, h)
   }
 
+  /** Note: This implementation is the same as the Spark uuid function but allows a pluggable rng instead of the twister */
   def getNextUUID(most: Long, least: Long): UUID = {
     val mostSigBits = (most & 0xFFFFFFFFFFFF0FFFL) | 0x0000000000004000L
     val leastSigBits = (least | 0x8000000000000000L) & 0xBFFFFFFFFFFFFFFFL

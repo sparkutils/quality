@@ -5,6 +5,21 @@ tags:
    - beginner
 ---
 
+## Migrating from 0.0.3 to 0.1.0
+
+The quality package has been trimmed down to common functionality only.  DSL / Column based functions and types have moved to specific packages similar to implicits:
+
+```scala
+import com.sparkutils.quality._
+import functions._
+import types._
+import implicits._
+```  
+
+The functions package aims to have an equivalent column dsl function for each bit of sql based functionality.  The notable exception to this is the lambda, callFun and _() functions, for which you are better off using your languages normal support for abstraction.  A number of the functions have been, due to naming choice, deprecated they will be removed in 0.2.0.   
+
+Spark 2.4 support is, as of this release, deprecated but not removed, future 0.1.x versions will continue to support but 0.2.0 will remove it entirely. 
+
 ## Building The Library
 
 * fork, 
@@ -43,7 +58,7 @@ The performance tests are not automated and must be manually run when needed.
 
 ## Build tool dependencies
 
-Quality is cross compiled for different versions of Spark, Scala _and_ runtimes such as Databricks.  The format for artefacts is:
+Quality is cross compiled for different versions of Spark, Scala _and_ runtimes such as Databricks.  The format for artifact's is:
 
 ```
 quality_RUNTIME_SPARKCOMPATVERSION_SCALACOMPATVERSION-VERSION.jar
@@ -52,7 +67,7 @@ quality_RUNTIME_SPARKCOMPATVERSION_SCALACOMPATVERSION-VERSION.jar
 e.g.
 
 ```
-quality_3.3.0.oss_3.3_2.12-0.7.0-SNAPSHOT.jar
+quality_3.4.1.oss_3.4_2.12-0.1.0.jar
 ```
 
 The build poms generate those variables via maven profiles, but you are advised to use properties to configure e.g. for Maven:
@@ -76,12 +91,12 @@ The full list of supported runtimes is below:
 | 3.2.0         | 3.2 |                | 2.12 | 
 | 3.2.1         | 3.2 | 3.2.1.oss_     | 2.12 | 
 | 3.2.1         | 3.2 | 10.4.dbr_      | 2.12 | 
-| 3.3.0         | 3.3 | 3.3.0.oss_     | 2.12 | 
-| 3.3.0         | 3.3 | 11.3.dbr_      | 2.12 |
-| 3.3.0         | 3.3 | 12.2.dbr_      | 2.12 |
-| 3.3.0         | 3.3 | 13.1.dbr_      | 2.12 |
-| 3.4.0         | 3.4 | 3.4.0.oss_     | 2.12 |
-| 3.4.0         | 3.4 | 13.1.dbr_      | 2.12 |
+| 3.3.2         | 3.3 | 3.3.2.oss_     | 2.12 | 
+| 3.3.2         | 3.3 | 11.3.dbr_      | 2.12 |
+| 3.3.2         | 3.3 | 12.2.dbr_      | 2.12 |
+| 3.3.2         | 3.3 | 13.1.dbr_      | 2.12 |
+| 3.4.1         | 3.4 | 3.4.1.oss_     | 2.12 |
+| 3.4.1         | 3.4 | 13.1.dbr_      | 2.12 |
 
 2.4 support is deprecated and will be removed in a future version.  3.1.2 support is replaced by 3.1.3 due to interpreted encoder issues. 
 
@@ -89,16 +104,22 @@ The full list of supported runtimes is below:
     13.0 also works on the 12.2.dbr_ build as of 10th May 2023, despite the Spark version difference.
     13.1 requires its own version as it backports 3.5 functionality. 
 
+## Sql functions vs column dsl
+
+Similar to normal Spark functions there Quality's functions have sql variants to use with select / sql or expr() and the dsl variants built around Column.
+
+You can use both the sql and dsl functions often without any other Quality runner usage, including lambdas.  To use the dsl functions, import quality.functions._, to use the sql functions you can either use the SparkExtension or the regsterXX functions available from the quality package.    
+
 ### Developing for a Databricks Runtime
 
 As there are many compatibility issues that Quality works around between the various Spark runtimes and their Databricks equivalents you will need to use two different runtimes when you do local testing (and of course you _should_ do that):
 
 ```xml
 <properties>
-    <qualityVersion>0.7.0-SNAPSHOT</qualityVersion>
-    <qualityTestPrefix>3.2.1.oss_</qualityTestPrefix>
-    <qualityDatabricksPrefix>10.4.dbr_</qualityDatabricksPrefix>
-    <sparkShortVersion>3.2</sparkShortVersion>
+    <qualityVersion>0.1.0</qualityVersion>
+    <qualityTestPrefix>3.4.1.oss_</qualityTestPrefix>
+    <qualityDatabricksPrefix>13.1.dbr_</qualityDatabricksPrefix>
+    <sparkShortVersion>3.4</sparkShortVersion>
     <scalaCompatVersion>2.12</scalaCompatVersion>    
 </properties>
 
@@ -128,8 +149,8 @@ The known combinations requiring this approach is below:
 |---------------|-------------------|-------------------|-------------------------| - |
 | 3.2.1         | 3.2               | 3.2.1.oss_        | 10.4.dbr_               | 2.12 | 
 | 3.3.0         | 3.3               | 3.3.0.oss_        | 11.3.dbr_               | 2.12 | 
-| 3.3.0         | 3.3               | 3.3.0.oss_        | 12.2.dbr_               | 2.12 | 
-| 3.4.0         | 3.4               | 3.4.0.oss_        | 13.1.dbr_               | 2.12 | 
+| 3.3.2         | 3.3               | 3.3.2.oss_        | 12.2.dbr_               | 2.12 | 
+| 3.4.1         | 3.4               | 3.4.1.oss_        | 13.1.dbr_               | 2.12 | 
 
 ## Using the SQL functions on Spark Thrift (Hive) servers
 

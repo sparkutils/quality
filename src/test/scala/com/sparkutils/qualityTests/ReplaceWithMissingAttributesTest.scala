@@ -1,7 +1,7 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
-import com.sparkutils.quality.impl.RuleError
+import com.sparkutils.quality.impl.{RuleError, RuleLogicUtils}
 import org.apache.spark.sql.types.{IntegerType, StructField, StructType}
 import org.junit.Test
 import org.scalatest.FunSuite
@@ -22,7 +22,7 @@ class ReplaceWithMissingAttributesTest extends FunSuite with TestUtils {
     val nrs = processIfAttributeMissing(rs, struct)
 
     val rule = nrs.ruleSets.head.rules.head
-    val wrapped = ExpressionRuleExpr(ruleText, RuleLogicUtils.expr(expected))
+    val wrapped = impl.ExpressionRuleExpr(ruleText, impl.RuleLogicUtils.expr(expected))
     assert(rule == orule.copy(expression = wrapped))
     assert(empty(errors))
   }
@@ -61,7 +61,7 @@ class ReplaceWithMissingAttributesTest extends FunSuite with TestUtils {
     val nrs = processIfAttributeMissing(rs, struct)
 
     val rule = nrs.ruleSets.head.rules.head
-    val wrapped = ExpressionRuleExpr(ruleText, RuleLogicUtils.expr(test))
+    val wrapped = impl.ExpressionRuleExpr(ruleText, impl.RuleLogicUtils.expr(test))
     assert(rule == orule.copy(expression = wrapped))
     assert(errors.nonEmpty)
   }
@@ -121,7 +121,7 @@ class ReplaceWithMissingAttributesTest extends FunSuite with TestUtils {
   def doTestWithOutputReplace(expressionText: String, expectedExpressionText: String,
                               outputExpressionText: String, expectedOutputExpressionText: String, empty: Set[RuleError] => Boolean): Unit = {
     val orule = Rule(Id(2,1), ExpressionRule(expressionText),
-      RunOnPassProcessorImpl(100, Id(3,1), outputExpressionText, OutputExpression(outputExpressionText)))
+      RunOnPassProcessor(100, Id(3,1), OutputExpression(outputExpressionText)))
     val rs = RuleSuite(Id(0,1), Seq(RuleSet(Id(1,1), Seq(orule))))
     val (errors, _) = validate(struct, rs)
 
@@ -129,8 +129,8 @@ class ReplaceWithMissingAttributesTest extends FunSuite with TestUtils {
 
     val rule = nrs.ruleSets.head.rules.head
     // note although we expect a corrected expression the text looks like the original
-    val wrapped = ExpressionRuleExpr(expressionText, RuleLogicUtils.expr(expectedExpressionText))
-    val owrapped = OutputExpressionExpr(outputExpressionText, RuleLogicUtils.expr(expectedOutputExpressionText))
+    val wrapped = impl.ExpressionRuleExpr(expressionText, RuleLogicUtils.expr(expectedExpressionText))
+    val owrapped = impl.OutputExpressionExpr(outputExpressionText, RuleLogicUtils.expr(expectedOutputExpressionText))
     assert(rule == orule.copy(expression = wrapped, runOnPassProcessor = orule.runOnPassProcessor.withExpr(owrapped)))
     assert(empty(errors))
   }

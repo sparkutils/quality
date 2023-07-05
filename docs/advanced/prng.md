@@ -15,6 +15,6 @@ In addition, by leveraging .isJumpable and the resulting [jump function](https:/
 
 ## RNG Expressions
 
-* rngBytes( [number of bytes to fill - defaults to 16], [RandomSource RNG Impl - defaults to 'XO_RO_SHI_RO_128_PP'], [seed - defaults to 0] ) - Uses commons rng to create byte arrays, implementations can be plugged in, when seed is 0 the RNG's default seed generator is used.  Note when a given RNG `isJumpable` then it will use jumping for each partition where possible both improving speed and statistical results.
+* rng_bytes( [number of bytes to fill - defaults to 16], [RandomSource RNG Impl - defaults to 'XO_RO_SHI_RO_128_PP'], [seed - defaults to 0] ) - Uses commons rng to create byte arrays, implementations can be plugged in, when seed is 0 the RNG's default seed generator is used.  Note when a given RNG `isJumpable` then it will use jumping for each partition where possible both improving speed and statistical results.
 * rng( [RandomSource RNG Impl - defaults to 'XO_RO_SHI_RO_128_PP'], [seed - defaults to 0] ) - Uses commons rng to create byte arrays, implementations can be plugged in, when seed is 0 the RNG's default seed generator is used.  Note when a given RNG `isJumpable` then it will use jumping for each partition where possible both improving speed and statistical results.
-* rngUUID( expr ) - processes expr with either byte arrays or two longs into a UUID string, it's counterpart [longPairFromUUID]({{ config.site_url }}/sqlfunctions/#long_pair_from_uuid) generates two longs
+* rng_uuid( expr ) - processes expr with either byte arrays or two longs into a UUID string, it's counterpart [long_pair_from_uuid]({{ config.site_url }}/sqlfunctions/#long_pair_from_uuid) generates two longs

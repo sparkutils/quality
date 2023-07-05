@@ -1,16 +1,11 @@
 package com.sparkutils.quality.impl.longPair
 
-import com.sparkutils.quality.BloomFilterMap
-import com.sparkutils.quality.BloomLookup
-import com.sparkutils.quality.impl.bloom.{BloomExpressionLookup, BloomFilterLookup}
 import com.sparkutils.quality.impl.id.{GenericLongBasedID, model}
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode}
-import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression, NullIntolerant, UnaryExpression}
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
+import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression, NullIntolerant, UnaryExpression}
+import org.apache.spark.sql.qualityFunctions.InputTypeChecks
 import org.apache.spark.sql.types.{DataType, LongType, StructField, StructType}
-import org.apache.spark.sql.{Column, InputTypeChecks, QualitySparkUtils, SparkSession}
-
-import scala.annotation.tailrec
 
 object LongPair {
   val structType = StructType(Seq(
@@ -48,7 +43,7 @@ case class LongPairExpression(left: Expression, right: Expression) extends Binar
 }
 
 /**
- * Takes a prefixed lower and upper long pair field, must be 128bit with the provided prefix and converts to lower and higher for other functions
+ * Takes a prefixed lower and higher long pair field, must be 128bit with the provided prefix and converts to lower and higher for other functions
  * @param prefix prefix of the nested fields
  * @param child the id field
  */

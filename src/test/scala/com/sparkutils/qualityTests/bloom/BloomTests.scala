@@ -1,9 +1,10 @@
 package com.sparkutils.qualityTests.bloom
 
 import com.sparkutils.quality._
+import functions._
 import com.sparkutils.qualityTests._
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.{DataFrame, SaveMode, SparkSession}
+import org.apache.spark.sql.{Column, DataFrame, SaveMode, SparkSession}
 import org.junit.Test
 import org.scalatest.FunSuite
 
@@ -20,8 +21,11 @@ class BloomTests extends FunSuite with TestUtils {
     (blooms, fpp)
   }
 
-  def directCreateParquet() =
-    directCreateParquetI(bloomLookup(_), "smallBloom")
+  def directCreateParquetExpr() =
+    directCreateParquetI(bloomLookup(_), expr(s"small_bloom(id, 20, cast(0.01 as double))"))
+
+  def directCreateParquetCol() =
+    directCreateParquetI(bloomLookup(_), small_bloom(col("id"), 20, 0.01))
 
   def directCreateBucketedArrayParquet(bloomType: String = "eager") = {
     registerQualityFunctions()
@@ -47,11 +51,11 @@ class BloomTests extends FunSuite with TestUtils {
     (blooms, bloom.fpp)
   }
 
-  def directCreateParquetI(lookupImpl: Array[Byte] => BloomLookup, bloomF: String) = {
+  def directCreateParquetI(lookupImpl: Array[Byte] => BloomLookup, bloomF: Column) = {
     registerQualityFunctions()
     // train it
     val orig = sqlContext.range(1, 20)
-    val aggrow = orig.select(expr(s"$bloomF(id, 20, cast(0.01 as double))")).head()
+    val aggrow = orig.select(bloomF).head()
     val thebytes = aggrow.getAs[Array[Byte]](0)
     val bf = lookupImpl(thebytes)
     val fpp = 0.99
@@ -90,7 +94,7 @@ class BloomTests extends FunSuite with TestUtils {
     doVerifyMeasurement((bloomFilterMap, df) => {
       val bloomMap = SparkSession.getActiveSession.get.sparkContext.broadcast(bloomFilterMap)
 
-      df.withColumn("probability", bloomFilterLookup(col("a") + col("b"), lit("ids"), bloomMap))},
+      df.withColumn("probability", probability_in(col("a") + col("b"),"ids", bloomMap))},
       bloomsF)
 
   def doVerifyMeasurementSQL(bloomsF: () => (BloomFilterMap, Double)): Unit =
@@ -112,12 +116,12 @@ class BloomTests extends FunSuite with TestUtils {
 
   @Test
   def verifyMeasurementColumnParquet(): Unit = evalCodeGensNoResolve {
-    doVerifyMeasurementColumn(directCreateParquet)
+    doVerifyMeasurementColumn(directCreateParquetExpr)
   }
 
   @Test
   def verifyMeasurementSQLParquet(): Unit = evalCodeGensNoResolve {
-    doVerifyMeasurementSQL(directCreateParquet)
+    doVerifyMeasurementSQL(directCreateParquetCol)
   }
 
   def createViaDFRoundTripSpark() = {

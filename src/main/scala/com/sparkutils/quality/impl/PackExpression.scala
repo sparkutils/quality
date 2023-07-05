@@ -1,10 +1,12 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality.{Id, packId}
+import com.sparkutils.quality.Id
+import com.sparkutils.quality.impl.imports.RuleResultsImports.packId
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.{Column, InputTypeChecks}
+import org.apache.spark.sql.Column
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
 import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression, ExpressionDescription, NullIntolerant, UnaryExpression}
+import org.apache.spark.sql.qualityFunctions.InputTypeChecks
 import org.apache.spark.sql.types.{DataType, IntegerType, LongType, StructField, StructType}
 
 object Pack {
@@ -29,9 +31,7 @@ case class PackExpression(left: Expression, right: Expression) extends BinaryExp
     packId(Id(id.asInstanceOf[Int], version.asInstanceOf[Int]))
   }
   override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode =
-    defineCodeGen(ctx, ev, (l, r) => s"(Long)com.sparkutils.quality.package$$.MODULE$$.packId().apply(new com.sparkutils.quality.Id((Integer)($l), (Integer)($r)))")
-
-  override def nullable: Boolean = false
+    defineCodeGen(ctx, ev, (l, r) => s"(Long)com.sparkutils.quality.impl.PackId.packId(new com.sparkutils.quality.Id((Integer)($l), (Integer)($r)))")
 
   override def dataType: DataType = LongType
 
@@ -67,8 +67,6 @@ case class UnPackExpression(child: Expression) extends UnaryExpression
 
   override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode =
     defineCodeGen(ctx, ev, (c) => s"com.sparkutils.quality.impl.UnPack.toRow( com.sparkutils.quality.impl.PackId.unpack((Long)$c) )")
-
-  override def nullable: Boolean = false
 
   override def dataType: DataType = StructType( Seq(
     StructField(name = "id", dataType = IntegerType),
@@ -127,7 +125,7 @@ case class UnPackIdTripleExpression(child: Expression) extends UnaryExpression w
     StructField(name = "ruleVersion", dataType = IntegerType)
   ))
 
-  override def inputDataTypes: Seq[Seq[DataType]] = Seq(Seq(com.sparkutils.quality.fullRuleIdType))
+  override def inputDataTypes: Seq[Seq[DataType]] = Seq(Seq(com.sparkutils.quality.types.fullRuleIdType))
 
   protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
 }

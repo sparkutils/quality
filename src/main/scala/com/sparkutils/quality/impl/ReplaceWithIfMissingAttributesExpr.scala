@@ -1,9 +1,11 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality.RuleLogicUtils.mapRules
-import com.sparkutils.quality.VariablesLookup.{fieldsFromExpression, toName}
-import com.sparkutils.quality.utils.LookupIdFunctions
-import com.sparkutils.quality.{ExpressionRule, ExpressionRuleExpr, LambdaFunction, LambdaFunctionParsed, OutputExpression, OutputExpressionExpr, Rule, RuleLogicUtils, RuleSuite, RunOnPassProcessorImpl, namesFromSchema}
+import com.sparkutils.quality.impl.RuleLogicUtils.mapRules
+import VariablesLookup.{fieldsFromExpression, toName}
+import com.sparkutils.quality.impl.imports.RuleResultsImports.DisabledRuleExpr
+import com.sparkutils.quality.impl.imports.RuleRunnerImports
+import com.sparkutils.quality.impl.util.LookupIdFunctions
+import com.sparkutils.quality.{ExpressionRule, OutputExpression, Rule, RuleSuite}
 import org.apache.spark.sql.catalyst.analysis.UnresolvedFunction
 import org.apache.spark.sql.catalyst.expressions.{Expression, Literal, LambdaFunction => SparkLambdaFunction}
 import org.apache.spark.sql.types.{NullType, StructType}
@@ -98,8 +100,7 @@ object ProcessDisableIfMissing extends RuleRunnerImports {
       }
 
     if (res.isEmpty) {
-      if (isDisabled)
-        DisabledRuleExpr // special case as this is probably before the function registry gets called
+      if (isDisabled) DisabledRuleExpr // special case as this is probably before the function registry gets called
       else
         Literal(null, NullType)
     } else

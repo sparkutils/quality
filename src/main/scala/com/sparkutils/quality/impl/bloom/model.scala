@@ -163,7 +163,7 @@ object Serializing {
 
         val (lookup, fpp) =
           if (config.bigBloom) {
-            val bloom = BucketedCreator.bloomFrom(df, value, numberOfElements, expectedFPP)
+            val bloom = BucketedCreator.bloomFrom(df, expr(value), numberOfElements, expectedFPP)
             bloom.cleanupOthers()
             (bloomLookup(bloom), 1.0 - bloom.fpp)
           } else {

@@ -3,8 +3,8 @@ package org.apache.spark.sql
 import java.util.Locale
 
 import com.sparkutils.quality.impl.{RuleEngineRunner, RuleFolderRunner, RuleRunner, ShowParams}
-import com.sparkutils.quality.debugTime
-import com.sparkutils.quality.utils.PassThrough
+import com.sparkutils.quality.impl.util.DebugTime.debugTime
+import com.sparkutils.quality.impl.util.PassThrough
 import org.apache.spark.sql.catalyst.{CatalystTypeConverters, FunctionIdentifier}
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, FunctionRegistry, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveHigherOrderFunctions, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCheckResult, TypeCoercion, UnresolvedFunction}
 import org.apache.spark.sql.catalyst.catalog.SessionCatalog
@@ -323,7 +323,7 @@ object QualitySparkUtils {
    * @param builder
    */
   def registerFunctionViaBuiltin(name: String, builder: Seq[Expression] => Expression) =
-    FunctionRegistry.builtin.internalRegisterFunction( FunctionIdentifier(name), new ExpressionInfo(name, name) , builder)
+    FunctionRegistry.builtin.registerFunction( FunctionIdentifier(name), new ExpressionInfo(name, name) , builder)
 
   /**
    * Type signature changed for 3.4 to more detailed setup, 12.2 already uses it

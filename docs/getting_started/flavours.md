@@ -5,9 +5,9 @@ tags:
 - beginner
 ---
 
-Quality has three main flavours with sprinklings of other Quality ingredients like the [sql function suite](../sqlfunctions.md).
+Quality has four main flavours with sprinklings of other Quality ingredients like the [sql function suite](../sqlfunctions.md).
 
-These flavours are provided by three "runners" which add a Column to a Spark Dataset/Dataframe.
+These flavours are provided by four "runners" which add a Column to a Spark Dataset/Dataframe.
 
 ## Quality / QualityData - ruleRunner 
 
@@ -41,4 +41,14 @@ _Example Usage:_ Correction of in-bound data to enable subsequent calculators to
 
 _What is stored:_ 
 ```plantuml format="svg_object" classes="shrink_to_fit" source="./docs/getting_started/folder.puml"
+```
+
+## QualityExpressions - ExpressionRunner
+
+[QualityExpressions](../advanced/expressionRunner.md) extends QualityRules providing the raw results as strings (with type) for expressions and allowing aggregate expressions.
+
+_Example Usage:_ Providing totals or other relevant aggregations over datasets or DQ results - e.g. only deem the data load correct when 90% of the rows have good DQ.
+
+_What is stored:_
+```plantuml format="svg_object" classes="shrink_to_fit" source="./docs/getting_started/expressionRunner.puml"
 ```

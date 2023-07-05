@@ -1,9 +1,12 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality.RuleLogicUtils.mapRules
-import com.sparkutils.quality.impl.RuleRegistrationFunctions.flattenExpressions
-import com.sparkutils.quality.utils.{NonPassThrough, PassThrough}
+import com.sparkutils.quality.impl.RuleLogicUtils.mapRules
+import com.sparkutils.quality.impl.RuleRunnerUtils.flattenExpressions
+import com.sparkutils.quality.impl.imports.RuleResultsImports.packId
 import com.sparkutils.quality._
+import types.ruleSuiteResultType
+import com.sparkutils.quality.impl.imports.RuleRunnerImports
+import com.sparkutils.quality.impl.util.{NonPassThrough, PassThrough}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode}
@@ -77,6 +80,12 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
       case Probability(percentage) => (percentage * PassedInt).toInt
       case RuleResultWithProcessor(res, _) => ruleResultToInt(res)
     }
+
+  def flattenExpressions(ruleSuite: RuleSuite): Seq[Expression] =
+    ruleSuite.ruleSets.flatMap(ruleSet => ruleSet.rules.map(rule =>
+      rule.expression match {
+        case r: ExprLogic => r.expr // only ExprLogic are possible here
+      }))
 
   def reincorporateExpressions(ruleSuite: RuleSuite, expr: Seq[Expression], compileEvals: Boolean = true): RuleSuite =
     reincorporateExpressionsF(ruleSuite, expr, (expr: Expression) => ExpressionWrapper(expr, compileEvals))
@@ -237,11 +246,11 @@ case class RuleRunner(ruleSuite: RuleSuite, child: Expression, compileEvals: Boo
 
   // keep it simple for this one. - can return an internal row or whatever..
   override def eval(input: InternalRow): Any = {
-    val res = reincorporated.eval(input)
+    val res = RuleSuiteFunctions.eval(reincorporated, input)
     ruleResultToRow(res)
   }
 
-  def dataType: DataType = com.sparkutils.quality.ruleSuiteResultType
+  def dataType: DataType = ruleSuiteResultType
 
   /**
    * Instead of evaluating through the RuleSuite structure the expressions are evaluated back to back, then
@@ -281,7 +290,7 @@ case class RuleRunner(ruleSuite: RuleSuite, child: Expression, compileEvals: Boo
         val converted =
           s"""${eval.code}\n
 
-             $arrTerm[$idx] = ${eval.isNull} ? null : com.sparkutils.quality.RuleLogicUtils.anyToRuleResultInt(${eval.value});"""
+             $arrTerm[$idx] = ${eval.isNull} ? null : com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt(${eval.value});"""
 
         converted
     }.grouped(variablesPerFunc).grouped(variableFuncGroup)

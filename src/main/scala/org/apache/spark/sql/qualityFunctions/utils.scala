@@ -1,14 +1,17 @@
 package org.apache.spark.sql.qualityFunctions
 
-import com.sparkutils.quality.utils.Arrays
-import com.sparkutils.quality.utils.Comparison.compareToOrdering
-import org.apache.spark.sql.QualitySparkUtils
+import java.util.concurrent.atomic.AtomicInteger
+
+import com.sparkutils.quality.impl.util.Comparison.compareToOrdering
+import org.apache.spark.sql.{Column, QualitySparkUtils}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.BoundReference
+import org.apache.spark.sql.catalyst.expressions.{BoundReference, LambdaFunction, NamedExpression, UnresolvedNamedLambdaVariable}
 import org.apache.spark.sql.catalyst.util.ArrayData
 import org.apache.spark.sql.types.{ArrayType, AtomicType, DataType, MapType, StructField, StructType}
 
 object utils {
+
+  def named(col: Column): NamedExpression = col.named
 
   private val noopCompare = (dt: DataType) => None
 
@@ -41,8 +44,8 @@ object utils {
       // same
       var i = 0
       var res = 0
-      val al = Arrays.toArray(left, elementType)
-      val ar = Arrays.toArray(right, elementType)
+      val al = (idx: Int) => left.get(idx, elementType)// Arrays.toArray(left, elementType)
+      val ar = (idx: Int) => right.get(idx, elementType)// Arrays.toArray(right, elementType)
       while (i < left.numElements() && res == 0) {
         res = elComp(al(i), ar(i))
         i += 1
@@ -116,4 +119,38 @@ object utils {
       )
     }
 
+  // taken from functions, where they are private
+  def createLambda(f: Column => Column) = {
+    val x = UnresolvedNamedLambdaVariable(Seq(UnresolvedNamedLambdaVariableT.freshVarName("x")))
+    val function = f(Column(x)).expr
+    LambdaFunction(function, Seq(x))
+  }
+
+  def createLambda(f: (Column, Column) => Column) = {
+    val x = UnresolvedNamedLambdaVariable(Seq(UnresolvedNamedLambdaVariableT.freshVarName("x")))
+    val y = UnresolvedNamedLambdaVariable(Seq(UnresolvedNamedLambdaVariableT.freshVarName("y")))
+    val function = f(Column(x), Column(y)).expr
+    LambdaFunction(function, Seq(x, y))
+  }
+
+  def createLambda(f: (Column, Column, Column) => Column) = {
+    val x = UnresolvedNamedLambdaVariable(Seq(UnresolvedNamedLambdaVariableT.freshVarName("x")))
+    val y = UnresolvedNamedLambdaVariable(Seq(UnresolvedNamedLambdaVariableT.freshVarName("y")))
+    val z = UnresolvedNamedLambdaVariable(Seq(UnresolvedNamedLambdaVariableT.freshVarName("z")))
+    val function = f(Column(x), Column(y), Column(z)).expr
+    LambdaFunction(function, Seq(x, y, z))
+  }
+
 }
+
+// TODO remove with 2.4, it's only here until 0.2.0 as 3 introduced freshVarName
+object UnresolvedNamedLambdaVariableT {
+
+  // Counter to ensure lambda variable names are unique
+  private val nextVarNameId = new AtomicInteger(0)
+
+  def freshVarName(name: String): String = {
+    s"${name}_${nextVarNameId.getAndIncrement()}"
+  }
+}
+

@@ -1,6 +1,7 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
+import com.sparkutils.quality.impl.VersionedId
 import org.apache.spark.sql.{DataFrame, QualitySparkUtils}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.qualityFunctions.PlaceHolderExpression
