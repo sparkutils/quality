@@ -7,7 +7,7 @@ import com.sparkutils.quality.impl.extension.QualitySparkExtension.disableRulesC
 import com.sparkutils.quality.impl.util.Testing
 import org.apache.spark.sql.catalyst.expressions.{And, Attribute, BinaryComparison, EqualTo, Equality, Expression, Or}
 import org.apache.spark.sql.catalyst.plans.logical.Join
-import org.apache.spark.sql.sources.{Filter, And => SAnd, EqualTo => SEqualTo, GreaterThan => SGreaterThan, GreaterThanOrEqual => SGreaterThanOrEqual, In => SIn, Or => SOr}
+import org.apache.spark.sql.sources.{Filter, And => SAnd, EqualTo => SEqualTo, GreaterThan => SGreaterThan, GreaterThanOrEqual => SGreaterThanOrEqual, In => SIn, Or => SOr, IsNotNull => SIsNotNull}
 import org.apache.spark.sql.{Column, DataFrame, SparkSession}
 import org.junit.{Before, Test}
 import org.scalatest.FunSuite
@@ -216,6 +216,32 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
   }
 
   @Test
+  def testAsymmetricFilterEqCastSQL(): Unit = not_Databricks { not2_4 {
+    cleanUp("./metastore_db")
+
+    wrapWithExtensionT(sparkSession => {
+      val ds = uuidPairsWithContext("a")(sparkSession)
+      val abspath = new File(ds.inputFiles.head).getParentFile.getPath.replaceAll("\\\\", "/")
+      sparkSession.sql(s"drop table if exists testme")
+      sparkSession.sql(s"create table testme using $format location '$abspath'")
+
+      sparkSession.sql(s"create or replace view testfunctionview as select alower, ahigher, cast(alower as string) alower_string, cast(ahigher as string) ahigher_string from testme");
+      val cantCast = sparkSession.sql(s"select ahigher from testfunctionview where ahigher_string = 'a$higher' limit 10")
+
+      assert( getPushDowns( cantCast.queryExecution.executedPlan ).contains(nonNullHigher), s", should not be possible to convert on the literal so it lets the original nonnull through")
+
+      val resdf = sparkSession.sql(s"select ahigher from testfunctionview where ahigher_string = '$higher' limit 10")
+      // verify push downs
+      val pushdowns = getPushDowns( resdf.queryExecution.executedPlan )
+
+      // with joins both sides should have pushdown for equals, but for gt,lt etc. it'll be one sided for some, not for others
+      assert(pushdowns.nonEmpty, s", did not have any pushed down filters")
+
+      assert(pushdowns.contains(theuuid6Higher), s", did not have a pushdown with the correct predicates including $theuuid6Higher but $pushdowns")
+    }, withHive = true)
+  }}
+
+  @Test
   def testAsymmetricFilterEqSQL(): Unit = not_Databricks { not2_4 {
     cleanUp("./metastore_db")
 
@@ -302,6 +328,8 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
   val lower = -6605018797301088250L
 
   val theuuid6Higher = SEqualTo("ahigher", higher)
+
+  val nonNullHigher = SIsNotNull("ahigher")
 
   def doTestAsymmetricFilterPlanJoin(viaExtension: (SparkSession => Unit) => Unit, hint: String,
                                      joinOp: (Column, Column) => Column): Unit =

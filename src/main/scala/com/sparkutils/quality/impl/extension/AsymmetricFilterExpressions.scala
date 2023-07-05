@@ -3,10 +3,12 @@ package com.sparkutils.quality.impl.extension
 import com.sparkutils.quality.impl.id.{AsBase64Fields, AsBase64Struct, IDFromBase64, SizeOfIDString}
 import com.sparkutils.quality.impl.longPair.AsUUID
 import com.sparkutils.quality.impl.{PredicateHelperPlus, UUIDToLongsExpression}
-import org.apache.spark.sql.catalyst.expressions.{And, BinaryComparison, CreateNamedStruct, CreateStruct, EqualNullSafe, EqualTo, Equality, Expression, GetStructField, GreaterThan, GreaterThanOrEqual, If, In, LessThan, LessThanOrEqual, Literal, Or}
+import org.apache.spark.sql.QualitySparkUtils
+import org.apache.spark.sql.catalyst.expressions.{And, BinaryComparison, Cast, CreateNamedStruct, CreateStruct, EqualNullSafe, EqualTo, Equality, EvalMode, Expression, GetStructField, GreaterThan, GreaterThanOrEqual, If, In, IsNull, LessThan, LessThanOrEqual, Literal, Or}
 import org.apache.spark.sql.catalyst.plans.logical.{ConstraintHelper, Filter, Join, LogicalPlan}
 import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.sql.types.StringType
+import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.types.{DataType, StringType}
 
 /**
  * Replaces any attributes aliased by an expression which is then used in select filters / constraints wth
@@ -46,7 +48,7 @@ abstract class AsymmetricFilterExpressions extends Rule[LogicalPlan]
   // attempt to find / replace any part of the filter tree
   def transform(expr: Expression, topPlan: LogicalPlan): (Expression, Boolean) = {
     var found = false
-    (expr.transform {
+    (expr.transformUp {
       case i@In(expr, list) =>
         findRootExpression(expr, topPlan).map { lhs =>
           reWriteExpression(lhs, list, i).map { e => found = true; e }.getOrElse(i)
@@ -302,6 +304,56 @@ object IDBase64Filter extends AsymmetricFilterExpressions {
             orAndFields(a.size, left(_), GetStructField(id, _), create))
         )
 
+      case _ => None
+    }
+  }
+
+}
+
+/**
+ * Optimises casts by attempting to reverse them
+ */
+object CastFilter extends AsymmetricFilterExpressions {
+
+  override def reWriteExpression(generating: Expression, comparedTo: Object,
+                                 filter: Expression): Option[Expression] = {
+    val evalMode = EvalMode.fromSQLConf(SQLConf.get)
+    def canCast(a: DataType, b: DataType): Boolean =
+      evalMode match {
+        case _ if (a == b) => false // we don't want to process it if the types are the same, should be folded etc.
+        case EvalMode.LEGACY => Cast.canCast(a, b)
+        case EvalMode.ANSI => Cast.canAnsiCast(a, b)
+        case EvalMode.TRY => Cast.canTryCast(a, b)
+        case _ => false
+      }
+
+    val create = AsymmetricFilterExpressions.create(filter,_: Expression,_: Expression)
+    (generating, comparedTo, filter) match {
+      // join case (possibly a filter)
+      // filter case's
+
+      // if it's already a literal we can eval it
+      case (c: Cast, e: Literal, Equality(_,_)) if canCast(c.children.head.dataType, e.dataType) =>
+        val casted = QualitySparkUtils.cast( e,  c.children.head.dataType ).eval()
+
+        Some(
+          if (casted == null) // we can't evaluate this sensibly but it'd be best to keep the original
+          filter
+            else
+            create( c.children.head, Literal(casted) )
+        )
+
+      case (c: Cast, e: Expression, Equality(_,_)) if canCast(c.children.head.dataType, e.dataType) =>
+        val theCast = QualitySparkUtils.cast( e,  c.children.head.dataType )
+
+        Some(
+          If(IsNull(theCast), // casts that don't work get null'd, leave the if in, if it can be actually casted on fold only create is left
+            filter,
+            create( c.children.head, theCast )
+          )
+        )
+
+      // in should be doable, none of the others would really make sense
       case _ => None
     }
   }
