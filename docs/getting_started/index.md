@@ -58,7 +58,7 @@ The performance tests are not automated and must be manually run when needed.
 
 ## Build tool dependencies
 
-Quality is cross compiled for different versions of Spark, Scala _and_ runtimes such as Databricks.  The format for artefacts is:
+Quality is cross compiled for different versions of Spark, Scala _and_ runtimes such as Databricks.  The format for artifact's is:
 
 ```
 quality_RUNTIME_SPARKCOMPATVERSION_SCALACOMPATVERSION-VERSION.jar
@@ -67,7 +67,7 @@ quality_RUNTIME_SPARKCOMPATVERSION_SCALACOMPATVERSION-VERSION.jar
 e.g.
 
 ```
-quality_3.3.0.oss_3.3_2.12-0.7.0-SNAPSHOT.jar
+quality_3.4.1.oss_3.4_2.12-0.1.0.jar
 ```
 
 The build poms generate those variables via maven profiles, but you are advised to use properties to configure e.g. for Maven:
@@ -116,10 +116,10 @@ As there are many compatibility issues that Quality works around between the var
 
 ```xml
 <properties>
-    <qualityVersion>0.7.0-SNAPSHOT</qualityVersion>
-    <qualityTestPrefix>3.2.1.oss_</qualityTestPrefix>
-    <qualityDatabricksPrefix>10.4.dbr_</qualityDatabricksPrefix>
-    <sparkShortVersion>3.2</sparkShortVersion>
+    <qualityVersion>0.1.0</qualityVersion>
+    <qualityTestPrefix>3.4.1.oss_</qualityTestPrefix>
+    <qualityDatabricksPrefix>13.1.dbr_</qualityDatabricksPrefix>
+    <sparkShortVersion>3.4</sparkShortVersion>
     <scalaCompatVersion>2.12</scalaCompatVersion>    
 </properties>
 

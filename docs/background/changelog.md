@@ -1,4 +1,6 @@
-### 0.1.0 <small>10th June, 2023</small>
+### [0.1.0](https://github.com/sparkutils/quality/milestone/3?closed=1) <small>10th June, 2023</small>
+
+#29 - Quality OptimzerRule's run with Databricks sql display
 
 #35 - agg_expr and associated lambda support in the functions package 
 
@@ -14,15 +16,17 @@
 
 #24 - Remove saferId / rowid functions - use unique_id where required 
 
-#17 - ViewLoader - simple view configuration via DataFrames  
+#18 - ViewLoader - simple view configuration via DataFrames  
+
+#30 - 3.3.2 and 3.4.1 builds - simple version bumps
 
 #20 - 3.5.0 starting support
 
-### 0.0.3 <small>17th June, 2023</small>
+### [0.0.3](https://github.com/sparkutils/quality/milestone/5?closed=1) <small>17th June, 2023</small>
 
 #25 - Use builtIn function registration by default - allows global views to be created using Quality functions
 
-### 0.0.2 <small>2nd June, 2023</small>
+### [0.0.2](https://github.com/sparkutils/quality/milestone/2?closed=1) <small>2nd June, 2023</small>
 
 #16 - Remove winutils requirements for testing and usage
 
@@ -44,7 +48,7 @@
 
 #4 - comparableMaps / reverseComparableMaps functions, allowing map comparison / set operations (e.g. sort, distinct etc.)
 
-### 0.0.1 <small>8th March, 2023</small>
+### [0.0.1](https://github.com/sparkutils/quality/milestone/1?closed=1) <small>8th March, 2023</small>
 
 Initial OSS version.
 

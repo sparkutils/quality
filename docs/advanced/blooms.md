@@ -49,7 +49,7 @@ val bloomFilterMap = SparkSession.active.sparkContext.broadcast( Map("ids" -> (S
 // register the map for this SparkSession
 registerBloomMapAndFunction(bloomFilterMap)
 // lookup the result of adding column's a and b against that bloom filter for each row
-otherSourceDF.withColumn("probabilityInIds", expr("probabilityIn(a + b, 'ids')"))
+otherSourceDF.withColumn("probabilityInIds", expr("probability_in(a + b, 'ids')"))
 ```
 
 The stats package bloomFilter function has severe limitations on a single field and does not allow expressions but through the SparkBloomFilter lookup function is integrated with Quality anyway.

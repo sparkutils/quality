@@ -96,13 +96,13 @@ ARRAY<STRUCT<`salience`: INTEGER, `result`: ARRAY<ORIGINGALRESULTTYPE>>
     1. no rules have matched (you can verify this as you'll have no passed() rules).
     2. your rule actually returned a null (you can verify this by putting on debug mode, you'll see a salience but no result)
 
-## flattenRuleResults
+## flatten_rule_results
     
 ```scala
-  val outdf = testDataDF.withColumn("together", rer).selectExpr("explode(flattenRuleResults(together)) as expl").selectExpr("expl.*")
+  val outdf = testDataDF.withColumn("together", rer).selectExpr("explode(flatten_rule_results(together)) as expl").selectExpr("expl.*")
 ```
 
-This sql function behaves the same way as per flattenResults, however there are now two structures to 'explode'.  debugRules works as expected here as well.
+This sql function behaves the same way as per flatten_results, however there are now two structures to 'explode'.  debugRules works as expected here as well.
 
 ## resolveWith
 

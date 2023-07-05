@@ -15,7 +15,7 @@ RuleSuites are built per the normal DQ rules however a RuleResultProcessor is su
 ```{.scala #exampleCode}
   val ruleResultProcessor = 
     RunOnPassProcessor(salience, Id(outputId, outputVersion), 
-      RuleLogicUtils.expr("thecurrent -> updateField(thecurrent, 'account', concat(thecurrent.account, '_suffix') )")))
+      RuleLogicUtils.expr("thecurrent -> update_field(thecurrent, 'account', concat(thecurrent.account, '_suffix') )")))
   val rule = Rule(Id(id, version), expressionRule, ruleResultProcessor)
   val ruleSuite = RuleSuite(Id(ruleSuiteId, ruleSuiteVersion), Seq(
       RuleSet(Id(ruleSetId, ruleSetVersion), Seq(rule)
@@ -55,18 +55,18 @@ The following two folder expressions are equivalent, indeed the set call is tran
 ```sql
 set( account = concat(currentResult.account, '_suffix'), ammount = 5 )
 
-currentResult -> updateField(currentResult, 'account', concat(currentResult.account, '_suffix'), 'ammount', 5 )
+currentResult -> update_field(currentResult, 'account', concat(currentResult.account, '_suffix'), 'ammount', 5 )
 ```
 
 The set syntax defaults the name of the lambda variable to "currentResult" and removes the odd looking quotes around the variable names. 
 
-## flattenFolderResults
+## flatten_folder_results
 
 ```scala
-  val outdf = testDataDF.withColumn("together", rer).selectExpr("explode(flattenFolderResults(together)) as expl").selectExpr("expl.result")
+  val outdf = testDataDF.withColumn("together", rer).selectExpr("explode(flatten_folder_results(together)) as expl").selectExpr("expl.result")
 ```
 
-This sql function behaves the same way as per flattenRuleResults with debugRules working as expected.
+This sql function behaves the same way as per flatten_rule_results with debugRules working as expected.
 
 ## resolveWith
 

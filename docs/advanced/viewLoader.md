@@ -8,7 +8,7 @@ val (viewConfigs, failed) = loadViewConfigs(loader, config.toDF(), expr("id.id")
 val results = loadViews(viewConfigs)
 ``` 
 
-[loadViewConfigs]( ../../site/scaladocs/com/sparkutils/quality/impl/views/ViewLoader$.html#loadViewConfigs(loader:com.sparkutils.quality.DataFrameLoader,viewDF:org.apache.spark.sql.DataFrame,ruleSuiteIdColumn:org.apache.spark.sql.Column,ruleSuiteVersionColumn:org.apache.spark.sql.Column,ruleSuiteId:com.sparkutils.quality.Id,name:org.apache.spark.sql.Column,token:org.apache.spark.sql.Column,filter:org.apache.spark.sql.Column,sql:org.apache.spark.sql.Column):(Seq[com.sparkutils.quality.impl.views.ViewConfig],Set[String]) ) takes a DataFrameLoader as a parameter allowing Quality to load tables based on your integration logic.  There are two flavours, one expecting a table with the following schema:
+[loadViewConfigs]( ../../site/scaladocs/com/sparkutils/quality/impl/views/ViewLoader$.html#loadViewConfigs(loader:com.sparkutils.quality.DataFrameLoader,viewDF:org.apache.spark.sql.DataFrame,ruleSuiteIdColumn:org.apache.spark.sql.Column,ruleSuiteVersionColumn:org.apache.spark.sql.Column,ruleSuiteId:com.sparkutils.quality.Id,name:org.apache.spark.sql.Column,token:org.apache.spark.sql.Column,filter:org.apache.spark.sql.Column,sql:org.apache.spark.sql.Column):(Seq[com.sparkutils.quality.impl.views.ViewConfig],Set[String]) ) takes a [DataFrameLoader](../../site/scaladocs/com/sparkutils/quality/DataFrameLoader.html) as a parameter allowing Quality to load tables based on your integration logic.  There are two flavours, one expecting a table with the following schema:
 
 ```sql
 STRUCT< name : STRING, token : STRING nullable, filter : STRING nullable, sql: STRING nullable> 
