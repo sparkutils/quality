@@ -1,13 +1,13 @@
 package com.sparkutils.quality.impl.bloom
 
 import java.io.{ByteArrayInputStream, File, ObjectInputStream}
-import com.sparkutils.quality.BucketedFiles
+import com.sparkutils.quality.BloomModel
 import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.impl.bloom.parquet.{BlockSplitBloomFilterImpl, Bloom, BloomFilter, BloomHash, BucketedCreator, BucketedFilesRoot, FileRoot}
-import org.apache.spark.sql.InputTypeChecks
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.expressions.aggregate.{ImperativeAggregate, TypedImperativeAggregate}
+import org.apache.spark.sql.qualityFunctions.InputTypeChecks
 import org.apache.spark.sql.types._
 
 trait ParquetBloomAggregator[T <: Bloom[_]] extends InputTypeChecks {
@@ -105,7 +105,12 @@ case class BucketedArrayParquetAggregator(child: Expression, expectedSizeE: Expr
   with ParquetBloomFPP {
 
   protected lazy val numBuckets: Int = {
-    val longRes = com.sparkutils.quality.optimalNumberOfBuckets(expectedSizeE.eval().asInstanceOf[Int],
+    val longRes = com.sparkutils.quality.optimalNumberOfBuckets(
+      expectedSizeE.dataType match {
+        case LongType => expectedSizeE.eval().asInstanceOf[Long]
+        case IntegerType => expectedSizeE.eval().asInstanceOf[Int]
+        case ShortType => expectedSizeE.eval().asInstanceOf[Short]
+      },
       fpp)
     longRes.toByte
   }
@@ -148,7 +153,7 @@ object Parquet {
     override def deserialize(storageFormat: Array[Byte]) = {
       val ios = new ByteArrayInputStream(storageFormat)
       val oos = new ObjectInputStream(ios)
-      val bucketedFiles = oos.readObject().asInstanceOf[BucketedFiles]
+      val bucketedFiles = oos.readObject().asInstanceOf[BloomModel]
       oos.close()
       ios.close()
       val ar = bucketedFiles.read

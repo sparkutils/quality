@@ -1,10 +1,10 @@
 package com.sparkutils.quality.impl.extension
 
 import com.sparkutils.quality.impl.extension.QualitySparkExtension.{disableRulesConf, forceInjectFunction}
-import com.sparkutils.quality.utils.Testing
+import com.sparkutils.quality.impl.util.Testing
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.{QualitySparkUtils, SparkSession, SparkSessionExtensions}
-import org.apache.spark.sql.catalyst.expressions.{Expression}
+import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.qualityFunctions.utils
@@ -27,9 +27,9 @@ object QualitySparkExtension {
  */
 class QualitySparkExtension extends ((SparkSessionExtensions) => Unit) with Logging {
 
-  def parseTypes: String => Option[DataType] = com.sparkutils.quality.defaultParseTypes _
-  def zero: DataType => Option[Any] = com.sparkutils.quality.defaultZero _
-  def add: DataType => Option[(Expression, Expression) => Expression] = (dataType: DataType) => com.sparkutils.quality.defaultAdd(dataType)
+  def parseTypes: String => Option[DataType] = com.sparkutils.quality.impl.RuleRegistrationFunctions.defaultParseTypes _
+  def zero: DataType => Option[Any] = com.sparkutils.quality.impl.RuleRegistrationFunctions.defaultZero _
+  def add: DataType => Option[(Expression, Expression) => Expression] = (dataType: DataType) => com.sparkutils.quality.impl.RuleRegistrationFunctions.defaultAdd(dataType)
   def mapCompare: DataType => Option[(Any, Any) => Int] = (dataType: DataType) => utils.defaultMapCompare(dataType)
   def writer: String => Unit = println(_)
 

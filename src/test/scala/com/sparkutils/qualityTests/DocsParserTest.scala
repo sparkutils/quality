@@ -1,5 +1,6 @@
 package com.sparkutils.qualityTests
-import com.sparkutils.quality.utils.{Docs, DocsParser}
+
+import com.sparkutils.quality.impl.util.{Docs, DocsParser}
 import org.junit.Test
 
 class DocsParserTest {

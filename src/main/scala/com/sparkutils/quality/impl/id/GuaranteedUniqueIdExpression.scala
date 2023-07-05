@@ -6,16 +6,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
 import org.apache.spark.sql.catalyst.expressions.{LeafExpression, Nondeterministic}
 import org.apache.spark.sql.types.DataType
 
-trait GuaranteedUniqueIDImports {
-  /**
-   * Creates a uniqueID backed by the GuaranteedUniqueID Spark Snowflake ID approach
-   */
-  def uniqueID(prefix: String): Column =
-    new Column(GuaranteedUniqueIdIDExpression(
-      GuaranteedUniqueID() // defaults are all fine, ms just relates to definition instead of action
-      , prefix
-    ))
-}
+
 
 /**
  * Delegates ID creation to some other expression which must provide an array of longs result.

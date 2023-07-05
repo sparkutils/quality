@@ -1,7 +1,7 @@
 package com.sparkutils.quality.tests
 
 import com.sparkutils.quality._
-import com.sparkutils.quality.impl.{RuleRunnerFunctions, RuleRunnerUtils}
+import com.sparkutils.quality.impl.{ExprLogic, RuleRegistrationFunctions, RuleRunnerUtils, ExpressionWrapper}
 import com.sparkutils.qualityTests.TestUtils
 import org.apache.spark.sql.catalyst.expressions.Literal
 import org.apache.spark.sql.types.StringType
@@ -38,7 +38,7 @@ class RoundTripPrivateTest extends FunSuite with TestUtils {
       ))
     ))
 
-    val flatABC = RuleRunnerFunctions.flattenExpressions(rules)
+    val flatABC = RuleRunnerUtils.flattenExpressions(rules)
     assert( flatABC.map( _ match {
       case Literal(a, StringType) => a
     }).mkString("") == "abcdefghijkl", "no alphabet" )

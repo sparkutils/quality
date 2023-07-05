@@ -1,11 +1,13 @@
 package com.sparkutils.qualityTests.mapLookup
 
 import com.sparkutils.quality._
+import functions.map_contains
 import com.sparkutils.qualityTests._
+import com.sparkutils.qualityTests.mapLookup.TradeTests.{ccyRate, countryCodeCCY, simpleTrades, tradeCols}
 import org.apache.spark.sql.catalyst.expressions.GenericRowWithSchema
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.{IntegerType, StringType, StructField, StructType}
-import org.apache.spark.sql.{Column, functions}
+import org.apache.spark.sql.{Column, SparkSession, functions}
 import org.junit.Test
 import org.scalatest.FunSuite
 
@@ -41,6 +43,52 @@ object TradeTests {
   val tradeCols = Seq("date", "product", "value", "ccy", "ccyrate", "country")
 }
 
+object MapLookupTest {
+
+  val structType = StructType( Seq(
+    StructField("funnycheck", IntegerType),
+    StructField("ccy", StringType)
+  ))
+
+  def doTradeLookupTest(lookups: _root_.com.sparkutils.quality.MapLookups, sparkSession: SparkSession) = {
+    registerMapLookupsAndFunction(lookups)
+    import sparkSession.implicits._
+    val df = simpleTrades.toDF(tradeCols: _ *)
+
+    val res = df.select(col("*"), expr("mapLookup('ccyRate', ccy)").as("lookedUpCCYRate"),
+      expr("mapLookup('countryCode', country)").as("countrystuff"),
+      expr("mapLookup('countryCode', country).ccy").as("countrystuffccy")
+    )
+    res.show()
+
+    val countryLookup = countryCodeCCY.map(t => t._1 -> new GenericRowWithSchema(Array(t._2, t._3), structType)).toMap
+    import scala.collection.JavaConverters._
+    val countryRes = res.select("country", "countrystuff").toLocalIterator().asScala.map {
+      row =>
+        row.get(0) -> row.get(1)
+    }.toMap
+
+    assert(countryLookup == countryRes, "Did not get the same lookup results for country")
+
+    val ccyLookup = ccyRate.toMap
+    val ccyRes = res.select("ccy", "lookedUpCCYRate").toLocalIterator().asScala.map {
+      row =>
+        row.get(0) -> row.get(1)
+    }.toMap
+
+    assert(ccyLookup == ccyRes, "Did not get the same lookup results for ccy")
+
+    val countryCCYLookup = countryCodeCCY.map(t => t._1 -> t._3).toMap
+    val countryCCYRes = res.select("country", "countrystuffccy").toLocalIterator().asScala.map {
+      row =>
+        row.get(0) -> row.get(1)
+    }.toMap
+
+    assert(countryCCYLookup == countryCCYRes, "Did not get the same lookup results for country's nested ccy")
+  }
+
+}
+
 class MapLookupTests extends FunSuite with TestUtils {
 
   import TradeTests._
@@ -60,49 +108,10 @@ class MapLookupTests extends FunSuite with TestUtils {
     ))
   }
 
-  val structType = StructType( Seq(
-    StructField("funnycheck", IntegerType),
-    StructField("ccy", StringType)
-  ))
-
   @Test
   def lookupTest: Unit = evalCodeGensNoResolve {
     val lookups = getRef()
-    registerMapLookupsAndFunction(lookups)
-    import sparkSession.implicits._
-    val df = simpleTrades.toDF(tradeCols :_ *)
-
-    val res = df.select(col("*"), expr("mapLookup('ccyRate', ccy)").as("lookedUpCCYRate"),
-      expr("mapLookup('countryCode', country)").as("countrystuff"),
-      expr("mapLookup('countryCode', country).ccy").as("countrystuffccy")
-    )
-    res.show()
-
-    val countryLookup = countryCodeCCY.map(t => t._1 -> new GenericRowWithSchema(Array(t._2, t._3), structType)).toMap
-    import scala.collection.JavaConverters._
-    val countryRes = res.select("country", "countrystuff").toLocalIterator().asScala.map{
-      row =>
-        row.get(0) -> row.get(1)
-    }.toMap
-
-    assert(countryLookup == countryRes, "Did not get the same lookup results for country")
-
-    val ccyLookup = ccyRate.toMap
-    val ccyRes = res.select("ccy", "lookedUpCCYRate").toLocalIterator().asScala.map{
-      row =>
-        row.get(0) -> row.get(1)
-    }.toMap
-
-    assert(ccyLookup == ccyRes, "Did not get the same lookup results for ccy")
-
-    val countryCCYLookup = countryCodeCCY.map(t => t._1 -> t._3).toMap
-    val countryCCYRes = res.select("country", "countrystuffccy").toLocalIterator().asScala.map{
-      row =>
-        row.get(0) -> row.get(1)
-    }.toMap
-
-    assert(countryCCYLookup == countryCCYRes, "Did not get the same lookup results for country's nested ccy")
-
+    MapLookupTest.doTradeLookupTest(lookups, sparkSession)
   }
 
   @Test
@@ -133,6 +142,11 @@ class MapLookupTests extends FunSuite with TestUtils {
     val res = df.select(col("*"), expr("mapContains('empty', country)").as("doesCountryExist")).
       filter("doesCountryExist = false")
     assert(res.count == df.count,"all of the rows should be false" )
+
+    // tests both map_contains and lookup
+    val res2 = df.select(col("*"), map_contains("empty", col("country"), lookups).as("doesCountryExist")).
+      filter("doesCountryExist = false")
+    assert(res2.count == df.count,"all of the rows should be false" )
   }
 
   @Test
@@ -154,7 +168,7 @@ class MapLookupTests extends FunSuite with TestUtils {
   }
 
   @Test
-  def taxonomyLookup: Unit = evalCodeGensNoResolve {
+  def taxonomyLookup: Unit = forceInterpreted {
     val orchid = Seq("open","difficult","prized")
 
     // 1) if a hierarchy is not given whole term is null and default to input (null, null) key

@@ -1,37 +1,16 @@
 package com.sparkutils.quality.impl.bloom
 
-import com.sparkutils.quality.RuleSuite
-import com.sparkutils.quality.impl.RuleRunnerFunctions
-import com.sparkutils.quality.BloomFilterMap
 import com.sparkutils.quality.QualityException.qualityException
-import com.sparkutils.quality.impl.bloom.parquet.BloomFilter
-import com.sparkutils.quality.impl.longPair.SaferLongPairsExpression
+import com.sparkutils.quality.{BloomFilterMap, RuleSuite}
+import com.sparkutils.quality.impl.{RuleRegistrationFunctions, RuleRunnerUtils}
 import org.apache.spark.broadcast.Broadcast
-import org.apache.spark.sql.catalyst.analysis.UnresolvedFunction
-import org.apache.spark.sql.catalyst.FunctionIdentifier
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode}
+import org.apache.spark.sql.catalyst.expressions.codegen.Block._
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
 import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression, ExpressionDescription, Literal, NullIntolerant}
 import org.apache.spark.sql.types.{DataType, DoubleType, StringType}
-import org.apache.spark.sql.{Column, QualitySparkUtils, SparkSession}
-import org.apache.spark.unsafe.types.UTF8String
-import org.apache.spark.sql.catalyst.expressions.codegen.Block._
+import org.apache.spark.sql.{Column, QualitySparkUtils}
 
-trait BloomFilterRegistration {
-
-  /**
-   * Registers this bloom map and associates the probabilityIn sql expression against it
-   * @param bloomFilterMap
-   */
-  def registerBloomMapAndFunction(bloomFilterMap: Broadcast[BloomFilterMap]) {
-    val funcReg = SparkSession.getActiveSession.get.sessionState.functionRegistry
-
-    val f = (exps: Seq[Expression]) => BloomFilterLookupExpression(exps(0), exps(1), bloomFilterMap)
-    QualitySparkUtils.registerFunction(funcReg)("probabilityIn", f)
-  }
-
-}
-
-trait BloomFilterLookupImports {
+object BloomFilterLookup {
 
   /**
    * Identifies bloom ids before (or after) resolving for a given ruleSuite, use to know which bloom filters need to be loaded
@@ -41,7 +20,7 @@ trait BloomFilterLookupImports {
    */
   def getBlooms(ruleSuite: RuleSuite): Seq[String]  = {
     // parsing is different than plan..
-    val flattened = RuleRunnerFunctions.flattenExpressions(ruleSuite)
+    val flattened = RuleRunnerUtils.flattenExpressions(ruleSuite)
     val ids = flattened.flatMap {
       exp =>
         BloomFilterLookup.getBlooms(exp)
@@ -49,11 +28,6 @@ trait BloomFilterLookupImports {
     ids
   }
 
-  def bloomFilterLookup(bloomFilterName: Column, lookupValue: Column, bloomMap: Broadcast[BloomFilterMap]): Column =
-    BloomFilterLookup(bloomFilterName, lookupValue, bloomMap)
-}
-
-object BloomFilterLookup {
   /**
     * For withColumn / select usage, the bloomfilters generation and test expressions must be of the same type
     */
@@ -175,7 +149,7 @@ case class BloomFilterLookupExpression(left: Expression, right: Expression, bloo
 
         Object converted = $converted;
 
-        boolean res = ((com.sparkutils.quality.package$$.BloomLookup) $bloomPair._1()).mightContain(converted);
+        boolean res = ((com.sparkutils.quality.BloomLookup) $bloomPair._1()).mightContain(converted);
         double ${ev.value} = (!res) ? 0.0 : (Double) $bloomPair._2();
         boolean ${ev.isNull} = false;
        """)

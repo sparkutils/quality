@@ -2,7 +2,7 @@ package com.sparkutils.quality.impl.mapLookup
 
 import com.sparkutils.quality.MapLookups
 import com.sparkutils.quality.QualityException.qualityException
-import com.sparkutils.quality.impl.{MapUtils, RuleRunnerFunctions}
+import com.sparkutils.quality.impl.{MapUtils, RuleRegistrationFunctions}
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.catalyst.{CatalystTypeConverters, InternalRow}
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
@@ -16,15 +16,15 @@ object MapLookup {
   /**
     * For withColumn / select usage, the map generation and lookup expressions must be of the same type
     */
-  def apply(mapLookupName: Column, lookupValue: Column, mapLookups: MapLookups): Column = {
-    new Column(apply(mapLookupName.expr, lookupValue.expr, mapLookups))
+  def apply(mapLookupName: Column, lookupKey: Column, mapLookups: MapLookups): Column = {
+    new Column(apply(mapLookupName.expr, lookupKey.expr, mapLookups))
   }
 
-  def apply(mapLookupName: Expression, lookupValue: Expression, mapLookups: MapLookups): MapLookupExpression = {
-    val id = RuleRunnerFunctions.getString(mapLookupName) // Must be hard coded, can't give a dynamic data type otherwise it will fail at runtime not analysis
+  def apply(mapLookupName: Expression, lookupKey: Expression, mapLookups: MapLookups): MapLookupExpression = {
+    val id = RuleRegistrationFunctions.getString(mapLookupName) // Must be hard coded, can't give a dynamic data type otherwise it will fail at runtime not analysis
     val (bv, dt) = mapLookups.getOrElse(id, mapDoesNotExist(id))
 
-    MapLookupExpression(id, lookupValue, bv, dt)
+    MapLookupExpression(id, lookupKey, bv, dt)
   }
 
   private[mapLookup] def mapDoesNotExist(map: String) = qualityException(s"The bloom filter: $map, does not exist in the provided bloomMap")
@@ -46,7 +46,7 @@ object MapLookup {
        0.9
   """,
   since = "1.5.0")
-case class MapLookupExpression(mapId: String, child: Expression, arrayMap: Broadcast[MapData], dataType: DataType) extends UnaryExpression with NullIntolerant with CodegenFallback {
+case class MapLookupExpression(mapId: String, child: Expression, arrayMap: Broadcast[MapData], dataType: DataType) extends UnaryExpression with CodegenFallback {
   lazy val theMap = MapUtils.toScalaMap(arrayMap.value, child.dataType, dataType)
 
   lazy val converter = CatalystTypeConverters.createToScalaConverter(child.dataType)
@@ -68,9 +68,9 @@ case class MapLookupExpression(mapId: String, child: Expression, arrayMap: Broad
     }
   }
 
-  override def sql: String = s"(mapLookup($mapId, ${child.sql}))"
-
   override def nullable: Boolean = true
+
+  override def sql: String = s"(mapLookup($mapId, ${child.sql}))"
 
   protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
 }

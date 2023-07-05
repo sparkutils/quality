@@ -1,8 +1,8 @@
 package com.sparkutils.quality.tests
 
 import com.sparkutils.quality._
+import com.sparkutils.quality.impl.util.Testing
 import com.sparkutils.quality.tests.TestHandler._
-import com.sparkutils.quality.utils.Testing
 import com.sparkutils.qualityTests.{RowTools, SparkTestUtils, TestUtils}
 import org.apache.spark.sql.catalyst.expressions.{ArrayFilter, ExprId, Expression, NamedLambdaVariable, ZipWith}
 import org.apache.spark.sql.qualityFunctions.LambdaCompilationUtils.{LambdaCompilationHandler, convertToCompilationHandlers, envLambdaHandlers, loadLambdaCompilationHandlers}
