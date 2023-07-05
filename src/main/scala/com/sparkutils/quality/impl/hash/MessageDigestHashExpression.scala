@@ -1,9 +1,7 @@
 package com.sparkutils.quality.impl.hash
 
+import com.sparkutils.quality.impl.util.{BytePackingUtils, TSLocal}
 import java.security.MessageDigest
-
-import com.sparkutils.quality.utils.BytePackingUtils
-import com.sparkutils.quality.utils.{BytePackingUtils, TSLocal}
 import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionDescription}
 import org.apache.spark.sql.qualityFunctions.{Digest, DigestFactory, HashLongsExpression, InterpretedHashLongsFunction}
 import org.apache.spark.sql.types.{DataType, LongType, StructField, StructType}

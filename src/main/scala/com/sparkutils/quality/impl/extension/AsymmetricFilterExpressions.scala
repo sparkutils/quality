@@ -1,9 +1,8 @@
 package com.sparkutils.quality.impl.extension
 
-import com.sparkutils.quality.PredicateHelperPlus
-import com.sparkutils.quality.impl.UUIDToLongsExpression
-import com.sparkutils.quality.impl.id.{AsBase64Fields, AsBase64Struct, IDFromBase64, IDToRawIDDataType, SizeOfIDString}
+import com.sparkutils.quality.impl.id.{AsBase64Fields, AsBase64Struct, IDFromBase64, SizeOfIDString}
 import com.sparkutils.quality.impl.longPair.AsUUID
+import com.sparkutils.quality.impl.{PredicateHelperPlus, UUIDToLongsExpression}
 import org.apache.spark.sql.catalyst.expressions.{And, BinaryComparison, CreateNamedStruct, CreateStruct, EqualNullSafe, EqualTo, Equality, Expression, GetStructField, GreaterThan, GreaterThanOrEqual, If, In, LessThan, LessThanOrEqual, Literal, Or}
 import org.apache.spark.sql.catalyst.plans.logical.{ConstraintHelper, Filter, Join, LogicalPlan}
 import org.apache.spark.sql.catalyst.rules.Rule
@@ -144,7 +143,7 @@ object AsUUIDFilter extends AsymmetricFilterExpressions {
           And( create( GetStructField( UUIDToLongsExpression(c), 0) , lower), create( GetStructField( UUIDToLongsExpression(c), 1 ), higher) )
         )
       // In verifies the rest of the seq are the same type
-      case (a@AsUUID(lower, higher), l: Seq[Expression], _) if l.headOption.exists(_.dataType == StringType) =>
+      case (a@AsUUID(lower, higher), l: Seq[Expression @unchecked], _) if l.headOption.exists(_.dataType == StringType) =>
         def struct(lower: Expression, higher: Expression): Expression =
           CreateNamedStruct(Seq(Literal("lower"), lower,
             Literal("higher"), higher))
@@ -257,10 +256,10 @@ object IDBase64Filter extends AsymmetricFilterExpressions {
         )
 
       // In verifies the rest of the seq are the same type
-      case (a@AsBase64Struct(left), l: Seq[Expression], _) if l.headOption.exists(_.dataType == StringType) =>
+      case (a@AsBase64Struct(left), l: Seq[Expression @unchecked], _) if l.headOption.exists(_.dataType == StringType) =>
         inComp(a.size, left, l)
 
-      case (a@AsBase64Fields(left), l: Seq[Expression], _) if l.headOption.exists(_.dataType == StringType) =>
+      case (a@AsBase64Fields(left), l: Seq[Expression @unchecked], _) if l.headOption.exists(_.dataType == StringType) =>
         inComp(a.size, CreateStruct(left), l)
 
       // join + filter

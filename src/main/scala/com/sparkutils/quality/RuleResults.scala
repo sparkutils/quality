@@ -1,5 +1,7 @@
 package com.sparkutils.quality
 
+import com.sparkutils.quality.impl.VersionedId
+
 sealed trait RuleResult extends Serializable
 
 case object Failed extends RuleResult
@@ -24,7 +26,7 @@ case class Probability(percentage: Double) extends RuleResult
 /**
  * Packs a rule result with a RunOnPassProcessor processor
  */
-case class RuleResultWithProcessor(ruleResult: RuleResult, runOnPassProcessor: RunOnPassProcessor) extends RuleResult
+case class RuleResultWithProcessor(ruleResult: RuleResult, runOnPassProcessor: impl.RunOnPassProcessor) extends RuleResult
 
 /**
   * Probability is evaluated at over probablePass percent, defaults to 80% 0.8.
@@ -35,9 +37,9 @@ case class OverallResult(probablePass: Double = 0.8, currentResult: RuleResult =
 }
 
 /**
-  * Result collection for a number of named rules
+  * Result collection for a number of rules
   * @param overallResult
-  * @param ruleResults rule name -> ruleresult
+  * @param ruleResults rule id -> ruleresult
   */
 case class RuleSetResult(overallResult: RuleResult, ruleResults: Map[VersionedId, RuleResult]) extends Serializable
 
@@ -58,6 +60,27 @@ case class RuleSuiteResultDetails(id: VersionedId, ruleSetResults: Map[Versioned
 case class RuleSuiteResult(id: VersionedId, overallResult: RuleResult, ruleSetResults: Map[VersionedId, RuleSetResult]) extends Serializable {
   def details: RuleSuiteResultDetails = RuleSuiteResultDetails(id, ruleSetResults)
 }
+
+/**
+ * Represents the expression results of ExpressionRunner
+ * @param ruleResult the result casted to string
+ * @param resultDDL the result type in ddl
+ */
+case class GeneralExpressionResult(ruleResult: String, resultDDL: String)
+
+/**
+ * Represents the results of the ExpressionRunner
+ * @param id
+ * @param ruleSetResults
+ */
+case class GeneralExpressionsResult(id: VersionedId, ruleSetResults: Map[VersionedId, Map[VersionedId, GeneralExpressionResult]]) extends Serializable
+
+/**
+ * Represents the results of the ExpressionRunner after calling strip_result_ddl
+ * @param id
+ * @param ruleSetResults
+ */
+case class GeneralExpressionsResultNoDDL(id: VersionedId, ruleSetResults: Map[VersionedId, Map[VersionedId, String]]) extends Serializable
 
 /**
  * Represents the rule that matched a given RuleEngine result

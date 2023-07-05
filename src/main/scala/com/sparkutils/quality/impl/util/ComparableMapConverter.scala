@@ -1,6 +1,5 @@
 package com.sparkutils.quality.impl.util
 
-import com.sparkutils.quality.utils.Arrays
 import org.apache.spark.sql.Column
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
 import org.apache.spark.sql.catalyst.expressions.{BoundReference, Expression, UnaryExpression}
@@ -10,13 +9,7 @@ import org.apache.spark.sql.qualityFunctions.utils
 import org.apache.spark.sql.qualityFunctions.utils.{KeyValueArray, keyValueType}
 import org.apache.spark.sql.types._
 
-trait ComparableMapsImports {
-  def comparableMaps(child: Column, compareF: DataType => Option[(Any, Any) => Int] = (dataType: DataType) => utils.defaultMapCompare(dataType)): Column =
-    ComparableMapConverter(child,compareF)
 
-  def reverseComparableMaps(child: Column): Column =
-    new Column(ComparableMapReverser(child.expr))
-}
 /**
  * Convert maps to sorted arrays of key value structs to allow comparison
  */
@@ -50,8 +43,10 @@ object ComparableMapConverter {
 
           // maps are already converted all the way down before trying to sort by key._2
           val sorted = Arrays.mapArray(theMap.keyArray(), actualKeyType, key._2).zipWithIndex.sortBy(_._1)(comparisonOrdering)
-          val vals = Arrays.toArray(theMap.valueArray(), actualValueType)
-
+          val vals = {
+            val valArray =theMap.valueArray()
+            (idx: Int) => valArray.get(idx, actualValueType) //Arrays.toArray(theMap.valueArray(), actualValueType)
+          }
           // now re-pack as structs
           ArrayData.toArrayData(sorted.map {
             case (tkey, index) =>

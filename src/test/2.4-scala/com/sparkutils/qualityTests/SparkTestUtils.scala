@@ -5,6 +5,7 @@ import org.apache.spark.sql.catalyst.FunctionIdentifier
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.execution.{FileSourceScanExec, SparkPlan}
+import org.apache.spark.sql.sources.Filter
 
 import java.util.concurrent.atomic.AtomicReference
 
@@ -41,9 +42,7 @@ object SparkTestUtils {
   def resolveBuiltinOrTempFunction(sparkSession: SparkSession)(name: String, exps: Seq[Expression]): Option[Expression] =
     Some(sparkSession.sessionState.catalog.lookupFunction(FunctionIdentifier(name), exps))
 
-  def getPushDowns(sparkPlan: SparkPlan): Seq[String] =
-    sparkPlan.collect {
-      case fs: FileSourceScanExec =>
-        fs.metadata.collect { case ("PushedFilters", value) if value != "[]" => value }
-    }.flatten
+  def getCorrectPlan(sparkPlan: SparkPlan): SparkPlan =
+    sparkPlan
+
 }

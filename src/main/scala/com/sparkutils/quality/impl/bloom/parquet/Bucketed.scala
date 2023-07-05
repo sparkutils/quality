@@ -1,10 +1,12 @@
 package com.sparkutils.quality.impl.bloom.parquet
 
+import com.sparkutils.quality.functions.big_bloom
+import com.sparkutils.quality.impl.util.{BytePackingUtils, TSLocal, TransientHolder}
+
 import java.io._
-import com.sparkutils.quality.utils.{BytePackingUtils, TSLocal, TransientHolder}
-import com.sparkutils.quality.{BloomLookup, BucketedFiles}
+import com.sparkutils.quality.{BloomLookup, BloomModel}
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.sql.{Column, DataFrame, SparkSession}
 
 object Bucketed {
 
@@ -44,7 +46,7 @@ trait ToSerializedType[T, H] extends Serializable {
   def serializeBuckets(filters: Seq[BlockSplitBloomFilterImpl], fpp: Double, numBuckets: Int, hint: H): Array[Byte]
 }
 
-trait BucketedCreatorFunctions {
+object BucketedCreator {
 
   /**
    * Generates a bloom filter using the expression passed via bloomOn with optional repartitioning and a default fpp of 0.01.
@@ -59,22 +61,22 @@ trait BucketedCreatorFunctions {
    * @param partitions
    * @return
    */
-  def bloomFrom(dataFrame: DataFrame, bloomOn: String, expectedSize: Int,
-                fpp: Double = 0.01, bloomId: String = java.util.UUID.randomUUID().toString, partitions: Int = 0): BucketedFiles = {
+  def bloomFrom(dataFrame: DataFrame, bloomOn: Column, expectedSize: Long,
+                fpp: Double = 0.01, bloomId: String = java.util.UUID.randomUUID().toString, partitions: Int = 0): BloomModel = {
     val df =
       if (partitions != 0)
         dataFrame.repartition(partitions)
       else
         dataFrame
 
-    val interim = df.selectExpr(s"bigBloom($bloomOn, $expectedSize, cast($fpp as double), '$bloomId')").head.getAs[Array[Byte]](0)
-    val bloom = BucketedFiles.deserialize(interim)
+    val interim = df.select( big_bloom(bloomOn, expectedSize, fpp, bloomId) ).head.getAs[Array[Byte]](0)
+    val bloom = BloomModel.deserialize(interim)
     bloom.cleanupOthers()
     bloom
   }
 
   val bloomFileLocation = {
-    val defaultRoot = SQLConf.get.getConfString("sparkutils.quality.bloom.root", "/dbfs/")
+    val defaultRoot = com.sparkutils.quality.getConfig("sparkutils.quality.bloom.root", "/dbfs/")
 
     // if it's running on databricks use a dbfs dir
     val dbfs = new File(defaultRoot)
@@ -92,9 +94,6 @@ trait BucketedCreatorFunctions {
     fl.mkdirs()
     fl.getAbsolutePath
   }
-}
-
-object BucketedCreator {
 
   implicit val toLocalFiles = new ToSerializedType[Array[Array[Byte]], BucketedFilesRoot] {
     def serializeBuckets(filters: Seq[BlockSplitBloomFilterImpl], fpp: Double, numBuckets: Int, hint: BucketedFilesRoot): Array[Byte] = {
@@ -124,7 +123,7 @@ object BucketedCreator {
         fos.close()
       }
 
-      val bucketedFiles = BucketedFiles(dir.getAbsolutePath, fpp, numBuckets)
+      val bucketedFiles = BloomModel(dir.getAbsolutePath, fpp, numBuckets)
       bucketedFiles.serialize
     }
   }
@@ -181,7 +180,7 @@ object BucketedCreator {
 case class BucketedCreator[H, SerializedType](numBytes: Int, iMinimumBytes: Int, iMaximumBytes: Int, hashImpl: BloomHash, fpp: Double, numBuckets: Int,
                                            toType: ToSerializedType[SerializedType, H], hint: H)(
   val filters: Seq[BlockSplitBloomFilterImpl] = (1 to numBuckets).map(_ => BlockSplitBloomFilterImpl(numBytes, iMinimumBytes, iMaximumBytes, hashImpl)),
-  val bucketedFiles: Option[BucketedFiles] = None
+  val bucketedFiles: Option[BloomModel] = None
 ) extends Bloom[SerializedType] {
   type BloomType = BucketedCreator[H, SerializedType]
 
@@ -234,7 +233,7 @@ case class ThreadBucketedLookup(arrays: Array[Array[Byte]], hashImpl: BloomHash)
  *
  * @param bucketedFiles the bloom
  */
-case class ThreadSafeBucketedBloomLookupLazy(bucketedFiles: BucketedFiles,
+case class ThreadSafeBucketedBloomLookupLazy(bucketedFiles: BloomModel,
                                              hashStrategy: BloomFilter.HashStrategy = BloomFilter.XXH64) extends com.sparkutils.quality.BloomLookup {
 
   // don't ship the bytes but lazy load on each box
@@ -255,13 +254,13 @@ case class ThreadSafeBucketedBloomLookupLazy(bucketedFiles: BucketedFiles,
  * By default eager, optionally lazy which will read the files from the executor
  */
 object ThreadSafeBucketedBloomLookup {
-  def lazyLookup(bucketedFiles: BucketedFiles) = ThreadSafeBucketedBloomLookupLazy(bucketedFiles)
-  def apply(bucketedFiles: BucketedFiles) = {
+  def lazyLookup(bucketedFiles: BloomModel) = ThreadSafeBucketedBloomLookupLazy(bucketedFiles)
+  def apply(bucketedFiles: BloomModel) = {
     val arrays = bucketedFiles.read
 
     ThreadSafeBucketedBloomLookupEager(arrays)
   }
-  def mappedLookup(bucketedFiles: BucketedFiles) = ThreadSafeBucketedBloomLookupMapped(bucketedFiles)
+  def mappedLookup(bucketedFiles: BloomModel) = ThreadSafeBucketedBloomLookupMapped(bucketedFiles)
 }
 
 /**
@@ -281,7 +280,7 @@ case class ThreadSafeBucketedBloomLookupEager(arrays: Array[Array[Byte]],
 
 }
 
-case class ThreadBucketedMappedLookup(bucketedFiles: BucketedFiles, hashImpl: BloomHash) extends BloomLookup {
+case class ThreadBucketedMappedLookup(bucketedFiles: BloomModel, hashImpl: BloomHash) extends BloomLookup {
 
   val filters = TransientHolder{ () =>
     bucketedFiles.maps.map( ThreadBufferLookup(_, hashImpl) )
@@ -299,8 +298,8 @@ case class ThreadBucketedMappedLookup(bucketedFiles: BucketedFiles, hashImpl: Bl
  *
  * @param bucketedFiles the bloom
  */
-case class ThreadSafeBucketedBloomLookupMapped(bucketedFiles: BucketedFiles,
-                                             hashStrategy: BloomFilter.HashStrategy = BloomFilter.XXH64) extends BloomLookup {
+case class ThreadSafeBucketedBloomLookupMapped(bucketedFiles: BloomModel,
+                                               hashStrategy: BloomFilter.HashStrategy = BloomFilter.XXH64) extends BloomLookup {
 
   private val impl: TSLocal[ThreadBucketedMappedLookup] = TSLocal[ThreadBucketedMappedLookup]{ () =>
 

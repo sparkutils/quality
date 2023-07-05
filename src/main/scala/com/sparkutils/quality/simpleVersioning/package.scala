@@ -1,6 +1,8 @@
 package com.sparkutils.quality
 
-import com.sparkutils.quality.RuleModel.RuleSuiteMap
+import com.sparkutils.quality.impl.util.RuleModel.RuleSuiteMap
+import com.sparkutils.quality.impl.LambdaFunction
+import com.sparkutils.quality.impl.util.{OutputExpressionRow, Serializing}
 import org.apache.spark.sql.types.IntegerType
 import org.apache.spark.sql.{Column, DataFrame}
 import org.apache.spark.sql.functions.col
@@ -212,7 +214,7 @@ package object simpleVersioning {
    * @return
    */
   def integrateVersionedLambdas(ruleSuiteMap: RuleSuiteMap, lambdas: Map[Id, Seq[LambdaFunction]], globalLibrary: Option[Id] = None): RuleSuiteMap =
-    iIntegrateLambdas(ruleSuiteMap, lambdas, globalLibrary, SameOrNextVersionLower(lambdas))
+    Serializing.iIntegrateLambdas(ruleSuiteMap, lambdas, globalLibrary, SameOrNextVersionLower(lambdas))
 
   /**
    * Returns an integrated ruleSuiteMap with a set of RuleSuite Id -> Rule mappings where the OutputExpression didn't exist.
@@ -225,6 +227,6 @@ package object simpleVersioning {
    * @return
    */
   def integrateVersionedOutputExpressions(ruleSuiteMap: RuleSuiteMap, outputs: Map[Id, Seq[OutputExpressionRow]], globalLibrary: Option[Id] = None): (RuleSuiteMap, Map[Id, Set[Rule]]) =
-    iIntegrateOutputExpressions(ruleSuiteMap, outputs, globalLibrary, SameOrNextVersionLower(outputs))
+    Serializing.iIntegrateOutputExpressions(ruleSuiteMap, outputs, globalLibrary, SameOrNextVersionLower(outputs))
 
 }

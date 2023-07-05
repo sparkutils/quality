@@ -1,17 +1,19 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality.RuleLogicUtils.mapRules
-import com.sparkutils.quality.{DisabledRule, ExpressionWrapper, Failed, Id, Passed, Probability, RuleLogic, RuleLogicUtils, RuleResult, RuleResultWithProcessor, RuleSetResult, RuleSuite, RuleSuiteResult, SoftFailed}
-import com.sparkutils.quality.impl.RuleRunnerFunctions.flattenExpressions
-import org.apache.spark.sql.{Column, DataFrame, QualitySparkUtils}
+import com.sparkutils.quality.impl.RuleLogicUtils.mapRules
+import com.sparkutils.quality.impl.RuleRunnerUtils.flattenExpressions
+import com.sparkutils.quality.impl.imports.RuleResultsImports.packId
+import com.sparkutils.quality._
+import types.ruleSuiteResultType
+import com.sparkutils.quality.impl.imports.RuleRunnerImports
+import com.sparkutils.quality.impl.util.{NonPassThrough, PassThrough}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode}
-import org.apache.spark.sql.catalyst.expressions.{Expression, Literal, NonSQLExpression, UnaryExpression}
+import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression, UnaryExpression}
 import org.apache.spark.sql.catalyst.util.ArrayBasedMapData
-import org.apache.spark.sql.types.{DataType, _}
-import org.apache.spark.unsafe.types.UTF8String
-import com.sparkutils.quality.utils.{NonPassThrough, PassThrough}
+import org.apache.spark.sql.types.DataType
+import org.apache.spark.sql.{Column, DataFrame, QualitySparkUtils}
 
 import scala.reflect.ClassTag
 
@@ -35,7 +37,8 @@ object PackId {
   }
 }
 
-trait RuleRunnerImports {
+protected[quality] object RuleRunnerImpl {
+
 
   /**
    * Creates a column that runs the RuleSuite.  This also forces registering the lambda functions used by that RuleSuite
@@ -48,7 +51,7 @@ trait RuleRunnerImports {
    * @param forceRunnerEval Defaulting to false, passing true forces a simplified partially interpreted evaluation (compileEvals must be false to get fully interpreted)
    * @return A Column representing the Quality DQ expression built from this ruleSuite
    */
-  def ruleRunner(ruleSuite: RuleSuite, compileEvals: Boolean = true, resolveWith: Option[DataFrame] = None, variablesPerFunc: Int = 40, variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false): Column = {
+  def ruleRunnerImpl(ruleSuite: RuleSuite, compileEvals: Boolean = true, resolveWith: Option[DataFrame] = None, variablesPerFunc: Int = 40, variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false): Column = {
     com.sparkutils.quality.registerLambdaFunctions( ruleSuite.lambdaFunctions )
     val flattened = flattenExpressions(ruleSuite)
     val runner = new RuleRunner(RuleLogicUtils.cleanExprs(ruleSuite), PassThrough(flattened), compileEvals, variablesPerFunc, variableFuncGroup, forceRunnerEval)
@@ -64,24 +67,6 @@ trait RuleRunnerImports {
     )
   }
 
-  def strLit(str: String) =
-    UTF8String.fromString(str)
-
-  val strLitA = (str: Any) =>
-    UTF8String.fromString(str.asInstanceOf[String])
-
-  val packId = PackId.packId _
-  val unpackId = PackId.unpack _
-
-  val SoftFailedInt = -1
-  val SoftFailedExpr = Literal(SoftFailedInt, IntegerType)
-  val DisabledRuleInt = -2
-  val DisabledRuleExpr = Literal(DisabledRuleInt, IntegerType)
-  val PassedInt = 100000
-  val PassedExpr = Literal(PassedInt, IntegerType)
-  val FailedInt = 0
-  val FailedExpr = Literal(FailedInt, IntegerType)
-
 }
 
 private[quality] object RuleRunnerUtils extends RuleRunnerImports {
@@ -95,6 +80,12 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
       case Probability(percentage) => (percentage * PassedInt).toInt
       case RuleResultWithProcessor(res, _) => ruleResultToInt(res)
     }
+
+  def flattenExpressions(ruleSuite: RuleSuite): Seq[Expression] =
+    ruleSuite.ruleSets.flatMap(ruleSet => ruleSet.rules.map(rule =>
+      rule.expression match {
+        case r: ExprLogic => r.expr // only ExprLogic are possible here
+      }))
 
   def reincorporateExpressions(ruleSuite: RuleSuite, expr: Seq[Expression], compileEvals: Boolean = true): RuleSuite =
     reincorporateExpressionsF(ruleSuite, expr, (expr: Expression) => ExpressionWrapper(expr, compileEvals))
@@ -255,11 +246,11 @@ case class RuleRunner(ruleSuite: RuleSuite, child: Expression, compileEvals: Boo
 
   // keep it simple for this one. - can return an internal row or whatever..
   override def eval(input: InternalRow): Any = {
-    val res = reincorporated.eval(input)
+    val res = RuleSuiteFunctions.eval(reincorporated, input)
     ruleResultToRow(res)
   }
 
-  def dataType: DataType = com.sparkutils.quality.ruleSuiteResultType
+  def dataType: DataType = ruleSuiteResultType
 
   /**
    * Instead of evaluating through the RuleSuite structure the expressions are evaluated back to back, then
@@ -299,7 +290,7 @@ case class RuleRunner(ruleSuite: RuleSuite, child: Expression, compileEvals: Boo
         val converted =
           s"""${eval.code}\n
 
-             $arrTerm[$idx] = ${eval.isNull} ? null : com.sparkutils.quality.RuleLogicUtils.anyToRuleResultInt(${eval.value});"""
+             $arrTerm[$idx] = ${eval.isNull} ? null : com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt(${eval.value});"""
 
         converted
     }.grouped(variablesPerFunc).grouped(variableFuncGroup)

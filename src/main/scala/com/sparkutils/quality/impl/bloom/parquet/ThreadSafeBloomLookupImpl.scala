@@ -1,8 +1,8 @@
 package com.sparkutils.quality.impl.bloom.parquet
 
-import java.nio.{ByteBuffer, ByteOrder, IntBuffer}
+import com.sparkutils.quality.impl.util.TSLocal
 
-import com.sparkutils.quality.utils.TSLocal
+import java.nio.{ByteBuffer, ByteOrder, IntBuffer}
 
 case class ThreadLookup(bitset: Array[Byte], hashImpl: BloomHash) extends BloomLookupImpl with DelegatingBloomHash {
 

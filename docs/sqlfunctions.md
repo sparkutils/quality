@@ -1,5 +1,19 @@
 ---
 functions:
+  rule_result:
+    description: |
+      rule_result(ruleSuiteResultColumn, packedRuleSuiteId, packedRuleSetId, packedRuleId) uses the packed long id's to retrieve the integer ruleResult (see below for ExpressionRunner) or null if it can't be found.  
+
+      You can use pack_ints(id, version) to specify each id if you don't already have the packed long version.  This is suitable for retrieving individual rule results, for example to aggregate counts of a specific rule result, without having to resort to using filter and map values.
+
+      rule_result works with ruleRunner (DQ) results (including details) and ExpressionRunner results.  ExpressionRunner results return a tuple of ruleResult and resultDDL, both strings, or if strip_result_ddl is called a string.
+    tags:
+      - rule
+  strip_result_ddl:
+    description: |
+      strip_result_ddl(expressionsResult) removes the resultDDL field from expressionsRunner results, leaving only the string result itself for more compact storage 
+    tags:
+      - rule
   murmur3_ID:
     description: "murmur3ID('prefix', fields*) Generates a 160bit id using murmer3 hashing over input fields, prefix is used with the _base, _i0 and _i1 fields in the resulting structure"
     tags:
@@ -106,7 +120,10 @@ functions:
     tags:
       - longs
   rng_UUID:
-    description: "rng_UUID(expr) takes either a structure with lower and higher longs or a 128bit binary type and converts to a string uuid"
+    description: |
+      rng_UUID(expr) takes either a structure with lower and higher longs or a 128bit binary type and converts to a string uuid - use with, for example, the rng() function.
+      
+      If a simple conversion from two longs (lower, higher) to a uuid is desired then use as_uuid, rng_uuid applies the same transformations as the Spark uuid to the input higher and lower longs.
     tags:
       - longs
   rng:
@@ -258,10 +275,6 @@ functions:
     description: "reverses a call to comparableMaps"
     tags:
       - map
-  safer_Long_Pair:
-    description: "deprecated use unique_Id - safer_Long_Pair(expr, 'bloomid') Prefer to use unique_ID, this 'safer' rng repeatedly calls the expr rng function until there is no matching entry in the bloom id.  It returns lower and higher longs."
-    tags:
-      - longs
   hash_With_Struct:
     description: "per hash_With('HASH', fields*) but generates a struct with i0 to ix named longs.  This structure is not suitable for blooms"
     tags:
@@ -311,14 +324,21 @@ functions:
     tags:
       - ID, longs
   as_uuid:
-    description: "as_uuid(lower_long, higher_long) converts two longs into a uuid, equivalent to rngUUID(longPair(lower, higher))"
+    description: "as_uuid(lower_long, higher_long) converts two longs into a uuid. Note: this is not functionally equivalent to rng_uuid(longPair(lower, higher)) despite having the same types."
     tags:
       - longs
-  update_Field:
+  drop_field:
     description: |
-      update_Field(structure_expr, 'field.subfield', replaceWith, 'fieldN', replaceWithN) processes structures allowing you to replace sub items (think lens in functional programming) using the structure fields path name.
+      drop_field(structure_expr, 'field.subfield'*) removes fields from a structure, but will not remove parent nodes. 
 
-      This is wrapped an almost verbatim version of [Make Structs Easier' AddFields](https://raw.githubusercontent.com/fqaiser94/mse/master/src/main/scala/org/apache/spark/sql/catalyst/expressions/AddFields.scala)
+      This is a wrapped version of 3.4.1's dropField implementation.
+    tags:
+      - struct
+  update_field:
+    description: |
+      update_field(structure_expr, 'field.subfield', replaceWith, 'fieldN', replaceWithN) processes structures allowing you to replace sub items (think lens in functional programming) using the structure fields path name.
+
+      This is a wrapped version of 3.4.1's withField implementation.
     tags:
       - struct
   \_:

@@ -1,8 +1,10 @@
 package com.sparkutils.qualityTests
 
+import com.sparkutils.quality.functions.{long_pair, long_pair_from_uuid, rng_bytes, rng_uuid}
 import com.sparkutils.quality.impl.bloom.parquet.{BlockSplitBloomFilterImpl, ThreadSafeBloomLookupImpl}
 import com.sparkutils.quality.impl.rng.RandomLongs
 import org.apache.spark.sql.Row
+import org.apache.spark.sql.functions.{col, expr}
 import org.apache.spark.sql.types.{BinaryType, LongType, StringType}
 import org.junit.Test
 import org.scalatest.FunSuite
@@ -19,6 +21,11 @@ class RngAndRowIdTest extends FunSuite with TestUtils {
 
     assert(unique.schema.fields.head.dataType == BinaryType)
     assert(unique.count() == numRows)
+
+    val check = unique.select(rng_bytes() as "uu")
+      .filter("uuid = uu").count()
+
+    assert(check == 0)
   }
 
   // using partitions to try to force jumps, doesn't seem to actually happen without much larger data though, increasing partitions just takes for ever
@@ -52,10 +59,12 @@ class RngAndRowIdTest extends FunSuite with TestUtils {
     // obviously can't actually test the values
     val ids = sparkSession.range(numRows)
     val unique = ids.selectExpr("*", s"$func('$rand') as uuid").
-      drop("id").selectExpr("rngUUID(uuid) as uuid").distinct()
+      drop("id").select(expr("rngUUID(uuid) as uuid"), rng_uuid(col("uuid")) as "uuid2").distinct()
 
     assert(unique.schema.fields.head.dataType == StringType)
     assert(unique.count() == numRows)
+
+    assert(unique.filter("uuid != uuid2").count() == 0)
   }
 
   @Test
@@ -64,7 +73,8 @@ class RngAndRowIdTest extends FunSuite with TestUtils {
     // obviously can't actually test the values
     val ids = sparkSession.range(numRows)
     val unique = ids.selectExpr("*", s"uuid() as uuid").
-      drop("id").selectExpr("longPairFromUUID(uuid) as uuid").selectExpr("uuid.lower as lower","uuid.higher as higher").drop("uuid").distinct()
+      drop("id").select(expr("longPairFromUUID(uuid) as uuid"), long_pair_from_uuid(col("uuid")) as "uuid2")
+      .filter("uuid = uuid2").selectExpr("uuid.lower as lower","uuid.higher as higher").distinct()
 
     assert(unique.schema.fields.head.dataType == LongType)
     assert(unique.schema.fields.last.dataType == LongType)
@@ -78,54 +88,12 @@ class RngAndRowIdTest extends FunSuite with TestUtils {
     val ids = sparkSession.range(numRows)
     val unique = ids.selectExpr("*", s"rng() as uuid").
       drop("id").selectExpr("uuid.lower as lower","uuid.higher as higher").drop("uuid").
-      selectExpr("longPair(lower, higher)").distinct()
+      select(expr("longPair(lower, higher) pair"), long_pair(col("lower"), col("higher")) as "pair2")
+      .filter("pair = pair2").drop("pair2")
+      .distinct()
 
     assert(unique.schema.fields.head.dataType == RandomLongs.structType)
     assert(unique.count() == numRows)
-  }
-
-  @Test
-  def saferRowIDNormalRNGTest: Unit = doSaferRowIDTest("rng()", (row: Row) => {
-    val r = row.getAs[Row]("uuid")
-    Array(r.getAs[Long]("lower"), r.getAs[Long]("higher"))
-  }, reallyUnique = true)
-
-  // numRows is 10000 so rand between 0-30000 should "eventually" allow us to finish but force re-evaluation
-  @Test
-  def saferRowIDBadRNGTest: Unit = doSaferRowIDTest("cast( round( (rand() * 100000) % 10000 ) as bigint)", _.getAs[Long]("uuid"))
-
-  def doSaferRowIDTest(rng: String, rowToA: Row => Any, reallyUnique: Boolean = false): Unit = evalCodeGensNoResolve {
-    import com.sparkutils.quality._
-    val numRows = 10000
-    // obviously can't actually test the values
-    val ids = sparkSession.range(numRows)
-    val uuids = ids.selectExpr("*", s"$rng as uuid").persist() // have to persist to stop re-evaluation
-
-    val fpp = 0.0001
-
-    val bf = uuids.selectExpr(s"smallBloom(uuid, ${numRows * 5}, cast( $fpp as double) ) as bloom")
-    val bits = bf.head().getAs[Array[Byte]](0)
-    val filled = bits.count(_ != 0)
-    val bloom = ThreadSafeBloomLookupImpl( bits )
-
-    // check the bloom
-    import scala.collection.JavaConverters._
-    for(row <- uuids.toLocalIterator().asScala) {
-      val id = row.getAs[Long]("id")
-      val i = rowToA(row)
-      assert(bloom.mightContain(i), s"row $id was $i")
-    }
-
-    val blooms: BloomFilterMap = Map("ids" -> (bloom, 1 - fpp))
-    registerLongPairFunction(blooms)
-
-    val unique = uuids.selectExpr(s"saferLongPair($rng, 'ids') as uuid").distinct()
-
-    /** we should never get collisions */
-    assert(unique.join(uuids, "uuid").count() == 0)
-    if (reallyUnique) {
-      assert(unique.count() == numRows)
-    }
   }
 
   @Test

@@ -13,17 +13,18 @@
 
 ## Run complex data quality rules using simple SQL in a batch or streaming Spark application at scale.
 
-Write rules using simple SQL or create re-usable functions via SQL Lambdas 
+Write rules using simple SQL or create re-usable functions via SQL Lambdas.
 
 Your rules are just versioned data, store them wherever convenient, use them by simply defining a column.
 
-* :new:{.pulseABit} - [comparableMaps](sqlfunctions.md#comparable_maps) - allow unions or sorting with map columns without json serialising and parsing overhead
-* :new:{.pulseABit} - [set syntax](advanced/ruleFolder.md#set) - simplified syntax for updating and defaulting
-* :new:{.pulseABit} - [Spark Extension](getting_started/index.md#using-the-sql-functions-on-spark-thrift-hive-servers) - registers common Quality sql functions automatically for Thrift/Hive servers and query optimisations
-* :new:{.pulseABit} - Databricks 12.2 support
-* :new:{.pulseABit} - New id related functions: [id_size](sqlfunctions.md#id_size), [id_base64](sqlfunctions.md#id_base64), [id_from_base64](sqlfunctions.md#id_from_base64), [id_raw_type](sqlfunctions.md#id_raw_type) and ["as_uuid"](sqlfunctions.md#as_uuid)
+* :new:{.pulseABit} - Improved [update_field](sqlfunctions/#update_field) and added [drop_field](sqlfunctions/#drop_field) - handles nested transformations directly using the 3.4.1 Spark implementation 
+* :new:{.pulseABit} - [rule_result](sqlfunctions/#rule_result) - directly access rule results from DQ and expressionRunner, simplifying row statistic collection 
+* :new:{.pulseABit} - [expression runner](advanced/expressionRunner.md) - new runner type saving results directly, suitable for aggregate statistics
+* :new:{.pulseABit} - [view loading](advanced/viewLoader.md) - load views for data lookup and transformation rules from a configuration DataFrame
+* :new:{.pulseABit} - [map loading](advanced/mapFunctions.md#map-loading) - load maps using views or DataFrames from a configuration DataFrame
+* :new:{.pulseABit} - [bloom loading](advanced/blooms.md#bloom-loading) - load blooms using views or DataFrames from a configuration DataFrame
 
-Rules are evaluated lazily during Spark actions, such as writing a row, with results saved in a single predicatable and extensible column.
+Rules are evaluated lazily during Spark actions, such as writing a row, with results saved in a single predictable column.
 
 ## Enhanced Spark Functionality
 
@@ -31,12 +32,12 @@ Lookup Functions are distributed across the Spark cluster and held in memory, as
 
 * Support for massive [Bloom Filters](advanced/blooms/) while retaining FPP (i.e. several billion items at 0.001 would not fit into a normal 2gb byte array)
 * [Map lookup](advanced/mapFunctions/) expressions for exact lookups and contains tests, using broadcast variables under the hood they are a great fit for small reference data sets
+* [Wiew loading](advanced/viewLoader.md) - manage the use of session views in your application through configuration and a pluggable [DataFrameLoader](./site/scaladocs/com/sparkutils/quality/DataFrameLoader.html)  
+
+* [Lambda Functions](advanced/userFunctions/) - user provided re-usable sql functions over late bound columns
 
 
-* [Lambda Functions](advanced/userFunctions/) - user provided re-usable sql functions over late binded columns
-
-
-* Fast PRNG's exposing [RandomSource](https://commons.apache.org/proper/commons-rng/commons-rng-simple/apidocs/org/apache/commons/rng/simple/RandomSource.html) allowing plugable and stable generation across the cluster
+* Fast PRNG's exposing [RandomSource](https://commons.apache.org/proper/commons-rng/commons-rng-simple/apidocs/org/apache/commons/rng/simple/RandomSource.html) allowing pluggable and stable generation across the cluster
 
 
 * [Aggregate functions](advanced/aggregations/) over Maps expandable with simple SQL Lambdas
