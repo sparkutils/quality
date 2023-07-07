@@ -3,47 +3,27 @@ package com.sparkutils.quality.impl.yaml
 import java.io.StringWriter
 import java.util.Base64
 
-import com.sparkutils.quality.QualityException
 import com.sparkutils.quality.impl.MapUtils
 import com.sparkutils.quality.impl.util.Arrays
+import org.apache.spark.sql.QualityYamlExt.{makeConverterExt, makeStructFieldConverterExt}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
-import org.apache.spark.sql.catalyst.expressions.{Expression, NullIntolerant, UnaryExpression}
+import org.apache.spark.sql.catalyst.expressions.{Expression, UnaryExpression}
 import org.apache.spark.sql.catalyst.util.{ArrayData, MapData}
 import org.apache.spark.sql.types._
-import org.apache.spark.unsafe.types.{UTF8String, CalendarInterval}
+import org.apache.spark.unsafe.types.UTF8String
+import org.yaml.snakeyaml.nodes._
+import org.yaml.snakeyaml.representer.Representer
 import org.yaml.snakeyaml.{DumperOptions, Yaml}
 
 import scala.collection.JavaConverters._
-import org.yaml.snakeyaml.nodes.{MappingNode, Node, NodeTuple, ScalarNode, SequenceNode, Tag}
-import org.yaml.snakeyaml.representer.Representer
 
-case class YamlEncoderExpr(child: Expression) extends UnaryExpression with CodegenFallback {
-  protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
+object QualityYamlEncoding {
 
-  lazy val valueConverter = makeValueConverter(child.dataType)
+  type Converter = (Any) => Node
+  type ValueConverter = PartialFunction[DataType, Converter]
 
-  override def eval(inputRow: InternalRow): Any = {
-    val input = child.eval(inputRow)
-
-    val writer = new StringWriter()
-    val options = new DumperOptions()
-    import org.yaml.snakeyaml.DumperOptions
-    options.setDefaultFlowStyle(DumperOptions.FlowStyle.FLOW)
-
-    val representer = new Representer(options);
-    val generator = new Yaml(representer, options)
-
-    val node = valueConverter(input)
-
-    generator.serialize(node, writer)
-
-    val str = writer.getBuffer.toString
-    writer.close()
-    UTF8String.fromString(str)
-  }
-
-  type StructValueConverter = (InternalRow, Int) => Node
+  type StructValueConverter = PartialFunction[DataType, (InternalRow, Int) => Node]
 
   val dummyMark = null
 
@@ -55,7 +35,8 @@ case class YamlEncoderExpr(child: Expression) extends UnaryExpression with Codeg
     else
       new ScalarNode(Tag.STR, a.toString, dummyMark, dummyMark, DumperOptions.ScalarStyle.PLAIN)
 
-  def makeStructFieldConverter(dataType: DataType): StructValueConverter = dataType match {
+
+  def makeStructFieldConverter: StructValueConverter = {
     case BooleanType =>
       (i: InternalRow, p: Int) =>
         createScalarNode( i.getBoolean(p) )
@@ -104,40 +85,6 @@ case class YamlEncoderExpr(child: Expression) extends UnaryExpression with Codeg
       (i: InternalRow, p: Int) =>
         createScalarNode( i.getDecimal(p, dt.precision, dt.scale).toJavaBigDecimal )
 
-    /*
-
-    case CalendarIntervalType =>
-      (i: InternalRow, p: Int) =>
-        createIntervalNode( i.getInterval(p) )
-
-can't support until much later or move this out into compat, must also be in sql for UDTs...
-  case TimestampNTZType =>
-    (i: InternalRow, p: Int) =>
-      createScalarNode( i.getLong(p) )
-
-
-    case ym: YearMonthIntervalType =>
-      (i: InternalRow, p: Int) => null
-      (parser: JsonParser) =>
-      parseJsonName[Integer](parser, dataType) {
-        case s =>
-          val expr = Cast(Literal(s), ym)
-          Integer.valueOf(expr.eval(EmptyRow).asInstanceOf[Int])
-      }
-
-    case dt: DayTimeIntervalType => (parser: JsonParser) =>
-      parseJsonName[java.lang.Long](parser, dataType) {
-        case s =>
-          val expr = Cast(Literal(s), dt)
-          java.lang.Long.valueOf(expr.eval(EmptyRow).asInstanceOf[Long])
-      }
-
-
-    case udt: UserDefinedType[_] =>
-      makeValueConverter(udt.sqlType)
-
-      */
-
     case st: StructType =>
       val sf = createStructNode(st)
       (i: InternalRow, p: Int) => {
@@ -153,8 +100,8 @@ can't support until much later or move this out into compat, must also be in sql
       }
 
     case mt: MapType =>
-      val keyType = makeValueConverter(mt.keyType)
-      val valueType = makeValueConverter(mt.valueType)
+      val keyType = makeValueConverter.applyOrElse(mt.keyType, makeConverterExt)
+      val valueType = makeValueConverter.applyOrElse(mt.valueType, makeConverterExt)
       (i: InternalRow, p: Int) => {
         val map = i.getMap(p)
 
@@ -164,13 +111,10 @@ can't support until much later or move this out into compat, must also be in sql
     case _: NullType =>
       (i: InternalRow, p: Int) =>
         createScalarNode(null)
-
-    // We don't actually hit this exception though, we keep it for understandability
-    case _ => throw QualityException(s"Cannot find yaml representation for type $dataType")
   }
 
   private def createSequenceNode(at: ArrayType) = {
-    val elementConverter = makeValueConverter(at.elementType)
+    val elementConverter = makeValueConverter.applyOrElse(at.elementType, makeConverterExt)
     (ar: ArrayData) => {
       if (ar == null)
         createNullNode
@@ -181,7 +125,7 @@ can't support until much later or move this out into compat, must also be in sql
     }
   }
 
-  private def createMapNode(mt: MapType, map: MapData, keyType: ValueConverter, valueType: ValueConverter) =
+  private def createMapNode(mt: MapType, map: MapData, keyType: Any => Node, valueType: Any => Node) =
     if (map == null)
       createNullNode
     else {
@@ -198,7 +142,7 @@ can't support until much later or move this out into compat, must also be in sql
 
   private def createStructNode(st: StructType) = {
     val converters = st.fields.map(f =>
-      makeStructFieldConverter(f.dataType))
+      makeStructFieldConverter.applyOrElse(f.dataType, makeStructFieldConverterExt))
 
     (row: InternalRow) => {
       if (row == null)
@@ -216,11 +160,9 @@ can't support until much later or move this out into compat, must also be in sql
     }
   }
 
-  type ValueConverter = (Any) => Node
-
-  def makeValueConverter(dataType: DataType): ValueConverter = dataType match {
+  def makeValueConverter: ValueConverter = {
     case BooleanType | ByteType | ShortType | IntegerType | LongType
-        | FloatType | DoubleType | StringType | TimestampType | DateType | _: DecimalType =>
+         | FloatType | DoubleType | StringType | TimestampType | DateType | _: DecimalType =>
       (a: Any) =>
         createScalarNode( a )
 
@@ -228,52 +170,6 @@ can't support until much later or move this out into compat, must also be in sql
       (a: Any) =>
         createScalarNode( Base64.getEncoder.encodeToString(a.asInstanceOf[Array[Byte]]))
 
-
-    /*
-
-    case CalendarIntervalType =>
-      (a: Any) => {
-        val interval = a.asInstanceOf[CalendarInterval]
-        createIntervalNode(interval)
-      }
-
-  private def createIntervalNode(interval: CalendarInterval) = {
-    val tuples = Seq(
-      new NodeTuple(
-        createScalarNode("days"),
-        createScalarNode(interval.days)
-      ),
-      new NodeTuple(
-        createScalarNode("microseconds"),
-        createScalarNode(interval.microseconds)
-      ),
-      new NodeTuple(
-        createScalarNode("months"),
-        createScalarNode(interval.months)
-      )
-    )
-
-    new MappingNode(Tag.MAP, tuples.asJava, DumperOptions.FlowStyle.FLOW)
-  }
-
-    case TimestampNTZType =>
-      (y: YAMLGenerator, a: Any) =>
-        y.writeNumber( i.getLong(p) )
-
-        case ym: YearMonthIntervalType => (parser: JsonParser) =>
-          parseJsonName[Integer](parser, dataType) {
-            case s =>
-              val expr = Cast(Literal(s), ym)
-              Integer.valueOf(expr.eval(EmptyRow).asInstanceOf[Int])
-          }
-
-        case dt: DayTimeIntervalType => (parser: JsonParser) =>
-          parseJsonName[java.lang.Long](parser, dataType) {
-            case s =>
-              val expr = Cast(Literal(s), dt)
-              java.lang.Long.valueOf(expr.eval(EmptyRow).asInstanceOf[Long])
-          }
-    */
     case st: StructType =>
       val sf = createStructNode(st)
       (a: Any) =>
@@ -285,22 +181,47 @@ can't support until much later or move this out into compat, must also be in sql
         af(a.asInstanceOf[ArrayData])
 
     case mt: MapType =>
-      val keyType = makeValueConverter(mt.keyType)
-      val valueType = makeValueConverter(mt.valueType)
+      val keyType = makeValueConverter.applyOrElse(mt.keyType, makeConverterExt)
+      val valueType = makeValueConverter.applyOrElse(mt.valueType, makeConverterExt)
       (a: Any) => {
         val map = a.asInstanceOf[MapData]
         createMapNode(mt, map, keyType, valueType)
       }
-    /*
-        case udt: UserDefinedType[_] =>
-          makeNameConverter(udt.sqlType)
-    */
+
     case _: NullType =>
       (a: Any) =>
         createNullNode
+  }
 
-    // We don't actually hit this exception though, we keep it for understandability
-    case _ => throw QualityException(s"Cannot find yaml representation for type $dataType")
+}
+
+case class YamlEncoderExpr(child: Expression) extends UnaryExpression with CodegenFallback {
+  import QualityYamlEncoding._
+  import org.apache.spark.sql.QualityYamlExt._
+
+  protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
+
+  lazy val valueConverter: Converter =
+    makeValueConverter.applyOrElse(child.dataType, makeConverterExt)
+
+  override def eval(inputRow: InternalRow): Any = {
+    val input = child.eval(inputRow)
+
+    val writer = new StringWriter()
+    val options = new DumperOptions()
+    import org.yaml.snakeyaml.DumperOptions
+    options.setDefaultFlowStyle(DumperOptions.FlowStyle.FLOW)
+
+    val representer = new Representer(options);
+    val generator = new Yaml(representer, options)
+
+    val node = valueConverter(input)
+
+    generator.serialize(node, writer)
+
+    val str = writer.getBuffer.toString
+    writer.close()
+    UTF8String.fromString(str)
   }
 
   override def dataType: DataType = StringType

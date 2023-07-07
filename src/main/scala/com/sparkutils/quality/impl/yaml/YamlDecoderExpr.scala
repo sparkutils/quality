@@ -1,43 +1,25 @@
 package com.sparkutils.quality.impl.yaml
 
-import java.io.{StringReader, StringWriter}
+import java.io.StringReader
 import java.util.Base64
 
 import com.sparkutils.quality.QualityException
-import com.sparkutils.quality.impl.MapUtils
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
 import org.apache.spark.sql.catalyst.expressions.{Expression, NullIntolerant, UnaryExpression}
-import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, ArrayData, MapData}
+import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, ArrayData}
 import org.apache.spark.sql.qualityFunctions.InputTypeChecks
 import org.apache.spark.sql.types._
-import org.apache.spark.unsafe.types.{CalendarInterval, UTF8String}
+import org.apache.spark.unsafe.types.UTF8String
+import org.yaml.snakeyaml.Yaml
 import org.yaml.snakeyaml.nodes._
-import org.yaml.snakeyaml.representer.Representer
-import org.yaml.snakeyaml.{DumperOptions, Yaml}
 
 import scala.collection.JavaConverters._
 
-case class YamlDecoderExpr(child: Expression, dataType: DataType) extends UnaryExpression with NullIntolerant with
-  CodegenFallback with InputTypeChecks with Logging {
-  protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
+object QualityYamlDecoding extends Logging {
 
-  lazy val valueConverter = makeValueConverter(dataType)
-
-  override def nullSafeEval(input: Any): Any = {
-    val generator = new Yaml()
-    val reader = new StringReader(input.toString)
-
-    val node = generator.compose(reader)
-    reader.close()
-
-    valueConverter(node)
-  }
-
-  type Converter = Node => Any
-
-  val dummyMark = null
+  type NodeConverter = PartialFunction[DataType, Node => Any]
 
   implicit class NodeOps(a: Node){
     def scalar[T](convert: String => T) = {
@@ -49,7 +31,8 @@ case class YamlDecoderExpr(child: Expression, dataType: DataType) extends UnaryE
     }
   }
 
-  def makeValueConverter(dataType: DataType): Converter = dataType match {
+  import org.apache.spark.sql.QualityYamlExt.makeNodeConverterExt
+  def makeNodeConverter: NodeConverter = {
     case BooleanType =>
       (a: Node) =>
         a.scalar(_.toBoolean)
@@ -103,25 +86,7 @@ case class YamlDecoderExpr(child: Expression, dataType: DataType) extends UnaryE
     /*
 
     case CalendarIntervalType =>
-      def getField(tuples: Seq[NodeTuple])( name: String) =
-        tuples.find(_.getKeyNode.asInstanceOf[ScalarNode].getValue == name)
 
-      def getValue(node: NodeTuple) =
-        node.getValueNode.asInstanceOf[ScalarNode].getValue
-
-      (a: Node) => {
-        val map = a.asInstanceOf[MappingNode]
-        val tuples = map.getValue.asScala
-        val f = getField(tuples) _
-        val r =
-          for{
-            days <- f("days").map(getValue(_).toInt)
-            microseconds <- f("microseconds").map(getValue(_).toLong)
-            months <- f("months").map(getValue(_).toInt)
-          } yield
-            new CalendarInterval(months, days, microseconds)
-        r.orNull // not really exception territory
-      }
 
         case TimestampNTZType =>
           (y: YAMLGenerator, a: Any) =>
@@ -147,7 +112,7 @@ case class YamlDecoderExpr(child: Expression, dataType: DataType) extends UnaryE
 
         */
     case st: StructType =>
-      val converters = st.fields.map(f => makeValueConverter(f.dataType))
+      val converters = st.fields.map(f => makeNodeConverter.applyOrElse(f.dataType, makeNodeConverterExt))
       (a: Node) => {
         if (a.getTag == Tag.NULL)
           null
@@ -160,7 +125,7 @@ case class YamlDecoderExpr(child: Expression, dataType: DataType) extends UnaryE
                 val name = tuple.getKeyNode.asInstanceOf[ScalarNode]
                 if (name.getValue != st.fields(index).name) {
                   logWarning(s"Could not load yaml, expected field name ${st.fields(index).name} but got ${name.getValue}, returning null")
-                  return (a: Node) => null
+                  return { case _ => (a: Node) => null }
                 }
 
                 converters(index)(tuple.getValueNode)
@@ -170,7 +135,7 @@ case class YamlDecoderExpr(child: Expression, dataType: DataType) extends UnaryE
       }
 
     case at: ArrayType =>
-      val elementConverter = makeValueConverter(at.elementType)
+      val elementConverter = makeNodeConverter.applyOrElse(at.elementType, makeNodeConverterExt)
       (a: Node) => {
         if (a.getTag == Tag.NULL)
           null
@@ -182,8 +147,8 @@ case class YamlDecoderExpr(child: Expression, dataType: DataType) extends UnaryE
       }
 
     case mt: MapType =>
-      val keyType = makeValueConverter(mt.keyType)
-      val valueType = makeValueConverter(mt.valueType)
+      val keyType = makeNodeConverter.applyOrElse(mt.keyType, makeNodeConverterExt)
+      val valueType = makeNodeConverter.applyOrElse(mt.valueType, makeNodeConverterExt)
       (a: Node) => {
         if (a.getTag == Tag.NULL)
           null
@@ -202,10 +167,29 @@ case class YamlDecoderExpr(child: Expression, dataType: DataType) extends UnaryE
 
     case _: NullType =>
       (a: Node) =>
-       null
+        null
 
-    // We don't actually hit this exception though, we keep it for understandability
-    case _ => throw QualityException(s"Cannot find yaml representation for type $dataType")
+  }
+
+}
+
+case class YamlDecoderExpr(child: Expression, dataType: DataType) extends UnaryExpression with NullIntolerant with
+  CodegenFallback with InputTypeChecks with Logging {
+  protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
+
+  import QualityYamlDecoding._
+  import org.apache.spark.sql.QualityYamlExt._
+
+  lazy val valueConverter = makeNodeConverter.applyOrElse(dataType, makeNodeConverterExt)
+
+  override def nullSafeEval(input: Any): Any = {
+    val generator = new Yaml()
+    val reader = new StringReader(input.toString)
+
+    val node = generator.compose(reader)
+    reader.close()
+
+    valueConverter(node)
   }
 
   override def inputDataTypes: Seq[Seq[DataType]] = Seq(Seq(StringType))
