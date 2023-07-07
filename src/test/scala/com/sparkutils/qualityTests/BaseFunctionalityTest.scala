@@ -8,11 +8,15 @@ import impl.imports.RuleResultsImports.packId
 import com.sparkutils.quality.impl.util.{Arrays, PrintCode}
 import org.apache.spark.sql.catalyst.util.ArrayData
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.types.{IntegerType, StructType}
+import org.apache.spark.sql.types.{DataType, DataTypes, IntegerType, StructType}
 import org.apache.spark.sql.{Column, DataFrame, Encoder, SaveMode}
 import org.junit.Test
 import org.scalatest.FunSuite
 import java.util.UUID
+
+import com.sparkutils.quality.impl.yaml.YamlEncoderExpr
+import org.apache.spark.sql.catalyst.expressions.Literal
+import org.apache.spark.sql.qualityFunctions.json.JsonToStructs
 
 import scala.language.postfixOps
 
@@ -653,6 +657,20 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     }
 
     assert(strippedGres == "500")
+  }
+
+  @Test
+  def structsAsJsonKeys: Unit = evalCodeGens {
+//    val df = sparkSession.sql("select cast(map(named_struct('col1','group', 'col2','parts'), 1235, named_struct('col1','more','col2','parts'), 2666) as map<struct<col1: String, col2: String>, decimal>) bits")
+  //    .select(new Column(YamlEncoderExpr( col("bits").expr )))
+
+    val df = sparkSession.sql("select cast(map(named_struct('col1','group', 'col2','parts'), 1235, named_struct('col1','more','col2','parts'), 2666) as map<struct<col1: String, col2: String>, long>) bits")
+      .select(new Column(YamlEncoderExpr( col("bits").expr )))
+
+    //.selectExpr("to_json(bits) bits")
+      //.selectExpr("from_json(bits, 'map<struct<col1: String, col2: String>, decimal>')")
+      //.select(new Column(JsonToStructs(DataType.fromDDL( "map<struct<col1: String, col2: String>, decimal>"), Map.empty, col("bits").expr, None )))
+    df.show
   }
 
   @Test

@@ -127,7 +127,7 @@ case class DropField(name: String) extends LeafExpression with StructFieldsOpera
  * Updates fields in a struct.
  */
 case class UpdateFields(children: Seq[Expression])
-  extends Expression with CodegenFallback {
+  extends Expression {
 
   val structExpr = children.head
   val fieldOps: Seq[StructFieldsOperation] = children.drop(1).map(_.asInstanceOf[StructFieldsOperation])
@@ -185,6 +185,8 @@ case class UpdateFields(children: Seq[Expression])
 
   override def eval(input: InternalRow): Any = evalExpr.eval(input)
 
+  override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode =
+    evalExpr.genCode(ctx)
 }
 
 object UpdateFields {
