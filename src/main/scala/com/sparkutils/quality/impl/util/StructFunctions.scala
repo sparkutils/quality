@@ -58,7 +58,7 @@ trait StructFunctionsImport {
 /**
  * Represents an operation to be applied to the fields of a struct.
  */
-trait StructFieldsOperation extends Expression {
+trait StructFieldsOperation extends Expression with CodegenFallback {
 
   val resolver: Resolver = SQLConf.get.resolver
 
