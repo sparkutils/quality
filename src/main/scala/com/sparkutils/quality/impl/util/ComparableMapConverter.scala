@@ -52,6 +52,8 @@ object ComparableMapConverter {
             case (tkey, index) =>
               InternalRow(tkey, value._2(vals(index)))
           })
+        case e if e == null =>
+          null
       }
     }
   )
@@ -70,6 +72,8 @@ object ComparableMapConverter {
               ArrayData.toArrayData(
                 Arrays.mapArray( array, arrayType.elementType, r._2 )
               )
+            case e if e == null =>
+              null
           }
         )
       case structType: StructType =>
@@ -85,6 +89,8 @@ object ComparableMapConverter {
           { // convert data to target type
             case row: InternalRow =>
               InternalRow.fromSeq(fieldTransforms.map(_._2(row)))
+            case e if e == null =>
+              null
           }
         )
       case _ => (dataType, identity)
@@ -107,6 +113,8 @@ object ComparableMapConverter {
             } ).map(_.asInstanceOf[(Any, Any)]).toMap
 
           ArrayBasedMapData(theScalaMap)
+        case e if e == null =>
+          null
       }
     )
 
@@ -124,6 +132,8 @@ object ComparableMapConverter {
               ArrayData.toArrayData(
                 Arrays.mapArray( array, arrayType.elementType, r._2 )
               )
+            case e if e == null =>
+              null
           }
         )
       case structType: StructType =>
@@ -139,6 +149,8 @@ object ComparableMapConverter {
           { // convert data to target type
             case row: InternalRow =>
               InternalRow.fromSeq(fieldTransforms.map(_._2(row)))
+            case e if e == null =>
+              null
           }
         )
       case _ => (dataType, identity)

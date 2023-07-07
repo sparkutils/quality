@@ -11,6 +11,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 import org.apache.spark.internal.Logging
 
+import scala.reflect.ClassTag
+
 object DebugTime extends Logging {
 
   def debugTime[T](what: String, log: (Long, String)=>Unit = (i, what) => {logDebug(s"----> ${i}ms for $what")} )( thunk: => T): T = {
@@ -197,7 +199,13 @@ object Comparison {
    * @return
    */
   def compareTo[T <: Comparable[T]](left: Any, right: Any): Int =
-    left.asInstanceOf[T].compareTo( right.asInstanceOf[T])
+    if (left == null && right != null)
+      -100
+    else
+      if (right == null && left != null)
+        100
+      else
+        left.asInstanceOf[T].compareTo( right.asInstanceOf[T])
 
   /**
    * Forwards to compare, allows for compareToOrdering(ordering) syntax with internal casts
@@ -207,7 +215,13 @@ object Comparison {
    * @return
    */
   def compareToOrdering[T](ordering: Ordering[T])(left: Any, right: Any): Int =
-    ordering.compare(left.asInstanceOf[T], right.asInstanceOf[T])
+    if (left == null && right != null)
+      -100
+    else
+      if (right == null && left != null)
+        100
+      else
+        ordering.compare(left.asInstanceOf[T], right.asInstanceOf[T])
 
 }
 
@@ -220,10 +234,10 @@ object Arrays {
    * @param f
    * @return
    */
-  def mapArray(array: ArrayData, dataType: DataType, f: Any => Any): Array[Any] =
+  def mapArray[T: ClassTag](array: ArrayData, dataType: DataType, f: Any => T): Array[T] =
     array match {
       case _: UnsafeArrayData =>
-        val res = Array.ofDim[Any](array.numElements())
+        val res = Array.ofDim[T](array.numElements())
         array.foreach(dataType, (i, v) => res.update(i, f(v)))
         res
       case _ => array.array.map(f)
