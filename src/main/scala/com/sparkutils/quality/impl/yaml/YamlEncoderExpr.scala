@@ -42,7 +42,7 @@ case class YamlEncoderExpr(child: Expression) extends UnaryExpression with NullI
 
   type StructValueConverter = (InternalRow, Int) => Node
 
-  val dummyMark = null// new Mark("Dummy", 1, 1, 1, "str: Array[Char]".toCharArray, 1)
+  val dummyMark = null
 
   def createScalarNode(a: Any): ScalarNode = createScalarNode(a.toString)
   def createScalarNode(a: String): ScalarNode =
@@ -84,11 +84,12 @@ case class YamlEncoderExpr(child: Expression) extends UnaryExpression with NullI
     case TimestampType =>
       (i: InternalRow, p: Int) =>
         createScalarNode( i.getLong(p) )
-
+/*
+can't support until much later or move this out into compat...
     case TimestampNTZType =>
       (i: InternalRow, p: Int) =>
         createScalarNode( i.getLong(p) )
-
+*/
     case DateType =>
       (i: InternalRow, p: Int) =>
         createScalarNode( i.getInt(p) )
@@ -120,9 +121,10 @@ case class YamlEncoderExpr(child: Expression) extends UnaryExpression with NullI
       }
 */
     case st: StructType =>
+      val sf = createStructNode(st)
       (i: InternalRow, p: Int) => {
         val row = i.getStruct(p, st.size)
-        createStructNode(st, row)
+        sf(row)
       }
 
       /*
@@ -165,15 +167,20 @@ case class YamlEncoderExpr(child: Expression) extends UnaryExpression with NullI
     new MappingNode(Tag.MAP, tuples.toSeq.asJava, DumperOptions.FlowStyle.FLOW)
   }
 
-  private def createStructNode(st: StructType, row: InternalRow) = {
-    val tuples = st.fields.zipWithIndex.map {
-      case (field, index) =>
-        new NodeTuple(
-          createScalarNode(field.name),
-          makeStructFieldConverter(field.dataType).apply(row, index)
-        )
+  private def createStructNode(st: StructType) = {
+    val converters = st.fields.map(f =>
+      makeStructFieldConverter(f.dataType))
+
+    (row: InternalRow) => {
+      val tuples = st.fields.zipWithIndex.map {
+        case (field, index) =>
+          new NodeTuple(
+            createScalarNode(field.name),
+            converters(index)(row, index)
+          )
+      }
+      new MappingNode(Tag.MAP, tuples.toSeq.asJava, DumperOptions.FlowStyle.FLOW)
     }
-    new MappingNode(Tag.MAP, tuples.toSeq.asJava, DumperOptions.FlowStyle.FLOW)
   }
 
   type ValueConverter = (Any) => Node
@@ -224,9 +231,8 @@ case class YamlEncoderExpr(child: Expression) extends UnaryExpression with NullI
           }
     */
     case st: StructType =>
-      (row: Any) => {
-        createStructNode(st, row.asInstanceOf[InternalRow])
-      }
+      (a: Any) =>
+        createStructNode(st)(a.asInstanceOf[InternalRow])
 
     /*
   case at: ArrayType =>

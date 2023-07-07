@@ -14,9 +14,8 @@ import org.junit.Test
 import org.scalatest.FunSuite
 import java.util.UUID
 
-import com.sparkutils.quality.impl.yaml.YamlEncoderExpr
+import com.sparkutils.quality.impl.yaml.{YamlDecoderExpr, YamlEncoderExpr}
 import org.apache.spark.sql.catalyst.expressions.Literal
-import org.apache.spark.sql.qualityFunctions.json.JsonToStructs
 
 import scala.language.postfixOps
 
@@ -664,13 +663,16 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 //    val df = sparkSession.sql("select cast(map(named_struct('col1','group', 'col2','parts'), 1235, named_struct('col1','more','col2','parts'), 2666) as map<struct<col1: String, col2: String>, decimal>) bits")
   //    .select(new Column(YamlEncoderExpr( col("bits").expr )))
 
-    val df = sparkSession.sql("select cast(map(named_struct('col1','group', 'col2','parts'), 1235, named_struct('col1','more','col2','parts'), 2666) as map<struct<col1: String, col2: String>, long>) bits")
-      .select(new Column(YamlEncoderExpr( col("bits").expr )))
+    val ddl = "map<struct<col1: String, col2: String>, long>"
 
-    //.selectExpr("to_json(bits) bits")
-      //.selectExpr("from_json(bits, 'map<struct<col1: String, col2: String>, decimal>')")
-      //.select(new Column(JsonToStructs(DataType.fromDDL( "map<struct<col1: String, col2: String>, decimal>"), Map.empty, col("bits").expr, None )))
-    df.show
+    val df = sparkSession.sql(s"select cast(map(named_struct('col1','group', 'col2','parts'), 1235, named_struct('col1','more','col2','parts'), 2666) as $ddl) bits")
+      .select(col("bits"), new Column(YamlEncoderExpr( col("bits").expr )).as("converted"))
+      .select(expr("*"),  new Column(YamlDecoderExpr( col("converted").expr , DataType.fromDDL(ddl))).as("deconverted"))
+
+    //df.show
+
+    val r = df.select(comparable_maps(col("bits")).as("bits"), comparable_maps(col("deconverted")).as("deconverted")).filter("deconverted = bits")
+    assert(r.count == 1)
   }
 
   @Test
