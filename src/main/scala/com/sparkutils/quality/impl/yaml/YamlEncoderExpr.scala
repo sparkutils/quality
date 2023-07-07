@@ -51,9 +51,9 @@ case class YamlEncoderExpr(child: Expression) extends UnaryExpression with Codeg
 
   def createScalarNode(a: Any): ScalarNode =
     if (a == null)
-      new ScalarNode(Tag.NULL, "null", dummyMark, dummyMark, DumperOptions.ScalarStyle.LITERAL)
+      new ScalarNode(Tag.NULL, "null", dummyMark, dummyMark, DumperOptions.ScalarStyle.PLAIN)
     else
-      new ScalarNode(Tag.STR, a.toString, dummyMark, dummyMark, DumperOptions.ScalarStyle.LITERAL)
+      new ScalarNode(Tag.STR, a.toString, dummyMark, dummyMark, DumperOptions.ScalarStyle.PLAIN)
 
   def makeStructFieldConverter(dataType: DataType): StructValueConverter = dataType match {
     case BooleanType =>

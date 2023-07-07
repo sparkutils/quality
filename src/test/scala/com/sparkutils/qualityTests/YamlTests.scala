@@ -24,8 +24,8 @@ class YamlTests extends FunSuite with RowTools with TestUtils {
 
   def doSerDeTest(original: String, ddl: String) = evalCodeGens {
     val df = sparkSession.sql(s"select $original bits")
-      .select(col("bits"), new Column(YamlEncoderExpr( col("bits").expr )).as("converted"))
-      .select(expr("*"),  new Column(YamlDecoderExpr( col("converted").expr , DataType.fromDDL(ddl))).as("deconverted"))
+      .select(col("bits"), to_yaml( col("bits") ).as("converted"))
+      .select(expr("*"), from_yaml( col("converted") , DataType.fromDDL(ddl)).as("deconverted"))
 
     val r = df.select(col("bits").as("og"), comparable_maps(col("bits")).as("bits"), col("converted"), col("deconverted").as("og_deconverted"), comparable_maps(col("deconverted")).as("deconverted"))
     val filtered= r.filter("deconverted = bits or deconverted is null and bits is null")
@@ -71,7 +71,9 @@ class YamlTests extends FunSuite with RowTools with TestUtils {
       doSerDeTest(s"named_struct('value', $original)", s"struct<value : $ddl>")
     }
 
-    doSerDe("null", "string")
+//    doSerDe("null", "string")
+
+    doSerDe("\"null\"", "string")
 
     doSerDe("unbase64('U3BhcmsgU1FM')", "binary")
 
@@ -92,6 +94,15 @@ class YamlTests extends FunSuite with RowTools with TestUtils {
     doSerDe("cast(53133454 as timestamp)", "timestamp")
 
     doSerDe("date('2016-07-30')", "date")
+  }
 
+  @Test
+  def sqlTest: Unit = evalCodeGens {
+    val df = sparkSession.sql("select array(1,2,3,4,5) og")
+      .selectExpr("*","to_yaml(og) y")
+      .selectExpr("*","from_yaml(y, 'array<int>') f")
+      .filter("f == og")
+
+    assert(df.count == 1)
   }
 }

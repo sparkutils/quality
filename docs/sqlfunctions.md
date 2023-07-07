@@ -9,6 +9,30 @@ functions:
       rule_result works with ruleRunner (DQ) results (including details) and ExpressionRunner results.  ExpressionRunner results return a tuple of ruleResult and resultDDL, both strings, or if strip_result_ddl is called a string.
     tags:
       - rule
+  to_yaml:
+    description: |
+      to_yaml(expression) uses snakeyaml to convert Spark datatypes into yaml.
+      
+      Passing null into the function returns a null yaml (newline is appended):
+      
+      ```yaml
+      null
+        
+      ```
+      
+      similarly all nulls will be treated in this fashion.  The string null will be represented as (again new line is present):
+      
+      ```yaml
+      'null'
+
+      ```
+    tags:
+      - yaml
+  from_yaml:
+    description: |
+      from_yaml(string, 'ddlType') uses snakeyaml to convert yaml into Spark datatypes   
+    tags:
+      - yaml
   strip_result_ddl:
     description: |
       strip_result_ddl(expressionsResult) removes the resultDDL field from expressionsRunner results, leaving only the string result itself for more compact storage 

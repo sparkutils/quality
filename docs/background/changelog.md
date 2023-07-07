@@ -1,3 +1,7 @@
+### [0.1.1](https://github.com/sparkutils/quality/milestone/6?closed=1) <small>7th July, 2023</small>
+
+#42 - Improve expression runner to store yaml, unlike json, to_yaml and from_yaml allow complete support for roundtripping of Spark data types
+
 ### [0.1.0](https://github.com/sparkutils/quality/milestone/3?closed=1) <small>10th June, 2023</small>
 
 #29 - Quality OptimzerRule's run with Databricks sql display
