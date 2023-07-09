@@ -1,0 +1,781 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/sparkutils/quality/impl/util/transformers.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality.impl.util
+</span>2 <span style=''>
+</span>3 <span style=''>import com.sparkutils.quality.{RuleSuite, ruleFolderRunner}
+</span>4 <span style=''>import org.apache.spark.sql.DataFrame
+</span>5 <span style=''>import org.apache.spark.sql.types.StructType
+</span>6 <span style=''>
+</span>7 <span style=''>protected[quality] object AddDataFunctions {
+</span>8 <span style=''>
+</span>9 <span style=''>  /**
+</span>10 <span style=''>   * Leverages the foldRunner to replace fields, the input fields are used to create a structure that the rules fold over.
+</span>11 <span style=''>   * The fields are then dropped from the original Dataframe and added back from the resulting structure.
+</span>12 <span style=''>   *
+</span>13 <span style=''>   * NOTE: The field order and types of the original DF will be maintained only when maintainOrder is true.  As it requires access to the schema it may incur extra work.
+</span>14 <span style=''>   *
+</span>15 <span style=''>   * @param rules
+</span>16 <span style=''>   * @param debugMode when true the last results are taken for the replaced fields
+</span>17 <span style=''>   * @param maintainOrder when true the schema is used to replace fields in the correct location, when false they are simply appended
+</span>18 <span style=''>   * @param useType In the case you must use select and can't use withColumn you may provide a type directly to stop the NPE
+</span>19 <span style=''>   * @return
+</span>20 <span style=''>   */
+</span>21 <span style=''>  def ifoldAndReplaceFields(rules: RuleSuite, fields: Seq[String], foldFieldName: String = &quot;foldedFields&quot;, debugMode: Boolean = false,
+</span>22 <span style=''>                           tempFoldDebugName: String = &quot;tempFOLDDEBUG&quot;,
+</span>23 <span style=''>                           maintainOrder: Boolean = true, useType: Option[StructType] = None): DataFrame =&gt; DataFrame = df =&gt; {
+</span>24 <span style=''>    import org.apache.spark.sql.functions._
+</span>25 <span style=''>
+</span>26 <span style=''>    val theStruct = </span><span style='background: #AEF1AE'>struct(fields.head, fields.tail :_*)</span><span style=''>
+</span>27 <span style=''>    val withFolder = {
+</span>28 <span style=''>      // select NPEs needs projection to work
+</span>29 <span style=''>      //df.select(expr(&quot;*&quot;), ruleFolderRunner(rules, theStruct).as(foldFieldName))
+</span>30 <span style=''>      </span><span style='background: #AEF1AE'>df.withColumn(foldFieldName, ruleFolderRunner(rules, theStruct, debugMode = debugMode, useType = useType) )</span><span style=''>
+</span>31 <span style=''>    }
+</span>32 <span style=''>
+</span>33 <span style=''>    // create now as the schema will have the folder, which we may want to keep
+</span>34 <span style=''>    val namesInOrder =
+</span>35 <span style=''>      if (maintainOrder)
+</span>36 <span style=''>        </span><span style='background: #AEF1AE'>withFolder.schema.map(_.name)</span><span style=''>
+</span>37 <span style=''>      else
+</span>38 <span style=''>        </span><span style='background: #AEF1AE'>Seq()</span><span style=''>
+</span>39 <span style=''>    // lift the results
+</span>40 <span style=''>    val result =
+</span>41 <span style=''>      if (debugMode)
+</span>42 <span style=''>        </span><span style='background: #AEF1AE'>withFolder.drop(fields : _*).selectExpr(&quot;*&quot;,
+</span>43 <span style=''></span><span style='background: #AEF1AE'>          s&quot;element_at($foldFieldName.result, -1).result as $tempFoldDebugName&quot;
+</span>44 <span style=''></span><span style='background: #AEF1AE'>        ).selectExpr(&quot;*&quot;, s&quot;$tempFoldDebugName.*&quot;).drop(tempFoldDebugName)</span><span style=''>
+</span>45 <span style=''>      else
+</span>46 <span style=''>        </span><span style='background: #AEF1AE'>withFolder.drop(fields : _*).selectExpr(&quot;*&quot;, s&quot;$foldFieldName.result.*&quot; )</span><span style=''>
+</span>47 <span style=''>
+</span>48 <span style=''>    // bring back to top level in the correct order
+</span>49 <span style=''>    if (maintainOrder)
+</span>50 <span style=''>      </span><span style='background: #AEF1AE'>result.select(namesInOrder.head, namesInOrder.tail :_*)</span><span style=''>
+</span>51 <span style=''>    else
+</span>52 <span style=''>      </span><span style='background: #AEF1AE'>result</span><span style=''>
+</span>53 <span style=''>  }
+</span>54 <span style=''>
+</span>55 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          7368
+        </td>
+        <td>
+          1446
+          -
+          1457
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableLike.tail
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          fields.tail
+        </td>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          7367
+        </td>
+        <td>
+          1433
+          -
+          1444
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IterableLike.head
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          fields.head
+        </td>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          7369
+        </td>
+        <td>
+          1426
+          -
+          1462
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.functions.struct
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.functions.struct(fields.head, (fields.tail: _*))
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          7371
+        </td>
+        <td>
+          1650
+          -
+          1650
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.imports.RuleFolderRunnerImports.ruleFolderRunner$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.`package`.ruleFolderRunner$default$5
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          7374
+        </td>
+        <td>
+          1650
+          -
+          1650
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.imports.RuleFolderRunnerImports.ruleFolderRunner$default$8
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.`package`.ruleFolderRunner$default$8
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          7377
+        </td>
+        <td>
+          1621
+          -
+          1728
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Dataset.withColumn
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          df.withColumn(foldFieldName, {
+  &lt;artifact&gt; val x$1: com.sparkutils.quality.RuleSuite = rules;
+  &lt;artifact&gt; val x$2: org.apache.spark.sql.Column = theStruct;
+  &lt;artifact&gt; val x$3: Boolean = debugMode;
+  &lt;artifact&gt; val x$4: Option[org.apache.spark.sql.types.StructType] @scala.reflect.internal.annotations.uncheckedBounds = useType;
+  &lt;artifact&gt; val x$5: Boolean = com.sparkutils.quality.`package`.ruleFolderRunner$default$3;
+  &lt;artifact&gt; val x$6: Option[org.apache.spark.sql.DataFrame] @scala.reflect.internal.annotations.uncheckedBounds = com.sparkutils.quality.`package`.ruleFolderRunner$default$5;
+  &lt;artifact&gt; val x$7: Int = com.sparkutils.quality.`package`.ruleFolderRunner$default$6;
+  &lt;artifact&gt; val x$8: Int = com.sparkutils.quality.`package`.ruleFolderRunner$default$7;
+  &lt;artifact&gt; val x$9: Boolean = com.sparkutils.quality.`package`.ruleFolderRunner$default$8;
+  &lt;artifact&gt; val x$10: Boolean = com.sparkutils.quality.`package`.ruleFolderRunner$default$10;
+  com.sparkutils.quality.`package`.ruleFolderRunner(x$1, x$2, x$5, x$3, x$6, x$7, x$8, x$9, x$4, x$10)
+})
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          7376
+        </td>
+        <td>
+          1650
+          -
+          1726
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.imports.RuleFolderRunnerImports.ruleFolderRunner
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.`package`.ruleFolderRunner(x$1, x$2, x$5, x$3, x$6, x$7, x$8, x$9, x$4, x$10)
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          7370
+        </td>
+        <td>
+          1650
+          -
+          1650
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.imports.RuleFolderRunnerImports.ruleFolderRunner$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.`package`.ruleFolderRunner$default$3
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          7373
+        </td>
+        <td>
+          1650
+          -
+          1650
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.imports.RuleFolderRunnerImports.ruleFolderRunner$default$7
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.`package`.ruleFolderRunner$default$7
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          7375
+        </td>
+        <td>
+          1650
+          -
+          1650
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.imports.RuleFolderRunnerImports.ruleFolderRunner$default$10
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.`package`.ruleFolderRunner$default$10
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          7372
+        </td>
+        <td>
+          1650
+          -
+          1650
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.imports.RuleFolderRunnerImports.ruleFolderRunner$default$6
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.`package`.ruleFolderRunner$default$6
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          7380
+        </td>
+        <td>
+          1872
+          -
+          1901
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          withFolder.schema.map[String, Seq[String]](((x$1: org.apache.spark.sql.types.StructField) =&gt; x$1.name))(collection.this.Seq.canBuildFrom[String])
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          7379
+        </td>
+        <td>
+          1893
+          -
+          1893
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[String]
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          7378
+        </td>
+        <td>
+          1894
+          -
+          1900
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$1.name
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          7381
+        </td>
+        <td>
+          1872
+          -
+          1901
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          withFolder.schema.map[String, Seq[String]](((x$1: org.apache.spark.sql.types.StructField) =&gt; x$1.name))(collection.this.Seq.canBuildFrom[String])
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          7383
+        </td>
+        <td>
+          1921
+          -
+          1926
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.Seq.apply[Nothing]()
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          7382
+        </td>
+        <td>
+          1921
+          -
+          1926
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.Seq.apply[Nothing]()
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          7385
+        </td>
+        <td>
+          1997
+          -
+          2196
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.Dataset.drop
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          withFolder.drop((fields: _*)).selectExpr(&quot;*&quot;, scala.StringContext.apply(&quot;element_at(&quot;, &quot;.result, -1).result as &quot;, &quot;&quot;).s(foldFieldName, tempFoldDebugName)).selectExpr(&quot;*&quot;, scala.StringContext.apply(&quot;&quot;, &quot;.*&quot;).s(tempFoldDebugName)).drop(tempFoldDebugName)
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          7384
+        </td>
+        <td>
+          1997
+          -
+          2196
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Dataset.drop
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          withFolder.drop((fields: _*)).selectExpr(&quot;*&quot;, scala.StringContext.apply(&quot;element_at(&quot;, &quot;.result, -1).result as &quot;, &quot;&quot;).s(foldFieldName, tempFoldDebugName)).selectExpr(&quot;*&quot;, scala.StringContext.apply(&quot;&quot;, &quot;.*&quot;).s(tempFoldDebugName)).drop(tempFoldDebugName)
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          7389
+        </td>
+        <td>
+          2216
+          -
+          2289
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.Dataset.selectExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          withFolder.drop((fields: _*)).selectExpr(&quot;*&quot;, scala.StringContext.apply(&quot;&quot;, &quot;.result.*&quot;).s(foldFieldName))
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          7386
+        </td>
+        <td>
+          2256
+          -
+          2259
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;*&quot;
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          7388
+        </td>
+        <td>
+          2216
+          -
+          2289
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Dataset.selectExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          withFolder.drop((fields: _*)).selectExpr(&quot;*&quot;, scala.StringContext.apply(&quot;&quot;, &quot;.result.*&quot;).s(foldFieldName))
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          7387
+        </td>
+        <td>
+          2261
+          -
+          2287
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;&quot;, &quot;.result.*&quot;).s(foldFieldName)
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          7392
+        </td>
+        <td>
+          2372
+          -
+          2427
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Dataset.select
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          result.select(namesInOrder.head, (namesInOrder.tail: _*))
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          7391
+        </td>
+        <td>
+          2405
+          -
+          2422
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableLike.tail
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          namesInOrder.tail
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          7390
+        </td>
+        <td>
+          2386
+          -
+          2403
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IterableLike.head
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          namesInOrder.head
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          7393
+        </td>
+        <td>
+          2372
+          -
+          2427
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.Dataset.select
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          result.select(namesInOrder.head, (namesInOrder.tail: _*))
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          7394
+        </td>
+        <td>
+          2443
+          -
+          2449
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.AddDataFunctions.result
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          result
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

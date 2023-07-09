@@ -1,0 +1,4627 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          org/apache/spark/sql/qualityFunctions/utils.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package org.apache.spark.sql.qualityFunctions
+</span>2 <span style=''>
+</span>3 <span style=''>import java.util.concurrent.atomic.AtomicInteger
+</span>4 <span style=''>
+</span>5 <span style=''>import com.sparkutils.quality.impl.util.Comparison.compareToOrdering
+</span>6 <span style=''>import org.apache.spark.sql.{Column, QualitySparkUtils}
+</span>7 <span style=''>import org.apache.spark.sql.catalyst.InternalRow
+</span>8 <span style=''>import org.apache.spark.sql.catalyst.expressions.{BoundReference, LambdaFunction, NamedExpression, UnresolvedNamedLambdaVariable}
+</span>9 <span style=''>import org.apache.spark.sql.catalyst.util.ArrayData
+</span>10 <span style=''>import org.apache.spark.sql.types.{ArrayType, AtomicType, DataType, MapType, StructField, StructType}
+</span>11 <span style=''>
+</span>12 <span style=''>object utils {
+</span>13 <span style=''>
+</span>14 <span style=''>  def named(col: Column): NamedExpression = </span><span style='background: #F0ADAD'>col.named</span><span style=''>
+</span>15 <span style=''>
+</span>16 <span style=''>  private val noopCompare = (dt: DataType) =&gt; </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>17 <span style=''>
+</span>18 <span style=''>  object KeyValueArray {
+</span>19 <span style=''>    def unapply(dataType: DataType): Option[(DataType, DataType)] =
+</span>20 <span style=''>      dataType match {
+</span>21 <span style=''>        case arrayType: ArrayType =&gt;
+</span>22 <span style=''>          </span><span style='background: #AEF1AE'>arrayType.elementType</span><span style=''> match {
+</span>23 <span style=''>            case s: StructType if </span><span style='background: #AEF1AE'>s.fields.size == 2 &amp;&amp; s.fields(0).name == &quot;key&quot; &amp;&amp; s.fields(1).name == &quot;value&quot;</span><span style=''> =&gt;
+</span>24 <span style=''>              </span><span style='background: #AEF1AE'>Some((s.fields(0).dataType, s.fields(1).dataType))</span><span style=''>
+</span>25 <span style=''>            case _ =&gt; </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>26 <span style=''>          }
+</span>27 <span style=''>        case _ =&gt; </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>28 <span style=''>      }
+</span>29 <span style=''>  }
+</span>30 <span style=''>
+</span>31 <span style=''>  def keyValueType(keyType: DataType, valueType: DataType) =
+</span>32 <span style=''>    </span><span style='background: #AEF1AE'>ArrayType(StructType(
+</span>33 <span style=''></span><span style='background: #AEF1AE'>      Seq(StructField(&quot;key&quot;, keyType, false), StructField(&quot;value&quot;, valueType, false))
+</span>34 <span style=''></span><span style='background: #AEF1AE'>    ), false)</span><span style=''>
+</span>35 <span style=''>
+</span>36 <span style=''>  def genArrayCompare(elementType: DataType, elComp: (Any, Any) =&gt; Int): (Any, Any) =&gt; Int = (oleft, oright) =&gt; {
+</span>37 <span style=''>    val left = </span><span style='background: #AEF1AE'>oleft.asInstanceOf[ArrayData]</span><span style=''>
+</span>38 <span style=''>    val right = </span><span style='background: #AEF1AE'>oright.asInstanceOf[ArrayData]</span><span style=''>
+</span>39 <span style=''>    if (</span><span style='background: #AEF1AE'>left.numElements() &gt; right.numElements()</span><span style=''>)
+</span>40 <span style=''>      </span><span style='background: #AEF1AE'>1</span><span style=''>
+</span>41 <span style=''>    else </span><span style='background: #AEF1AE'>if (left.numElements() &lt; right.numElements())
+</span>42 <span style=''></span><span style='background: #AEF1AE'>      -1
+</span>43 <span style=''></span><span style='background: #AEF1AE'>    else {
+</span>44 <span style=''></span><span style='background: #AEF1AE'>      // same
+</span>45 <span style=''></span><span style='background: #AEF1AE'>      var i = 0
+</span>46 <span style=''></span><span style='background: #AEF1AE'>      var res = 0
+</span>47 <span style=''></span><span style='background: #AEF1AE'>      val al = (idx: Int) =&gt; left.get(idx, elementType)// Arrays.toArray(left, elementType)
+</span>48 <span style=''></span><span style='background: #AEF1AE'>      val ar = (idx: Int) =&gt; right.get(idx, elementType)// Arrays.toArray(right, elementType)
+</span>49 <span style=''></span><span style='background: #AEF1AE'>      while (i &lt; left.numElements() &amp;&amp; res == 0) {
+</span>50 <span style=''></span><span style='background: #AEF1AE'>        res = elComp(al(i), ar(i))
+</span>51 <span style=''></span><span style='background: #AEF1AE'>        i += 1
+</span>52 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>53 <span style=''></span><span style='background: #AEF1AE'>      res
+</span>54 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>55 <span style=''>  }
+</span>56 <span style=''>
+</span>57 <span style=''>  def defaultMapCompare(dataType: DataType, extension: DataType =&gt; Option[(Any, Any) =&gt; Int] = noopCompare): Option[(Any, Any) =&gt; Int] =
+</span>58 <span style=''>    dataType match {
+</span>59 <span style=''>      case mt: MapType =&gt; {
+</span>60 <span style=''>        val kt = </span><span style='background: #AEF1AE'>defaultMapCompare(mt.keyType, extension).
+</span>61 <span style=''></span><span style='background: #AEF1AE'>          getOrElse(sys.error(</span><span style='background: #F0ADAD'>s&quot;Could not find compare function for map key type ${mt.keyType}&quot;</span><span style='background: #AEF1AE'>))</span><span style=''>
+</span>62 <span style=''>
+</span>63 <span style=''>        val kr = </span><span style='background: #AEF1AE'>BoundReference(0, mt.keyType, nullable = true)</span><span style=''>
+</span>64 <span style=''>
+</span>65 <span style=''>        // actual field is in a key val struct
+</span>66 <span style=''>        </span><span style='background: #AEF1AE'>Some(
+</span>67 <span style=''></span><span style='background: #AEF1AE'>          genArrayCompare(keyValueType(mt.keyType, mt.valueType),
+</span>68 <span style=''></span><span style='background: #AEF1AE'>            (left, right) =&gt; {
+</span>69 <span style=''></span><span style='background: #AEF1AE'>              val lkv = kr.eval(left.asInstanceOf[InternalRow])
+</span>70 <span style=''></span><span style='background: #AEF1AE'>              val rkv = kr.eval(right.asInstanceOf[InternalRow])
+</span>71 <span style=''></span><span style='background: #AEF1AE'>
+</span>72 <span style=''></span><span style='background: #AEF1AE'>              val r = kt(lkv, rkv)
+</span>73 <span style=''></span><span style='background: #AEF1AE'>              if (r != 0)
+</span>74 <span style=''></span><span style='background: #AEF1AE'>                r
+</span>75 <span style=''></span><span style='background: #AEF1AE'>              else {
+</span>76 <span style=''></span><span style='background: #AEF1AE'>                /* shouldn't happen unless MapData is created directly and it's not
+</span>77 <span style=''></span><span style='background: #AEF1AE'>                   actually a map checking on key uniqueness, here for completeness */
+</span>78 <span style=''></span><span style='background: #AEF1AE'>                val vt = </span><span style='background: #F0ADAD'>defaultMapCompare(mt.valueType, extension).
+</span>79 <span style=''></span><span style='background: #F0ADAD'>                  getOrElse(sys.error(s&quot;Could not find compare function for map value type ${mt.valueType}&quot;))</span><span style='background: #AEF1AE'>
+</span>80 <span style=''></span><span style='background: #AEF1AE'>                val vr = </span><span style='background: #F0ADAD'>BoundReference(1, mt.valueType, nullable = true)</span><span style='background: #AEF1AE'>
+</span>81 <span style=''></span><span style='background: #AEF1AE'>
+</span>82 <span style=''></span><span style='background: #AEF1AE'>                val lvv = </span><span style='background: #F0ADAD'>vr.eval(left.asInstanceOf[InternalRow])</span><span style='background: #AEF1AE'>
+</span>83 <span style=''></span><span style='background: #AEF1AE'>                val rvv = </span><span style='background: #F0ADAD'>vr.eval(right.asInstanceOf[InternalRow])</span><span style='background: #AEF1AE'>
+</span>84 <span style=''></span><span style='background: #AEF1AE'>
+</span>85 <span style=''></span><span style='background: #AEF1AE'>                </span><span style='background: #F0ADAD'>vt(lvv, rvv)</span><span style='background: #AEF1AE'>
+</span>86 <span style=''></span><span style='background: #AEF1AE'>              }
+</span>87 <span style=''></span><span style='background: #AEF1AE'>            })
+</span>88 <span style=''></span><span style='background: #AEF1AE'>        )</span><span style=''>
+</span>89 <span style=''>      }
+</span>90 <span style=''>      case dt: AtomicType =&gt; </span><span style='background: #AEF1AE'>Some(compareToOrdering(QualitySparkUtils.sparkOrdering(dt)))</span><span style=''>
+</span>91 <span style=''>      case arrayType: ArrayType =&gt;
+</span>92 <span style=''>        val oelcomp = </span><span style='background: #AEF1AE'>defaultMapCompare(arrayType.elementType, extension)</span><span style=''>
+</span>93 <span style=''>        </span><span style='background: #AEF1AE'>oelcomp.map{
+</span>94 <span style=''></span><span style='background: #AEF1AE'>          elcomp =&gt;
+</span>95 <span style=''></span><span style='background: #AEF1AE'>            genArrayCompare(arrayType.elementType, elcomp)
+</span>96 <span style=''></span><span style='background: #AEF1AE'>        }</span><span style=''>
+</span>97 <span style=''>      case structType: StructType =&gt;
+</span>98 <span style=''>        val allFields = </span><span style='background: #AEF1AE'>structType.fields.zipWithIndex.map{
+</span>99 <span style=''></span><span style='background: #AEF1AE'>          case (f, index) =&gt;
+</span>100 <span style=''></span><span style='background: #AEF1AE'>            defaultMapCompare( f.dataType, extension).map(cf =&gt; (BoundReference(index, f.dataType, nullable = true), cf)).
+</span>101 <span style=''></span><span style='background: #AEF1AE'>              getOrElse(sys.error(</span><span style='background: #F0ADAD'>s&quot;Could not find compare function for ${f.dataType} in struct $structType&quot;</span><span style='background: #AEF1AE'>))
+</span>102 <span style=''></span><span style='background: #AEF1AE'>        }</span><span style=''>
+</span>103 <span style=''>        </span><span style='background: #AEF1AE'>Some(
+</span>104 <span style=''></span><span style='background: #AEF1AE'>          // fail early for any non 0
+</span>105 <span style=''></span><span style='background: #AEF1AE'>          (left, right) =&gt; {
+</span>106 <span style=''></span><span style='background: #AEF1AE'>            var i = 0
+</span>107 <span style=''></span><span style='background: #AEF1AE'>            var res = 0
+</span>108 <span style=''></span><span style='background: #AEF1AE'>            while (i &lt; allFields.size &amp;&amp; res == 0) {
+</span>109 <span style=''></span><span style='background: #AEF1AE'>              val leftV = allFields(i)._1.eval(left.asInstanceOf[InternalRow])
+</span>110 <span style=''></span><span style='background: #AEF1AE'>              val rightV = allFields(i)._1.eval(right.asInstanceOf[InternalRow])
+</span>111 <span style=''></span><span style='background: #AEF1AE'>              res = allFields(i)._2(leftV, rightV)
+</span>112 <span style=''></span><span style='background: #AEF1AE'>              i += 1
+</span>113 <span style=''></span><span style='background: #AEF1AE'>            }
+</span>114 <span style=''></span><span style='background: #AEF1AE'>            res
+</span>115 <span style=''></span><span style='background: #AEF1AE'>          }
+</span>116 <span style=''></span><span style='background: #AEF1AE'>        )</span><span style=''>
+</span>117 <span style=''>      case _ =&gt; </span><span style='background: #AEF1AE'>extension(dataType).orElse(
+</span>118 <span style=''></span><span style='background: #AEF1AE'>        </span><span style='background: #F0ADAD'>sys.error(s&quot;Could not find compare function for ${dataType}&quot;)</span><span style='background: #AEF1AE'>
+</span>119 <span style=''></span><span style='background: #AEF1AE'>      )</span><span style=''>
+</span>120 <span style=''>    }
+</span>121 <span style=''>
+</span>122 <span style=''>  // taken from functions, where they are private
+</span>123 <span style=''>  def createLambda(f: Column =&gt; Column) = {
+</span>124 <span style=''>    val x = </span><span style='background: #AEF1AE'>UnresolvedNamedLambdaVariable(Seq(UnresolvedNamedLambdaVariableT.freshVarName(&quot;x&quot;)))</span><span style=''>
+</span>125 <span style=''>    val function = </span><span style='background: #AEF1AE'>f(Column(x)).expr</span><span style=''>
+</span>126 <span style=''>    </span><span style='background: #AEF1AE'>LambdaFunction(function, Seq(x))</span><span style=''>
+</span>127 <span style=''>  }
+</span>128 <span style=''>
+</span>129 <span style=''>  def createLambda(f: (Column, Column) =&gt; Column) = {
+</span>130 <span style=''>    val x = </span><span style='background: #AEF1AE'>UnresolvedNamedLambdaVariable(Seq(UnresolvedNamedLambdaVariableT.freshVarName(&quot;x&quot;)))</span><span style=''>
+</span>131 <span style=''>    val y = </span><span style='background: #AEF1AE'>UnresolvedNamedLambdaVariable(Seq(UnresolvedNamedLambdaVariableT.freshVarName(&quot;y&quot;)))</span><span style=''>
+</span>132 <span style=''>    val function = </span><span style='background: #AEF1AE'>f(Column(x), Column(y)).expr</span><span style=''>
+</span>133 <span style=''>    </span><span style='background: #AEF1AE'>LambdaFunction(function, Seq(x, y))</span><span style=''>
+</span>134 <span style=''>  }
+</span>135 <span style=''>
+</span>136 <span style=''>  def createLambda(f: (Column, Column, Column) =&gt; Column) = {
+</span>137 <span style=''>    val x = </span><span style='background: #F0ADAD'>UnresolvedNamedLambdaVariable(Seq(UnresolvedNamedLambdaVariableT.freshVarName(&quot;x&quot;)))</span><span style=''>
+</span>138 <span style=''>    val y = </span><span style='background: #F0ADAD'>UnresolvedNamedLambdaVariable(Seq(UnresolvedNamedLambdaVariableT.freshVarName(&quot;y&quot;)))</span><span style=''>
+</span>139 <span style=''>    val z = </span><span style='background: #F0ADAD'>UnresolvedNamedLambdaVariable(Seq(UnresolvedNamedLambdaVariableT.freshVarName(&quot;z&quot;)))</span><span style=''>
+</span>140 <span style=''>    val function = </span><span style='background: #F0ADAD'>f(Column(x), Column(y), Column(z)).expr</span><span style=''>
+</span>141 <span style=''>    </span><span style='background: #AEF1AE'>LambdaFunction(function, </span><span style='background: #F0ADAD'>Seq(x, y, z)</span><span style='background: #AEF1AE'>)</span><span style=''>
+</span>142 <span style=''>  }
+</span>143 <span style=''>
+</span>144 <span style=''>}
+</span>145 <span style=''>
+</span>146 <span style=''>// TODO remove with 2.4, it's only here until 0.2.0 as 3 introduced freshVarName
+</span>147 <span style=''>object UnresolvedNamedLambdaVariableT {
+</span>148 <span style=''>
+</span>149 <span style=''>  // Counter to ensure lambda variable names are unique
+</span>150 <span style=''>  private val nextVarNameId = </span><span style='background: #AEF1AE'>new AtomicInteger(0)</span><span style=''>
+</span>151 <span style=''>
+</span>152 <span style=''>  def freshVarName(name: String): String = {
+</span>153 <span style=''>    </span><span style='background: #AEF1AE'>s&quot;${name}_${nextVarNameId.getAndIncrement()}&quot;</span><span style=''>
+</span>154 <span style=''>  }
+</span>155 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          14
+        </td>
+        <td>
+          8849
+        </td>
+        <td>
+          616
+          -
+          625
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.Column.named
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          col.named
+        </td>
+      </tr><tr>
+        <td>
+          16
+        </td>
+        <td>
+          8850
+        </td>
+        <td>
+          673
+          -
+          677
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          22
+        </td>
+        <td>
+          8851
+        </td>
+        <td>
+          842
+          -
+          863
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.ArrayType.elementType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          arrayType.elementType
+        </td>
+      </tr><tr>
+        <td>
+          23
+        </td>
+        <td>
+          8854
+        </td>
+        <td>
+          928
+          -
+          953
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          s.fields.apply(0).name.==(&quot;key&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          23
+        </td>
+        <td>
+          8853
+        </td>
+        <td>
+          923
+          -
+          924
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          2
+        </td>
+      </tr><tr>
+        <td>
+          23
+        </td>
+        <td>
+          8856
+        </td>
+        <td>
+          906
+          -
+          984
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](s.fields).size.==(2).&amp;&amp;(s.fields.apply(0).name.==(&quot;key&quot;)).&amp;&amp;(s.fields.apply(1).name.==(&quot;value&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          23
+        </td>
+        <td>
+          8852
+        </td>
+        <td>
+          906
+          -
+          914
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.fields
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          s.fields
+        </td>
+      </tr><tr>
+        <td>
+          23
+        </td>
+        <td>
+          8855
+        </td>
+        <td>
+          957
+          -
+          984
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          s.fields.apply(1).name.==(&quot;value&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          8858
+        </td>
+        <td>
+          1008
+          -
+          1028
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          s.fields.apply(0).dataType
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          8857
+        </td>
+        <td>
+          1017
+          -
+          1018
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          8860
+        </td>
+        <td>
+          1030
+          -
+          1050
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          s.fields.apply(1).dataType
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          8862
+        </td>
+        <td>
+          1002
+          -
+          1052
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[(org.apache.spark.sql.types.DataType, org.apache.spark.sql.types.DataType)](scala.Tuple2.apply[org.apache.spark.sql.types.DataType, org.apache.spark.sql.types.DataType](s.fields.apply(0).dataType, s.fields.apply(1).dataType))
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          8859
+        </td>
+        <td>
+          1039
+          -
+          1040
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          8861
+        </td>
+        <td>
+          1007
+          -
+          1051
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[org.apache.spark.sql.types.DataType, org.apache.spark.sql.types.DataType](s.fields.apply(0).dataType, s.fields.apply(1).dataType)
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          8863
+        </td>
+        <td>
+          1075
+          -
+          1079
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          8864
+        </td>
+        <td>
+          1110
+          -
+          1114
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          8874
+        </td>
+        <td>
+          1203
+          -
+          1306
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructType.apply(scala.collection.Seq.apply[org.apache.spark.sql.types.StructField](org.apache.spark.sql.types.StructField.apply(&quot;key&quot;, keyType, false, org.apache.spark.sql.types.StructField.apply$default$4), org.apache.spark.sql.types.StructField.apply(&quot;value&quot;, valueType, false, org.apache.spark.sql.types.StructField.apply$default$4)))
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          8876
+        </td>
+        <td>
+          1193
+          -
+          1314
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.ArrayType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.ArrayType.apply(org.apache.spark.sql.types.StructType.apply(scala.collection.Seq.apply[org.apache.spark.sql.types.StructField](org.apache.spark.sql.types.StructField.apply(&quot;key&quot;, keyType, false, org.apache.spark.sql.types.StructField.apply$default$4), org.apache.spark.sql.types.StructField.apply(&quot;value&quot;, valueType, false, org.apache.spark.sql.types.StructField.apply$default$4))), false)
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          8866
+        </td>
+        <td>
+          1253
+          -
+          1258
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          8869
+        </td>
+        <td>
+          1273
+          -
+          1280
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;value&quot;
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          8872
+        </td>
+        <td>
+          1261
+          -
+          1299
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply(&quot;value&quot;, valueType, false, org.apache.spark.sql.types.StructField.apply$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          8871
+        </td>
+        <td>
+          1261
+          -
+          1261
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          8865
+        </td>
+        <td>
+          1237
+          -
+          1242
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;key&quot;
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          8868
+        </td>
+        <td>
+          1225
+          -
+          1259
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply(&quot;key&quot;, keyType, false, org.apache.spark.sql.types.StructField.apply$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          8867
+        </td>
+        <td>
+          1225
+          -
+          1225
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          8870
+        </td>
+        <td>
+          1293
+          -
+          1298
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          8873
+        </td>
+        <td>
+          1221
+          -
+          1300
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.Seq.apply[org.apache.spark.sql.types.StructField](org.apache.spark.sql.types.StructField.apply(&quot;key&quot;, keyType, false, org.apache.spark.sql.types.StructField.apply$default$4), org.apache.spark.sql.types.StructField.apply(&quot;value&quot;, valueType, false, org.apache.spark.sql.types.StructField.apply$default$4))
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          8875
+        </td>
+        <td>
+          1308
+          -
+          1313
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          8877
+        </td>
+        <td>
+          1445
+          -
+          1474
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          oleft.asInstanceOf[org.apache.spark.sql.catalyst.util.ArrayData]
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          8878
+        </td>
+        <td>
+          1491
+          -
+          1521
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          oright.asInstanceOf[org.apache.spark.sql.catalyst.util.ArrayData]
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          8880
+        </td>
+        <td>
+          1530
+          -
+          1570
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          left.numElements().&gt;(right.numElements())
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          8879
+        </td>
+        <td>
+          1551
+          -
+          1570
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.ArrayData.numElements
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          right.numElements()
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          8881
+        </td>
+        <td>
+          1578
+          -
+          1579
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          8882
+        </td>
+        <td>
+          1578
+          -
+          1579
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          8884
+        </td>
+        <td>
+          1593
+          -
+          1633
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&lt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          left.numElements().&lt;(right.numElements())
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          8883
+        </td>
+        <td>
+          1614
+          -
+          1633
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.ArrayData.numElements
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          right.numElements()
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          8903
+        </td>
+        <td>
+          1589
+          -
+          2013
+        </td>
+        <td>
+          If
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          if (left.numElements().&lt;(right.numElements()))
+  -1
+else
+  {
+    var i: Int = 0;
+    var res: Int = 0;
+    val al: Int =&gt; Object = ((idx: Int) =&gt; left.get(idx, elementType));
+    val ar: Int =&gt; Object = ((idx: Int) =&gt; right.get(idx, elementType));
+    while$1(){
+      if (i.&lt;(left.numElements()).&amp;&amp;(res.==(0)))
+        {
+          {
+            res = elComp.apply(al.apply(i), ar.apply(i));
+            i = i.+(1)
+          };
+          while$1()
+        }
+      else
+        ()
+    };
+    res
+  }
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          8886
+        </td>
+        <td>
+          1641
+          -
+          1643
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          -1
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          8885
+        </td>
+        <td>
+          1641
+          -
+          1643
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          -1
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          8902
+        </td>
+        <td>
+          1653
+          -
+          2013
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  var i: Int = 0;
+  var res: Int = 0;
+  val al: Int =&gt; Object = ((idx: Int) =&gt; left.get(idx, elementType));
+  val ar: Int =&gt; Object = ((idx: Int) =&gt; right.get(idx, elementType));
+  while$1(){
+    if (i.&lt;(left.numElements()).&amp;&amp;(res.==(0)))
+      {
+        {
+          res = elComp.apply(al.apply(i), ar.apply(i));
+          i = i.+(1)
+        };
+        while$1()
+      }
+    else
+      ()
+  };
+  res
+}
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          8887
+        </td>
+        <td>
+          1683
+          -
+          1684
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          8888
+        </td>
+        <td>
+          1701
+          -
+          1702
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          8889
+        </td>
+        <td>
+          1732
+          -
+          1758
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.SpecializedGetters.get
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          left.get(idx, elementType)
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          8890
+        </td>
+        <td>
+          1824
+          -
+          1851
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.SpecializedGetters.get
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          right.get(idx, elementType)
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          8899
+        </td>
+        <td>
+          1938
+          -
+          1997
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  {
+    res = elComp.apply(al.apply(i), ar.apply(i));
+    i = i.+(1)
+  };
+  while$1()
+}
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          8893
+        </td>
+        <td>
+          1902
+          -
+          1936
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          i.&lt;(left.numElements()).&amp;&amp;(res.==(0))
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          8898
+        </td>
+        <td>
+          1938
+          -
+          1938
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.utils.while$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          while$1()
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          8892
+        </td>
+        <td>
+          1928
+          -
+          1936
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.==(0)
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          8901
+        </td>
+        <td>
+          1895
+          -
+          1895
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          8891
+        </td>
+        <td>
+          1906
+          -
+          1924
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.ArrayData.numElements
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          left.numElements()
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          8900
+        </td>
+        <td>
+          1895
+          -
+          1895
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          8896
+        </td>
+        <td>
+          1954
+          -
+          1974
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          elComp.apply(al.apply(i), ar.apply(i))
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          8895
+        </td>
+        <td>
+          1968
+          -
+          1973
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ar.apply(i)
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          8894
+        </td>
+        <td>
+          1961
+          -
+          1966
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          al.apply(i)
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          8897
+        </td>
+        <td>
+          1983
+          -
+          1989
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          i.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          8904
+        </td>
+        <td>
+          2240
+          -
+          2250
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.MapType.keyType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          mt.keyType
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          8908
+        </td>
+        <td>
+          2294
+          -
+          2359
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Could not find compare function for map key type &quot;, &quot;&quot;).s(mt.keyType)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          8905
+        </td>
+        <td>
+          2296
+          -
+          2346
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Could not find compare function for map key type &quot;
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          8907
+        </td>
+        <td>
+          2347
+          -
+          2357
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.MapType.keyType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          mt.keyType
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          8910
+        </td>
+        <td>
+          2222
+          -
+          2361
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          utils.this.defaultMapCompare(mt.keyType, extension).getOrElse[(Any, Any) =&gt; Int](scala.sys.`package`.error(scala.StringContext.apply(&quot;Could not find compare function for map key type &quot;, &quot;&quot;).s(mt.keyType)))
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          8906
+        </td>
+        <td>
+          2358
+          -
+          2359
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          8909
+        </td>
+        <td>
+          2284
+          -
+          2360
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.sys.error
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.sys.`package`.error(scala.StringContext.apply(&quot;Could not find compare function for map key type &quot;, &quot;&quot;).s(mt.keyType))
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          8911
+        </td>
+        <td>
+          2395
+          -
+          2396
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          8914
+        </td>
+        <td>
+          2380
+          -
+          2426
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.BoundReference.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.BoundReference.apply(0, mt.keyType, true)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          8913
+        </td>
+        <td>
+          2421
+          -
+          2425
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          8912
+        </td>
+        <td>
+          2398
+          -
+          2408
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.MapType.keyType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          mt.keyType
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          8943
+        </td>
+        <td>
+          2483
+          -
+          3444
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[(Any, Any) =&gt; Int](utils.this.genArrayCompare(utils.this.keyValueType(mt.keyType, mt.valueType), ((left: Any, right: Any) =&gt; {
+  val lkv: Any = kr.eval(left.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow]);
+  val rkv: Any = kr.eval(right.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow]);
+  val r: Int = kt.apply(lkv, rkv);
+  if (r.!=(0))
+    r
+  else
+    {
+      val vt: (Any, Any) =&gt; Int = utils.this.defaultMapCompare(mt.valueType, extension).getOrElse[(Any, Any) =&gt; Int](scala.sys.`package`.error(scala.StringContext.apply(&quot;Could not find compare function for map value type &quot;, &quot;&quot;).s(mt.valueType)));
+      val vr: org.apache.spark.sql.catalyst.expressions.BoundReference = org.apache.spark.sql.catalyst.expressions.BoundReference.apply(1, mt.valueType, true);
+      val lvv: Any = vr.eval(left.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow]);
+      val rvv: Any = vr.eval(right.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow]);
+      vt.apply(lvv, rvv)
+    }
+})))
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          8917
+        </td>
+        <td>
+          2515
+          -
+          2553
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.utils.keyValueType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          utils.this.keyValueType(mt.keyType, mt.valueType)
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          8916
+        </td>
+        <td>
+          2540
+          -
+          2552
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.MapType.valueType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          mt.valueType
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          8915
+        </td>
+        <td>
+          2528
+          -
+          2538
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.MapType.keyType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          mt.keyType
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          8942
+        </td>
+        <td>
+          2499
+          -
+          3434
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.utils.genArrayCompare
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          utils.this.genArrayCompare(utils.this.keyValueType(mt.keyType, mt.valueType), ((left: Any, right: Any) =&gt; {
+  val lkv: Any = kr.eval(left.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow]);
+  val rkv: Any = kr.eval(right.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow]);
+  val r: Int = kt.apply(lkv, rkv);
+  if (r.!=(0))
+    r
+  else
+    {
+      val vt: (Any, Any) =&gt; Int = utils.this.defaultMapCompare(mt.valueType, extension).getOrElse[(Any, Any) =&gt; Int](scala.sys.`package`.error(scala.StringContext.apply(&quot;Could not find compare function for map value type &quot;, &quot;&quot;).s(mt.valueType)));
+      val vr: org.apache.spark.sql.catalyst.expressions.BoundReference = org.apache.spark.sql.catalyst.expressions.BoundReference.apply(1, mt.valueType, true);
+      val lvv: Any = vr.eval(left.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow]);
+      val rvv: Any = vr.eval(right.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow]);
+      vt.apply(lvv, rvv)
+    }
+}))
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          8919
+        </td>
+        <td>
+          2610
+          -
+          2649
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.BoundReference.eval
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          kr.eval(left.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow])
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          8918
+        </td>
+        <td>
+          2618
+          -
+          2648
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          left.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow]
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          8920
+        </td>
+        <td>
+          2682
+          -
+          2713
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          right.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow]
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          8921
+        </td>
+        <td>
+          2674
+          -
+          2714
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.BoundReference.eval
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          kr.eval(right.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow])
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          8922
+        </td>
+        <td>
+          2738
+          -
+          2750
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          kt.apply(lkv, rkv)
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          8923
+        </td>
+        <td>
+          2769
+          -
+          2775
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.!=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          r.!=(0)
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          8924
+        </td>
+        <td>
+          2793
+          -
+          2794
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.utils.r
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          r
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          8941
+        </td>
+        <td>
+          2814
+          -
+          3419
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val vt: (Any, Any) =&gt; Int = utils.this.defaultMapCompare(mt.valueType, extension).getOrElse[(Any, Any) =&gt; Int](scala.sys.`package`.error(scala.StringContext.apply(&quot;Could not find compare function for map value type &quot;, &quot;&quot;).s(mt.valueType)));
+  val vr: org.apache.spark.sql.catalyst.expressions.BoundReference = org.apache.spark.sql.catalyst.expressions.BoundReference.apply(1, mt.valueType, true);
+  val lvv: Any = vr.eval(left.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow]);
+  val rvv: Any = vr.eval(right.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow]);
+  vt.apply(lvv, rvv)
+}
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          8925
+        </td>
+        <td>
+          3030
+          -
+          3042
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.MapType.valueType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          mt.valueType
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          8926
+        </td>
+        <td>
+          3096
+          -
+          3148
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Could not find compare function for map value type &quot;
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          8929
+        </td>
+        <td>
+          3094
+          -
+          3163
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Could not find compare function for map value type &quot;, &quot;&quot;).s(mt.valueType)
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          8931
+        </td>
+        <td>
+          3012
+          -
+          3165
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          utils.this.defaultMapCompare(mt.valueType, extension).getOrElse[(Any, Any) =&gt; Int](scala.sys.`package`.error(scala.StringContext.apply(&quot;Could not find compare function for map value type &quot;, &quot;&quot;).s(mt.valueType)))
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          8928
+        </td>
+        <td>
+          3149
+          -
+          3161
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.MapType.valueType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          mt.valueType
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          8927
+        </td>
+        <td>
+          3162
+          -
+          3163
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          8930
+        </td>
+        <td>
+          3084
+          -
+          3164
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.sys.error
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.sys.`package`.error(scala.StringContext.apply(&quot;Could not find compare function for map value type &quot;, &quot;&quot;).s(mt.valueType))
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          8935
+        </td>
+        <td>
+          3191
+          -
+          3239
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.BoundReference.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.catalyst.expressions.BoundReference.apply(1, mt.valueType, true)
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          8932
+        </td>
+        <td>
+          3206
+          -
+          3207
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          8934
+        </td>
+        <td>
+          3234
+          -
+          3238
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          8933
+        </td>
+        <td>
+          3209
+          -
+          3221
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.MapType.valueType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          mt.valueType
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          8937
+        </td>
+        <td>
+          3267
+          -
+          3306
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.BoundReference.eval
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          vr.eval(left.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow])
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          8936
+        </td>
+        <td>
+          3275
+          -
+          3305
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          left.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow]
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          8938
+        </td>
+        <td>
+          3341
+          -
+          3372
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          right.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow]
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          8939
+        </td>
+        <td>
+          3333
+          -
+          3373
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.BoundReference.eval
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          vr.eval(right.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow])
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          8940
+        </td>
+        <td>
+          3391
+          -
+          3403
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          vt.apply(lvv, rvv)
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          8944
+        </td>
+        <td>
+          3487
+          -
+          3541
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.Comparison.compareToOrdering
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.Comparison.compareToOrdering[_$1](eta$0$1)(left, right)
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          8945
+        </td>
+        <td>
+          3482
+          -
+          3542
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[(Any, Any) =&gt; Int]({
+  &lt;synthetic&gt; val eta$0$1: Ordering[_$1] = org.apache.spark.sql.QualitySparkUtils.sparkOrdering(dt);
+  ((left: Any, right: Any) =&gt; com.sparkutils.quality.impl.util.Comparison.compareToOrdering[_$1](eta$0$1)(left, right))
+})
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          8947
+        </td>
+        <td>
+          3600
+          -
+          3651
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.utils.defaultMapCompare
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          utils.this.defaultMapCompare(arrayType.elementType, extension)
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          8946
+        </td>
+        <td>
+          3618
+          -
+          3639
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.ArrayType.elementType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          arrayType.elementType
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          8950
+        </td>
+        <td>
+          3660
+          -
+          3761
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          oelcomp.map[(Any, Any) =&gt; Int](((elcomp: (Any, Any) =&gt; Int) =&gt; utils.this.genArrayCompare(arrayType.elementType, elcomp)))
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          8949
+        </td>
+        <td>
+          3705
+          -
+          3751
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.utils.genArrayCompare
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          utils.this.genArrayCompare(arrayType.elementType, elcomp)
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          8948
+        </td>
+        <td>
+          3721
+          -
+          3742
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.ArrayType.elementType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          arrayType.elementType
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          8953
+        </td>
+        <td>
+          3823
+          -
+          3853
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.IndexedSeqOptimized.zipWithIndex
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](structType.fields).zipWithIndex[org.apache.spark.sql.types.StructField, Array[(org.apache.spark.sql.types.StructField, Int)]](scala.this.Array.canBuildFrom[(org.apache.spark.sql.types.StructField, Int)]((ClassTag.apply[(org.apache.spark.sql.types.StructField, Int)](classOf[scala.Tuple2]): scala.reflect.ClassTag[(org.apache.spark.sql.types.StructField, Int)])))
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          8967
+        </td>
+        <td>
+          3823
+          -
+          4131
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.refArrayOps[(org.apache.spark.sql.types.StructField, Int)](scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](structType.fields).zipWithIndex[org.apache.spark.sql.types.StructField, Array[(org.apache.spark.sql.types.StructField, Int)]](scala.this.Array.canBuildFrom[(org.apache.spark.sql.types.StructField, Int)]((ClassTag.apply[(org.apache.spark.sql.types.StructField, Int)](classOf[scala.Tuple2]): scala.reflect.ClassTag[(org.apache.spark.sql.types.StructField, Int)])))).map[(org.apache.spark.sql.catalyst.expressions.BoundReference, (Any, Any) =&gt; Int), Array[(org.apache.spark.sql.catalyst.expressions.BoundReference, (Any, Any) =&gt; Int)]](((x0$1: (org.apache.spark.sql.types.StructField, Int)) =&gt; x0$1 match {
+  case (_1: org.apache.spark.sql.types.StructField, _2: Int)(org.apache.spark.sql.types.StructField, Int)((f @ _), (index @ _)) =&gt; utils.this.defaultMapCompare(f.dataType, extension).map[(org.apache.spark.sql.catalyst.expressions.BoundReference, (Any, Any) =&gt; Int)](((cf: (Any, Any) =&gt; Int) =&gt; scala.Tuple2.apply[org.apache.spark.sql.catalyst.expressions.BoundReference, (Any, Any) =&gt; Int](org.apache.spark.sql.catalyst.expressions.BoundReference.apply(index, f.dataType, true), cf))).getOrElse[(org.apache.spark.sql.catalyst.expressions.BoundReference, (Any, Any) =&gt; Int)](scala.sys.`package`.error(scala.StringContext.apply(&quot;Could not find compare function for &quot;, &quot; in struct &quot;, &quot;&quot;).s(f.dataType, structType)))
+}))(scala.this.Array.canBuildFrom[(org.apache.spark.sql.catalyst.expressions.BoundReference, (Any, Any) =&gt; Int)]((ClassTag.apply[(org.apache.spark.sql.catalyst.expressions.BoundReference, (Any, Any) =&gt; Int)](classOf[scala.Tuple2]): scala.reflect.ClassTag[(org.apache.spark.sql.catalyst.expressions.BoundReference, (Any, Any) =&gt; Int)])))
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          8952
+        </td>
+        <td>
+          3841
+          -
+          3841
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Array.canBuildFrom[(org.apache.spark.sql.types.StructField, Int)]((ClassTag.apply[(org.apache.spark.sql.types.StructField, Int)](classOf[scala.Tuple2]): scala.reflect.ClassTag[(org.apache.spark.sql.types.StructField, Int)]))
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          8966
+        </td>
+        <td>
+          3857
+          -
+          3857
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Array.canBuildFrom[(org.apache.spark.sql.catalyst.expressions.BoundReference, (Any, Any) =&gt; Int)]((ClassTag.apply[(org.apache.spark.sql.catalyst.expressions.BoundReference, (Any, Any) =&gt; Int)](classOf[scala.Tuple2]): scala.reflect.ClassTag[(org.apache.spark.sql.catalyst.expressions.BoundReference, (Any, Any) =&gt; Int)]))
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          8951
+        </td>
+        <td>
+          3823
+          -
+          3840
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.fields
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          structType.fields
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          8956
+        </td>
+        <td>
+          3998
+          -
+          4002
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          8958
+        </td>
+        <td>
+          3952
+          -
+          4008
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[org.apache.spark.sql.catalyst.expressions.BoundReference, (Any, Any) =&gt; Int](org.apache.spark.sql.catalyst.expressions.BoundReference.apply(index, f.dataType, true), cf)
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          8955
+        </td>
+        <td>
+          3975
+          -
+          3985
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          f.dataType
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          8954
+        </td>
+        <td>
+          3919
+          -
+          3929
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          f.dataType
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          8957
+        </td>
+        <td>
+          3953
+          -
+          4003
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.BoundReference.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.BoundReference.apply(index, f.dataType, true)
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          8959
+        </td>
+        <td>
+          4047
+          -
+          4084
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Could not find compare function for &quot;
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          8962
+        </td>
+        <td>
+          4085
+          -
+          4095
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          f.dataType
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          8965
+        </td>
+        <td>
+          3900
+          -
+          4121
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          utils.this.defaultMapCompare(f.dataType, extension).map[(org.apache.spark.sql.catalyst.expressions.BoundReference, (Any, Any) =&gt; Int)](((cf: (Any, Any) =&gt; Int) =&gt; scala.Tuple2.apply[org.apache.spark.sql.catalyst.expressions.BoundReference, (Any, Any) =&gt; Int](org.apache.spark.sql.catalyst.expressions.BoundReference.apply(index, f.dataType, true), cf))).getOrElse[(org.apache.spark.sql.catalyst.expressions.BoundReference, (Any, Any) =&gt; Int)](scala.sys.`package`.error(scala.StringContext.apply(&quot;Could not find compare function for &quot;, &quot; in struct &quot;, &quot;&quot;).s(f.dataType, structType)))
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          8964
+        </td>
+        <td>
+          4035
+          -
+          4120
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.sys.error
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.sys.`package`.error(scala.StringContext.apply(&quot;Could not find compare function for &quot;, &quot; in struct &quot;, &quot;&quot;).s(f.dataType, structType))
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          8961
+        </td>
+        <td>
+          4118
+          -
+          4119
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          8963
+        </td>
+        <td>
+          4045
+          -
+          4119
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Could not find compare function for &quot;, &quot; in struct &quot;, &quot;&quot;).s(f.dataType, structType)
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          8960
+        </td>
+        <td>
+          4096
+          -
+          4108
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; in struct &quot;
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          8983
+        </td>
+        <td>
+          4140
+          -
+          4595
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[(Any, Any) =&gt; Int](((left: Any, right: Any) =&gt; {
+  var i: Int = 0;
+  var res: Int = 0;
+  while$2(){
+    if (i.&lt;(scala.Predef.refArrayOps[(org.apache.spark.sql.catalyst.expressions.BoundReference, (Any, Any) =&gt; Int)](allFields).size).&amp;&amp;(res.==(0)))
+      {
+        {
+          val leftV: Any = allFields.apply(i)._1.eval(left.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow]);
+          val rightV: Any = allFields.apply(i)._1.eval(right.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow]);
+          res = allFields.apply(i)._2.apply(leftV, rightV);
+          i = i.+(1)
+        };
+        while$2()
+      }
+    else
+      ()
+  };
+  res
+}))
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          8968
+        </td>
+        <td>
+          4233
+          -
+          4234
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          8969
+        </td>
+        <td>
+          4257
+          -
+          4258
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          8971
+        </td>
+        <td>
+          4300
+          -
+          4308
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.==(0)
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          8980
+        </td>
+        <td>
+          4310
+          -
+          4557
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  {
+    val leftV: Any = allFields.apply(i)._1.eval(left.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow]);
+    val rightV: Any = allFields.apply(i)._1.eval(right.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow]);
+    res = allFields.apply(i)._2.apply(leftV, rightV);
+    i = i.+(1)
+  };
+  while$2()
+}
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          8982
+        </td>
+        <td>
+          4271
+          -
+          4271
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          8970
+        </td>
+        <td>
+          4282
+          -
+          4296
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.SeqLike.size
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.refArrayOps[(org.apache.spark.sql.catalyst.expressions.BoundReference, (Any, Any) =&gt; Int)](allFields).size
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          8979
+        </td>
+        <td>
+          4310
+          -
+          4310
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.utils.while$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          while$2()
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          8972
+        </td>
+        <td>
+          4278
+          -
+          4308
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          i.&lt;(scala.Predef.refArrayOps[(org.apache.spark.sql.catalyst.expressions.BoundReference, (Any, Any) =&gt; Int)](allFields).size).&amp;&amp;(res.==(0))
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          8981
+        </td>
+        <td>
+          4271
+          -
+          4271
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          8974
+        </td>
+        <td>
+          4338
+          -
+          4390
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.BoundReference.eval
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          allFields.apply(i)._1.eval(left.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow])
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          8973
+        </td>
+        <td>
+          4359
+          -
+          4389
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          left.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow]
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          8976
+        </td>
+        <td>
+          4418
+          -
+          4471
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.BoundReference.eval
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          allFields.apply(i)._1.eval(right.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow])
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          8975
+        </td>
+        <td>
+          4439
+          -
+          4470
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          right.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow]
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          8977
+        </td>
+        <td>
+          4492
+          -
+          4522
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          allFields.apply(i)._2.apply(leftV, rightV)
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          8978
+        </td>
+        <td>
+          4537
+          -
+          4543
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          i.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          8986
+        </td>
+        <td>
+          4612
+          -
+          4717
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.orElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          extension.apply(dataType).orElse[(Any, Any) =&gt; Int](scala.sys.`package`.error(scala.StringContext.apply(&quot;Could not find compare function for &quot;, &quot;&quot;).s(dataType)))
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          8985
+        </td>
+        <td>
+          4648
+          -
+          4709
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.sys.error
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.sys.`package`.error(scala.StringContext.apply(&quot;Could not find compare function for &quot;, &quot;&quot;).s(dataType))
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          8984
+        </td>
+        <td>
+          4658
+          -
+          4708
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Could not find compare function for &quot;, &quot;&quot;).s(dataType)
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          8989
+        </td>
+        <td>
+          4831
+          -
+          4915
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable.apply(scala.collection.Seq.apply[String](UnresolvedNamedLambdaVariableT.freshVarName(&quot;x&quot;)))
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          8988
+        </td>
+        <td>
+          4861
+          -
+          4914
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.Seq.apply[String](UnresolvedNamedLambdaVariableT.freshVarName(&quot;x&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          8987
+        </td>
+        <td>
+          4865
+          -
+          4913
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.UnresolvedNamedLambdaVariableT.freshVarName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          UnresolvedNamedLambdaVariableT.freshVarName(&quot;x&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          8991
+        </td>
+        <td>
+          4935
+          -
+          4952
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.Column.expr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          f.apply(org.apache.spark.sql.Column.apply(x)).expr
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          8990
+        </td>
+        <td>
+          4937
+          -
+          4946
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.Column.apply(x)
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          8992
+        </td>
+        <td>
+          4982
+          -
+          4988
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.Seq.apply[org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable](x)
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          8994
+        </td>
+        <td>
+          4957
+          -
+          4989
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.LambdaFunction.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.LambdaFunction.apply(function, scala.collection.Seq.apply[org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable](x), org.apache.spark.sql.catalyst.expressions.LambdaFunction.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          8993
+        </td>
+        <td>
+          4957
+          -
+          4957
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.LambdaFunction.apply$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.LambdaFunction.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          8995
+        </td>
+        <td>
+          5095
+          -
+          5143
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.UnresolvedNamedLambdaVariableT.freshVarName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          UnresolvedNamedLambdaVariableT.freshVarName(&quot;x&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          8997
+        </td>
+        <td>
+          5061
+          -
+          5145
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable.apply(scala.collection.Seq.apply[String](UnresolvedNamedLambdaVariableT.freshVarName(&quot;x&quot;)))
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          8996
+        </td>
+        <td>
+          5091
+          -
+          5144
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.Seq.apply[String](UnresolvedNamedLambdaVariableT.freshVarName(&quot;x&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          8998
+        </td>
+        <td>
+          5192
+          -
+          5240
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.UnresolvedNamedLambdaVariableT.freshVarName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          UnresolvedNamedLambdaVariableT.freshVarName(&quot;y&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          9000
+        </td>
+        <td>
+          5158
+          -
+          5242
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable.apply(scala.collection.Seq.apply[String](UnresolvedNamedLambdaVariableT.freshVarName(&quot;y&quot;)))
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          8999
+        </td>
+        <td>
+          5188
+          -
+          5241
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.Seq.apply[String](UnresolvedNamedLambdaVariableT.freshVarName(&quot;y&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          9001
+        </td>
+        <td>
+          5264
+          -
+          5273
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.Column.apply(x)
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          9003
+        </td>
+        <td>
+          5262
+          -
+          5290
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.Column.expr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          f.apply(org.apache.spark.sql.Column.apply(x), org.apache.spark.sql.Column.apply(y)).expr
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          9002
+        </td>
+        <td>
+          5275
+          -
+          5284
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.Column.apply(y)
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          9004
+        </td>
+        <td>
+          5320
+          -
+          5329
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.Seq.apply[org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable](x, y)
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          9006
+        </td>
+        <td>
+          5295
+          -
+          5330
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.LambdaFunction.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.LambdaFunction.apply(function, scala.collection.Seq.apply[org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable](x, y), org.apache.spark.sql.catalyst.expressions.LambdaFunction.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          9005
+        </td>
+        <td>
+          5295
+          -
+          5295
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.LambdaFunction.apply$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.LambdaFunction.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          9007
+        </td>
+        <td>
+          5444
+          -
+          5492
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.UnresolvedNamedLambdaVariableT.freshVarName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          UnresolvedNamedLambdaVariableT.freshVarName(&quot;x&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          9009
+        </td>
+        <td>
+          5410
+          -
+          5494
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable.apply(scala.collection.Seq.apply[String](UnresolvedNamedLambdaVariableT.freshVarName(&quot;x&quot;)))
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          9008
+        </td>
+        <td>
+          5440
+          -
+          5493
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.Seq.apply[String](UnresolvedNamedLambdaVariableT.freshVarName(&quot;x&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          9010
+        </td>
+        <td>
+          5541
+          -
+          5589
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.UnresolvedNamedLambdaVariableT.freshVarName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          UnresolvedNamedLambdaVariableT.freshVarName(&quot;y&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          9012
+        </td>
+        <td>
+          5507
+          -
+          5591
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable.apply(scala.collection.Seq.apply[String](UnresolvedNamedLambdaVariableT.freshVarName(&quot;y&quot;)))
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          9011
+        </td>
+        <td>
+          5537
+          -
+          5590
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.Seq.apply[String](UnresolvedNamedLambdaVariableT.freshVarName(&quot;y&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          9013
+        </td>
+        <td>
+          5638
+          -
+          5686
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.UnresolvedNamedLambdaVariableT.freshVarName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          UnresolvedNamedLambdaVariableT.freshVarName(&quot;z&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          9015
+        </td>
+        <td>
+          5604
+          -
+          5688
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable.apply(scala.collection.Seq.apply[String](UnresolvedNamedLambdaVariableT.freshVarName(&quot;z&quot;)))
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          9014
+        </td>
+        <td>
+          5634
+          -
+          5687
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.Seq.apply[String](UnresolvedNamedLambdaVariableT.freshVarName(&quot;z&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          9019
+        </td>
+        <td>
+          5708
+          -
+          5747
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.Column.expr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          f.apply(org.apache.spark.sql.Column.apply(x), org.apache.spark.sql.Column.apply(y), org.apache.spark.sql.Column.apply(z)).expr
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          9016
+        </td>
+        <td>
+          5710
+          -
+          5719
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.Column.apply(x)
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          9018
+        </td>
+        <td>
+          5732
+          -
+          5741
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.Column.apply(z)
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          9017
+        </td>
+        <td>
+          5721
+          -
+          5730
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.Column.apply(y)
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          9022
+        </td>
+        <td>
+          5752
+          -
+          5790
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.LambdaFunction.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.LambdaFunction.apply(function, scala.collection.Seq.apply[org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable](x, y, z), org.apache.spark.sql.catalyst.expressions.LambdaFunction.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          9021
+        </td>
+        <td>
+          5752
+          -
+          5752
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.LambdaFunction.apply$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.catalyst.expressions.LambdaFunction.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          9020
+        </td>
+        <td>
+          5777
+          -
+          5789
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.Seq.apply[org.apache.spark.sql.catalyst.expressions.UnresolvedNamedLambdaVariable](x, y, z)
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          9023
+        </td>
+        <td>
+          6007
+          -
+          6027
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.AtomicInteger.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new java.util.concurrent.atomic.AtomicInteger(0)
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          9028
+        </td>
+        <td>
+          6078
+          -
+          6123
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;&quot;, &quot;_&quot;, &quot;&quot;).s(name, UnresolvedNamedLambdaVariableT.this.nextVarNameId.getAndIncrement())
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          9025
+        </td>
+        <td>
+          6087
+          -
+          6089
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;_&quot;
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          9024
+        </td>
+        <td>
+          6080
+          -
+          6081
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          9027
+        </td>
+        <td>
+          6090
+          -
+          6121
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.AtomicInteger.getAndIncrement
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          UnresolvedNamedLambdaVariableT.this.nextVarNameId.getAndIncrement()
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          9026
+        </td>
+        <td>
+          6122
+          -
+          6123
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
