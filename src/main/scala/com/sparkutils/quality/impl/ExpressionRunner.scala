@@ -6,6 +6,7 @@ import com.sparkutils.quality._
 import com.sparkutils.quality.impl.imports.RuleResultsImports
 import com.sparkutils.quality.impl.imports.RuleResultsImports.packId
 import com.sparkutils.quality.impl.util.Arrays
+import com.sparkutils.quality.impl.yaml.YamlEncoderExpr
 import types._
 import org.apache.spark.sql.QualitySparkUtils.cast
 import org.apache.spark.sql.catalyst.InternalRow
@@ -19,16 +20,16 @@ import org.apache.spark.unsafe.types.UTF8String
 
 object ExpressionRunner {
   /**
-   * Runs the ruleSuite expressions saving results as a tuple of (ruleResult: String, resultType: String)
+   * Runs the ruleSuite expressions saving results as a tuple of (ruleResult: yaml, resultType: String)
    *
    * @param ruleSuite
    * @param name
    * @return
    */
-  def apply(ruleSuite: RuleSuite, name: String = "expressionResults"): Column = {
+  def apply(ruleSuite: RuleSuite, name: String = "expressionResults", renderOptions: Map[String, String] = Map.empty): Column = {
     com.sparkutils.quality.registerLambdaFunctions( ruleSuite.lambdaFunctions )
     val expressions = flattenExpressions(ruleSuite)
-    val collectExpressions = expressions.map( i => cast(i, StringType))
+    val collectExpressions = expressions.map( i => YamlEncoderExpr(i, renderOptions))
     new Column(ExpressionRunner(ruleSuite, collectExpressions)).as(name)
   }
 
@@ -50,7 +51,7 @@ object ExpressionRunner {
 }
 
 /**
- * Creates an extensible wrapper result column for aggregate expressions, adding casts as needed to string
+ * Creates an extensible wrapper result column for aggregate expressions, storing the results as yaml
  *
  * @param ruleSuite
  * @param children

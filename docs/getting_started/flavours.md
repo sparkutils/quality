@@ -45,7 +45,7 @@ _What is stored:_
 
 ## QualityExpressions - ExpressionRunner
 
-[QualityExpressions](../advanced/expressionRunner.md) extends QualityRules providing the raw results as strings (with type) for expressions and allowing aggregate expressions.
+[QualityExpressions](../advanced/expressionRunner.md) extends QualityRules providing the raw results as yaml strings (with type) for expressions and allowing aggregate expressions.
 
 _Example Usage:_ Providing totals or other relevant aggregations over datasets or DQ results - e.g. only deem the data load correct when 90% of the rows have good DQ.
 
