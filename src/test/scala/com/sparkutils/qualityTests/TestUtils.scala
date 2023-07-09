@@ -266,6 +266,13 @@ trait TestUtils {
     if (sparkVersion.replace(".","").toInt >= 34) thunk
 
   /**
+   * INTERVAL MONTH etc. not supported below 3.2
+   * @param thunk
+   */
+  def v3_2_and_above(thunk: => Unit) =
+    if (sparkVersion.replace(".","").toInt >= 32) thunk
+
+  /**
    * Only run this on 2.4
    * @param thunk
    */

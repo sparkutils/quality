@@ -40,9 +40,9 @@ DBR 12.2 backports at least [SPARK-41049](https://issues.apache.org/jira/browse/
 
 As of 6th June 2023 0.0.2 run against the 12.2.dbr LTS build also works on 13.0.
 
-## Running on Databricks Runtime 13.1
+## Running on Databricks Runtime 13.1/13.2
   
-13.1 backports a number of 3.5 oss changes, the 13.1.dbr build must be used - as of 25th May 2023.    
+13.1 backports a number of 3.5 oss changes, the 13.1.dbr build must be used.  The 13.1.dbr build is also successfully tested against 13.2 DBR.    
 
 ## Testing out Quality via Notebooks
 
@@ -72,9 +72,9 @@ Ideally at the end of your runs you'll see - after 10 minutes or so and some std
 ```
 Time: 633.686
 
-OK (394 tests)
+OK (404 tests)
 
-Finished. Result: Failures: 0. Ignored: 0. Tests run: 394. Time: 633686ms.
+Finished. Result: Failures: 0. Ignored: 0. Tests run: 404. Time: 633686ms.
 import com.sparkutils.quality.tests.TestSuite
 import com.sparkutils.qualityTests.SparkTestUtils
 fileLoc: String = /dbfs/databricks/quality_test

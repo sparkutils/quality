@@ -100,9 +100,9 @@ The full list of supported runtimes is below:
 
 2.4 support is deprecated and will be removed in a future version.  3.1.2 support is replaced by 3.1.3 due to interpreted encoder issues. 
 
-!!! note "Databricks 13.0 and 13.1 is experimental"
+!!! note "Databricks 13.x support"
     13.0 also works on the 12.2.dbr_ build as of 10th May 2023, despite the Spark version difference.
-    13.1 requires its own version as it backports 3.5 functionality. 
+    13.1 requires its own version as it backports 3.5 functionality.  The 13.1.dbr quality runtime build also works on 13.2 DBR. 
 
 ## Sql functions vs column dsl
 

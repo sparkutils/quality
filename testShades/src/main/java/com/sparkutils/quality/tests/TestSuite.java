@@ -43,7 +43,8 @@ public class TestSuite {
                 ExtensionDeltaTest.class,
                 ViewLoaderTest.class,
                 MapLoaderTest.class,
-                BloomLoaderTest.class
+                BloomLoaderTest.class,
+                YamlTests.class
         );
 
         resultReport(result);

@@ -9,10 +9,12 @@ import com.sparkutils.quality.impl.id.{GenericLongBasedIDExpression, model}
 import com.sparkutils.quality.impl.longPair.{AsUUID, LongPairExpression}
 import com.sparkutils.quality.impl.rng.{RandomBytes, RandomLongs}
 import com.sparkutils.quality.impl.util.{ComparableMapConverter, ComparableMapReverser, PrintCode}
+import com.sparkutils.quality.impl.yaml.{YamlDecoderExpr, YamlEncoderExpr}
 import com.sparkutils.quality.{QualityException, impl}
 import org.apache.commons.rng.simple.RandomSource
 import org.apache.spark.sql.QualitySparkUtils.add
-import org.apache.spark.sql.catalyst.expressions.{Add, AttributeReference, Expression, Literal, UnresolvedNamedLambdaVariable, LambdaFunction => SLambdaFunction}
+import org.apache.spark.sql.catalyst.expressions.{Add, AttributeReference, CreateMap, Expression, Literal, UnresolvedNamedLambdaVariable, LambdaFunction => SLambdaFunction}
+import org.apache.spark.sql.catalyst.util.MapData
 import org.apache.spark.sql.qualityFunctions.LambdaFunctions.processTopCallFun
 import org.apache.spark.sql.qualityFunctions._
 import org.apache.spark.sql.types._
@@ -58,7 +60,8 @@ object RuleRegistrationFunctions {
       "hash_Field_Based_ID","za_Longs_Field_Based_ID","za_Hash_Longs_With_Struct", "za_Hash_With_Struct", "za_Field_Based_ID", "prefixed_To_Long_Pair",
       "coalesce_If_Attributes_Missing", "coalesce_If_Attributes_Missing_Disable", "update_Field", LambdaFunctions.PlaceHolder,
       LambdaFunctions.Lambda, LambdaFunctions.CallFun, "print_Expr", "print_Code", "comparable_Maps", "reverse_Comparable_Maps", "as_uuid",
-      "id_size", "id_base64", "id_from_base64", "id_raw_type", "rule_result", "strip_result_ddl", "drop_field"
+      "id_size", "id_base64", "id_from_base64", "id_raw_type", "rule_result", "strip_result_ddl", "drop_field",
+      "to_yaml", "from_yaml"
     )
     withUnderscores ++ withUnderscores.map(n => if (mustKeepNames(n)) n else n.replaceAll("_",""))
   }
@@ -158,6 +161,27 @@ object RuleRegistrationFunctions {
     def register(name: String, argsf: Seq[Expression] => Expression, paramNumbers: Set[Int] = Set.empty, minimum: Int = -1) =
       registerWithChecks(registerFunction, name, argsf, paramNumbers, minimum)
 
+    def parse(exp: Expression) = {
+      val Literal(str: UTF8String, StringType) = exp // only accept type as string
+      parseTypes(str.toString).getOrElse(qualityException(s"Could not parse the type $str"))
+    }
+
+    def getMap(exp: Expression) = exp match {
+      case c: CreateMap if c.children.grouped(2).forall{
+        case Seq(Literal(_: UTF8String, StringType), _: Literal) =>
+          true
+        case _ => false
+      } =>
+        c.children.grouped(2).map{
+          case Seq(Literal(str: UTF8String, StringType), value: Literal) =>
+            str.toString -> value.value.toString()
+        }.toMap
+      case _ => throw QualityException(s"Could not process a literal map with expression $exp")
+    }
+
+    register("to_yaml", exps => YamlEncoderExpr(exps.head, if (exps.size == 1) Map.empty else getMap(exps.last)), Set(1, 2))
+    register("from_yaml", exps => YamlDecoderExpr(exps.head, parse(exps.last)), Set(2))
+
     register("strip_result_ddl", exps => StripResultTypes(exps.head), Set(1))
     register("rule_result", exps => RuleResultExpression(Seq(exps(0), exps(1), exps(2), exps(3))), Set(4))
 
@@ -185,11 +209,6 @@ object RuleRegistrationFunctions {
     def strType(exp: Expression) = {
       val Literal(str: UTF8String, StringType) = exp // only accept type as string
       str.toString
-    }
-
-    def parse(exp: Expression) = {
-      val Literal(str: UTF8String, StringType) = exp // only accept type as string
-      parseTypes(str.toString).getOrElse(qualityException(s"Could not parse the type $str"))
     }
 
     register(LambdaFunctions.PlaceHolder, {
