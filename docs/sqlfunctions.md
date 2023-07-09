@@ -11,7 +11,7 @@ functions:
       - rule
   to_yaml:
     description: |
-      to_yaml(expression) uses snakeyaml to convert Spark datatypes into yaml.
+      to_yaml(expression, [options map]) uses snakeyaml to convert Spark datatypes into yaml.
       
       Passing null into the function returns a null yaml (newline is appended):
       
@@ -25,6 +25,19 @@ functions:
       ```yaml
       'null'
 
+      ```
+      
+      The optional "options map" parameter currently supports the following output options:
+      
+      - useFullScalarType, defaults to false.  Instead of using the default yaml tags uses the full classnames for scalars, reducing risk of precision loss if the yaml is to be used outside of the from_yaml function.
+      
+      sample usage:
+      
+      ```scala
+      val df = sparkSession.sql("select array(1,2,3,4,5) og")
+          .selectExpr("*", "to_yaml(og, map('useFullScalarType', 'true')) y")
+          .selectExpr("*", "from_yaml(y, 'array<int>') f")
+          .filter("f == og")
       ```
     tags:
       - yaml

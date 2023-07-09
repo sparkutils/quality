@@ -27,63 +27,72 @@ object QualityYamlEncoding {
 
   val dummyMark = null
 
-  def createNullNode: ScalarNode = createScalarNode(null)
+  def createNullNode(implicit renderOptions: Map[String, String]): ScalarNode = createScalarNode(Tag.NULL, null)
 
-  def createScalarNode(a: Any): ScalarNode =
+  val DecimalClass = classOf[Decimal]
+
+  def createScalarNode(tag: Tag, a: Any)(implicit renderOptions: Map[String, String]): ScalarNode =
     if (a == null)
       new ScalarNode(Tag.NULL, "null", dummyMark, dummyMark, DumperOptions.ScalarStyle.PLAIN)
     else
-      new ScalarNode(Tag.STR, a.toString, dummyMark, dummyMark, DumperOptions.ScalarStyle.PLAIN)
+      new ScalarNode(
+        if (renderOptions.get("useFullScalarType").exists(_.toBoolean))
+          new Tag(a.getClass match {
+            case DecimalClass => classOf[java.math.BigDecimal]
+            case e => e
+          })
+            else
+          tag
+        , a.toString, dummyMark, dummyMark, DumperOptions.ScalarStyle.PLAIN)
 
-
-  def makeStructFieldConverter: StructValueConverter = {
+  def makeStructFieldConverter(implicit renderOptions: Map[String, String]): StructValueConverter = {
     case BooleanType =>
       (i: InternalRow, p: Int) =>
-        createScalarNode( i.getBoolean(p) )
+        createScalarNode( Tag.BOOL, i.getBoolean(p) )
 
     case ByteType =>
       (i: InternalRow, p: Int) =>
-        createScalarNode( i.getByte(p).toInt )
+        createScalarNode( Tag.INT, i.getByte(p).toInt )
 
     case ShortType =>
       (i: InternalRow, p: Int) =>
-        createScalarNode( i.getShort(p).toInt )
+        createScalarNode( Tag.INT, i.getShort(p).toInt )
 
     case IntegerType =>
       (i: InternalRow, p: Int) =>
-        createScalarNode( i.getInt(p) )
+        createScalarNode( Tag.INT, i.getInt(p) )
 
     case LongType =>
       (i: InternalRow, p: Int) =>
-        createScalarNode( i.getLong(p) )
+        createScalarNode( Tag.INT, i.getLong(p) )
 
     case FloatType =>
       (i: InternalRow, p: Int) =>
-        createScalarNode( i.getFloat(p) )
+        createScalarNode( Tag.FLOAT, i.getFloat(p) )
 
     case DoubleType =>
       (i: InternalRow, p: Int) =>
-        createScalarNode( i.getDouble(p) )
+        createScalarNode( Tag.FLOAT, i.getDouble(p) )
 
     case StringType =>
       (i: InternalRow, p: Int) =>
-        createScalarNode( i.getUTF8String(p) )
+        createScalarNode( Tag.STR, i.getUTF8String(p) )
 
     case TimestampType =>
       (i: InternalRow, p: Int) =>
-        createScalarNode( i.getLong(p) )
+        createScalarNode( Tag.INT, i.getLong(p) )
 
     case DateType =>
       (i: InternalRow, p: Int) =>
-        createScalarNode( i.getInt(p) )
+        createScalarNode( Tag.INT, i.getInt(p) )
 
     case BinaryType =>
       (i: InternalRow, p: Int) =>
-        createScalarNode( Base64.getEncoder.encodeToString(i.getBinary(p)) )
+        createScalarNode( Tag.BINARY, Base64.getEncoder.encodeToString(i.getBinary(p)) )
 
     case dt: DecimalType =>
       (i: InternalRow, p: Int) =>
-        createScalarNode( i.getDecimal(p, dt.precision, dt.scale).toJavaBigDecimal )
+        createScalarNode( Tag.FLOAT, i.getDecimal(p, dt.precision, dt.scale).toJavaBigDecimal )
 
     case st: StructType =>
       val sf = createStructNode(st)
@@ -110,10 +119,10 @@ object QualityYamlEncoding {
 
     case _: NullType =>
       (i: InternalRow, p: Int) =>
-        createScalarNode(null)
+        createNullNode
   }
 
-  private def createSequenceNode(at: ArrayType) = {
+  private def createSequenceNode(at: ArrayType)(implicit renderOptions: Map[String, String]) = {
     val elementConverter = makeValueConverter.applyOrElse(at.elementType, makeConverterExt)
     (ar: ArrayData) => {
       if (ar == null)
@@ -125,7 +134,7 @@ object QualityYamlEncoding {
     }
   }
 
-  private def createMapNode(mt: MapType, map: MapData, keyType: Any => Node, valueType: Any => Node) =
+  private def createMapNode(mt: MapType, map: MapData, keyType: Any => Node, valueType: Any => Node)(implicit renderOptions: Map[String, String]) =
     if (map == null)
       createNullNode
     else {
@@ -140,18 +149,18 @@ object QualityYamlEncoding {
       new MappingNode(Tag.MAP, tuples.toSeq.asJava, DumperOptions.FlowStyle.FLOW)
     }
 
-  private def createStructNode(st: StructType) = {
+  private def createStructNode(st: StructType)(implicit renderOptions: Map[String, String]) = {
     val converters = st.fields.map(f =>
       makeStructFieldConverter.applyOrElse(f.dataType, makeStructFieldConverterExt))
 
     (row: InternalRow) => {
       if (row == null)
-        createScalarNode(null)
+        createNullNode
       else {
         val tuples = st.fields.zipWithIndex.map {
           case (field, index) =>
             new NodeTuple(
-              createScalarNode(field.name),
+              createScalarNode(Tag.STR, field.name),
               converters(index)(row, index)
             )
         }
@@ -160,15 +169,26 @@ object QualityYamlEncoding {
     }
   }
 
-  def makeValueConverter: ValueConverter = {
-    case BooleanType | ByteType | ShortType | IntegerType | LongType
-         | FloatType | DoubleType | StringType | TimestampType | DateType | _: DecimalType =>
+  def makeValueConverter(implicit renderOptions: Map[String, String]): ValueConverter = {
+    case ByteType | ShortType | IntegerType | LongType | TimestampType | DateType =>
       (a: Any) =>
-        createScalarNode( a )
+        createScalarNode( Tag.INT, a )
+
+    case FloatType | DoubleType | _: DecimalType =>
+      (a: Any) =>
+        createScalarNode( Tag.FLOAT, a )
+
+    case StringType =>
+      (a: Any) =>
+        createScalarNode( Tag.STR, a )
+
+    case BooleanType =>
+      (a: Any) =>
+        createScalarNode( Tag.BOOL, a )
 
     case BinaryType =>
       (a: Any) =>
-        createScalarNode( Base64.getEncoder.encodeToString(a.asInstanceOf[Array[Byte]]))
+        createScalarNode( Tag.BINARY, Base64.getEncoder.encodeToString(a.asInstanceOf[Array[Byte]]))
 
     case st: StructType =>
       val sf = createStructNode(st)
@@ -195,7 +215,7 @@ object QualityYamlEncoding {
 
 }
 
-case class YamlEncoderExpr(child: Expression) extends UnaryExpression with CodegenFallback {
+case class YamlEncoderExpr(child: Expression, implicit val renderOptions: Map[String, String]) extends UnaryExpression with CodegenFallback {
   import QualityYamlEncoding._
   import org.apache.spark.sql.QualityYamlExt._
 

@@ -26,10 +26,10 @@ object ExpressionRunner {
    * @param name
    * @return
    */
-  def apply(ruleSuite: RuleSuite, name: String = "expressionResults"): Column = {
+  def apply(ruleSuite: RuleSuite, name: String = "expressionResults", renderOptions: Map[String, String] = Map.empty): Column = {
     com.sparkutils.quality.registerLambdaFunctions( ruleSuite.lambdaFunctions )
     val expressions = flattenExpressions(ruleSuite)
-    val collectExpressions = expressions.map( i => YamlEncoderExpr(i))
+    val collectExpressions = expressions.map( i => YamlEncoderExpr(i, renderOptions))
     new Column(ExpressionRunner(ruleSuite, collectExpressions)).as(name)
   }
 

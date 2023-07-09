@@ -11,8 +11,8 @@ trait YamlFunctionImports {
    * @param col
    * @return
    */
-  def to_yaml(col: Column): Column =
-    new Column(YamlEncoderExpr(col.expr))
+  def to_yaml(col: Column, renderOptions: Map[String, String] = Map.empty): Column =
+    new Column(YamlEncoderExpr(col.expr, renderOptions))
 
   /**
    * Converts yaml expressions to spark native types

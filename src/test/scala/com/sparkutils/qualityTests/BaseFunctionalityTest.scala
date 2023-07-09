@@ -624,19 +624,19 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
     import quality.implicits._
 
-    val processed = taddDataQuality(sparkSession.range(1000).toDF, rowrs).select(expressionRunner(rs))
+    val processed = taddDataQuality(sparkSession.range(1000).toDF, rowrs).select(expressionRunner(rs, renderOptions = Map("useFullScalarType" -> "true")))
 
     val res = processed.selectExpr("expressionResults.*").as[GeneralExpressionsResult].head()
     assert(res == GeneralExpressionsResult(Id(10, 2), Map(Id(20, 1) -> Map(
-      Id(30, 3) -> GeneralExpressionResult("'499500'\n", "BIGINT"),
-      Id(31, 3) -> GeneralExpressionResult("'500'\n", "BIGINT")
+      Id(30, 3) -> GeneralExpressionResult("!!java.lang.Long '499500'\n", "BIGINT"),
+      Id(31, 3) -> GeneralExpressionResult("!!java.lang.Long '500'\n", "BIGINT")
     ))))
 
     val gres =
       processed.selectExpr("rule_result(expressionResults, pack_ints(10,2), pack_ints(20,1), pack_ints(31,3)) rr")
         .selectExpr("rr.*").as[GeneralExpressionResult].head
 
-    assert(gres == GeneralExpressionResult("'500'\n", "BIGINT"))
+    assert(gres == GeneralExpressionResult("!!java.lang.Long '500'\n", "BIGINT"))
 
     val stripped = processed.selectExpr("strip_result_ddl(expressionResults) rr")
     val stripped2 = processed.select(strip_result_ddl(col("expressionResults")) as "rr")
@@ -644,8 +644,8 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
     val strippedRes = stripped.selectExpr("rr.*").as[GeneralExpressionsResultNoDDL].head()
     assert(strippedRes == GeneralExpressionsResultNoDDL(Id(10, 2), Map(Id(20, 1) -> Map(
-      Id(30, 3) -> "'499500'\n",
-      Id(31, 3) -> "'500'\n")
+      Id(30, 3) -> "!!java.lang.Long '499500'\n",
+      Id(31, 3) -> "!!java.lang.Long '500'\n")
     )))
 
     val strippedGres = {
@@ -654,7 +654,13 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
         .as[String].head
     }
 
-    assert(strippedGres == "'500'\n")
+    assert(strippedGres == "!!java.lang.Long '500'\n")
+
+    import org.yaml.snakeyaml.Yaml
+    val yaml = new Yaml();
+
+    val obj = yaml.load[Long](res.ruleSetResults(Id(20,1))(Id(30,3)).ruleResult);
+    assert(obj == 499500L)
   }
 
   @Test

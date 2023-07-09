@@ -3,7 +3,6 @@ package com.sparkutils.quality.impl.yaml
 import java.io.StringReader
 import java.util.Base64
 
-import com.sparkutils.quality.QualityException
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
