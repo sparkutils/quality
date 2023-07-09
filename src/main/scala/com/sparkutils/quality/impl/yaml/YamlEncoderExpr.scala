@@ -1,6 +1,6 @@
 package com.sparkutils.quality.impl.yaml
 
-import java.io.StringWriter
+import java.io.{IOException, StringWriter}
 import java.util.Base64
 
 import com.sparkutils.quality.impl.MapUtils
@@ -12,9 +12,12 @@ import org.apache.spark.sql.catalyst.expressions.{Expression, UnaryExpression}
 import org.apache.spark.sql.catalyst.util.{ArrayData, MapData}
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.UTF8String
+import org.yaml.snakeyaml.emitter.Emitter
+import org.yaml.snakeyaml.error.YAMLException
 import org.yaml.snakeyaml.nodes._
-import org.yaml.snakeyaml.representer.Representer
-import org.yaml.snakeyaml.{DumperOptions, Yaml}
+import org.yaml.snakeyaml.resolver.Resolver
+import org.yaml.snakeyaml.serializer.Serializer
+import org.yaml.snakeyaml.DumperOptions
 
 import scala.collection.JavaConverters._
 
@@ -232,12 +235,19 @@ case class YamlEncoderExpr(child: Expression, implicit val renderOptions: Map[St
     import org.yaml.snakeyaml.DumperOptions
     options.setDefaultFlowStyle(DumperOptions.FlowStyle.FLOW)
 
-    val representer = new Representer(options);
-    val generator = new Yaml(representer, options)
-
+    val resolver = new Resolver
     val node = valueConverter(input)
 
-    generator.serialize(node, writer)
+    // 1.24 and 1.33 aren't compatible interface for serialize so Yaml.serialize(node, output) isn't an option
+    val serializer = new Serializer(new Emitter(writer, options), resolver, options, null)
+    try {
+      serializer.open()
+      serializer.serialize(node)
+      serializer.close()
+    } catch {
+      case e: IOException =>
+        throw new YAMLException(e)
+    }
 
     val str = writer.getBuffer.toString
     writer.close()

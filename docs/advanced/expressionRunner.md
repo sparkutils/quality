@@ -2,7 +2,7 @@
 tags: advanced
 ---
 
-ExpressionRunner applies a RuleSuite over a dataset returning the results of any expression as yaml (json cannot support non string map keys).  When used with only aggregates it allows running dataset level checks, run after DQ it also allows statistics on individual rule results.   
+ExpressionRunner applies a RuleSuite over a dataset returning the results of any expression as yaml (json cannot support non string map keys).  When used with just aggregate expressions it allows running dataset level checks, run after DQ it also allows statistics on individual rule results.   
 
 It is important to note that if you are having multiple runners in the same data pipeline they should each use different RuleSuites, and you should consider .cache'ing the intermediate results.
 

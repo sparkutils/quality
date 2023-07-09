@@ -20,7 +20,7 @@ functions:
         
       ```
       
-      similarly all nulls will be treated in this fashion.  The string null will be represented as (again new line is present):
+      All null values will be treated in this fashion.  The string "null" will be represented as (again new line is present):
       
       ```yaml
       'null'
@@ -39,6 +39,11 @@ functions:
           .selectExpr("*", "from_yaml(y, 'array<int>') f")
           .filter("f == og")
       ```
+      
+      !!! warning "snakeyaml is provided scope"
+          Databricks runtimes provide sparkyaml, so whilst Quality builds against the correct versions for Databricks it can onyl use provided scope.
+          
+          snakeyaml is 1.24 on DBRs below 13.1, but not present on OSS, so you may need to add the dependency yourselfs, tested compatible versions are 1.24 and 1.33. 
     tags:
       - yaml
   from_yaml:
