@@ -15,7 +15,7 @@ RuleSuites are built per the normal DQ rules however a RuleResultProcessor is su
 ```{.scala #exampleCode}
   val ruleResultProcessor = 
     RunOnPassProcessor(salience, Id(outputId, outputVersion), 
-      RuleLogicUtils.expr("thecurrent -> updateField(thecurrent, 'account', concat(thecurrent.account, '_suffix') )")))
+      RuleLogicUtils.expr("thecurrent -> update_field(thecurrent, 'account', concat(thecurrent.account, '_suffix') )")))
   val rule = Rule(Id(id, version), expressionRule, ruleResultProcessor)
   val ruleSuite = RuleSuite(Id(ruleSuiteId, ruleSuiteVersion), Seq(
       RuleSet(Id(ruleSetId, ruleSetVersion), Seq(rule)
@@ -55,18 +55,18 @@ The following two folder expressions are equivalent, indeed the set call is tran
 ```sql
 set( account = concat(currentResult.account, '_suffix'), ammount = 5 )
 
-currentResult -> updateField(currentResult, 'account', concat(currentResult.account, '_suffix'), 'ammount', 5 )
+currentResult -> update_field(currentResult, 'account', concat(currentResult.account, '_suffix'), 'ammount', 5 )
 ```
 
 The set syntax defaults the name of the lambda variable to "currentResult" and removes the odd looking quotes around the variable names. 
 
-## flattenFolderResults
+## flatten_folder_results
 
 ```scala
-  val outdf = testDataDF.withColumn("together", rer).selectExpr("explode(flattenFolderResults(together)) as expl").selectExpr("expl.result")
+  val outdf = testDataDF.withColumn("together", rer).selectExpr("explode(flatten_folder_results(together)) as expl").selectExpr("expl.result")
 ```
 
-This sql function behaves the same way as per flattenRuleResults with debugRules working as expected.
+This sql function behaves the same way as per flatten_rule_results with debugRules working as expected.
 
 ## resolveWith
 
@@ -77,6 +77,7 @@ This sql function behaves the same way as per flattenRuleResults with debugRules
     1. Using filter then count will stop necessary attributes being produced for resolving, Spark optimises them out as count doesn't need them, however the rules definitely do need some attributes to be useful.
     2. You may not select different attributes, remove any, re-order them, or add extra attributes, this is likely to cause failure in show'ing or write'ing
     3. Spark is free to optimise other actions than just count, ymmv in which ones work.     
+    4. The 0.1.0 implementation of update_field (based on the Spark impl) does not work in some circumstances (testSimpleProductionRules will fail) - see #36
      
 resolveWith attempts to improve performance of planning for general spark operations by first using a reduced plan against the source dataframe.  The resulting Expression will have all functions and attributes resolved and is hidden from further processing by Spark until your rules actually run. 
 

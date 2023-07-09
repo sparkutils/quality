@@ -1,6 +1,6 @@
 package com.sparkutils.quality.impl.hash
 
-import com.sparkutils.quality.utils.{BytePackingUtils, TSLocal}
+import com.sparkutils.quality.impl.util.{BytePackingUtils, TSLocal}
 import net.openhft.hashing.{LongHashFunction, LongTupleHashFunction}
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.qualityFunctions.{Digest, DigestFactory, HashLongsExpression}

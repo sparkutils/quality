@@ -1,8 +1,8 @@
 package org.apache.spark.sql
 
 import com.sparkutils.quality.impl.{RuleEngineRunner, RuleFolderRunner, RuleRunner, ShowParams}
-import com.sparkutils.quality.debugTime
-import com.sparkutils.quality.utils.PassThrough
+import com.sparkutils.quality.impl.util.DebugTime.debugTime
+import com.sparkutils.quality.impl.util.PassThrough
 import org.apache.spark.sql.catalyst.{CatalystTypeConverters, FunctionIdentifier}
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, FunctionRegistry, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCheckResult, TypeCoercion, UnresolvedFunction}
 import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Attribute, BindReferences, Cast, EqualNullSafe, Expression, ExpressionInfo, ExpressionSet, LambdaFunction, Literal}
@@ -302,13 +302,21 @@ object QualitySparkUtils {
     dataFrame.showString(showParams.numRows, showParams.truncate, showParams.vertical)
 
   /**
-   * Used by the SparkSessionExtensions mechanism
+   * Used by the SparkSessionExtensions mechanism registered via injection - functions are classed as temporary functions only, not fully integrated
    * @param extensions
    * @param name
    * @param builder
    */
   def registerFunctionViaExtension(extensions: SparkSessionExtensions)(name: String, builder: Seq[Expression] => Expression) =
     extensions.injectFunction( (FunctionIdentifier(name), new ExpressionInfo(name, name) , builder) )
+
+  /**
+   * Used by the SparkSessionExtensions mechanism but registered via builtin registry
+   * @param name
+   * @param builder
+   */
+  def registerFunctionViaBuiltin(name: String, builder: Seq[Expression] => Expression) =
+    FunctionRegistry.builtin.registerFunction( FunctionIdentifier(name), new ExpressionInfo(name, name) , builder)
 
   /**
    * Type signature changed for 3.4 to more detailed setup, 12.2 already uses it

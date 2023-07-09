@@ -5,9 +5,21 @@ import org.apache.spark.sql.qualityFunctions.utils
 import org.apache.spark.sql.types.DataType
 
 trait ComparableMapsImports {
-  def comparableMaps(child: Column, compareF: DataType => Option[(Any, Any) => Int] = (dataType: DataType) => utils.defaultMapCompare(dataType)): Column =
-    ComparableMapConverter(child,compareF)
+  /**
+   * Efficiently converts the map column to struct for comparison, unioning, sorting etc.
+   * @param map
+   * @param compareF - allows overriding of the default implementation
+   * @return
+   */
+  def comparable_maps(map: Column, compareF: DataType => Option[(Any, Any) => Int] = (dataType: DataType) => utils.defaultMapCompare(dataType)): Column =
+    ComparableMapConverter(map,compareF)
 
-  def reverseComparableMaps(child: Column): Column =
-    new Column(ComparableMapReverser(child.expr))
+  /**
+   * Efficiently converts the mapStruct column to it's original Map type
+   *
+   * @param mapStruct
+   * @return
+   */
+  def reverse_comparable_maps(mapStruct: Column): Column =
+    new Column(ComparableMapReverser(mapStruct.expr))
 }

@@ -1,14 +1,36 @@
-### 0.1.0 <small>10th June, 2023</small>
+### [0.1.1](https://github.com/sparkutils/quality/milestone/6?closed=1) <small>7th July, 2023</small>
+
+#42 - Improve expression runner to store yaml, unlike json, to_yaml and from_yaml allow complete support for roundtripping of Spark data types
+
+### [0.1.0](https://github.com/sparkutils/quality/milestone/3?closed=1) <small>10th June, 2023</small>
+
+#29 - Quality OptimzerRule's run with Databricks sql display
+
+#35 - agg_expr and associated lambda support in the functions package 
+
+#36 - improved update_field, added drop_field based on the Spark withField (3.4.1 impl)
+
+#34 - simplified quality package usage, column functions are now under the functions package.
+
+#32 - expressionRunner - saves the results of expressions as strings, suitable for aggregate statistics
+
+#28 - rule_result function - retrieves a rule result directly from a dq or expressionRunner result
 
 #15 - Addition of the loadXConfigs and loadX functions for maps and blooms, simplifying configuration management
 
 #24 - Remove saferId / rowid functions - use unique_id where required 
 
-#17 - ViewLoader - simple view configuration via DataFrames  
+#18 - ViewLoader - simple view configuration via DataFrames  
+
+#30 - 3.3.2 and 3.4.1 builds - simple version bumps
 
 #20 - 3.5.0 starting support
 
-### 0.0.2 <small>2nd June, 2023</small>
+### [0.0.3](https://github.com/sparkutils/quality/milestone/5?closed=1) <small>17th June, 2023</small>
+
+#25 - Use builtIn function registration by default - allows global views to be created using Quality functions
+
+### [0.0.2](https://github.com/sparkutils/quality/milestone/2?closed=1) <small>2nd June, 2023</small>
 
 #16 - Remove winutils requirements for testing and usage
 
@@ -30,7 +52,7 @@
 
 #4 - comparableMaps / reverseComparableMaps functions, allowing map comparison / set operations (e.g. sort, distinct etc.)
 
-### 0.0.1 <small>8th March, 2023</small>
+### [0.0.1](https://github.com/sparkutils/quality/milestone/1?closed=1) <small>8th March, 2023</small>
 
 Initial OSS version.
 

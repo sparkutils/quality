@@ -1,7 +1,7 @@
 package com.sparkutils.qualityTests
 import com.sparkutils.quality.Id
 import org.junit.Test
-import com.sparkutils.quality.utils.RuleSuiteDocs._
+import com.sparkutils.quality.impl.util.RuleSuiteDocs._
 import org.junit.Assert.fail
 
 class TrEitherTest {

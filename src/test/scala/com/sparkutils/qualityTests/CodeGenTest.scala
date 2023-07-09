@@ -1,9 +1,10 @@
 package com.sparkutils.qualityTests
+
 import com.sparkutils.quality._
+import types._
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions.expr
 import org.apache.spark.sql.types.{DataType, LongType}
-import org.junit.Ignore
 // 3.4 drops this import org.codehaus.janino.InternalCompilerException
 import org.junit.Assert.fail
 import org.junit.Test
@@ -94,9 +95,9 @@ class CodeGenTest extends RowTools with TestUtils {
         ruleSet.copy( rules =
           ruleSet.rules.map(rule =>
             rule.copy( runOnPassProcessor =
-              RunOnPassProcessorImpl(0,
+              RunOnPassProcessor(0,
                 rule.id.copy(id = rule.id.id + 11111)
-                , "`1` + `10`", OutputExpression("`1` + `10`")) // bizarrely if you use ""+rule.id.id it seems to trick compilation into verify errors
+                , OutputExpression("`1` + `10`")) // bizarrely if you use ""+rule.id.id it seems to trick compilation into verify errors
             )
           )
       )))

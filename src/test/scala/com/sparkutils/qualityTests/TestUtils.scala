@@ -71,11 +71,14 @@ trait TestUtils {
     sys.props.put("spark.testing","yes yes it is")
   }
 
-  def cleanupOutput(): Unit = {
+  def cleanUp(target: String): Unit = {
     import scala.reflect.io.Directory
-    val outdir = new Directory(new java.io.File(outputDir))
+    val outdir = new Directory(new java.io.File(target))
     outdir.deleteRecursively()
   }
+
+  def cleanupOutput(): Unit =
+    cleanUp(outputDir)
 
   @Before
   def setup(): Unit = {
@@ -261,6 +264,13 @@ trait TestUtils {
    */
   def v3_4_and_above(thunk: => Unit) =
     if (sparkVersion.replace(".","").toInt >= 34) thunk
+
+  /**
+   * INTERVAL MONTH etc. not supported below 3.2
+   * @param thunk
+   */
+  def v3_2_and_above(thunk: => Unit) =
+    if (sparkVersion.replace(".","").toInt >= 32) thunk
 
   /**
    * Only run this on 2.4

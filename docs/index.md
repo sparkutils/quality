@@ -13,15 +13,14 @@
 
 ## Run complex data quality rules using simple SQL in a batch or streaming Spark application at scale.
 
-Write rules using simple SQL or create re-usable functions via SQL Lambdas 
+Write rules using simple SQL or create re-usable functions via SQL Lambdas.
 
 Your rules are just versioned data, store them wherever convenient, use them by simply defining a column.
 
-* :new:{.pulseABit} - [view loading](advanced/viewLoader.md) - load views for data lookup and transformation rules from a configuration DataFrame
-* :new:{.pulseABit} - [map loading](advanced/mapFunctions.md#map-loading) - load maps using views or DataFrames from a configuration DataFrame
-* :new:{.pulseABit} - [bloom loading](advanced/blooms.md#bloom-loading) - load blooms using views or DataFrames from a configuration DataFrame
+* :new:{.pulseABit} - Improved [expression_runner](advanced/expressionRunner.md) uses to_yaml by default 
+* :new:{.pulseABit} - [to_yaml](sqlfunctions/#to_yaml) and [from_yaml](sqlfunctions/#from_yaml) - convert Spark fields into yaml (unlike to_json it allows non-string map keys)  
 
-Rules are evaluated lazily during Spark actions, such as writing a row, with results saved in a single predictable and extensible column.
+Rules are evaluated lazily during Spark actions, such as writing a row, with results saved in a single predictable column.
 
 ## Enhanced Spark Functionality
 
@@ -29,12 +28,12 @@ Lookup Functions are distributed across the Spark cluster and held in memory, as
 
 * Support for massive [Bloom Filters](advanced/blooms/) while retaining FPP (i.e. several billion items at 0.001 would not fit into a normal 2gb byte array)
 * [Map lookup](advanced/mapFunctions/) expressions for exact lookups and contains tests, using broadcast variables under the hood they are a great fit for small reference data sets
+* [View loading](advanced/viewLoader.md) - manage the use of session views in your application through configuration and a pluggable [DataFrameLoader](./site/scaladocs/com/sparkutils/quality/DataFrameLoader.html)  
+
+* [Lambda Functions](advanced/userFunctions/) - user provided re-usable sql functions over late bound columns
 
 
-* [Lambda Functions](advanced/userFunctions/) - user provided re-usable sql functions over late binded columns
-
-
-* Fast PRNG's exposing [RandomSource](https://commons.apache.org/proper/commons-rng/commons-rng-simple/apidocs/org/apache/commons/rng/simple/RandomSource.html) allowing plugable and stable generation across the cluster
+* Fast PRNG's exposing [RandomSource](https://commons.apache.org/proper/commons-rng/commons-rng-simple/apidocs/org/apache/commons/rng/simple/RandomSource.html) allowing pluggable and stable generation across the cluster
 
 
 * [Aggregate functions](advanced/aggregations/) over Maps expandable with simple SQL Lambdas

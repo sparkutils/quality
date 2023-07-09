@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl.extension
 
-import com.sparkutils.quality.impl.extension.QualitySparkExtension.disableRulesConf
-import com.sparkutils.quality.utils.Testing
+import com.sparkutils.quality.impl.extension.QualitySparkExtension.{disableRulesConf, forceInjectFunction}
+import com.sparkutils.quality.impl.util.Testing
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.{QualitySparkUtils, SparkSession, SparkSessionExtensions}
 import org.apache.spark.sql.catalyst.expressions.Expression
@@ -15,10 +15,11 @@ object QualitySparkExtension {
    * underscores as . isn't valid in an env name and only env / system property is available when apply is called
    */
   val disableRulesConf = "quality_disable_optimiser_rules"
+  val forceInjectFunction = "quality_force_inject_function"
 }
 
 /**
- * Registers Quality sql functions using the defaults for registerQualityFunctions, these can be overridden without having to subclass DriverPlugin.
+ * Registers Quality sql functions using the defaults for registerQualityFunctions, these can be overridden without having to subclass DriverPlugin.  Functions are registered via FunctionRegistry.builtIn making them available for view creation, if they should be registered via extensions only then use the quality_force_inject_function = true configuration.
  *
  * It also registers plan optimiser rule's such as AsUUIDFilter, which rewrites filters with variables backed by as_uuid.
  *
@@ -33,6 +34,22 @@ class QualitySparkExtension extends ((SparkSessionExtensions) => Unit) with Logg
   def writer: String => Unit = println(_)
 
   /**
+   * uses writer to write prefix: str
+   * @param str
+   * @param prefix defaults to "Quality SparkExtensions"
+   */
+  def dump(str: String, prefix: String = "Quality SparkExtensions") = writer(s"$prefix: $str")
+
+  /**
+   * attempts to logInfo, typically doesn't work, but also then dumps the str
+   * @param str
+   */
+  def attemptLogInfo(str: String) = {
+    logInfo(str)
+    dump(str)
+  }
+
+  /**
    * Adds AsymmetricFilterExpressions for AsUUID
    * Derived implementations should also call super if they wish to register the default rules (or specify both as extensions).
    * These are registered after resolution is done.
@@ -43,8 +60,16 @@ class QualitySparkExtension extends ((SparkSessionExtensions) => Unit) with Logg
     Seq((AsUUIDFilter.getClass.getName, _ => AsUUIDFilter), (IDBase64Filter.getClass.getName, _ => IDBase64Filter))
 
   override def apply(extensions: SparkSessionExtensions): Unit = {
+    val func =
+      if (com.sparkutils.quality.getConfig(forceInjectFunction, "false").toBoolean) {
+        attemptLogInfo("registering quality functions via injection - they are classed as temporary functions")
+        QualitySparkUtils.registerFunctionViaExtension(extensions) _
+      } else {
+        attemptLogInfo("registering quality functions via builtin function registry - whilst you can use these in global views the extension must always be present")
+        QualitySparkUtils.registerFunctionViaBuiltin _
+      }
     com.sparkutils.quality.registerQualityFunctions(parseTypes, zero, add, mapCompare, writer,
-      registerFunction = QualitySparkUtils.registerFunctionViaExtension(extensions) _
+      registerFunction = func
     )
 
     if (Testing.testing) {
@@ -55,16 +80,14 @@ class QualitySparkExtension extends ((SparkSessionExtensions) => Unit) with Logg
       val disabledRules = disableConf.split(",").map(_.trim).toSet
       val filteredRules = optimiserRules.filterNot(p => disabledRules.contains(p._1.trim))
       val str = s"$disableRulesConf = $disabledRules leaving ${filteredRules.map(_._1)} remaining"
-      logInfo(str)
-      println(s"Quality SparkExtensions: $str")
+      attemptLogInfo(str)
       if (Testing.testing) {
         ExtensionTesting.disableRuleResult = str
       }
       filteredRules.map(_._2).foreach(extensions.injectOptimizerRule _)
     } else {
       val str = s"All optimiser rules are disabled via $disableRulesConf"
-      logInfo(str)
-      println(s"Quality SparkExtensions: $str")
+      attemptLogInfo(str)
     }
   }
 

@@ -1,11 +1,12 @@
 package com.sparkutils.qualityTests
 
-import com.sparkutils.quality.{Id, LambdaFunctionImpl, registerLambdaFunctions}
+import com.sparkutils.quality.{Id, LambdaFunction, registerLambdaFunctions}
 import com.sparkutils.quality.impl.RuleRegistrationFunctions.INC_REWRITE_GENEXP_ERR_MSG
+import com.sparkutils.quality.functions._
 import com.sparkutils.qualityTests.mapLookup.TradeTests._
 import org.apache.spark.sql.catalyst.expressions.GenericRowWithSchema
-import org.apache.spark.sql.functions.expr
-import org.apache.spark.sql.types.{StringType, StructField, StructType}
+import org.apache.spark.sql.functions.{col, expr, lit, struct, concat, when}
+import org.apache.spark.sql.types.{DecimalType, LongType, MapType, StringType, StructField, StructType}
 import org.apache.spark.sql.{Column, DataFrame, Dataset}
 import org.junit.Test
 import org.scalatest.FunSuite
@@ -53,6 +54,32 @@ class AggregatesTest extends FunSuite with TestUtils {
     doMapTest(_.sort("id"), mapDeprecatedTestSql)
 
   @Test
+  def sumTestDSL: Unit = evalCodeGensNoResolve {
+    import sparkSession.implicits._
+    val df = sparkSession.range(1, 20).union(sparkSession.range(1,2).map(_ => null.asInstanceOf[Long]))
+
+    val summed = df.select(agg_expr(LongType, col("id") % 2 > 0, sum_with(sum => sum + col("id")), results_with( (sum, count) => sum / count ) ).as("aggExpr"))
+
+    summed.show(1)
+
+    val set = (1 to 20).filter(_ % 2 > 0)
+
+    assert(summed.head().getAs[Double]("aggExpr") == (set.sum / set.size), "aggExpr did not have the correct math")
+
+    val summedNameF = df.select(agg_expr(LongType, col("id") % 2 > 0, inc, meanf).as("aggExpr"))
+
+    summedNameF.show(1)
+
+    assert(summedNameF.head().getAs[Double]("aggExpr") == 1.0, "aggExpr did not have the correct math from NameF")
+
+    val summedNameFParam = df.select(agg_expr(LongType, col("id") % 2 > 0, inc(col("id")), meanf).as("aggExpr"))
+
+    summedNameFParam.show(1)
+
+    assert(summedNameFParam.head().getAs[Double]("aggExpr") ==  (set.sum / set.size), "aggExpr did not have the correct math from NameFParam")
+  }
+
+  @Test
   def evalSumTest: Unit = evalCodeGensNoResolve {
     import sparkSession.implicits._
     val df = sparkSession.range(1, 20).union(sparkSession.range(1,2).map(_ => null.asInstanceOf[Long]))
@@ -90,11 +117,16 @@ class AggregatesTest extends FunSuite with TestUtils {
   }
 
   @Test
+  def mapAggrCountDSLTest: Unit = doMapStructKeyAggrCountTest(mapStructKeyCountDSL)
+
+  @Test
   def mapAggrCountTest: Unit = doMapAggrCountTest(mapCountExpr)
 
   @Test
   def mapAggrCountDeprecatedTest: Unit = doMapAggrCountTest(mapDeprecatedCountExpr)
 
+  lazy val mapStructKeyCountDSL = agg_expr(MapType(StructType(Seq(StructField("date", StringType), StructField("product", StringType))), LongType), lit(1) > 0,
+    map_with(struct(col("date"), col("product")), entry => entry + 1L), return_sum).as("mapCountExpr")
   lazy val mapStructKeyCountExpr = expr("aggExpr('MAP<STRUCT<`date`: STRING, `product`: STRING>, LONG>', 1 > 0, mapWith(struct(date, product), entry -> entry + 1 ), returnSum() )").as("mapCountExpr")
   lazy val mapStructKeyCountDeprecatedExpr = expr("aggExpr(1 > 0, mapWith('MAP<STRUCT<`date`: STRING, `product`: STRING>, LONG>', struct(date, product), entry -> entry + 1 ), returnSum('MAP<STRUCT<`date`: STRING, `product`: STRING>, LONG>') )").as("mapCountExpr")
 
@@ -175,10 +207,17 @@ class AggregatesTest extends FunSuite with TestUtils {
     doMapSumAggr[Double](summed)
   }
 
-  lazy val mapDecimalExpr = expr("aggExpr('MAP<STRING, DECIMAL(38,18)>', 1 > 0, mapWith(date || ', ' || product, entry -> entry + IF(ccy='CHF', value, value * ccyrate) ), returnSum() )").as("mapSumExpr")
+  lazy val mapDecimalDSL = agg_expr(MapType(StringType, DecimalType(38,18)), lit(1) > 0, map_with(concat(col("date"), lit(", "), col("product")),
+    entry => entry + when(col("ccy") === "CHF", col("value")).otherwise(col("value") * col("ccyrate")) ), return_sum ).as("mapSumExpr")
+
+  lazy val mapDecimalExpr = // if also works but it's not present in the dsl - expr("aggExpr('MAP<STRING, DECIMAL(38,18)>', 1 > 0, mapWith(date || ', ' || product, entry -> entry + IF(ccy='CHF', value, value * ccyrate) ), returnSum() )").as("mapSumExpr")
+    expr("aggExpr('MAP<STRING, DECIMAL(38,18)>', 1 > 0, mapWith(date || ', ' || product, entry -> entry + case when ccy='CHF' then value else value * ccyrate end ), returnSum() )").as("mapSumExpr")
 
   @Test
   def mapAggrDecimalTest: Unit = doMapAggrSumTest[java.math.BigDecimal](mapDecimalExpr)
+
+  @Test
+  def mapAggrDecimalDSLTest: Unit = doMapAggrSumTest[java.math.BigDecimal](mapDecimalDSL)
 
   @Test
   def mapAggrOnePassTest: Unit = doMapAggrOnePassTest(mapSumExpr, mapCountExpr)
@@ -190,35 +229,44 @@ class AggregatesTest extends FunSuite with TestUtils {
    * DecimalPrecision means the type specified in sumWith (that of entry and expected return) is analysed
    * as potentially having a different precision.  This explicit test covers that.
    */
-  def doDecimalPrecisionTest(sql: String, expected: BigDecimal = BigDecimal(23245.68200000000)): Unit = evalCodeGensNoResolve {
+  def doDecimalPrecisionTest(col: Column, expected: BigDecimal = BigDecimal(23245.68200000000)): Unit = evalCodeGensNoResolve {
+    doDecimalPrecisionTestF(df => col, expected = expected)
+  }
+  def doDecimalPrecisionTestF(col: DataFrame => Column, expected: BigDecimal = BigDecimal(23245.68200000000)): Unit = evalCodeGensNoResolve {
     import sparkSession.implicits._
     val testDF = Seq(("a", BigDecimal.valueOf(0.34)),("b", BigDecimal.valueOf(23245.342))).
       toDF("str","dec")
 
-    val agg = testDF.selectExpr(sql)
+    val agg = testDF.select(col(testDF))
     val rows = agg.as[BigDecimal].collect()
     assert(rows.nonEmpty)
     assert(expected == rows(0))
   }
 
   @Test
-  def decimalPrecisionTest = doDecimalPrecisionTest(  "aggExpr('DECIMAL(38,18)', dec IS NOT NULL, sumWith(entry -> dec + entry ), returnSum()) as agg" )
+  def decimalPrecisionTest = doDecimalPrecisionTest(  expr("aggExpr('DECIMAL(38,18)', dec IS NOT NULL, sumWith(entry -> dec + entry ), returnSum()) as agg" ))
 
   @Test
-  def decimalPrecisionNO_REWRITETest = doDecimalPrecisionTest(  "aggExpr('NO_REWRITE', dec IS NOT NULL, sumWith('DECIMAL(38,18)', entry -> cast( (dec + entry) as DECIMAL(38,18)) ), returnSum('DECIMAL(38,18)')) as agg" )
+  def decimalPrecisionExprDSLTest = doDecimalPrecisionTestF( df => agg_expr(DecimalType(38,18), df("dec").isNotNull, sum_with(entry => df("dec") + entry ), return_sum) as "agg")
+
+  @Test
+  def decimalPrecisionNO_REWRITETest = doDecimalPrecisionTest(  expr("aggExpr('NO_REWRITE', dec IS NOT NULL, sumWith('DECIMAL(38,18)', entry -> cast( (dec + entry) as DECIMAL(38,18)) ), returnSum('DECIMAL(38,18)')) as agg" ))
 
   //@Test
   //def decimalPrecisionDeprecatedTest = doDecimalPrecisionTest(  "aggExpr(dec IS NOT NULL, sumWith('DECIMAL(38,18)', entry -> cast((dec + entry) as DECIMAL(38,18)) ), returnSum()) as agg" )
 
   @Test
-  def decimalPrecisionIncTest = doDecimalPrecisionTest(  "aggExpr('DECIMAL(38,18)', dec IS NOT NULL, inc(dec), returnSum()) as agg" )
+  def decimalPrecisionIncTest = doDecimalPrecisionTest(  expr("aggExpr('DECIMAL(38,18)', dec IS NOT NULL, inc(dec), returnSum()) as agg" ))
+
+  @Test
+  def decimalPrecisionIncDSLTest = doDecimalPrecisionTestF( df => agg_expr(DecimalType(38,18), df("dec").isNotNull, inc(df("dec")), return_sum) as "agg" )
 
   @Test
   def decimalPrecisionHofTest = {
-    val sf = LambdaFunctionImpl("myinc", "entry -> entry + dec", Id(0,3))
-    val sf2 = LambdaFunctionImpl("myinc", "(entry, f) -> entry + dec + f", Id(0,3))
-    val rf = LambdaFunctionImpl("myretsum", "(sum, count) -> sum", Id(0,3))
-    val rf2 = LambdaFunctionImpl("myretsum", "(sum, f, count) -> sum + f", Id(0,3))
+    val sf = LambdaFunction("myinc", "entry -> entry + dec", Id(0,3))
+    val sf2 = LambdaFunction("myinc", "(entry, f) -> entry + dec + f", Id(0,3))
+    val rf = LambdaFunction("myretsum", "(sum, count) -> sum", Id(0,3))
+    val rf2 = LambdaFunction("myretsum", "(sum, f, count) -> sum + f", Id(0,3))
     registerLambdaFunctions(Seq(sf, sf2, rf, rf2))
     // NOTE on spark 2.4 it will not auto cast to BigDecimal on part 1 and 3 below
     // as such we wrap sql...
@@ -230,19 +278,22 @@ class AggregatesTest extends FunSuite with TestUtils {
     }
 
     // (1) test with wider partial application
-    doDecimalPrecisionTest(  s"${pre}aggExpr('DECIMAL(38,18)', dec IS NOT NULL, myinc(_()), myretsum(_(), cast(0.0 as DECIMAL(38,18)), _())) ${post}" )
+    doDecimalPrecisionTest( expr( s"${pre}aggExpr('DECIMAL(38,18)', dec IS NOT NULL, myinc(_()), myretsum(_(), cast(0.0 as DECIMAL(38,18)), _())) ${post}" ) )
     // (2) test with 1:1 hof
-    doDecimalPrecisionTest(  "aggExpr('DECIMAL(38,18)', dec IS NOT NULL, myinc(_()), myretsum(_(), _())) as agg" )
+    doDecimalPrecisionTest( expr("aggExpr('DECIMAL(38,18)', dec IS NOT NULL, myinc(_()), myretsum(_(), _())) as agg" ) )
     // (3) test with partial on sum
-    doDecimalPrecisionTest(  s"${pre}aggExpr('DECIMAL(38,18)', dec IS NOT NULL, myinc(_(), cast(0.0 as DECIMAL(38,18))), myretsum(_(), _())) ${post}" )
+    doDecimalPrecisionTest( expr( s"${pre}aggExpr('DECIMAL(38,18)', dec IS NOT NULL, myinc(_(), cast(0.0 as DECIMAL(38,18))), myretsum(_(), _())) ${post}" ) )
   }
 
   @Test
-  def decimalPrecisionIncExprTest = doDecimalPrecisionTest(  "aggExpr('DECIMAL(38,18)', dec IS NOT NULL, inc(dec + 0), returnSum()) as agg${post}" )
+  def decimalPrecisionIncExprTest = doDecimalPrecisionTest( expr(  "aggExpr('DECIMAL(38,18)', dec IS NOT NULL, inc(dec + 0), returnSum()) as agg" ) )
+
+  @Test
+  def decimalPrecisionIncExprDSLTest = doDecimalPrecisionTestF( df => agg_expr(DecimalType(38,18), df("dec").isNotNull, inc(df("dec") + 0 ), return_sum) as "agg")
 
   @Test
   def decimalPrecisionNO_REWRITEIncTest = try {
-    doDecimalPrecisionTest(  "aggExpr('NO_REWRITE', dec IS NOT NULL, inc('DECIMAL(38,18)', cast( dec as DECIMAL(38,18))), returnSum('DECIMAL(38,18)')) as agg" )
+    doDecimalPrecisionTest( expr( "aggExpr('NO_REWRITE', dec IS NOT NULL, inc('DECIMAL(38,18)', cast( dec as DECIMAL(38,18))), returnSum('DECIMAL(38,18)')) as agg" ) )
     fail("Should have thrown " + INC_REWRITE_GENEXP_ERR_MSG)
   } catch {
     case t: Throwable if t.getMessage == INC_REWRITE_GENEXP_ERR_MSG =>
@@ -252,6 +303,6 @@ class AggregatesTest extends FunSuite with TestUtils {
   }
 
   @Test
-  def decimalPrecisionDeprecatedIncTest = doDecimalPrecisionTest(  "aggExpr(dec IS NOT NULL, inc('DECIMAL(38,18)', dec ), returnSum('DECIMAL(38,18)')) as agg" )
+  def decimalPrecisionDeprecatedIncTest = doDecimalPrecisionTest(  expr("aggExpr(dec IS NOT NULL, inc('DECIMAL(38,18)', dec ), returnSum('DECIMAL(38,18)')) as agg" ) )
 
 }

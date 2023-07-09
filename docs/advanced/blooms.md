@@ -33,7 +33,7 @@ Bloom Maps are identifiers to a bloom filter.  The examples below show how to cr
 registerBloomMapAndFunction(bloomFilterMap)
 ```
 
-Both registers the Bloom Map, the smallBloom and bigBloom aggregation functions and the probabilityIn function.
+Both registers the Bloom Map, the small_bloom and big_bloom aggregation functions and the probabilityIn function.
  
 ## Using the Spark stats package
 
@@ -49,18 +49,18 @@ val bloomFilterMap = SparkSession.active.sparkContext.broadcast( Map("ids" -> (S
 // register the map for this SparkSession
 registerBloomMapAndFunction(bloomFilterMap)
 // lookup the result of adding column's a and b against that bloom filter for each row
-otherSourceDF.withColumn("probabilityInIds", expr("probabilityIn(a + b, 'ids')"))
+otherSourceDF.withColumn("probabilityInIds", expr("probability_in(a + b, 'ids')"))
 ```
 
 The stats package bloomFilter function has severe limitations on a single field and does not allow expressions but through the SparkBloomFilter lookup function is integrated with Quality anyway.
 
 ## Using the Quality bloom filters
 
-The small and big bloom functions take a single expression parameter however it can be built from any number of fields or field types.  Future versions will allow a flexible number of fields to be added to the hash function "see here" #19.
+The small and big bloom functions take a single expression parameter however it can be built from any number of fields or field types using the hash_with function.
 
 * smallBloom( column, expected number of items, fpp ) - an SQL aggregate function which generates a BloomFilter Array[Byte] for use in probabilityIn or rowId:
 ```scala
- val aggrow = orig.select(expr(s"smallBloom(uuid, $numRows, 0.01)")).head()
+ val aggrow = orig.select(expr(s"small_bloom(uuid, $numRows, 0.01)")).head()
  val thebytes = aggrow.getAs[Array[Byte]](0)
  val bf = bloomLookup(thebytes)
  val fpp = 0.99
@@ -69,7 +69,7 @@ The small and big bloom functions take a single expression parameter however it 
 * bigBloom( column, expected number of items, fpp ) - can only be run on large memory sized workers and executors and can cover billions of rows while maintaining the FPP:
 ```scala
 // via the expression
-val interim = df.selectExpr(s"bigBloom($bloomOn, $expectedSize, $fpp, '$bloomId')").head.getAs[Array[Byte]](0)
+val interim = df.selectExpr(s"big_bloom($bloomOn, $expectedSize, $fpp, '$bloomId')").head.getAs[Array[Byte]](0)
 val bloom = com.sparkutils.quality.BloomModel.deserialize(interim)
 bloom.cleanupOthers()
 

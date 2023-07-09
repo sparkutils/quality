@@ -2,7 +2,7 @@ package com.sparkutils.quality.impl.bloom
 
 import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.{BloomFilterMap, RuleSuite}
-import com.sparkutils.quality.impl.RuleRegistrationFunctions
+import com.sparkutils.quality.impl.{RuleRegistrationFunctions, RuleRunnerUtils}
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
@@ -20,7 +20,7 @@ object BloomFilterLookup {
    */
   def getBlooms(ruleSuite: RuleSuite): Seq[String]  = {
     // parsing is different than plan..
-    val flattened = RuleRegistrationFunctions.flattenExpressions(ruleSuite)
+    val flattened = RuleRunnerUtils.flattenExpressions(ruleSuite)
     val ids = flattened.flatMap {
       exp =>
         BloomFilterLookup.getBlooms(exp)

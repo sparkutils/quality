@@ -10,7 +10,7 @@ import org.apache.spark.sql.types.{BinaryType, DataType, LongType, StructField, 
 
 object RandomBytes {
   /**
-   * Creates a random number generator using a givne commons-rng source
+   * Creates a random number generator using a given commons-rng source
    *
    * @param randomSource commons-rng random source
    * @param numBytes the number of bytes to produce in the array, defaulting to 16

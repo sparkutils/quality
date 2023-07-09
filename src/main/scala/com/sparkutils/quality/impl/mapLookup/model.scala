@@ -1,5 +1,6 @@
 package com.sparkutils.quality.impl.mapLookup
 
+import com.sparkutils.quality.impl.RuleRegistrationFunctions.registerWithChecks
 import com.sparkutils.quality.impl.util.{Config, ConfigFactory, Row}
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.catalyst.CatalystTypeConverters
@@ -15,13 +16,14 @@ object MapLookupFunctions {
 
   def registerMapLookupsAndFunction(mapLookups: MapLookups) {
     val funcReg = SparkSession.getActiveSession.get.sessionState.functionRegistry
-    val register = QualitySparkUtils.registerFunction(funcReg) _
+    def register(name: String, argsf: Seq[Expression] => Expression, paramNumbers: Set[Int] = Set.empty, minimum: Int = -1) =
+      registerWithChecks(QualitySparkUtils.registerFunction(funcReg), name, argsf, paramNumbers, minimum)
 
     val f = (exps: Seq[Expression]) => MapLookup(exps(0), exps(1), mapLookups)
-    register("mapLookup", f)
+    register("map_lookup", f, Set(2))
 
     val sf = (exps: Seq[Expression]) => IsNotNull(  MapLookup(exps(0), exps(1), mapLookups) )
-    register("mapContains", sf)
+    register("map_contains", sf, Set(2))
   }
 
   /**

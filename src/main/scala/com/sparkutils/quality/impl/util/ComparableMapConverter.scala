@@ -1,6 +1,5 @@
 package com.sparkutils.quality.impl.util
 
-import com.sparkutils.quality.utils.Arrays
 import org.apache.spark.sql.Column
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
 import org.apache.spark.sql.catalyst.expressions.{BoundReference, Expression, UnaryExpression}
@@ -44,13 +43,17 @@ object ComparableMapConverter {
 
           // maps are already converted all the way down before trying to sort by key._2
           val sorted = Arrays.mapArray(theMap.keyArray(), actualKeyType, key._2).zipWithIndex.sortBy(_._1)(comparisonOrdering)
-          val vals = Arrays.toArray(theMap.valueArray(), actualValueType)
-
+          val vals = {
+            val valArray =theMap.valueArray()
+            (idx: Int) => valArray.get(idx, actualValueType) //Arrays.toArray(theMap.valueArray(), actualValueType)
+          }
           // now re-pack as structs
           ArrayData.toArrayData(sorted.map {
             case (tkey, index) =>
               InternalRow(tkey, value._2(vals(index)))
           })
+        case e if e == null =>
+          null
       }
     }
   )
@@ -69,6 +72,8 @@ object ComparableMapConverter {
               ArrayData.toArrayData(
                 Arrays.mapArray( array, arrayType.elementType, r._2 )
               )
+            case e if e == null =>
+              null
           }
         )
       case structType: StructType =>
@@ -84,6 +89,8 @@ object ComparableMapConverter {
           { // convert data to target type
             case row: InternalRow =>
               InternalRow.fromSeq(fieldTransforms.map(_._2(row)))
+            case e if e == null =>
+              null
           }
         )
       case _ => (dataType, identity)
@@ -106,6 +113,8 @@ object ComparableMapConverter {
             } ).map(_.asInstanceOf[(Any, Any)]).toMap
 
           ArrayBasedMapData(theScalaMap)
+        case e if e == null =>
+          null
       }
     )
 
@@ -123,6 +132,8 @@ object ComparableMapConverter {
               ArrayData.toArrayData(
                 Arrays.mapArray( array, arrayType.elementType, r._2 )
               )
+            case e if e == null =>
+              null
           }
         )
       case structType: StructType =>
@@ -138,6 +149,8 @@ object ComparableMapConverter {
           { // convert data to target type
             case row: InternalRow =>
               InternalRow.fromSeq(fieldTransforms.map(_._2(row)))
+            case e if e == null =>
+              null
           }
         )
       case _ => (dataType, identity)

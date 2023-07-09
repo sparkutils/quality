@@ -3,8 +3,8 @@ package org.apache.spark.sql
 import java.util.Locale
 
 import com.sparkutils.quality.impl.{RuleEngineRunner, RuleFolderRunner, RuleRunner, ShowParams}
-import com.sparkutils.quality.debugTime
-import com.sparkutils.quality.utils.PassThrough
+import com.sparkutils.quality.impl.util.DebugTime.debugTime
+import com.sparkutils.quality.impl.util.PassThrough
 import org.apache.spark.sql.catalyst.FunctionIdentifier
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, FunctionRegistry, ResolveHigherOrderFunctions, ResolveInlineTables, ResolveLambdaVariables, ResolveTimeZone, TypeCheckResult, TypeCoercion, UnresolvedFunction}
 import org.apache.spark.sql.catalyst.catalog.SessionCatalog
@@ -307,6 +307,14 @@ object QualitySparkUtils {
    * @param builder
    */
   def registerFunctionViaExtension(extensions: SparkSessionExtensions)(name: String, builder: Seq[Expression] => Expression) =
+    ()
+
+  /**
+   * Used by the SparkSessionExtensions mechanism but registered via builtin registry
+   * @param name
+   * @param builder
+   */
+  def registerFunctionViaBuiltin(name: String, builder: Seq[Expression] => Expression) =
     ()
 
   /**

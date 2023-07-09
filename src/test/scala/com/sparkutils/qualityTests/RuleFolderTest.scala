@@ -1,6 +1,8 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
+import com.sparkutils.quality.functions.flatten_folder_results
+import com.sparkutils.quality.impl.RunOnPassProcessor
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.catalyst.expressions.Literal
 import org.apache.spark.sql.functions._
@@ -61,7 +63,7 @@ class RuleFolderTest extends FunSuite with TestUtils {
         (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1000, Id(1043,1),
           OutputExpression("thecurrent -> updateField(thecurrent, 'transfer_type', 'from')"))),
         (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1001, Id(1044,1),
-          OutputExpression("thecurrent -> updateField(thecurrent, 'account', concat(account,'_fruit'))")))
+          OutputExpression("thecurrent -> update_field(thecurrent, 'account', concat(account,'_fruit'))")))
       ), compileEvals = true, debugMode = true
     ) // compileEvals + codeGens IS NOT forcing a code gen on >Spark3
 
@@ -262,6 +264,9 @@ class RuleFolderTest extends FunSuite with TestUtils {
         )*/))
 
     val outdfi = outdfit.selectExpr("explode(flattenFolderResults(together)) as expl")
+    val outdfi2 = outdfit.select(explode(flatten_folder_results(col("together"))) as "expl")
+    assert(outdfi.union(outdfi2).distinct().count == outdfi.distinct().count)
+
 
     //println("outdfi show")
 

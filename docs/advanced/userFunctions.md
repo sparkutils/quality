@@ -50,7 +50,7 @@ df.withColumn("newcalc", expr("multValCCY(value, ccyrate)"))
 
 As Lambda's in Spark aren't first class citizens you can neither partially apply them (fill in parameters to derive new lambdas) nor pass them into a lambda.
 
-In 0.7.1 Quality experimentally adds three new concepts to the mix:
+Quality experimentally adds three new concepts to the mix:
 
 1. Placeholders - `#!scala _()` - which represents a value which still needs to be filled (partial application)
 2. Application - `#!scala callFun()` - which, in a lambda, allows you to apply a function parameter
@@ -107,7 +107,7 @@ val deep = LambdaFunction("deep", "(func, a, b) -> use(func, a, b)", Id(2,2))
 
 Deep takes the function and simply passes it to use where the callFun exists.
 
-Finally you can also further partially apply your lambda variables:
+Finally, you can also further partially apply your lambda variables:
 
 ```scala
 val plus2 = LambdaFunction("plus", "(a, b) -> a + b", Id(3,2))
@@ -144,7 +144,8 @@ assert(6L == { val sql = sparkSession.sql("select callFun(retLambda(1L, 2L), 3L)
 
 here the user function retLambda returns the plus with 3 arity applied over a and b, leaving a function of one arity to fill.  The top level callFun then applies the last argument (c).
 
-The second test 
+!!! note "It's sql only"
+    As you can create your own functions based on Column transformations the functionality is not extended to the dsl where there are better host language based solutions.
 
 ??? warning "It is experimental"
     Although behaviour has been tested with compilation and across the support DBRs it's entirely possible there are gaps in the trickery used.

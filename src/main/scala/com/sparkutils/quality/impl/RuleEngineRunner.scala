@@ -1,13 +1,14 @@
 package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.impl.RuleRunnerUtils.RuleSuiteResultArray
-import com.sparkutils.quality.utils.NonPassThrough
-import com.sparkutils.quality.{ExprLogic, ExpressionWrapper, Id, NoOpRunOnPassProcessor, RuleLogic, RuleSuite, RunOnPassProcessor}
+import com.sparkutils.quality.Id
 import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenExpressions
-import com.sparkutils.quality.impl.RuleRunnerUtils.{RuleSuiteResultArray, genRuleSuiteTerm, packTheId}
-import com.sparkutils.quality.utils.{NonPassThrough, PassThrough}
+import com.sparkutils.quality.impl.RuleRunnerUtils.{genRuleSuiteTerm, packTheId}
 import com.sparkutils.quality._
+import com.sparkutils.quality.impl.imports.{RuleEngineRunnerImports, RuleResultsImports}
+import RuleResultsImports.packId
+import com.sparkutils.quality.impl.util.{NonPassThrough, PassThrough}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenFallback}
@@ -248,7 +249,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
           ("", s"$utilsName.ruleResultToInt($childrenFuncTerm[$idx].eval($i))")
         else {
           val eval = exp.genCode(ctx)
-          (eval.code, s"com.sparkutils.quality.RuleLogicUtils.anyToRuleResultInt(${eval.isNull} ? null : ${eval.value})")
+          (eval.code, s"com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt(${eval.isNull} ? null : ${eval.value})")
         }
 
       val converted =
@@ -357,15 +358,15 @@ case class RuleEngineRunner(ruleSuite: RuleSuite, child: Expression, resultDataT
 
   // keep it simple for this one. - can return an internal row or whatever..
   override def eval(input: InternalRow): Any = {
-    val (res, rule, processedRes) = reincorporated.evalWithProcessors(input, debugMode)
+    val (res, rule, processedRes) = RuleSuiteFunctions.evalWithProcessors(reincorporated, input, debugMode)
     InternalRow(com.sparkutils.quality.impl.RuleRunnerUtils.ruleResultToRow(res),
       if (rule eq null) null else
       InternalRow(packId(rule._1),packId(rule._2),packId(rule._3)), processedRes)
   }
 
   def dataType: DataType = StructType( Seq(
-      StructField(name = "ruleSuiteResults", dataType = com.sparkutils.quality.ruleSuiteResultType),
-      StructField(name = "salientRule", dataType = com.sparkutils.quality.fullRuleIdType, nullable = true),
+      StructField(name = "ruleSuiteResults", dataType = com.sparkutils.quality.types.ruleSuiteResultType),
+      StructField(name = "salientRule", dataType = com.sparkutils.quality.types.fullRuleIdType, nullable = true),
       StructField(name = "result", dataType = resultDataType, nullable = true)
     ))
 
