@@ -21,7 +21,8 @@ For oss with Spark 3.4.1 use properties:
     <qualityRuntime>3.4.1.oss_</qualityRuntime>
     <scalaCompatVersion>2.12</scalaCompatVersion>
     <sparkShortVersion>3.4</sparkShortVersion>
-    <qualityVersion>0.1.0</qualityVersion>
+    <qualityVersion>0.1.1</qualityVersion>
+    <snakeVersion>1.33</snakeVersion>
 </properties>
 ```
 
@@ -33,6 +34,15 @@ with dependency:
     <artifactId>quality_${qualityRuntime}${qualityShortVersion}_${scalaCompatVersion}</artifactId>
     <version>${qualityVersion}</version>
 </dependency>
+
+<!-- Only required if expressionRunner, to_yaml or from_yaml are used.  Provided scope if running on Databricks 1.24 on 12.2 and lower, 1.33 on 13.1 and higher -->
+<dependency>
+    <groupId>org.yaml</groupId>
+    <artifactId>snakeyaml</artifactId>
+    <version>${snakeVersion}</version>
+    <scope>provided</scope>
+</dependency>
+
 ```
 
 The qualityRuntime variable also supports further runtime types, such as Databricks.  
