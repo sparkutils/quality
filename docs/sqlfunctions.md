@@ -297,11 +297,11 @@ functions:
     tags:
       - bloom
   map_Lookup:
-    description: "map_Lookup(expr, 'mapid') returns either the lookup in map specified by mapid or null"
+    description: "map_Lookup('mapid', expr) returns either the lookup in map specified by mapid or null"
     tags:
       - map
   map_Contains:
-    description: "map_Contains(expr, 'mapid') returns true if there is an item in the map"
+    description: "map_Contains('mapid', expr) returns true if there is an item in the map"
     tags:
       - map
   comparable_Maps:
