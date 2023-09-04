@@ -1,5 +1,5 @@
 
-## RuleSuite Id 0, 1 <a name="ruleSuite_0_1"></a> - <span class="rule_error">4 Errors</span><span class="rule_warning"> 3 Warnings</span>
+## RuleSuite Id 0, 1 <a name="ruleSuite_0_1"></a> - <span class="rule_error">3 Errors</span><span class="rule_warning"> 3 Warnings</span>
 
 
 
@@ -70,7 +70,7 @@ testCaller2(fielda > fieldb) and test(fieldb)
 
 
  
-#### Rule Id - 5, 1 <a name="rule_5_1"></a> -  <a href="../sampleDocsValidation/#Errors_5_1" class="rule_error">1 Errors</a>
+#### Rule Id - 5, 1 <a name="rule_5_1"></a> - 
 
 
 
@@ -80,6 +80,14 @@ testCaller2(fielda > fieldb) and test(fieldb)
 ```sql
 map_Lookup(fielda, fieldb) and test(fieldb)
 ```
+
+<div class="spark_functions_used comma-list">
+<p>Quality functions used:</p>
+<ul>
+
+<li> <a target="_blank" href="../../sqlfunctions/#map_lookup">map_Lookup</a> </li>
+</ul>
+</div>
 
 <div class="lambdas_used comma-list">
 <p>Lambda used:</p>

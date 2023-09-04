@@ -49,7 +49,8 @@ object RuleEngineRunnerImpl {
 
     val (expressions, indexes) = flattenExpressions(ruleSuite)
 
-    val runner = new RuleEngineRunner(ruleSuite, PassThrough( expressions ), realType, compileEvals,
+    // clean out expressions, UnresolvedRelations etc. from subquery usage
+    val runner = new RuleEngineRunner(RuleLogicUtils.cleanExprs(ruleSuite), PassThrough( expressions ), realType, compileEvals,
       debugMode, variablesPerFunc, variableFuncGroup, forceRunnerEval, expressionOffsets = indexes, forceTriggerEval)
 
     new Column(
