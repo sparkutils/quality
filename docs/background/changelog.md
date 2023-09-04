@@ -1,3 +1,7 @@
+### 0.1.2.1 <small>4th September, 2023</small>
+
+Maven Central build issues, code wise the same as 0.1.2.
+
 ### [0.1.2](https://github.com/sparkutils/quality/milestone/7?closed=1) <small>4th September, 2023</small>
 
 #48 - Bug fix - Enable Sub Queries in all runner types
