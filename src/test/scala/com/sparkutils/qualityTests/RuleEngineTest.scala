@@ -271,15 +271,17 @@ class RuleEngineTest extends FunSuite with TestUtils {
       import sparkSession.implicits._
       val seq = Seq(0, 1, 2, 3, 4)
       val df = seq.toDF("i") // Force GenericArrayData instead of UnsafeArrayData
+      df.write.mode("overwrite").parquet(outputDir + "/i_s_hav_it") // force relation as LocalRelation is driver only so no serialisation attempted
       val tableName = "the_I_s_Have_It"
-      df.createOrReplaceTempView(tableName)
+      sparkSession.read.parquet(outputDir + "/i_s_hav_it").
+        createOrReplaceTempView(tableName)
 
       // this won't work directly as it's not serializable, it must be a 'top-level' field.
       def sub(comp: String = "> 2", tableSuffix: String = "") = s"struct((select max(i_s$tableSuffix.i) from $tableName i_s$tableSuffix where i_s$tableSuffix.i $comp))"
 
       val rs = RuleSuite(Id(1, 1), Seq(
         RuleSet(Id(50, 1), Seq(
-          Rule(Id(101, 1), ExpressionRule("true"), RunOnPassProcessor(1000, Id(3010, 1),
+          Rule(Id(101, 1), ExpressionRule(s"(select max(i) > 1 from $tableName)"), RunOnPassProcessor(1000, Id(3010, 1),
             OutputExpression(sub("> main.i"))))
         ))
       ))
