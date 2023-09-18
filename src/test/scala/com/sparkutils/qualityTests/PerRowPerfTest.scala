@@ -80,7 +80,7 @@ trait RowTools extends TestUtils {
   def dataFrameLong[T](maxRows: Int, maxCols: Int, dataType: DataType, startValue: T) = sparkSessionF.createDataFrame(sampleDataAsLong(maxRows, maxCols, startValue).asJava, longSchema(maxCols, dataType))
 
   def sampleDataAsLongLazy[T](ids: Dataset[java.lang.Long], maxCols: Int, startValue: T, structType: StructType): DataFrame = {
-    implicit val renc = RowEncoder(structType)
+    implicit val renc = RowEncoder.encoderFor(structType)
     ids.map(i => Row(((0L until maxCols).map(i+_) :+ startValue) :_*))
   }
 

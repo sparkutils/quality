@@ -1,6 +1,7 @@
 package com.sparkutils.qualityTests
 import com.sparkutils.quality.{DataFrameLoader, Id, loadViewConfigs, loadViews}
 import com.sparkutils.quality.impl.views.{MissingViewAnalysisException, ViewConfig, ViewLoader, ViewLoaderAnalysisException}
+import org.apache.spark.sql.catalyst.parser.ParseException
 import org.apache.spark.sql.functions.{col, expr}
 import org.apache.spark.sql.{DataFrame, AnalysisException => SAE}
 import org.junit.Assert.fail
@@ -185,6 +186,9 @@ class ViewLoaderTest extends TestUtils {
       loadViews(viewConfigs)
       fail("should have thrown an AnalysisException as `le-21` is not present")
     } catch {
+      case p: ParseException => // 3.5
+        assert(p.message.contains("probably"))
+      // below is Spark pre 3.5
       case ViewLoaderAnalysisException(cause, message, viewName, sql) =>
         val r = ViewLoader.tableOrViewNotFound(cause)
         assert(r.isLeft)

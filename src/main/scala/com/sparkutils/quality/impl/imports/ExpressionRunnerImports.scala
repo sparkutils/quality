@@ -7,14 +7,18 @@ import org.apache.spark.sql.Column
 trait ExpressionRunnerImports {
 
   /**
+   * Runs the ruleSuite expressions saving results with the type ddlType
+   * @return
+   */
+  def typedExpressionRunner(ruleSuite: RuleSuite, ddlType: String, name: String = "expressionResults") =
+    ExpressionRunner(ruleSuite, name, Map.empty, ddlType)
+
+  /**
    * Runs the ruleSuite expressions saving results as a tuple of (ruleResult: String, resultDDL: String)
    * @param ruleSuite
    * @param name
    * @return
    */
-  def expressionRunner(ruleSuite: RuleSuite,  ddlType: String, name: String = "expressionResults") =
-    ExpressionRunner(ruleSuite, name, Map.empty, ddlType)
-
   def expressionRunner(ruleSuite: RuleSuite, name: String = "expressionResults", renderOptions: Map[String, String] = Map.empty) =
     ExpressionRunner(ruleSuite, name, renderOptions)
 

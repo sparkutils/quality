@@ -3,7 +3,9 @@ package com.sparkutils.quality.impl.views
 import com.sparkutils.quality.impl.Validation
 import com.sparkutils.quality.impl.util.{Config, ConfigFactory, ConfigLoader, Row}
 import com.sparkutils.quality.{DataFrameLoader, Id}
+import org.apache.spark.sql.catalyst.ExtendedAnalysisException
 import org.apache.spark.sql.catalyst.analysis.UnresolvedRelation
+import org.apache.spark.sql.catalyst.parser.ParseException
 import org.apache.spark.sql.{AnalysisException, Column, DataFrame, Encoder, Encoders, SparkSession}
 
 import scala.collection.mutable
@@ -29,12 +31,12 @@ private[views] case class ViewRow(override val name: String, override val token:
 /**
  * For which a given view doesn't exist, but it's not one of the view configs
  */
-case class MissingViewAnalysisException(cause: AnalysisException, message: String, viewName: String, sql: String, missingRelationNames: Set[String] ) extends RuntimeException(cause)
+case class MissingViewAnalysisException(cause: ExtendedAnalysisException, message: String, viewName: String, sql: String, missingRelationNames: Set[String] ) extends RuntimeException(cause)
 
 /**
  * A parser exception or similar occurred
  */
-case class ViewLoaderAnalysisException( cause: AnalysisException, message: String, viewName: String, sql: String ) extends RuntimeException(cause)
+case class ViewLoaderAnalysisException( cause: ExtendedAnalysisException, message: String, viewName: String, sql: String ) extends RuntimeException(cause)
 
 case class ViewLoadResults( replaced: Set[String], failedToLoadDueToCycles: Boolean, notLoadedViews: Set[String])
 
@@ -80,7 +82,7 @@ object ViewLoader {
           leftToProcess = leftToProcess - name
           processed = processed + name
         } catch {
-          case ae: AnalysisException =>
+          case ae: ExtendedAnalysisException =>
             val res = ViewLoader.tableOrViewNotFound(ae)
             val sql = viewPair.source.right.getOrElse("")
 
@@ -120,9 +122,8 @@ object ViewLoader {
     ViewLoadResults(replaced.toSet, !done, leftToProcess.keySet)
   }
 
-
-  def tableOrViewNotFound(ae: AnalysisException): Either[AnalysisException, Set[String]] =
-    ae.plan.fold[Either[AnalysisException, Set[String]]]{
+  def tableOrViewNotFound(ae: ExtendedAnalysisException): Either[ExtendedAnalysisException, Set[String]] =
+    ae.plan.fold[Either[ExtendedAnalysisException, Set[String]]]{
       // spark 2.4 just has exception: Table or view not found: names
       if (ae.message.contains("Table or view not found"))
         Right(Set(ae.message.split(":")(1).trim))
