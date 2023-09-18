@@ -1,0 +1,3181 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/sparkutils/quality/impl/util/StructFunctions.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality.impl.util
+</span>2 <span style=''>
+</span>3 <span style=''>import org.apache.spark.sql.Column
+</span>4 <span style=''>import org.apache.spark.sql.QualitySparkUtils.{toSQLExpr, toSQLType}
+</span>5 <span style=''>import org.apache.spark.sql.catalyst.InternalRow
+</span>6 <span style=''>import org.apache.spark.sql.catalyst.analysis.{Resolver, TypeCheckResult, UnresolvedAttribute, UnresolvedExtractValue}
+</span>7 <span style=''>import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode}
+</span>8 <span style=''>import org.apache.spark.sql.catalyst.expressions.{CreateNamedStruct, Expression, ExtractValue, GetStructField, If, IsNull, LeafExpression, Literal, UnaryExpression, Unevaluable}
+</span>9 <span style=''>import org.apache.spark.sql.internal.SQLConf
+</span>10 <span style=''>import org.apache.spark.sql.types.{DataType, StructField, StructType}
+</span>11 <span style=''>
+</span>12 <span style=''>import scala.collection.mutable.ArrayBuffer
+</span>13 <span style=''>
+</span>14 <span style=''>trait StructFunctionsImport {
+</span>15 <span style=''>
+</span>16 <span style=''>  /**
+</span>17 <span style=''>   * Adds fields, in order, for each field path it's paired transformation is applied to the update column
+</span>18 <span style=''>   *
+</span>19 <span style=''>   * @param update
+</span>20 <span style=''>   * @param transformations
+</span>21 <span style=''>   * @return a new copy of update with the changes applied
+</span>22 <span style=''>   */
+</span>23 <span style=''>  def update_field(update: Column, transformations: (String, Column)*): Column =
+</span>24 <span style=''>    </span><span style='background: #AEF1AE'>new Column(
+</span>25 <span style=''></span><span style='background: #AEF1AE'>      transformFields{
+</span>26 <span style=''></span><span style='background: #AEF1AE'>        transformations.foldRight(update.expr) {
+</span>27 <span style=''></span><span style='background: #AEF1AE'>          case ((path, col), origin) =&gt;
+</span>28 <span style=''></span><span style='background: #AEF1AE'>            UpdateFields.apply(origin, path, col.expr)
+</span>29 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>30 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>31 <span style=''></span><span style='background: #AEF1AE'>    )</span><span style=''>
+</span>32 <span style=''>
+</span>33 <span style=''>  protected def transformFields(exp: Expression): Expression =
+</span>34 <span style=''>    </span><span style='background: #AEF1AE'>exp.transform { // simplify, normally done in optimizer UpdateFields
+</span>35 <span style=''></span><span style='background: #AEF1AE'>      case UpdateFields(UpdateFields(struct +: fieldOps1) +: fieldOps2) =&gt;
+</span>36 <span style=''></span><span style='background: #AEF1AE'>        UpdateFields(struct +: ( fieldOps1 ++ fieldOps2) )
+</span>37 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>38 <span style=''>
+</span>39 <span style=''>  /**
+</span>40 <span style=''>   * Drops a field from a structure
+</span>41 <span style=''>   * @param update
+</span>42 <span style=''>   * @param fieldNames may be nested
+</span>43 <span style=''>   * @return
+</span>44 <span style=''>   */
+</span>45 <span style=''>  def drop_field(update: Column, fieldNames: String*): Column =
+</span>46 <span style=''>    </span><span style='background: #AEF1AE'>new Column(
+</span>47 <span style=''></span><span style='background: #AEF1AE'>      transformFields{
+</span>48 <span style=''></span><span style='background: #AEF1AE'>        fieldNames.foldRight(update.expr) {
+</span>49 <span style=''></span><span style='background: #AEF1AE'>          case (fieldName, origin) =&gt;
+</span>50 <span style=''></span><span style='background: #AEF1AE'>            UpdateFields.apply(origin, fieldName)
+</span>51 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>52 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>53 <span style=''></span><span style='background: #AEF1AE'>    )</span><span style=''>
+</span>54 <span style=''>}
+</span>55 <span style=''>
+</span>56 <span style=''>// Below is lifted from 3.4.1 complexTypeCreator
+</span>57 <span style=''>
+</span>58 <span style=''>/**
+</span>59 <span style=''> * Represents an operation to be applied to the fields of a struct.
+</span>60 <span style=''> */
+</span>61 <span style=''>trait StructFieldsOperation extends Expression with CodegenFallback {
+</span>62 <span style=''>
+</span>63 <span style=''>  val resolver: Resolver = </span><span style='background: #AEF1AE'>SQLConf.get.resolver</span><span style=''>
+</span>64 <span style=''>
+</span>65 <span style=''>  override def dataType: DataType = </span><span style='background: #F0ADAD'>throw new IllegalStateException(
+</span>66 <span style=''></span><span style='background: #F0ADAD'>    &quot;StructFieldsOperation.dataType should not be called.&quot;)</span><span style=''>
+</span>67 <span style=''>
+</span>68 <span style=''>  override def nullable: Boolean = </span><span style='background: #AEF1AE'>throw new IllegalStateException(
+</span>69 <span style=''></span><span style='background: #AEF1AE'>    &quot;StructFieldsOperation.nullable should not be called.&quot;)</span><span style=''>
+</span>70 <span style=''>
+</span>71 <span style=''>  /**
+</span>72 <span style=''>   * Returns an updated list of StructFields and Expressions that will ultimately be used
+</span>73 <span style=''>   * as the fields argument for [[StructType]] and as the children argument for
+</span>74 <span style=''>   * [[CreateNamedStruct]] respectively inside of [[UpdateFields]].
+</span>75 <span style=''>   */
+</span>76 <span style=''>  def apply(values: Seq[(StructField, Expression)]): Seq[(StructField, Expression)]
+</span>77 <span style=''>}
+</span>78 <span style=''>
+</span>79 <span style=''>/**
+</span>80 <span style=''> * Add or replace a field by name.
+</span>81 <span style=''> *
+</span>82 <span style=''> * We extend [[Unevaluable]] here to ensure that [[UpdateFields]] can include it as part of its
+</span>83 <span style=''> * children, and thereby enable the analyzer to resolve and transform valExpr as necessary.
+</span>84 <span style=''> */
+</span>85 <span style=''>case class WithField(name: String, child: Expression)
+</span>86 <span style=''>  extends UnaryExpression with StructFieldsOperation {
+</span>87 <span style=''>
+</span>88 <span style=''>  override def foldable: Boolean = </span><span style='background: #AEF1AE'>false</span><span style=''>
+</span>89 <span style=''>
+</span>90 <span style=''>  override def apply(values: Seq[(StructField, Expression)]): Seq[(StructField, Expression)] = {
+</span>91 <span style=''>    val newFieldExpr = </span><span style='background: #AEF1AE'>(StructField(name, child.dataType, child.nullable), child)</span><span style=''>
+</span>92 <span style=''>    val result = </span><span style='background: #AEF1AE'>ArrayBuffer.empty[(StructField, Expression)]</span><span style=''>
+</span>93 <span style=''>    var hasMatch = </span><span style='background: #AEF1AE'>false</span><span style=''>
+</span>94 <span style=''>    </span><span style='background: #AEF1AE'>for (existingFieldExpr @ (existingField, _) &lt;- values) {
+</span>95 <span style=''></span><span style='background: #AEF1AE'>      if (resolver(existingField.name, name)) {
+</span>96 <span style=''></span><span style='background: #AEF1AE'>        hasMatch = true
+</span>97 <span style=''></span><span style='background: #AEF1AE'>        result += newFieldExpr
+</span>98 <span style=''></span><span style='background: #AEF1AE'>      } else {
+</span>99 <span style=''></span><span style='background: #AEF1AE'>        result += existingFieldExpr
+</span>100 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>101 <span style=''>    }
+</span>102 <span style=''>    if (</span><span style='background: #AEF1AE'>!hasMatch</span><span style=''>) </span><span style='background: #F0ADAD'>result += newFieldExpr</span><span style=''>
+</span>103 <span style=''>    </span><span style='background: #AEF1AE'>result.toSeq</span><span style=''>
+</span>104 <span style=''>  }
+</span>105 <span style=''>
+</span>106 <span style=''>  override def prettyName: String = </span><span style='background: #AEF1AE'>&quot;WithField&quot;</span><span style=''>
+</span>107 <span style=''>
+</span>108 <span style=''>  protected def withNewChildInternal(newChild: Expression): WithField =
+</span>109 <span style=''>    </span><span style='background: #AEF1AE'>copy(child = newChild)</span><span style=''>
+</span>110 <span style=''>
+</span>111 <span style=''>  override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = </span><span style='background: #AEF1AE'>???</span><span style=''>
+</span>112 <span style=''>}
+</span>113 <span style=''>
+</span>114 <span style=''>/**
+</span>115 <span style=''> * Drop a field by name.
+</span>116 <span style=''> */
+</span>117 <span style=''>case class DropField(name: String) extends LeafExpression with StructFieldsOperation {
+</span>118 <span style=''>  override def apply(values: Seq[(StructField, Expression)]): Seq[(StructField, Expression)] =
+</span>119 <span style=''>    </span><span style='background: #AEF1AE'>values.filterNot { case (field, _) =&gt; resolver(field.name, name) }</span><span style=''>
+</span>120 <span style=''>
+</span>121 <span style=''>  override def eval(input: InternalRow): Any = </span><span style='background: #F0ADAD'>???</span><span style=''>
+</span>122 <span style=''>
+</span>123 <span style=''>  override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = </span><span style='background: #AEF1AE'>???</span><span style=''>
+</span>124 <span style=''>}
+</span>125 <span style=''>
+</span>126 <span style=''>/**
+</span>127 <span style=''> * Updates fields in a struct.
+</span>128 <span style=''> */
+</span>129 <span style=''>case class UpdateFields(children: Seq[Expression])
+</span>130 <span style=''>  extends Expression {
+</span>131 <span style=''>
+</span>132 <span style=''>  val structExpr = </span><span style='background: #AEF1AE'>children.head</span><span style=''>
+</span>133 <span style=''>  val fieldOps: Seq[StructFieldsOperation] = </span><span style='background: #AEF1AE'>children.drop(1).map(_.asInstanceOf[StructFieldsOperation])</span><span style=''>
+</span>134 <span style=''>
+</span>135 <span style=''>  override def checkInputDataTypes(): TypeCheckResult = {
+</span>136 <span style=''>    val dataType = </span><span style='background: #AEF1AE'>structExpr.dataType</span><span style=''>
+</span>137 <span style=''>    if (</span><span style='background: #AEF1AE'>!dataType.isInstanceOf[StructType]</span><span style=''>) {
+</span>138 <span style=''>      </span><span style='background: #F0ADAD'>TypeCheckResult.TypeCheckFailure( message =
+</span>139 <span style=''></span><span style='background: #F0ADAD'>        s&quot;UNEXPECTED_INPUT_TYPE, requiredType StructType, inputSql ${ toSQLExpr(structExpr) }, inputType ${ toSQLType(structExpr.dataType) }&quot;
+</span>140 <span style=''></span><span style='background: #F0ADAD'>      )</span><span style=''>
+</span>141 <span style=''>    } else </span><span style='background: #AEF1AE'>if (newExprs.isEmpty) {
+</span>142 <span style=''></span><span style='background: #AEF1AE'>      </span><span style='background: #F0ADAD'>TypeCheckResult.TypeCheckFailure( message =
+</span>143 <span style=''></span><span style='background: #F0ADAD'>        s&quot;errorSubClass = CANNOT_DROP_ALL_FIELDS&quot;
+</span>144 <span style=''></span><span style='background: #F0ADAD'>      )</span><span style='background: #AEF1AE'>
+</span>145 <span style=''></span><span style='background: #AEF1AE'>    } else {
+</span>146 <span style=''></span><span style='background: #AEF1AE'>      TypeCheckResult.TypeCheckSuccess
+</span>147 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>148 <span style=''>  }
+</span>149 <span style=''>
+</span>150 <span style=''>  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
+</span>151 <span style=''>    </span><span style='background: #AEF1AE'>copy(children = newChildren)</span><span style=''>
+</span>152 <span style=''>
+</span>153 <span style=''>  override def dataType: StructType = </span><span style='background: #AEF1AE'>StructType(newFields)</span><span style=''>
+</span>154 <span style=''>
+</span>155 <span style=''>  override def nullable: Boolean = </span><span style='background: #AEF1AE'>structExpr.nullable</span><span style=''>
+</span>156 <span style=''>
+</span>157 <span style=''>  override def prettyName: String = </span><span style='background: #AEF1AE'>&quot;update_fields&quot;</span><span style=''>
+</span>158 <span style=''>
+</span>159 <span style=''>  private lazy val newFieldExprs: Seq[(StructField, Expression)] = {
+</span>160 <span style=''>    def getFieldExpr(i: Int): Expression = structExpr match {
+</span>161 <span style=''>      case c: CreateNamedStruct =&gt; c.valExprs(i)
+</span>162 <span style=''>      case _ =&gt; GetStructField(structExpr, i)
+</span>163 <span style=''>    }
+</span>164 <span style=''>    val fieldsWithIndex = structExpr.dataType.asInstanceOf[StructType].fields.zipWithIndex
+</span>165 <span style=''>    val existingFieldExprs: Seq[(StructField, Expression)] =
+</span>166 <span style=''>      fieldsWithIndex.map { case (field, i) =&gt; (field, getFieldExpr(i)) }
+</span>167 <span style=''>    fieldOps.foldLeft(existingFieldExprs)((exprs, op) =&gt; op(exprs))
+</span>168 <span style=''>  }
+</span>169 <span style=''>
+</span>170 <span style=''>  private lazy val newFields: Seq[StructField] = newFieldExprs.map(_._1)
+</span>171 <span style=''>
+</span>172 <span style=''>  lazy val newExprs: Seq[Expression] = newFieldExprs.map(_._2)
+</span>173 <span style=''>
+</span>174 <span style=''>  lazy val evalExpr: Expression = {
+</span>175 <span style=''>    val createNamedStructExpr = CreateNamedStruct(newFieldExprs.flatMap {
+</span>176 <span style=''>      case (field, expr) =&gt; Seq(Literal(field.name), expr)
+</span>177 <span style=''>    })
+</span>178 <span style=''>
+</span>179 <span style=''>    if (structExpr.nullable) {
+</span>180 <span style=''>      If(IsNull(structExpr), Literal(null, dataType), createNamedStructExpr)
+</span>181 <span style=''>    } else {
+</span>182 <span style=''>      createNamedStructExpr
+</span>183 <span style=''>    }
+</span>184 <span style=''>  }
+</span>185 <span style=''>
+</span>186 <span style=''>  override def eval(input: InternalRow): Any = </span><span style='background: #AEF1AE'>evalExpr.eval(input)</span><span style=''>
+</span>187 <span style=''>
+</span>188 <span style=''>  override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode =
+</span>189 <span style=''>    </span><span style='background: #AEF1AE'>evalExpr.genCode(ctx)</span><span style=''>
+</span>190 <span style=''>}
+</span>191 <span style=''>
+</span>192 <span style=''>object UpdateFields {
+</span>193 <span style=''>  private def nameParts(fieldName: String): Seq[String] = {
+</span>194 <span style=''>    </span><span style='background: #AEF1AE'>require(fieldName != null, &quot;fieldName cannot be null&quot;)</span><span style=''>
+</span>195 <span style=''>
+</span>196 <span style=''>    if (</span><span style='background: #AEF1AE'>fieldName.isEmpty</span><span style=''>) {
+</span>197 <span style=''>      </span><span style='background: #F0ADAD'>fieldName :: Nil</span><span style=''>
+</span>198 <span style=''>    } else {
+</span>199 <span style=''>      </span><span style='background: #AEF1AE'>UnresolvedAttribute.parseAttributeName(fieldName)</span><span style=''>
+</span>200 <span style=''>      //CatalystSqlParser.parseMultipartIdentifier(fieldName)
+</span>201 <span style=''>    }
+</span>202 <span style=''>  }
+</span>203 <span style=''>
+</span>204 <span style=''>  /**
+</span>205 <span style=''>   * Adds/replaces field of `StructType` into `col` expression by name.
+</span>206 <span style=''>   */
+</span>207 <span style=''>  def apply(col: Expression, fieldName: String, expr: Expression): UpdateFields =
+</span>208 <span style=''>    </span><span style='background: #AEF1AE'>updateFieldsHelper(col, nameParts(fieldName), name =&gt; WithField(name, expr))</span><span style=''>
+</span>209 <span style=''>
+</span>210 <span style=''>  /**
+</span>211 <span style=''>   * Drops fields of `StructType` in `col` expression by name.
+</span>212 <span style=''>   */
+</span>213 <span style=''>  def apply(col: Expression, fieldName: String): UpdateFields =
+</span>214 <span style=''>    </span><span style='background: #AEF1AE'>updateFieldsHelper(col, nameParts(fieldName), name =&gt; DropField(name))</span><span style=''>
+</span>215 <span style=''>
+</span>216 <span style=''>  private def updateFieldsHelper(
+</span>217 <span style=''>                                  structExpr: Expression,
+</span>218 <span style=''>                                  namePartsRemaining: Seq[String],
+</span>219 <span style=''>                                  valueFunc: String =&gt; StructFieldsOperation) : UpdateFields = {
+</span>220 <span style=''>    val fieldName = </span><span style='background: #AEF1AE'>namePartsRemaining.head</span><span style=''>
+</span>221 <span style=''>    if (</span><span style='background: #AEF1AE'>namePartsRemaining.length == 1</span><span style=''>) {
+</span>222 <span style=''>      </span><span style='background: #AEF1AE'>UpdateFields(Seq(structExpr, valueFunc(fieldName)))</span><span style=''>
+</span>223 <span style=''>    } else </span><span style='background: #AEF1AE'>{
+</span>224 <span style=''></span><span style='background: #AEF1AE'>      val newStruct = if (structExpr.resolved) {
+</span>225 <span style=''></span><span style='background: #AEF1AE'>        val resolver = SQLConf.get.resolver
+</span>226 <span style=''></span><span style='background: #AEF1AE'>        ExtractValue(structExpr, Literal(fieldName), resolver)
+</span>227 <span style=''></span><span style='background: #AEF1AE'>      } else {
+</span>228 <span style=''></span><span style='background: #AEF1AE'>        UnresolvedExtractValue(structExpr, Literal(fieldName))
+</span>229 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>230 <span style=''></span><span style='background: #AEF1AE'>
+</span>231 <span style=''></span><span style='background: #AEF1AE'>      val newValue = updateFieldsHelper(
+</span>232 <span style=''></span><span style='background: #AEF1AE'>        structExpr = newStruct,
+</span>233 <span style=''></span><span style='background: #AEF1AE'>        namePartsRemaining = namePartsRemaining.tail,
+</span>234 <span style=''></span><span style='background: #AEF1AE'>        valueFunc = valueFunc)
+</span>235 <span style=''></span><span style='background: #AEF1AE'>      UpdateFields(Seq(structExpr, WithField(fieldName, newValue) ))
+</span>236 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>237 <span style=''>  }
+</span>238 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          6897
+        </td>
+        <td>
+          1100
+          -
+          1302
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.sql.Column(StructFunctionsImport.this.transformFields(transformations.foldRight[org.apache.spark.sql.catalyst.expressions.Expression](update.expr)(((x0$1: (String, org.apache.spark.sql.Column), x1$1: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; scala.Tuple2.apply[(String, org.apache.spark.sql.Column), org.apache.spark.sql.catalyst.expressions.Expression](x0$1, x1$1) match {
+  case (_1: (String, org.apache.spark.sql.Column), _2: org.apache.spark.sql.catalyst.expressions.Expression)((String, org.apache.spark.sql.Column), org.apache.spark.sql.catalyst.expressions.Expression)((_1: String, _2: org.apache.spark.sql.Column)(String, org.apache.spark.sql.Column)((path @ _), (col @ _)), (origin @ _)) =&gt; UpdateFields.apply(origin, path, col.expr)
+}))))
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          6896
+        </td>
+        <td>
+          1118
+          -
+          1296
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.StructFunctionsImport.transformFields
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          StructFunctionsImport.this.transformFields(transformations.foldRight[org.apache.spark.sql.catalyst.expressions.Expression](update.expr)(((x0$1: (String, org.apache.spark.sql.Column), x1$1: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; scala.Tuple2.apply[(String, org.apache.spark.sql.Column), org.apache.spark.sql.catalyst.expressions.Expression](x0$1, x1$1) match {
+  case (_1: (String, org.apache.spark.sql.Column), _2: org.apache.spark.sql.catalyst.expressions.Expression)((String, org.apache.spark.sql.Column), org.apache.spark.sql.catalyst.expressions.Expression)((_1: String, _2: org.apache.spark.sql.Column)(String, org.apache.spark.sql.Column)((path @ _), (col @ _)), (origin @ _)) =&gt; UpdateFields.apply(origin, path, col.expr)
+})))
+        </td>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          6895
+        </td>
+        <td>
+          1143
+          -
+          1288
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.foldRight
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          transformations.foldRight[org.apache.spark.sql.catalyst.expressions.Expression](update.expr)(((x0$1: (String, org.apache.spark.sql.Column), x1$1: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; scala.Tuple2.apply[(String, org.apache.spark.sql.Column), org.apache.spark.sql.catalyst.expressions.Expression](x0$1, x1$1) match {
+  case (_1: (String, org.apache.spark.sql.Column), _2: org.apache.spark.sql.catalyst.expressions.Expression)((String, org.apache.spark.sql.Column), org.apache.spark.sql.catalyst.expressions.Expression)((_1: String, _2: org.apache.spark.sql.Column)(String, org.apache.spark.sql.Column)((path @ _), (col @ _)), (origin @ _)) =&gt; UpdateFields.apply(origin, path, col.expr)
+}))
+        </td>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          6892
+        </td>
+        <td>
+          1169
+          -
+          1180
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.Column.expr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          update.expr
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          6893
+        </td>
+        <td>
+          1269
+          -
+          1277
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.Column.expr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          col.expr
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          6894
+        </td>
+        <td>
+          1236
+          -
+          1278
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.UpdateFields.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          UpdateFields.apply(origin, path, col.expr)
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          6902
+        </td>
+        <td>
+          1385
+          -
+          1385
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.StructFunctionsImport.$anonfun.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          6903
+        </td>
+        <td>
+          1371
+          -
+          1579
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.trees.TreeNode.transform
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          exp.transform(({
+  @SerialVersionUID(value = 0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: org.apache.spark.sql.catalyst.expressions.Expression =&gt; org.apache.spark.sql.catalyst.expressions.Expression&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: org.apache.spark.sql.catalyst.expressions.Expression, B1 &gt;: org.apache.spark.sql.catalyst.expressions.Expression](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (children: Seq[org.apache.spark.sql.catalyst.expressions.Expression])com.sparkutils.quality.impl.util.UpdateFields(scala.`package`.+:.unapply[org.apache.spark.sql.catalyst.expressions.Expression, Seq[org.apache.spark.sql.catalyst.expressions.Expression]](&lt;unapply-selector&gt;) &lt;unapply&gt; ((children: Seq[org.apache.spark.sql.catalyst.expressions.Expression])com.sparkutils.quality.impl.util.UpdateFields(scala.`package`.+:.unapply[org.apache.spark.sql.catalyst.expressions.Expression, Seq[org.apache.spark.sql.catalyst.expressions.Expression]](&lt;unapply-selector&gt;) &lt;unapply&gt; ((struct @ _), (fieldOps1 @ _))), (fieldOps2 @ _))) =&gt; UpdateFields.apply({
+        &lt;synthetic&gt; &lt;artifact&gt; val x$1: org.apache.spark.sql.catalyst.expressions.Expression = struct;
+        fieldOps1.++[org.apache.spark.sql.catalyst.expressions.Expression, Seq[org.apache.spark.sql.catalyst.expressions.Expression]](fieldOps2)(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression]).+:[org.apache.spark.sql.catalyst.expressions.Expression, Seq[org.apache.spark.sql.catalyst.expressions.Expression]](x$1)(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression])
+      })
+      case (defaultCase$ @ _) =&gt; default.apply(x1)
+    };
+    final def isDefinedAt(x1: org.apache.spark.sql.catalyst.expressions.Expression): Boolean = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (children: Seq[org.apache.spark.sql.catalyst.expressions.Expression])com.sparkutils.quality.impl.util.UpdateFields(scala.`package`.+:.unapply[org.apache.spark.sql.catalyst.expressions.Expression, Seq[org.apache.spark.sql.catalyst.expressions.Expression]](&lt;unapply-selector&gt;) &lt;unapply&gt; ((children: Seq[org.apache.spark.sql.catalyst.expressions.Expression])com.sparkutils.quality.impl.util.UpdateFields(scala.`package`.+:.unapply[org.apache.spark.sql.catalyst.expressions.Expression, Seq[org.apache.spark.sql.catalyst.expressions.Expression]](&lt;unapply-selector&gt;) &lt;unapply&gt; ((struct @ _), (fieldOps1 @ _))), (fieldOps2 @ _))) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression]))
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          6898
+        </td>
+        <td>
+          1558
+          -
+          1558
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression]
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          6901
+        </td>
+        <td>
+          1523
+          -
+          1573
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.UpdateFields.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          UpdateFields.apply({
+  &lt;synthetic&gt; &lt;artifact&gt; val x$1: org.apache.spark.sql.catalyst.expressions.Expression = struct;
+  fieldOps1.++[org.apache.spark.sql.catalyst.expressions.Expression, Seq[org.apache.spark.sql.catalyst.expressions.Expression]](fieldOps2)(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression]).+:[org.apache.spark.sql.catalyst.expressions.Expression, Seq[org.apache.spark.sql.catalyst.expressions.Expression]](x$1)(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression])
+})
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          6900
+        </td>
+        <td>
+          1536
+          -
+          1571
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.SeqLike.+:
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          fieldOps1.++[org.apache.spark.sql.catalyst.expressions.Expression, Seq[org.apache.spark.sql.catalyst.expressions.Expression]](fieldOps2)(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression]).+:[org.apache.spark.sql.catalyst.expressions.Expression, Seq[org.apache.spark.sql.catalyst.expressions.Expression]](x$1)(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression])
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          6899
+        </td>
+        <td>
+          1543
+          -
+          1543
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression]
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          6908
+        </td>
+        <td>
+          1766
+          -
+          1956
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.sql.Column(StructFunctionsImport.this.transformFields(fieldNames.foldRight[org.apache.spark.sql.catalyst.expressions.Expression](update.expr)(((x0$1: String, x1$1: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; scala.Tuple2.apply[String, org.apache.spark.sql.catalyst.expressions.Expression](x0$1, x1$1) match {
+  case (_1: String, _2: org.apache.spark.sql.catalyst.expressions.Expression)(String, org.apache.spark.sql.catalyst.expressions.Expression)((fieldName @ _), (origin @ _)) =&gt; UpdateFields.apply(origin, fieldName)
+}))))
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          6907
+        </td>
+        <td>
+          1784
+          -
+          1950
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.StructFunctionsImport.transformFields
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          StructFunctionsImport.this.transformFields(fieldNames.foldRight[org.apache.spark.sql.catalyst.expressions.Expression](update.expr)(((x0$1: String, x1$1: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; scala.Tuple2.apply[String, org.apache.spark.sql.catalyst.expressions.Expression](x0$1, x1$1) match {
+  case (_1: String, _2: org.apache.spark.sql.catalyst.expressions.Expression)(String, org.apache.spark.sql.catalyst.expressions.Expression)((fieldName @ _), (origin @ _)) =&gt; UpdateFields.apply(origin, fieldName)
+})))
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          6904
+        </td>
+        <td>
+          1830
+          -
+          1841
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.Column.expr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          update.expr
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          6906
+        </td>
+        <td>
+          1809
+          -
+          1942
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.foldRight
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          fieldNames.foldRight[org.apache.spark.sql.catalyst.expressions.Expression](update.expr)(((x0$1: String, x1$1: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; scala.Tuple2.apply[String, org.apache.spark.sql.catalyst.expressions.Expression](x0$1, x1$1) match {
+  case (_1: String, _2: org.apache.spark.sql.catalyst.expressions.Expression)(String, org.apache.spark.sql.catalyst.expressions.Expression)((fieldName @ _), (origin @ _)) =&gt; UpdateFields.apply(origin, fieldName)
+}))
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          6905
+        </td>
+        <td>
+          1895
+          -
+          1932
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.UpdateFields.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          UpdateFields.apply(origin, fieldName)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          6909
+        </td>
+        <td>
+          2184
+          -
+          2204
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.internal.SQLConf.resolver
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.internal.SQLConf.get.resolver
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          6910
+        </td>
+        <td>
+          2242
+          -
+          2334
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw new java.lang.IllegalStateException(&quot;StructFieldsOperation.dataType should not be called.&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          6911
+        </td>
+        <td>
+          2371
+          -
+          2463
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          throw new java.lang.IllegalStateException(&quot;StructFieldsOperation.nullable should not be called.&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          6912
+        </td>
+        <td>
+          3181
+          -
+          3186
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          6919
+        </td>
+        <td>
+          3308
+          -
+          3366
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[org.apache.spark.sql.types.StructField, org.apache.spark.sql.catalyst.expressions.Expression](org.apache.spark.sql.types.StructField.apply(WithField.this.name, WithField.this.child.dataType, WithField.this.child.nullable, org.apache.spark.sql.types.StructField.apply$default$4), WithField.this.child)
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          6913
+        </td>
+        <td>
+          3321
+          -
+          3325
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.WithField.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          WithField.this.name
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          6916
+        </td>
+        <td>
+          3309
+          -
+          3309
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          6918
+        </td>
+        <td>
+          3360
+          -
+          3365
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.WithField.child
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          WithField.this.child
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          6915
+        </td>
+        <td>
+          3343
+          -
+          3357
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.nullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          WithField.this.child.nullable
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          6914
+        </td>
+        <td>
+          3327
+          -
+          3341
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          WithField.this.child.dataType
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          6917
+        </td>
+        <td>
+          3309
+          -
+          3358
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply(WithField.this.name, WithField.this.child.dataType, WithField.this.child.nullable, org.apache.spark.sql.types.StructField.apply$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          6920
+        </td>
+        <td>
+          3384
+          -
+          3428
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.mutable.ArrayBuffer.empty[(org.apache.spark.sql.types.StructField, org.apache.spark.sql.catalyst.expressions.Expression)]
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          6921
+        </td>
+        <td>
+          3448
+          -
+          3453
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          6930
+        </td>
+        <td>
+          3458
+          -
+          3676
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.FilterMonadic.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          values.withFilter(((check$ifrefutable$1: (org.apache.spark.sql.types.StructField, org.apache.spark.sql.catalyst.expressions.Expression)) =&gt; (check$ifrefutable$1: (org.apache.spark.sql.types.StructField, org.apache.spark.sql.catalyst.expressions.Expression) @unchecked) match {
+  case (existingFieldExpr @ (_1: org.apache.spark.sql.types.StructField, _2: org.apache.spark.sql.catalyst.expressions.Expression)(org.apache.spark.sql.types.StructField, org.apache.spark.sql.catalyst.expressions.Expression)((existingField @ _), _)) =&gt; true
+  case _ =&gt; false
+})).foreach[scala.collection.mutable.ArrayBuffer[(org.apache.spark.sql.types.StructField, org.apache.spark.sql.catalyst.expressions.Expression)]](((x$2: (org.apache.spark.sql.types.StructField, org.apache.spark.sql.catalyst.expressions.Expression)) =&gt; (x$2: (org.apache.spark.sql.types.StructField, org.apache.spark.sql.catalyst.expressions.Expression) @unchecked) match {
+  case (existingFieldExpr @ (_1: org.apache.spark.sql.types.StructField, _2: org.apache.spark.sql.catalyst.expressions.Expression)(org.apache.spark.sql.types.StructField, org.apache.spark.sql.catalyst.expressions.Expression)((existingField @ _), _)) =&gt; if (WithField.this.resolver.apply(existingField.name, WithField.this.name))
+    {
+      hasMatch = true;
+      result.+=(newFieldExpr)
+    }
+  else
+    result.+=(existingFieldExpr)
+}))
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          6922
+        </td>
+        <td>
+          3534
+          -
+          3552
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          existingField.name
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          6927
+        </td>
+        <td>
+          3561
+          -
+          3625
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  hasMatch = true;
+  result.+=(newFieldExpr)
+}
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          6924
+        </td>
+        <td>
+          3525
+          -
+          3559
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          WithField.this.resolver.apply(existingField.name, WithField.this.name)
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          6923
+        </td>
+        <td>
+          3554
+          -
+          3558
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.WithField.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          WithField.this.name
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          6925
+        </td>
+        <td>
+          3582
+          -
+          3586
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          6926
+        </td>
+        <td>
+          3595
+          -
+          3617
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.ArrayBuffer.+=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          result.+=(newFieldExpr)
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          6929
+        </td>
+        <td>
+          3641
+          -
+          3668
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.mutable.ArrayBuffer.+=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          result.+=(existingFieldExpr)
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          6928
+        </td>
+        <td>
+          3641
+          -
+          3668
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.ArrayBuffer.+=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          result.+=(existingFieldExpr)
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          6931
+        </td>
+        <td>
+          3691
+          -
+          3700
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          hasMatch.unary_!
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          6934
+        </td>
+        <td>
+          3687
+          -
+          3687
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          6933
+        </td>
+        <td>
+          3702
+          -
+          3724
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.mutable.ArrayBuffer.+=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          result.+=(newFieldExpr)
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          6932
+        </td>
+        <td>
+          3702
+          -
+          3724
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.ArrayBuffer.+=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          result.+=(newFieldExpr)
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          6935
+        </td>
+        <td>
+          3687
+          -
+          3687
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          6936
+        </td>
+        <td>
+          3729
+          -
+          3741
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.SeqLike.toSeq
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          result.toSeq
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          6937
+        </td>
+        <td>
+          3783
+          -
+          3794
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;WithField&quot;
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          6938
+        </td>
+        <td>
+          3872
+          -
+          3872
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.WithField.copy$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          WithField.this.copy$default$1
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          6939
+        </td>
+        <td>
+          3872
+          -
+          3894
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.WithField.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          WithField.this.copy(x$2, x$1)
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          6940
+        </td>
+        <td>
+          3978
+          -
+          3981
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Predef.???
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.???
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          6943
+        </td>
+        <td>
+          4242
+          -
+          4268
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          DropField.this.resolver.apply(field.name, DropField.this.name)
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          6942
+        </td>
+        <td>
+          4263
+          -
+          4267
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.DropField.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          DropField.this.name
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          6941
+        </td>
+        <td>
+          4251
+          -
+          4261
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          field.name
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          6944
+        </td>
+        <td>
+          4204
+          -
+          4270
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableLike.filterNot
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          values.filterNot(((x0$1: (org.apache.spark.sql.types.StructField, org.apache.spark.sql.catalyst.expressions.Expression)) =&gt; x0$1 match {
+  case (_1: org.apache.spark.sql.types.StructField, _2: org.apache.spark.sql.catalyst.expressions.Expression)(org.apache.spark.sql.types.StructField, org.apache.spark.sql.catalyst.expressions.Expression)((field @ _), _) =&gt; DropField.this.resolver.apply(field.name, DropField.this.name)
+}))
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          6945
+        </td>
+        <td>
+          4319
+          -
+          4322
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Predef.???
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.???
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          6946
+        </td>
+        <td>
+          4406
+          -
+          4409
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Predef.???
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.???
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          6947
+        </td>
+        <td>
+          4546
+          -
+          4559
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IterableLike.head
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          UpdateFields.this.children.head
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          6949
+        </td>
+        <td>
+          4626
+          -
+          4663
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$3.asInstanceOf[com.sparkutils.quality.impl.util.StructFieldsOperation]
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          6951
+        </td>
+        <td>
+          4605
+          -
+          4664
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          UpdateFields.this.children.drop(1).map[com.sparkutils.quality.impl.util.StructFieldsOperation, Seq[com.sparkutils.quality.impl.util.StructFieldsOperation]](((x$3: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; x$3.asInstanceOf[com.sparkutils.quality.impl.util.StructFieldsOperation]))(collection.this.Seq.canBuildFrom[com.sparkutils.quality.impl.util.StructFieldsOperation])
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          6948
+        </td>
+        <td>
+          4619
+          -
+          4620
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          6950
+        </td>
+        <td>
+          4625
+          -
+          4625
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[com.sparkutils.quality.impl.util.StructFieldsOperation]
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          6952
+        </td>
+        <td>
+          4743
+          -
+          4762
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          UpdateFields.this.structExpr.dataType
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          6953
+        </td>
+        <td>
+          4771
+          -
+          4805
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          dataType.isInstanceOf[org.apache.spark.sql.types.StructType].unary_!
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          6963
+        </td>
+        <td>
+          4815
+          -
+          5008
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.analysis.TypeCheckResult.TypeCheckFailure.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.analysis.TypeCheckResult.TypeCheckFailure.apply(scala.StringContext.apply(&quot;UNEXPECTED_INPUT_TYPE, requiredType StructType, inputSql &quot;, &quot;, inputType &quot;, &quot;&quot;).s(org.apache.spark.sql.QualitySparkUtils.toSQLExpr(UpdateFields.this.structExpr), org.apache.spark.sql.QualitySparkUtils.toSQLType(UpdateFields.this.structExpr.dataType)))
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          6962
+        </td>
+        <td>
+          4815
+          -
+          5008
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.analysis.TypeCheckResult.TypeCheckFailure.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.catalyst.analysis.TypeCheckResult.TypeCheckFailure.apply(scala.StringContext.apply(&quot;UNEXPECTED_INPUT_TYPE, requiredType StructType, inputSql &quot;, &quot;, inputType &quot;, &quot;&quot;).s(org.apache.spark.sql.QualitySparkUtils.toSQLExpr(UpdateFields.this.structExpr), org.apache.spark.sql.QualitySparkUtils.toSQLType(UpdateFields.this.structExpr.dataType)))
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          6955
+        </td>
+        <td>
+          4952
+          -
+          4965
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;, inputType &quot;
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          6958
+        </td>
+        <td>
+          4929
+          -
+          4950
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.QualitySparkUtils.toSQLExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.QualitySparkUtils.toSQLExpr(UpdateFields.this.structExpr)
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          6961
+        </td>
+        <td>
+          4867
+          -
+          5000
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;UNEXPECTED_INPUT_TYPE, requiredType StructType, inputSql &quot;, &quot;, inputType &quot;, &quot;&quot;).s(org.apache.spark.sql.QualitySparkUtils.toSQLExpr(UpdateFields.this.structExpr), org.apache.spark.sql.QualitySparkUtils.toSQLType(UpdateFields.this.structExpr.dataType))
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          6960
+        </td>
+        <td>
+          4967
+          -
+          4997
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.QualitySparkUtils.toSQLType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.QualitySparkUtils.toSQLType(UpdateFields.this.structExpr.dataType)
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          6954
+        </td>
+        <td>
+          4869
+          -
+          4927
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;UNEXPECTED_INPUT_TYPE, requiredType StructType, inputSql &quot;
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          6957
+        </td>
+        <td>
+          4939
+          -
+          4949
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.UpdateFields.structExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          UpdateFields.this.structExpr
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          6956
+        </td>
+        <td>
+          4999
+          -
+          5000
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          6959
+        </td>
+        <td>
+          4977
+          -
+          4996
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          UpdateFields.this.structExpr.dataType
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          6970
+        </td>
+        <td>
+          5020
+          -
+          5209
+        </td>
+        <td>
+          If
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          if (UpdateFields.this.newExprs.isEmpty)
+  org.apache.spark.sql.catalyst.analysis.TypeCheckResult.TypeCheckFailure.apply(scala.StringContext.apply(&quot;errorSubClass = CANNOT_DROP_ALL_FIELDS&quot;).s())
+else
+  org.apache.spark.sql.catalyst.analysis.TypeCheckResult.TypeCheckSuccess
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          6964
+        </td>
+        <td>
+          5024
+          -
+          5040
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.SeqLike.isEmpty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          UpdateFields.this.newExprs.isEmpty
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          6967
+        </td>
+        <td>
+          5050
+          -
+          5151
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.analysis.TypeCheckResult.TypeCheckFailure.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.analysis.TypeCheckResult.TypeCheckFailure.apply(scala.StringContext.apply(&quot;errorSubClass = CANNOT_DROP_ALL_FIELDS&quot;).s())
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          6966
+        </td>
+        <td>
+          5050
+          -
+          5151
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.analysis.TypeCheckResult.TypeCheckFailure.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.catalyst.analysis.TypeCheckResult.TypeCheckFailure.apply(scala.StringContext.apply(&quot;errorSubClass = CANNOT_DROP_ALL_FIELDS&quot;).s())
+        </td>
+      </tr><tr>
+        <td>
+          143
+        </td>
+        <td>
+          6965
+        </td>
+        <td>
+          5102
+          -
+          5143
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;errorSubClass = CANNOT_DROP_ALL_FIELDS&quot;).s()
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          6969
+        </td>
+        <td>
+          5171
+          -
+          5203
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.analysis.TypeCheckResult.TypeCheckSuccess
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.analysis.TypeCheckResult.TypeCheckSuccess
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          6968
+        </td>
+        <td>
+          5171
+          -
+          5203
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.analysis.TypeCheckResult.TypeCheckSuccess
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.analysis.TypeCheckResult.TypeCheckSuccess
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          6971
+        </td>
+        <td>
+          5310
+          -
+          5338
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.UpdateFields.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          UpdateFields.this.copy(newChildren)
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          6972
+        </td>
+        <td>
+          5378
+          -
+          5399
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructType.apply(UpdateFields.this.newFields)
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          6973
+        </td>
+        <td>
+          5436
+          -
+          5455
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.nullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          UpdateFields.this.structExpr.nullable
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          6974
+        </td>
+        <td>
+          5493
+          -
+          5508
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;update_fields&quot;
+        </td>
+      </tr><tr>
+        <td>
+          186
+        </td>
+        <td>
+          6975
+        </td>
+        <td>
+          6563
+          -
+          6583
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.eval
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          UpdateFields.this.evalExpr.eval(input)
+        </td>
+      </tr><tr>
+        <td>
+          189
+        </td>
+        <td>
+          6976
+        </td>
+        <td>
+          6671
+          -
+          6692
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.genCode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          UpdateFields.this.evalExpr.genCode(ctx)
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          6979
+        </td>
+        <td>
+          6782
+          -
+          6836
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.require
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.require(fieldName.!=(null), &quot;fieldName cannot be null&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          6978
+        </td>
+        <td>
+          6809
+          -
+          6835
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;fieldName cannot be null&quot;
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          6977
+        </td>
+        <td>
+          6790
+          -
+          6807
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.!=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          fieldName.!=(null)
+        </td>
+      </tr><tr>
+        <td>
+          196
+        </td>
+        <td>
+          6980
+        </td>
+        <td>
+          6846
+          -
+          6863
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.isEmpty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          fieldName.isEmpty()
+        </td>
+      </tr><tr>
+        <td>
+          197
+        </td>
+        <td>
+          6982
+        </td>
+        <td>
+          6873
+          -
+          6889
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$6: String = fieldName;
+  scala.collection.immutable.Nil.::[String](x$6)
+}
+        </td>
+      </tr><tr>
+        <td>
+          197
+        </td>
+        <td>
+          6981
+        </td>
+        <td>
+          6873
+          -
+          6889
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.List.::
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.immutable.Nil.::[String](x$6)
+        </td>
+      </tr><tr>
+        <td>
+          199
+        </td>
+        <td>
+          6984
+        </td>
+        <td>
+          6909
+          -
+          6958
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute.parseAttributeName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute.parseAttributeName(fieldName)
+        </td>
+      </tr><tr>
+        <td>
+          199
+        </td>
+        <td>
+          6983
+        </td>
+        <td>
+          6909
+          -
+          6958
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute.parseAttributeName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute.parseAttributeName(fieldName)
+        </td>
+      </tr><tr>
+        <td>
+          208
+        </td>
+        <td>
+          6985
+        </td>
+        <td>
+          7226
+          -
+          7246
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.UpdateFields.nameParts
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          UpdateFields.this.nameParts(fieldName)
+        </td>
+      </tr><tr>
+        <td>
+          208
+        </td>
+        <td>
+          6987
+        </td>
+        <td>
+          7202
+          -
+          7278
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.UpdateFields.updateFieldsHelper
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          UpdateFields.this.updateFieldsHelper(col, UpdateFields.this.nameParts(fieldName), ((name: String) =&gt; WithField.apply(name, expr)))
+        </td>
+      </tr><tr>
+        <td>
+          208
+        </td>
+        <td>
+          6986
+        </td>
+        <td>
+          7256
+          -
+          7277
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.WithField.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          WithField.apply(name, expr)
+        </td>
+      </tr><tr>
+        <td>
+          214
+        </td>
+        <td>
+          6988
+        </td>
+        <td>
+          7447
+          -
+          7467
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.UpdateFields.nameParts
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          UpdateFields.this.nameParts(fieldName)
+        </td>
+      </tr><tr>
+        <td>
+          214
+        </td>
+        <td>
+          6990
+        </td>
+        <td>
+          7423
+          -
+          7493
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.UpdateFields.updateFieldsHelper
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          UpdateFields.this.updateFieldsHelper(col, UpdateFields.this.nameParts(fieldName), ((name: String) =&gt; DropField.apply(name)))
+        </td>
+      </tr><tr>
+        <td>
+          214
+        </td>
+        <td>
+          6989
+        </td>
+        <td>
+          7477
+          -
+          7492
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.DropField.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          DropField.apply(name)
+        </td>
+      </tr><tr>
+        <td>
+          220
+        </td>
+        <td>
+          6991
+        </td>
+        <td>
+          7771
+          -
+          7794
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IterableLike.head
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          namePartsRemaining.head
+        </td>
+      </tr><tr>
+        <td>
+          221
+        </td>
+        <td>
+          6992
+        </td>
+        <td>
+          7803
+          -
+          7833
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          namePartsRemaining.length.==(1)
+        </td>
+      </tr><tr>
+        <td>
+          222
+        </td>
+        <td>
+          6994
+        </td>
+        <td>
+          7856
+          -
+          7893
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.Seq.apply[org.apache.spark.sql.catalyst.expressions.Expression](structExpr, valueFunc.apply(fieldName))
+        </td>
+      </tr><tr>
+        <td>
+          222
+        </td>
+        <td>
+          6993
+        </td>
+        <td>
+          7872
+          -
+          7892
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          valueFunc.apply(fieldName)
+        </td>
+      </tr><tr>
+        <td>
+          222
+        </td>
+        <td>
+          6996
+        </td>
+        <td>
+          7843
+          -
+          7894
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.UpdateFields.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          UpdateFields.apply(scala.collection.Seq.apply[org.apache.spark.sql.catalyst.expressions.Expression](structExpr, valueFunc.apply(fieldName)))
+        </td>
+      </tr><tr>
+        <td>
+          222
+        </td>
+        <td>
+          6995
+        </td>
+        <td>
+          7843
+          -
+          7894
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.UpdateFields.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          UpdateFields.apply(scala.collection.Seq.apply[org.apache.spark.sql.catalyst.expressions.Expression](structExpr, valueFunc.apply(fieldName)))
+        </td>
+      </tr><tr>
+        <td>
+          223
+        </td>
+        <td>
+          7009
+        </td>
+        <td>
+          7906
+          -
+          8383
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val newStruct: org.apache.spark.sql.catalyst.expressions.Expression = if (structExpr.resolved)
+    {
+      val resolver: org.apache.spark.sql.catalyst.analysis.Resolver = org.apache.spark.sql.internal.SQLConf.get.resolver;
+      org.apache.spark.sql.catalyst.expressions.ExtractValue.apply(structExpr, org.apache.spark.sql.catalyst.expressions.Literal.apply(fieldName), resolver)
+    }
+  else
+    org.apache.spark.sql.catalyst.analysis.UnresolvedExtractValue.apply(structExpr, org.apache.spark.sql.catalyst.expressions.Literal.apply(fieldName));
+  val newValue: com.sparkutils.quality.impl.util.UpdateFields = UpdateFields.this.updateFieldsHelper(newStruct, namePartsRemaining.tail, valueFunc);
+  UpdateFields.apply(scala.collection.Seq.apply[org.apache.spark.sql.catalyst.expressions.Expression](structExpr, WithField.apply(fieldName, newValue)))
+}
+        </td>
+      </tr><tr>
+        <td>
+          224
+        </td>
+        <td>
+          7000
+        </td>
+        <td>
+          7955
+          -
+          8071
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val resolver: org.apache.spark.sql.catalyst.analysis.Resolver = org.apache.spark.sql.internal.SQLConf.get.resolver;
+  org.apache.spark.sql.catalyst.expressions.ExtractValue.apply(structExpr, org.apache.spark.sql.catalyst.expressions.Literal.apply(fieldName), resolver)
+}
+        </td>
+      </tr><tr>
+        <td>
+          225
+        </td>
+        <td>
+          6997
+        </td>
+        <td>
+          7980
+          -
+          8000
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.internal.SQLConf.resolver
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.internal.SQLConf.get.resolver
+        </td>
+      </tr><tr>
+        <td>
+          226
+        </td>
+        <td>
+          6999
+        </td>
+        <td>
+          8009
+          -
+          8063
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.ExtractValue.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.ExtractValue.apply(structExpr, org.apache.spark.sql.catalyst.expressions.Literal.apply(fieldName), resolver)
+        </td>
+      </tr><tr>
+        <td>
+          226
+        </td>
+        <td>
+          6998
+        </td>
+        <td>
+          8034
+          -
+          8052
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Literal.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.Literal.apply(fieldName)
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          7003
+        </td>
+        <td>
+          8087
+          -
+          8141
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.analysis.UnresolvedExtractValue.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.analysis.UnresolvedExtractValue.apply(structExpr, org.apache.spark.sql.catalyst.expressions.Literal.apply(fieldName))
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          7002
+        </td>
+        <td>
+          8087
+          -
+          8141
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.analysis.UnresolvedExtractValue.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.analysis.UnresolvedExtractValue.apply(structExpr, org.apache.spark.sql.catalyst.expressions.Literal.apply(fieldName))
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          7001
+        </td>
+        <td>
+          8122
+          -
+          8140
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Literal.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.Literal.apply(fieldName)
+        </td>
+      </tr><tr>
+        <td>
+          231
+        </td>
+        <td>
+          7005
+        </td>
+        <td>
+          8172
+          -
+          8308
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.UpdateFields.updateFieldsHelper
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          UpdateFields.this.updateFieldsHelper(newStruct, namePartsRemaining.tail, valueFunc)
+        </td>
+      </tr><tr>
+        <td>
+          233
+        </td>
+        <td>
+          7004
+        </td>
+        <td>
+          8253
+          -
+          8276
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableLike.tail
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          namePartsRemaining.tail
+        </td>
+      </tr><tr>
+        <td>
+          235
+        </td>
+        <td>
+          7006
+        </td>
+        <td>
+          8344
+          -
+          8374
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.WithField.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          WithField.apply(fieldName, newValue)
+        </td>
+      </tr><tr>
+        <td>
+          235
+        </td>
+        <td>
+          7008
+        </td>
+        <td>
+          8315
+          -
+          8377
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.UpdateFields.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          UpdateFields.apply(scala.collection.Seq.apply[org.apache.spark.sql.catalyst.expressions.Expression](structExpr, WithField.apply(fieldName, newValue)))
+        </td>
+      </tr><tr>
+        <td>
+          235
+        </td>
+        <td>
+          7007
+        </td>
+        <td>
+          8328
+          -
+          8376
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.Seq.apply[org.apache.spark.sql.catalyst.expressions.Expression](structExpr, WithField.apply(fieldName, newValue))
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

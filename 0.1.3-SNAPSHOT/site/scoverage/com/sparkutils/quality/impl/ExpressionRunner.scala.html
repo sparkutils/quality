@@ -1,0 +1,1746 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/sparkutils/quality/impl/ExpressionRunner.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality.impl
+</span>2 <span style=''>
+</span>3 <span style=''>import com.sparkutils.quality.impl.ExpressionRunner.expressionsResultToRow
+</span>4 <span style=''>import com.sparkutils.quality.impl.RuleRunnerUtils.{flattenExpressions, reincorporateExpressions}
+</span>5 <span style=''>import com.sparkutils.quality._
+</span>6 <span style=''>import com.sparkutils.quality.impl.imports.RuleResultsImports
+</span>7 <span style=''>import com.sparkutils.quality.impl.imports.RuleResultsImports.packId
+</span>8 <span style=''>import com.sparkutils.quality.impl.util.Arrays
+</span>9 <span style=''>import com.sparkutils.quality.impl.yaml.YamlEncoderExpr
+</span>10 <span style=''>import types._
+</span>11 <span style=''>import org.apache.spark.sql.QualitySparkUtils.cast
+</span>12 <span style=''>import org.apache.spark.sql.catalyst.InternalRow
+</span>13 <span style=''>import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
+</span>14 <span style=''>import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression, UnaryExpression}
+</span>15 <span style=''>import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, GenericArrayData, MapData}
+</span>16 <span style=''>import org.apache.spark.sql.types.{DataType, DataTypes, StringType}
+</span>17 <span style=''>import org.apache.spark.sql.Column
+</span>18 <span style=''>import org.apache.spark.sql.qualityFunctions.InputTypeChecks
+</span>19 <span style=''>import org.apache.spark.unsafe.types.UTF8String
+</span>20 <span style=''>
+</span>21 <span style=''>object ExpressionRunner {
+</span>22 <span style=''>  /**
+</span>23 <span style=''>   * Runs the ruleSuite expressions saving results as a tuple of (ruleResult: yaml, resultType: String)
+</span>24 <span style=''>   *
+</span>25 <span style=''>   * @param ruleSuite
+</span>26 <span style=''>   * @param name
+</span>27 <span style=''>   * @return
+</span>28 <span style=''>   */
+</span>29 <span style=''>  def apply(ruleSuite: RuleSuite, name: String = &quot;expressionResults&quot;, renderOptions: Map[String, String] = Map.empty, ddlType: String = &quot;&quot;): Column = {
+</span>30 <span style=''>    </span><span style='background: #AEF1AE'>com.sparkutils.quality.registerLambdaFunctions( ruleSuite.lambdaFunctions )</span><span style=''>
+</span>31 <span style=''>    val expressions = </span><span style='background: #AEF1AE'>flattenExpressions(ruleSuite)</span><span style=''>
+</span>32 <span style=''>    val collectExpressions =
+</span>33 <span style=''>      if (</span><span style='background: #AEF1AE'>ddlType.isEmpty</span><span style=''>)
+</span>34 <span style=''>        </span><span style='background: #AEF1AE'>expressions.map( i =&gt; YamlEncoderExpr(i, renderOptions))</span><span style=''>
+</span>35 <span style=''>      else
+</span>36 <span style=''>        </span><span style='background: #AEF1AE'>expressions</span><span style=''>
+</span>37 <span style=''>
+</span>38 <span style=''>    val ddl_type =
+</span>39 <span style=''>      if (</span><span style='background: #AEF1AE'>ddlType.isEmpty</span><span style=''>)
+</span>40 <span style=''>        </span><span style='background: #AEF1AE'>expressionResultTypeYaml</span><span style=''>
+</span>41 <span style=''>      else
+</span>42 <span style=''>        </span><span style='background: #AEF1AE'>DataType.fromDDL(ddlType)</span><span style=''>
+</span>43 <span style=''>
+</span>44 <span style=''>    </span><span style='background: #AEF1AE'>new Column(ExpressionRunner(RuleLogicUtils.cleanExprs(ruleSuite), collectExpressions, ddl_type)).as(name)</span><span style=''>
+</span>45 <span style=''>  }
+</span>46 <span style=''>
+</span>47 <span style=''>  protected[quality] def expressionsResultToRow[R](ruleSuiteResult: GeneralExpressionsResult[R]): InternalRow =
+</span>48 <span style=''>    </span><span style='background: #AEF1AE'>InternalRow(
+</span>49 <span style=''></span><span style='background: #AEF1AE'>      packId(ruleSuiteResult.id),
+</span>50 <span style=''></span><span style='background: #AEF1AE'>      ArrayBasedMapData(
+</span>51 <span style=''></span><span style='background: #AEF1AE'>        ruleSuiteResult.ruleSetResults, packId, (a: Any) =&gt; {
+</span>52 <span style=''></span><span style='background: #AEF1AE'>          val v = a.asInstanceOf[Map[VersionedId, GeneralExpressionResult]]
+</span>53 <span style=''></span><span style='background: #AEF1AE'>          ArrayBasedMapData(
+</span>54 <span style=''></span><span style='background: #AEF1AE'>            v, packId, (a: Any) =&gt; a match {
+</span>55 <span style=''></span><span style='background: #AEF1AE'>              case r: GeneralExpressionResult =&gt;
+</span>56 <span style=''></span><span style='background: #AEF1AE'>                InternalRow(UTF8String.fromString( r.ruleResult ), UTF8String.fromString( r.resultDDL) )
+</span>57 <span style=''></span><span style='background: #AEF1AE'>              case s: String =&gt;  UTF8String.fromString( s )
+</span>58 <span style=''></span><span style='background: #AEF1AE'>              case r: R =&gt; r
+</span>59 <span style=''></span><span style='background: #AEF1AE'>            }
+</span>60 <span style=''></span><span style='background: #AEF1AE'>          )
+</span>61 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>62 <span style=''></span><span style='background: #AEF1AE'>      )
+</span>63 <span style=''></span><span style='background: #AEF1AE'>    )</span><span style=''>
+</span>64 <span style=''>}
+</span>65 <span style=''>
+</span>66 <span style=''>/**
+</span>67 <span style=''> * Creates an extensible wrapper result column for aggregate expressions, storing the results as yaml
+</span>68 <span style=''> *
+</span>69 <span style=''> * @param ruleSuite
+</span>70 <span style=''> * @param children
+</span>71 <span style=''> */
+</span>72 <span style=''>case class ExpressionRunner(ruleSuite: RuleSuite, children: Seq[Expression], ddlType: DataType)
+</span>73 <span style=''>  extends Expression with CodegenFallback with NonSQLExpression {
+</span>74 <span style=''>  override def nullable: Boolean = </span><span style='background: #AEF1AE'>false</span><span style=''>
+</span>75 <span style=''>
+</span>76 <span style=''>  // used only for eval, compiled uses the children directly
+</span>77 <span style=''>  lazy val reincorporated = reincorporateExpressions(ruleSuite, children, false)
+</span>78 <span style=''>
+</span>79 <span style=''>  // keep it simple for this one. - can return an internal row or whatever..
+</span>80 <span style=''>  override def eval(input: InternalRow): Any = {
+</span>81 <span style=''>    val res = </span><span style='background: #AEF1AE'>RuleSuiteFunctions.evalExpressions(reincorporated, input, ddlType)</span><span style=''>
+</span>82 <span style=''>    </span><span style='background: #AEF1AE'>expressionsResultToRow[Any](res)</span><span style=''>
+</span>83 <span style=''>  }
+</span>84 <span style=''>
+</span>85 <span style=''>  // not really worth it in this case for a single row.
+</span>86 <span style=''>  // override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = ???
+</span>87 <span style=''>
+</span>88 <span style=''>  override def dataType: DataType = </span><span style='background: #AEF1AE'>expressionsResultsType(ddlType)</span><span style=''>
+</span>89 <span style=''>
+</span>90 <span style=''>  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
+</span>91 <span style=''>    </span><span style='background: #AEF1AE'>copy(children = newChildren)</span><span style=''>
+</span>92 <span style=''>
+</span>93 <span style=''>}
+</span>94 <span style=''>
+</span>95 <span style=''>case class StripResultTypes(child: Expression) extends UnaryExpression with CodegenFallback with InputTypeChecks {
+</span>96 <span style=''>  protected def withNewChildInternal(newChild: Expression): Expression = </span><span style='background: #AEF1AE'>copy(child = newChild)</span><span style=''>
+</span>97 <span style=''>
+</span>98 <span style=''>  override def nullSafeEval(input: Any): Any = {
+</span>99 <span style=''>    val row = </span><span style='background: #AEF1AE'>input.asInstanceOf[InternalRow]</span><span style=''>
+</span>100 <span style=''>    val setData = </span><span style='background: #AEF1AE'>row.getMap(1)</span><span style=''>
+</span>101 <span style=''>    val values =
+</span>102 <span style=''>      </span><span style='background: #AEF1AE'>Arrays.mapArray(setData.valueArray(), expressionsRuleSetType(StringType), a =&gt; {
+</span>103 <span style=''></span><span style='background: #AEF1AE'>        val rulesData = a.asInstanceOf[MapData]
+</span>104 <span style=''></span><span style='background: #AEF1AE'>        val values = Arrays.mapArray(rulesData.valueArray(), expressionResultTypeYaml, a =&gt; {
+</span>105 <span style=''></span><span style='background: #AEF1AE'>          val row = a.asInstanceOf[InternalRow]
+</span>106 <span style=''></span><span style='background: #AEF1AE'>          row.getUTF8String(0)
+</span>107 <span style=''></span><span style='background: #AEF1AE'>        })
+</span>108 <span style=''></span><span style='background: #AEF1AE'>        new ArrayBasedMapData(rulesData.keyArray(), new GenericArrayData(values))
+</span>109 <span style=''></span><span style='background: #AEF1AE'>      })</span><span style=''>
+</span>110 <span style=''>    </span><span style='background: #AEF1AE'>InternalRow(row.getLong(0), new ArrayBasedMapData(setData.keyArray(), new GenericArrayData(values)))</span><span style=''>
+</span>111 <span style=''>  }
+</span>112 <span style=''>
+</span>113 <span style=''>  override def dataType: DataType = </span><span style='background: #AEF1AE'>expressionsResultsNoDDLType</span><span style=''>
+</span>114 <span style=''>
+</span>115 <span style=''>  override def inputDataTypes: Seq[Seq[DataType]] = </span><span style='background: #AEF1AE'>Seq(Seq(expressionsResultsType(expressionResultTypeYaml)))</span><span style=''>
+</span>116 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          456
+        </td>
+        <td>
+          1418
+          -
+          1493
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.imports.LambdaFunctionsImports.registerLambdaFunctions
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.`package`.registerLambdaFunctions(ruleSuite.lambdaFunctions)
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          455
+        </td>
+        <td>
+          1466
+          -
+          1491
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuite.lambdaFunctions
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuite.lambdaFunctions
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          457
+        </td>
+        <td>
+          1516
+          -
+          1545
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRunnerUtils.flattenExpressions
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.RuleRunnerUtils.flattenExpressions(ruleSuite)
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          458
+        </td>
+        <td>
+          1585
+          -
+          1600
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.isEmpty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ddlType.isEmpty()
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          460
+        </td>
+        <td>
+          1625
+          -
+          1625
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[com.sparkutils.quality.impl.yaml.YamlEncoderExpr]
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          459
+        </td>
+        <td>
+          1632
+          -
+          1665
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.YamlEncoderExpr.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.yaml.YamlEncoderExpr.apply(i, renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          462
+        </td>
+        <td>
+          1610
+          -
+          1666
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          expressions.map[com.sparkutils.quality.impl.yaml.YamlEncoderExpr, Seq[com.sparkutils.quality.impl.yaml.YamlEncoderExpr]](((i: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; com.sparkutils.quality.impl.yaml.YamlEncoderExpr.apply(i, renderOptions)))(collection.this.Seq.canBuildFrom[com.sparkutils.quality.impl.yaml.YamlEncoderExpr])
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          461
+        </td>
+        <td>
+          1610
+          -
+          1666
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          expressions.map[com.sparkutils.quality.impl.yaml.YamlEncoderExpr, Seq[com.sparkutils.quality.impl.yaml.YamlEncoderExpr]](((i: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; com.sparkutils.quality.impl.yaml.YamlEncoderExpr.apply(i, renderOptions)))(collection.this.Seq.canBuildFrom[com.sparkutils.quality.impl.yaml.YamlEncoderExpr])
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          463
+        </td>
+        <td>
+          1686
+          -
+          1697
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.sparkutils.quality.impl.ExpressionRunner.expressions
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          expressions
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          464
+        </td>
+        <td>
+          1728
+          -
+          1743
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.isEmpty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ddlType.isEmpty()
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          465
+        </td>
+        <td>
+          1753
+          -
+          1777
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleSparkTypes.expressionResultTypeYaml
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.types.`package`.expressionResultTypeYaml
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          466
+        </td>
+        <td>
+          1753
+          -
+          1777
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleSparkTypes.expressionResultTypeYaml
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.types.`package`.expressionResultTypeYaml
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          468
+        </td>
+        <td>
+          1797
+          -
+          1822
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.types.DataType.fromDDL
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.DataType.fromDDL(ddlType)
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          467
+        </td>
+        <td>
+          1797
+          -
+          1822
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.DataType.fromDDL
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.DataType.fromDDL(ddlType)
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          469
+        </td>
+        <td>
+          1828
+          -
+          1933
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.as
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.sql.Column(ExpressionRunner.apply(RuleLogicUtils.cleanExprs(ruleSuite), collectExpressions, ddl_type)).as(name)
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          484
+        </td>
+        <td>
+          2055
+          -
+          2631
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.InternalRow.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.InternalRow.apply(com.sparkutils.quality.impl.imports.RuleResultsImports.packId.apply(ruleSuiteResult.id), org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply(ruleSuiteResult.ruleSetResults, com.sparkutils.quality.impl.imports.RuleResultsImports.packId, ((a: Any) =&gt; {
+  val v: Map[com.sparkutils.quality.impl.VersionedId,com.sparkutils.quality.GeneralExpressionResult] = a.asInstanceOf[Map[com.sparkutils.quality.impl.VersionedId,com.sparkutils.quality.GeneralExpressionResult]];
+  org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply(v, com.sparkutils.quality.impl.imports.RuleResultsImports.packId, ((a: Any) =&gt; a match {
+    case (r @ (_: com.sparkutils.quality.GeneralExpressionResult)) =&gt; org.apache.spark.sql.catalyst.InternalRow.apply(org.apache.spark.unsafe.types.UTF8String.fromString(r.ruleResult), org.apache.spark.unsafe.types.UTF8String.fromString(r.resultDDL))
+    case (s @ (_: String)) =&gt; org.apache.spark.unsafe.types.UTF8String.fromString(s)
+    case (r @ (_: R)) =&gt; r
+  }))
+})))
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          471
+        </td>
+        <td>
+          2074
+          -
+          2100
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.imports.RuleResultsImports.packId.apply(ruleSuiteResult.id)
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          470
+        </td>
+        <td>
+          2081
+          -
+          2099
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.GeneralExpressionsResult.id
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuiteResult.id
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          483
+        </td>
+        <td>
+          2108
+          -
+          2625
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply(ruleSuiteResult.ruleSetResults, com.sparkutils.quality.impl.imports.RuleResultsImports.packId, ((a: Any) =&gt; {
+  val v: Map[com.sparkutils.quality.impl.VersionedId,com.sparkutils.quality.GeneralExpressionResult] = a.asInstanceOf[Map[com.sparkutils.quality.impl.VersionedId,com.sparkutils.quality.GeneralExpressionResult]];
+  org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply(v, com.sparkutils.quality.impl.imports.RuleResultsImports.packId, ((a: Any) =&gt; a match {
+    case (r @ (_: com.sparkutils.quality.GeneralExpressionResult)) =&gt; org.apache.spark.sql.catalyst.InternalRow.apply(org.apache.spark.unsafe.types.UTF8String.fromString(r.ruleResult), org.apache.spark.unsafe.types.UTF8String.fromString(r.resultDDL))
+    case (s @ (_: String)) =&gt; org.apache.spark.unsafe.types.UTF8String.fromString(s)
+    case (r @ (_: R)) =&gt; r
+  }))
+}))
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          472
+        </td>
+        <td>
+          2135
+          -
+          2165
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.GeneralExpressionsResult.ruleSetResults
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuiteResult.ruleSetResults
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          473
+        </td>
+        <td>
+          2167
+          -
+          2173
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.imports.RuleResultsImports.packId
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.imports.RuleResultsImports.packId
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          474
+        </td>
+        <td>
+          2207
+          -
+          2264
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          a.asInstanceOf[Map[com.sparkutils.quality.impl.VersionedId,com.sparkutils.quality.GeneralExpressionResult]]
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          482
+        </td>
+        <td>
+          2275
+          -
+          2607
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply(v, com.sparkutils.quality.impl.imports.RuleResultsImports.packId, ((a: Any) =&gt; a match {
+  case (r @ (_: com.sparkutils.quality.GeneralExpressionResult)) =&gt; org.apache.spark.sql.catalyst.InternalRow.apply(org.apache.spark.unsafe.types.UTF8String.fromString(r.ruleResult), org.apache.spark.unsafe.types.UTF8String.fromString(r.resultDDL))
+  case (s @ (_: String)) =&gt; org.apache.spark.unsafe.types.UTF8String.fromString(s)
+  case (r @ (_: R)) =&gt; r
+}))
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          475
+        </td>
+        <td>
+          2309
+          -
+          2315
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.imports.RuleResultsImports.packId
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.imports.RuleResultsImports.packId
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          478
+        </td>
+        <td>
+          2478
+          -
+          2489
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.GeneralExpressionResult.resultDDL
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          r.resultDDL
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          480
+        </td>
+        <td>
+          2404
+          -
+          2492
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.InternalRow.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.InternalRow.apply(org.apache.spark.unsafe.types.UTF8String.fromString(r.ruleResult), org.apache.spark.unsafe.types.UTF8String.fromString(r.resultDDL))
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          477
+        </td>
+        <td>
+          2416
+          -
+          2453
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.unsafe.types.UTF8String.fromString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.unsafe.types.UTF8String.fromString(r.ruleResult)
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          479
+        </td>
+        <td>
+          2455
+          -
+          2490
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.unsafe.types.UTF8String.fromString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.unsafe.types.UTF8String.fromString(r.resultDDL)
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          476
+        </td>
+        <td>
+          2439
+          -
+          2451
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.GeneralExpressionResult.ruleResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          r.ruleResult
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          481
+        </td>
+        <td>
+          2526
+          -
+          2552
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.unsafe.types.UTF8String.fromString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.unsafe.types.UTF8String.fromString(s)
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          485
+        </td>
+        <td>
+          2984
+          -
+          2989
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          487
+        </td>
+        <td>
+          3274
+          -
+          3340
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleSuiteFunctions.evalExpressions
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteFunctions.evalExpressions(ExpressionRunner.this.reincorporated, input, ExpressionRunner.this.ddlType)
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          486
+        </td>
+        <td>
+          3332
+          -
+          3339
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.ExpressionRunner.ddlType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ExpressionRunner.this.ddlType
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          488
+        </td>
+        <td>
+          3345
+          -
+          3377
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.ExpressionRunner.expressionsResultToRow
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.ExpressionRunner.expressionsResultToRow[Any](res)
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          490
+        </td>
+        <td>
+          3565
+          -
+          3596
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleSparkTypes.expressionsResultsType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.types.`package`.expressionsResultsType(ExpressionRunner.this.ddlType)
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          489
+        </td>
+        <td>
+          3588
+          -
+          3595
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.ExpressionRunner.ddlType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ExpressionRunner.this.ddlType
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          492
+        </td>
+        <td>
+          3693
+          -
+          3693
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.ExpressionRunner.copy$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ExpressionRunner.this.copy$default$3
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          491
+        </td>
+        <td>
+          3693
+          -
+          3693
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.ExpressionRunner.copy$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ExpressionRunner.this.copy$default$1
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          493
+        </td>
+        <td>
+          3693
+          -
+          3721
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.ExpressionRunner.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ExpressionRunner.this.copy(x$2, x$1, x$3)
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          494
+        </td>
+        <td>
+          3914
+          -
+          3936
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.StripResultTypes.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          StripResultTypes.this.copy(newChild)
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          495
+        </td>
+        <td>
+          4001
+          -
+          4032
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          input.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow]
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          496
+        </td>
+        <td>
+          4051
+          -
+          4064
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.SpecializedGetters.getMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          row.getMap(1)
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          499
+        </td>
+        <td>
+          4126
+          -
+          4160
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleSparkTypes.expressionsRuleSetType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.types.`package`.expressionsRuleSetType(org.apache.spark.sql.types.StringType)
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          498
+        </td>
+        <td>
+          4149
+          -
+          4159
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StringType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StringType
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          497
+        </td>
+        <td>
+          4104
+          -
+          4124
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.MapData.valueArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          setData.valueArray()
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          509
+        </td>
+        <td>
+          4088
+          -
+          4491
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.Arrays.mapArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.Arrays.mapArray[org.apache.spark.sql.catalyst.util.ArrayBasedMapData](setData.valueArray(), com.sparkutils.quality.types.`package`.expressionsRuleSetType(org.apache.spark.sql.types.StringType), ((a: Any) =&gt; {
+  val rulesData: org.apache.spark.sql.catalyst.util.MapData = a.asInstanceOf[org.apache.spark.sql.catalyst.util.MapData];
+  val values: Array[org.apache.spark.unsafe.types.UTF8String] = com.sparkutils.quality.impl.util.Arrays.mapArray[org.apache.spark.unsafe.types.UTF8String](rulesData.valueArray(), com.sparkutils.quality.types.`package`.expressionResultTypeYaml, ((a: Any) =&gt; {
+    val row: org.apache.spark.sql.catalyst.InternalRow = a.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow];
+    row.getUTF8String(0)
+  }))((ClassTag.apply[org.apache.spark.unsafe.types.UTF8String](classOf[org.apache.spark.unsafe.types.UTF8String]): scala.reflect.ClassTag[org.apache.spark.unsafe.types.UTF8String]));
+  new org.apache.spark.sql.catalyst.util.ArrayBasedMapData(rulesData.keyArray(), new org.apache.spark.sql.catalyst.util.GenericArrayData(values))
+}))((ClassTag.apply[org.apache.spark.sql.catalyst.util.ArrayBasedMapData](classOf[org.apache.spark.sql.catalyst.util.ArrayBasedMapData]): scala.reflect.ClassTag[org.apache.spark.sql.catalyst.util.ArrayBasedMapData]))
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          500
+        </td>
+        <td>
+          4193
+          -
+          4216
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          a.asInstanceOf[org.apache.spark.sql.catalyst.util.MapData]
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          505
+        </td>
+        <td>
+          4238
+          -
+          4400
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.Arrays.mapArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.Arrays.mapArray[org.apache.spark.unsafe.types.UTF8String](rulesData.valueArray(), com.sparkutils.quality.types.`package`.expressionResultTypeYaml, ((a: Any) =&gt; {
+  val row: org.apache.spark.sql.catalyst.InternalRow = a.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow];
+  row.getUTF8String(0)
+}))((ClassTag.apply[org.apache.spark.unsafe.types.UTF8String](classOf[org.apache.spark.unsafe.types.UTF8String]): scala.reflect.ClassTag[org.apache.spark.unsafe.types.UTF8String]))
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          501
+        </td>
+        <td>
+          4254
+          -
+          4276
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.MapData.valueArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          rulesData.valueArray()
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          502
+        </td>
+        <td>
+          4278
+          -
+          4302
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleSparkTypes.expressionResultTypeYaml
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.types.`package`.expressionResultTypeYaml
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          503
+        </td>
+        <td>
+          4331
+          -
+          4358
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          a.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow]
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          504
+        </td>
+        <td>
+          4369
+          -
+          4389
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.SpecializedGetters.getUTF8String
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          row.getUTF8String(0)
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          508
+        </td>
+        <td>
+          4409
+          -
+          4482
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.ArrayBasedMapData.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.sql.catalyst.util.ArrayBasedMapData(rulesData.keyArray(), new org.apache.spark.sql.catalyst.util.GenericArrayData(values))
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          507
+        </td>
+        <td>
+          4453
+          -
+          4481
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.GenericArrayData.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.sql.catalyst.util.GenericArrayData(values)
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          506
+        </td>
+        <td>
+          4431
+          -
+          4451
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.MapData.keyArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          rulesData.keyArray()
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          514
+        </td>
+        <td>
+          4496
+          -
+          4596
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.InternalRow.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.InternalRow.apply(row.getLong(0), new org.apache.spark.sql.catalyst.util.ArrayBasedMapData(setData.keyArray(), new org.apache.spark.sql.catalyst.util.GenericArrayData(values)))
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          510
+        </td>
+        <td>
+          4508
+          -
+          4522
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.SpecializedGetters.getLong
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          row.getLong(0)
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          513
+        </td>
+        <td>
+          4524
+          -
+          4595
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.ArrayBasedMapData.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.sql.catalyst.util.ArrayBasedMapData(setData.keyArray(), new org.apache.spark.sql.catalyst.util.GenericArrayData(values))
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          512
+        </td>
+        <td>
+          4566
+          -
+          4594
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.GenericArrayData.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.sql.catalyst.util.GenericArrayData(values)
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          511
+        </td>
+        <td>
+          4546
+          -
+          4564
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.MapData.keyArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          setData.keyArray()
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          515
+        </td>
+        <td>
+          4638
+          -
+          4665
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleSparkTypes.expressionsResultsNoDDLType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.types.`package`.expressionsResultsNoDDLType
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          517
+        </td>
+        <td>
+          4727
+          -
+          4775
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleSparkTypes.expressionsResultsType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.types.`package`.expressionsResultsType(com.sparkutils.quality.types.`package`.expressionResultTypeYaml)
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          516
+        </td>
+        <td>
+          4750
+          -
+          4774
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleSparkTypes.expressionResultTypeYaml
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.types.`package`.expressionResultTypeYaml
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          519
+        </td>
+        <td>
+          4719
+          -
+          4777
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.Seq.apply[Seq[org.apache.spark.sql.types.StructType]](scala.collection.Seq.apply[org.apache.spark.sql.types.StructType](com.sparkutils.quality.types.`package`.expressionsResultsType(com.sparkutils.quality.types.`package`.expressionResultTypeYaml)))
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          518
+        </td>
+        <td>
+          4723
+          -
+          4776
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.Seq.apply[org.apache.spark.sql.types.StructType](com.sparkutils.quality.types.`package`.expressionsResultsType(com.sparkutils.quality.types.`package`.expressionResultTypeYaml))
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
