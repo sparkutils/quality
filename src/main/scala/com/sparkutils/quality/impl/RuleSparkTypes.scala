@@ -46,12 +46,12 @@ trait RuleSparkTypes {
                   case StructType(Array(res, _)) if res.dataType == StringType && res.name == "result" => Some(expressionResultTypeYaml)
                   case dt: DataType => Some(dt)
                 }
+              case _ => None
             }
           case _ => None
         }
       case _ => None
     }
-
   }
 
   /** A given ruleSet's results of packedids to rule results, without the DDL field */

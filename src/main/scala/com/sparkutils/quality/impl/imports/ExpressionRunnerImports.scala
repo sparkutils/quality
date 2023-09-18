@@ -12,7 +12,7 @@ trait ExpressionRunnerImports {
    * @param name
    * @return
    */
-  def expressionRunner(ruleSuite: RuleSuite,  ddlType: String, name: String = "expressionResults") =
+  def typedExpressionRunner(ruleSuite: RuleSuite, ddlType: String, name: String = "expressionResults") =
     ExpressionRunner(ruleSuite, name, Map.empty, ddlType)
 
   def expressionRunner(ruleSuite: RuleSuite, name: String = "expressionResults", renderOptions: Map[String, String] = Map.empty) =

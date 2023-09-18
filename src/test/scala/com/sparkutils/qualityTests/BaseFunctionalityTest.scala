@@ -675,7 +675,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     import quality.implicits._
 
     val processed = sparkSession.sql("select 'a' a, 'b' b").select(
-      expressionRunner(rs, renderOptions = Map("useFullScalarType" -> "true"), ddlType = "STRING"))
+      typedExpressionRunner(rs, ddlType = "STRING"))
 
     val res = processed.selectExpr("expressionResults.*").as[GeneralExpressionsResult[String]].head()
     assert(res == GeneralExpressionsResult[String](Id(10, 2), Map(Id(20, 1) -> Map(
