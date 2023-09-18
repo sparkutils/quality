@@ -1,3 +1,11 @@
+### 0.1.2.1 <small>4th September, 2023</small>
+
+Maven Central build issues, code wise the same as 0.1.2.
+
+### [0.1.2](https://github.com/sparkutils/quality/milestone/7?closed=1) <small>4th September, 2023</small>
+
+#48 - Bug fix - Enable Sub Queries in all runner types
+
 ### [0.1.1](https://github.com/sparkutils/quality/milestone/6?closed=1) <small>9th July, 2023</small>
 
 #42 - Improve expression runner to store yaml, unlike json, to_yaml and from_yaml allow complete support for roundtripping of Spark data types

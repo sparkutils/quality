@@ -30,7 +30,7 @@ object ExpressionRunner {
     com.sparkutils.quality.registerLambdaFunctions( ruleSuite.lambdaFunctions )
     val expressions = flattenExpressions(ruleSuite)
     val collectExpressions = expressions.map( i => YamlEncoderExpr(i, renderOptions))
-    new Column(ExpressionRunner(ruleSuite, collectExpressions)).as(name)
+    new Column(ExpressionRunner(RuleLogicUtils.cleanExprs(ruleSuite), collectExpressions)).as(name)
   }
 
   protected[quality] def expressionsResultToRow(ruleSuiteResult: GeneralExpressionsResult): InternalRow =
