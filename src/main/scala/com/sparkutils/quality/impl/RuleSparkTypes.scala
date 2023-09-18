@@ -1,5 +1,6 @@
 package com.sparkutils.quality.impl
 
+import com.sparkutils.quality.types.expressionResultTypeYaml
 import org.apache.spark.sql.types._
 
 trait RuleSparkTypes {
@@ -25,13 +26,33 @@ trait RuleSparkTypes {
   val ruleSuiteDetailsResultType: StructType = StructType(Seq(StructField("id", packedIdType), ruleSetsType ))
 
   /** Unlike DQ results the results of the expression are cast to string, with the original DDL */
-  val expressionResultType: StructType = StructType(Seq(StructField("result", StringType), StructField("resultDDL", StringType)))
+  val expressionResultTypeYaml: StructType = StructType(Seq(StructField("result", StringType), StructField("resultDDL", StringType)))
   /** A given ruleSet's results of packedId's expressionResultType, with the original DDL */
-  val expressionsRuleSetType: MapType = MapType(packedIdType, expressionResultType)
+  def expressionsRuleSetType(endType: DataType): MapType = MapType(packedIdType, endType)
   /** The collection of expression ruleSet's results, with the original DDL */
-  val expressionsRuleSetsType: MapType = MapType(packedIdType, expressionsRuleSetType)
+  def expressionsRuleSetsType(endType: DataType): MapType = MapType(packedIdType, expressionsRuleSetType(endType))
   /** The full suite results of expressionRunner's, with the original DDL */
-  val expressionsResultsType: StructType = StructType(Seq(StructField("id", packedIdType), StructField("ruleSetResults", expressionsRuleSetsType)))
+  def expressionsResultsType(endType: DataType): StructType = StructType(Seq(StructField("id", packedIdType), StructField("ruleSetResults", expressionsRuleSetsType(endType))))
+
+  object ExpressionsResultsType {
+    def unapply(arg: DataType): Option[DataType] = arg match {
+      case StructType(Array(id: StructField,rr: StructField))
+        if id.name == "id" && id.dataType == packedIdType =>
+        rr.dataType match {
+          case m: MapType if m.keyType == packedIdType =>
+            m.valueType match {
+              case m: MapType if m.keyType == packedIdType =>
+                m.valueType match {
+                  case StructType(Array(res, _)) if res.dataType == StringType && res.name == "result" => Some(expressionResultTypeYaml)
+                  case dt: DataType => Some(dt)
+                }
+            }
+          case _ => None
+        }
+      case _ => None
+    }
+
+  }
 
   /** A given ruleSet's results of packedids to rule results, without the DDL field */
   val expressionsRuleSetNoDDLType: MapType = MapType(packedIdType, StringType)

@@ -13,7 +13,7 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression, UnaryExpression}
 import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, GenericArrayData, MapData}
-import org.apache.spark.sql.types.{DataType, StringType}
+import org.apache.spark.sql.types.{DataType, DataTypes, StringType}
 import org.apache.spark.sql.Column
 import org.apache.spark.sql.qualityFunctions.InputTypeChecks
 import org.apache.spark.unsafe.types.UTF8String
@@ -26,23 +26,36 @@ object ExpressionRunner {
    * @param name
    * @return
    */
-  def apply(ruleSuite: RuleSuite, name: String = "expressionResults", renderOptions: Map[String, String] = Map.empty): Column = {
+  def apply(ruleSuite: RuleSuite, name: String = "expressionResults", renderOptions: Map[String, String] = Map.empty, ddlType: String = ""): Column = {
     com.sparkutils.quality.registerLambdaFunctions( ruleSuite.lambdaFunctions )
     val expressions = flattenExpressions(ruleSuite)
-    val collectExpressions = expressions.map( i => YamlEncoderExpr(i, renderOptions))
-    new Column(ExpressionRunner(ruleSuite, collectExpressions)).as(name)
+    val collectExpressions =
+      if (ddlType.isEmpty)
+        expressions.map( i => YamlEncoderExpr(i, renderOptions))
+      else
+        expressions
+
+    val ddl_type =
+      if (ddlType.isEmpty)
+        expressionResultTypeYaml
+      else
+        DataType.fromDDL(ddlType)
+
+    new Column(ExpressionRunner(ruleSuite, collectExpressions, ddl_type)).as(name)
   }
 
-  protected[quality] def expressionsResultToRow(ruleSuiteResult: GeneralExpressionsResult): InternalRow =
+  protected[quality] def expressionsResultToRow[R](ruleSuiteResult: GeneralExpressionsResult[R]): InternalRow =
     InternalRow(
       packId(ruleSuiteResult.id),
       ArrayBasedMapData(
         ruleSuiteResult.ruleSetResults, packId, (a: Any) => {
           val v = a.asInstanceOf[Map[VersionedId, GeneralExpressionResult]]
           ArrayBasedMapData(
-            v, packId, (a: Any) => {
-              val r = a.asInstanceOf[GeneralExpressionResult]
-              InternalRow(UTF8String.fromString( r.ruleResult ), UTF8String.fromString( r.resultDDL) )
+            v, packId, (a: Any) => a match {
+              case r: GeneralExpressionResult =>
+                InternalRow(UTF8String.fromString( r.ruleResult ), UTF8String.fromString( r.resultDDL) )
+              case s: String =>  UTF8String.fromString( s )
+              case r: R => r
             }
           )
         }
@@ -56,7 +69,7 @@ object ExpressionRunner {
  * @param ruleSuite
  * @param children
  */
-case class ExpressionRunner(ruleSuite: RuleSuite, children: Seq[Expression])
+case class ExpressionRunner(ruleSuite: RuleSuite, children: Seq[Expression], ddlType: DataType)
   extends Expression with CodegenFallback with NonSQLExpression {
   override def nullable: Boolean = false
 
@@ -65,14 +78,14 @@ case class ExpressionRunner(ruleSuite: RuleSuite, children: Seq[Expression])
 
   // keep it simple for this one. - can return an internal row or whatever..
   override def eval(input: InternalRow): Any = {
-    val res = RuleSuiteFunctions.evalExpressions(reincorporated, input)
-    expressionsResultToRow(res)
+    val res = RuleSuiteFunctions.evalExpressions(reincorporated, input, ddlType)
+    expressionsResultToRow[Any](res)
   }
 
   // not really worth it in this case for a single row.
   // override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = ???
 
-  override def dataType: DataType = expressionsResultsType
+  override def dataType: DataType = expressionsResultsType(ddlType)
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
     copy(children = newChildren)
@@ -86,9 +99,9 @@ case class StripResultTypes(child: Expression) extends UnaryExpression with Code
     val row = input.asInstanceOf[InternalRow]
     val setData = row.getMap(1)
     val values =
-      Arrays.mapArray(setData.valueArray(), expressionsRuleSetType, a => {
+      Arrays.mapArray(setData.valueArray(), expressionsRuleSetType(StringType), a => {
         val rulesData = a.asInstanceOf[MapData]
-        val values = Arrays.mapArray(rulesData.valueArray(), expressionResultType, a => {
+        val values = Arrays.mapArray(rulesData.valueArray(), expressionResultTypeYaml, a => {
           val row = a.asInstanceOf[InternalRow]
           row.getUTF8String(0)
         })
@@ -99,5 +112,5 @@ case class StripResultTypes(child: Expression) extends UnaryExpression with Code
 
   override def dataType: DataType = expressionsResultsNoDDLType
 
-  override def inputDataTypes: Seq[Seq[DataType]] = Seq(Seq(expressionsResultsType))
+  override def inputDataTypes: Seq[Seq[DataType]] = Seq(Seq(expressionsResultsType(expressionResultTypeYaml)))
 }

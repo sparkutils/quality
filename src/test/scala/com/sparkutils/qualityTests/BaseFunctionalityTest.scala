@@ -626,15 +626,16 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
     val processed = taddDataQuality(sparkSession.range(1000).toDF, rowrs).select(expressionRunner(rs, renderOptions = Map("useFullScalarType" -> "true")))
 
-    val res = processed.selectExpr("expressionResults.*").as[GeneralExpressionsResult].head()
-    assert(res == GeneralExpressionsResult(Id(10, 2), Map(Id(20, 1) -> Map(
+    val res = processed.selectExpr("expressionResults.*").as[GeneralExpressionsResult[GeneralExpressionResult]].head()
+    assert(res == GeneralExpressionsResult[GeneralExpressionResult](Id(10, 2), Map(Id(20, 1) -> Map(
       Id(30, 3) -> GeneralExpressionResult("!!java.lang.Long '499500'\n", "BIGINT"),
       Id(31, 3) -> GeneralExpressionResult("!!java.lang.Long '500'\n", "BIGINT")
     ))))
 
     val gres =
       processed.selectExpr("rule_result(expressionResults, pack_ints(10,2), pack_ints(20,1), pack_ints(31,3)) rr")
-        .selectExpr("rr.*").as[GeneralExpressionResult].head
+        .selectExpr("rr.*")
+        .as[GeneralExpressionResult].head
 
     assert(gres == GeneralExpressionResult("!!java.lang.Long '500'\n", "BIGINT"))
 
@@ -661,6 +662,32 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
     val obj = yaml.load[Long](res.ruleSetResults(Id(20,1))(Id(30,3)).ruleResult);
     assert(obj == 499500L)
+  }
+
+
+  @Test
+  def testExpressionsWithFields(): Unit = evalCodeGensNoResolve {
+    val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+      Rule(Id(30, 3), ExpressionRule("a")),
+      Rule(Id(31, 3), ExpressionRule("b"))
+    ))))
+
+    import quality.implicits._
+
+    val processed = sparkSession.sql("select 'a' a, 'b' b").select(
+      expressionRunner(rs, renderOptions = Map("useFullScalarType" -> "true"), ddlType = "STRING"))
+
+    val res = processed.selectExpr("expressionResults.*").as[GeneralExpressionsResult[String]].head()
+    assert(res == GeneralExpressionsResult[String](Id(10, 2), Map(Id(20, 1) -> Map(
+      Id(30, 3) -> "a",
+      Id(31, 3) -> "b"
+    ))))
+
+    import sparkSession.implicits._
+    val gres =
+      processed.selectExpr("rule_result(expressionResults, pack_ints(10,2), pack_ints(20,1), pack_ints(31,3)) rr")
+        .as[String].head
+    assert(gres == "b")
   }
 
   @Test

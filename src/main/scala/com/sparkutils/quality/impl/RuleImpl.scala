@@ -7,8 +7,9 @@ import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedFu
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext}
 import org.apache.spark.sql.catalyst.expressions.{Expression, ScalarSubquery, SubqueryExpression, UnresolvedNamedLambdaVariable, LambdaFunction => SparkLambdaFunction}
 import org.apache.spark.sql.qualityFunctions.{FunN, RefExpressionLazyType}
-import org.apache.spark.sql.types.Decimal
+import org.apache.spark.sql.types.{DataType, Decimal, StringType}
 import org.apache.spark.sql.{QualitySparkUtils, SparkSession}
+import org.apache.spark.unsafe.types.UTF8String
 
 import scala.collection.mutable
 
@@ -535,18 +536,23 @@ object RuleSuiteFunctions {
     (RuleSuiteResult(id, overall.currentResult, rawRuleSets.toMap), result)
   }
 
-  def evalExpressions(ruleSuite: RuleSuite, internalRow: InternalRow): GeneralExpressionsResult = {
+  def evalExpressions(ruleSuite: RuleSuite, internalRow: InternalRow, dataType: DataType): GeneralExpressionsResult[Any] = {
     import ruleSuite._
 
     val rawRuleSets =
       ruleSets.map { rs =>
-        val ruleSetRawRes: Seq[(VersionedId, GeneralExpressionResult)] = rs.rules.map { r =>
-          // it's a cast to string
-          val resultType = r.expression match {
-            case expr: HasExpr => expr.expr.children(0).dataType.sql
-          }
-          val ruleResult = r.expression.internalEval(internalRow).toString
-          r.id -> GeneralExpressionResult(ruleResult, resultType)
+        val ruleSetRawRes: Seq[(VersionedId, Any)] = rs.rules.map { r =>
+          val ruleResult = r.expression.internalEval(internalRow)
+          r.id -> (
+            if (dataType == quality.types.expressionResultTypeYaml) {
+              // it's a cast to string
+              val resultType = r.expression match {
+                case expr: HasExpr => expr.expr.children.head.dataType.sql
+              }
+              GeneralExpressionResult(ruleResult.toString, resultType)
+            } else
+              ruleResult
+            )
         }
         rs.id -> ruleSetRawRes.toMap
       }
