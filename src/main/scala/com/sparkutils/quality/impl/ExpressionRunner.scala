@@ -41,7 +41,7 @@ object ExpressionRunner {
       else
         DataType.fromDDL(ddlType)
 
-    new Column(ExpressionRunner(ruleSuite, collectExpressions, ddl_type)).as(name)
+    new Column(ExpressionRunner(RuleLogicUtils.cleanExprs(ruleSuite), collectExpressions, ddl_type)).as(name)
   }
 
   protected[quality] def expressionsResultToRow[R](ruleSuiteResult: GeneralExpressionsResult[R]): InternalRow =
