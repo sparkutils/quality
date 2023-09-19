@@ -669,18 +669,20 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
   def testExpressionsWithFields(): Unit = evalCodeGensNoResolve {
     val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
       Rule(Id(30, 3), ExpressionRule("a")),
-      Rule(Id(31, 3), ExpressionRule("b"))
+      Rule(Id(31, 3), ExpressionRule("b")),
+      Rule(Id(32, 3), ExpressionRule("c")),
     ))))
 
     import quality.implicits._
 
-    val processed = sparkSession.sql("select 'a' a, 'b' b").select(
+    val processed = sparkSession.sql("select 'a' a, 'b' b, null c").select(
       typedExpressionRunner(rs, ddlType = "STRING"))
 
     val res = processed.selectExpr("expressionResults.*").as[GeneralExpressionsResult[String]].head()
     assert(res == GeneralExpressionsResult[String](Id(10, 2), Map(Id(20, 1) -> Map(
       Id(30, 3) -> "a",
-      Id(31, 3) -> "b"
+      Id(31, 3) -> "b",
+      Id(32, 3) -> null
     ))))
 
     import sparkSession.implicits._

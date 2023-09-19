@@ -55,7 +55,7 @@ object ExpressionRunner {
               case r: GeneralExpressionResult =>
                 InternalRow(UTF8String.fromString( r.ruleResult ), UTF8String.fromString( r.resultDDL) )
               case s: String =>  UTF8String.fromString( s )
-              case r: R => r
+              case _ => a // handle nulls *and* R's
             }
           )
         }
