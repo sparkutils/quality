@@ -670,7 +670,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
       Rule(Id(30, 3), ExpressionRule("a")),
       Rule(Id(31, 3), ExpressionRule("b")),
-      Rule(Id(32, 3), ExpressionRule("c")),
+      Rule(Id(32, 3), ExpressionRule("c"))
     ))))
 
     import quality.implicits._
