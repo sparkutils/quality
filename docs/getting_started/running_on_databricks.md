@@ -40,9 +40,9 @@ DBR 12.2 backports at least [SPARK-41049](https://issues.apache.org/jira/browse/
 
 As of 6th June 2023 0.0.2 run against the 12.2.dbr LTS build also works on 13.0.
 
-## Running on Databricks Runtime 13.1
+## Running on Databricks Runtime 13.1/13.2
   
-13.1 backports a number of 3.5 oss changes, the 13.1.dbr build must be used - as of 25th May 2023.    
+13.1 backports a number of 3.5 oss changes, the 13.1.dbr build must be used.  The 13.1.dbr build is also successfully tested against 13.2 DBR.    
 
 ## Testing out Quality via Notebooks
 

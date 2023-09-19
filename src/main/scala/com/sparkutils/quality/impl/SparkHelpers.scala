@@ -68,9 +68,9 @@ trait EncodersImplicits extends Serializable {
 
   implicit val ruleSuiteResultDetailsExpEnc = TypedExpressionEncoder[com.sparkutils.quality.RuleSuiteResultDetails]
 
-  implicit val generalExpressionsResultTypedEnc = TypedEncoder[com.sparkutils.quality.GeneralExpressionsResult]
+  implicit def generalExpressionsResultTypedEnc[R: TypedEncoder] = TypedEncoder[com.sparkutils.quality.GeneralExpressionsResult[R]]
 
-  implicit val generalExpressionsResultExpEnc = TypedExpressionEncoder[com.sparkutils.quality.GeneralExpressionsResult]
+  implicit def generalExpressionsResultExpEnc[R](implicit ev: TypedEncoder[GeneralExpressionsResult[R]]) = TypedExpressionEncoder[com.sparkutils.quality.GeneralExpressionsResult[R]]
 
   implicit val generalExpressionResultTypedEnc = TypedEncoder[com.sparkutils.quality.GeneralExpressionResult]
 

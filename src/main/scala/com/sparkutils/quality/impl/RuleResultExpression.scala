@@ -4,8 +4,10 @@ import com.sparkutils.quality.impl.MapUtils.getMapEntry
 import com.sparkutils.quality.types._
 import org.apache.spark.sql.Column
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
+import org.apache.spark.sql.catalyst.analysis.TypeCheckResult.TypeCheckSuccess
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, ExprCode}
-import org.apache.spark.sql.catalyst.expressions.Expression
+import org.apache.spark.sql.catalyst.expressions.{ExpectsInputTypes, Expression}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.util.MapData
 import org.apache.spark.sql.qualityFunctions.InputTypeChecks
@@ -41,9 +43,20 @@ case class RuleResultExpression(children: Seq[Expression]) extends
   @transient
   protected var cachedRulePositions: Seq[Int] = Seq.empty
 
+  private def resetIfNull(): Unit = {
+    if (cachedSetPositions eq null) {
+      cachedSetPositions = Seq.empty
+    }
+    if (cachedRulePositions eq null) {
+      cachedRulePositions = Seq.empty
+    }
+
+  }
+
   override def nullable: Boolean = true
 
   override def eval(inputRow: InternalRow): Any = {
+    resetIfNull()
     val noneAreNull = Seq(children(0).eval(inputRow), children(1).eval(inputRow),
       children(2).eval(inputRow), children(3).eval(inputRow))
     if (noneAreNull.contains(null))
@@ -111,7 +124,7 @@ case class RuleResultExpression(children: Seq[Expression]) extends
          boolean ${ev.isNull} = false;
          $dataTypeJava ${ev.value} = ${ CodeGenerator.defaultValue(dataType) };
 
-         if (${structCode.isNull} || ${structCode.isNull} || ${structCode.isNull} || ${structCode.isNull}) {
+         if (${structCode.isNull} || ${suiteCode.isNull} || ${setCode.isNull} || ${ruleCode.isNull}) {
            ${ev.isNull} = true;
          } else {
            ${classOf[InternalRow].getName} theStruct = ${structCode.value};
@@ -140,8 +153,8 @@ case class RuleResultExpression(children: Seq[Expression]) extends
 
   lazy val (resultType, entryType, accessF) =
     children(0).dataType match {
-      case com.sparkutils.quality.types.expressionsResultsType =>
-        (expressionResultType, expressionsRuleSetType, (a: Any) => a.asInstanceOf[MapData] )
+      case ExpressionsResultsType(theType) =>
+        (theType, expressionsRuleSetType(theType), (a: Any) => a.asInstanceOf[MapData] )
       case com.sparkutils.quality.types.expressionsResultsNoDDLType =>
         (StringType, expressionsRuleSetNoDDLType, (a: Any) => a.asInstanceOf[MapData])
       case _ =>
@@ -156,6 +169,18 @@ case class RuleResultExpression(children: Seq[Expression]) extends
 
   override def inputDataTypes: Seq[Seq[DataType]] = Seq(
     Seq(ruleSuiteResultType, ruleSuiteDetailsResultType,
-      expressionsResultsType, expressionsResultsNoDDLType),
+      expressionsResultsType(expressionResultTypeYaml), expressionsResultsNoDDLType),
     Seq(LongType), Seq(LongType), Seq(LongType))
+
+  override def checkInputDataTypes(): TypeCheckResult = {
+    val res = ExpectsInputTypes.checkInputDataTypes(children, inputTypes)
+    if (res.isSuccess)
+      res
+    else
+      // is the resultType matching
+      children.head.dataType match {
+        case ExpressionsResultsType(_) => TypeCheckSuccess
+        case _ => res
+      }
+  }
 }
