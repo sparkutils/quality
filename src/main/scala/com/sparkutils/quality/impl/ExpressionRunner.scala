@@ -82,10 +82,11 @@ case class ExpressionRunner(ruleSuite: RuleSuite, children: Seq[Expression], ddl
     expressionsResultToRow[Any](res)
   }
 
-  // not really worth it in this case for a single row.
+  // TODO - fill this in...
   // override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = ???
 
-  override def dataType: DataType = expressionsResultsType(ddlType)
+  override def dataType: DataType =
+    expressionsResultsType(children.head.dataType)
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
     copy(children = newChildren)

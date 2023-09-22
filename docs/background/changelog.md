@@ -1,3 +1,7 @@
+### 0.1.3 <small>19th September, 2023</small>
+
+#50 - typedExpressionRunner - audited capture of expressions with the same type
+
 ### 0.1.2.1 <small>4th September, 2023</small>
 
 Maven Central build issues, code wise the same as 0.1.2.
