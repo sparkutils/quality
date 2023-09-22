@@ -9,7 +9,7 @@ import com.sparkutils.quality.impl.imports.RuleRunnerImports
 import com.sparkutils.quality.impl.util.{NonPassThrough, PassThrough}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode, ExprValue}
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression, UnaryExpression}
 import org.apache.spark.sql.catalyst.util.ArrayBasedMapData
 import org.apache.spark.sql.types.DataType
@@ -215,6 +215,52 @@ s"""
 
     (ruleSuitTerm, realChildrenTerm)
   }
+
+
+  def nonOutputRuleGen(ctx: CodegenContext, ev: ExprCode, i: String, ruleSuitTerm: String, utilsName: String,
+                       realChildren: Seq[Expression], variablesPerFunc: Int, variableFuncGroup: Int,
+                       resultF: (ExprValue, Int) => String
+                      ): ExprCode = {
+    val ruleSuiteArrays = ctx.addMutableState(classOf[RuleSuiteResultArray].getName,
+      ctx.freshName("ruleSuiteArrays"),
+      v => s"$v = com.sparkutils.quality.impl.RuleRunnerUtils.ruleSuiteArrays($ruleSuitTerm);"
+    )
+
+    val ruleRes = "java.lang.Object"
+    val arrTerm = ctx.addMutableState(ruleRes + "[]", ctx.freshName("results"),
+      v => s"$v = new $ruleRes[${realChildren.size}];")
+
+    val allExpr = realChildren.zipWithIndex.map { case (child, idx) =>
+      val eval = child.genCode(ctx)
+      val converted =
+        s"""${eval.code}\n
+
+             $arrTerm[$idx] = ${eval.isNull} ? null : ${resultF(eval.value, idx)};"""
+
+      converted
+    }.grouped(variablesPerFunc).grouped(variableFuncGroup)
+
+    val (paramsDef, paramsCall) =
+      if (i ne null)
+        (s"InternalRow $i", s"$i")
+      else
+        (ctx.currentVars.map(v => s"${if (v.value.javaType.isPrimitive) v.value.javaType else v.value.javaType.getName} ${v.value}, ${v.isNull.javaType} ${v.isNull}").mkString(", "), ctx.currentVars.map(v => s"${v.value}, ${v.isNull}").mkString(", "))
+
+    val funNames: Iterator[String] =
+      RuleRunnerUtils.generateFunctionGroups(ctx, allExpr, paramsDef, paramsCall)
+
+    val res = ev.copy(code =
+      code"""
+      ${funNames.map { f => s"$f($paramsCall);" }.mkString("\n")}
+
+      InternalRow ${ev.value} = $utilsName.evalArray($ruleSuitTerm, $ruleSuiteArrays, $arrTerm);
+      boolean ${ev.isNull} = false;
+      """
+    )
+
+    res
+  }
+
 }
 
 /**
@@ -276,44 +322,9 @@ case class RuleRunner(ruleSuite: RuleSuite, child: Expression, compileEvals: Boo
     val ruleSuitTerm = genRuleSuiteTerm[RuleRunner](ctx)._1
     val utilsName = "com.sparkutils.quality.impl.RuleRunnerUtils"
 
-    val ruleSuiteArrays = ctx.addMutableState(classOf[RuleSuiteResultArray].getName,
-      ctx.freshName("ruleSuiteArrays"),
-      v => s"$v = $utilsName.ruleSuiteArrays($ruleSuitTerm);"
+    nonOutputRuleGen(ctx, ev, i, ruleSuitTerm, utilsName, realChildren, variablesPerFunc, variableFuncGroup,
+      (code: ExprValue, idx: Int) => s"com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt($code)"
     )
-
-    val ruleRes = "java.lang.Object"
-    val arrTerm = ctx.addMutableState(ruleRes+"[]", ctx.freshName("results"),
-      v => s"$v = new $ruleRes[${realChildren.size}];")
-
-    val allExpr = realChildren.zipWithIndex.map { case (child, idx) =>
-        val eval = child.genCode(ctx)
-        val converted =
-          s"""${eval.code}\n
-
-             $arrTerm[$idx] = ${eval.isNull} ? null : com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt(${eval.value});"""
-
-        converted
-    }.grouped(variablesPerFunc).grouped(variableFuncGroup)
-
-    val (paramsDef, paramsCall) =
-      if (i ne null)
-        (s"InternalRow $i", s"$i")
-      else
-        (ctx.currentVars.map(v => s"${if (v.value.javaType.isPrimitive) v.value.javaType else v.value.javaType.getName} ${v.value}, ${v.isNull.javaType} ${v.isNull}").mkString(", "), ctx.currentVars.map(v => s"${v.value}, ${v.isNull}").mkString(", "))
-
-    val funNames: _root_.scala.collection.Iterator[_root_.scala.Predef.String] =
-      RuleRunnerUtils.generateFunctionGroups(ctx, allExpr, paramsDef, paramsCall)
-
-    val res = ev.copy(code = code"""
-      ${funNames.map{f => s"$f($paramsCall);"}.mkString("\n")}
-
-      InternalRow ${ev.value} = $utilsName.evalArray($ruleSuitTerm, $ruleSuiteArrays, $arrTerm);
-      boolean ${ev.isNull} = false;
-      """
-    )
-
-    res
-
   }
 
   protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)

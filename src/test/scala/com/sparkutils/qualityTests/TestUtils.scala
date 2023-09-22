@@ -22,6 +22,8 @@ trait TestUtils {
       tmp
   }
 
+  def loggingLevel: String = "ERROR"
+
   def sparkSessionF: SparkSession = {
     val sparkSession = registerFS(SparkSession.builder()).config("spark.master", s"local[$hostMode]").config("spark.ui.enabled", false).getOrCreate()
     if (excludeFilters) {
@@ -31,7 +33,7 @@ trait TestUtils {
     sparkSession.conf.set("spark.sql.optimizer.nestedSchemaPruning.enabled", true)
     // only a visual change
     // sparkSession.conf.set("spark.sql.legacy.castComplexTypesToString.enabled", true)
-    sparkSession.sparkContext.setLogLevel("ERROR") // set to debug to get actual code lines etc.
+    sparkSession.sparkContext.setLogLevel(loggingLevel) // set to debug to get actual code lines etc.
     sparkSession
   }
 
