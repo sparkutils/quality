@@ -2,7 +2,7 @@ package com.sparkutils.quality.impl
 
 import com.sparkutils.quality
 import com.sparkutils.quality._
-import com.sparkutils.quality.impl.RuleRunnerUtils.{PassedInt, RuleSuiteResultArray, flattenExpressions, genRuleSuiteTerm, reincorporateExpressions}
+import com.sparkutils.quality.impl.RuleRunnerUtils.{PassedInt, RuleSuiteResultArray, flattenExpressions, genRuleSuiteTerm, nonOutputRuleGen, reincorporateExpressions}
 import com.sparkutils.quality.impl.imports.RuleResultsImports.packId
 import com.sparkutils.quality.impl.util.Arrays
 import com.sparkutils.quality.impl.yaml.YamlEncoderExpr
@@ -73,7 +73,8 @@ private[quality] object ExpressionRunnerUtils {
     }
   }
 
-  def evalArray(ruleSuiteArrays: RuleSuiteResultArray, results: Array[Any]): InternalRow = {
+  // ruleSuite is not used, its for compat with nonOutputRuleGen
+  def evalArray(ruleSuite: RuleSuite, ruleSuiteArrays: RuleSuiteResultArray, results: Array[Any]): InternalRow = {
     val ruleSetRes = Array.ofDim[ArrayBasedMapData](ruleSuiteArrays.ruleSetIds.length)
 
     var offset = 0
@@ -132,15 +133,7 @@ case class ExpressionRunner(ruleSuite: RuleSuite, children: Seq[Expression], ddl
     val ruleSuitTerm = termF._1
     val utilsName = "com.sparkutils.quality.impl.ExpressionRunnerUtils"
 
-    val ruleSuiteArrays = ctx.addMutableState(classOf[RuleSuiteResultArray].getName,
-      ctx.freshName("ruleSuiteArrays"),
-      v => s"$v = com.sparkutils.quality.impl.RuleRunnerUtils.ruleSuiteArrays($ruleSuitTerm);"
-    )
-
     val ruleRes = "java.lang.Object"
-    val arrTerm = ctx.addMutableState(ruleRes+"[]", ctx.freshName("results"),
-      v => s"$v = new $ruleRes[${children.size}];")
-
     val strType = classOf[UTF8String].getName
     val ddlArrTerm = ctx.addMutableState(ruleRes+"[]", ctx.freshName("ddlArr"),
       v =>
@@ -162,35 +155,9 @@ case class ExpressionRunner(ruleSuite: RuleSuite, children: Seq[Expression], ddl
       else
         s"$code"
 
-    val allExpr = children.zipWithIndex.map { case (child, idx) =>
-      val eval = child.genCode(ctx)
-      val converted =
-        s"""${eval.code}\n
-
-             $arrTerm[$idx] = ${eval.isNull} ? null : ${yamlOrType(eval.value, idx)};"""
-
-      converted
-    }.grouped(variablesPerFunc).grouped(variableFuncGroup)
-
-    val (paramsDef, paramsCall) =
-      if (i ne null)
-        (s"InternalRow $i", s"$i")
-      else
-        (ctx.currentVars.map(v => s"${if (v.value.javaType.isPrimitive) v.value.javaType else v.value.javaType.getName} ${v.value}, ${v.isNull.javaType} ${v.isNull}").mkString(", "), ctx.currentVars.map(v => s"${v.value}, ${v.isNull}").mkString(", "))
-
-    val funNames: _root_.scala.collection.Iterator[_root_.scala.Predef.String] =
-      RuleRunnerUtils.generateFunctionGroups(ctx, allExpr, paramsDef, paramsCall)
-
-    val res = ev.copy(code = code"""
-      ${funNames.map{f => s"$f($paramsCall);"}.mkString("\n")}
-
-      InternalRow ${ev.value} = $utilsName.evalArray($ruleSuiteArrays, $arrTerm);
-      boolean ${ev.isNull} = false;
-      """
+    nonOutputRuleGen(ctx, ev, i, ruleSuitTerm, utilsName, children, variablesPerFunc, variableFuncGroup,
+      yamlOrType(_,_)
     )
-
-    res
-
   }
 
   override def dataType: DataType =
