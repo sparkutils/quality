@@ -19,6 +19,13 @@ import org.apache.spark.sql.catalyst.analysis.FunctionRegistry
 // including rowtools so standalone tests behave as if all of them are running and for verify compatibility
 abstract class ExtensionTestBase extends FunSuite with TestUtils {
 
+  def shouldRun: Boolean
+
+  def when_not_disabled(thunk: => Unit): Unit =
+    if (shouldRun) {
+      thunk
+    }
+
   @Before
   override def setup(): Unit = {
     cleanupOutput() // weirdly doesn't always run on databricks so we have test failures as a result.
@@ -81,7 +88,7 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
   }
 
   @Test
-  def testExtension(): Unit = not2_4 {
+  def testExtension(): Unit = when_not_disabled { not2_4 {
     not_Databricks { // will never work on 2.4 and Databricks has a fixed session
       wrapWithExtension { tsparkSession =>
         import tsparkSession.implicits._
@@ -94,10 +101,10 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
         assert(sres == uuid)
       }
     }
-  }
+  } }
 
   @Test
-  def testExtensionDisableSpecific(): Unit = not2_4 {
+  def testExtensionDisableSpecific(): Unit = when_not_disabled { not2_4 {
     not_Databricks { // will never work on 2.4 and Databricks has a fixed session
       Testing.test {
         wrapWithExtensionT(tsparkSession => {}, AsUUIDFilter.getClass.getName)
@@ -105,10 +112,10 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
       val str = ExtensionTesting.disableRuleResult
       assert(str.indexOf(s"${disableRulesConf} = Set(${AsUUIDFilter.getClass.getName}) leaving List(${IDBase64Filter.getClass.getName}) remaining") > -1, s"str didn't have the expected contents, got $str")
     }
-  }
+  } }
 
   @Test
-  def testExtensionDisableStar(): Unit = not2_4 {
+  def testExtensionDisableStar(): Unit = when_not_disabled { not2_4 {
     not_Databricks { // will never work on 2.4 and Databricks has a fixed session
       Testing.test {
         wrapWithExtensionT(tsparkSession => {}, "*")
@@ -116,7 +123,7 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
       val str = ExtensionTesting.disableRuleResult
       assert(str.isEmpty, s"should have been empty, got $str")
     }
-  }
+  } }
 
   val createview = (sparkSession: SparkSession) => {
     sparkSession.sql(s"create or replace view testfunctionview as select as_uuid($lower, $higher) context");
@@ -128,7 +135,7 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
   }
 
   @Test
-  def testForceFunctionInjection(): Unit = not2_4 {
+  def testForceFunctionInjection(): Unit = when_not_disabled { not2_4 {
     not_Databricks { // will never work on 2.4 and Databricks has a fixed session
       // need to clear the existing quality functions out first
       com.sparkutils.quality.registerQualityFunctions(
@@ -144,16 +151,16 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
         }
       }
     }
-  }
+  } }
 
   @Test
-  def testDefaultFunctionRegistrationViaBuiltIn(): Unit = not2_4 {
+  def testDefaultFunctionRegistrationViaBuiltIn(): Unit = when_not_disabled { not2_4 {
     not_Databricks { // will never work on 2.4 and Databricks has a fixed session
       Testing.test {
         wrapWithExtensionT(createview)
       }
     }
-  }
+  } }
 
 
   val theuuid = "123e4567-e89b-12d3-a456-42661417400"
@@ -165,14 +172,14 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
   }
 
   @Test
-  def testAsymmetricFilterPlan(): Unit = not_Databricks { // will never work on 2.4 and Databricks has a fixed session
+  def testAsymmetricFilterPlan(): Unit = when_not_disabled { not_Databricks { // will never work on 2.4 and Databricks has a fixed session
     doAsymmetricFilterPlanCall()
-  }
+  } }
 
   @Test
-  def testAsymmetricFilterPlanViaExistingSession(): Unit = onlyWithExtension {
+  def testAsymmetricFilterPlanViaExistingSession(): Unit = when_not_disabled {  onlyWithExtension {
     doAsymmetricFilterPlanCall(wrapWithExistingSession _)
-  }
+  } }
 
   val theuuid6HigherNoA = SEqualTo("higher", 1314564453825188563L)
 
@@ -216,7 +223,7 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
   }
 
   @Test
-  def testAsymmetricFilterEqSQL(): Unit = not_Databricks { not2_4 {
+  def testAsymmetricFilterEqSQL(): Unit = when_not_disabled { not_Databricks { not2_4 {
     cleanUp("./metastore_db")
 
     wrapWithExtensionT(sparkSession => {
@@ -240,7 +247,7 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
 
       assert(pushdowns.contains(theuuid6Higher), s"did not have a pushdown with the correct predicates including $theuuid6Higher but $pushdowns")
     }, withHive = true)
-  }}
+  }}}
 
   @Test
   def testAsymmetricFilterPlanJoinEqViaExistingSession(): Unit = onlyWithExtension {
@@ -304,7 +311,7 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
   val theuuid6Higher = SEqualTo("ahigher", higher)
 
   def doTestAsymmetricFilterPlanJoin(viaExtension: (SparkSession => Unit) => Unit, hint: String,
-                                     joinOp: (Column, Column) => Column): Unit =
+                                     joinOp: (Column, Column) => Column): Unit = when_not_disabled {
     doTestAsymmetricFilterPlan(viaJoinOnContext(joinOp), Seq(
       (s" '${theuuid + 6}' = acontext", theuuid6Higher, s"expr_rhs $hint"),
       (s" acontext = '${theuuid + 6}'", theuuid6Higher, s"expr_lhs $hint"),
@@ -314,7 +321,7 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
         SOr(SAnd(SEqualTo("ahigher",higher),
           SGreaterThan("alower",lower)),
           SGreaterThan("ahigher",higher)), s"expr_lhs gt with further filter $hint")
-    ), true, viaExtension = viaExtension)
+    ), true, viaExtension = viaExtension) }
 
   val viaJoinOnContext = (comp: (Column, Column) => Column) => (tsparkSession: SparkSession) => {
     val aWithContext = uuidPairsWithContext("a")(tsparkSession)
@@ -358,7 +365,7 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
   def doTestAsymmetricFilterPlan(withContextF: SparkSession => DataFrame, filters: Seq[(String, Filter, String)],
                                  joinTest: Boolean = false, viaExtension: (SparkSession => Unit) => Unit = wrapWithExtension _,
                                  verifyJoinPlan: DataFrame => Boolean = verifyJoinPlanUUID(_)
-                                ): Unit = not2_4 {
+                                ): Unit = when_not_disabled { not2_4 {
     viaExtension { tsparkSession: SparkSession =>
       val withcontext = withContextF(tsparkSession)
 
@@ -387,7 +394,7 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
         assertWithPlan(pushdowns.contains(expectedFilter), s"$hint - did not have a pushdown with the correct predicates including $expectedFilter but $pushdowns")
       }
     }
-  }
+  } }
 
   /*
   Spark thankfully removes all the superfluous And(trues)
@@ -421,14 +428,14 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
   val theSeventhIDString = "AbRr/ChS6QAAAAAMA/hChwAAAAc="
   val threeLongIDString = "AAAAAwAAAAAAAAB7AAAAAAAAMEQAAAAC39vnuA=="
 
-  def doAsymmetricFilterPlanCallIdsFields(generator: SparkSession => DataFrame, viaExtension: (SparkSession => Unit) => Unit = wrapWithExtension _): Unit =
+  def doAsymmetricFilterPlanCallIdsFields(generator: SparkSession => DataFrame, viaExtension: (SparkSession => Unit) => Unit = wrapWithExtension _): Unit = when_not_disabled {
     doTestAsymmetricFilterPlan(generator, Seq(
       (s" '$theSixthIDString' = id", SEqualTo("i1",testI1), "expr_rhs"),
       (s" id = '$theSixthIDString'", SEqualTo("i1",testI1), "expr_lhs"),
       (s" '$theSixthIDString' = id and i1 > 286051723926044673L", SEqualTo("i1",testI1), "expr_rhs with further filter"),
       (s" id = '$theSixthIDString' and i1 > 286051723926044673L", SEqualTo("i1",testI1), "expr_lhs with further filter"),
       (s" id in ('$theSixthIDString', '$theSeventhIDString')", SIn("i1",Array(testI1, 286051723926044679L)), "with in")
-    ), viaExtension = viaExtension, verifyJoinPlan = verifyJoinPlanID(_))
+    ), viaExtension = viaExtension, verifyJoinPlan = verifyJoinPlanID(_)) }
 /*
 +--------+-------------------+------------------+
 |pre_base|             pre_i0|            pre_i1|
@@ -521,23 +528,23 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
     aWithContext.join(bWithContext, comp($"aid" , $"bid"))
   }
 
-  def doTestDifferentLengthsIdJoin(viaExtension: (SparkSession => Unit) => Unit, hint: String, generator: ((Column, Column) => Column) => SparkSession => DataFrame, joinOp: (Column, Column) => Column): Unit =
-  // will trigger the IF clause and return false, so no records are found and, given no broken down part equals, no pushed down predicates either.
+  def doTestDifferentLengthsIdJoin(viaExtension: (SparkSession => Unit) => Unit, hint: String, generator: ((Column, Column) => Column) => SparkSession => DataFrame, joinOp: (Column, Column) => Column): Unit = when_not_disabled {
+    // will trigger the IF clause and return false, so no records are found and, given no broken down part equals, no pushed down predicates either.
     try {doTestAsymmetricFilterPlan(generator(joinOp), Seq(
       (s" '$theSixthIDString' = aid", SEqualTo("aid",testI1), s"expr_rhs $hint")
     ), true, viaExtension = viaExtension, verifyJoinPlan = verifyJoinPlanID(_))
     } catch {
       case t: Throwable if anyCauseHas(t, _.getMessage().indexOf(" different sizes - did not have re-written join") > -1)=> ()
-    }
+    } }
 
-  def doTestDifferentLengthsIdJoinAndFilter(viaExtension: (SparkSession => Unit) => Unit, hint: String, generator: ((Column, Column) => Column) => SparkSession => DataFrame): Unit =
-  // will trigger the IF clause and return false, so no records are found and, given no broken down part equals, no pushed down predicates either.
+  def doTestDifferentLengthsIdJoinAndFilter(viaExtension: (SparkSession => Unit) => Unit, hint: String, generator: ((Column, Column) => Column) => SparkSession => DataFrame): Unit = when_not_disabled {
+    // will trigger the IF clause and return false, so no records are found and, given no broken down part equals, no pushed down predicates either.
     try {doTestAsymmetricFilterPlan(generator((l, r) => l.===(r)), Seq(
       (s" '$theSixthIDString' = aid", SEqualTo("aid",testI1), s"expr_rhs $hint")
     ), true, viaExtension = viaExtension, verifyJoinPlan = verifyJoinPlanID(_))
     } catch {
       case t: Throwable if anyCauseHas(t, _.getMessage().indexOf(" different sizes - did not have re-written join") > -1)=> ()
-    }
+    } }
 
   @Test
   def testAsymmetricFilterPlanIdJoinDifferentSizeStruct(): Unit = not_Databricks {
@@ -592,7 +599,7 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
   }
 
   def doTestAsymmetricFilterPlanJoinIDS(viaExtension: (SparkSession => Unit) => Unit, hint: String,
-                                     joinOp: (Column, Column) => Column, generator: ((Column, Column) => Column) => SparkSession => DataFrame): Unit =
+                                     joinOp: (Column, Column) => Column, generator: ((Column, Column) => Column) => SparkSession => DataFrame): Unit = when_not_disabled {
     doTestAsymmetricFilterPlan(generator(joinOp), Seq(
       (s" '$theSixthIDString' = aid", SEqualTo("ai1",testI1), s"expr_rhs $hint"),
       (s" aid = '$theSixthIDString'", SEqualTo("ai1",testI1), s"expr_lhs $hint"),
@@ -602,7 +609,7 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
         SOr(SAnd(SAnd(SEqualTo("abase", 28601340), SEqualTo("ai0", 2905640895816663052L)),
           SGreaterThan("ai1", 286051723926044678L)), SOr(SAnd(SEqualTo("abase", 28601340),
           SGreaterThan("ai0", 2905640895816663052L)), SGreaterThan("abase", 28601340))), s"expr_lhs gt with further filter $hint")
-    ), true, viaExtension = viaExtension, verifyJoinPlan = verifyJoinPlanID(_))
+    ), true, viaExtension = viaExtension, verifyJoinPlan = verifyJoinPlanID(_)) }
 
   @Test
   def testAsymmetricFilterPlanJoinFieldsEq(): Unit = not_Databricks {
@@ -767,8 +774,17 @@ case class TestID(base: Int, i0: Long, i1: Long)
 
 class ExtensionParquetTest extends ExtensionTestBase {
   val format = "parquet"
+
+  val shouldRun = true
 }
 
 class ExtensionDeltaTest extends ExtensionTestBase {
   val format = "delta"
+
+  val shouldRun =
+    (sparkVersionNumericMajor, onDatabricks) match {
+      case (_, true) => true
+      case (a, _) if a >= 35 => false // delta 2.4.0 doesn't support 3.5
+      case _ => true
+    }
 }
