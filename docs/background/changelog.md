@@ -1,6 +1,7 @@
 ### 0.1.3 <small>19th September, 2023</small>
 
 #50 - typedExpressionRunner - audited capture of expressions with the same type
+#51 - Spark 3.5.0 support - NOTE ViewLoaderAnalysisException and MissingViewAnalysisException now have Exception causes
 
 ### 0.1.2.1 <small>4th September, 2023</small>
 
