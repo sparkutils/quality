@@ -1,5 +1,7 @@
 ### 0.1.3 <small>19th September, 2023</small>
 
+#53 - Docs parser is now more forgiving, empty descriptions are tolerated and normal scaladoc syntax is allowed
+
 #50 - typedExpressionRunner - audited capture of expressions with the same type
 
 ### 0.1.2.1 <small>4th September, 2023</small>
