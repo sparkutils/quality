@@ -1,5 +1,7 @@
 ### 0.1.3 <small>19th September, 2023</small>
 
+#53 - Docs parser is now more forgiving, empty descriptions are tolerated and normal scaladoc syntax is allowed
+
 #50 - typedExpressionRunner - audited capture of expressions with the same type
 #51 - Spark 3.5.0 support - NOTE ViewLoaderAnalysisException and MissingViewAnalysisException now have Exception causes
 
