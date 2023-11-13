@@ -17,7 +17,7 @@ description
     
 
 ```sql
-concat(fielda, fieldb)
+/** description @param fielda desc */ concat(fielda, fieldb)
 ```
 
 <div class="spark_functions_used comma-list">
@@ -161,7 +161,7 @@ description 2
     
 
 ```sql
-concat(fielda, fieldb)
+/** description 2 @param fielda desc 2 */ concat(fielda, fieldb)
 ```
 
 <div class="spark_functions_used comma-list">
@@ -202,7 +202,7 @@ lambda description
     
 
 ```sql
-variable -> variable
+/** lambda description @param fielda lambda desc */ variable -> variable
 ```
 
 
@@ -284,7 +284,7 @@ lambda description only
     
 
 ```sql
-(outervariable1, variable2, variable3) -> testCaller2(outervariable1, variable2)
+/** lambda description only */ (outervariable1, variable2, variable3) -> testCaller2(outervariable1, variable2)
 ```
 
 <div class="lambdas_used comma-list">

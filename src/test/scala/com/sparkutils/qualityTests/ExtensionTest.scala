@@ -781,10 +781,5 @@ class ExtensionParquetTest extends ExtensionTestBase {
 class ExtensionDeltaTest extends ExtensionTestBase {
   val format = "delta"
 
-  val shouldRun =
-    (sparkVersionNumericMajor, onDatabricks) match {
-      case (_, true) => true
-      case (a, _) if a >= 35 => false // delta 2.4.0 doesn't support 3.5
-      case _ => true
-    }
+  val shouldRun = true
 }
