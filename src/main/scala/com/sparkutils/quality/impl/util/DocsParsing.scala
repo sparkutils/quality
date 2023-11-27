@@ -16,7 +16,9 @@ case class ReturnDoc(str: String) extends LambdaDocsToken
 trait NotATokenParser extends JavaTokenParsers {
   def breakingTokens: Set[String]
 
-  lazy val notAToken =
+  lazy val notAToken: Parser[String] = notAToken()
+
+  def notAToken(breakingTokens: Set[String] = breakingTokens) =
     new Parser[String] {
       def apply(in: Input) = {
         val source = in.source
