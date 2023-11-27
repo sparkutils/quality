@@ -25,7 +25,7 @@ trait NotATokenParser extends JavaTokenParsers {
         var j = start
         var break = 0
         var fromStart = false
-        while (j < source.length && break == 0) {
+        while (j <= source.length && break == 0) {
           val breakOption =
             breakingTokens.find { token =>
               val len = j - token.length
