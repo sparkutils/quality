@@ -148,7 +148,7 @@ object DocsParser extends NotATokenParser with PackratParsers {
    * @return Some(Docs) when there is a documentation object
    */
   def parse( s: String ): Option[Docs] = {
-    val ret = parseAll(phrase(docs), cleanDocs(s)) // trailing space acts a termination char
+    val ret = parseAll(phrase(docs), cleanDocs(s))
     ret match {
       case Success(result, nextInput) =>
         Some(Docs(result._1._1._1.map(_.str).getOrElse(""),
