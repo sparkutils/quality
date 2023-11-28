@@ -37,7 +37,7 @@ trait NotATokenParser extends JavaTokenParsers {
                 fromStart = false
                 token == comp
               } else
-                if (j + token.length < source.length) {
+                if (j + token.length <= source.length) {
                   val comp = source.subSequence(j, j + token.length)
 
                   fromStart = true
@@ -148,7 +148,7 @@ object DocsParser extends NotATokenParser with PackratParsers {
    * @return Some(Docs) when there is a documentation object
    */
   def parse( s: String ): Option[Docs] = {
-    val ret = parseAll(phrase(docs), cleanDocs(s) + " ") // trailing space acts a termination char
+    val ret = parseAll(phrase(docs), cleanDocs(s)) // trailing space acts a termination char
     ret match {
       case Success(result, nextInput) =>
         Some(Docs(result._1._1._1.map(_.str).getOrElse(""),
