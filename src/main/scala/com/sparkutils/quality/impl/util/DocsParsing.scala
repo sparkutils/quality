@@ -53,6 +53,10 @@ trait NotATokenParser extends JavaTokenParsers {
           }
         }
 
+        if (j >= source.length() && break == 0) {
+          j = source.length() // no breaking token found the while exits due to j consuming the last position
+        }
+
         if (break > 0 && fromStart)
           Failure("breakingToken found at at start of token parsing", in.drop(start - offset))
         else
@@ -86,9 +90,9 @@ case class WithDocs[T](t: T, docs: Docs)
 object DocsParser extends NotATokenParser with PackratParsers {
   val log = LoggerFactory.getLogger("DocParser")
 
-  val breakingTokens = Set("*/", "@param", "@return")
+  val breakingTokens = Set("/**", "*/", "@param", "@return")
 
-  lazy val docs = "/**" ~> opt(description) ~ opt(params) ~ opt(ret) ~ ("*/")
+  lazy val docs = (notAToken ~ "/**" | "/**") ~> opt(description) ~ opt(params) ~ opt(ret) ~ (("*/") ~ notAToken | ("*/"))
 
   lazy val description = notAToken ^^ (f => Description(f.trim))
   lazy val params = rep(param)
@@ -107,11 +111,13 @@ object DocsParser extends NotATokenParser with PackratParsers {
   def stripComments( s: String ): String = {
     val ret = parseAll(phrase(docs), s)
     ret match {
-      case Success(result, nextInput) =>
-        result._2
+      case Success(desc ~ params ~ returnDesc ~ (end ~ rest), nextInput) =>
+        rest.toString
 
       case NoSuccess(msg, nextInput) =>
         s
+
+      case _ => s
     }
   }
 
@@ -150,10 +156,10 @@ object DocsParser extends NotATokenParser with PackratParsers {
   def parse( s: String ): Option[Docs] = {
     val ret = parseAll(phrase(docs), cleanDocs(s))
     ret match {
-      case Success(result, nextInput) =>
-        Some(Docs(result._1._1._1.map(_.str).getOrElse(""),
-          result._1._1._2.map(t => t.map( d => d.parameterName -> d.docs).toMap ).getOrElse(Map.empty),
-          result._1._2.map(_.str).getOrElse("")
+      case Success(desc ~ params ~ returnDesc ~ _, nextInput) =>
+        Some(Docs(desc.map(_.str).getOrElse(""),
+          params.map(t => t.map( d => d.parameterName -> d.docs).toMap ).getOrElse(Map.empty),
+          returnDesc.map(_.str).getOrElse("")
         ))
 
       case NoSuccess(msg, nextInput) =>
