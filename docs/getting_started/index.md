@@ -118,7 +118,7 @@ As there are many compatibility issues that Quality works around between the var
 
 ```xml
 <properties>
-    <qualityVersion>0.1.0</qualityVersion>
+    <qualityVersion>0.1.3</qualityVersion>
     <qualityTestPrefix>3.4.1.oss_</qualityTestPrefix>
     <qualityDatabricksPrefix>13.1.dbr_</qualityDatabricksPrefix>
     <sparkShortVersion>3.4</sparkShortVersion>

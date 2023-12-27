@@ -18,12 +18,16 @@ trait NotATokenParser extends JavaTokenParsers {
 
   lazy val notAToken: Parser[String] = notAToken()
 
-  def notAToken(breakingTokens: Set[String] = breakingTokens) =
+  def notAToken(breakingTokens: Set[String] = breakingTokens, keepWhiteSpace: Boolean = false) =
     new Parser[String] {
       def apply(in: Input) = {
         val source = in.source
         val offset = in.offset
-        val start = handleWhiteSpace(source, offset)
+        val start =
+          if (keepWhiteSpace)
+            offset
+          else
+            handleWhiteSpace(source, offset)
         var j = start
         var break = 0
         var fromStart = false
@@ -57,13 +61,19 @@ trait NotATokenParser extends JavaTokenParsers {
           j = source.length() // no breaking token found the while exits due to j consuming the last position
         }
 
-        if (break > 0 && fromStart)
+        val offsetWouldOOB = ((j - break) - offset - start > 0)
+        val breakWouldOOB = (!(break > 0 && (j - break > start)) && (start == j))
+
+        if (fromStart && (offsetWouldOOB || breakWouldOOB))
           Failure("breakingToken found at at start of token parsing", in.drop(start - offset))
         else
-          if (break > 0)
+          if (break > 0 && (j - break > start))
             Success(source.subSequence(start, j - break).toString, in.drop((j - break) - offset))
           else
-            Success(source.subSequence(start, j).toString, in.drop(j - offset))
+            if ((offset == start) && (j == start) && break == 0)
+              Failure("no breakingToken found, end of data", in)
+            else
+              Success(source.subSequence(start, j).toString, in.drop(j - offset))
       }
     }
 }
