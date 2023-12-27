@@ -111,7 +111,7 @@ case class ExpressionRunner(ruleSuite: RuleSuite, children: Seq[Expression], ddl
   override def nullable: Boolean = false
 
   // used only for eval, compiled uses the children directly
-  lazy val reincorporated = reincorporateExpressions(ruleSuite, children, false)
+  lazy val reincorporated = reincorporateExpressions(ruleSuite, children, compileEvals)
 
   // keep it simple for this one. - can return an internal row or whatever..
   override def eval(input: InternalRow): Any = {

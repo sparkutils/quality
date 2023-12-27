@@ -10,7 +10,7 @@ import org.apache.commons.rng.simple.RandomSource
 import org.apache.spark.sql.catalyst.encoders.RowEncoder
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.{DataType, StringType, StructType}
-import org.apache.spark.sql.{DataFrame, Dataset, Row, SparkSession}
+import org.apache.spark.sql.{DataFrame, Dataset, QualitySparkUtils, Row, SparkSession}
 import org.apache.spark.storage.StorageLevel
 import org.scalameter.api.Gen.crossProduct
 import org.scalameter.api._
@@ -80,7 +80,7 @@ trait RowTools extends TestUtils {
   def dataFrameLong[T](maxRows: Int, maxCols: Int, dataType: DataType, startValue: T) = sparkSessionF.createDataFrame(sampleDataAsLong(maxRows, maxCols, startValue).asJava, longSchema(maxCols, dataType))
 
   def sampleDataAsLongLazy[T](ids: Dataset[java.lang.Long], maxCols: Int, startValue: T, structType: StructType): DataFrame = {
-    implicit val renc = RowEncoder(structType)
+    implicit val renc = QualitySparkUtils.rowEncoder(structType)
     ids.map(i => Row(((0L until maxCols).map(i+_) :+ startValue) :_*))
   }
 

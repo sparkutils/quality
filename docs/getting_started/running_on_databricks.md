@@ -44,6 +44,10 @@ As of 6th June 2023 0.0.2 run against the 12.2.dbr LTS build also works on 13.0.
   
 13.1 backports a number of 3.5 oss changes, the 13.1.dbr build must be used.  The 13.1.dbr build is also successfully tested against 13.2 DBR.    
 
+## Running on Databricks Runtime 14.0
+  
+-    
+
 ## Testing out Quality via Notebooks
 
 You can use the appropriate runtime quality_testshade artefact jar (e.g. [DBR 11.3](https://s01.oss.sonatype.org/content/repositories/releases/com/sparkutils/quality_testshade_11.3.dbr_3.3_2.12/)) from maven to upload into your workspace / notebook env (or add via maven).  When using Databricks make sure to use the appropriate _Version.dbr builds.
@@ -72,9 +76,9 @@ Ideally at the end of your runs you'll see - after 10 minutes or so and some std
 ```
 Time: 633.686
 
-OK (404 tests)
+OK (405 tests)
 
-Finished. Result: Failures: 0. Ignored: 0. Tests run: 404. Time: 633686ms.
+Finished. Result: Failures: 0. Ignored: 0. Tests run: 405. Time: 633686ms.
 import com.sparkutils.quality.tests.TestSuite
 import com.sparkutils.qualityTests.SparkTestUtils
 fileLoc: String = /dbfs/databricks/quality_test
