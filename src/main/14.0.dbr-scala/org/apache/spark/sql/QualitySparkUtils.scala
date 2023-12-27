@@ -224,7 +224,7 @@ object QualitySparkUtils {
 //        ResolveAlterTableCommands ::
         AddMetadataColumns ::
         DeduplicateRelations ::
-        ResolveReferences ::
+//        ResolveReferences ::
         ResolveExpressionsWithNamePlaceholders ::
         ResolveDeserializer ::
         ResolveNewInstance ::
