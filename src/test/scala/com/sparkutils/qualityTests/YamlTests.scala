@@ -7,12 +7,7 @@ import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.DataType
 import org.junit.Test
 import org.scalatest.FunSuite
-import org.yaml.snakeyaml.LoaderOptions
-import org.yaml.snakeyaml.constructor.Constructor
-import org.yaml.snakeyaml.inspector.TagInspector
-import org.yaml.snakeyaml.nodes.Tag
 
-import java.io.StringReader
 import scala.language.postfixOps
 
 class YamlTests extends FunSuite with RowTools with TestUtils {
