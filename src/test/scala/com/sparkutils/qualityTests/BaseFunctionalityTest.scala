@@ -2,6 +2,7 @@ package com.sparkutils.qualityTests
 
 import com.sparkutils.quality
 import com.sparkutils.quality._
+import com.sparkutils.quality.impl.YamlDecoder
 import functions._
 import types._
 import impl.imports.RuleResultsImports.packId
@@ -12,8 +13,8 @@ import org.apache.spark.sql.types.{DataType, IntegerType, StructType}
 import org.apache.spark.sql.{Column, DataFrame, Encoder, SaveMode}
 import org.junit.Test
 import org.scalatest.FunSuite
-import java.util.UUID
 
+import java.util.UUID
 import com.sparkutils.quality.impl.yaml.{YamlDecoderExpr, YamlEncoderExpr}
 
 import scala.language.postfixOps
@@ -657,8 +658,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
     assert(strippedGres == "!!java.lang.Long '500'\n")
 
-    import org.yaml.snakeyaml.Yaml
-    val yaml = new Yaml();
+    val yaml = YamlDecoder.yaml
 
     val obj = yaml.load[Long](res.ruleSetResults(Id(20,1))(Id(30,3)).ruleResult);
     assert(obj == 499500L)
