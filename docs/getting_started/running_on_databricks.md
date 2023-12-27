@@ -46,7 +46,12 @@ As of 6th June 2023 0.0.2 run against the 12.2.dbr LTS build also works on 13.0.
 
 ## Running on Databricks Runtime 14.0
   
--    
+14.0 and 14.1 can be used with the 14.0.dbr runtime, 14.2 however is not compatible, it back-ports two changes that render Quality 0.1.3 impossible to run:
+
+1. 44913 - StaticInvoke has changed breaking frameless binary compatibility
+2. ResolveReferences now takes catalogue as a parameter
+
+Both require building against OSS 4.0 / main.
 
 ## Testing out Quality via Notebooks
 
