@@ -5,7 +5,7 @@ import java.util.Locale
 import com.sparkutils.quality.impl.{RuleEngineRunner, RuleFolderRunner, RuleRunner, ShowParams}
 import com.sparkutils.quality.impl.util.DebugTime.debugTime
 import com.sparkutils.quality.impl.util.PassThrough
-import org.apache.spark.sql.catalyst.{CatalystTypeConverters, FunctionIdentifier}
+import org.apache.spark.sql.catalyst.{CatalystTypeConverters, ExtendedAnalysisException, FunctionIdentifier}
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, FunctionRegistry, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCheckResult, TypeCoercion, UnresolvedFunction, UnresolvedRelation}
 import org.apache.spark.sql.catalyst.catalog.SessionCatalog
 import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Attribute, BinaryOperator, BindReferences, Cast, EqualNullSafe, Expression, ExpressionInfo, ExpressionSet, GetArrayStructFields, GetStructField, LambdaFunction, Literal, PrettyAttribute}
@@ -23,6 +23,9 @@ import org.apache.spark.sql.catalyst.util.TypeUtils
 import org.apache.spark.sql.types.{AbstractDataType, DataType, DecimalType}
 import TypeCheckResult.DataTypeMismatch
 import org.apache.spark.sql.catalyst.encoders.RowEncoder
+import org.apache.spark.sql.catalyst.expressions.Cast.{toSQLValue => stoSQLValue}
+import org.apache.spark.sql.catalyst.expressions.ExpectsInputTypes.{toSQLExpr => stoSQLExpr, toSQLType => stoSQLType}
+import org.apache.spark.sql.catalyst.parser.ParseException
 import org.apache.spark.sql.catalyst.types.PhysicalDataType
 
 /**
@@ -214,7 +217,6 @@ object QualitySparkUtils {
     Batch("Resolution", fixedPoint,
 //      ResolveNamespace(catalogManager) :: works on 11.0 and 11.1, fails on all other 11.x
         new ResolveCatalogs(catalogManager) ::
-        ResolveUserSpecifiedColumns ::
         ResolveInsertInto ::
         ResolveRelations ::
 //        ResolveTables ::
@@ -377,49 +379,9 @@ object QualitySparkUtils {
       messageParameters = messageParameters
     )
 
-  def toSQLType(t: AbstractDataType): String = t match {
-    case TypeCollection(types) => types.map(toSQLType).mkString("(", " or ", ")")
-    case dt: DataType => quoteByDefault(dt.sql)
-    case at => quoteByDefault(at.simpleString.toUpperCase(Locale.ROOT))
-  }
-  def toSQLExpr(e: Expression): String = {
-    quoteByDefault(toPrettySQL(e))
-  }
-
-  def usePrettyExpression(e: Expression): Expression = e transform {
-    case a: Attribute => new PrettyAttribute(a)
-    case Literal(s: UTF8String, StringType) => PrettyAttribute(s.toString, StringType)
-    case Literal(v, t: NumericType) if v != null => PrettyAttribute(v.toString, t)
-    case Literal(null, dataType) => PrettyAttribute("NULL", dataType)
-    case e: GetStructField =>
-      val name = e.name.getOrElse(e.childSchema(e.ordinal).name)
-      PrettyAttribute(usePrettyExpression(e.child).sql + "." + name, e.dataType)
-    case e: GetArrayStructFields =>
-      PrettyAttribute(usePrettyExpression(e.child) + "." + e.field.name, e.dataType)
-    case c: Cast =>
-      PrettyAttribute(usePrettyExpression(c.child).sql, c.dataType)
-  }
-
-  def toPrettySQL(e: Expression): String = usePrettyExpression(e).sql
-  // Converts an error class parameter to its SQL representation
-  def toSQLValue(v: Any, t: DataType): String = Literal.create(v, t) match {
-    case Literal(null, _) => "NULL"
-    case Literal(v: Float, FloatType) =>
-      if (v.isNaN) "NaN"
-      else if (v.isPosInfinity) "Infinity"
-      else if (v.isNegInfinity) "-Infinity"
-      else v.toString
-    case l @ Literal(v: Double, DoubleType) =>
-      if (v.isNaN) "NaN"
-      else if (v.isPosInfinity) "Infinity"
-      else if (v.isNegInfinity) "-Infinity"
-      else l.sql
-    case l => l.sql
-  }
-
-  private def quoteByDefault(elem: String): String = {
-    "\"" + elem + "\""
-  }
+  def toSQLType(dataType: DataType): String = stoSQLType(dataType)
+  def toSQLExpr(value: Expression): String = stoSQLExpr(value)
+  def toSQLValue(value: Any, dataType: DataType): String = stoSQLValue(value, dataType)
 
   // https://issues.apache.org/jira/browse/SPARK-43019 in 3.5, backported to 13.1 dbr
   def sparkOrdering(dataType: DataType): Ordering[_] = PhysicalDataType.ordering(dataType)
