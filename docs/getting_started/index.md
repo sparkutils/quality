@@ -106,6 +106,10 @@ The full list of supported runtimes is below:
     13.0 also works on the 12.2.dbr_ build as of 10th May 2023, despite the Spark version difference.
     13.1 requires its own version as it backports 3.5 functionality.  The 13.1.dbr quality runtime build also works on 13.2 DBR. 
 
+!!! warning "Databricks 14.x support"
+    Due to back-porting of SPARK-44913 frameless 0.16.0 (the 3.5.0 release) is not binary compatible with 14.2 and above which has back-ported this 4.0 interface change.
+    Similarly, 4.0 / 14.2 introduces a change in resolution so a new runtime version is required upon a potential fix for 44913 in frameless. 
+
 ## Sql functions vs column dsl
 
 Similar to normal Spark functions there Quality's functions have sql variants to use with select / sql or expr() and the dsl variants built around Column.

@@ -6,7 +6,7 @@ import com.sparkutils.quality.impl.{RuleEngineRunner, RuleFolderRunner, RuleRunn
 import com.sparkutils.quality.impl.util.DebugTime.debugTime
 import com.sparkutils.quality.impl.util.PassThrough
 import org.apache.spark.sql.catalyst.{CatalystTypeConverters, ExtendedAnalysisException, FunctionIdentifier}
-import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, FunctionRegistry, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCheckResult, TypeCoercion, UnresolvedFunction, UnresolvedRelation, ResolveReferences}
+import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, FunctionRegistry, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCheckResult, TypeCoercion, UnresolvedFunction, UnresolvedRelation}
 import org.apache.spark.sql.catalyst.catalog.SessionCatalog
 import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Attribute, BinaryOperator, BindReferences, Cast, EqualNullSafe, Expression, ExpressionInfo, ExpressionSet, GetArrayStructFields, GetStructField, LambdaFunction, Literal, PrettyAttribute}
 import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, UnaryNode}
@@ -224,7 +224,7 @@ object QualitySparkUtils {
 //        ResolveAlterTableCommands ::
         AddMetadataColumns ::
         DeduplicateRelations ::
-        new ResolveReferences(catalogManager) ::
+        ResolveReferences ::
         ResolveExpressionsWithNamePlaceholders ::
         ResolveDeserializer ::
         ResolveNewInstance ::

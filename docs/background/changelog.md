@@ -4,6 +4,7 @@
 #50 - typedExpressionRunner - audited capture of expressions with the same type
 #51 - Spark 3.5.0 support - NOTE ViewLoaderAnalysisException and MissingViewAnalysisException now have Exception causes
 #27 - Delta 3.0.0 (Spark 3.5.0) support - compatible version 
+#55 - DBR 14 - Snake Yaml 2.0 support
 
 ### 0.1.2.1 <small>4th September, 2023</small>
 
