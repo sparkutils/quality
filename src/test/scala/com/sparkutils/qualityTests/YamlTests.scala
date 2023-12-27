@@ -2,11 +2,17 @@ package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
 import com.sparkutils.quality.functions._
+import com.sparkutils.quality.impl.YamlDecoder
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.DataType
 import org.junit.Test
 import org.scalatest.FunSuite
+import org.yaml.snakeyaml.LoaderOptions
+import org.yaml.snakeyaml.constructor.Constructor
+import org.yaml.snakeyaml.inspector.TagInspector
+import org.yaml.snakeyaml.nodes.Tag
 
+import java.io.StringReader
 import scala.language.postfixOps
 
 class YamlTests extends FunSuite with RowTools with TestUtils {
@@ -137,8 +143,7 @@ class YamlTests extends FunSuite with RowTools with TestUtils {
     val str =
       sparkSession.sql(s"select to_yaml(cast(1234.50404 as decimal(30,10)), $UseFullScalarType) r").as[String].head
 
-    import org.yaml.snakeyaml.Yaml
-    val yaml = new Yaml();
+    val yaml = YamlDecoder.yaml
 
     val dec = BigDecimal(1234.50404).setScale(10).bigDecimal
     val obj = yaml.load[java.math.BigDecimal](str);

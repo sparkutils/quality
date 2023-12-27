@@ -33,6 +33,7 @@ object QualityYamlEncoding {
   def createNullNode(implicit renderOptions: Map[String, String]): ScalarNode = createScalarNode(Tag.NULL, null)
 
   val DecimalClass = classOf[Decimal]
+  val UTF8Class = classOf[UTF8String]
 
   def createScalarNode(tag: Tag, a: Any)(implicit renderOptions: Map[String, String]): ScalarNode =
     if (a == null)
@@ -42,6 +43,7 @@ object QualityYamlEncoding {
         if (renderOptions.get("useFullScalarType").exists(_.toBoolean))
           new Tag(a.getClass match {
             case DecimalClass => classOf[java.math.BigDecimal]
+            case UTF8Class => classOf[java.lang.String]
             case e => e
           })
             else
