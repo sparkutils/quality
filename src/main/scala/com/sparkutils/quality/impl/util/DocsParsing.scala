@@ -14,11 +14,11 @@ case class ReturnDoc(str: String) extends LambdaDocsToken
  * Parser which adds token based string reading
  */
 trait NotATokenParser extends JavaTokenParsers {
-  def breakingTokens: Set[String]
+  def breakingTokens: Seq[String]
 
   lazy val notAToken: Parser[String] = notAToken()
 
-  def notAToken(breakingTokens: Set[String] = breakingTokens, keepWhiteSpace: Boolean = false) =
+  def notAToken(breakingTokens: Seq[String] = breakingTokens, keepWhiteSpace: Boolean = false) =
     new Parser[String] {
       def apply(in: Input) = {
         val source = in.source
@@ -100,7 +100,7 @@ case class WithDocs[T](t: T, docs: Docs)
 object DocsParser extends NotATokenParser with PackratParsers {
   val log = LoggerFactory.getLogger("DocParser")
 
-  val breakingTokens = Set("/**", "*/", "@param", "@return")
+  val breakingTokens = Seq("/**", "*/", "@param", "@return")
 
   lazy val docs = (notAToken ~ "/**" | "/**") ~> opt(description) ~ opt(params) ~ opt(ret) ~ (("*/") ~ notAToken | ("*/"))
 
