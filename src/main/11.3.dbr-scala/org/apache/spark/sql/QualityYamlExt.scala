@@ -13,22 +13,22 @@ import scala.collection.JavaConverters._
 
 object QualityYamlExt {
 
-  private def createIntervalNode(interval: CalendarInterval) =
+  private def createIntervalNode(interval: CalendarInterval)(implicit renderOptions: Map[String, String]) =
     if (interval eq null)
       createNullNode
     else {
       val tuples = Seq(
         new NodeTuple(
-          createScalarNode("days"),
-          createScalarNode(interval.days)
+          createScalarNode(Tag.STR, "days"),
+          createScalarNode(Tag.INT, interval.days)
         ),
         new NodeTuple(
-          createScalarNode("microseconds"),
-          createScalarNode(interval.microseconds)
+          createScalarNode(Tag.STR, "microseconds"),
+          createScalarNode(Tag.INT, interval.microseconds)
         ),
         new NodeTuple(
-          createScalarNode("months"),
-          createScalarNode(interval.months)
+          createScalarNode(Tag.STR, "months"),
+          createScalarNode(Tag.INT, interval.months)
         )
       )
 
@@ -36,7 +36,7 @@ object QualityYamlExt {
     }
 
 
-  def makeConverterExt: ValueConverter = {
+  def makeConverterExt(implicit renderOptions: Map[String, String]): ValueConverter = {
 
     case CalendarIntervalType =>
       (a: Any) =>
@@ -44,15 +44,15 @@ object QualityYamlExt {
 
     case TimestampNTZType =>
       (a: Any) =>
-        createScalarNode(a)
+        createScalarNode(Tag.INT, a)
 
     case ym: YearMonthIntervalType =>
       (a: Any) =>
-        createScalarNode(a)
+        createScalarNode(Tag.INT, a)
 
     case dt: DayTimeIntervalType =>
       (a: Any) =>
-        createScalarNode(a)
+        createScalarNode(Tag.INT, a)
 
     case udt: UserDefinedType[_] =>
       makeValueConverter.applyOrElse(udt.sqlType, makeConverterExt)
@@ -60,7 +60,7 @@ object QualityYamlExt {
     case dataType => throw QualityException(s"Cannot find yaml representation for type $dataType")
   }
 
-  def makeStructFieldConverterExt: StructValueConverter = {
+  def makeStructFieldConverterExt(implicit renderOptions: Map[String, String]): StructValueConverter = {
 
     case CalendarIntervalType =>
       (i: InternalRow, p: Int) =>
@@ -68,15 +68,15 @@ object QualityYamlExt {
 
     case TimestampNTZType =>
       (i: InternalRow, p: Int) =>
-        createScalarNode(i.getLong(p))
+        createScalarNode(Tag.INT, i.getLong(p))
 
     case ym: YearMonthIntervalType =>
       (i: InternalRow, p: Int) =>
-        createScalarNode(i.getInt(p))
+        createScalarNode(Tag.INT, i.getInt(p))
 
     case dt: DayTimeIntervalType =>
       (i: InternalRow, p: Int) =>
-        createScalarNode(i.getLong(p))
+        createScalarNode(Tag.INT, i.getLong(p))
 
     case udt: UserDefinedType[_] =>
       // recurse ever?

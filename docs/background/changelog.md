@@ -1,4 +1,20 @@
-### [0.1.1](https://github.com/sparkutils/quality/milestone/6?closed=1) <small>7th July, 2023</small>
+### 0.1.3 <small>19th September, 2023</small>
+
+#53 - Docs parser is now more forgiving, empty descriptions are tolerated and normal scaladoc syntax is allowed
+#50 - typedExpressionRunner - audited capture of expressions with the same type
+#51 - Spark 3.5.0 support - NOTE ViewLoaderAnalysisException and MissingViewAnalysisException now have Exception causes
+#27 - Delta 3.0.0 (Spark 3.5.0) support - compatible version 
+#55 - DBR 14 - Snake Yaml 2.0 support
+
+### 0.1.2.1 <small>4th September, 2023</small>
+
+Maven Central build issues, code wise the same as 0.1.2.
+
+### [0.1.2](https://github.com/sparkutils/quality/milestone/7?closed=1) <small>4th September, 2023</small>
+
+#48 - Bug fix - Enable Sub Queries in all runner types
+
+### [0.1.1](https://github.com/sparkutils/quality/milestone/6?closed=1) <small>9th July, 2023</small>
 
 #42 - Improve expression runner to store yaml, unlike json, to_yaml and from_yaml allow complete support for roundtripping of Spark data types
 

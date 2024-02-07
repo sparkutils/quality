@@ -1,49 +1,49 @@
 package com.sparkutils.qualityTests
 
-import com.sparkutils.quality
 import com.sparkutils.quality._
-import functions._
-import types._
-import impl.imports.RuleResultsImports.packId
-import com.sparkutils.quality.impl.util.{Arrays, PrintCode}
-import org.apache.spark.sql.catalyst.util.ArrayData
+import com.sparkutils.quality.functions._
+import com.sparkutils.quality.impl.YamlDecoder
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.types.{BooleanType, ByteType, DataType, DataTypes, DateType, DoubleType, FloatType, IntegerType, LongType, ShortType, StringType, StructType, TimestampType}
-import org.apache.spark.sql.{Column, DataFrame, Encoder, SaveMode}
+import org.apache.spark.sql.types.DataType
 import org.junit.Test
 import org.scalatest.FunSuite
-import java.util.UUID
-
-import com.sparkutils.quality.impl.yaml.{YamlDecoderExpr, YamlEncoderExpr}
-import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.Literal
 
 import scala.language.postfixOps
 
 class YamlTests extends FunSuite with RowTools with TestUtils {
 
   def doSerDeTestMaps(original: String, ddl: String) = evalCodeGens {
-    val df = sparkSession.sql(s"select $original bits")
-      .select(col("bits"), to_yaml( col("bits") ).as("converted"))
-      .select(expr("*"), from_yaml( col("converted") , DataType.fromDDL(ddl)).as("deconverted"))
+    def serDe(renderOptions: Map[String, String]) {
+      val df = sparkSession.sql(s"select $original bits")
+        .select(col("bits"), to_yaml(col("bits"), renderOptions).as("converted"))
+        .select(expr("*"), from_yaml(col("converted"), DataType.fromDDL(ddl)).as("deconverted"))
 
-    val r = df.select(col("bits").as("og"), comparable_maps(col("bits")).as("bits"), col("converted"), col("deconverted").as("og_deconverted"), comparable_maps(col("deconverted")).as("deconverted"))
-    val filtered= r.filter("deconverted = bits or deconverted is null and bits is null")
-    //r.show
-    assert(filtered.count == 1)
+      val r = df.select(col("bits").as("og"), comparable_maps(col("bits")).as("bits"), col("converted"), col("deconverted").as("og_deconverted"), comparable_maps(col("deconverted")).as("deconverted"))
+      val filtered = r.filter("deconverted = bits or deconverted is null and bits is null")
+      //r.show
+      assert(filtered.count == 1)
+    }
+
+    serDe(Map.empty)
+    serDe(Map("useFullScalarType" -> "true"))
   }
 
   // CalendarInterval not supported in = / ordering so we need special testing for that
 
   def doSerDeTestGuess(original: String, ddl: String) = evalCodeGens {
-    val df = sparkSession.sql(s"select $original bits")
-      .select(col("bits"), to_yaml( col("bits") ).as("converted"))
-      .select(expr("*"), from_yaml( col("converted") , DataType.fromDDL(ddl)).as("deconverted"))
+    def serDe(renderOptions: Map[String, String]) {
+      val df = sparkSession.sql(s"select $original bits")
+        .select(col("bits"), to_yaml(col("bits"), renderOptions).as("converted"))
+        .select(expr("*"), from_yaml(col("converted"), DataType.fromDDL(ddl)).as("deconverted"))
 
-    val filtered = df.selectExpr("*", "cast(bits as string) bitsStr", "cast(deconverted as string) deconvertedStr")
-      .filter("deconvertedStr = bitsStr or deconvertedStr is null and bitsStr is null")
-    //filtered.show
-    assert(filtered.count == 1)
+      val filtered = df.selectExpr("*", "cast(bits as string) bitsStr", "cast(deconverted as string) deconvertedStr")
+        .filter("deconvertedStr = bitsStr or deconvertedStr is null and bitsStr is null")
+      //filtered.show
+      assert(filtered.count == 1)
+    }
+
+    serDe(Map.empty)
+    serDe(Map("useFullScalarType" -> "true"))
   }
 
   @Test
@@ -130,14 +130,59 @@ class YamlTests extends FunSuite with RowTools with TestUtils {
     }
   }
 
+  val UseFullScalarType = "map('useFullScalarType', 'true')"
+
+  @Test
+  def decimalViaYaml: Unit = evalCodeGens {
+    import sparkSession.implicits._
+    val str =
+      sparkSession.sql(s"select to_yaml(cast(1234.50404 as decimal(30,10)), $UseFullScalarType) r").as[String].head
+
+    val yaml = YamlDecoder.yaml
+
+    val dec = BigDecimal(1234.50404).setScale(10).bigDecimal
+    val obj = yaml.load[java.math.BigDecimal](str);
+    assert(obj == dec)
+  }
+
   @Test
   def sqlTest: Unit = evalCodeGens {
-    val df = sparkSession.sql("select array(1,2,3,4,5) og")
-      .selectExpr("*","to_yaml(og) y")
-      .selectExpr("*","from_yaml(y, 'array<int>') f")
-      .filter("f == og")
+    def serDe(mapStr: String) {
+      val df = sparkSession.sql("select array(1,2,3,4,5) og")
+        .selectExpr("*", s"to_yaml(og$mapStr) y")
+        .selectExpr("*", "from_yaml(y, 'array<int>') f")
+        .filter("f == og")
+      //df.show
+      assert(df.count == 1)
+    }
 
-    assert(df.count == 1)
+    serDe("")
+    serDe(s", $UseFullScalarType")
+  }
+
+  @Test
+  def nonLiteralMapEntriesTest: Unit = evalCodeGens {
+    try {
+      sparkSession.sql("select array(1,2,3,4,5) og")
+        .selectExpr("*", s"to_yaml(og, map(og, 1)) y")
+      fail("Should have thrown as og is not a literal")
+    } catch {
+      case t: QualityException => assert(t.getMessage.contains("Could not process a literal map with expression"))
+    }
+    try {
+      sparkSession.sql("select array(1,2,3,4,5) og")
+        .selectExpr("*", s"to_yaml(og, map(1, 'true')) y")
+      fail("Should have thrown as 1 is not a string literal")
+    } catch {
+      case t: QualityException => assert(t.getMessage.contains("Could not process a literal map with expression"))
+    }
+    try {
+      sparkSession.sql("select array(1,2,3,4,5) og")
+        .selectExpr("*", s"to_yaml(og, map('1', og)) y")
+      fail("Should have thrown as og is not a literal")
+    } catch {
+      case t: QualityException => assert(t.getMessage.contains("Could not process a literal map with expression"))
+    }
   }
 
 }

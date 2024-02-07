@@ -13,18 +13,18 @@ import scala.collection.JavaConverters._
 
 object QualityYamlExt {
 // NOT THIS IS only here for compilation etc. compat, clearly it's not compatible with any later spark version
-  private def createIntervalNode(interval: CalendarInterval) =
+  private def createIntervalNode(interval: CalendarInterval)(implicit renderOptions: Map[String, String]) =
     if (interval eq null)
       createNullNode
     else {
       val tuples = Seq(
         new NodeTuple(
-          createScalarNode("microseconds"),
-          createScalarNode(interval.microseconds)
+          createScalarNode(Tag.STR, "microseconds"),
+          createScalarNode(Tag.INT, interval.microseconds)
         ),
         new NodeTuple(
-          createScalarNode("months"),
-          createScalarNode(interval.months)
+          createScalarNode(Tag.STR, "months"),
+          createScalarNode(Tag.INT, interval.months)
         )
       )
 
@@ -32,7 +32,7 @@ object QualityYamlExt {
     }
 
 
-  def makeConverterExt: ValueConverter = {
+  def makeConverterExt(implicit renderOptions: Map[String, String]): ValueConverter = {
 
     case CalendarIntervalType =>
       (a: Any) =>
@@ -44,7 +44,7 @@ object QualityYamlExt {
     case dataType => throw QualityException(s"Cannot find yaml representation for type $dataType")
   }
 
-  def makeStructFieldConverterExt: StructValueConverter = {
+  def makeStructFieldConverterExt(implicit renderOptions: Map[String, String]): StructValueConverter = {
 
     case CalendarIntervalType =>
       (i: InternalRow, p: Int) =>

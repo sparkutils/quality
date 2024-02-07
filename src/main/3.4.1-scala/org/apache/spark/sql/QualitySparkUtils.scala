@@ -3,7 +3,7 @@ package org.apache.spark.sql
 import com.sparkutils.quality.impl.{RuleEngineRunner, RuleFolderRunner, RuleRunner, ShowParams}
 import com.sparkutils.quality.impl.util.DebugTime.debugTime
 import org.apache.spark.sql.catalyst.{CatalystTypeConverters, FunctionIdentifier}
-import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, FunctionRegistry, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCheckResult, TypeCoercion, UnresolvedFunction}
+import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, FunctionRegistry, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCheckResult, TypeCoercion, UnresolvedFunction, UnresolvedRelation}
 import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Attribute, BindReferences, Cast, EqualNullSafe, Expression, ExpressionInfo, ExpressionSet, LambdaFunction, Literal}
 import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, UnaryNode}
 import org.apache.spark.sql.catalyst.rules.Rule
@@ -15,6 +15,7 @@ import org.apache.spark.unsafe.types.CalendarInterval
 import org.apache.spark.util.Utils
 import TypeCheckResult.DataTypeMismatch
 import com.sparkutils.quality.impl.util.PassThrough
+import org.apache.spark.sql.catalyst.encoders.RowEncoder
 import org.apache.spark.sql.catalyst.expressions.Cast.{toSQLValue => stoSQLValue}
 import org.apache.spark.sql.catalyst.expressions.ExpectsInputTypes.{toSQLExpr => stoSQLExpr, toSQLType => stoSQLType}
 
@@ -336,4 +337,31 @@ object QualitySparkUtils {
 
   // https://issues.apache.org/jira/browse/SPARK-43019 in 3.5, backported to 13.1 dbr
   def sparkOrdering(dataType: DataType): Ordering[_] = dataType.asInstanceOf[AtomicType].ordering
+
+  def tableOrViewNotFound(e: Exception): Option[Either[Exception, Set[String]]] =
+    e match {
+      case ae: AnalysisException =>
+        Some(ae.plan.fold[Either[Exception, Set[String]]]{
+          // spark 2.4 just has exception: Table or view not found: names
+          if (ae.message.contains("Table or view not found"))
+            Right(Set(ae.message.split(":")(1).trim))
+          else
+            Left(ae)
+        } {
+          plan =>
+            val c =
+              plan.collect {
+                case ur: UnresolvedRelation =>
+                  ur.tableName
+              }
+
+            if (c.isEmpty)
+              Left(ae) // not what we expected
+            else
+              Right(c.toSet)
+        })
+      case _ => None
+    }
+
+  def rowEncoder(structType: StructType) = RowEncoder(structType)
 }

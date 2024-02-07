@@ -6,7 +6,7 @@ import com.sparkutils.quality.impl.{RuleEngineRunner, RuleFolderRunner, RuleRunn
 import com.sparkutils.quality.impl.util.DebugTime.debugTime
 import com.sparkutils.quality.impl.util.PassThrough
 import org.apache.spark.sql.catalyst.{CatalystTypeConverters, FunctionIdentifier}
-import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, FunctionRegistry, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCoercion, UnresolvedFunction}
+import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, FunctionRegistry, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCheckResult, TypeCoercion, UnresolvedFunction, UnresolvedRelation}
 import org.apache.spark.sql.catalyst.catalog.SessionCatalog
 import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Attribute, BinaryOperator, BindReferences, Cast, EqualNullSafe, Expression, ExpressionInfo, ExpressionSet, GetArrayStructFields, GetStructField, LambdaFunction, Literal, PrettyAttribute}
 import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, UnaryNode}
@@ -21,8 +21,8 @@ import org.apache.spark.util.Utils
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
 import org.apache.spark.sql.catalyst.util.TypeUtils
 import org.apache.spark.sql.types.{AbstractDataType, DataType, DecimalType}
-import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
 import TypeCheckResult.DataTypeMismatch
+import org.apache.spark.sql.catalyst.encoders.RowEncoder
 import org.apache.spark.sql.catalyst.types.PhysicalDataType
 
 /**
@@ -423,4 +423,31 @@ object QualitySparkUtils {
 
   // https://issues.apache.org/jira/browse/SPARK-43019 in 3.5, backported to 13.1 dbr
   def sparkOrdering(dataType: DataType): Ordering[_] = PhysicalDataType.ordering(dataType)
+
+  def tableOrViewNotFound(e: Exception): Option[Either[Exception, Set[String]]] =
+    e match {
+      case ae: AnalysisException =>
+        Some(ae.plan.fold[Either[Exception, Set[String]]]{
+          // spark 2.4 just has exception: Table or view not found: names
+          if (ae.message.contains("Table or view not found"))
+            Right(Set(ae.message.split(":")(1).trim))
+          else
+            Left(ae)
+        } {
+          plan =>
+            val c =
+              plan.collect {
+                case ur: UnresolvedRelation =>
+                  ur.tableName
+              }
+
+            if (c.isEmpty)
+              Left(ae) // not what we expected
+            else
+              Right(c.toSet)
+        })
+      case _ => None
+    }
+
+  def rowEncoder(structType: StructType) = RowEncoder(structType)
 }

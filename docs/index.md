@@ -17,8 +17,8 @@ Write rules using simple SQL or create re-usable functions via SQL Lambdas.
 
 Your rules are just versioned data, store them wherever convenient, use them by simply defining a column.
 
-* :new:{.pulseABit} - Improved [expression_runner](advanced/expressionRunner.md) uses to_yaml by default 
-* :new:{.pulseABit} - [to_yaml](sqlfunctions/#to_yaml) and [from_yaml](sqlfunctions/#from_yaml) - convert Spark fields into yaml (unlike to_json it allows non-string map keys)  
+* :new:{.pulseABit} [typed expression runner](advanced/expressionRunner.md) - a typed version of expressionRunner for saving expression results of the same type
+* :new:{.pulseABit} Spark 3.5.0 and DBR 14.0, 14.1 Support
 
 Rules are evaluated lazily during Spark actions, such as writing a row, with results saved in a single predictable column.
 

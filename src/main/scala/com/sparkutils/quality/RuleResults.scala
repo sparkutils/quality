@@ -73,7 +73,7 @@ case class GeneralExpressionResult(ruleResult: String, resultDDL: String)
  * @param id
  * @param ruleSetResults
  */
-case class GeneralExpressionsResult(id: VersionedId, ruleSetResults: Map[VersionedId, Map[VersionedId, GeneralExpressionResult]]) extends Serializable
+case class GeneralExpressionsResult[R](id: VersionedId, ruleSetResults: Map[VersionedId, Map[VersionedId, R]]) extends Serializable
 
 /**
  * Represents the results of the ExpressionRunner after calling strip_result_ddl

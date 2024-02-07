@@ -11,7 +11,7 @@ functions:
       - rule
   to_yaml:
     description: |
-      to_yaml(expression) uses snakeyaml to convert Spark datatypes into yaml.
+      to_yaml(expression, [options map]) uses snakeyaml to convert Spark datatypes into yaml.
       
       Passing null into the function returns a null yaml (newline is appended):
       
@@ -20,12 +20,30 @@ functions:
         
       ```
       
-      similarly all nulls will be treated in this fashion.  The string null will be represented as (again new line is present):
+      All null values will be treated in this fashion.  The string "null" will be represented as (again new line is present):
       
       ```yaml
       'null'
 
       ```
+      
+      The optional "options map" parameter currently supports the following output options:
+      
+      - useFullScalarType, defaults to false.  Instead of using the default yaml tags uses the full classnames for scalars, reducing risk of precision loss if the yaml is to be used outside of the from_yaml function.
+      
+      sample usage:
+      
+      ```scala
+      val df = sparkSession.sql("select array(1,2,3,4,5) og")
+          .selectExpr("*", "to_yaml(og, map('useFullScalarType', 'true')) y")
+          .selectExpr("*", "from_yaml(y, 'array<int>') f")
+          .filter("f == og")
+      ```
+      
+      !!! warning "snakeyaml is provided scope"
+          Databricks runtimes provide sparkyaml, so whilst Quality builds against the correct versions for Databricks it can onyl use provided scope.
+          
+          snakeyaml is 1.24 on DBRs below 13.1, but not present on OSS, so you may need to add the dependency yourself, tested compatible versions are 1.24 and 1.33. 
     tags:
       - yaml
   from_yaml:
@@ -279,11 +297,11 @@ functions:
     tags:
       - bloom
   map_Lookup:
-    description: "map_Lookup(expr, 'mapid') returns either the lookup in map specified by mapid or null"
+    description: "map_Lookup('mapid', expr) returns either the lookup in map specified by mapid or null"
     tags:
       - map
   map_Contains:
-    description: "map_Contains(expr, 'mapid') returns true if there is an item in the map"
+    description: "map_Contains('mapid', expr) returns true if there is an item in the map"
     tags:
       - map
   comparable_Maps:

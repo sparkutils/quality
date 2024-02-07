@@ -40,9 +40,18 @@ DBR 12.2 backports at least [SPARK-41049](https://issues.apache.org/jira/browse/
 
 As of 6th June 2023 0.0.2 run against the 12.2.dbr LTS build also works on 13.0.
 
-## Running on Databricks Runtime 13.1
+## Running on Databricks Runtime 13.1/13.2
   
-13.1 backports a number of 3.5 oss changes, the 13.1.dbr build must be used - as of 25th May 2023.    
+13.1 backports a number of 3.5 oss changes, the 13.1.dbr build must be used.  The 13.1.dbr build is also successfully tested against 13.2 DBR.    
+
+## Running on Databricks Runtime 14.0
+  
+14.0 and 14.1 can be used with the 14.0.dbr runtime, 14.2 however is not compatible, it back-ports two changes that render Quality 0.1.3 impossible to run:
+
+1. 44913 - StaticInvoke has changed breaking frameless binary compatibility
+2. ResolveReferences now takes catalogue as a parameter
+
+Both require building against OSS 4.0 / main.
 
 ## Testing out Quality via Notebooks
 
@@ -72,9 +81,9 @@ Ideally at the end of your runs you'll see - after 10 minutes or so and some std
 ```
 Time: 633.686
 
-OK (402 tests)
+OK (405 tests)
 
-Finished. Result: Failures: 0. Ignored: 0. Tests run: 402. Time: 633686ms.
+Finished. Result: Failures: 0. Ignored: 0. Tests run: 405. Time: 633686ms.
 import com.sparkutils.quality.tests.TestSuite
 import com.sparkutils.qualityTests.SparkTestUtils
 fileLoc: String = /dbfs/databricks/quality_test

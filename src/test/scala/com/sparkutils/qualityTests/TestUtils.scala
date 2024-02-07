@@ -22,6 +22,8 @@ trait TestUtils {
       tmp
   }
 
+  def loggingLevel: String = "ERROR"
+
   def sparkSessionF: SparkSession = {
     val sparkSession = registerFS(SparkSession.builder()).config("spark.master", s"local[$hostMode]").config("spark.ui.enabled", false).getOrCreate()
     if (excludeFilters) {
@@ -31,7 +33,7 @@ trait TestUtils {
     sparkSession.conf.set("spark.sql.optimizer.nestedSchemaPruning.enabled", true)
     // only a visual change
     // sparkSession.conf.set("spark.sql.legacy.castComplexTypesToString.enabled", true)
-    sparkSession.sparkContext.setLogLevel("ERROR") // set to debug to get actual code lines etc.
+    sparkSession.sparkContext.setLogLevel(loggingLevel) // set to debug to get actual code lines etc.
     sparkSession
   }
 
@@ -252,25 +254,27 @@ trait TestUtils {
   def not3_4(thunk: => Unit) =
     if (sparkVersion != "3.4") thunk
 
+  val sparkVersionNumericMajor = sparkVersion.replace(".","").toInt
+
   /**
    * Don't run this test on 3.4 or greater - gc's on code gen
    */
   def not3_4_or_above(thunk: => Unit) =
-    if (sparkVersion.replace(".","").toInt < 34) thunk
+    if (sparkVersionNumericMajor < 34) thunk
 
   /**
    * Scalar subqueries etc. only work on 3.4 and above
    * @param thunk
    */
   def v3_4_and_above(thunk: => Unit) =
-    if (sparkVersion.replace(".","").toInt >= 34) thunk
+    if (sparkVersionNumericMajor >= 34) thunk
 
   /**
    * INTERVAL MONTH etc. not supported below 3.2
    * @param thunk
    */
   def v3_2_and_above(thunk: => Unit) =
-    if (sparkVersion.replace(".","").toInt >= 32) thunk
+    if (sparkVersionNumericMajor >= 32) thunk
 
   /**
    * Only run this on 2.4
@@ -325,7 +329,6 @@ trait TestUtils {
 
   /**
    * Gets pushdowns from a dataset
-   * @param sparkPlan
    * @return
    */
   def getPushDowns[T](dataset: Dataset[T]): Seq[Filter] =
