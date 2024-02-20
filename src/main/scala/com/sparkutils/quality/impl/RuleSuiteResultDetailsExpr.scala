@@ -4,7 +4,7 @@ import org.apache.spark.sql.catalyst.InternalRow
 
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression, UnaryExpression}
-import org.apache.spark.sql.qualityFunctions.InputTypeChecks
+import org.apache.spark.sql.shim.expressions.InputTypeChecks
 import org.apache.spark.sql.types._
 
 import com.sparkutils.quality.types.{ruleSuiteResultType, ruleSuiteDetailsResultType}

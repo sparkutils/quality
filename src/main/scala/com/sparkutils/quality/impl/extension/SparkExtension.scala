@@ -3,7 +3,7 @@ package com.sparkutils.quality.impl.extension
 import com.sparkutils.quality.impl.extension.QualitySparkExtension.{disableRulesConf, forceInjectFunction}
 import com.sparkutils.quality.impl.util.Testing
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.{QualitySparkUtils, SparkSession, SparkSessionExtensions}
+import org.apache.spark.sql.{QualitySparkUtils, ShimUtils, SparkSession, SparkSessionExtensions}
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.catalyst.rules.Rule
@@ -63,10 +63,10 @@ class QualitySparkExtension extends ((SparkSessionExtensions) => Unit) with Logg
     val func =
       if (com.sparkutils.quality.getConfig(forceInjectFunction, "false").toBoolean) {
         attemptLogInfo("registering quality functions via injection - they are classed as temporary functions")
-        QualitySparkUtils.registerFunctionViaExtension(extensions) _
+        ShimUtils.registerFunctionViaExtension(extensions) _
       } else {
         attemptLogInfo("registering quality functions via builtin function registry - whilst you can use these in global views the extension must always be present")
-        QualitySparkUtils.registerFunctionViaBuiltin _
+        ShimUtils.registerFunctionViaBuiltin _
       }
     com.sparkutils.quality.registerQualityFunctions(parseTypes, zero, add, mapCompare, writer,
       registerFunction = func

@@ -19,7 +19,7 @@ import cats.implicits._
  * @param lambdas Which known lambdas are used
  * @param sparkFunctions Which known spark functions are used
  */
-case class ExpressionLookup(attributesUsed: impl.VariablesLookup.Identifiers = Set.empty, unknownSparkFunctions: impl.VariablesLookup.Identifiers = Set.empty, lambdas: Set[Id] = Set.empty, sparkFunctions: Set[String] = Set.empty)
+case class ExpressionLookup(attributesUsed: VariablesLookup.Identifiers = Set.empty, unknownSparkFunctions: util.VariablesLookup.Identifiers = Set.empty, lambdas: Set[Id] = Set.empty, sparkFunctions: Set[String] = Set.empty)
 
 /**
  * Provides a variable lookup function, after using the sql parser it will return all the fields used in an expression,
@@ -166,14 +166,14 @@ object VariablesLookup {
    * @param knownLambdaLookups using a map of lambda functions to already identified late bind fields calls to this lambda will be expanded
    * @return
    */
-  def fieldsFromExpression(expr: Expression, knownLambdaLookups: ProcessedLambdas = Map.empty): impl.ExpressionLookup = {
-    def children(res: impl.ExpressionLookup, children: Seq[Expression]): impl.ExpressionLookup =
+  def fieldsFromExpression(expr: Expression, knownLambdaLookups: ProcessedLambdas = Map.empty): ExpressionLookup = {
+    def children(res: util.ExpressionLookup, children: Seq[Expression]): util.ExpressionLookup =
       children.foldLeft(res){
         (curRes, exp) =>
           accumulate(curRes, exp)
       }
 
-    def accumulate(res: impl.ExpressionLookup, exp: Expression): impl.ExpressionLookup =
+    def accumulate(res: util.ExpressionLookup, exp: Expression): util.ExpressionLookup =
       exp match {
         // unresolved case where we cannot see more unresolved functions
         case UnresolvedFunction(nameParts, arguments, _, _, _) =>
@@ -206,7 +206,7 @@ object VariablesLookup {
         case parent: Expression => children(res, parent.children)
       }
 
-    val ids = accumulate(impl.ExpressionLookup(), expr)
+    val ids = accumulate(util.ExpressionLookup(), expr)
 
     ids
   }

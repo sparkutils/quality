@@ -1,9 +1,11 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality.impl.VariablesLookup.Identifiers
+import com.sparkutils.quality.impl.util.VariablesLookup.Identifiers
 import com.sparkutils.quality.impl.util.RuleSuiteDocs.{IdTrEither, LambdaId, OutputExpressionId, RuleId}
-import com.sparkutils.quality.impl.util.{Docs, DocsParser, RuleSuiteDocs, WithDocs}
+import com.sparkutils.quality.impl.util.{Docs, DocsParser, ExpressionLookup, RuleSuiteDocs, VariablesLookup, WithDocs}
 import com.sparkutils.quality._
+import com.sparkutils.shim.ShowParams
+import com.sparkutils.shim.expressions.Names.toName
 import org.apache.spark.sql.catalyst.analysis.UnresolvedRelation
 import org.apache.spark.sql.catalyst.expressions.{Expression, SubqueryExpression, LambdaFunction => SLambdaFunction}
 import org.apache.spark.sql.types.StructType
@@ -125,14 +127,6 @@ case class DataFrameSyntaxError(error: String) extends SyntaxError {
   val id = Validation.dataFrameSyntaxErrorId
 }
 
-/**
- * Paramters to pass into showString for debugging / validation
- * @param numRows defaults to 1000
- * @param truncate
- * @param vertical
- */
-case class ShowParams(numRows: Int = 1000, truncate: Int = 0, vertical: Boolean = false)
-
 object Validation {
   val unknownSOEId = Id(Int.MinValue,Int.MinValue)
   val dataFrameSyntaxErrorId = Id(Int.MinValue+1,Int.MinValue+1)
@@ -198,7 +192,7 @@ object Validation {
         try {
           val withRules = basedf.withColumn(qualityName, runner)
           val transformed = transformBeforeShow(withRules)
-          (QualitySparkUtils.toString(transformed, showParams), Set.empty)
+          (shim.utils.toString(transformed, showParams), Set.empty)
         } catch {
           case e: Throwable => ("", Set(DataFrameSyntaxError(e.getMessage)))
         }
@@ -274,7 +268,7 @@ object Validation {
 
           val args =
             expr match {
-              case lambda: SLambdaFunction => lambda.arguments.map(VariablesLookup.toName).toSet
+              case lambda: SLambdaFunction => lambda.arguments.map(toName).toSet
               case _ => Set.empty[String]
             }
 
@@ -383,7 +377,7 @@ object Validation {
           RuleSyntaxError(id, e.getMessage)
         else
           OutputRuleSyntaxError(id, e.getMessage)
-      ), ExpressionLookup())
+      ), impl.util.ExpressionLookup())
     }
 
 }

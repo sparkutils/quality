@@ -1,8 +1,11 @@
 package com.sparkutils.quality
 
 import com.sparkutils.quality.impl._
+import com.sparkutils.quality.impl.util.VariablesLookup
+import com.sparkutils.shim.expressions.Names.toName
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.QualitySparkUtils
+import org.apache.spark.sql.ShimUtils.arguments
 import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedFunction}
 import org.apache.spark.sql.catalyst.expressions.{EqualTo, Literal}
 
@@ -37,9 +40,9 @@ case class OutputExpression( rule: String ) extends OutputExprLogic with HasRule
     // 2. single argument lambda's returning the same type as the arg for folder
     // 3. as of 0.0.2 #8 set( attribute = valueExpression, attribute = valueExpression) converted to the form of 2 with an updateField call
     parsed match {
-      case uf: UnresolvedFunction if VariablesLookup.toName(uf) == "set" =>
+      case uf: UnresolvedFunction if toName(uf) == "set" =>
         // case 3
-        val args = QualitySparkUtils.arguments(uf)
+        val args = arguments(uf)
         val paired =
           args.flatMap {
             case EqualTo(name: UnresolvedAttribute, right) =>

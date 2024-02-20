@@ -1,8 +1,10 @@
 package org.apache.spark.sql.qualityFunctions
 
 import com.sparkutils.quality.QualityException.qualityException
-import com.sparkutils.quality.impl.{VariablesLookup, LambdaFunction => QLambdaFunction}
-import org.apache.spark.sql.{QualitySparkUtils, SparkSession}
+import com.sparkutils.quality.impl.util.VariablesLookup
+import com.sparkutils.quality.impl.{LambdaFunction => QLambdaFunction}
+import com.sparkutils.shim.expressions.Names.toName
+import org.apache.spark.sql.{QualitySparkUtils, ShimUtils, SparkSession}
 import org.apache.spark.sql.catalyst.analysis.UnresolvedFunction
 import org.apache.spark.sql.catalyst.expressions.{Expression, LambdaFunction, LeafExpression, Literal, NamedExpression, NamedLambdaVariable, Unevaluable, UnresolvedNamedLambdaVariable}
 import org.apache.spark.sql.qualityFunctions.FunCall.applyFunN
@@ -82,7 +84,7 @@ object LambdaFunctions {
   def registerLambdaFunctions(functions: Seq[QLambdaFunction]): Unit = {
     val fs = toFunctionMap(functions)
     val funcReg = SparkSession.getActiveSession.get.sessionState.functionRegistry
-    val register = QualitySparkUtils.registerFunction(funcReg) _
+    val register = ShimUtils.registerFunction(funcReg) _
 
     fs.foreach{ case (name, map) =>
 
@@ -105,7 +107,7 @@ object LambdaFunctions {
 
                       val newF = fun.function.transform {
                         case unF: UnresolvedFunction
-                          if VariablesLookup.toName(unF) == CallFun && isTheLambdaVar(unF) =>
+                          if toName(unF) == CallFun && isTheLambdaVar(unF) =>
                           processCallFun(funRef, unF)
 
                         // the case where we just pass it through
@@ -114,12 +116,12 @@ object LambdaFunctions {
 
                         // the case of droppins
                         case unF: UnresolvedFunction
-                          if VariablesLookup.toName(unF) == Lambda && isTheLambdaVar(unF) =>
+                          if toName(unF) == Lambda && isTheLambdaVar(unF) =>
                           processLambdaCall(funRef)
 
                         // the case of trying to call an applyFun
                         case unF: UnresolvedFunction
-                          if VariablesLookup.toName(unF) == CallFun && arg1IsCallFun(unF) =>
+                          if toName(unF) == CallFun && arg1IsCallFun(unF) =>
                           processCallFunOnFun(funRef, unF)
                       }
                       fun.copy(function = newF)
@@ -184,8 +186,8 @@ object LambdaFunctions {
   }
 
   private def arg1IsTheNvl(nvl: NamedExpression)( unF: UnresolvedFunction) =
-    if (QualitySparkUtils.arguments(unF)(0).isInstanceOf[UnresolvedNamedLambdaVariable]) {
-      val unvl = QualitySparkUtils.arguments(unF)(0).asInstanceOf[UnresolvedNamedLambdaVariable]
+    if (ShimUtils.arguments(unF)(0).isInstanceOf[UnresolvedNamedLambdaVariable]) {
+      val unvl = ShimUtils.arguments(unF)(0).asInstanceOf[UnresolvedNamedLambdaVariable]
       if (unvl.name == nvl.name) // not great for nesting perhaps
         true
       else
@@ -194,14 +196,14 @@ object LambdaFunctions {
       false
 
   private def arg1IsCallFun( unF: UnresolvedFunction ) =
-    QualitySparkUtils.arguments(unF)(0) match {
-      case f: UnresolvedFunction if VariablesLookup.toName(f) == CallFun => true
+    ShimUtils.arguments(unF)(0) match {
+      case f: UnresolvedFunction if toName(f) == CallFun => true
       case _ => false
     }
 
   private def processCallFun(funRef: Expression, unF: UnresolvedFunction) = {
     // replace args, drop the function
-    val params = QualitySparkUtils.arguments(unF).drop(1)
+    val params = ShimUtils.arguments(unF).drop(1)
     funRef match {
       case fun: FunN =>
         fun.copy(arguments = params)
@@ -228,12 +230,12 @@ object LambdaFunctions {
 
   private def processCallFunOnFun(funRef: Expression, unF: UnresolvedFunction) = {
     // replace args, drop the function
-    val Upfun = QualitySparkUtils.arguments(unF)(0)
+    val Upfun = ShimUtils.arguments(unF)(0)
     val pfun = processApplyFun(funRef, Upfun.asInstanceOf[UnresolvedFunction])
 
     val tmp = applyFunN(pfun)
     // replace the callFun params
-    val args = QualitySparkUtils.arguments(unF).drop(1)
+    val args = ShimUtils.arguments(unF).drop(1)
     val res = tmp.copy( arguments = tmp.arguments.map{
       case ref: RefExpression => args(ref.index)
       case e => e
@@ -244,12 +246,12 @@ object LambdaFunctions {
 
   private def processApplyFun(funRef: Expression, unF: UnresolvedFunction) = {
     // unlike the above we need to search for these arguments and treat them as applications
-    val args = QualitySparkUtils.arguments(unF)
+    val args = ShimUtils.arguments(unF)
 
     // replace args, drop the function
     val params = args.drop(1).zipWithIndex.map {
-      case (unf: UnresolvedFunction, index) if VariablesLookup.toName(unf) == PlaceHolder =>
-        val unfParams = QualitySparkUtils.arguments(unf)
+      case (unf: UnresolvedFunction, index) if toName(unf) == PlaceHolder =>
+        val unfParams = ShimUtils.arguments(unf)
         unfParams match {
           case Seq(Literal(str: UTF8String, StringType)) =>
             RefExpression(DataType.fromDDL(str.toString), true, index)

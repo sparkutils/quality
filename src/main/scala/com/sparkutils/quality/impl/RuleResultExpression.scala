@@ -10,7 +10,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, Codegen
 import org.apache.spark.sql.catalyst.expressions.{ExpectsInputTypes, Expression}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.util.MapData
-import org.apache.spark.sql.qualityFunctions.InputTypeChecks
+import org.apache.spark.sql.shim.expressions.InputTypeChecks
 import org.apache.spark.sql.types.{DataType, IntegerType, LongType, StringType}
 
 object RuleResultExpression {

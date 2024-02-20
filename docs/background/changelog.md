@@ -1,4 +1,4 @@
-### 0.1.3 <small>19th September, 2023</small>
+### 0.1.3 <small>19th February, 2024</small>
 
 #53 - Docs parser is now more forgiving, empty descriptions are tolerated and normal scaladoc syntax is allowed
 

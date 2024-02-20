@@ -4,7 +4,7 @@ import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionDescript
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
 import org.apache.spark.sql.types.{DataType, DoubleType, IntegerType, LongType}
 import com.sparkutils.quality.PassedInt
-import org.apache.spark.sql.qualityFunctions.InputTypeChecks
+import org.apache.spark.sql.shim.expressions.InputTypeChecks
 
 @ExpressionDescription(
   usage = "probability(expr) - Returns the probability from a rule result as a double.",

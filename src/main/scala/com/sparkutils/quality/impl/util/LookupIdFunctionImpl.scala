@@ -1,8 +1,6 @@
-package com.sparkutils.quality.impl
+package com.sparkutils.quality.impl.util
 
-import com.sparkutils.quality.impl.util.{BloomLookupType, ExpressionLookupResult, MapLookupType}
-import org.apache.spark.sql.catalyst.FunctionIdentifier
-import org.apache.spark.sql.catalyst.analysis.UnresolvedFunction
+import com.sparkutils.shim.expressions.{UnresolvedFunction4 => UnresolvedFunction}
 import org.apache.spark.sql.catalyst.expressions.{Expression, LeafExpression, Literal}
 import org.apache.spark.sql.types.StringType
 import org.apache.spark.unsafe.types.UTF8String
@@ -13,7 +11,6 @@ import scala.annotation.tailrec
  * Allow 2.4 and 3 to co-exist
  */
 object LookupIdFunctionImpl {
-
 
   /**
    * Note these only work on unresolved functions - actual names and expressions do not exist before analysis
@@ -32,17 +29,17 @@ object LookupIdFunctionImpl {
     def accumulate(res: Option[ExpressionLookupResult], exp: Expression): Option[ExpressionLookupResult] =
       exp match {
         // unresolved case where we cannot see more unresolved functions
-        case UnresolvedFunction(FunctionIdentifier(funcName, None), Seq(Literal(name: UTF8String, StringType), next), _) if funcName.replaceAll("_","").toLowerCase == "maplookup" || funcName.replaceAll("_","").toLowerCase =="mapcontains" =>
+        case UnresolvedFunction(funcName, Seq(Literal(name: UTF8String, StringType), next), _, _) if funcName.replaceAll("_","").toLowerCase == "maplookup" || funcName.replaceAll("_","").toLowerCase =="mapcontains" =>
           accumulate(res.map(r => r.copy(constants = r.constants + MapLookupType(name.toString))).orElse(Some(ExpressionLookupResult(Set(MapLookupType(name.toString)), false))), next)
         // unresolved case where we have constants - it'll fail  at creation
-        case UnresolvedFunction(FunctionIdentifier(funcName, None), Seq(exp, next), _) if funcName.replaceAll("_","").toLowerCase == "maplookup" || funcName.replaceAll("_","").toLowerCase =="mapcontains" =>
+        case UnresolvedFunction(funcName, Seq(exp, next), _, _) if funcName.replaceAll("_","").toLowerCase == "maplookup" || funcName.replaceAll("_","").toLowerCase =="mapcontains" =>
           accumulate(res.map(r => r.copy(hasExpressionLookups = true)).orElse(Some(ExpressionLookupResult(Set.empty, true))), next)
 
         // unresolved case where we cannot see more unresolved functions
-        case UnresolvedFunction(FunctionIdentifier(funcName, None), Seq(next, Literal(name: UTF8String, StringType)), _) if funcName.replaceAll("_","").toLowerCase == "probabilityin" =>
+        case UnresolvedFunction(funcName, Seq(next, Literal(name: UTF8String, StringType)), _, _) if funcName.replaceAll("_","").toLowerCase == "probabilityin" =>
           accumulate(res.map(r => r.copy(constants = r.constants + BloomLookupType(name.toString))).orElse(Some(ExpressionLookupResult(Set(BloomLookupType(name.toString)), false))), next)
         // unresolved case where we have constants - it'll fail  at creation
-        case UnresolvedFunction(FunctionIdentifier(funcName, None), Seq(next, exp), _) if funcName.replaceAll("_","").toLowerCase == "probabilityin" =>
+        case UnresolvedFunction(funcName, Seq(next, exp), _, _) if funcName.replaceAll("_","").toLowerCase == "probabilityin" =>
           accumulate(res.map(r => r.copy(hasExpressionLookups = true)).orElse(Some(ExpressionLookupResult(Set.empty, true))), next)
 
         case _ : LeafExpression => res

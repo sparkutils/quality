@@ -3,13 +3,13 @@ package com.sparkutils.quality.impl.id
 import java.util.Base64
 
 import com.sparkutils.quality.impl.id.model.GuaranteedUniqueIDType
-import org.apache.spark.sql.QualitySparkUtils.{toSQLExpr, toSQLType, mismatch, toSQLValue}
+import org.apache.spark.sql.ShimUtils.{toSQLExpr, toSQLType, mismatch, toSQLValue}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult.TypeCheckSuccess
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
 import org.apache.spark.sql.catalyst.expressions.{Expression, UnaryExpression}
-import org.apache.spark.sql.qualityFunctions.InputTypeChecks
+import org.apache.spark.sql.shim.expressions.InputTypeChecks
 import org.apache.spark.sql.types.{DataType, IntegerType, LongType, StringType, StructType}
 import org.apache.spark.unsafe.types.UTF8String
 

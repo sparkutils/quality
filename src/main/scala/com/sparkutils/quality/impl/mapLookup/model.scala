@@ -8,7 +8,7 @@ import org.apache.spark.sql.catalyst.expressions.{Expression, IsNotNull}
 import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, MapData}
 import org.apache.spark.sql.functions.expr
 import org.apache.spark.sql.types.DataType
-import org.apache.spark.sql.{Column, DataFrame, Encoder, Encoders, QualitySparkUtils, SparkSession}
+import org.apache.spark.sql.{Column, DataFrame, Encoder, Encoders, QualitySparkUtils, ShimUtils, SparkSession}
 
 import scala.collection.JavaConverters._
 
@@ -17,7 +17,7 @@ object MapLookupFunctions {
   def registerMapLookupsAndFunction(mapLookups: MapLookups) {
     val funcReg = SparkSession.getActiveSession.get.sessionState.functionRegistry
     def register(name: String, argsf: Seq[Expression] => Expression, paramNumbers: Set[Int] = Set.empty, minimum: Int = -1) =
-      registerWithChecks(QualitySparkUtils.registerFunction(funcReg), name, argsf, paramNumbers, minimum)
+      registerWithChecks(ShimUtils.registerFunction(funcReg), name, argsf, paramNumbers, minimum)
 
     val f = (exps: Seq[Expression]) => MapLookup(exps(0), exps(1), mapLookups)
     register("map_lookup", f, Set(2))

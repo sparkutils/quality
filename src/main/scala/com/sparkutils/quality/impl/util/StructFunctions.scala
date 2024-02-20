@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl.util
 
 import org.apache.spark.sql.Column
-import org.apache.spark.sql.QualitySparkUtils.{toSQLExpr, toSQLType}
+import org.apache.spark.sql.ShimUtils.{toSQLExpr, toSQLType}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{Resolver, TypeCheckResult, UnresolvedAttribute, UnresolvedExtractValue}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode}

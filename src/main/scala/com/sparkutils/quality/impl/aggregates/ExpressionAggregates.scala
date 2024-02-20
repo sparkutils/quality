@@ -2,13 +2,13 @@ package com.sparkutils.quality.impl.aggregates
 
 import com.sparkutils.quality.QualityException.qualityException
 import org.apache.spark.sql.QualitySparkUtils
-import org.apache.spark.sql.QualitySparkUtils.cast
+import org.apache.spark.sql.ShimUtils.cast
 import org.apache.spark.sql.catalyst.dsl.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate.DeclarativeAggregate
 import org.apache.spark.sql.catalyst.expressions.{AttributeReference, Cast, Expression, If, LambdaFunction, Literal, NamedLambdaVariable}
 import org.apache.spark.sql.qualityFunctions._
 import org.apache.spark.sql.types.{DataType, DecimalType, MapType}
-import org.apache.spark.sql.QualitySparkUtils.{cast => castf}
+import org.apache.spark.sql.ShimUtils.{cast => castf}
 
 object AggregateExpressions {
 
@@ -233,7 +233,7 @@ case class ExpressionAggregates(override val children: Seq[Expression], zero: Da
   override lazy val mergeExpressions: Seq[Expression] = Seq(
     count.left + count.right,
     sumLeaf.dataType match {
-      case _: DecimalType => QualitySparkUtils.cast(add(sum.left, sum.right), sumLeaf.dataType) // extra protection against SPARK-39316
+      case _: DecimalType => cast(add(sum.left, sum.right), sumLeaf.dataType) // extra protection against SPARK-39316
       case _ => add(sum.left, sum.right)
     }
   )

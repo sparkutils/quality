@@ -1,9 +1,12 @@
-package com.sparkutils.quality.impl
+package com.sparkutils.quality.impl.util
 
-import com.sparkutils.quality.{Id, impl}
+import com.sparkutils.quality.Id
+import com.sparkutils.quality.impl.util
+import com.sparkutils.shim.expressions.Names.toName
+import com.sparkutils.shim.expressions.UnresolvedFunction4
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedFunction}
-import org.apache.spark.sql.catalyst.expressions.{Expression, LeafExpression, NamedExpression, UnresolvedNamedLambdaVariable, LambdaFunction => SparkLambdaFunction}
+import org.apache.spark.sql.catalyst.expressions.{Expression, LeafExpression, UnresolvedNamedLambdaVariable, LambdaFunction => SparkLambdaFunction}
 import org.slf4j.LoggerFactory
 
 // Used to pull in |+| to deep merge the maps as SemiGroups - https://typelevel.org/cats/typeclasses/semigroup.html#example-usage-merging-maps
@@ -19,7 +22,7 @@ import cats.implicits._
  * @param lambdas Which known lambdas are used
  * @param sparkFunctions Which known spark functions are used
  */
-case class ExpressionLookup(attributesUsed: impl.VariablesLookup.Identifiers = Set.empty, unknownSparkFunctions: impl.VariablesLookup.Identifiers = Set.empty, lambdas: Set[Id] = Set.empty, sparkFunctions: Set[String] = Set.empty)
+case class ExpressionLookup(attributesUsed: VariablesLookup.Identifiers = Set.empty, unknownSparkFunctions: VariablesLookup.Identifiers = Set.empty, lambdas: Set[Id] = Set.empty, sparkFunctions: Set[String] = Set.empty)
 
 /**
  * Provides a variable lookup function, after using the sql parser it will return all the fields used in an expression,
@@ -37,19 +40,6 @@ object VariablesLookup {
   type ProcessedLambdas = Map[String, Map[Id, Identifiers]]
   type PossibleOverflowIds = Set[Id]
   type UnknownSparkFunctions = Map[Id, Set[String]]
-
-  def toName(ne: NamedExpression): String =
-    ne match {
-      case nv: UnresolvedNamedLambdaVariable => toName(nv)
-      case _ => toName(ne.qualifier :+ ne.name)
-    }
-  def toName(nv: UnresolvedNamedLambdaVariable): String =
-    toName(nv.nameParts)
-  def toName(parts: Seq[String]): String =
-    parts.mkString(".")
-
-  def toName(unresolvedFunction: UnresolvedFunction): String =
-    unresolvedFunction.name.funcName
 
   def processLambdas(m: Map[String, Map[Id,Expression]]): (ProcessedLambdas, PossibleOverflowIds, UnknownSparkFunctions) =
     m.foldLeft((Map.empty[String, Map[Id, Identifiers]], Set.empty[Id], Map.empty[Id, Set[String]])){ (acc, p) =>
@@ -90,44 +80,40 @@ object VariablesLookup {
             else
               identifiers
 
-          case f @ UnresolvedFunction(functionIdentifier, argumentExpressions, _) => // nested....
+          case f @ UnresolvedFunction4(_, argumentExpressions, _, _) => // nested....
+            val name = toName(f)
             val nids =
-              if (evaluatedLambdas.contains(functionIdentifier.identifier))
-                // does it contain the same id's?
+              if (evaluatedLambdas.contains(name))
                 identifiers
               else {
-                if (lambdaExpressions.contains(functionIdentifier.identifier)) {
+                if (lambdaExpressions.contains(name)) {
                   // we haven't yet evaluated it, pass back up to the top and recurse down
-                  if ((parent ne null) && functionIdentifier.identifier == parent.name.identifier) {
+                  if ((parent ne null) && name == toName(parent)) {
                     // special case for recursion on the same identifier - are we calling the same id?
                     // get the exact arity matching
-                    lambdaExpressions(functionIdentifier.identifier).find(_._2.children.size == argumentExpressions.size).fold{
+                    lambdaExpressions(name).find(_._2.children.size == argumentExpressions.size).fold{
                       overflowIds += id
-                      logger.warn(s"Function ${functionIdentifier.identifier} calls itself, this may StackOverflowError on evaluation")
+                      logger.warn(s"Function ${name} calls itself, this may StackOverflowError on evaluation")
                     }{
                       i =>
                         val r = children(Map.empty, Seq(i), f)
-                        evaluatedLambdas(functionIdentifier.identifier) = r
+                        evaluatedLambdas(name) = r
                     }
                   } else {
-                    val r = children(Map.empty, lambdaExpressions(functionIdentifier.identifier).toSeq, f)
-                    evaluatedLambdas(functionIdentifier.identifier) = r
+                    val r = children(Map.empty, lambdaExpressions(name).toSeq, f)
+                    evaluatedLambdas(name) = r
                   }
                   identifiers
                 } else {
                   // it's not a lambda function we know, is it inbuilt?
                   // NB you would have to register UDFs etc. before calling validate etc.
                   val exists =
-                    functionIdentifier.database.fold(
-                      SparkSession.active.catalog.functionExists(functionIdentifier.identifier)
-                    )(d =>
-                      SparkSession.active.catalog.functionExists(d, functionIdentifier.identifier)
-                    )
+                    SparkSession.active.catalog.functionExists(name)
 
                   if (!exists) {
                     // add it in to the unknowns list
                     val map = unknownSparkFunctionIds.getOrElse(id, Set.empty)
-                    unknownSparkFunctionIds(id) = map + functionIdentifier.identifier
+                    unknownSparkFunctionIds(id) = map + name
                   }
                   identifiers
                 }
@@ -168,36 +154,33 @@ object VariablesLookup {
    * @param knownLambdaLookups using a map of lambda functions to already identified late bind fields calls to this lambda will be expanded
    * @return
    */
-  def fieldsFromExpression(expr: Expression, knownLambdaLookups: ProcessedLambdas = Map.empty): impl.ExpressionLookup = {
-    def children(res: impl.ExpressionLookup, children: Seq[Expression]): impl.ExpressionLookup =
+  def fieldsFromExpression(expr: Expression, knownLambdaLookups: ProcessedLambdas = Map.empty): ExpressionLookup = {
+    def children(res: ExpressionLookup, children: Seq[Expression]): ExpressionLookup =
       children.foldLeft(res){
         (curRes, exp) =>
           accumulate(curRes, exp)
       }
 
-    def accumulate(res: impl.ExpressionLookup, exp: Expression): impl.ExpressionLookup =
+    def accumulate(res: ExpressionLookup, exp: Expression): ExpressionLookup =
       exp match {
         // unresolved case where we cannot see more unresolved functions
-        case UnresolvedFunction(name, arguments, _) =>
+        case f @ UnresolvedFunction4(_, arguments, _, _) =>
+          val name = toName(f)
           val r =
-            if (knownLambdaLookups.contains(name.identifier)) {
-              val lambdas = knownLambdaLookups(name.identifier)
+            if (knownLambdaLookups.contains(name)) {
+              val lambdas = knownLambdaLookups(name)
               res.copy(attributesUsed = res.attributesUsed ++ lambdas.flatMap(_._2), lambdas = res.lambdas ++ lambdas.keySet)  // merge the identifier set and lambdas
             } else {
               // it's not a lambda function we know, is it inbuilt?
               // NB you would have to register UDFs etc. before calling validate etc.
               val exists =
-                name.database.fold(
-                  SparkSession.active.catalog.functionExists(name.identifier)
-                )(d =>
-                  SparkSession.active.catalog.functionExists(d, name.identifier)
-                )
+                SparkSession.active.catalog.functionExists(name)
 
               if (!exists)
                 // add it in to the unknowns list
-                res.copy(unknownSparkFunctions = res.unknownSparkFunctions + name.identifier)
+                res.copy(unknownSparkFunctions = res.unknownSparkFunctions + name)
               else
-                res.copy(sparkFunctions = res.sparkFunctions + name.identifier)
+                res.copy(sparkFunctions = res.sparkFunctions + name)
             }
 
           // we still need to do the args
@@ -211,7 +194,7 @@ object VariablesLookup {
         case parent: Expression => children(res, parent.children)
       }
 
-    val ids = accumulate(impl.ExpressionLookup(), expr)
+    val ids = accumulate(util.ExpressionLookup(), expr)
 
     ids
   }

@@ -10,7 +10,7 @@ import com.sparkutils.quality.impl.util.BytePackingUtils
 import com.sparkutils.qualityTests._
 import org.apache.commons.rng.simple.RandomSource
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.qualityFunctions.DigestFactory
+import org.apache.spark.sql.shim.hash.DigestFactory
 import org.apache.spark.sql.{Column, DataFrame, Row}
 import org.junit.Test
 import org.scalameter.api.{Bench, Gen}
