@@ -1,4 +1,4 @@
-### 0.1.3 <small>19th February, 2024</small>
+### 0.1.3 <small>19th March, 2024</small>
 
 #53 - Docs parser is now more forgiving, empty descriptions are tolerated and normal scaladoc syntax is allowed
 
@@ -8,7 +8,11 @@
 
 #27 - Delta 3.0.0 (Spark 3.5.0) support - compatible version
 
-#55 - DBR 14 - Snake Yaml 2.0 support
+#55 - DBR 14.0/1 - Snake Yaml 2.0 support
+
+#58 - Migrate custom runtime usage to Shim
+
+#59 - DBR 13.3 LTS support
 
 ### 0.1.2.1 <small>4th September, 2023</small>
 

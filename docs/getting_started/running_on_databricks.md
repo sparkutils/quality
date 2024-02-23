@@ -44,6 +44,10 @@ As of 6th June 2023 0.0.2 run against the 12.2.dbr LTS build also works on 13.0.
   
 13.1 backports a number of 3.5 oss changes, the 13.1.dbr build must be used.  The 13.1.dbr build is also successfully tested against 13.2 DBR.    
 
+## Running on Databricks Runtime 13.3 LTS
+
+13.3 backports yet more 3.5 so the 13.3.dbr build must be used.
+
 ## Running on Databricks Runtime 14.0
   
 14.0 and 14.1 can be used with the 14.0.dbr runtime, 14.2 however is not compatible, it back-ports two changes that render Quality 0.1.3 impossible to run:

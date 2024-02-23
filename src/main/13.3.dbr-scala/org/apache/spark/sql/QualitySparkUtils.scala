@@ -115,7 +115,6 @@ object QualitySparkUtils {
     Batch("Resolution", fixedPoint,
 //      ResolveNamespace(catalogManager) :: works on 11.0 and 11.1, fails on all other 11.x
         new ResolveCatalogs(catalogManager) ::
-        ResolveUserSpecifiedColumns ::
         ResolveInsertInto ::
         ResolveRelations ::
 //        ResolveTables ::
