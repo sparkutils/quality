@@ -1,6 +1,7 @@
 package com.sparkutils.quality.impl.aggregates
 
 import com.sparkutils.quality.QualityException.qualityException
+import eu.timepit.refined.boolean.False
 import org.apache.spark.sql.QualitySparkUtils
 import org.apache.spark.sql.ShimUtils.cast
 import org.apache.spark.sql.catalyst.dsl.expressions._
@@ -75,7 +76,7 @@ object AggregateExpressions {
         temp
       }
 
-    ExpressionAggregates(Seq(count, sum1, sum2, ifExpr, useSum, useEvaluate), zero, add, notYetResolved, sumType, 0).toAggregateExpression()
+    ExpressionAggregates(Seq(count, sum1, sum2, ifExpr, useSum, useEvaluate), zero, add, sumType).toAggregateExpression()
   }
 
   def correctEvaluate(sumType: DataType, evaluate: Expression, wrapCastOnly: Boolean = false) =
@@ -178,13 +179,13 @@ object AggregateExpressions {
  * count of filter hits and the sum as parameters.
  * @param children
  */
-case class ExpressionAggregates(override val children: Seq[Expression], zero: DataType => Option[Any], addF: DataType => Option[( Expression, Expression ) => Expression], notYetResolved: Boolean, sumType: DataType, resolvedCount: Int) extends DeclarativeAggregate {
+case class ExpressionAggregates(override val children: Seq[Expression], zero: DataType => Option[Any], addF: DataType => Option[( Expression, Expression ) => Expression], sumType: DataType) extends DeclarativeAggregate {
   // extending higherorder fun is needed otherwise case other => other.failAnalysis( is thrown in analysis/higherOrderFunctions
   lazy val Seq(countLeaf: RefExpression, sumLeaf: RefExpression, evalSumLeaf: RefExpression, ifExpr, sumWith, evaluate) =
-    if (!notYetResolved)
-      children
-    else
+    if (children.forall(_.resolved))
       rewriteChildren(children)
+    else
+      children
 
   private def rewriteChildren(children: Seq[Expression]) = {
     import AggregateExpressions.{correctEvaluate, correctSum}
@@ -254,14 +255,6 @@ case class ExpressionAggregates(override val children: Seq[Expression], zero: Da
     def right: AttributeReference = inputAggBufferAttributes(aggBufferAttributes.indexOf(a.from))
   }
 
-  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = {
-    // only works on 3's 2.4 must reconstruct for each copy
-    val useChildren =
-      if (notYetResolved)
-        rewriteChildren(newChildren)
-      else
-        newChildren
-
-    copy(children = useChildren, notYetResolved = resolvedCount < 1, resolvedCount = resolvedCount + 1)
-  }
+  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
+    copy(children = newChildren)
 }

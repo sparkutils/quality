@@ -8,7 +8,7 @@ import com.sparkutils.quality.impl.hash.{HashFunctionFactory, HashFunctionsExpre
 import com.sparkutils.quality.impl.id.{GenericLongBasedIDExpression, model}
 import com.sparkutils.quality.impl.longPair.{AsUUID, LongPairExpression}
 import com.sparkutils.quality.impl.rng.{RandomBytes, RandomLongs}
-import com.sparkutils.quality.impl.util.{ComparableMapConverter, ComparableMapReverser, PrintCode}
+import com.sparkutils.quality.impl.util.{ComparableMapConverter, ComparableMapReverser, PrintCode, ReplaceUpdateFields}
 import com.sparkutils.quality.impl.yaml.{YamlDecoderExpr, YamlEncoderExpr}
 import com.sparkutils.quality.{QualityException, impl}
 import org.apache.commons.rng.simple.RandomSource
@@ -158,6 +158,15 @@ object RuleRegistrationFunctions {
                                registerFunction: (String, Seq[Expression] => Expression) => Unit =
                                  ShimUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
                               ) {
+
+    // may be applied twice if it's done via extension
+    if (!ShimUtils.registerSessionPlan(ReplaceUpdateFields){
+      case ReplaceUpdateFields => true
+      case _ => false
+    }) {
+      // writer("Quality ReplaceUpdateFields is already registered")
+    }
+
     def register(name: String, argsf: Seq[Expression] => Expression, paramNumbers: Set[Int] = Set.empty, minimum: Int = -1) =
       registerWithChecks(registerFunction, name, argsf, paramNumbers, minimum)
 

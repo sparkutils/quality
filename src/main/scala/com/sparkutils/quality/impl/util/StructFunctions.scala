@@ -1,11 +1,12 @@
 package com.sparkutils.quality.impl.util
 
+import com.sparkutils.shim.expressions.FoldableUnevaluable
 import org.apache.spark.sql.Column
 import org.apache.spark.sql.ShimUtils.{toSQLExpr, toSQLType}
-import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{Resolver, TypeCheckResult, UnresolvedAttribute, UnresolvedExtractValue}
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode}
 import org.apache.spark.sql.catalyst.expressions.{CreateNamedStruct, Expression, ExtractValue, GetStructField, If, IsNull, LeafExpression, Literal, UnaryExpression, Unevaluable}
+import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
+import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{DataType, StructField, StructType}
 
@@ -32,8 +33,8 @@ trait StructFunctionsImport {
 
   protected def transformFields(exp: Expression): Expression =
     exp.transform { // simplify, normally done in optimizer UpdateFields
-      case UpdateFields(UpdateFields(struct +: fieldOps1) +: fieldOps2) =>
-        UpdateFields(struct +: ( fieldOps1 ++ fieldOps2) )
+      case UpdateFields(UpdateFields(struct, fieldOps1), fieldOps2) =>
+        UpdateFields(struct, fieldOps1 ++ fieldOps2 )
     }
 
   /**
@@ -58,7 +59,7 @@ trait StructFunctionsImport {
 /**
  * Represents an operation to be applied to the fields of a struct.
  */
-trait StructFieldsOperation extends Expression with CodegenFallback {
+trait StructFieldsOperation extends Expression with FoldableUnevaluable {
 
   val resolver: Resolver = SQLConf.get.resolver
 
@@ -82,13 +83,11 @@ trait StructFieldsOperation extends Expression with CodegenFallback {
  * We extend [[Unevaluable]] here to ensure that [[UpdateFields]] can include it as part of its
  * children, and thereby enable the analyzer to resolve and transform valExpr as necessary.
  */
-case class WithField(name: String, child: Expression)
+case class WithField(name: String, valExpr: Expression)
   extends UnaryExpression with StructFieldsOperation {
 
-  override def foldable: Boolean = false
-
   override def apply(values: Seq[(StructField, Expression)]): Seq[(StructField, Expression)] = {
-    val newFieldExpr = (StructField(name, child.dataType, child.nullable), child)
+    val newFieldExpr = (StructField(name, valExpr.dataType, valExpr.nullable), valExpr)
     val result = ArrayBuffer.empty[(StructField, Expression)]
     var hasMatch = false
     for (existingFieldExpr @ (existingField, _) <- values) {
@@ -103,12 +102,12 @@ case class WithField(name: String, child: Expression)
     result.toSeq
   }
 
+  override def child: Expression = valExpr
+
   override def prettyName: String = "WithField"
 
   protected def withNewChildInternal(newChild: Expression): WithField =
-    copy(child = newChild)
-
-  override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = ???
+    copy(valExpr = newChild)
 }
 
 /**
@@ -117,20 +116,12 @@ case class WithField(name: String, child: Expression)
 case class DropField(name: String) extends LeafExpression with StructFieldsOperation {
   override def apply(values: Seq[(StructField, Expression)]): Seq[(StructField, Expression)] =
     values.filterNot { case (field, _) => resolver(field.name, name) }
-
-  override def eval(input: InternalRow): Any = ???
-
-  override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = ???
 }
-
 /**
  * Updates fields in a struct.
  */
-case class UpdateFields(children: Seq[Expression])
-  extends Expression {
-
-  val structExpr = children.head
-  val fieldOps: Seq[StructFieldsOperation] = children.drop(1).map(_.asInstanceOf[StructFieldsOperation])
+case class UpdateFields(structExpr: Expression, fieldOps: Seq[StructFieldsOperation])
+  extends Unevaluable {
 
   override def checkInputDataTypes(): TypeCheckResult = {
     val dataType = structExpr.dataType
@@ -147,8 +138,12 @@ case class UpdateFields(children: Seq[Expression])
     }
   }
 
+  override def children: Seq[Expression] = structExpr +: fieldOps.collect {
+    case e: Expression => e
+  }
+
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
-    copy(children = newChildren)
+    UpdateFields(newChildren.head, newChildren.tail.map(_.asInstanceOf[StructFieldsOperation]))
 
   override def dataType: StructType = StructType(newFields)
 
@@ -182,11 +177,17 @@ case class UpdateFields(children: Seq[Expression])
       createNamedStructExpr
     }
   }
+}
 
-  override def eval(input: InternalRow): Any = evalExpr.eval(input)
-
-  override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode =
-    evalExpr.genCode(ctx)
+// change needed for 14.3 LTS, Databricks added a VariantExpressionCheck which checks types before a resolve unlike all OSS until at least 3.5
+object ReplaceUpdateFields extends Rule[LogicalPlan] {
+  override def apply(plan: LogicalPlan): LogicalPlan = plan.transform {
+    case p: LogicalPlan => p.transformExpressions {
+      // Remove redundant field extraction.
+      case u: UpdateFields =>
+        u.evalExpr
+    }
+  }
 }
 
 object UpdateFields {
@@ -219,7 +220,7 @@ object UpdateFields {
                                   valueFunc: String => StructFieldsOperation) : UpdateFields = {
     val fieldName = namePartsRemaining.head
     if (namePartsRemaining.length == 1) {
-      UpdateFields(Seq(structExpr, valueFunc(fieldName)))
+      UpdateFields(structExpr, Seq(valueFunc(fieldName)))
     } else {
       val newStruct = if (structExpr.resolved) {
         val resolver = SQLConf.get.resolver
@@ -232,7 +233,7 @@ object UpdateFields {
         structExpr = newStruct,
         namePartsRemaining = namePartsRemaining.tail,
         valueFunc = valueFunc)
-      UpdateFields(Seq(structExpr, WithField(fieldName, newValue) ))
+      UpdateFields(structExpr, Seq(WithField(fieldName, newValue) ))
     }
   }
 }

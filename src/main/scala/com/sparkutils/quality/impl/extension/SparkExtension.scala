@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl.extension
 
 import com.sparkutils.quality.impl.extension.QualitySparkExtension.{disableRulesConf, forceInjectFunction}
-import com.sparkutils.quality.impl.util.Testing
+import com.sparkutils.quality.impl.util.{ReplaceUpdateFields, Testing}
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.{QualitySparkUtils, ShimUtils, SparkSession, SparkSessionExtensions}
 import org.apache.spark.sql.catalyst.expressions.Expression
@@ -57,7 +57,8 @@ class QualitySparkExtension extends ((SparkSessionExtensions) => Unit) with Logg
    * @return
    */
   def optimiserRules: Seq[(String, SparkSession => Rule[LogicalPlan])] =
-    Seq((AsUUIDFilter.getClass.getName, _ => AsUUIDFilter), (IDBase64Filter.getClass.getName, _ => IDBase64Filter))
+    Seq((AsUUIDFilter.getClass.getName, _ => AsUUIDFilter), (IDBase64Filter.getClass.getName, _ => IDBase64Filter),
+      (ReplaceUpdateFields.getClass.getName, _ => ReplaceUpdateFields))
 
   override def apply(extensions: SparkSessionExtensions): Unit = {
     val func =
