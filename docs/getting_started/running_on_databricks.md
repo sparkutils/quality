@@ -61,7 +61,7 @@ As of 6th June 2023 0.0.2 run against the 12.2.dbr LTS build also works on 13.0.
 
 ## Running on Databricks Runtime 14.3 LTS
 
-14.3, in addition to the 14.2 StaticInoke and ResolveReferences changes also implements a new VarianceChecker that requires a new 14.3.dbr runtime.
+14.3, in addition to the 14.2 StaticInvoke and ResolveReferences changes also implements a new VarianceChecker that requires a new 14.3.dbr runtime.
 
 ## Testing out Quality via Notebooks
 
@@ -86,12 +86,12 @@ val fileLoc = "/dbfs/databricks/quality_test"
 SparkTestUtils.setPath(fileLoc)
 ```
 
-Ideally at the end of your runs you'll see - after 10 minutes or so and some stdout - for example a run on DBR 13.1 provides:
+Ideally at the end of your runs you'll see - after 10 minutes or so and some stdout - for example a run on DBR 14.3 provides:
 
 ```
 Time: 633.686
 
-OK (405 tests)
+OK (410 tests)
 
 Finished. Result: Failures: 0. Ignored: 0. Tests run: 405. Time: 633686ms.
 import com.sparkutils.quality.tests.TestSuite

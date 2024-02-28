@@ -4,21 +4,21 @@ import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.functions._
 import com.sparkutils.quality.impl.aggregates.AggregateExpressions
 import com.sparkutils.quality.impl.bloom.{BucketedArrayParquetAggregator, ParquetAggregator}
-import com.sparkutils.quality.impl.hash.{HashFunctionFactory, HashFunctionsExpression, ZALongHashFunctionFactory, ZALongTupleHashFunctionFactory}
+import com.sparkutils.quality.impl.hash.{HashFunctionFactory, HashFunctionsExpression}
 import com.sparkutils.quality.impl.id.{GenericLongBasedIDExpression, model}
 import com.sparkutils.quality.impl.longPair.{AsUUID, LongPairExpression}
 import com.sparkutils.quality.impl.rng.{RandomBytes, RandomLongs}
 import com.sparkutils.quality.impl.util.{ComparableMapConverter, ComparableMapReverser, PrintCode, ReplaceUpdateFields}
 import com.sparkutils.quality.impl.yaml.{YamlDecoderExpr, YamlEncoderExpr}
 import com.sparkutils.quality.{QualityException, impl}
+import com.sparkutils.shim
 import org.apache.commons.rng.simple.RandomSource
 import org.apache.spark.sql.ShimUtils.add
 import org.apache.spark.sql.catalyst.expressions.{Add, AttributeReference, CreateMap, Expression, Literal, UnresolvedNamedLambdaVariable, LambdaFunction => SLambdaFunction}
-import org.apache.spark.sql.catalyst.util.MapData
 import org.apache.spark.sql.qualityFunctions.LambdaFunctions.processTopCallFun
 import org.apache.spark.sql.qualityFunctions._
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.{Column, QualitySparkUtils, ShimUtils, SparkSession, functions}
+import org.apache.spark.sql.{Column, ShimUtils, SparkSession, functions}
 import org.apache.spark.unsafe.types.UTF8String
 
 object RuleRegistrationFunctions {
@@ -160,7 +160,7 @@ object RuleRegistrationFunctions {
                               ) {
 
     // may be applied twice if it's done via extension
-    if (!ShimUtils.registerSessionPlan(ReplaceUpdateFields){
+    if (!shim.registerSessionPlan(ReplaceUpdateFields){
       case ReplaceUpdateFields => true
       case _ => false
     }) {
