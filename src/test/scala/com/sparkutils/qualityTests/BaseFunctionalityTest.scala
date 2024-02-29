@@ -208,7 +208,11 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
               // 3.4 rc4 changes type syntax
               msg.contains(test.replaceAll("requires","requires the")) ||
               msg.contains(test.replaceAll("however,","however").replaceAll("type","").
-                replaceAll("is of","has the type").trim())
+                replaceAll("is of","has the type").trim()) ||
+              // 4 has second paramter
+              msg.contains(test.replaceAll("parameter 2","second parameter").
+                replaceAll("parameter 1","first parameter")
+              )
             )
         }
     }
@@ -448,7 +452,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     val maps = (0 to 4).map(i => map.mapValues(_ * i))
 
     import sparkSession.implicits._
-    val ds = maps.reverse.map(m => MapArray(Seq(m))).toDS()
+    val ds = maps.reverse.map(m => MapArray(Seq(m.toMap))).toDS()
     ds.show
 
     // should fail
@@ -467,13 +471,13 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     sorted.show
     sorted.collect().zipWithIndex.foreach{
       case (map,index) =>
-        assert(map.seq(0) == maps(index)) // because all 4 are identical
+        assert(map.seq(0) == maps(index).toMap) // because all 4 are identical
     }
 
     val sorted2 = comparable.sort("seq").select(reverse_comparable_maps(col("seq")).as("seq")).as[MapArray]
     sorted2.collect().zipWithIndex.foreach{
       case (map,index) =>
-        assert(map.seq(0) == maps(index)) // because all 4 are identical
+        assert(map.seq(0) == maps(index).toMap) // because all 4 are identical
     }
   }
 
@@ -484,7 +488,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     val maps = (0 to 4).map(i => map.mapValues(_ * i))
 
     import sparkSession.implicits._
-    val ds = maps.reverse.map(m => NestedMapStruct(NestedStruct(m.head._1, Map( m.head._1 -> MapArray(Seq(m)))))).toDS()
+    val ds = maps.reverse.map(m => NestedMapStruct(NestedStruct(m.head._1, Map( m.head._1 -> MapArray(Seq(m.toMap)))))).toDS()
     ds.show
 
     // should fail
@@ -503,7 +507,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     sorted.show
     sorted.collect().zipWithIndex.foreach {
       case (struct, index) =>
-        assert(struct.nested.nested.head._2.seq(0) == maps(index)) // because all 4 are identical
+        assert(struct.nested.nested.head._2.seq(0) == maps(index).toMap) // because all 4 are identical
 
     }
 

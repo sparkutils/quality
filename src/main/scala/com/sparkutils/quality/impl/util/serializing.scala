@@ -51,12 +51,12 @@ object Serializing {
       metaRuleSets =>
         val generatedRuleSets = metaRuleSets.map( mrs => mrs.generateRuleSet(dataFrame, stablePosition, transform))
         r.copy(ruleSets = r.ruleSets ++ generatedRuleSets)
-    }.getOrElse(r))
+    }.getOrElse(r)).toMap
 
   protected[quality] def iIntegrateLambdas(ruleSuiteMap: RuleSuiteMap, lambdas: Map[Id, Seq[LambdaFunction]], globalLibrary: Option[Id], get: Id => Option[Seq[LambdaFunction]]): RuleSuiteMap = {
     val shared = globalLibrary.map(lambdas.getOrElse(_, Set()).toSet).getOrElse(Set())
     ruleSuiteMap.mapValues(r => get(r.id).map(lambdas => r.copy(lambdaFunctions = (lambdas.toSet |+| shared).toSeq)).getOrElse(r.copy(lambdaFunctions = shared.toSeq)))
-  }
+  }.toMap
 
   protected[quality] def iIntegrateOutputExpressions(ruleSuiteMap: RuleSuiteMap, outputs: Map[Id, Seq[OutputExpressionRow]], globalLibrary: Option[Id], get: Id => Option[Seq[OutputExpressionRow]]): (RuleSuiteMap, Map[Id, Set[Rule]]) = {
     val shared = globalLibrary.map(outputs.getOrElse(_, Seq.empty)).getOrElse(Seq.empty)
@@ -95,7 +95,7 @@ object Serializing {
 
       }
 
-    (map, Map() ++ notexists)
+    (map.toMap, Map() ++ notexists)
   }
 
 
@@ -217,7 +217,7 @@ object Serializing {
    * @return
    */
   def toSeq(ruleSuiteMap: RuleSuiteMap): RuleSuiteMap =
-    ruleSuiteMap.mapValues(toSeq _)
+    ruleSuiteMap.mapValues(toSeq _).toMap
 
   /**
    * Loads a RuleSuite from a dataframe with integers ruleSuiteId, ruleSuiteVersion, ruleSetId, ruleSetVersion, ruleId, ruleVersion and an expression string ruleExpr

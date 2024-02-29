@@ -176,17 +176,17 @@ class MapLookupTests extends FunSuite with TestUtils {
     // 3) if any key lookup fails the original item should be returned
     // 4) if the item itself is null the return empty attributes
     val data = Seq(
-      Item("flowers", "orchid", Seq("open","difficult","prized")),
-      Item("flowers", "dandelion", Seq("weed")),
-      Item("cars", "ferrari", Seq("fast","compensatory measure")),
-      Item("cars", "skoda", Seq("outdated reputation", "drives doesn't it?"))
+      Item("flowers", "orchid", scala.collection.immutable.Seq("open","difficult","prized")),
+      Item("flowers", "dandelion", scala.collection.immutable.Seq("weed")),
+      Item("cars", "ferrari", scala.collection.immutable.Seq("fast","compensatory measure")),
+      Item("cars", "skoda", scala.collection.immutable.Seq("outdated reputation", "drives doesn't it?"))
     )
     import sparkSession.implicits._
-    val datadf = data.toDF("hierarchy","item","data")
+    val datadf = data.toDS//("hierarchy","item","data")
 
     val lookups = mapLookupsFromDFs(Map(
       "hierarchy" -> ( () => {
-        (datadf, functions.expr("struct(hierarchy, item)"), functions.expr("data"))
+        (datadf.toDF(), functions.expr("struct(hierarchy, item)"), functions.expr("attributes"))// functions.expr("data"))
       } )
     ))
 
@@ -214,4 +214,4 @@ class MapLookupTests extends FunSuite with TestUtils {
   }
 }
 
-case class Item(hierarchy: String, item: String, attributes: Seq[String])
+case class Item(hierarchy: String, item: String, attributes: scala.collection.immutable.Seq[String])

@@ -129,7 +129,7 @@ object QualityYamlDecoding extends Logging {
 
                 converters(index)(tuple.getValueNode)
             }
-          InternalRow(values: _*)
+          InternalRow(values.toSeq: _*)
         }
       }
 

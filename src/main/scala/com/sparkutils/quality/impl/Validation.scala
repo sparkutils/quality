@@ -292,7 +292,7 @@ object Validation {
       _._2.isLeft
     }
 
-    val lambdaNameToExpressions = lambdaLeftExpressions.groupBy(p => p._1).mapValues(e => e.map(_._2.left.get).toMap)
+    val lambdaNameToExpressions = lambdaLeftExpressions.groupBy(p => p._1).mapValues(e => e.map(_._2.left.get).toMap).toMap
 
     val (lambdaLookups, potentialOverflows, unknownLambdaSparkFunctions) = try {
       VariablesLookup.processLambdas(lambdaNameToExpressions)

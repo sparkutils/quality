@@ -18,6 +18,7 @@ import org.scalatest.FunSuite
 
 import java.security.{MessageDigest, Provider}
 import java.util.Base64
+import scala.collection.JavaConverters
 import scala.jdk.CollectionConverters._
 
 class IDTests extends FunSuite with TestUtils {
@@ -141,7 +142,7 @@ class IDTests extends FunSuite with TestUtils {
     import java.net._
     import scala.collection.JavaConverters._
 
-    val nonNulls = NetworkInterface.getNetworkInterfaces.asScala map (_.getHardwareAddress) filter (_ != null)
+    val nonNulls = enumerationAsScalaIterator(NetworkInterface.getNetworkInterfaces) map (_.getHardwareAddress) filter (_ != null)
     val hardwareAddress: Array[Byte] = nonNulls.next
 
     assert(model.localMAC.zip(hardwareAddress).forall(p => p._1 == p._2), "Should have identical local mac")
@@ -524,7 +525,7 @@ object SumIdGenTest extends Bench.OfflineReport with RowTools {
     val ndf = func(df)
 
     val sum =
-      ndf.toLocalIterator().asScala.map { _.getAs[Long](colname) }.sum // get will probably be dumped, but hopefully not
+      JavaConverters.asScalaIteratorConverter(ndf.toLocalIterator()).asScala.map { _.getAs[Long](colname) }.sum // get will probably be dumped, but hopefully not
     sum
   }
 

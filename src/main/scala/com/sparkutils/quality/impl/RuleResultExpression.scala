@@ -86,9 +86,9 @@ case class RuleResultExpression(children: Seq[Expression]) extends
     ctx.references += this
     val setClass = classOf[Seq[Int]].getName+"<Object>"
     val cachedSetPositions = ctx.addMutableState(setClass, "cachedSetPositions",
-      v => s"$v = ($setClass) scala.collection.Seq$$.MODULE$$.<Object>empty();")
+      v => s"$v = ($setClass) scala.collection.immutable.Seq$$.MODULE$$.<Object>empty();")
     val cachedRulePositions = ctx.addMutableState(setClass, "cachedRulePositions",
-      v => s"$v = ($setClass) scala.collection.Seq$$.MODULE$$.<Object>empty();")
+      v => s"$v = ($setClass) scala.collection.immutable.Seq$$.MODULE$$.<Object>empty();")
 
     val className = classOf[RuleResultExpression].getName
     val dataTypeName = classOf[DataType].getName
@@ -110,8 +110,8 @@ case class RuleResultExpression(children: Seq[Expression]) extends
 
     val companion = "com.sparkutils.quality.impl.RuleResultExpression"
 
-    val ruleSetResultClassName = "scala.Tuple2<InternalRow, scala.collection.Seq<Object>>"
-    val ruleResultClassName = "scala.Tuple2<Integer, scala.collection.Seq<Object>>"
+    val ruleSetResultClassName = "scala.Tuple2<InternalRow, scala.collection.immutable.Seq<Object>>"
+    val ruleResultClassName = "scala.Tuple2<Integer, scala.collection.immutable.Seq<Object>>"
 
     val dataTypeJava = CodeGenerator.boxedType(dataType)
 
@@ -131,12 +131,12 @@ case class RuleResultExpression(children: Seq[Expression]) extends
            Long suite = theStruct.getLong(0);
            if (suite == ${suiteCode.value}) {
               $ruleSetResultClassName ruleSetResult = $companion.getEntry(theStruct.getMap($extractResults), $cachedSetPositions, ${setCode.value}, $entryTypeRef);
-              $cachedSetPositions = (scala.collection.Seq<Object>) ruleSetResult._2();
+              $cachedSetPositions = (scala.collection.immutable.Seq<Object>) ruleSetResult._2();
               if (ruleSetResult._1() == null) {
                 ${ev.isNull} = true;
               } else {
                 $ruleResultClassName ruleResult = $companion.getEntry((($className)references[$referencesIndex]).access(ruleSetResult._1()), $cachedRulePositions, ${ruleCode.value}, $dataTypeRef);
-                $cachedRulePositions = (scala.collection.Seq<Object>) ruleResult._2();
+                $cachedRulePositions = (scala.collection.immutable.Seq<Object>) ruleResult._2();
                 if (ruleResult._1() == null) {
                   ${ev.isNull} = true;
                 } else {
