@@ -100,6 +100,7 @@ The full list of supported runtimes is below:
 | 3.4.1         | 3.4 | 13.3.dbr_      | 2.12 |
 | 3.5.0         | 3.5 | 3.5.0.oss_     | 2.12 |
 | 3.5.0         | 3.5 | 14.0.dbr_      | 2.12 |
+| 3.5.0         | 3.5 | 14.3.dbr_      | 2.12 |
 
 2.4 support is deprecated and will be removed in a future version.  3.1.2 support is replaced by 3.1.3 due to interpreted encoder issues. 
 
@@ -110,7 +111,13 @@ The full list of supported runtimes is below:
 
 !!! warning "Databricks 14.x support"
     Due to back-porting of SPARK-44913 frameless 0.16.0 (the 3.5.0 release) is not binary compatible with 14.2 and above which has back-ported this 4.0 interface change.
-    Similarly, 4.0 / 14.2 introduces a change in resolution so a new runtime version is required upon a potential fix for 44913 in frameless. 
+    Similarly, 4.0 / 14.2 introduces a change in resolution so a new runtime version is required upon a potential fix for 44913 in frameless.
+    As such 14.3 has its own runtime
+
+!!! warning "0.1.3 Requires com.sparkutils.frameless for newer releases"
+    Quality 0.1.3 uses [com.sparkutils.frameless](https://github.com/sparkutils/frameless) for the 3.5, 13.3 and 14.x releases together with the [shim project](https://github.com/sparkutils/shim), allowing quicker releases of Databricks runtime supports going forward.
+    The two frameless code bases are not binary compatible and will require recompilation.
+    This may revert to org.typelevel.frameless in the future.
 
 ## Sql functions vs column dsl
 
@@ -160,6 +167,7 @@ The known combinations requiring this approach is below:
 | 3.3.2         | 3.3               | 3.3.2.oss_        | 12.2.dbr_               | 2.12 | 
 | 3.4.1         | 3.4               | 3.4.1.oss_        | 13.1.dbr_               | 2.12 | 
 | 3.5.0         | 3.5               | 3.5.0.oss_        | 14.0.dbr_               | 2.12 | 
+| 3.5.0         | 3.5               | 3.5.0.oss_        | 14.3.dbr_               | 2.12 | 
 
 ## Using the SQL functions on Spark Thrift (Hive) servers
 

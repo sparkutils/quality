@@ -1,4 +1,4 @@
-### 0.1.3 <small>19th March, 2024</small>
+### 0.1.3 <small>19th April, 2024</small>
 
 #53 - Docs parser is now more forgiving, empty descriptions are tolerated and normal scaladoc syntax is allowed
 
@@ -13,6 +13,10 @@
 #58 - Migrate custom runtime usage to Shim
 
 #59 - DBR 13.3 LTS support
+
+#57 - DBR 14.3 support
+
+#61 - Use sparkutils frameless for 3.5, 13.3, 14.x builds - Due to encoding and shim changes this frameless fork version is not binary compatible with typelevel frameless proper 
 
 ### 0.1.2.1 <small>4th September, 2023</small>
 
