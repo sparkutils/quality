@@ -45,4 +45,10 @@ object SparkTestUtils {
   def getCorrectPlan(sparkPlan: SparkPlan): SparkPlan =
     sparkPlan
 
+
+  def enumToScala[A](enum: java.util.Enumeration[A]) = {
+    import scala.collection.JavaConverters._
+
+    enumerationAsScalaIterator(enum)
+  }
 }

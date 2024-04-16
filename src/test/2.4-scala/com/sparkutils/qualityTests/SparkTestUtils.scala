@@ -8,6 +8,7 @@ import org.apache.spark.sql.execution.{FileSourceScanExec, SparkPlan}
 import org.apache.spark.sql.sources.Filter
 
 import java.util.concurrent.atomic.AtomicReference
+import scala.collection.JavaConverters.enumerationAsScalaIterator
 
 case class AnalysisException(message: String) extends Exception(message)
 
@@ -45,4 +46,10 @@ object SparkTestUtils {
   def getCorrectPlan(sparkPlan: SparkPlan): SparkPlan =
     sparkPlan
 
+
+  def enumToScala[A](enum: java.util.Enumeration[A]) = {
+    import scala.collection.JavaConverters._
+
+    enum.asScala
+  }
 }
