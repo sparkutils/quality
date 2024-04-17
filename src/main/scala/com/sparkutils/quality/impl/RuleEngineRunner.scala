@@ -261,7 +261,10 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
             $resArrTerm[$idx] = $currRuleResTerm;
             if ( ( $currRuleResTerm == $PassedInt ) ${if (!debugMode && salienceCheck) s" && ( $currentSalience > $salienceArrTerm[$idx] ) " else "" }) {
               $funName($paramsCall, $idx);
-            }
+            } ${if (!debugMode) "" else s"""
+              else {
+              $outArrTerm[$idx] = null;
+            }"""}
             """
 
       converted
@@ -280,29 +283,24 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
         ctx.addNewFunction(exprFuncName,
           s"""
    private void $exprFuncName($paramsDef, int $index) {
+            ${extraSetup(index)} \n
+            ${eval.code} \n
+
      ${
             if (debugMode)
               s"""
-            ${extraSetup(index)} \n
-            ${eval.code} \n
-
             $currentOutputIndex += 1; \n
 
-            $outArrTerm[$index] = ${eval.isNull} ? null : ($output)${eval.value}; \n
-            ${extraResult(s"$outArrTerm[$index]")}
             """
             else
               s"""
-            ${extraSetup(index)} \n
-            ${eval.code} \n
 
             $currentSalience = $salienceArrTerm[$index]; \n
             $currentOutputIndex = $index; \n
-
-            $outArrTerm[$index] = ${eval.isNull} ? null : ($output)${eval.value}; \n
-            ${extraResult(s"$outArrTerm[$index]")}
             """
           }
+            $outArrTerm[$index] = ${eval.isNull} ? null : ($output)${eval.value}; \n
+            ${extraResult(s"$outArrTerm[$index]")}
    }
   """
         )

@@ -1,10 +1,9 @@
 package org.apache.spark.sql.qualityFunctions
 
 import com.sparkutils.quality.QualityException.qualityException
-import com.sparkutils.quality.impl.util.VariablesLookup
 import com.sparkutils.quality.impl.{LambdaFunction => QLambdaFunction}
 import com.sparkutils.shim.expressions.Names.toName
-import org.apache.spark.sql.{QualitySparkUtils, ShimUtils, SparkSession}
+import org.apache.spark.sql.{ShimUtils, SparkSession}
 import org.apache.spark.sql.catalyst.analysis.UnresolvedFunction
 import org.apache.spark.sql.catalyst.expressions.{Expression, LambdaFunction, LeafExpression, Literal, NamedExpression, NamedLambdaVariable, Unevaluable, UnresolvedNamedLambdaVariable}
 import org.apache.spark.sql.qualityFunctions.FunCall.applyFunN

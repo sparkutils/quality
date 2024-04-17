@@ -8,7 +8,6 @@ import org.apache.spark.sql.execution.{FileSourceScanExec, SparkPlan}
 import org.apache.spark.sql.sources.Filter
 
 import java.util.concurrent.atomic.AtomicReference
-import scala.collection.JavaConverters.enumerationAsScalaIterator
 
 case class AnalysisException(message: String) extends Exception(message)
 

@@ -1,12 +1,11 @@
 package org.apache.spark.sql.qualityFunctions
 
-import java.util.concurrent.atomic.AtomicInteger
 import com.sparkutils.quality.impl.util.Comparison.compareToOrdering
-import org.apache.spark.sql.{Column, QualitySparkUtils, ShimUtils}
+import org.apache.spark.sql.ShimUtils
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{BoundReference, LambdaFunction, NamedExpression, UnresolvedNamedLambdaVariable}
+import org.apache.spark.sql.catalyst.expressions.BoundReference
 import org.apache.spark.sql.catalyst.util.ArrayData
-import org.apache.spark.sql.types.{ArrayType, AtomicType, DataType, MapType, StructField, StructType}
+import org.apache.spark.sql.types._
 
 object utils {
 
