@@ -394,11 +394,13 @@ class RuleEngineTest extends FunSuite with TestUtils {
       ), Seq(LambdaFunction("genMax", sub(), Id(2404,1))))
       val testDF = seq.toDF("i").as("main")
       testDF.collect()
+      val resdf = testDF.transform(ruleEngineWithStructF(rs, IntegerType))
       try {
-        val resdf = testDF.transform(ruleEngineWithStructF(rs, IntegerType))
-        fail("should not have got here")
+        val res = resdf.selectExpr("ruleEngine.result").as[Option[Int]].collect()
+        // the o.g. '4' value should return null
+        assert(res.count(_.isEmpty) == 1)
+        assert(res.flatten.forall(_ == 4))
       } catch {
-        case q: QualityException if q.getMessage.indexOf("non-attribute parameters") > -1 => ()
         case t: Throwable =>
           throw t
       }

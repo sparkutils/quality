@@ -288,11 +288,10 @@ case class FunN(arguments: Seq[Expression], function: Expression, name: Option[S
 }
 
 object SubQueryLambda {
-  def namedToOuterReference(wrap: Expression, expression: NamedExpression) = wrap match {
+  def namedToOuterReference(wrap: Expression) = wrap.transform {
     case n: NamedExpression => OuterReference(n) // replace the NamedLambdaVariable with the reference
     // XX just expression will cause an exception printing the plan and showing the
     // lambda variable is not accessible, wrapping it in OuterReference leads to a useless binding error
-    case _ => expression
   }
 
   def convertLambdaFunction(potentialLambda: Expression, transformLambdaVariable: NamedExpression => Expression = identity): Expression =
@@ -310,9 +309,9 @@ object SubQueryLambda {
             case s: SubqueryExpression => s.withNewPlan(s.plan.transform {
               case snippet => snippet.transformAllExpressions {
                 case a: UnresolvedNamedLambdaVariable =>
-                  indexes.get(a).map(i => namedToOuterReference(transformLambdaVariable(a), newL.arguments(i))).getOrElse(a)
+                  indexes.get(a).map(i => namedToOuterReference(transformLambdaVariable(a))).getOrElse(a)
                 case a: UnresolvedAttribute =>
-                  names.get(a.name).map(lamVar => namedToOuterReference(l.arguments(lamVar), newL.arguments(lamVar))).getOrElse(a)
+                  names.get(a.name).map(lamVar => namedToOuterReference(l.arguments(lamVar))).getOrElse(a)
               }
             })
           }
