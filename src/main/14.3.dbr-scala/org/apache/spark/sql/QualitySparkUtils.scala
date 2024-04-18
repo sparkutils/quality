@@ -4,7 +4,7 @@ import com.sparkutils.quality.impl.util.DebugTime.debugTime
 import com.sparkutils.quality.impl.util.PassThrough
 import com.sparkutils.quality.impl.{RuleEngineRunner, RuleFolderRunner, RuleRunner}
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCoercion}
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, EqualNullSafe, Expression, ExpressionSet, Literal}
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, EqualNullSafe, Expression, ExpressionSet, Literal, UpdateFields}
 import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, UnaryNode}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.internal.SQLConf
@@ -225,4 +225,42 @@ object QualitySparkUtils {
 
        protected def withNewChildInternal(newChild: LogicalPlan): LogicalPlan = copy(child = newChild)
      }
+  /**
+   * Adds fields, in order, for each field path it's paired transformation is applied to the update column
+   *
+   * @param update
+   * @param transformations
+   * @return a new copy of update with the changes applied
+   */
+  def update_field(update: Column, transformations: (String, Column)*): Column =
+    new Column(
+      transformFields{
+        transformations.foldRight(update.expr) {
+          case ((path, col), origin) =>
+            UpdateFields.apply(origin, path, col.expr)
+        }
+      }
+    )
+
+  protected def transformFields(exp: Expression): Expression =
+    exp.transform { // simplify, normally done in optimizer UpdateFields
+      case UpdateFields(UpdateFields(struct, fieldOps1), fieldOps2) =>
+        UpdateFields(struct, fieldOps1 ++ fieldOps2 )
+    }
+
+  /**
+   * Drops a field from a structure
+   * @param update
+   * @param fieldNames may be nested
+   * @return
+   */
+  def drop_field(update: Column, fieldNames: String*): Column =
+    new Column(
+      transformFields{
+        fieldNames.foldRight(update.expr) {
+          case (fieldName, origin) =>
+            UpdateFields.apply(origin, fieldName)
+        }
+      }
+    )
 }
