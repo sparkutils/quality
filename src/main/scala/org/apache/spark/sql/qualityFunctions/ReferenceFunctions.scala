@@ -8,6 +8,7 @@ import org.apache.spark.sql.catalyst.analysis.{TypeCheckResult, UnresolvedAttrib
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode}
 import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression, HigherOrderFunction, LambdaFunction, LeafExpression, NamedExpression, NamedLambdaVariable, OuterReference, SubqueryExpression, UnresolvedNamedLambdaVariable}
+import org.apache.spark.sql.qualityFunctions.SubQueryLambda.namedToOuterReference
 import org.apache.spark.sql.types.{AbstractDataType, DataType}
 
 /**
@@ -183,46 +184,19 @@ case class FunN(arguments: Seq[Expression], function: Expression, name: Option[S
         arguments.map(e => (e.dataType, e.nullable))))
 
     if (RuleLogicUtils.hasSubQuery(res.function)) {
-      // only possible on > 3.4 (and DBR 12.2)
+      // only possible on > 3.4 (and DBR 12.2),
+      // no longer possible after 14.3/4.0, this code won't be reached due to https://issues.apache.org/jira/browse/SPARK-47509
       // given XX below reject this occurrence directly.
       if (!arguments.forall(_.isInstanceOf[Attribute])) {
         QualityException.qualityException(s"Cannot use LambdaFunctions with SubqueryExpressions and non-attribute parameters " + this)
       }
 
-      def namedToOuterReference(index: Int, expression: NamedExpression) = arguments(index) match {
-        case n: NamedExpression => OuterReference(n) // replace the NamedLambdaVariable with the reference
-        // XX just expression will cause an exception printing the plan and showing the
-        // lambda variable is not accessible, wrapping it in OuterReference leads to a useless binding error
-        case _ => expression
-      }
-      function match {
-        case l: LambdaFunction =>
+      val converted = SubQueryLambda.convertLambdaFunction(res.function)
 
-          val replaced = {
-            // get the current args, they are the right ones to potentially replace
-            // resolve on the subquery doesn't work for LambdaVariables
-            val newL = res.function.asInstanceOf[LambdaFunction]
-            val indexes = l.arguments.zipWithIndex.toMap[Expression, Int]
-            val names = newL.arguments.zipWithIndex.map(a => a._1.name -> a._2).toMap
-            res.copy(function = res.function.transform {
-              case s: SubqueryExpression => s.withNewPlan(s.plan.transform {
-                case snippet => snippet.transformAllExpressions {
-                  case a: UnresolvedNamedLambdaVariable =>
-                    indexes.get(a).map(i => namedToOuterReference(i, newL.arguments(i))).getOrElse(a)
-                  case a: UnresolvedAttribute =>
-                    names.get(a.name).map(lamVar => namedToOuterReference(lamVar, newL.arguments(lamVar))).getOrElse(a)
-                }
-              })
-            })
-          }
-
-          replaced
-        case _ =>
-          // where there are no params in the lambda
-          res
-      }
+      res.copy(function = converted)
     } else
       res
+
   }
 
   @transient lazy val LambdaFunction(lambdaFunction, elementNamedVariables, _) = function
@@ -311,4 +285,42 @@ case class FunN(arguments: Seq[Expression], function: Expression, name: Option[S
          // End FunN - $lambdaName
           """)
   }
+}
+
+object SubQueryLambda {
+  def namedToOuterReference(wrap: Expression, expression: NamedExpression) = wrap match {
+    case n: NamedExpression => OuterReference(n) // replace the NamedLambdaVariable with the reference
+    // XX just expression will cause an exception printing the plan and showing the
+    // lambda variable is not accessible, wrapping it in OuterReference leads to a useless binding error
+    case _ => expression
+  }
+
+  def convertLambdaFunction(potentialLambda: Expression, transformLambdaVariable: NamedExpression => Expression = identity): Expression =
+    potentialLambda match {
+      case l: LambdaFunction =>
+
+        val replaced = {
+          // get the current args, they are the right ones to potentially replace
+          // resolve on the subquery doesn't work for LambdaVariables
+          val newL = l
+          val indexes = l.arguments.zipWithIndex.toMap[Expression, Int]
+          val names = newL.arguments.zipWithIndex.map(a => a._1.name -> a._2).toMap
+
+          l.transform {
+            case s: SubqueryExpression => s.withNewPlan(s.plan.transform {
+              case snippet => snippet.transformAllExpressions {
+                case a: UnresolvedNamedLambdaVariable =>
+                  indexes.get(a).map(i => namedToOuterReference(transformLambdaVariable(a), newL.arguments(i))).getOrElse(a)
+                case a: UnresolvedAttribute =>
+                  names.get(a.name).map(lamVar => namedToOuterReference(l.arguments(lamVar), newL.arguments(lamVar))).getOrElse(a)
+              }
+            })
+          }
+        }
+
+        replaced
+      case _ =>
+        // where there are no params in the lambda
+        potentialLambda
+    }
 }
