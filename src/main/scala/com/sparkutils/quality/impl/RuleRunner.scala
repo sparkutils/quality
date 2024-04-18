@@ -133,10 +133,10 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
 
       val overall = ruleSetResults.foldLeft(PassedInt){
         (ov, res) =>
-          OverallResult.inplaceInt(ov, res.asInstanceOf[Int], probablePass) // convert needed for process
+          OverallResultHelper.inplaceInt(ov, res.asInstanceOf[Int], probablePass) // convert needed for process
       }
 
-      rsOverall = OverallResult.inplaceInt(overall, rsOverall, probablePass)
+      rsOverall = OverallResultHelper.inplaceInt(overall, rsOverall, probablePass)
 
       ruleSetRes(rsi) = InternalRow(
         overall: java.lang.Integer,

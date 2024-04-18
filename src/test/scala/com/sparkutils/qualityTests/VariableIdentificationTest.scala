@@ -1,8 +1,8 @@
 package com.sparkutils.qualityTests
 
-import com.sparkutils.quality.impl.{ExpressionLookup, VariablesLookup}
 import com.sparkutils.quality.Id
-import org.apache.spark.sql.QualitySparkUtils.newParser
+import com.sparkutils.quality.impl.util.{ExpressionLookup, VariablesLookup}
+import org.apache.spark.sql.ShimUtils.newParser
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.junit.Test
 import org.scalatest.FunSuite

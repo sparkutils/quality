@@ -1,13 +1,14 @@
 package org.apache.spark.sql.qualityFunctions
 
-import com.sparkutils.quality.{QualityException}
-import com.sparkutils.quality.impl.{HigherOrderFunctionLike, RuleLogicUtils}
+import com.sparkutils.quality.QualityException
+import com.sparkutils.quality.impl.RuleLogicUtils
+import com.sparkutils.shim.expressions.HigherOrderFunctionLike
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.analysis.{TypeCheckResult, UnresolvedAttribute, UnresolvedExtractValue}
+import org.apache.spark.sql.catalyst.analysis.{TypeCheckResult, UnresolvedAttribute}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode}
-import org.apache.spark.sql.catalyst.expressions.{Attribute, CreateNamedStruct, Expression, HigherOrderFunction, LambdaFunction, LeafExpression, Literal, NamedExpression, NamedLambdaVariable, OuterReference, ScalarSubquery, SubqueryExpression, UnresolvedNamedLambdaVariable}
-import org.apache.spark.sql.types.{AbstractDataType, DataType, StringType}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression, HigherOrderFunction, LambdaFunction, LeafExpression, NamedExpression, NamedLambdaVariable, OuterReference, SubqueryExpression, UnresolvedNamedLambdaVariable}
+import org.apache.spark.sql.types.{AbstractDataType, DataType}
 
 /**
  * Wraps other expressions and stores the result in an RefExpression -

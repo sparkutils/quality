@@ -1,6 +1,6 @@
 package com.sparkutils.quality.impl.util
 
-import com.sparkutils.quality.impl.{DataFrameSyntaxError, ExpressionLookup, HasId, HasNonIdText, HasOutputText, HasRuleText, LambdaMultipleImplementationWithSameArityError, LambdaRelevant, NoOpRunOnPassProcessor, NonLambdaDocParameters, OutputExpressionRelevant, RuleError, RuleRegistrationFunctions, RuleRelevant, RuleWarning, RunOnPassProcessor}
+import com.sparkutils.quality.impl.{DataFrameSyntaxError, HasId, HasNonIdText, HasOutputText, HasRuleText, LambdaMultipleImplementationWithSameArityError, LambdaRelevant, NoOpRunOnPassProcessor, NonLambdaDocParameters, OutputExpressionRelevant, RuleError, RuleRegistrationFunctions, RuleRelevant, RuleWarning, RunOnPassProcessor}
 import com.sparkutils.quality.{Id, Rule, RuleSuite, RunOnPassProcessor}
 
 import scala.util.parsing.combinator.{JavaTokenParsers, PackratParsers}

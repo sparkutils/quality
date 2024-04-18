@@ -33,7 +33,7 @@ case class RuleResultWithProcessor(ruleResult: RuleResult, runOnPassProcessor: i
   * Passed until any failure occurs
   */
 case class OverallResult(probablePass: Double = 0.8, currentResult: RuleResult = Passed) {
-  def process(ruleResult: RuleResult): OverallResult = copy(currentResult = impl.OverallResult.inplace(ruleResult, currentResult, probablePass))
+  def process(ruleResult: RuleResult): OverallResult = copy(currentResult = impl.OverallResultHelper.inplace(ruleResult, currentResult, probablePass))
 }
 
 /**

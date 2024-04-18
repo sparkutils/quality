@@ -4,7 +4,7 @@ import com.sparkutils.quality.{DisabledRule, DisabledRuleInt, Failed, FailedInt,
 
 import scala.annotation.tailrec
 
-protected[quality] object OverallResult {
+protected[quality] object OverallResultHelper {
   @tailrec
   protected[quality] def inplace(ruleResult: RuleResult, currentResult: RuleResult, probablePass: Double): RuleResult =
     ruleResult match {

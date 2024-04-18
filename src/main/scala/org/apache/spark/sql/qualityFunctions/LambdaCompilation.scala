@@ -59,7 +59,7 @@ case class NamedLambdaVariableCodeGen(
             """)
   }
 
-  def qualifier: Seq[String] = qualityException("Should not be called on placeholder after codegen")
+  def qualifier: scala.collection.immutable.Seq[String] = qualityException("Should not be called on placeholder after codegen")
 
   def toAttribute: Attribute = qualityException("Should not be called on placeholder after codegen")
 
@@ -210,7 +210,7 @@ object LambdaCompilationUtils {
 
     val allToBeExcluded = exprMaps.flatMap(p => p.left.get._2.map( n => n.exprId -> n)).toMap
 
-    val exprIdMaps = allNLVs.map(_.right.get).toMap.filterKeys(k => !allToBeExcluded.contains(k)).map(p => p._2.toCodeGenPair(ctx))
+    val exprIdMaps = allNLVs.map(_.right.get).toMap.filterKeys(k => !allToBeExcluded.contains(k)).map(p => p._2.toCodeGenPair(ctx)).toMap
 
     def replaceNLVs(expr: Expression) =
       expr.transform{

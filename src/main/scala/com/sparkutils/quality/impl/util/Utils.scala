@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality._
-import com.sparkutils.quality.impl.{LookupIdFunctionImpl, RuleLogicUtils}
+import com.sparkutils.quality.impl.RuleLogicUtils
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
 import org.apache.spark.sql.catalyst.expressions.{Expression, Literal, Unevaluable, UnsafeArrayData}

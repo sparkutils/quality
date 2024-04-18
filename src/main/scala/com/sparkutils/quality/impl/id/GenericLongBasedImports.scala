@@ -4,7 +4,7 @@ import com.sparkutils.quality.impl.hash.{HashFunctionFactory, HashFunctionsExpre
 import com.sparkutils.quality.impl.rng.RandLongsWithJump
 import org.apache.commons.rng.simple.RandomSource
 import org.apache.spark.sql.Column
-import org.apache.spark.sql.qualityFunctions.DigestFactory
+import org.apache.spark.sql.shim.hash.DigestFactory
 
 trait GenericLongBasedImports {
   /**

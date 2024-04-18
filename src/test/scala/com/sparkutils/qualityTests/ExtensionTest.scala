@@ -1,7 +1,6 @@
 package com.sparkutils.qualityTests
 
 import java.io.File
-
 import com.sparkutils.quality.impl.extension.{AsUUIDFilter, ExtensionTesting, IDBase64Filter, QualitySparkExtension}
 import com.sparkutils.quality.impl.extension.QualitySparkExtension.disableRulesConf
 import com.sparkutils.quality.impl.util.Testing
@@ -11,8 +10,8 @@ import org.apache.spark.sql.sources.{Filter, And => SAnd, EqualTo => SEqualTo, G
 import org.apache.spark.sql.{Column, DataFrame, SparkSession}
 import org.junit.{Before, Test}
 import org.scalatest.FunSuite
-import java.util.UUID
 
+import java.util.UUID
 import org.apache.spark.sql.catalyst.FunctionIdentifier
 import org.apache.spark.sql.catalyst.analysis.FunctionRegistry
 
