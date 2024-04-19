@@ -146,7 +146,8 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
           wrapWithExtensionT(createview, forceInjection = "true")
           fail("expected to fail as the functions are temporary only")
         } catch {
-          case throwable: Throwable if throwable.getMessage.contains("as_uuid") => ()
+          case throwable: Throwable =>
+            if (throwable.getMessage.contains("as_uuid"))  ()
         }
       }
     }

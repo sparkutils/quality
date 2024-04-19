@@ -6,6 +6,7 @@ import com.sparkutils.shim.expressions.Names.toName
 import org.apache.spark.sql.{ShimUtils, SparkSession}
 import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedFunction}
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, Expression, LambdaFunction, LeafExpression, Literal, NamedExpression, NamedLambdaVariable, SubqueryExpression, Unevaluable, UnresolvedNamedLambdaVariable}
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.qualityFunctions.FunCall.applyFunN
 import org.apache.spark.sql.types.{BooleanType, DataType, LongType, StringType}
 import org.apache.spark.unsafe.types.UTF8String
@@ -140,15 +141,15 @@ object LambdaFunctions {
                 }
 
             val (actualFun, hadQuery) =
-              if (RuleLogicUtils.hasSubQuery(replacedFun))
+              if (RuleLogicUtils.hasSubQuery(replacedFun) && !SQLConf.get.getConfString("spark.sql.analyzer.allowSubqueryExpressionsInLambdasOrHigherOrderFunctions", "false").toBoolean)
                 // #62 - Spark 4 / 14.3 introduced a correctness check, in this case we replace all lambda's up front
                 (SubQueryLambda.convertLambdaFunction(replacedFun,
                   replacedFun match {
                     case l: LambdaFunction =>
-                      val repArgs = l.arguments.zip(replacedArgs).toMap
+                      val repArgs = l.arguments.map{e: Expression => e}.zip(replacedArgs).toMap
                       a => repArgs.getOrElse(a, a)
                     case _: Expression => identity
-                  }) match {
+                  })() match {
                   case l: LambdaFunction => l.function
                   case e: Expression => e
                 }

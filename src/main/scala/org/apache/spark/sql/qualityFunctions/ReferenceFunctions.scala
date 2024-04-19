@@ -186,12 +186,13 @@ case class FunN(arguments: Seq[Expression], function: Expression, name: Option[S
     if (RuleLogicUtils.hasSubQuery(res.function)) {
       // only possible on > 3.4 (and DBR 12.2),
       // no longer possible after 14.3/4.0, this code won't be reached due to https://issues.apache.org/jira/browse/SPARK-47509
+      // unless it's re-enabled
       // given XX below reject this occurrence directly.
-      if (!arguments.forall(_.isInstanceOf[Attribute])) {
-        QualityException.qualityException(s"Cannot use LambdaFunctions with SubqueryExpressions and non-attribute parameters " + this)
+      if (!arguments.forall(_.collect{case u: UnresolvedNamedLambdaVariable => u}.isEmpty)) {
+        QualityException.qualityException(s"Cannot use LambdaFunctions with SubqueryExpressions and parameters containing lambdavariables " + this)
       }
 
-      val converted = SubQueryLambda.convertLambdaFunction(res.function)
+      val converted = SubQueryLambda.convertLambdaFunction(res.function)(function, arguments)
 
       res.copy(function = converted)
     } else
@@ -294,24 +295,25 @@ object SubQueryLambda {
     // lambda variable is not accessible, wrapping it in OuterReference leads to a useless binding error
   }
 
-  def convertLambdaFunction(potentialLambda: Expression, transformLambdaVariable: NamedExpression => Expression = identity): Expression =
-    potentialLambda match {
+  def convertLambdaFunction(potentialLambda: Expression, transformLambdaVariable: Expression => Expression = identity)(oldL: Expression = potentialLambda, inArgs: Seq[Expression] = Seq.empty): Expression =
+    oldL match {
       case l: LambdaFunction =>
 
         val replaced = {
           // get the current args, they are the right ones to potentially replace
           // resolve on the subquery doesn't work for LambdaVariables
-          val newL = l
+          val newL = potentialLambda.asInstanceOf[LambdaFunction]
+          val args = if (inArgs.isEmpty) l.arguments else inArgs
           val indexes = l.arguments.zipWithIndex.toMap[Expression, Int]
           val names = newL.arguments.zipWithIndex.map(a => a._1.name -> a._2).toMap
 
-          l.transform {
+          potentialLambda.transform {
             case s: SubqueryExpression => s.withNewPlan(s.plan.transform {
               case snippet => snippet.transformAllExpressions {
                 case a: UnresolvedNamedLambdaVariable =>
-                  indexes.get(a).map(i => namedToOuterReference(transformLambdaVariable(a))).getOrElse(a)
+                  indexes.get(a).map(i => namedToOuterReference(transformLambdaVariable(args(i)))).getOrElse(a)
                 case a: UnresolvedAttribute =>
-                  names.get(a.name).map(lamVar => namedToOuterReference(l.arguments(lamVar))).getOrElse(a)
+                  names.get(a.name).map(lamVar => namedToOuterReference(args(lamVar))).getOrElse(a)
               }
             })
           }
