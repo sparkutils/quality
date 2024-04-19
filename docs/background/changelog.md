@@ -18,6 +18,10 @@
 
 #61 - Use sparkutils frameless for 3.5, 13.3, 14.x builds - Due to encoding and shim changes this frameless fork version is not binary compatible with typelevel frameless proper 
 
+#62 - SPARK-47509 workaround for Subqueries in lambdas - most common patterns are supported with 4.0 / 14.3 DBR
+
+#63 - Use actual struct functions where possible for drop_field/update_field functions - required due to 14.3 DBR introduced plan on local relations 
+
 ### 0.1.2.1 <small>4th September, 2023</small>
 
 Maven Central build issues, code wise the same as 0.1.2.
