@@ -1,0 +1,1657 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/sparkutils/quality/impl/aggregates/AggregateFunctionImports.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality.impl.aggregates
+</span>2 <span style=''>
+</span>3 <span style=''>import com.sparkutils.quality.QualityException
+</span>4 <span style=''>import com.sparkutils.quality.impl.RuleRegistrationFunctions.{defaultAdd, defaultZero}
+</span>5 <span style=''>import org.apache.spark.sql.Column
+</span>6 <span style=''>import org.apache.spark.sql.catalyst.expressions.{Expression, LambdaFunction}
+</span>7 <span style=''>import org.apache.spark.sql.qualityFunctions.{FunN, MapTransform, RefExpression}
+</span>8 <span style=''>import org.apache.spark.sql.shim.utils.createLambda
+</span>9 <span style=''>import org.apache.spark.sql.types.{DataType, LongType, MapType}
+</span>10 <span style=''>
+</span>11 <span style=''>sealed trait SumExpression {
+</span>12 <span style=''>  protected[quality] def funN(sumType: DataType): Expression
+</span>13 <span style=''>}
+</span>14 <span style=''>protected[quality] case class SumWith(lambdaFunctionIn: LambdaFunction, name: String = &quot;sum_with&quot;) extends SumExpression {
+</span>15 <span style=''>  override def funN(sumType: DataType): Expression = </span><span style='background: #AEF1AE'>FunN(Seq(RefExpression(sumType)), lambdaFunctionIn, Some(name))</span><span style=''>
+</span>16 <span style=''>}
+</span>17 <span style=''>protected[quality] case class SumWithMap(id: Column, lambdaFunctionIn: LambdaFunction, zero: DataType =&gt; Option[Any]) extends SumExpression {
+</span>18 <span style=''>  override def funN(sumType: DataType): Expression = sumType match {
+</span>19 <span style=''>    case mt: MapType =&gt;
+</span>20 <span style=''>      </span><span style='background: #AEF1AE'>MapTransform.create(RefExpression(sumType), id.cast(mt.keyType).expr, lambdaFunctionIn, zero)</span><span style=''>
+</span>21 <span style=''>    case _ =&gt;
+</span>22 <span style=''>      </span><span style='background: #AEF1AE'>throw QualityException(&quot;You must use a MapType dataType when using map_with&quot;)</span><span style=''>
+</span>23 <span style=''>  }
+</span>24 <span style=''>}
+</span>25 <span style=''>
+</span>26 <span style=''>sealed trait ResultsExpression {
+</span>27 <span style=''>  def funN(sumType: DataType): Expression
+</span>28 <span style=''>}
+</span>29 <span style=''>protected[quality] case class ResultsWith(lambdaFunctionIn: LambdaFunction, name: String = &quot;results_with&quot;) extends ResultsExpression {
+</span>30 <span style=''>  override def funN(sumType: DataType): Expression = </span><span style='background: #AEF1AE'>FunN(Seq(RefExpression(sumType), RefExpression(LongType)), lambdaFunctionIn, Some(name))</span><span style=''>
+</span>31 <span style=''>}
+</span>32 <span style=''>
+</span>33 <span style=''>trait AggregateFunctionImports {
+</span>34 <span style=''>
+</span>35 <span style=''>  /**
+</span>36 <span style=''>   * Creates an aggregate by applying filter to rows, calling sum with a starting value (provided by zero) and finally calls result to process the sum and count values for a final result.
+</span>37 <span style=''>   *
+</span>38 <span style=''>   * Note, when working with lambda's in the dsl it's often required to use the dataframes col function as the scope is incorrect in the lambda.
+</span>39 <span style=''>   *
+</span>40 <span style=''>   * @param sumType the type used to sum across rows
+</span>41 <span style=''>   * @param filter filter only input rows interesting to count (similar to CountIf, SumIf)
+</span>42 <span style=''>   * @param sum add to the current sum, takes the current sum as the parameter, sum_with, inc, map_with etc. can be used as implementations
+</span>43 <span style=''>   * @param result processes the sum result and row count (after filtering) to produce the final result of the aggregate
+</span>44 <span style=''>   * @param zero the default value for a given sumType
+</span>45 <span style=''>   * @param add the default addition logic for a given sumType, which combines the sumType across partitions
+</span>46 <span style=''>   * @return
+</span>47 <span style=''>   */
+</span>48 <span style=''>  def agg_expr(sumType: DataType, filter: Column, sum: SumExpression, result: ResultsExpression,
+</span>49 <span style=''>               zero: DataType =&gt; Option[Any] = defaultZero _,
+</span>50 <span style=''>               add: DataType =&gt; Option[(Expression, Expression) =&gt; Expression] = (dataType: DataType) =&gt; defaultAdd(dataType)): Column =
+</span>51 <span style=''>    </span><span style='background: #AEF1AE'>new Column( AggregateExpressions(sumType, filter.expr, sum.funN(sumType), result.funN(sumType), zero, add, notYetResolved = true) )</span><span style=''>
+</span>52 <span style=''>
+</span>53 <span style=''>  /**
+</span>54 <span style=''>   * Given the current sum, produce the next sum, for example by incrementing 1 on the sum to count filtered rows
+</span>55 <span style=''>   * @param sum
+</span>56 <span style=''>   * @return
+</span>57 <span style=''>   */
+</span>58 <span style=''>  def sum_with(sum: Column =&gt; Column): SumExpression =
+</span>59 <span style=''>    </span><span style='background: #AEF1AE'>SumWith(createLambda(sum))</span><span style=''>
+</span>60 <span style=''>
+</span>61 <span style=''>  /**
+</span>62 <span style=''>   * Produces an aggregate result
+</span>63 <span style=''>   * @param result the sum and count are parameters
+</span>64 <span style=''>   * @return
+</span>65 <span style=''>   */
+</span>66 <span style=''>  def results_with(result: (Column, Column) =&gt; Column): ResultsExpression =
+</span>67 <span style=''>    </span><span style='background: #AEF1AE'>ResultsWith(createLambda(result))</span><span style=''>
+</span>68 <span style=''>
+</span>69 <span style=''>/*
+</span>70 <span style=''>  val incX = (exps: Seq[Expression]) =&gt; exps match {
+</span>71 <span style=''>    case Seq(x: AttributeReference) =&gt;
+</span>72 <span style=''>      val name = x.qualifier.mkString(&quot;.&quot;) + x.name // that is bad code man should be option
+</span>73 <span style=''>      sumWith(s&quot;sum -&gt; sum + $name&quot;)(Seq())
+</span>74 <span style=''>    case Seq(Literal(str: UTF8String, StringType)) =&gt;
+</span>75 <span style=''>      // case for type passing
+</span>76 <span style=''>      sumWith(&quot;sum -&gt; sum + 1&quot;)(exps)
+</span>77 <span style=''>    case Seq(Literal(str: UTF8String, StringType), x: AttributeReference) =&gt;
+</span>78 <span style=''>      val name = x.qualifier.mkString(&quot;.&quot;) + x.name
+</span>79 <span style=''>      sumWith(s&quot;sum -&gt; sum + $name&quot;)(Seq(exps(0))) // keep the type, drop the attr
+</span>80 <span style=''>    case Seq(Literal(str: UTF8String, StringType), y) =&gt;
+</span>81 <span style=''>      qualityException(INC_REWRITE_GENEXP_ERR_MSG)
+</span>82 <span style=''>    case Seq( y ) =&gt;
+</span>83 <span style=''>      val SLambdaFunction(a: Add, Seq(sum: UnresolvedNamedLambdaVariable), hidden ) = functions.expr(&quot;sumWith(sum -&gt; sum + 1)&quot;).expr.children(0)
+</span>84 <span style=''>      import QualitySparkUtils.{add =&gt; addf}
+</span>85 <span style=''>      // could be a cast around x or three attributes plusing each other or....
+</span>86 <span style=''>      FunN(Seq(RefExpression(LongType)),
+</span>87 <span style=''>        SLambdaFunction(addf(a.left, y, LongType), Seq(sum), hidden )
+</span>88 <span style=''>        , Some(&quot;inc&quot;)) // keep the type
+</span>89 <span style=''>  */
+</span>90 <span style=''>  /**
+</span>91 <span style=''>   * Adds 1L to the sum value
+</span>92 <span style=''>   * @return
+</span>93 <span style=''>   */
+</span>94 <span style=''>  val inc: SumExpression =
+</span>95 <span style=''>    </span><span style='background: #AEF1AE'>SumWith(createLambda(sum =&gt; sum + 1L), &quot;inc&quot;)</span><span style=''>
+</span>96 <span style=''>
+</span>97 <span style=''>  /**
+</span>98 <span style=''>   * Adds incrementWith to the sum value
+</span>99 <span style=''>   * @param incrementWith
+</span>100 <span style=''>   * @return
+</span>101 <span style=''>   */
+</span>102 <span style=''>  def inc(incrementWith: Column): SumExpression =
+</span>103 <span style=''>    </span><span style='background: #AEF1AE'>SumWith(createLambda(sum =&gt; sum + incrementWith), &quot;inc&quot;)</span><span style=''>
+</span>104 <span style=''>
+</span>105 <span style=''>  /**
+</span>106 <span style=''>   * Provides the mean (summed value / count of filtered rows)
+</span>107 <span style=''>   * @return
+</span>108 <span style=''>   */
+</span>109 <span style=''>  val meanf: ResultsExpression =
+</span>110 <span style=''>    </span><span style='background: #AEF1AE'>ResultsWith(createLambda((sum, count) =&gt; sum / count), &quot;meanf&quot;)</span><span style=''>
+</span>111 <span style=''>
+</span>112 <span style=''>  /**
+</span>113 <span style=''>   * returns the sum, ignoring the count
+</span>114 <span style=''>   */
+</span>115 <span style=''>  val return_sum: ResultsExpression =
+</span>116 <span style=''>    </span><span style='background: #AEF1AE'>ResultsWith(createLambda((sum, count) =&gt; sum), &quot;return_sum&quot;)</span><span style=''>
+</span>117 <span style=''>
+</span>118 <span style=''>  /**
+</span>119 <span style=''>   * Creates an entry in a map sum with id and the result of 'sum' with the previous sum at that id as it's parameter.
+</span>120 <span style=''>   * @param id
+</span>121 <span style=''>   * @param sum the parameter is the previous value of maps' id entry
+</span>122 <span style=''>   * @param zero the default value for the map's value type
+</span>123 <span style=''>   * @return
+</span>124 <span style=''>   */
+</span>125 <span style=''>  def map_with(id: Column, sum: Column =&gt; Column, zero: DataType =&gt; Option[Any] = defaultZero _): SumExpression =
+</span>126 <span style=''>    </span><span style='background: #AEF1AE'>SumWithMap(id, createLambda(sum), zero)</span><span style=''>
+</span>127 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          15
+        </td>
+        <td>
+          3340
+        </td>
+        <td>
+          761
+          -
+          761
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.FunN.apply$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.qualityFunctions.FunN.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          15
+        </td>
+        <td>
+          3334
+        </td>
+        <td>
+          770
+          -
+          792
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.RefExpression.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.qualityFunctions.RefExpression.apply(sumType, org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$2, org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          15
+        </td>
+        <td>
+          3336
+        </td>
+        <td>
+          795
+          -
+          811
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.aggregates.SumWith.lambdaFunctionIn
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SumWith.this.lambdaFunctionIn
+        </td>
+      </tr><tr>
+        <td>
+          15
+        </td>
+        <td>
+          3339
+        </td>
+        <td>
+          761
+          -
+          761
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.FunN.apply$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.qualityFunctions.FunN.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          15
+        </td>
+        <td>
+          3333
+        </td>
+        <td>
+          770
+          -
+          770
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          15
+        </td>
+        <td>
+          3341
+        </td>
+        <td>
+          761
+          -
+          824
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.FunN.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.qualityFunctions.FunN.apply(scala.collection.Seq.apply[org.apache.spark.sql.qualityFunctions.RefExpression](org.apache.spark.sql.qualityFunctions.RefExpression.apply(sumType, org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$2, org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$3)), SumWith.this.lambdaFunctionIn, scala.Some.apply[String](SumWith.this.name), org.apache.spark.sql.qualityFunctions.FunN.apply$default$4, org.apache.spark.sql.qualityFunctions.FunN.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          15
+        </td>
+        <td>
+          3332
+        </td>
+        <td>
+          770
+          -
+          770
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$2
+        </td>
+      </tr><tr>
+        <td>
+          15
+        </td>
+        <td>
+          3335
+        </td>
+        <td>
+          766
+          -
+          793
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.Seq.apply[org.apache.spark.sql.qualityFunctions.RefExpression](org.apache.spark.sql.qualityFunctions.RefExpression.apply(sumType, org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$2, org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$3))
+        </td>
+      </tr><tr>
+        <td>
+          15
+        </td>
+        <td>
+          3338
+        </td>
+        <td>
+          813
+          -
+          823
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[String](SumWith.this.name)
+        </td>
+      </tr><tr>
+        <td>
+          15
+        </td>
+        <td>
+          3337
+        </td>
+        <td>
+          818
+          -
+          822
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.aggregates.SumWith.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SumWith.this.name
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          3349
+        </td>
+        <td>
+          1068
+          -
+          1161
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.MapTransform.create
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.qualityFunctions.MapTransform.create(org.apache.spark.sql.qualityFunctions.RefExpression.apply(sumType, org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$2, org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$3), SumWithMap.this.id.cast(mt.keyType).expr, SumWithMap.this.lambdaFunctionIn, SumWithMap.this.zero)
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          3343
+        </td>
+        <td>
+          1088
+          -
+          1088
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          3345
+        </td>
+        <td>
+          1120
+          -
+          1130
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.MapType.keyType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          mt.keyType
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          3348
+        </td>
+        <td>
+          1156
+          -
+          1160
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.aggregates.SumWithMap.zero
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SumWithMap.this.zero
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          3342
+        </td>
+        <td>
+          1088
+          -
+          1088
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$2
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          3344
+        </td>
+        <td>
+          1088
+          -
+          1110
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.RefExpression.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.qualityFunctions.RefExpression.apply(sumType, org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$2, org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          3347
+        </td>
+        <td>
+          1138
+          -
+          1154
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.aggregates.SumWithMap.lambdaFunctionIn
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SumWithMap.this.lambdaFunctionIn
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          3346
+        </td>
+        <td>
+          1112
+          -
+          1136
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.Column.expr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SumWithMap.this.id.cast(mt.keyType).expr
+        </td>
+      </tr><tr>
+        <td>
+          22
+        </td>
+        <td>
+          3350
+        </td>
+        <td>
+          1182
+          -
+          1259
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          throw com.sparkutils.quality.QualityException.apply(&quot;You must use a MapType dataType when using map_with&quot;, com.sparkutils.quality.QualityException.apply$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          3358
+        </td>
+        <td>
+          1537
+          -
+          1589
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.Seq.apply[org.apache.spark.sql.qualityFunctions.RefExpression](org.apache.spark.sql.qualityFunctions.RefExpression.apply(sumType, org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$2, org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$3), org.apache.spark.sql.qualityFunctions.RefExpression.apply(org.apache.spark.sql.types.LongType, org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$2, org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$3))
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          3352
+        </td>
+        <td>
+          1541
+          -
+          1541
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          3361
+        </td>
+        <td>
+          1609
+          -
+          1619
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[String](ResultsWith.this.name)
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          3360
+        </td>
+        <td>
+          1614
+          -
+          1618
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.aggregates.ResultsWith.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultsWith.this.name
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          3351
+        </td>
+        <td>
+          1541
+          -
+          1541
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$2
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          3363
+        </td>
+        <td>
+          1532
+          -
+          1532
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.FunN.apply$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.qualityFunctions.FunN.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          3354
+        </td>
+        <td>
+          1579
+          -
+          1587
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.LongType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.LongType
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          3357
+        </td>
+        <td>
+          1565
+          -
+          1588
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.RefExpression.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.qualityFunctions.RefExpression.apply(org.apache.spark.sql.types.LongType, org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$2, org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          3359
+        </td>
+        <td>
+          1591
+          -
+          1607
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.aggregates.ResultsWith.lambdaFunctionIn
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultsWith.this.lambdaFunctionIn
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          3353
+        </td>
+        <td>
+          1541
+          -
+          1563
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.RefExpression.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.qualityFunctions.RefExpression.apply(sumType, org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$2, org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          3362
+        </td>
+        <td>
+          1532
+          -
+          1532
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.FunN.apply$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.qualityFunctions.FunN.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          3356
+        </td>
+        <td>
+          1565
+          -
+          1565
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          3355
+        </td>
+        <td>
+          1565
+          -
+          1565
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$2
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          3364
+        </td>
+        <td>
+          1532
+          -
+          1620
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.FunN.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.qualityFunctions.FunN.apply(scala.collection.Seq.apply[org.apache.spark.sql.qualityFunctions.RefExpression](org.apache.spark.sql.qualityFunctions.RefExpression.apply(sumType, org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$2, org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$3), org.apache.spark.sql.qualityFunctions.RefExpression.apply(org.apache.spark.sql.types.LongType, org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$2, org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$3)), ResultsWith.this.lambdaFunctionIn, scala.Some.apply[String](ResultsWith.this.name), org.apache.spark.sql.qualityFunctions.FunN.apply$default$4, org.apache.spark.sql.qualityFunctions.FunN.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          3367
+        </td>
+        <td>
+          2969
+          -
+          2989
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.aggregates.ResultsExpression.funN
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          result.funN(sumType)
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          3370
+        </td>
+        <td>
+          2895
+          -
+          3026
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.sql.Column(AggregateExpressions.apply(sumType, filter.expr, sum.funN(sumType), result.funN(sumType), zero, add, true))
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          3369
+        </td>
+        <td>
+          2907
+          -
+          3024
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.aggregates.AggregateExpressions.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AggregateExpressions.apply(sumType, filter.expr, sum.funN(sumType), result.funN(sumType), zero, add, true)
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          3366
+        </td>
+        <td>
+          2950
+          -
+          2967
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.aggregates.SumExpression.funN
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          sum.funN(sumType)
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          3365
+        </td>
+        <td>
+          2937
+          -
+          2948
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.Column.expr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          filter.expr
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          3368
+        </td>
+        <td>
+          3019
+          -
+          3023
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          3372
+        </td>
+        <td>
+          3242
+          -
+          3242
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.aggregates.SumWith.apply$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SumWith.apply$default$2
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          3371
+        </td>
+        <td>
+          3250
+          -
+          3267
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.shim.utils.createLambda
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.shim.utils.createLambda(sum)
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          3373
+        </td>
+        <td>
+          3242
+          -
+          3268
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.aggregates.SumWith.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SumWith.apply(org.apache.spark.sql.shim.utils.createLambda(sum), SumWith.apply$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          3376
+        </td>
+        <td>
+          3461
+          -
+          3494
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.aggregates.ResultsWith.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultsWith.apply(org.apache.spark.sql.shim.utils.createLambda(result), ResultsWith.apply$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          3375
+        </td>
+        <td>
+          3461
+          -
+          3461
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.aggregates.ResultsWith.apply$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultsWith.apply$default$2
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          3374
+        </td>
+        <td>
+          3473
+          -
+          3493
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.shim.utils.createLambda
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.shim.utils.createLambda(result)
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          3379
+        </td>
+        <td>
+          4743
+          -
+          4748
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;inc&quot;
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          3378
+        </td>
+        <td>
+          4712
+          -
+          4741
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.shim.utils.createLambda
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.shim.utils.createLambda(((sum: org.apache.spark.sql.Column) =&gt; sum.+(1L)))
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          3377
+        </td>
+        <td>
+          4732
+          -
+          4740
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          sum.+(1L)
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          3380
+        </td>
+        <td>
+          4704
+          -
+          4749
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.aggregates.SumWith.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SumWith.apply(org.apache.spark.sql.shim.utils.createLambda(((sum: org.apache.spark.sql.Column) =&gt; sum.+(1L))), &quot;inc&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          3381
+        </td>
+        <td>
+          4925
+          -
+          4944
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          sum.+(incrementWith)
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          3384
+        </td>
+        <td>
+          4897
+          -
+          4953
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.aggregates.SumWith.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SumWith.apply(org.apache.spark.sql.shim.utils.createLambda(((sum: org.apache.spark.sql.Column) =&gt; sum.+(incrementWith))), &quot;inc&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          3383
+        </td>
+        <td>
+          4947
+          -
+          4952
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;inc&quot;
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          3382
+        </td>
+        <td>
+          4905
+          -
+          4945
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.shim.utils.createLambda
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.shim.utils.createLambda(((sum: org.apache.spark.sql.Column) =&gt; sum.+(incrementWith)))
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          3385
+        </td>
+        <td>
+          5121
+          -
+          5132
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column./
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          sum./(count)
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          3387
+        </td>
+        <td>
+          5135
+          -
+          5142
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;meanf&quot;
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          3386
+        </td>
+        <td>
+          5092
+          -
+          5133
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.shim.utils.createLambda
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.shim.utils.createLambda(((sum: org.apache.spark.sql.Column, count: org.apache.spark.sql.Column) =&gt; sum./(count)))
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          3388
+        </td>
+        <td>
+          5080
+          -
+          5143
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.aggregates.ResultsWith.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultsWith.apply(org.apache.spark.sql.shim.utils.createLambda(((sum: org.apache.spark.sql.Column, count: org.apache.spark.sql.Column) =&gt; sum./(count))), &quot;meanf&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          116
+        </td>
+        <td>
+          3390
+        </td>
+        <td>
+          5287
+          -
+          5299
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;return_sum&quot;
+        </td>
+      </tr><tr>
+        <td>
+          116
+        </td>
+        <td>
+          3389
+        </td>
+        <td>
+          5252
+          -
+          5285
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.shim.utils.createLambda
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.shim.utils.createLambda(((sum: org.apache.spark.sql.Column, count: org.apache.spark.sql.Column) =&gt; sum))
+        </td>
+      </tr><tr>
+        <td>
+          116
+        </td>
+        <td>
+          3391
+        </td>
+        <td>
+          5240
+          -
+          5300
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.aggregates.ResultsWith.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultsWith.apply(org.apache.spark.sql.shim.utils.createLambda(((sum: org.apache.spark.sql.Column, count: org.apache.spark.sql.Column) =&gt; sum)), &quot;return_sum&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          3393
+        </td>
+        <td>
+          5709
+          -
+          5748
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.aggregates.SumWithMap.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SumWithMap.apply(id, org.apache.spark.sql.shim.utils.createLambda(sum), zero)
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          3392
+        </td>
+        <td>
+          5724
+          -
+          5741
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.shim.utils.createLambda
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.shim.utils.createLambda(sum)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

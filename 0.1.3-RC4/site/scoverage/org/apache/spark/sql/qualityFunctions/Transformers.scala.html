@@ -1,0 +1,2251 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          org/apache/spark/sql/qualityFunctions/Transformers.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package org.apache.spark.sql.qualityFunctions
+</span>2 <span style=''>
+</span>3 <span style=''>import com.sparkutils.quality.QualityException.qualityException
+</span>4 <span style=''>import com.sparkutils.quality.impl.MapUtils
+</span>5 <span style=''>import com.sparkutils.shim.expressions.HigherOrderFunctionLike
+</span>6 <span style=''>import org.apache.spark.sql.catalyst.InternalRow
+</span>7 <span style=''>import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
+</span>8 <span style=''>import org.apache.spark.sql.catalyst.expressions.{Expression, HigherOrderFunction, LambdaFunction, Literal, NamedLambdaVariable}
+</span>9 <span style=''>import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, GenericArrayData, MapData}
+</span>10 <span style=''>import org.apache.spark.sql.types.{AbstractDataType, DataType, MapType}
+</span>11 <span style=''>
+</span>12 <span style=''>object MapTransform {
+</span>13 <span style=''>  def create(arguement: Expression, key: Expression, function: Expression, zero: DataType =&gt; Option[Any]): MapTransform = {
+</span>14 <span style=''>    </span><span style='background: #AEF1AE'>MapTransform(arguement, key, function, zero)</span><span style=''>
+</span>15 <span style=''>  }
+</span>16 <span style=''>}
+</span>17 <span style=''>
+</span>18 <span style=''>/**
+</span>19 <span style=''> * Transforms a map
+</span>20 <span style=''> *
+</span>21 <span style=''> * @param argument map of type x to y,
+</span>22 <span style=''> * @param key expr for key
+</span>23 <span style=''> * @param function value to value transformation for that key entry
+</span>24 <span style=''> */
+</span>25 <span style=''>case class MapTransform(argument: Expression, key: Expression, function: Expression, zeroF: DataType =&gt; Option[Any]) extends HigherOrderFunctionLike with CodegenFallback with SeqArgs {
+</span>26 <span style=''>
+</span>27 <span style=''>  lazy val zero = {
+</span>28 <span style=''>    val MapType(_, valueType, _) = argument.dataType
+</span>29 <span style=''>
+</span>30 <span style=''>    zeroF(valueType).getOrElse(qualityException(s&quot;Could not find zero for type ${valueType}&quot;))
+</span>31 <span style=''>  }
+</span>32 <span style=''>
+</span>33 <span style=''>  // thread local map for indexes
+</span>34 <span style=''>  @transient val indexMap = </span><span style='background: #AEF1AE'>new</span><span style=''> java.lang.ThreadLocal[scala.collection.mutable.Map[Any, Int]] {
+</span>35 <span style=''>    override def initialValue: scala.collection.mutable.Map[Any, Int] = {
+</span>36 <span style=''>      </span><span style='background: #AEF1AE'>scala.collection.mutable.Map[Any, Int]()</span><span style=''>
+</span>37 <span style=''>    }
+</span>38 <span style=''>  }
+</span>39 <span style=''>
+</span>40 <span style=''>  lazy val MapType(keyType, valueType, _) = argument.dataType
+</span>41 <span style=''>
+</span>42 <span style=''>  override def children: Seq[Expression] = </span><span style='background: #AEF1AE'>arguments ++ functions</span><span style=''>
+</span>43 <span style=''>
+</span>44 <span style=''>  override def arguments: Seq[Expression] = </span><span style='background: #AEF1AE'>Seq(argument, key)</span><span style=''>
+</span>45 <span style=''>
+</span>46 <span style=''>  override def argumentTypes: Seq[AbstractDataType] = </span><span style='background: #AEF1AE'>arguments.map(_.dataType)</span><span style=''>
+</span>47 <span style=''>
+</span>48 <span style=''>  override def functions: Seq[Expression] = </span><span style='background: #AEF1AE'>Seq(function)</span><span style=''>
+</span>49 <span style=''>
+</span>50 <span style=''>  override def functionTypes: Seq[AbstractDataType] = </span><span style='background: #AEF1AE'>Seq(function.dataType)</span><span style=''>
+</span>51 <span style=''>
+</span>52 <span style=''>  protected def bindInternal(f: (Expression, Seq[(DataType, Boolean)]) =&gt; LambdaFunction): HigherOrderFunction =
+</span>53 <span style=''>    </span><span style='background: #AEF1AE'>copy(function = f(function,
+</span>54 <span style=''></span><span style='background: #AEF1AE'>      Seq((valueType, argument.nullable))))</span><span style=''>
+</span>55 <span style=''>
+</span>56 <span style=''>  @transient lazy val LambdaFunction(_, Seq(elementVar: NamedLambdaVariable), _) = function
+</span>57 <span style=''>
+</span>58 <span style=''>  override def eval(inputRow: InternalRow): Any = {
+</span>59 <span style=''>    // set up the variable to be evaluated
+</span>60 <span style=''>    val theMap = </span><span style='background: #AEF1AE'>argument.eval(inputRow).asInstanceOf[MapData]</span><span style=''>
+</span>61 <span style=''>    val theKey = </span><span style='background: #AEF1AE'>key.eval(inputRow)</span><span style=''>
+</span>62 <span style=''>
+</span>63 <span style=''>    val iMap = </span><span style='background: #AEF1AE'>indexMap.get()</span><span style=''>
+</span>64 <span style=''>
+</span>65 <span style=''>    val index =
+</span>66 <span style=''>      </span><span style='background: #AEF1AE'>iMap.getOrElse(theKey,{
+</span>67 <span style=''></span><span style='background: #AEF1AE'>        val i = theMap.keyArray.array.indexOf(theKey)
+</span>68 <span style=''></span><span style='background: #AEF1AE'>        if (i &lt; 0) {
+</span>69 <span style=''></span><span style='background: #AEF1AE'>          iMap.put(theKey, i)
+</span>70 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>71 <span style=''></span><span style='background: #AEF1AE'>        i
+</span>72 <span style=''></span><span style='background: #AEF1AE'>      })</span><span style=''>
+</span>73 <span style=''>    if (</span><span style='background: #AEF1AE'>index &gt; -1</span><span style=''>) </span><span style='background: #AEF1AE'>{
+</span>74 <span style=''></span><span style='background: #AEF1AE'>      val theValue = theMap.valueArray.array(index)
+</span>75 <span style=''></span><span style='background: #AEF1AE'>      elementVar.value.set(theValue)
+</span>76 <span style=''></span><span style='background: #AEF1AE'>      /// copy() in case we need copys do the map first
+</span>77 <span style=''></span><span style='background: #AEF1AE'>      val theRes = function.eval(inputRow)
+</span>78 <span style=''></span><span style='background: #AEF1AE'>      if (theRes != null) {
+</span>79 <span style=''></span><span style='background: #AEF1AE'>        theMap.valueArray.update(index, theRes)
+</span>80 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>81 <span style=''></span><span style='background: #AEF1AE'>      theMap
+</span>82 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''> else </span><span style='background: #AEF1AE'>{
+</span>83 <span style=''></span><span style='background: #AEF1AE'>      iMap.put(theKey, theMap.numElements() )
+</span>84 <span style=''></span><span style='background: #AEF1AE'>      // first time, needs to be added in
+</span>85 <span style=''></span><span style='background: #AEF1AE'>      val keyAr = theMap.keyArray.array
+</span>86 <span style=''></span><span style='background: #AEF1AE'>      val valAr = theMap.valueArray.array
+</span>87 <span style=''></span><span style='background: #AEF1AE'>      elementVar.value.set(zero)
+</span>88 <span style=''></span><span style='background: #AEF1AE'>      val theRes = function.eval(inputRow)
+</span>89 <span style=''></span><span style='background: #AEF1AE'>      val toAdd = if (theRes == null) zero else theRes
+</span>90 <span style=''></span><span style='background: #AEF1AE'>
+</span>91 <span style=''></span><span style='background: #AEF1AE'>      new ArrayBasedMapData(new GenericArrayData(keyAr :+ theKey), new GenericArrayData(valAr :+ toAdd) )
+</span>92 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>93 <span style=''>  }
+</span>94 <span style=''>
+</span>95 <span style=''>  override def dataType: DataType = </span><span style='background: #AEF1AE'>argument.dataType</span><span style=''>
+</span>96 <span style=''>
+</span>97 <span style=''>  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = </span><span style='background: #AEF1AE'>copy(argument = newChildren(0), key = newChildren(1), function = newChildren(2))</span><span style=''>
+</span>98 <span style=''>}
+</span>99 <span style=''>
+</span>100 <span style=''>
+</span>101 <span style=''>
+</span>102 <span style=''>/**
+</span>103 <span style=''> * Transforms a map
+</span>104 <span style=''> *
+</span>105 <span style=''> * @param children seq of maps of type x to y, they must all have the same types
+</span>106 <span style=''> * @param addF function to derive the add expr for monoidal add on values
+</span>107 <span style=''> */
+</span>108 <span style=''>case class MapMerge(children: Seq[Expression], addF: DataType =&gt; Option[( Expression, Expression ) =&gt; Expression]) extends Expression with CodegenFallback {
+</span>109 <span style=''>
+</span>110 <span style=''>  lazy val MapType(keyType, valueType, _) = children(0).dataType
+</span>111 <span style=''>
+</span>112 <span style=''>  lazy val add = addF(valueType).
+</span>113 <span style=''>    getOrElse(qualityException(s&quot;Could not find monoidal add for valueType $valueType&quot;))
+</span>114 <span style=''>
+</span>115 <span style=''>  override def eval(inputRow: InternalRow): Any = {
+</span>116 <span style=''>
+</span>117 <span style=''>    // set up the variable to be evaluated
+</span>118 <span style=''>    val smap = </span><span style='background: #AEF1AE'>children.foldLeft( Map[Any, Any]() ) {
+</span>119 <span style=''></span><span style='background: #AEF1AE'>      (map, exp ) =&gt;
+</span>120 <span style=''></span><span style='background: #AEF1AE'>        val theMap = exp.eval(inputRow).asInstanceOf[MapData]
+</span>121 <span style=''></span><span style='background: #AEF1AE'>        val smap = MapUtils.toScalaMap(theMap, keyType, valueType)
+</span>122 <span style=''></span><span style='background: #AEF1AE'>
+</span>123 <span style=''></span><span style='background: #AEF1AE'>        // merge on the matching items
+</span>124 <span style=''></span><span style='background: #AEF1AE'>        val added =
+</span>125 <span style=''></span><span style='background: #AEF1AE'>          smap.map{ case (key1, value1) =&gt;
+</span>126 <span style=''></span><span style='background: #AEF1AE'>
+</span>127 <span style=''></span><span style='background: #AEF1AE'>            val newVal =
+</span>128 <span style=''></span><span style='background: #AEF1AE'>              map.get(key1).fold(
+</span>129 <span style=''></span><span style='background: #AEF1AE'>                  // no value, so use original
+</span>130 <span style=''></span><span style='background: #AEF1AE'>                  value1
+</span>131 <span style=''></span><span style='background: #AEF1AE'>                )( value2 =&gt;
+</span>132 <span style=''></span><span style='background: #AEF1AE'>                  // combine
+</span>133 <span style=''></span><span style='background: #AEF1AE'>                  add(Literal(value1, valueType), Literal(value2, valueType)).eval(inputRow)
+</span>134 <span style=''></span><span style='background: #AEF1AE'>              )
+</span>135 <span style=''></span><span style='background: #AEF1AE'>
+</span>136 <span style=''></span><span style='background: #AEF1AE'>            (key1 -&gt; newVal)
+</span>137 <span style=''></span><span style='background: #AEF1AE'>          }
+</span>138 <span style=''></span><span style='background: #AEF1AE'>
+</span>139 <span style=''></span><span style='background: #AEF1AE'>        // merge maps
+</span>140 <span style=''></span><span style='background: #AEF1AE'>        map ++ added
+</span>141 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>142 <span style=''>
+</span>143 <span style=''>    </span><span style='background: #AEF1AE'>ArrayBasedMapData.apply(smap)</span><span style=''>
+</span>144 <span style=''>  }
+</span>145 <span style=''>
+</span>146 <span style=''>  override def dataType: DataType = </span><span style='background: #AEF1AE'>children(0).dataType</span><span style=''>
+</span>147 <span style=''>
+</span>148 <span style=''>  override def nullable: Boolean = </span><span style='background: #AEF1AE'>false</span><span style=''>
+</span>149 <span style=''>
+</span>150 <span style=''>  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = </span><span style='background: #AEF1AE'>copy(children = newChildren)</span><span style=''>
+</span>151 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          14
+        </td>
+        <td>
+          8518
+        </td>
+        <td>
+          781
+          -
+          825
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.MapTransform.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapTransform.apply(arguement, key, function, zero)
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          8520
+        </td>
+        <td>
+          1420
+          -
+          1423
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.MapTransform.$anon.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new $anon()
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          8519
+        </td>
+        <td>
+          1568
+          -
+          1608
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenMapFactory.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.mutable.Map.apply[Any, Int]()
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          8522
+        </td>
+        <td>
+          1736
+          -
+          1736
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression]
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          8521
+        </td>
+        <td>
+          1739
+          -
+          1748
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.MapTransform.functions
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapTransform.this.functions
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          8523
+        </td>
+        <td>
+          1726
+          -
+          1748
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.++
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapTransform.this.arguments.++[org.apache.spark.sql.catalyst.expressions.Expression, Seq[org.apache.spark.sql.catalyst.expressions.Expression]](MapTransform.this.functions)(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression])
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          8526
+        </td>
+        <td>
+          1794
+          -
+          1812
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.Seq.apply[org.apache.spark.sql.catalyst.expressions.Expression](MapTransform.this.argument, MapTransform.this.key)
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          8525
+        </td>
+        <td>
+          1808
+          -
+          1811
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.MapTransform.key
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapTransform.this.key
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          8524
+        </td>
+        <td>
+          1798
+          -
+          1806
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.MapTransform.argument
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapTransform.this.argument
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          8528
+        </td>
+        <td>
+          1881
+          -
+          1881
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[org.apache.spark.sql.types.DataType]
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          8527
+        </td>
+        <td>
+          1882
+          -
+          1892
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$2.dataType
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          8529
+        </td>
+        <td>
+          1868
+          -
+          1893
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapTransform.this.arguments.map[org.apache.spark.sql.types.DataType, Seq[org.apache.spark.sql.types.AbstractDataType]](((x$2: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; x$2.dataType))(collection.this.Seq.canBuildFrom[org.apache.spark.sql.types.DataType])
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          8531
+        </td>
+        <td>
+          1939
+          -
+          1952
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.Seq.apply[org.apache.spark.sql.catalyst.expressions.Expression](MapTransform.this.function)
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          8530
+        </td>
+        <td>
+          1943
+          -
+          1951
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.MapTransform.function
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapTransform.this.function
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          8533
+        </td>
+        <td>
+          2008
+          -
+          2030
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.Seq.apply[org.apache.spark.sql.types.DataType](MapTransform.this.function.dataType)
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          8532
+        </td>
+        <td>
+          2012
+          -
+          2029
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapTransform.this.function.dataType
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          8534
+        </td>
+        <td>
+          2167
+          -
+          2175
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.MapTransform.function
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapTransform.this.function
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          8540
+        </td>
+        <td>
+          2149
+          -
+          2149
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.MapTransform.copy$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapTransform.this.copy$default$2
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          8539
+        </td>
+        <td>
+          2149
+          -
+          2149
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.MapTransform.copy$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapTransform.this.copy$default$1
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          8542
+        </td>
+        <td>
+          2149
+          -
+          2220
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.MapTransform.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapTransform.this.copy(x$2, x$3, x$1, x$4)
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          8538
+        </td>
+        <td>
+          2165
+          -
+          2219
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          f.apply(MapTransform.this.function, scala.collection.Seq.apply[(org.apache.spark.sql.types.DataType, Boolean)](scala.Tuple2.apply[org.apache.spark.sql.types.DataType, Boolean](MapTransform.this.valueType, MapTransform.this.argument.nullable)))
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          8541
+        </td>
+        <td>
+          2149
+          -
+          2149
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.MapTransform.copy$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapTransform.this.copy$default$4
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          8535
+        </td>
+        <td>
+          2199
+          -
+          2216
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.nullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapTransform.this.argument.nullable
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          8537
+        </td>
+        <td>
+          2183
+          -
+          2218
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.Seq.apply[(org.apache.spark.sql.types.DataType, Boolean)](scala.Tuple2.apply[org.apache.spark.sql.types.DataType, Boolean](MapTransform.this.valueType, MapTransform.this.argument.nullable))
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          8536
+        </td>
+        <td>
+          2187
+          -
+          2217
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[org.apache.spark.sql.types.DataType, Boolean](MapTransform.this.valueType, MapTransform.this.argument.nullable)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          8543
+        </td>
+        <td>
+          2427
+          -
+          2472
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapTransform.this.argument.eval(inputRow).asInstanceOf[org.apache.spark.sql.catalyst.util.MapData]
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          8544
+        </td>
+        <td>
+          2490
+          -
+          2508
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.eval
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapTransform.this.key.eval(inputRow)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          8545
+        </td>
+        <td>
+          2525
+          -
+          2539
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.ThreadLocal.get
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapTransform.this.indexMap.get()
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          8552
+        </td>
+        <td>
+          2563
+          -
+          2720
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          iMap.getOrElse[Int](theKey, {
+  val i: Int = scala.Predef.genericArrayOps[Any](theMap.keyArray().array).indexOf[Any](theKey);
+  if (i.&lt;(0))
+    iMap.put(theKey, i)
+  else
+    ();
+  i
+})
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          8546
+        </td>
+        <td>
+          2603
+          -
+          2640
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.GenSeqLike.indexOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.genericArrayOps[Any](theMap.keyArray().array).indexOf[Any](theKey)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          8551
+        </td>
+        <td>
+          2649
+          -
+          2649
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          8547
+        </td>
+        <td>
+          2653
+          -
+          2658
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&lt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          i.&lt;(0)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          8550
+        </td>
+        <td>
+          2649
+          -
+          2649
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          8549
+        </td>
+        <td>
+          2672
+          -
+          2691
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.mutable.MapLike.put
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          iMap.put(theKey, i)
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          8548
+        </td>
+        <td>
+          2672
+          -
+          2691
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.MapLike.put
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          iMap.put(theKey, i)
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          8553
+        </td>
+        <td>
+          2729
+          -
+          2739
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          index.&gt;(-1)
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          8562
+        </td>
+        <td>
+          2741
+          -
+          3033
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val theValue: Any = theMap.valueArray().array.apply(index);
+  MapTransform.this.elementVar.value.set(theValue);
+  val theRes: Any = MapTransform.this.function.eval(inputRow);
+  if (theRes.!=(null))
+    theMap.valueArray().update(index, theRes)
+  else
+    ();
+  theMap
+}
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          8554
+        </td>
+        <td>
+          2764
+          -
+          2794
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          theMap.valueArray().array.apply(index)
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          8555
+        </td>
+        <td>
+          2801
+          -
+          2831
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.AtomicReference.set
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapTransform.this.elementVar.value.set(theValue)
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          8556
+        </td>
+        <td>
+          2907
+          -
+          2930
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.eval
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapTransform.this.function.eval(inputRow)
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          8561
+        </td>
+        <td>
+          2937
+          -
+          2937
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          8557
+        </td>
+        <td>
+          2941
+          -
+          2955
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Any.!=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          theRes.!=(null)
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          8560
+        </td>
+        <td>
+          2937
+          -
+          2937
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          8558
+        </td>
+        <td>
+          2967
+          -
+          3006
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.ArrayData.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          theMap.valueArray().update(index, theRes)
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          8559
+        </td>
+        <td>
+          2967
+          -
+          3006
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.ArrayData.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          theMap.valueArray().update(index, theRes)
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          8577
+        </td>
+        <td>
+          3039
+          -
+          3454
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  iMap.put(theKey, theMap.numElements());
+  val keyAr: Array[Any] = theMap.keyArray().array;
+  val valAr: Array[Any] = theMap.valueArray().array;
+  MapTransform.this.elementVar.value.set(MapTransform.this.zero);
+  val theRes: Any = MapTransform.this.function.eval(inputRow);
+  val toAdd: Any = if (theRes.==(null))
+    MapTransform.this.zero
+  else
+    theRes;
+  new org.apache.spark.sql.catalyst.util.ArrayBasedMapData(new org.apache.spark.sql.catalyst.util.GenericArrayData(scala.Predef.genericArrayOps[Any](keyAr).:+[Any](theKey)((ClassTag.Any: scala.reflect.ClassTag[Any]))), new org.apache.spark.sql.catalyst.util.GenericArrayData(scala.Predef.genericArrayOps[Any](valAr).:+[Any](toAdd)((ClassTag.Any: scala.reflect.ClassTag[Any]))))
+}
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          8564
+        </td>
+        <td>
+          3047
+          -
+          3086
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.MapLike.put
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          iMap.put(theKey, theMap.numElements())
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          8563
+        </td>
+        <td>
+          3064
+          -
+          3084
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.MapData.numElements
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          theMap.numElements()
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          8565
+        </td>
+        <td>
+          3147
+          -
+          3168
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.ArrayData.array
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          theMap.keyArray().array
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          8566
+        </td>
+        <td>
+          3187
+          -
+          3210
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.ArrayData.array
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          theMap.valueArray().array
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          8567
+        </td>
+        <td>
+          3217
+          -
+          3243
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.AtomicReference.set
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapTransform.this.elementVar.value.set(MapTransform.this.zero)
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          8568
+        </td>
+        <td>
+          3263
+          -
+          3286
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.eval
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapTransform.this.function.eval(inputRow)
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          8570
+        </td>
+        <td>
+          3325
+          -
+          3329
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.MapTransform.zero
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapTransform.this.zero
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          8569
+        </td>
+        <td>
+          3309
+          -
+          3323
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Any.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          theRes.==(null)
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          8571
+        </td>
+        <td>
+          3335
+          -
+          3341
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.MapTransform.theRes
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          theRes
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          8576
+        </td>
+        <td>
+          3349
+          -
+          3448
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.ArrayBasedMapData.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.sql.catalyst.util.ArrayBasedMapData(new org.apache.spark.sql.catalyst.util.GenericArrayData(scala.Predef.genericArrayOps[Any](keyAr).:+[Any](theKey)((ClassTag.Any: scala.reflect.ClassTag[Any]))), new org.apache.spark.sql.catalyst.util.GenericArrayData(scala.Predef.genericArrayOps[Any](valAr).:+[Any](toAdd)((ClassTag.Any: scala.reflect.ClassTag[Any]))))
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          8573
+        </td>
+        <td>
+          3371
+          -
+          3408
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.GenericArrayData.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.sql.catalyst.util.GenericArrayData(scala.Predef.genericArrayOps[Any](keyAr).:+[Any](theKey)((ClassTag.Any: scala.reflect.ClassTag[Any])))
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          8575
+        </td>
+        <td>
+          3410
+          -
+          3446
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.GenericArrayData.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.sql.catalyst.util.GenericArrayData(scala.Predef.genericArrayOps[Any](valAr).:+[Any](toAdd)((ClassTag.Any: scala.reflect.ClassTag[Any])))
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          8572
+        </td>
+        <td>
+          3392
+          -
+          3407
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.mutable.ArrayOps.:+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.genericArrayOps[Any](keyAr).:+[Any](theKey)((ClassTag.Any: scala.reflect.ClassTag[Any]))
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          8574
+        </td>
+        <td>
+          3431
+          -
+          3445
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.mutable.ArrayOps.:+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.genericArrayOps[Any](valAr).:+[Any](toAdd)((ClassTag.Any: scala.reflect.ClassTag[Any]))
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          8578
+        </td>
+        <td>
+          3496
+          -
+          3513
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapTransform.this.argument.dataType
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          8579
+        </td>
+        <td>
+          3622
+          -
+          3636
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqLike.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          newChildren.apply(0)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          8582
+        </td>
+        <td>
+          3606
+          -
+          3606
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.MapTransform.copy$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapTransform.this.copy$default$4
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          8581
+        </td>
+        <td>
+          3671
+          -
+          3685
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqLike.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          newChildren.apply(2)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          8580
+        </td>
+        <td>
+          3644
+          -
+          3658
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqLike.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          newChildren.apply(1)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          8583
+        </td>
+        <td>
+          3606
+          -
+          3686
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.MapTransform.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapTransform.this.copy(newChildren.apply(0), newChildren.apply(1), newChildren.apply(2), MapTransform.this.copy$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          8584
+        </td>
+        <td>
+          4356
+          -
+          4371
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenMapFactory.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.Map.apply[Any, Any]()
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          8593
+        </td>
+        <td>
+          4337
+          -
+          5019
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.foldLeft
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapMerge.this.children.foldLeft[scala.collection.immutable.Map[Any,Any]](scala.Predef.Map.apply[Any, Any]())(((map: scala.collection.immutable.Map[Any,Any], exp: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; {
+  val theMap: org.apache.spark.sql.catalyst.util.MapData = exp.eval(inputRow).asInstanceOf[org.apache.spark.sql.catalyst.util.MapData];
+  val smap: Map[Any,Any] = com.sparkutils.quality.impl.MapUtils.toScalaMap(theMap, MapMerge.this.keyType, MapMerge.this.valueType);
+  val added: scala.collection.immutable.Map[Any,Any] = smap.map[(Any, Any), scala.collection.immutable.Map[Any,Any]](((x0$1: (Any, Any)) =&gt; x0$1 match {
+    case (_1: Any, _2: Any)(Any, Any)((key1 @ _), (value1 @ _)) =&gt; {
+      val newVal: Any = map.get(key1).fold[Any](value1)(((value2: Any) =&gt; MapMerge.this.add.apply(org.apache.spark.sql.catalyst.expressions.Literal.apply(value1, MapMerge.this.valueType), org.apache.spark.sql.catalyst.expressions.Literal.apply(value2, MapMerge.this.valueType)).eval(inputRow)));
+      scala.Predef.ArrowAssoc[Any](key1).-&gt;[Any](newVal)
+    }
+  }))(immutable.this.Map.canBuildFrom[Any, Any]);
+  map.++[Any](added)
+}))
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          8585
+        </td>
+        <td>
+          4418
+          -
+          4458
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          exp.eval(inputRow).asInstanceOf[org.apache.spark.sql.catalyst.util.MapData]
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          8586
+        </td>
+        <td>
+          4478
+          -
+          4525
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.MapUtils.toScalaMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.MapUtils.toScalaMap(theMap, MapMerge.this.keyType, MapMerge.this.valueType)
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          8591
+        </td>
+        <td>
+          4596
+          -
+          4969
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          smap.map[(Any, Any), scala.collection.immutable.Map[Any,Any]](((x0$1: (Any, Any)) =&gt; x0$1 match {
+  case (_1: Any, _2: Any)(Any, Any)((key1 @ _), (value1 @ _)) =&gt; {
+    val newVal: Any = map.get(key1).fold[Any](value1)(((value2: Any) =&gt; MapMerge.this.add.apply(org.apache.spark.sql.catalyst.expressions.Literal.apply(value1, MapMerge.this.valueType), org.apache.spark.sql.catalyst.expressions.Literal.apply(value2, MapMerge.this.valueType)).eval(inputRow)));
+    scala.Predef.ArrowAssoc[Any](key1).-&gt;[Any](newVal)
+  }
+}))(immutable.this.Map.canBuildFrom[Any, Any])
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          8590
+        </td>
+        <td>
+          4604
+          -
+          4604
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Map.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          immutable.this.Map.canBuildFrom[Any, Any]
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          8588
+        </td>
+        <td>
+          4669
+          -
+          4927
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.fold
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          map.get(key1).fold[Any](value1)(((value2: Any) =&gt; MapMerge.this.add.apply(org.apache.spark.sql.catalyst.expressions.Literal.apply(value1, MapMerge.this.valueType), org.apache.spark.sql.catalyst.expressions.Literal.apply(value2, MapMerge.this.valueType)).eval(inputRow)))
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          8587
+        </td>
+        <td>
+          4837
+          -
+          4911
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.eval
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapMerge.this.add.apply(org.apache.spark.sql.catalyst.expressions.Literal.apply(value1, MapMerge.this.valueType), org.apache.spark.sql.catalyst.expressions.Literal.apply(value2, MapMerge.this.valueType)).eval(inputRow)
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          8589
+        </td>
+        <td>
+          4942
+          -
+          4956
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.ArrowAssoc[Any](key1).-&gt;[Any](newVal)
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          8592
+        </td>
+        <td>
+          5001
+          -
+          5013
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.MapLike.++
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          map.++[Any](added)
+        </td>
+      </tr><tr>
+        <td>
+          143
+        </td>
+        <td>
+          8594
+        </td>
+        <td>
+          5043
+          -
+          5043
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply$default$2
+        </td>
+      </tr><tr>
+        <td>
+          143
+        </td>
+        <td>
+          8596
+        </td>
+        <td>
+          5025
+          -
+          5054
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply(smap, org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply$default$2, org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          143
+        </td>
+        <td>
+          8595
+        </td>
+        <td>
+          5043
+          -
+          5043
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          8597
+        </td>
+        <td>
+          5105
+          -
+          5106
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          8598
+        </td>
+        <td>
+          5096
+          -
+          5116
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapMerge.this.children.apply(0).dataType
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          8599
+        </td>
+        <td>
+          5153
+          -
+          5158
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          8600
+        </td>
+        <td>
+          5251
+          -
+          5251
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.MapMerge.copy$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapMerge.this.copy$default$2
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          8601
+        </td>
+        <td>
+          5251
+          -
+          5279
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.MapMerge.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapMerge.this.copy(newChildren, MapMerge.this.copy$default$2)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
