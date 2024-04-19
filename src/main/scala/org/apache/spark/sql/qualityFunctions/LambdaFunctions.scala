@@ -1,11 +1,12 @@
 package org.apache.spark.sql.qualityFunctions
 
 import com.sparkutils.quality.QualityException.qualityException
-import com.sparkutils.quality.impl.{LambdaFunction => QLambdaFunction}
+import com.sparkutils.quality.impl.{RuleLogicUtils, LambdaFunction => QLambdaFunction}
 import com.sparkutils.shim.expressions.Names.toName
 import org.apache.spark.sql.{ShimUtils, SparkSession}
-import org.apache.spark.sql.catalyst.analysis.UnresolvedFunction
-import org.apache.spark.sql.catalyst.expressions.{Expression, LambdaFunction, LeafExpression, Literal, NamedExpression, NamedLambdaVariable, Unevaluable, UnresolvedNamedLambdaVariable}
+import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedFunction}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, Expression, LambdaFunction, LeafExpression, Literal, NamedExpression, NamedLambdaVariable, SubqueryExpression, Unevaluable, UnresolvedNamedLambdaVariable}
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.qualityFunctions.FunCall.applyFunN
 import org.apache.spark.sql.types.{BooleanType, DataType, LongType, StringType}
 import org.apache.spark.unsafe.types.UTF8String
@@ -139,12 +140,28 @@ object LambdaFunctions {
                   case (e, _) => e
                 }
 
-            val actualFun = FunN(replacedArgs, replacedFun, Some(name))
-            if (numPlaceHolders == 0 || numPlaceHolders == expsToUse.size)
+            val (actualFun, hadQuery) =
+              if (RuleLogicUtils.hasSubQuery(replacedFun) && !SQLConf.get.getConfString("spark.sql.analyzer.allowSubqueryExpressionsInLambdasOrHigherOrderFunctions", "false").toBoolean)
+                // #62 - Spark 4 / 14.3 introduced a correctness check, in this case we replace all lambda's up front
+                (SubQueryLambda.convertLambdaFunction(replacedFun,
+                  replacedFun match {
+                    case l: LambdaFunction =>
+                      val repArgs = l.arguments.map{e: Expression => e}.zip(replacedArgs).toMap
+                      a => repArgs.getOrElse(a, a)
+                    case _: Expression => identity
+                  })() match {
+                  case l: LambdaFunction => l.function
+                  case e: Expression => e
+                }
+                  , true)
+              else
+                (FunN(replacedArgs, replacedFun, Some(name)), false)
+
+            if (numPlaceHolders == 0 || numPlaceHolders == expsToUse.size || hadQuery)
               actualFun
             else
             // wrap it for partials
-              wrapFunN(replacedArgs, actualFun)
+              wrapFunN(replacedArgs, actualFun.asInstanceOf[FunN])
         }.getOrElse(qualityException(s"${expsToUse.size} arguments requested for $name but no implementation with this argument count exists"))
       }
 
