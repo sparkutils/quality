@@ -2,10 +2,10 @@ package com.sparkutils.quality.impl.aggregates
 
 import com.sparkutils.quality.QualityException
 import com.sparkutils.quality.impl.RuleRegistrationFunctions.{defaultAdd, defaultZero}
-import org.apache.spark.sql.qualityFunctions.utils.createLambda
 import org.apache.spark.sql.Column
-import org.apache.spark.sql.catalyst.expressions.{Cast, Expression, LambdaFunction}
+import org.apache.spark.sql.catalyst.expressions.{Expression, LambdaFunction}
 import org.apache.spark.sql.qualityFunctions.{FunN, MapTransform, RefExpression}
+import org.apache.spark.sql.shim.utils.createLambda
 import org.apache.spark.sql.types.{DataType, LongType, MapType}
 
 sealed trait SumExpression {

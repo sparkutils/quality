@@ -2,7 +2,7 @@ package com.sparkutils.qualityTests
 import com.sparkutils.quality.{DataFrameLoader, Id, loadViewConfigs, loadViews}
 import com.sparkutils.quality.impl.views.{MissingViewAnalysisException, ViewConfig, ViewLoader, ViewLoaderAnalysisException}
 import org.apache.spark.sql.functions.{col, expr}
-import org.apache.spark.sql.{DataFrame, QualitySparkUtils, AnalysisException => SAE}
+import org.apache.spark.sql.{DataFrame, QualitySparkUtils, ShimUtils, AnalysisException => SAE}
 import org.junit.Assert.fail
 import org.junit.Test
 
@@ -99,7 +99,7 @@ class ViewLoaderTest extends TestUtils {
       fail("should have thrown an AnalysisException as neither names43 nor ages353 are present")
     } catch {
       case MissingViewAnalysisException(cause, message, viewName, sql, missingRelationNames) =>
-        val r = QualitySparkUtils.tableOrViewNotFound(cause).getOrElse(throw cause)
+        val r = ShimUtils.tableOrViewNotFound(cause).getOrElse(throw cause)
         assert(r.isRight)
         // spark 3+ gives two, 2 only the first
         val notFound = r.right.get
@@ -154,7 +154,7 @@ class ViewLoaderTest extends TestUtils {
       fail("should have thrown an AnalysisException as `le-21` is not present")
     } catch {
       case MissingViewAnalysisException(cause, message, viewName, sql, missingRelationNames) =>
-        val r = QualitySparkUtils.tableOrViewNotFound(cause).getOrElse(throw cause)
+        val r = ShimUtils.tableOrViewNotFound(cause).getOrElse(throw cause)
         assert(r.isRight)
         // sparks below 3.2 don't quote.
         if (sparkVersion.replace(".","").toInt < 32)
@@ -186,7 +186,7 @@ class ViewLoaderTest extends TestUtils {
       fail("should have thrown an AnalysisException as `le-21` is not present")
     } catch {
       case ViewLoaderAnalysisException(cause, message, viewName, sql) =>
-        val r = QualitySparkUtils.tableOrViewNotFound(cause).getOrElse(throw cause)
+        val r = ShimUtils.tableOrViewNotFound(cause).getOrElse(throw cause)
         assert(r.isLeft)
         // spark 3+ gives two, 2 only the first
         assert(cause.getMessage.contains("probably"))

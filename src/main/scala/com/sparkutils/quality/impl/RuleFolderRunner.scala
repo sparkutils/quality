@@ -1,6 +1,5 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenExpressions
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.imports.RuleFolderRunnerImports
 import com.sparkutils.quality.impl.util.{NonPassThrough, PassThrough}
@@ -10,7 +9,6 @@ import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
 import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression, NonSQLExpression}
 import org.apache.spark.sql.qualityFunctions.{FunN, RefExpressionLazyType}
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.{Column, DataFrame, QualitySparkUtils}
 
 import java.util.concurrent.atomic.AtomicReference
 

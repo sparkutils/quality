@@ -5,7 +5,7 @@ import com.sparkutils.quality.impl.bloom.parquet.{BucketedFilesRoot, FileRoot}
 import com.sparkutils.quality.{DataFrameLoader, Id, RuleSuite}
 import com.sparkutils.quality.impl.util.ConfigLoader
 import org.apache.spark.broadcast.Broadcast
-import org.apache.spark.sql.{Column, DataFrame, QualitySparkUtils, SparkSession}
+import org.apache.spark.sql.{Column, DataFrame, QualitySparkUtils, ShimUtils, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.{Expression, Literal}
 import org.apache.spark.sql.functions.lit
 
@@ -18,7 +18,7 @@ trait BloomFilterRegistration {
   def registerBloomMapAndFunction(bloomFilterMap: Broadcast[BloomExpressionLookup.BloomFilterMap]) {
     val funcReg = SparkSession.getActiveSession.get.sessionState.functionRegistry
     def register(name: String, argsf: Seq[Expression] => Expression, paramNumbers: Set[Int] = Set.empty, minimum: Int = -1) =
-      registerWithChecks(QualitySparkUtils.registerFunction(funcReg), name, argsf, paramNumbers, minimum)
+      registerWithChecks(ShimUtils.registerFunction(funcReg), name, argsf, paramNumbers, minimum)
 
     val f = (exps: Seq[Expression]) => BloomFilterLookupExpression(exps(0), exps(1), bloomFilterMap)
     register("probability_In", f, Set(2))

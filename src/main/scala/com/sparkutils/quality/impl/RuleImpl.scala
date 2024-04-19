@@ -2,6 +2,7 @@ package com.sparkutils.quality.impl
 
 import com.sparkutils.quality
 import com.sparkutils.quality.{DisabledRule, DisabledRuleInt, Failed, FailedInt, GeneralExpressionResult, GeneralExpressionsResult, Id, IdTriple, OutputExpression, Passed, PassedInt, Probability, Rule, RuleResult, RuleSetResult, RuleSuite, RuleSuiteResult, SoftFailed, SoftFailedInt}
+import org.apache.spark.sql.ShimUtils.newParser
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedFunction}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext}
@@ -57,7 +58,7 @@ object RuleLogicUtils {
    */
   def expr(rule: String) = {
     val parser = SparkSession.getActiveSession.map(_.sessionState.sqlParser).getOrElse {
-      QualitySparkUtils.newParser()
+      newParser()
     }
     /*
     attempt for a simple expression, then try a plan with exactly one output row.
@@ -284,7 +285,7 @@ trait OutputExprLogic extends HasExpr {
 object UpdateFolderExpression {
   val currentResult = "currentResult"
 
-  import QualitySparkUtils.UnresolvedFunctionOps
+  import org.apache.spark.sql.ShimUtils.UnresolvedFunctionOps
 
   /**
    * Uses the template to add the arguments to the underlying updateField, replacing any currentResult's found with the correct

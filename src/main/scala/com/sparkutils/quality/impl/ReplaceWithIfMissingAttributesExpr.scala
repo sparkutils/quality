@@ -1,11 +1,12 @@
 package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.impl.RuleLogicUtils.mapRules
-import VariablesLookup.{fieldsFromExpression, toName}
+import com.sparkutils.quality.impl.util.VariablesLookup.fieldsFromExpression
 import com.sparkutils.quality.impl.imports.RuleResultsImports.DisabledRuleExpr
 import com.sparkutils.quality.impl.imports.RuleRunnerImports
 import com.sparkutils.quality.impl.util.LookupIdFunctions
 import com.sparkutils.quality.{ExpressionRule, OutputExpression, Rule, RuleSuite}
+import com.sparkutils.shim.expressions.Names.toName
 import org.apache.spark.sql.catalyst.analysis.UnresolvedFunction
 import org.apache.spark.sql.catalyst.expressions.{Expression, Literal, LambdaFunction => SparkLambdaFunction}
 import org.apache.spark.sql.types.{NullType, StructType}

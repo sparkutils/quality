@@ -44,14 +44,24 @@ As of 6th June 2023 0.0.2 run against the 12.2.dbr LTS build also works on 13.0.
   
 13.1 backports a number of 3.5 oss changes, the 13.1.dbr build must be used.  The 13.1.dbr build is also successfully tested against 13.2 DBR.    
 
-## Running on Databricks Runtime 14.0
+!!! WARN "The 13.1/2 runtimes, given the LTS version, are deprecated and will be removed in 0.1.4."
+
+## Running on Databricks Runtime 13.3 LTS
+
+13.3 backports yet more 3.5 so the 13.3.dbr build must be used.
+
+## Running on Databricks Runtime 14.0/14.1
   
 14.0 and 14.1 can be used with the 14.0.dbr runtime, 14.2 however is not compatible, it back-ports two changes that render Quality 0.1.3 impossible to run:
 
 1. 44913 - StaticInvoke has changed breaking frameless binary compatibility
 2. ResolveReferences now takes catalogue as a parameter
 
-Both require building against OSS 4.0 / main.
+!!! WARN "The 14.0/1 runtimes, given the LTS version, are deprecated and will be removed in 0.1.4."
+
+## Running on Databricks Runtime 14.3 LTS
+
+14.3, in addition to the 14.2 StaticInvoke and ResolveReferences changes also implements a new VarianceChecker that requires a new 14.3.dbr runtime.
 
 ## Testing out Quality via Notebooks
 
@@ -76,12 +86,12 @@ val fileLoc = "/dbfs/databricks/quality_test"
 SparkTestUtils.setPath(fileLoc)
 ```
 
-Ideally at the end of your runs you'll see - after 10 minutes or so and some stdout - for example a run on DBR 13.1 provides:
+Ideally at the end of your runs you'll see - after 10 minutes or so and some stdout - for example a run on DBR 14.3 provides:
 
 ```
 Time: 633.686
 
-OK (405 tests)
+OK (410 tests)
 
 Finished. Result: Failures: 0. Ignored: 0. Tests run: 405. Time: 633686ms.
 import com.sparkutils.quality.tests.TestSuite

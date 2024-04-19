@@ -1,6 +1,6 @@
 package com.sparkutils.quality.impl.rng
 
-import com.sparkutils.quality.impl.StatefulLike
+import com.sparkutils.shim.expressions.StatefulLike
 import org.apache.commons.rng.simple.RandomSource
 import org.apache.spark.sql.Column
 import org.apache.spark.sql.catalyst.InternalRow

@@ -155,7 +155,7 @@ class AggregatesTest extends FunSuite with TestUtils {
     val expected = simpleTrades.groupBy(group).mapValues( t => t.size)
 
 //    val expected = Map("1/12/2020, ETC" -> 2, "1/12/2020, OTC" -> 6)
-    assert(expected == res, "expected the counts to match")
+    assert(expected.toMap == res, "expected the counts to match")
   }
 
   lazy val mapSumExpr = expr("aggExpr('MAP<STRING, DOUBLE>', 1 > 0, mapWith(date || ', ' || product, entry -> entry + IF(ccy='CHF', value, value * ccyrate)  ), returnSum() )").as("mapSumExpr")
@@ -194,7 +194,7 @@ class AggregatesTest extends FunSuite with TestUtils {
     val expected = simpleTrades.groupBy(t => t._1 + ", " + t._2).mapValues( t => t.map( p => if (p._4 == "CHF") p._3.toDouble else p._3 * p._5).sum)
 
     // val expected = Map("1/12/2020, ETC" -> 3.4, "1/12/2020, OTC" -> 46.4)
-    assert(expected == res, "expected the math to match")
+    assert(expected.toMap == res.toMap, "expected the math to match")
   }
 
   def doMapAggrOnePassTest(expr1: Column, expr2: Column): Unit = evalCodeGensNoResolve {
