@@ -155,6 +155,9 @@ here the user function retLambda returns the plus with 3 arity applied over a an
 ??? warning "_lambda_ drop in call arguments to transform_values and transform_keys don't work on 3.0 and 3.1.2/3"
     They pattern match on List and not seq, later versions fix this.  To work around this you must explicitly use lambdas for these functions.
 
+??? warning "Do not mix higher order functions with subqueries"
+    Per [SPARK-47509](https://issues.apache.org/jira/browse/SPARK-47509) subqueries within a HOF can lead to correctness issues, such usage is not supported 
+
 ## Controlling compilation - Tweaking the Quality Optimisations
 
 Normal Spark LambdaFunctions, NamedLambdaVariable and HigherOrderFunctions aren't compiled, this is - in part - due to the nature of having to thread the lambda variables across the Expression tree and calling bind.

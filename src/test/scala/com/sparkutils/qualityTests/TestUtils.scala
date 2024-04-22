@@ -21,6 +21,13 @@ trait TestUtils {
     else
       tmp
   }
+  val lambdaSubQueryMode = {
+    val tmp = System.getenv("QUALITY_LAMBDA_SUBS")
+    if (tmp eq null)
+      null
+    else
+      tmp
+  }
 
   def loggingLevel: String = "ERROR"
 
@@ -31,6 +38,9 @@ trait TestUtils {
     }
 
     sparkSession.conf.set("spark.sql.optimizer.nestedSchemaPruning.enabled", true)
+    if (lambdaSubQueryMode ne null) {
+      sparkSession.conf.set("spark.sql.analyzer.allowSubqueryExpressionsInLambdasOrHigherOrderFunctions", lambdaSubQueryMode)
+    }
     // only a visual change
     // sparkSession.conf.set("spark.sql.legacy.castComplexTypesToString.enabled", true)
     sparkSession.sparkContext.setLogLevel(loggingLevel) // set to debug to get actual code lines etc.

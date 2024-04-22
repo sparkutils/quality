@@ -2,7 +2,7 @@ package com.sparkutils.quality.impl.hash
 
 import com.sparkutils.quality.impl.id.{GenericLongBasedIDExpression, model}
 import org.apache.spark.sql.Column
-import org.apache.spark.sql.qualityFunctions.DigestFactory
+import org.apache.spark.sql.shim.hash.DigestFactory
 
 trait HashRelatedFunctionImports {
 

@@ -81,7 +81,7 @@ object ViewLoader {
           // 3.5 introduced two different exceptions, ParserException and ExtendedAnalysisException
           // AnalysisException no longer has the plan
           case e: Exception =>
-            val res = QualitySparkUtils.tableOrViewNotFound(e).getOrElse(throw e)
+            val res = ShimUtils.tableOrViewNotFound(e).getOrElse(throw e)
             val sql = viewPair.source.right.getOrElse("")
 
             res.fold(a => throw ViewLoaderAnalysisException(a, s"AnalysisException for view ${viewPair.name}: $sql", viewPair.name, sql),

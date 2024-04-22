@@ -4,7 +4,7 @@ import com.sparkutils.quality.impl.id.{GenericLongBasedID, model}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
 import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression, NullIntolerant, UnaryExpression}
-import org.apache.spark.sql.qualityFunctions.InputTypeChecks
+import org.apache.spark.sql.shim.expressions.InputTypeChecks
 import org.apache.spark.sql.types.{DataType, LongType, StructField, StructType}
 
 object LongPair {

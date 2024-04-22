@@ -213,7 +213,7 @@ class RuleFolderTest extends FunSuite with TestUtils {
   @Test
   def testSimpleProductionRulesReplaceDebugSet(): Unit = doTestSimpleProductionRulesReplaceDebug(true)
 
-  def doTestSimpleProductionRulesReplaceDebug(useSetSyntax: Boolean): Unit = evalCodeGens {
+  def doTestSimpleProductionRulesReplaceDebug(useSetSyntax: Boolean): Unit = forceCodeGen {
     val (testDataDF, ruleSuite) = testAndRulesForReplace(useSetSyntax)
 
     val outdf = testDataDF.transform(foldAndReplaceFields(ruleSuite, Seq("account", "product", "subcode"), debugMode = true))
