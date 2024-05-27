@@ -118,7 +118,6 @@ case class ExpressionRunner(ruleSuite: RuleSuite, children: Seq[Expression], ddl
     ExpressionRunnerUtils.expressionsResultToRow[Any](res)
   }
 
-  // TODO - fill this in...
   override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
     if (forceRunnerEval) {
       return super[CodegenFallback].doGenCode(ctx, ev)
