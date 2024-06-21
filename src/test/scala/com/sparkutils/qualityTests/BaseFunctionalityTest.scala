@@ -159,6 +159,11 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
       case SimpleRes(1, FailedInt, PassedInt, SoftFailedInt, Packed, SoftFailedInt, DisabledRuleInt, ModifiedString, _, TestId, id, 0.01, ModifiedString, ModifiedString) => true
       case _ => false
     })
+    val revres = re.as[SimpleRes].orderBy(col("id").desc).head()
+    assert(revres match {
+      case SimpleRes(_, _, _, SoftFailedInt, _, PassedInt, _, _, _, _, _, _, _, _) => true
+      case _ => false
+    })
   }
 
   @Test
@@ -734,6 +739,26 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
       case t: Throwable if t.getMessage.contains("A minimum of 2 parameters is required") =>
         ()
     }
+
+  @Test
+  def softFail: Unit = evalCodeGens {
+    val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+      Rule(Id(30, 3), ExpressionRule("softFail(id > 5)")),
+      Rule(Id(31, 3), ExpressionRule("softFail(id > 5)")),
+      Rule(Id(32, 3), ExpressionRule("softFail(id > 5)"))
+    ))))
+
+    import quality.implicits._
+
+    val processed = sparkSession.sql("select 4 id").select(
+      ruleRunner(rs).as("res"))
+
+    val res = processed.selectExpr("res.*").as[RuleSuiteResult].head()
+    assert(res.overallResult == Passed)
+    val rsres = res.ruleSetResults.head._2
+    assert(rsres.overallResult == Passed)
+    assert(rsres.ruleResults.values.forall(_ == SoftFailed))
+  }
 }
 
 object Holder {
