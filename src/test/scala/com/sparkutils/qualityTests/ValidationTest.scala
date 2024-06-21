@@ -216,7 +216,7 @@ class ValidationTest extends FunSuite with TestUtils {
 
   @Test
   def testFunctionSyntaxError: Unit = { // Spark 4 adds >> in SPARK-48168
-    val rs = RuleSuite(Id(0,1), Seq(RuleSet(Id(1,1), Seq(Rule(Id(2,1), ExpressionRule("fielda >:> fieldb"))))))
+    val rs = RuleSuite(Id(0,1), Seq(RuleSet(Id(1,1), Seq(Rule(Id(2,1), ExpressionRule("fielda >>> fieldb"))))))
     val errors = ordered( validate(struct, rs) )
 
     assert(errors match {
@@ -251,7 +251,7 @@ class ValidationTest extends FunSuite with TestUtils {
   @Test
   def testOutputFunctionSyntaxError: Unit = {  // Spark 4 adds >> in SPARK-48168
     val rs = RuleSuite(Id(0,1), Seq(RuleSet(Id(1,1), Seq(Rule(Id(2,1), ExpressionRule("fielda > fieldb"),
-      RunOnPassProcessor(0, Id(1001,1), OutputExpression("fielda >:> fieldb"))
+      RunOnPassProcessor(0, Id(1001,1), OutputExpression("fielda >>> fieldb"))
     )))))
     val errors = ordered( validate(struct, rs) )
 
@@ -279,9 +279,9 @@ class ValidationTest extends FunSuite with TestUtils {
   def testAllTheThingsExceptLambdaSOE: Unit = { // Spark 4 adds >> in SPARK-48168
     val rs = RuleSuite(Id(0,1), Seq(RuleSet(Id(1,1), Seq(
       Rule(Id(2,1), ExpressionRule("fielda > fieldb"), RunOnPassProcessor(0, Id(1001,1), OutputExpression("fielda > b"))),
-      Rule(Id(3,1), ExpressionRule("fielda > fieldb"), RunOnPassProcessor(0, Id(1002,1), OutputExpression("fielda >:> fieldb"))),
+      Rule(Id(3,1), ExpressionRule("fielda > fieldb"), RunOnPassProcessor(0, Id(1002,1), OutputExpression("fielda >>> fieldb"))),
       Rule(Id(4,1), ExpressionRule("fielda > b")),
-      Rule(Id(5,1), ExpressionRule("fielda >:> fieldb"))
+      Rule(Id(5,1), ExpressionRule("fielda >>> fieldb"))
     ))), Seq(LambdaFunction("test", "variable -> outervariable", Id(6,1)),
       LambdaFunction("testCaller", "outervariable -> test(outervariable)", Id(7,2)),
       LambdaFunction("testCaller2", "(outervariable) -> test(outervariable)", Id(8,1))))
