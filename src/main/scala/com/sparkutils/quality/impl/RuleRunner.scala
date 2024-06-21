@@ -133,7 +133,7 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
 
       val overall = ruleSetResults.foldLeft(PassedInt){
         (ov, res) =>
-          OverallResultHelper.inplaceInt(ov, res.asInstanceOf[Int], probablePass) // convert needed for process
+          OverallResultHelper.inplaceInt(res.asInstanceOf[Int], ov, probablePass) // convert needed for process
       }
 
       rsOverall = OverallResultHelper.inplaceInt(overall, rsOverall, probablePass)
