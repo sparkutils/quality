@@ -741,23 +741,56 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     }
 
   @Test
-  def softFail: Unit = evalCodeGens {
-    val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+  def softFail: Unit = resultChecker(
+    rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
       Rule(Id(30, 3), ExpressionRule("softFail(id > 5)")),
       Rule(Id(31, 3), ExpressionRule("softFail(id > 5)")),
       Rule(Id(32, 3), ExpressionRule("softFail(id > 5)"))
-    ))))
+    )))), (Passed,Passed), _.forall(_ == SoftFailed))
 
+  @Test
+  def failedOnOne: Unit = resultChecker(
+    rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+      Rule(Id(30, 3), ExpressionRule("id > 5")),
+      Rule(Id(31, 3), ExpressionRule("softFail(id > 5)")),
+      Rule(Id(32, 3), ExpressionRule("softFail(id > 5)"))
+    )))), (Failed, Failed), _.toSeq == Seq(Failed, SoftFailed, SoftFailed))
+
+  @Test
+  def probabilityOnThree: Unit = resultChecker(
+    rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+      Rule(Id(30, 3), ExpressionRule("softFail(id > 5)")),
+      Rule(Id(31, 3), ExpressionRule("softFail(id > 5)")),
+      Rule(Id(32, 3), ExpressionRule("85.0"))
+    )))), (Passed, Passed), _.toSeq == Seq(SoftFailed, SoftFailed, Probability(85)))
+
+  @Test
+  def disabled: Unit = resultChecker(
+    rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+      Rule(Id(30, 3), ExpressionRule("'disabled'")),
+      Rule(Id(31, 3), ExpressionRule("'disabled'")),
+      Rule(Id(32, 3), ExpressionRule("'disabled'"))
+    )))), (Passed, Passed), _.toSeq == Seq(DisabledRule, DisabledRule, DisabledRule))
+
+  @Test
+  def mixedIgnore: Unit = resultChecker(
+    rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+      Rule(Id(30, 3), ExpressionRule("softFail(id > 6)")),
+      Rule(Id(31, 3), ExpressionRule("'Passed'")),
+      Rule(Id(32, 3), ExpressionRule("'disabled'"))
+    )))), (Passed, Passed), _.toSeq == Seq(SoftFailed, Passed, DisabledRule))
+
+  def resultChecker(rs: RuleSuite, overalls: (RuleResult, RuleResult), comparison: Iterable[RuleResult] => Boolean): Unit = evalCodeGens {
     import quality.implicits._
 
     val processed = sparkSession.sql("select 4 id").select(
       ruleRunner(rs).as("res"))
 
     val res = processed.selectExpr("res.*").as[RuleSuiteResult].head()
-    assert(res.overallResult == Passed)
+    assert(res.overallResult == overalls._1)
     val rsres = res.ruleSetResults.head._2
-    assert(rsres.overallResult == Passed)
-    assert(rsres.ruleResults.values.forall(_ == SoftFailed))
+    assert(rsres.overallResult == overalls._2)
+    assert(comparison(rsres.ruleResults.values))
   }
 }
 

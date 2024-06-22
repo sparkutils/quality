@@ -114,17 +114,25 @@ object RuleLogicUtils {
     case _: SubqueryExpression => true
   } ).nonEmpty
 
+  object UTF8Str {
+    def unapply(any: Any): Option[String] =
+      any match {
+        case u: UTF8String => Some(u.toString)
+        case _ => None
+      }
+  }
+
   def anyToRuleResult(any: Any): RuleResult =
     any match {
       case b: Boolean => if (b) Passed else Failed
       case 0 | 0.0 => Failed
       case 1 | 1.0 => Passed
-      case -1 | -1.0 | "softfail" | "maybe" | "SoftFail" | "softFail" | "Softfail" | "Maybe" => SoftFailed
-      case -2  | -2.0 | "disabledrule" | "disabled" | "DisabledRule" | "disabledRule" | "Disabledrule" => DisabledRule
+      case -1 | -1.0 | UTF8Str("softfail" | "maybe" | "SoftFail" | "softFail" | "Softfail" | "Maybe") => SoftFailed
+      case -2  | -2.0 | UTF8Str("disabledrule" | "disabled" | "DisabledRule" | "disabledRule" | "Disabledrule") => DisabledRule
       case d: Double => Probability(d) // only spark 2 unless configured to behave like spark 2
       case d: Decimal => Probability(d.toDouble)
-      case "Passed" | "true" | "True" | "passed" | "Pass"| "pass" | "Yes" | "yes" | "1" | "1.0" => Passed
-      case "Failed" | "false" | "False" | "failed" | "Fail"| "fail" | "No" | "no" | "0" | "0.0" => Failed
+      case UTF8Str("Passed" | "true" | "True" | "passed" | "Pass"| "pass" | "Yes" | "yes" | "1" | "1.0") => Passed
+      case UTF8Str("Failed" | "false" | "False" | "failed" | "Fail"| "fail" | "No" | "no" | "0" | "0.0") => Failed
       case _ => Failed // anything else is a fail
     }
 
@@ -134,12 +142,12 @@ object RuleLogicUtils {
       case b: Boolean => if (b) PassedInt else FailedInt
       case 0 | 0.0 => FailedInt
       case 1 | 1.0 => PassedInt
-      case -1 | -1.0 | "softfail" | "maybe" | "SoftFail" | "softFail" | "Softfail" | "Maybe" => SoftFailedInt
-      case -2  | -2.0 | "disabledrule" | "disabled" | "DisabledRule" | "disabledRule" | "Disabledrule" => DisabledRuleInt
+      case -1 | -1.0 | UTF8Str("softfail" | "maybe" | "SoftFail" | "softFail" | "Softfail" | "Maybe") => SoftFailedInt
+      case -2  | -2.0 | UTF8Str("disabledrule" | "disabled" | "DisabledRule" | "disabledRule" | "Disabledrule") => DisabledRuleInt
       case d: Double => (d * PassedInt).toInt
       case d: Decimal => (d.toDouble * PassedInt).toInt
-      case "Passed" | "true" | "True" | "passed" | "Pass"| "pass" | "Yes" | "yes" | "1" | "1.0" => PassedInt
-      case "Failed" | "false" | "False" | "failed" | "Fail"| "fail" | "No" | "no" | "0" | "0.0" => FailedInt
+      case UTF8Str("Passed" | "true" | "True" | "passed" | "Pass"| "pass" | "Yes" | "yes" | "1" | "1.0") => PassedInt
+      case UTF8Str("Failed" | "false" | "False" | "failed" | "Fail"| "fail" | "No" | "no" | "0" | "0.0") => FailedInt
       case _ => FailedInt // anything else is a fail
     }
 
