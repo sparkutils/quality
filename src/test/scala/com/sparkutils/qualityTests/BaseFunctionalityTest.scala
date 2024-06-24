@@ -794,7 +794,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
   }
 
   @Test
-  def softShouldShowPassed(): Unit = forceCodeGen {
+  def softShouldShowPassed(): Unit = not2_4{ evalCodeGens {
     val rs =
       RuleSuite(Id(101, 1), List(RuleSet(Id(101, 1), List(
         Rule(Id(202, 2), ExpressionRule(s"""softFail(
@@ -867,9 +867,9 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
       Map(Passed -> 7, SoftFailed -> 1),
       Map(Passed -> 7, SoftFailed -> 1),
       Map(Passed -> 6, SoftFailed -> 2),
-      Map(Passed -> 6, SoftFailed -> 2),
+      Map(Passed -> 6, SoftFailed -> 2)
     ))
-  }
+  } }
 }
 
 object Holder {
