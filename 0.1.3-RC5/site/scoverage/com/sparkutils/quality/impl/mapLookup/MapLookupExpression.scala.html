@@ -1,0 +1,946 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/sparkutils/quality/impl/mapLookup/MapLookupExpression.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality.impl.mapLookup
+</span>2 <span style=''>
+</span>3 <span style=''>import com.sparkutils.quality.MapLookups
+</span>4 <span style=''>import com.sparkutils.quality.QualityException.qualityException
+</span>5 <span style=''>import com.sparkutils.quality.impl.{MapUtils, RuleRegistrationFunctions}
+</span>6 <span style=''>import org.apache.spark.broadcast.Broadcast
+</span>7 <span style=''>import org.apache.spark.sql.catalyst.{CatalystTypeConverters, InternalRow}
+</span>8 <span style=''>import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
+</span>9 <span style=''>import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionDescription, IsNotNull, Literal, NullIntolerant, UnaryExpression}
+</span>10 <span style=''>import org.apache.spark.sql.catalyst.util.MapData
+</span>11 <span style=''>import org.apache.spark.sql.types.{DataType, StringType}
+</span>12 <span style=''>import org.apache.spark.sql.{Column, SparkSession}
+</span>13 <span style=''>import org.apache.spark.unsafe.types.UTF8String
+</span>14 <span style=''>
+</span>15 <span style=''>object MapLookup {
+</span>16 <span style=''>  /**
+</span>17 <span style=''>    * For withColumn / select usage, the map generation and lookup expressions must be of the same type
+</span>18 <span style=''>    */
+</span>19 <span style=''>  def apply(mapLookupName: Column, lookupKey: Column, mapLookups: MapLookups): Column = {
+</span>20 <span style=''>    </span><span style='background: #AEF1AE'>new Column(apply(mapLookupName.expr, lookupKey.expr, mapLookups))</span><span style=''>
+</span>21 <span style=''>  }
+</span>22 <span style=''>
+</span>23 <span style=''>  def apply(mapLookupName: Expression, lookupKey: Expression, mapLookups: MapLookups): MapLookupExpression = {
+</span>24 <span style=''>    val id = </span><span style='background: #AEF1AE'>RuleRegistrationFunctions.getString(mapLookupName)</span><span style=''> // Must be hard coded, can't give a dynamic data type otherwise it will fail at runtime not analysis
+</span>25 <span style=''>    val (bv, dt) = mapLookups.getOrElse(id, mapDoesNotExist(id))
+</span>26 <span style=''>
+</span>27 <span style=''>    </span><span style='background: #AEF1AE'>MapLookupExpression(id, lookupKey, bv, dt)</span><span style=''>
+</span>28 <span style=''>  }
+</span>29 <span style=''>
+</span>30 <span style=''>  private[mapLookup] def mapDoesNotExist(map: String) = </span><span style='background: #AEF1AE'>qualityException(</span><span style='background: #F0ADAD'>s&quot;The bloom filter: $map, does not exist in the provided bloomMap&quot;</span><span style='background: #AEF1AE'>)</span><span style=''>
+</span>31 <span style=''>
+</span>32 <span style=''>  private[mapLookup] def mapDoesNotExistJ(map: String) = () =&gt; </span><span style='background: #AEF1AE'>mapDoesNotExist(map)</span><span style=''>
+</span>33 <span style=''>}
+</span>34 <span style=''>
+</span>35 <span style=''>/**
+</span>36 <span style=''>  * Returns a value when the lookup is present with the correct value type, or Null when not throws if the table is not present
+</span>37 <span style=''>  * @param mapId the name of the map entry / dataframe the lookupmap belongs to
+</span>38 <span style=''>  * @param child the expression to lookup
+</span>39 <span style=''>  * @param arrayMap the lookup broadcast maps  *
+</span>40 <span style=''>  */
+</span>41 <span style=''>@ExpressionDescription(
+</span>42 <span style=''>  usage = &quot;_FUNC_(content to lookup, bloomFilterName) - Returns either the lookup value or Null when not present&quot;,
+</span>43 <span style=''>  examples = &quot;&quot;&quot;
+</span>44 <span style=''>    Examples:
+</span>45 <span style=''>      &gt; SELECT _FUNC_('a thing that might be there', 'otherDataset');
+</span>46 <span style=''>       0.9
+</span>47 <span style=''>  &quot;&quot;&quot;,
+</span>48 <span style=''>  since = &quot;1.5.0&quot;)
+</span>49 <span style=''>case class MapLookupExpression(mapId: String, child: Expression, arrayMap: Broadcast[MapData], dataType: DataType) extends UnaryExpression with CodegenFallback {
+</span>50 <span style=''>  lazy val theMap = MapUtils.toScalaMap(arrayMap.value, child.dataType, dataType)
+</span>51 <span style=''>
+</span>52 <span style=''>  lazy val converter = CatalystTypeConverters.createToScalaConverter(child.dataType)
+</span>53 <span style=''>
+</span>54 <span style=''>  override def eval(row: InternalRow): Any = {
+</span>55 <span style=''>    val eres = </span><span style='background: #AEF1AE'>child.eval(row)</span><span style=''>
+</span>56 <span style=''>    if (</span><span style='background: #AEF1AE'>eres == null</span><span style=''>)
+</span>57 <span style=''>      </span><span style='background: #AEF1AE'>null</span><span style=''>
+</span>58 <span style=''>    else </span><span style='background: #AEF1AE'>{
+</span>59 <span style=''></span><span style='background: #AEF1AE'>      // strings will be UTF8Strings, they are present in the map, only convert when that fails
+</span>60 <span style=''></span><span style='background: #AEF1AE'>      val res = theMap.get(eres).orElse( theMap.get({
+</span>61 <span style=''></span><span style='background: #AEF1AE'>        val converted = converter(eres)
+</span>62 <span style=''></span><span style='background: #AEF1AE'>        converted
+</span>63 <span style=''></span><span style='background: #AEF1AE'>      } )).getOrElse( null)
+</span>64 <span style=''></span><span style='background: #AEF1AE'>      if (res != null)
+</span>65 <span style=''></span><span style='background: #AEF1AE'>        res
+</span>66 <span style=''></span><span style='background: #AEF1AE'>      else
+</span>67 <span style=''></span><span style='background: #AEF1AE'>        null
+</span>68 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>69 <span style=''>  }
+</span>70 <span style=''>
+</span>71 <span style=''>  override def nullable: Boolean = </span><span style='background: #AEF1AE'>true</span><span style=''>
+</span>72 <span style=''>
+</span>73 <span style=''>  override def sql: String = </span><span style='background: #AEF1AE'>s&quot;(mapLookup($mapId, ${child.sql}))&quot;</span><span style=''>
+</span>74 <span style=''>
+</span>75 <span style=''>  protected def withNewChildInternal(newChild: Expression): Expression = </span><span style='background: #AEF1AE'>copy(child = newChild)</span><span style=''>
+</span>76 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          5825
+        </td>
+        <td>
+          1029
+          -
+          1043
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.Column.expr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          lookupKey.expr
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          5824
+        </td>
+        <td>
+          1009
+          -
+          1027
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.Column.expr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          mapLookupName.expr
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          5827
+        </td>
+        <td>
+          992
+          -
+          1057
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.sql.Column(MapLookup.this.apply(mapLookupName.expr, lookupKey.expr, mapLookups))
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          5826
+        </td>
+        <td>
+          1003
+          -
+          1056
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.mapLookup.MapLookup.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapLookup.this.apply(mapLookupName.expr, lookupKey.expr, mapLookups)
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          5828
+        </td>
+        <td>
+          1213
+          -
+          1213
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRegistrationFunctions.getString$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.RuleRegistrationFunctions.getString$default$2
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          5829
+        </td>
+        <td>
+          1187
+          -
+          1237
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRegistrationFunctions.getString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.RuleRegistrationFunctions.getString(mapLookupName, com.sparkutils.quality.impl.RuleRegistrationFunctions.getString$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          5831
+        </td>
+        <td>
+          1352
+          -
+          1352
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$1._2
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          5830
+        </td>
+        <td>
+          1348
+          -
+          1348
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$1._1
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          5832
+        </td>
+        <td>
+          1409
+          -
+          1451
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.mapLookup.MapLookupExpression.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapLookupExpression.apply(id, lookupKey, bv, dt)
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          5834
+        </td>
+        <td>
+          1513
+          -
+          1513
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.QualityException.qualityException$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.sparkutils.quality.QualityException.qualityException$default$2
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          5833
+        </td>
+        <td>
+          1530
+          -
+          1596
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;The bloom filter: &quot;, &quot;, does not exist in the provided bloomMap&quot;).s(map)
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          5835
+        </td>
+        <td>
+          1513
+          -
+          1597
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.QualityException.qualityException
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.QualityException.qualityException(scala.StringContext.apply(&quot;The bloom filter: &quot;, &quot;, does not exist in the provided bloomMap&quot;).s(map), com.sparkutils.quality.QualityException.qualityException$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          5836
+        </td>
+        <td>
+          1662
+          -
+          1682
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.mapLookup.MapLookup.mapDoesNotExist
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapLookup.this.mapDoesNotExist(map)
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          5837
+        </td>
+        <td>
+          2664
+          -
+          2679
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.eval
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapLookupExpression.this.child.eval(row)
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          5838
+        </td>
+        <td>
+          2688
+          -
+          2700
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Any.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          eres.==(null)
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          5840
+        </td>
+        <td>
+          2708
+          -
+          2712
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          5839
+        </td>
+        <td>
+          2708
+          -
+          2712
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          5846
+        </td>
+        <td>
+          2722
+          -
+          3024
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val res: Any = MapLookupExpression.this.theMap.get(eres).orElse[Any](MapLookupExpression.this.theMap.get({
+  val converted: Any = MapLookupExpression.this.converter.apply(eres);
+  converted
+})).getOrElse[Any](null);
+  if (res.!=(null))
+    res
+  else
+    null
+}
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          5841
+        </td>
+        <td>
+          2836
+          -
+          2959
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapLookupExpression.this.theMap.get(eres).orElse[Any](MapLookupExpression.this.theMap.get({
+  val converted: Any = MapLookupExpression.this.converter.apply(eres);
+  converted
+})).getOrElse[Any](null)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          5842
+        </td>
+        <td>
+          2970
+          -
+          2981
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Any.!=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.!=(null)
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          5843
+        </td>
+        <td>
+          2991
+          -
+          2994
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.sparkutils.quality.impl.mapLookup.MapLookupExpression.res
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          5845
+        </td>
+        <td>
+          3014
+          -
+          3018
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          5844
+        </td>
+        <td>
+          3014
+          -
+          3018
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          5847
+        </td>
+        <td>
+          3065
+          -
+          3069
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          5852
+        </td>
+        <td>
+          3123
+          -
+          3132
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.sql
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapLookupExpression.this.child.sql
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          5849
+        </td>
+        <td>
+          3119
+          -
+          3122
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;, &quot;
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          5848
+        </td>
+        <td>
+          3102
+          -
+          3114
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;(mapLookup(&quot;
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          5851
+        </td>
+        <td>
+          3114
+          -
+          3119
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.mapLookup.MapLookupExpression.mapId
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapLookupExpression.this.mapId
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          5850
+        </td>
+        <td>
+          3133
+          -
+          3136
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;))&quot;
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          5853
+        </td>
+        <td>
+          3100
+          -
+          3136
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;(mapLookup(&quot;, &quot;, &quot;, &quot;))&quot;).s(MapLookupExpression.this.mapId, MapLookupExpression.this.child.sql)
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          5855
+        </td>
+        <td>
+          3211
+          -
+          3211
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.mapLookup.MapLookupExpression.copy$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapLookupExpression.this.copy$default$3
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          5857
+        </td>
+        <td>
+          3211
+          -
+          3233
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.mapLookup.MapLookupExpression.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapLookupExpression.this.copy(x$2, x$1, x$3, x$4)
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          5854
+        </td>
+        <td>
+          3211
+          -
+          3211
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.mapLookup.MapLookupExpression.copy$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapLookupExpression.this.copy$default$1
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          5856
+        </td>
+        <td>
+          3211
+          -
+          3211
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.mapLookup.MapLookupExpression.copy$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapLookupExpression.this.copy$default$4
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
