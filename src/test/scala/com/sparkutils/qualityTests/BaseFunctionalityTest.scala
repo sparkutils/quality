@@ -142,7 +142,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     val Packed = packId(id)
 
     val starter = sparkSession.range(1,500).selectExpr("cast(id as int) as id").selectExpr("*","failed() * id as a", "passed() * id as b", "softFailed() * 1 as c", "disabledRule() as dis")
-    val df = starter.selectExpr("*", "packInts(1024 * id, 9084 * id) as d", "softFail( (1 * id) > 2 ) as e", s"longPairFromUUID('$uuid') as fparts").
+    val df = starter.selectExpr("*", "packInts(1024 * id, 9084 * id) as d", "cast(softFail( (1 * id) > 2 ) as int) as e", s"longPairFromUUID('$uuid') as fparts").
       selectExpr("*", "rngUUID(longPairFromUUID(uuid())) throwaway").
       selectExpr("*", "rngUUID(named_struct('lower', fparts.lower + id, 'higher', fparts.higher)) as f"," longPair(`id` + 0L, `id` + 1L) as rowid", "unpack(d) as g", "probability(1000) as prob",
         "as_uuid(fparts.lower + id, fparts.higher) as asUUIDExpr"
@@ -157,6 +157,11 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     val res = re.as[SimpleRes].orderBy(col("id").asc).head()
     assert(res match {
       case SimpleRes(1, FailedInt, PassedInt, SoftFailedInt, Packed, SoftFailedInt, DisabledRuleInt, ModifiedString, _, TestId, id, 0.01, ModifiedString, ModifiedString) => true
+      case _ => false
+    })
+    val revres = re.as[SimpleRes].orderBy(col("id").desc).head()
+    assert(revres match {
+      case SimpleRes(_, _, _, -1, _, 1, _, _, _, _, _, _, _, _) => true
       case _ => false
     })
   }
@@ -734,6 +739,137 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
       case t: Throwable if t.getMessage.contains("A minimum of 2 parameters is required") =>
         ()
     }
+
+  @Test
+  def softFail: Unit = resultChecker(
+    rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+      Rule(Id(30, 3), ExpressionRule("softFail(id > 5)")),
+      Rule(Id(31, 3), ExpressionRule("softFail(id > 5)")),
+      Rule(Id(32, 3), ExpressionRule("softFail(id > 5)"))
+    )))), (Passed,Passed), _.forall(_ == SoftFailed))
+
+  @Test
+  def failedOnOne: Unit = resultChecker(
+    rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+      Rule(Id(30, 3), ExpressionRule("id > 5")),
+      Rule(Id(31, 3), ExpressionRule("softFail(id > 5)")),
+      Rule(Id(32, 3), ExpressionRule("softFail(id > 5)"))
+    )))), (Failed, Failed), _.toSeq == Seq(Failed, SoftFailed, SoftFailed))
+
+  @Test
+  def probabilityOnThree: Unit = resultChecker(
+    rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+      Rule(Id(30, 3), ExpressionRule("softFail(id > 5)")),
+      Rule(Id(31, 3), ExpressionRule("softFail(id > 5)")),
+      Rule(Id(32, 3), ExpressionRule("85.0"))
+    )))), (Passed, Passed), _.toSeq == Seq(SoftFailed, SoftFailed, Probability(85)))
+
+  @Test
+  def disabled: Unit = resultChecker(
+    rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+      Rule(Id(30, 3), ExpressionRule("'disabled'")),
+      Rule(Id(31, 3), ExpressionRule("'disabled'")),
+      Rule(Id(32, 3), ExpressionRule("'disabled'"))
+    )))), (Passed, Passed), _.toSeq == Seq(DisabledRule, DisabledRule, DisabledRule))
+
+  @Test
+  def mixedIgnore: Unit = resultChecker(
+    rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+      Rule(Id(30, 3), ExpressionRule("softFail(id > 6)")),
+      Rule(Id(31, 3), ExpressionRule("'Passed'")),
+      Rule(Id(32, 3), ExpressionRule("'disabled'"))
+    )))), (Passed, Passed), _.toSeq == Seq(SoftFailed, Passed, DisabledRule))
+
+  def resultChecker(rs: RuleSuite, overalls: (RuleResult, RuleResult), comparison: Iterable[RuleResult] => Boolean): Unit = evalCodeGens {
+    import quality.implicits._
+
+    val processed = sparkSession.sql("select 4 id").select(
+      ruleRunner(rs).as("res"))
+
+    val res = processed.selectExpr("res.*").as[RuleSuiteResult].head()
+    assert(res.overallResult == overalls._1)
+    val rsres = res.ruleSetResults.head._2
+    assert(rsres.overallResult == overalls._2)
+    assert(comparison(rsres.ruleResults.values))
+  }
+
+  @Test
+  def softShouldShowPassed(): Unit = not2_4{ evalCodeGens {
+    val rs =
+      RuleSuite(Id(101, 1), List(RuleSet(Id(101, 1), List(
+        Rule(Id(202, 2), ExpressionRule(s"""softFail(
+      case
+      when isnotnull (f1) then true
+      else false
+      end)""" )),
+        Rule(Id(202, 4), ExpressionRule(s"""softFail(
+      case
+      when isnotnull (a) then true
+      else false
+      end)""" )),
+        Rule(Id(202, 5), ExpressionRule(s"""softFail(
+      case
+      when isnotnull (b) then true
+      else false
+      end)""" )),
+        Rule(Id(202, 6), ExpressionRule(s"""softFail(
+      case
+      when isnotnull (c) then true
+      else false
+      end)""" )),
+        Rule(Id(202, 7), ExpressionRule(s"""softFail(
+      case
+      when isnotnull (p) then true
+      else false
+      end)""" )),
+        Rule(Id(203, 8), ExpressionRule(s"""softFail(
+      case
+      when isNull (a) then false
+      when((length(a) > 0) and (length(a) <= 1000))
+      then
+      true
+      else false
+      end)""" )),
+        Rule(Id(208, 9), ExpressionRule(s"""softFail(
+      case
+      when isnull (p) then true
+      when p not in('44') then
+      true
+      else false
+      end)""" )),
+        Rule(Id(204, 10), ExpressionRule(s"""softFail(
+      case
+      when isnull (f1) then true
+      when isnotnull (cast(f1 as Long)) then true
+      else false
+      end)""" ))))))
+
+    val data = {
+      import sparkSession.implicits._
+
+      Seq[(Int, String, String, String, String)](
+        (123, "a1", "b1", "c1", null),
+        (null.asInstanceOf[Int], "a1", "b1", null, "p1"),
+        (123, null, "b1", "c1", "p1"),
+        (null.asInstanceOf[Int], "", null, "c1", "p1")
+      ).toDF("f1", "a", "b", "c", "p")
+    }
+
+    val rdf = data.withColumn("dq", ruleRunner(rs))
+
+    import implicits._
+
+    val res = rdf.selectExpr("dq.*").as[RuleSuiteResult].collect()
+    assert(res.forall(_.overallResult == Passed))
+    res.forall(_.ruleSetResults.head._2.overallResult == Passed)
+    val sres = res.map(_.ruleSetResults.head._2.ruleResults.values.groupBy(identity).mapValues(_.size)).toSeq
+    assert(sres == Seq(
+      Map(Passed -> 7, SoftFailed -> 1),
+      Map(Passed -> 7, SoftFailed -> 1),
+      Map(Passed -> 6, SoftFailed -> 2),
+      Map(Passed -> 6, SoftFailed -> 2)
+    ))
+  } }
 }
 
 object Holder {
