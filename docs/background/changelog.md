@@ -20,7 +20,11 @@
 
 #62 - SPARK-47509 workaround for Subqueries in lambdas - most common patterns are supported with 4.0 / 14.3 DBR
 
-#63 - Use actual struct functions where possible for drop_field/update_field functions - required due to 14.3 DBR introduced plan on local relations 
+#63 - Use actual struct functions where possible for drop_field/update_field functions - required due to 14.3 DBR introduced plan on local relations
+
+#66 - Bug fix - softFail result handling was double encoded - softFail result type is changed to double (breaking)
+
+#65 - Bug fix - Incorrect OverallResult and string result processing  
 
 ### 0.1.2.1 <small>4th September, 2023</small>
 
