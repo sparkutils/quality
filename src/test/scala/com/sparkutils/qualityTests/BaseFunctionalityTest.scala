@@ -862,7 +862,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     val res = rdf.selectExpr("dq.*").as[RuleSuiteResult].collect()
     assert(res.forall(_.overallResult == Passed))
     res.forall(_.ruleSetResults.head._2.overallResult == Passed)
-    val sres = res.map(_.ruleSetResults.head._2.ruleResults.values.groupBy(identity).mapValues(_.size)).toSeq
+    val sres = res.map(_.ruleSetResults.head._2.ruleResults.values.groupBy(identity).mapValues(_.size).toMap).toSeq
     assert(sres == Seq(
       Map(Passed -> 7, SoftFailed -> 1),
       Map(Passed -> 7, SoftFailed -> 1),
