@@ -7,7 +7,7 @@ import com.sparkutils.quality.impl.imports.RuleResultsImports.packId
 import com.sparkutils.quality.impl.util.Arrays
 import com.sparkutils.quality.impl.yaml.YamlEncoderExpr
 import com.sparkutils.quality.types._
-import org.apache.spark.sql.Column
+import org.apache.spark.sql.{Column, ShimUtils}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode, ExprValue}
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression, UnaryExpression}
@@ -40,7 +40,7 @@ object ExpressionRunner {
       else
         DataType.fromDDL(ddlType)
 
-    new Column(ExpressionRunner(RuleLogicUtils.cleanExprs(ruleSuite), collectExpressions,
+    ShimUtils.column(ExpressionRunner(RuleLogicUtils.cleanExprs(ruleSuite), collectExpressions,
       ddl_type, variablesPerFunc = variablesPerFunc, variableFuncGroup = variableFuncGroup,
       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval)).as(name)
   }

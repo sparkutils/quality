@@ -1,7 +1,8 @@
 package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality.{RuleSuite, ruleFolderRunner}
-import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.{DataFrame, Row => SRow}
+import org.apache.spark.sql.QualitySparkUtils.DatasetBase
 import org.apache.spark.sql.types.StructType
 
 protected[quality] object AddDataFunctions {
@@ -18,9 +19,10 @@ protected[quality] object AddDataFunctions {
    * @param useType In the case you must use select and can't use withColumn you may provide a type directly to stop the NPE
    * @return
    */
-  def ifoldAndReplaceFields(rules: RuleSuite, fields: Seq[String], foldFieldName: String = "foldedFields", debugMode: Boolean = false,
+  def ifoldAndReplaceFields[P[R] >: DatasetBase[R]](rules: RuleSuite, fields: Seq[String], foldFieldName: String = "foldedFields", debugMode: Boolean = false,
                            tempFoldDebugName: String = "tempFOLDDEBUG",
-                           maintainOrder: Boolean = true, useType: Option[StructType] = None): DataFrame => DataFrame = df => {
+                           maintainOrder: Boolean = true, useType: Option[StructType] = None): P[SRow] => P[SRow] = rdf => {
+    val df = rdf.asInstanceOf[DataFrame]
     import org.apache.spark.sql.functions._
 
     val theStruct = struct(fields.head, fields.tail :_*)
@@ -50,6 +52,6 @@ protected[quality] object AddDataFunctions {
       result.select(namesInOrder.head, namesInOrder.tail :_*)
     else
       result
-  }
+  }.asInstanceOf[P[SRow]]
 
 }

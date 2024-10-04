@@ -4,6 +4,7 @@ import com.sparkutils.quality._
 import com.sparkutils.quality.functions.{flatten_rule_results, unpack_id_triple}
 import com.sparkutils.quality.impl.{RuleEngineRunner, RunOnPassProcessor}
 import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.ShimUtils.expression
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.{BooleanType, DataType, IntegerType, StructField, StructType}
 import org.junit.Test
@@ -226,7 +227,7 @@ class RuleEngineTest extends FunSuite with TestUtils {
         OutputExpression("array(account_row('from', account), account_row('to', 'other_account1'))"))), compileEvals = false
     )(null.asInstanceOf[DataFrame]) // the df is irrelevant as we are NoResolving
 
-    val rs = rer.expr.asInstanceOf[RuleEngineRunner].ruleSuite
+    val rs = expression(rer).asInstanceOf[RuleEngineRunner].ruleSuite
     val ds = toDS(rs)
 
     val so = toOutputExpressionDS(rs)
@@ -259,7 +260,7 @@ class RuleEngineTest extends FunSuite with TestUtils {
 
     val bos = new ByteArrayOutputStream()
     val os = new ObjectOutputStream(bos)
-    os.writeObject(rerer.expr)
+    os.writeObject(expression(rerer))
     val bytes = bos.toByteArray()
   }
 
@@ -367,8 +368,8 @@ class RuleEngineTest extends FunSuite with TestUtils {
       }
 
       // test no alias paths as well
-      testRes(testDF.transform(ruleEngineWithStructF(rs, IntegerType, alias = null)))
-      testRes(testDF.transform(ruleEngineWithStructF(rs, IntegerType, alias = "")))
+      testRes(testDF.transform(ruleEngineWithStructF(rs, IntegerType, alias = null)).asInstanceOf[DataFrame])
+      testRes(testDF.transform(ruleEngineWithStructF(rs, IntegerType, alias = "")).asInstanceOf[DataFrame])
     }
   }
 

@@ -15,7 +15,7 @@ RuleSuites are built per the normal DQ rules however a RuleResultProcessor is su
 ```{.scala #exampleCode}
   val ruleResultProcessor = 
     RunOnPassProcessor(salience, Id(outputId, outputVersion), 
-      RuleLogicUtils.expr("thecurrent -> update_field(thecurrent, 'account', concat(thecurrent.account, '_suffix') )")))
+      RuleLogicUtils)("thecurrent -> update_field(thecurrent, 'account', concat(thecurrent.account, '_suffix') )")))
   val rule = Rule(Id(id, version), expressionRule, ruleResultProcessor)
   val ruleSuite = RuleSuite(Id(ruleSuiteId, ruleSuiteVersion), Seq(
       RuleSet(Id(ruleSetId, ruleSetVersion), Seq(rule)

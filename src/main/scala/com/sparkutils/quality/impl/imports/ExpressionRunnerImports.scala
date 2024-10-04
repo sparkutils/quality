@@ -3,6 +3,7 @@ package com.sparkutils.quality.impl.imports
 import com.sparkutils.quality.RuleSuite
 import com.sparkutils.quality.impl.{ExpressionRunner, StripResultTypes}
 import org.apache.spark.sql.Column
+import org.apache.spark.sql.ShimUtils.{column, expression}
 
 trait ExpressionRunnerImports {
 
@@ -29,5 +30,5 @@ trait StripResultTypesFunction {
    * @return
    */
   def strip_result_ddl(expressionResults: Column): Column =
-    new Column( StripResultTypes(expressionResults.expr) )
+    column( StripResultTypes(expression(expressionResults)) )
 }

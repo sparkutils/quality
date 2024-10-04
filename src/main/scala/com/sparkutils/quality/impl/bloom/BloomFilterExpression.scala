@@ -5,6 +5,7 @@ import com.sparkutils.quality.{BloomFilterMap, RuleSuite}
 import com.sparkutils.quality.impl.{RuleRegistrationFunctions, RuleRunnerUtils}
 import com.sparkutils.shim.expressions.UnresolvedFunction4
 import org.apache.spark.broadcast.Broadcast
+import org.apache.spark.sql.ShimUtils.{column, expression}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
 import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression, ExpressionDescription, Literal, NullIntolerant}
@@ -34,7 +35,7 @@ object BloomFilterLookup {
     * For withColumn / select usage, the bloomfilters generation and test expressions must be of the same type
     */
   def apply(bloomFilterName: Column, lookupValue: Column, bloomMap: Broadcast[BloomFilterMap]): Column =
-    new Column(BloomFilterLookupExpression(bloomFilterName.expr, lookupValue.expr, bloomMap))
+    column(BloomFilterLookupExpression(expression(bloomFilterName), expression(lookupValue), bloomMap))
 
   private[impl] def bloomDoesNotExist(bloom: String) = qualityException("The bloom filter: "+bloom+", does not exist in the provided bloomMap")
 

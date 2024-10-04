@@ -2,6 +2,7 @@ package com.sparkutils.quality.impl.imports
 
 import com.sparkutils.quality.{RuleSuite, impl}
 import com.sparkutils.quality.impl.{FlattenStruct, PackId, ProbabilityExpr, RuleRunnerImpl}
+import org.apache.spark.sql.ShimUtils.{column, expression}
 import org.apache.spark.sql.catalyst.expressions.Literal
 import org.apache.spark.sql.types.IntegerType
 import org.apache.spark.sql.{Column, DataFrame}
@@ -72,24 +73,24 @@ trait RuleRunnerFunctionImports {
    * @return
    */
   def probability(result: Column): Column =
-    new Column(ProbabilityExpr(result.expr))
+    column(ProbabilityExpr(expression(result)))
 
   /**
    * The soft_failed value
    */
-  val soft_failed = new Column(RuleResultsImports.SoftFailedExpr)
+  val soft_failed = column(RuleResultsImports.SoftFailedExpr)
   /**
    * The disabled_rule value
    */
-  val disabled_rule = new Column(RuleResultsImports.DisabledRuleExpr)
+  val disabled_rule = column(RuleResultsImports.DisabledRuleExpr)
   /**
    * The passed value
    */
-  val passed = new Column(RuleResultsImports.PassedExpr)
+  val passed = column(RuleResultsImports.PassedExpr)
   /**
    * The failed value
    */
-  val failed = new Column(RuleResultsImports.FailedExpr)
+  val failed = column(RuleResultsImports.FailedExpr)
 
   /**
    * Flattens DQ results, unpacking the nested structure into a simple relation
@@ -97,7 +98,7 @@ trait RuleRunnerFunctionImports {
    * @return
    */
   def flatten_results(result: Column): Column =
-    new Column(impl.FlattenResultsExpression(result.expr, FlattenStruct.ruleSuiteDeserializer))
+    column(impl.FlattenResultsExpression(expression(result), FlattenStruct.ruleSuiteDeserializer))
 
   /**
    * Flattens rule results, unpacking the nested structure into a simple relation
@@ -106,7 +107,7 @@ trait RuleRunnerFunctionImports {
    * @return
    */
   def flatten_rule_results(result: Column): Column =
-    new Column(impl.FlattenRulesResultsExpression(result.expr, FlattenStruct.ruleSuiteDeserializer))
+    column(impl.FlattenRulesResultsExpression(expression(result), FlattenStruct.ruleSuiteDeserializer))
 
   /**
    * Flattens folder results, unpacking the nested structure into a simple relation
@@ -115,12 +116,12 @@ trait RuleRunnerFunctionImports {
    * @return
    */
   def flatten_folder_results(result: Column): Column =
-    new Column(impl.FlattenFolderResultsExpression(result.expr, FlattenStruct.ruleSuiteDeserializer))
+    column(impl.FlattenFolderResultsExpression(expression(result), FlattenStruct.ruleSuiteDeserializer))
 
   /**
    * Consumes a RuleSuiteResult and returns RuleSuiteDetails
    */
   def rule_suite_result_details(result: Column): Column =
-    new Column( impl.RuleSuiteResultDetailsExpr(result.expr) )
+    column( impl.RuleSuiteResultDetailsExpr(expression(result)) )
 
 }

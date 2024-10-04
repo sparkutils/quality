@@ -3,7 +3,7 @@ package com.sparkutils.qualityTests
 import com.sparkutils.quality.functions.{long_pair, long_pair_from_uuid, rng_bytes, rng_uuid}
 import com.sparkutils.quality.impl.bloom.parquet.{BlockSplitBloomFilterImpl, ThreadSafeBloomLookupImpl}
 import com.sparkutils.quality.impl.rng.RandomLongs
-import org.apache.spark.sql.Row
+import org.apache.spark.sql.{Row, SaveMode}
 import org.apache.spark.sql.functions.{col, expr}
 import org.apache.spark.sql.types.{BinaryType, LongType, StringType}
 import org.junit.Test

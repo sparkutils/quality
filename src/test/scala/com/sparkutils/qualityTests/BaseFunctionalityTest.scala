@@ -16,6 +16,7 @@ import org.scalatest.FunSuite
 
 import java.util.UUID
 import com.sparkutils.quality.impl.yaml.{YamlDecoderExpr, YamlEncoderExpr}
+import org.apache.spark.sql.ShimUtils.expression
 
 import scala.language.postfixOps
 
@@ -296,7 +297,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
     // should generate output for code gen
     forceCodeGen {
-      doTestPrint(PrintCode(lit("").expr).msg, "my message is", "my message is", "private int FunN_0(InternalRow i)", "printCode")
+      doTestPrint(PrintCode(expression(lit(""))).msg, "my message is", "my message is", "private int FunN_0(InternalRow i)", "printCode")
     }
   }}
 

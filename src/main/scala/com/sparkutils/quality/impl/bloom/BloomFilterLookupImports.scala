@@ -5,6 +5,7 @@ import com.sparkutils.quality.impl.bloom.parquet.{BucketedFilesRoot, FileRoot}
 import com.sparkutils.quality.{DataFrameLoader, Id, RuleSuite}
 import com.sparkutils.quality.impl.util.ConfigLoader
 import org.apache.spark.broadcast.Broadcast
+import org.apache.spark.sql.ShimUtils.{column, expression}
 import org.apache.spark.sql.{Column, DataFrame, QualitySparkUtils, ShimUtils, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.{Expression, Literal}
 import org.apache.spark.sql.functions.lit
@@ -142,7 +143,7 @@ trait BloomExpressionFunctions {
    * @return
    */
   def small_bloom(bloomOver: Column, expectedNumberOfRows: Column, expectedFPP: Column): Column =
-    new Column( new ParquetAggregator(bloomOver.expr, expectedNumberOfRows.expr, expectedFPP.expr)
+    column( new ParquetAggregator(expression(bloomOver), expression(expectedNumberOfRows), expression(expectedFPP))
       .toAggregateExpression())
 
   /**
@@ -171,7 +172,7 @@ trait BloomExpressionFunctions {
    * @return
    */
   def big_bloom(bloomOver: Column, expectedNumberOfRows: Column, expectedFPP: Column, id: Column = lit(java.util.UUID.randomUUID().toString), bucketedFilesRoot: BucketedFilesRoot = BucketedFilesRoot(FileRoot(com.sparkutils.quality.bloomFileLocation))): Column =
-    new Column( BucketedArrayParquetAggregator(bloomOver.expr, expectedNumberOfRows.expr, expectedFPP.expr, id.expr, bucketedFilesRoot = bucketedFilesRoot )
+    column( BucketedArrayParquetAggregator(expression(bloomOver), expression(expectedNumberOfRows), expression(expectedFPP), expression(id), bucketedFilesRoot = bucketedFilesRoot )
       .toAggregateExpression())
 
 

@@ -7,6 +7,7 @@ import com.sparkutils.quality._
 import types.ruleSuiteResultType
 import com.sparkutils.quality.impl.imports.RuleRunnerImports
 import com.sparkutils.quality.impl.util.{NonPassThrough, PassThrough}
+import org.apache.spark.sql.ShimUtils.column
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode, ExprValue}
@@ -55,7 +56,7 @@ protected[quality] object RuleRunnerImpl {
     com.sparkutils.quality.registerLambdaFunctions( ruleSuite.lambdaFunctions )
     val flattened = flattenExpressions(ruleSuite)
     val runner = new RuleRunner(RuleLogicUtils.cleanExprs(ruleSuite), PassThrough(flattened), compileEvals, variablesPerFunc, variableFuncGroup, forceRunnerEval)
-    new Column(
+    column(
       QualitySparkUtils.resolveWithOverride(resolveWith).map { df =>
         val resolved = QualitySparkUtils.resolveExpression(df, runner)
 
@@ -84,7 +85,7 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
   def flattenExpressions(ruleSuite: RuleSuite): Seq[Expression] =
     ruleSuite.ruleSets.flatMap(ruleSet => ruleSet.rules.map(rule =>
       rule.expression match {
-        case r: ExprLogic => r.expr // only ExprLogic are possible here
+        case r: ExprLogic => r.expr// only ExprLogic are possible here
       }))
 
   def reincorporateExpressions(ruleSuite: RuleSuite, expr: Seq[Expression], compileEvals: Boolean = true): RuleSuite =

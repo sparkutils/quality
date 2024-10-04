@@ -36,11 +36,11 @@ In order to lookup values in the maps Quality requires a map of map id's to the 
 val lookups = mapLookupsFromDFs(Map(
       "countryCode" -> ( () => {
         val df = countryCodeCCY.toDF("country", "funnycheck", "ccy")
-        (df, new Column("country"), functions.expr("struct(funnycheck, ccy)"))
+        (df, column("country"), functions)("struct(funnycheck, ccy)"))
       } ),
       "ccyRate" -> ( () => {
         val df = ccyRate.toDF("ccy", "rate")
-        (df, new Column("ccy"), new Column("rate"))
+        (df, column("ccy"), column("rate"))
       })
     ))
 registerMapLookupsAndFunction(lookups)

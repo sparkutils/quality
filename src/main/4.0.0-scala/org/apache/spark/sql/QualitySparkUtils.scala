@@ -3,6 +3,7 @@ package org.apache.spark.sql
 import com.sparkutils.quality.impl.util.DebugTime.debugTime
 import com.sparkutils.quality.impl.util.PassThrough
 import com.sparkutils.quality.impl.{RuleEngineRunner, RuleFolderRunner, RuleRunner}
+import org.apache.spark.sql.ShimUtils.{column, expression}
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCoercion}
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, EqualNullSafe, Expression, ExpressionSet, Literal, UpdateFields}
 import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, UnaryNode}
@@ -229,11 +230,11 @@ object QualitySparkUtils {
    * @return a new copy of update with the changes applied
    */
   def update_field(update: Column, transformations: (String, Column)*): Column =
-    new Column(
+    column(
       transformFields{
-        transformations.foldRight(update.expr) {
+        transformations.foldRight(expression(update)) {
           case ((path, col), origin) =>
-            UpdateFields.apply(origin, path, col.expr)
+            UpdateFields.apply(origin, path, expression(col))
         }
       }
     )
@@ -251,12 +252,16 @@ object QualitySparkUtils {
    * @return
    */
   def drop_field(update: Column, fieldNames: String*): Column =
-    new Column(
+    column(
       transformFields{
-        fieldNames.foldRight(update.expr) {
+        fieldNames.foldRight(expression(update)) {
           case (fieldName, origin) =>
             UpdateFields.apply(origin, fieldName)
         }
       }
     )
+
+
+  type DatasetBase[F] = org.apache.spark.sql.api.Dataset[F]
+
 }

@@ -4,6 +4,7 @@ import com.sparkutils.quality._
 import com.sparkutils.quality.functions.flatten_folder_results
 import com.sparkutils.quality.impl.RunOnPassProcessor
 import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.QualitySparkUtils.DatasetBase
 import org.apache.spark.sql.catalyst.expressions.Literal
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.{IntegerType, StringType, StructField, StructType}
@@ -168,7 +169,7 @@ class RuleFolderTest extends FunSuite with TestUtils {
   def doTestSimpleProductionRulesReplace(useSetSyntax: Boolean): Unit = evalCodeGens {
     val (testDataDF, ruleSuite) = testAndRulesForReplace(useSetSyntax)
 
-    val outdf = testDataDF.transform(foldAndReplaceFields(ruleSuite, Seq("account", "product", "subcode")))
+    val outdf = testDataDF.transform(foldAndReplaceFields(ruleSuite, Seq("account", "product", "subcode"))).asInstanceOf[DataFrame]
     //outdf.show
     doReplaceTest(outdf)
     val fields = outdf.schema.fields.map(_.name)
@@ -183,7 +184,7 @@ class RuleFolderTest extends FunSuite with TestUtils {
   def doTestSimpleProductionRulesReplaceOutOfOrder(useSetSyntax: Boolean): Unit = evalCodeGens {
     val (testDataDF, ruleSuite) = testAndRulesForReplace(useSetSyntax)
 
-    val outdf = testDataDF.transform(foldAndReplaceFields(ruleSuite, Seq("account", "product", "subcode"), maintainOrder = false))
+    val outdf = testDataDF.transform(foldAndReplaceFields(ruleSuite, Seq("account", "product", "subcode"), maintainOrder = false)).asInstanceOf[DataFrame]
     //outdf.show
     doReplaceTest(outdf)
     val fields = outdf.schema.fields.map(_.name)
@@ -200,7 +201,7 @@ class RuleFolderTest extends FunSuite with TestUtils {
     val (testDataDF, ruleSuite) = testAndRulesForReplace(useSetSyntax)
 
     val outdf = testDataDF.transform(foldAndReplaceFieldsWithStruct(ruleSuite, StructType(Seq(StructField("account", StringType),
-      StructField("product", StringType), StructField("subcode",IntegerType))), maintainOrder = false))
+      StructField("product", StringType), StructField("subcode",IntegerType))), maintainOrder = false)).asInstanceOf[DataFrame]
     //outdf.show
     doReplaceTest(outdf)
     val fields = outdf.schema.fields.map(_.name)
@@ -216,7 +217,7 @@ class RuleFolderTest extends FunSuite with TestUtils {
   def doTestSimpleProductionRulesReplaceDebug(useSetSyntax: Boolean): Unit = forceCodeGen {
     val (testDataDF, ruleSuite) = testAndRulesForReplace(useSetSyntax)
 
-    val outdf = testDataDF.transform(foldAndReplaceFields(ruleSuite, Seq("account", "product", "subcode"), debugMode = true))
+    val outdf = testDataDF.transform(foldAndReplaceFields(ruleSuite, Seq("account", "product", "subcode"), debugMode = true)).asInstanceOf[DataFrame]
     //outdf.show
     doReplaceTest(outdf)
 

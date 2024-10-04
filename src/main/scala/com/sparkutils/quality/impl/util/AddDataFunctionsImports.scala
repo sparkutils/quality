@@ -3,7 +3,8 @@ package com.sparkutils.quality.impl.util
 import com.sparkutils.quality.RuleSuite
 import com.sparkutils.quality.impl.util.AddDataFunctions.ifoldAndReplaceFields
 import com.sparkutils.quality.impl.{RuleEngineRunnerImpl, RuleRunnerImpl}
-import org.apache.spark.sql.{DataFrame, Dataset}
+import org.apache.spark.sql.QualitySparkUtils.DatasetBase
+import org.apache.spark.sql.{DataFrame, Row => SRow}
 import org.apache.spark.sql.types.{DataType, StructType}
 
 trait AddDataFunctionsImports {
@@ -68,9 +69,9 @@ trait AddDataFunctionsImports {
    * @param maintainOrder when true the schema is used to replace fields in the correct location, when false they are simply appended
    * @return
    */
-  def foldAndReplaceFields(rules: RuleSuite, fields: Seq[String], foldFieldName: String = "foldedFields", debugMode: Boolean = false,
+  def foldAndReplaceFields[P[R] >: DatasetBase[R]](rules: RuleSuite, fields: Seq[String], foldFieldName: String = "foldedFields", debugMode: Boolean = false,
                            tempFoldDebugName: String = "tempFOLDDEBUG",
-                           maintainOrder: Boolean = true): DataFrame => DataFrame =
+                           maintainOrder: Boolean = true): P[SRow] => P[SRow] =
     ifoldAndReplaceFields(rules, fields, foldFieldName,
       debugMode, tempFoldDebugName, maintainOrder)
 
@@ -88,9 +89,9 @@ trait AddDataFunctionsImports {
    * @param maintainOrder when true the schema is used to replace fields in the correct location, when false they are simply appended
    * @return
    */
-  def foldAndReplaceFieldsWithStruct(rules: RuleSuite, struct: StructType, foldFieldName: String = "foldedFields", debugMode: Boolean = false,
+  def foldAndReplaceFieldsWithStruct[P[R] >: DatasetBase[R]](rules: RuleSuite, struct: StructType, foldFieldName: String = "foldedFields", debugMode: Boolean = false,
                                      tempFoldDebugName: String = "tempFOLDDEBUG",
-                                     maintainOrder: Boolean = true): DataFrame => DataFrame =
+                                     maintainOrder: Boolean = true): P[SRow] => P[SRow] =
     AddDataFunctions.ifoldAndReplaceFields(rules, struct.fields.map(_.name), foldFieldName,
       debugMode, tempFoldDebugName, maintainOrder, useType = Some(struct))
 
@@ -123,6 +124,6 @@ trait AddDataFunctionsImports {
    * @param outputType The fields, and types, are used to call the foldRunner.  These types must match in the input fields
    * @return
    */
-  def ruleEngineWithStructF(rules: RuleSuite, outputType: DataType, ruleEngineFieldName: String = "ruleEngine", alias: String = "main", debugMode: Boolean = false): DataFrame => DataFrame =
-    ruleEngineWithStruct(_, rules, outputType, ruleEngineFieldName, alias, debugMode)
+  def ruleEngineWithStructF[P[R] >: DatasetBase[R]](rules: RuleSuite, outputType: DataType, ruleEngineFieldName: String = "ruleEngine", alias: String = "main", debugMode: Boolean = false): P[SRow] => P[SRow] =
+    (p: P[SRow]) => ruleEngineWithStruct(p.asInstanceOf[DataFrame], rules, outputType, ruleEngineFieldName, alias, debugMode).asInstanceOf[P[SRow]]
 }

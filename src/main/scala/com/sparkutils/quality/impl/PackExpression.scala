@@ -2,8 +2,9 @@ package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.Id
 import com.sparkutils.quality.impl.imports.RuleResultsImports.packId
+import org.apache.spark.sql.ShimUtils.{column, expression}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.Column
+import org.apache.spark.sql.{Column, ShimUtils}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
 import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression, ExpressionDescription, NullIntolerant, UnaryExpression}
 import org.apache.spark.sql.shim.expressions.InputTypeChecks
@@ -11,7 +12,7 @@ import org.apache.spark.sql.types.{DataType, IntegerType, LongType, StructField,
 
 object Pack {
   def apply(id: Column, version: Column): Column =
-    new Column( apply(id.expr, version.expr) )
+    column( apply(expression(id), expression(version)) )
 
   def apply(id: Expression, version: Expression) =
     PackExpression( id, version )
@@ -42,7 +43,7 @@ case class PackExpression(left: Expression, right: Expression) extends BinaryExp
 
 object UnPack {
   def apply(packed: Column): Column =
-    new Column( apply(packed.expr) )
+    column( apply(expression(packed)) )
 
   def apply( packed: Expression ) =
     UnPackExpression( packed )
@@ -80,7 +81,7 @@ case class UnPackExpression(child: Expression) extends UnaryExpression
 
 object UnPackIdTriple {
   def apply(packed: Column): Column =
-    new Column( apply(packed.expr) )
+    column( apply(expression(packed)) )
 
   def apply( packed: Expression ) =
     UnPackIdTripleExpression( packed )

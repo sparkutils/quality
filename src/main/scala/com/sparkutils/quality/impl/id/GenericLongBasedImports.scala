@@ -4,6 +4,7 @@ import com.sparkutils.quality.impl.hash.{HashFunctionFactory, HashFunctionsExpre
 import com.sparkutils.quality.impl.rng.RandLongsWithJump
 import org.apache.commons.rng.simple.RandomSource
 import org.apache.spark.sql.Column
+import org.apache.spark.sql.ShimUtils.{column, expression}
 import org.apache.spark.sql.shim.hash.DigestFactory
 
 trait GenericLongBasedImports {
@@ -11,14 +12,14 @@ trait GenericLongBasedImports {
    * Creates a default randomRNG based on RandomSource.XO_RO_SHI_RO_128_PP
    */
   def rngID(prefix: String): Column =
-    new Column(GenericLongBasedIDExpression(model.RandomID,
+    column(GenericLongBasedIDExpression(model.RandomID,
       RandLongsWithJump(0L, RandomSource.XO_RO_SHI_RO_128_PP), prefix))
 
   /**
    * Creates a randomRNG ID based on randomSource with a given seed
    */
   def rng_id(prefix: String, randomSource: RandomSource, seed: Long = 0L): Column =
-    new Column( GenericLongBasedIDExpression (model.RandomID,
+    column( GenericLongBasedIDExpression (model.RandomID,
       RandLongsWithJump(seed, randomSource), prefix) )
 
   /**
@@ -27,8 +28,8 @@ trait GenericLongBasedImports {
    * @return
    */
   def fieldBasedID(prefix: String, children: Seq[Column], digestImpl: String = "MD5", digestFactory: String => DigestFactory = MessageDigestFactory): Column =
-    new Column(GenericLongBasedIDExpression(model.FieldBasedID,
-      HashFunctionsExpression(children.map(_.expr), digestImpl, true, digestFactory(digestImpl)), prefix))
+    column(GenericLongBasedIDExpression(model.FieldBasedID,
+      HashFunctionsExpression(children.map(expression(_)), digestImpl, true, digestFactory(digestImpl)), prefix))
 
   // NB field_based_id is in HashRelatedFunctionImports, same impl and interface but fits the sql name
 
@@ -60,7 +61,7 @@ trait GenericLongBasedImports {
    * @return
    */
   def provided_id(prefix: String, child: Column): Column =
-    new Column(GenericLongBasedIDExpression(model.ProvidedID, child.expr, prefix))
+    column(GenericLongBasedIDExpression(model.ProvidedID, expression(child), prefix))
 
   /**
    * Murmur3 hash
@@ -70,8 +71,8 @@ trait GenericLongBasedImports {
    * @return
    */
   def hashID(prefix: String, children: Seq[Column], digestImpl: String = "IGNORED"): Column =
-    new Column(GenericLongBasedIDExpression(model.FieldBasedID,
-      HashFunctionsExpression(children.map(_.expr), digestImpl, true, HashFunctionFactory("IGNORED")), prefix))
+    column(GenericLongBasedIDExpression(model.FieldBasedID,
+      HashFunctionsExpression(children.map(expression(_)), digestImpl, true, HashFunctionFactory("IGNORED")), prefix))
 
   def hashID(prefix: String, digestImpl: String, children: Column*): Column = hashID(prefix, children, digestImpl)
 

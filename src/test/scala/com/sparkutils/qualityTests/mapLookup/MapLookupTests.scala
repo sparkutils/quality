@@ -99,11 +99,11 @@ class MapLookupTests extends FunSuite with TestUtils {
     mapLookupsFromDFs(Map(
       "countryCode" -> ( () => {
         val df = countryCodeCCY.toDF("country", "funnycheck", "ccy")
-        (df, new Column("country"), functions.expr("struct(funnycheck, ccy)"))
+        (df, column("country"), functions.expr("struct(funnycheck, ccy)"))
       } ),
       "ccyRate" -> ( () => {
         val df = ccyRate.toDF("ccy", "rate")
-        (df, new Column("ccy"), new Column("rate"))
+        (df, column("ccy"), column("rate"))
       })
     ))
   }
@@ -132,7 +132,7 @@ class MapLookupTests extends FunSuite with TestUtils {
     val lookups = mapLookupsFromDFs(Map(
       "empty" -> ( () => {
         val df = sparkSession.emptyDataset[(String, Int, String)].toDF("country", "funnycheck", "ccy")
-        (df, new Column("country"), functions.expr("struct(funnycheck, ccy)"))
+        (df, column("country"), functions.expr("struct(funnycheck, ccy)"))
       } )
     ))
 

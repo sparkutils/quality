@@ -2,12 +2,13 @@ package com.sparkutils.quality.impl.hash
 
 import com.sparkutils.quality.impl.id.{GenericLongBasedIDExpression, model}
 import org.apache.spark.sql.Column
+import org.apache.spark.sql.ShimUtils.{column, expression}
 import org.apache.spark.sql.shim.hash.DigestFactory
 
 trait HashRelatedFunctionImports {
 
   protected def hashF(asStruct: Boolean, digestImpl: String, factory: String => DigestFactory, cols: Column*): Column =
-    new Column(HashFunctionsExpression(cols.map(_.expr), digestImpl, asStruct, factory(digestImpl)))
+    column(HashFunctionsExpression(cols.map(expression(_)), digestImpl, asStruct, factory(digestImpl)))
 
   /**
    * Converts columns into a digest via the MessageDigest digestImpl
@@ -30,8 +31,8 @@ trait HashRelatedFunctionImports {
     hashF(true, digestImpl, MessageDigestFactory, cols: _*)
 
   protected def fieldBasedIDF(prefix: String, digestImpl: String, factory: String => DigestFactory, cols: Column*): Column =
-    new Column(GenericLongBasedIDExpression(model.FieldBasedID,
-      HashFunctionsExpression(cols.map(_.expr), digestImpl, true, factory(digestImpl)), prefix))
+    column(GenericLongBasedIDExpression(model.FieldBasedID,
+      HashFunctionsExpression(cols.map(expression(_)), digestImpl, true, factory(digestImpl)), prefix))
 
   /**
    * Creates an id from fields using MessageDigests

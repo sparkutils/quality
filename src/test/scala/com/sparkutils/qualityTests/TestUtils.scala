@@ -4,6 +4,7 @@ import com.globalmentor.apache.hadoop.fs.BareLocalFileSystem
 import com.sparkutils.quality
 import com.sparkutils.quality.{RuleSuite, ruleRunner}
 import com.sparkutils.qualityTests.SparkTestUtils.getCorrectPlan
+import org.apache.spark.sql.QualitySparkUtils.DatasetBase
 import org.apache.spark.sql.{Dataset, Row, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.{CodegenObjectFactoryMode, Expression}
 import org.apache.spark.sql.execution.{FileSourceScanExec, SparkPlan}
@@ -196,8 +197,8 @@ trait TestUtils {
    * @param name
    * @return
    */
-  def taddDataQualityF(rules: RuleSuite, name: String = "DataQuality"): Dataset[Row] => Dataset[Row] =
-    taddDataQuality(_, rules, name)
+  def taddDataQualityF[P[R] >: DatasetBase[R]](rules: RuleSuite, name: String = "DataQuality"): P[Row] => P[Row] =
+    (p: P[Row]) => taddDataQuality(p.asInstanceOf[Dataset[Row]], rules, name)
 
   /**
    * Adds two columns, one for overallResult and the other the details, allowing 30-50% performance gains for simple filters
@@ -222,9 +223,9 @@ trait TestUtils {
    * @param resultDetails
    * @return
    */
-  def taddOverallResultsAndDetailsF(rules: RuleSuite, overallResult: String = "DQ_overallResult",
-                                   resultDetails: String = "DQ_Details"): Dataset[Row] => Dataset[Row] =
-    taddOverallResultsAndDetails(_, rules, overallResult, resultDetails)
+  def taddOverallResultsAndDetailsF[P[R] >: DatasetBase[R]](rules: RuleSuite, overallResult: String = "DQ_overallResult",
+                                   resultDetails: String = "DQ_Details"): P[Row] => P[Row] =
+    (p: P[Row]) => taddOverallResultsAndDetails(p.asInstanceOf[Dataset[Row]], rules, overallResult, resultDetails)
 
   def loadsOf(thunk: => Unit, runs: Int = 3000): Unit = {
     var passed = 0

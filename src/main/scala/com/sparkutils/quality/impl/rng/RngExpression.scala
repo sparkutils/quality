@@ -3,6 +3,7 @@ package com.sparkutils.quality.impl.rng
 import com.sparkutils.shim.expressions.StatefulLike
 import org.apache.commons.rng.simple.RandomSource
 import org.apache.spark.sql.Column
+import org.apache.spark.sql.ShimUtils.column
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionWithRandomSeed, LeafExpression, Literal, Rand}
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
@@ -18,7 +19,7 @@ object RandomBytes {
    * @return a column with the appropriate rng defined
    */
   def apply(randomSource: RandomSource, numBytes: Int = 16, seed: Long = 0): Column =
-    new Column( apply(numBytes, randomSource, seed) )
+    column( apply(numBytes, randomSource, seed) )
 
   def apply(numBytes: Int, randomSource: RandomSource, seed: Long): Expression =
     if (randomSource.isJumpable)
@@ -79,6 +80,8 @@ abstract class RandBytes extends LeafExpression with StatefulLike
 object RandomLongs {
 
   val structType = com.sparkutils.quality.impl.longPair.LongPair.structType
+  // #60 - preview2 defaults to nullable when no schema is specified
+  val structTypeNullable = structType.copy(fields = structType.fields.map(_.copy(nullable = true)))
 
   /**
    * Creates a random number generator using a given commons-rng source
@@ -88,7 +91,7 @@ object RandomLongs {
    * @return a column with the appropriate rng defined
    */
   def apply(randomSource: RandomSource, seed: Long = 0): Column =
-    new Column( create(randomSource, seed) )
+    column( create(randomSource, seed) )
 
   def create(randomSource: RandomSource, seed: Long = 0): Expression =
     if (randomSource.isJumpable)

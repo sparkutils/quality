@@ -4,6 +4,7 @@ import com.sparkutils.quality.RuleSuite
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenExpressions
 import com.sparkutils.quality.impl.{RuleFolderRunner, RuleLogicUtils}
 import com.sparkutils.quality.impl.util.{NonPassThrough, PassThrough}
+import org.apache.spark.sql.ShimUtils.{column, expression}
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.qualityFunctions.{FunN, RefExpressionLazyType}
 import org.apache.spark.sql.types._
@@ -54,10 +55,10 @@ trait RuleFolderRunnerImports {
 
     val (expressions, indexes) = flattenExpressions(ruleSuite, liftLambda)
 
-    val runner = new RuleFolderRunner(RuleLogicUtils.cleanExprs(ruleSuite), startingStruct.expr, PassThrough( expressions ), realType, compileEvals = compileEvals,
+    val runner = new RuleFolderRunner(RuleLogicUtils.cleanExprs(ruleSuite), expression(startingStruct), PassThrough( expressions ), realType, compileEvals = compileEvals,
       debugMode = debugMode, variablesPerFunc, variableFuncGroup, forceRunnerEval = forceRunnerEval, expressionOffsets = indexes, dataRef, forceTriggerEval)
 
-    new Column(
+    column(
       QualitySparkUtils.resolveWithOverride(resolveWith).map { df =>
         val resolved = QualitySparkUtils.resolveExpression(df, runner)
 

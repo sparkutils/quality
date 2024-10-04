@@ -15,7 +15,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, Codegen
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression, UnaryExpression}
 import org.apache.spark.sql.catalyst.util.GenericArrayData
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.{Column, DataFrame, QualitySparkUtils}
+import org.apache.spark.sql.{Column, DataFrame, QualitySparkUtils, ShimUtils}
 
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
@@ -53,7 +53,7 @@ object RuleEngineRunnerImpl {
     val runner = new RuleEngineRunner(RuleLogicUtils.cleanExprs(ruleSuite), PassThrough( expressions ), realType, compileEvals,
       debugMode, variablesPerFunc, variableFuncGroup, forceRunnerEval, expressionOffsets = indexes, forceTriggerEval)
 
-    new Column(
+    ShimUtils.column(
       QualitySparkUtils.resolveWithOverride(resolveWith).map { df =>
         val resolved = QualitySparkUtils.resolveExpression(df, runner)
 
@@ -78,7 +78,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
       ruleSuite.ruleSets.flatMap( ruleSet => ruleSet.rules.map(rule => {
         val expr =
           rule.expression match {
-            case r: ExprLogic => r.expr // only ExprLogic are possible here
+            case r: ExprLogic => r.expr// only ExprLogic are possible here
           }
 
         val idx = outputs.getOrElse(rule.runOnPassProcessor.id, {

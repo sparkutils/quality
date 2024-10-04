@@ -1,6 +1,7 @@
 package com.sparkutils.quality.impl.util
 
 import org.apache.spark.sql.Column
+import org.apache.spark.sql.ShimUtils.{column, expression}
 import org.apache.spark.sql.qualityFunctions.utils
 import org.apache.spark.sql.types.DataType
 
@@ -21,5 +22,5 @@ trait ComparableMapsImports {
    * @return
    */
   def reverse_comparable_maps(mapStruct: Column): Column =
-    new Column(ComparableMapReverser(mapStruct.expr))
+    column(ComparableMapReverser(expression(mapStruct)))
 }

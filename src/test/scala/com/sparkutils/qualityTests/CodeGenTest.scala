@@ -1,8 +1,8 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
-import types._
 import org.apache.spark.sql.DataFrame
+import types._
 import org.apache.spark.sql.functions.expr
 import org.apache.spark.sql.types.{DataType, LongType}
 // 3.4 drops this import org.codehaus.janino.InternalCompilerException
@@ -49,7 +49,7 @@ class CodeGenTest extends RowTools with TestUtils {
           ndf.select(expr("*"), rr.as(temporaryDQname)).
             selectExpr("*", s"$temporaryDQname.overallResult as DQ_overallResult",
               s"ruleSuiteResultDetails($temporaryDQname) as DQ_Details").drop(temporaryDQname)
-        }
+        }.asInstanceOf[DataFrame]
       }, ruleSuiteResultType, null)
     //res foreach println
   }

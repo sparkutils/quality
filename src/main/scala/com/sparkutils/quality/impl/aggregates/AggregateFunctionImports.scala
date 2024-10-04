@@ -3,6 +3,7 @@ package com.sparkutils.quality.impl.aggregates
 import com.sparkutils.quality.QualityException
 import com.sparkutils.quality.impl.RuleRegistrationFunctions.{defaultAdd, defaultZero}
 import org.apache.spark.sql.Column
+import org.apache.spark.sql.ShimUtils.{column, expression}
 import org.apache.spark.sql.catalyst.expressions.{Expression, LambdaFunction}
 import org.apache.spark.sql.qualityFunctions.{FunN, MapTransform, RefExpression}
 import org.apache.spark.sql.shim.utils.createLambda
@@ -17,7 +18,7 @@ protected[quality] case class SumWith(lambdaFunctionIn: LambdaFunction, name: St
 protected[quality] case class SumWithMap(id: Column, lambdaFunctionIn: LambdaFunction, zero: DataType => Option[Any]) extends SumExpression {
   override def funN(sumType: DataType): Expression = sumType match {
     case mt: MapType =>
-      MapTransform.create(RefExpression(sumType), id.cast(mt.keyType).expr, lambdaFunctionIn, zero)
+      MapTransform.create(RefExpression(sumType), expression(id.cast(mt.keyType)), lambdaFunctionIn, zero)
     case _ =>
       throw QualityException("You must use a MapType dataType when using map_with")
   }
@@ -48,7 +49,7 @@ trait AggregateFunctionImports {
   def agg_expr(sumType: DataType, filter: Column, sum: SumExpression, result: ResultsExpression,
                zero: DataType => Option[Any] = defaultZero _,
                add: DataType => Option[(Expression, Expression) => Expression] = (dataType: DataType) => defaultAdd(dataType)): Column =
-    new Column( AggregateExpressions(sumType, filter.expr, sum.funN(sumType), result.funN(sumType), zero, add, notYetResolved = true) )
+    column( AggregateExpressions(sumType, expression(filter), sum.funN(sumType), result.funN(sumType), zero, add, notYetResolved = true) )
 
   /**
    * Given the current sum, produce the next sum, for example by incrementing 1 on the sum to count filtered rows

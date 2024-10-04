@@ -4,6 +4,7 @@ import com.sparkutils.quality.MapLookups
 import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.impl.{MapUtils, RuleRegistrationFunctions}
 import org.apache.spark.broadcast.Broadcast
+import org.apache.spark.sql.ShimUtils.{column, expression}
 import org.apache.spark.sql.catalyst.{CatalystTypeConverters, InternalRow}
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
 import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionDescription, IsNotNull, Literal, NullIntolerant, UnaryExpression}
@@ -17,7 +18,7 @@ object MapLookup {
     * For withColumn / select usage, the map generation and lookup expressions must be of the same type
     */
   def apply(mapLookupName: Column, lookupKey: Column, mapLookups: MapLookups): Column = {
-    new Column(apply(mapLookupName.expr, lookupKey.expr, mapLookups))
+    column(apply(expression(mapLookupName), expression(lookupKey), mapLookups))
   }
 
   def apply(mapLookupName: Expression, lookupKey: Expression, mapLookups: MapLookups): MapLookupExpression = {

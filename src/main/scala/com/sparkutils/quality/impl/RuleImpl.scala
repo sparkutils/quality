@@ -52,7 +52,7 @@ object RuleLogicUtils {
   }
 
   /**
-   * Same as functions.expr without the wrapping Column
+   * Same as functions)without the wrapping Column
    * @param rule
    * @return
    */

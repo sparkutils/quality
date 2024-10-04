@@ -9,6 +9,7 @@ import org.apache.spark.sql.types.LongType
 import org.junit.Test
 import org.scalatest.FunSuite
 import com.sparkutils.qualityTests.mapLookup.TradeTests._
+import org.apache.spark.sql.ShimUtils.expression
 
 class UserLambdaFunctionTest extends FunSuite with TestUtils {
 
@@ -429,9 +430,9 @@ class UserLambdaFunctionTest extends FunSuite with TestUtils {
   def testPlaceHolderNullableOverrides(): Unit = evalCodeGensNoResolve {
     val resolve = SparkTestUtils.resolveBuiltinOrTempFunction(sparkSession) _
     // as these cannot be tested as part of runtimes with aggregate bug resolve is used to directly test
-    val actualDefaultCall = resolve("_", Seq(lit("int").expr)).get
+    val actualDefaultCall = resolve("_", Seq(expression(lit("int")))).get
     assert(actualDefaultCall.nullable)
-    val actualOverriddenCall = resolve("_", Seq(lit("int").expr, lit(false).expr)).get
+    val actualOverriddenCall = resolve("_", Seq(expression(lit("int")), expression(lit(false)))).get
     assert(!actualOverriddenCall.nullable)
 
     val plus = LambdaFunction("plus", "(a, b) -> a + b", Id(1,2))

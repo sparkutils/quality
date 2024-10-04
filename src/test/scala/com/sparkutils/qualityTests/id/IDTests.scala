@@ -9,9 +9,10 @@ import com.sparkutils.quality.impl.rng.RandomLongs
 import com.sparkutils.quality.impl.util.BytePackingUtils
 import com.sparkutils.qualityTests._
 import org.apache.commons.rng.simple.RandomSource
+import org.apache.spark.sql.ShimUtils.expression
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.shim.hash.DigestFactory
-import org.apache.spark.sql.{Column, DataFrame, Row}
+import org.apache.spark.sql.{Column, DataFrame, Row, ShimUtils}
 import org.junit.Test
 import org.scalameter.api.{Bench, Gen}
 import org.scalatest.FunSuite
@@ -204,8 +205,8 @@ class IDTests extends FunSuite with TestUtils {
     }
 
     def nonJump(prefix: String) =
-      new Column(GenericLongBasedIDExpression(model.RandomID,
-        RandomLongs(RandomSource.KISS).expr, prefix))
+      ShimUtils.column(GenericLongBasedIDExpression(model.RandomID,
+        expression(RandomLongs(RandomSource.KISS)), prefix))
 
     val df = sparkSession.range(0, 6000)
     val rngExploded = df.withColumn("rng_id", nonJump("rng_id")).selectExpr("id","rng_id.*")
