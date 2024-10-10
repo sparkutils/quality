@@ -43,7 +43,7 @@ functions:
       !!! warning "snakeyaml is provided scope"
           Databricks runtimes provide sparkyaml, so whilst Quality builds against the correct versions for Databricks it can onyl use provided scope.
           
-          snakeyaml is 1.24 on DBRs below 13.1, but not present on OSS, so you may need to add the dependency yourselfs, tested compatible versions are 1.24 and 1.33. 
+          snakeyaml is 1.24 on DBRs below 13.1, but not present on OSS, so you may need to add the dependency yourself, tested compatible versions are 1.24 and 1.33. 
     tags:
       - yaml
   from_yaml:
@@ -297,11 +297,11 @@ functions:
     tags:
       - bloom
   map_Lookup:
-    description: "map_Lookup(expr, 'mapid') returns either the lookup in map specified by mapid or null"
+    description: "map_Lookup('mapid', expr) returns either the lookup in map specified by mapid or null"
     tags:
       - map
   map_Contains:
-    description: "map_Contains(expr, 'mapid') returns true if there is an item in the map"
+    description: "map_Contains('mapid', expr) returns true if there is an item in the map"
     tags:
       - map
   comparable_Maps:

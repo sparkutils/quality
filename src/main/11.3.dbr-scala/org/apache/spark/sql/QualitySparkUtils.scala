@@ -1,74 +1,19 @@
 package org.apache.spark.sql
 
-import java.util.Locale
-
-import com.sparkutils.quality.impl.{RuleEngineRunner, RuleFolderRunner, RuleRunner, ShowParams}
 import com.sparkutils.quality.impl.util.DebugTime.debugTime
 import com.sparkutils.quality.impl.util.PassThrough
-import org.apache.spark.sql.catalyst.{CatalystTypeConverters, FunctionIdentifier}
-import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, FunctionRegistry, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCheckResult, TypeCoercion, UnresolvedFunction}
-import org.apache.spark.sql.catalyst.catalog.SessionCatalog
-import org.apache.spark.sql.catalyst.expressions.{Add, Alias, Attribute, BinaryOperator, BindReferences, Cast, EqualNullSafe, Expression, ExpressionInfo, ExpressionSet, GetArrayStructFields, GetStructField, LambdaFunction, Literal, PrettyAttribute}
+import com.sparkutils.quality.impl.{RuleEngineRunner, RuleFolderRunner, RuleRunner}
+import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCoercion}
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, EqualNullSafe, Expression, ExpressionSet, Literal, UpdateFields}
 import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, UnaryNode}
 import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.sql.catalyst.trees.TreeNode
-import org.apache.spark.sql.execution.SparkSqlParser
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.qualityFunctions.{Digest, InterpretedHashLongsFunction}
-import org.apache.spark.sql.types._
-import org.apache.spark.unsafe.types.{CalendarInterval, UTF8String}
 import org.apache.spark.util.Utils
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
-import org.apache.spark.sql.catalyst.util.TypeUtils
-import org.apache.spark.sql.types.{AbstractDataType, DataType, DecimalType}
-
-/**
- * 3.4 backport present on databricks 11.3 lts
- * An add expression for decimal values which is only used internally by Sum/Avg.
- *
- * Nota that, this expression does not check overflow which is different with `Add`. When
- * aggregating values, Spark writes the aggregation buffer values to `UnsafeRow` via
- * `UnsafeRowWriter`, which already checks decimal overflow, so we don't need to do it again in the
- * add expression used by Sum/Avg.
- */
-case class QDecimalAddNoOverflowCheck(
-                                      left: Expression,
-                                      right: Expression,
-                                      override val dataType: DataType) extends BinaryOperator {
-  require(dataType.isInstanceOf[DecimalType])
-
-  override def inputType: AbstractDataType = DecimalType
-  override def symbol: String = "+"
-  private def decimalMethod: String = "$plus"
-
-  private lazy val numeric = TypeUtils.getNumeric(dataType)
-
-  override protected def nullSafeEval(input1: Any, input2: Any): Any =
-    numeric.plus(input1, input2)
-
-  override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode =
-    defineCodeGen(ctx, ev, (eval1, eval2) => s"$eval1.$decimalMethod($eval2)")
-
-  override protected def withNewChildrenInternal(newLeft: Expression, newRight: Expression): QDecimalAddNoOverflowCheck =
-    copy(left = newLeft, right = newRight)
-}
 
 /**
  * Set of utilities to reach in to private functions
  */
 object QualitySparkUtils {
-
-  implicit class UnresolvedFunctionOps(unresolvedFunction: UnresolvedFunction) {
-
-    def theArguments: Seq[Expression] =
-      unresolvedFunction.arguments
-
-    def withArguments(children: Seq[Expression]): UnresolvedFunction =
-      unresolvedFunction.copy(arguments = children)
-  }
-
-  def isPrimitive(dataType: DataType) = CatalystTypeConverters.isPrimitive(dataType)
-
   /**
    * Where resolveWith is not possible (e.g. 10.x DBRs) it is disabled here.
    * This is, in the 10.x DBR case, due to the class files for UnaryNode (FakePlan) being radically different and causing an IncompatibleClassChangeError: Implementing class
@@ -77,48 +22,6 @@ object QualitySparkUtils {
    */
   def resolveWithOverride(orig: Option[DataFrame]): Option[DataFrame] =
     orig
-
-  /**
-   * Dbr 11.2 broke the contract for add and cast, OSS 3.4 39316 changes Add's behaviour adding silent overflows
-   * @param left
-   * @param right
-   * @return
-   */
-  def add(left: Expression, right: Expression, dataType: DataType): Expression =
-    if ((dataType ne null) && dataType.isInstanceOf[DecimalType])
-      QDecimalAddNoOverflowCheck(left, right, dataType)
-    else
-      new Add(left, right)
-
-  /**
-   * Dbr 11.2 broke the contract for add and cast
-   * @param child
-   * @param dataType
-   * @return
-   */
-  def cast(child: Expression, dataType: DataType): Expression =
-    new Cast(child, dataType, None)
-
-  /**
-   * Arguments for everything above 2.4
-   */
-  def arguments(unresolvedFunction: UnresolvedFunction): Seq[Expression] =
-    unresolvedFunction.arguments
-
-  /**
-   * Provides Spark 3 specific version of hashing CalendarInterval
-   *
-   * @param c
-   * @param hashlongs
-   * @param digest
-   * @return
-   */
-  def hashCalendarInterval(c: CalendarInterval, hashlongs: InterpretedHashLongsFunction, digest: Digest): Digest = {
-    import hashlongs._
-    hashInt(c.months, hashInt(
-      c.days
-      , hashLong(c.microseconds, digest)))
-  }
 
   /**
    * Resolves expressions against a dataframe, this allows them to be swapped out after name checking - spark cannot then
@@ -322,101 +225,42 @@ object QualitySparkUtils {
 
        protected def withNewChildInternal(newChild: LogicalPlan): LogicalPlan = copy(child = newChild)
      }
+  /**
+   * Adds fields, in order, for each field path it's paired transformation is applied to the update column
+   *
+   * @param update
+   * @param transformations
+   * @return a new copy of update with the changes applied
+   */
+  def update_field(update: Column, transformations: (String, Column)*): Column =
+    new Column(
+      transformFields{
+        transformations.foldRight(update.expr) {
+          case ((path, col), origin) =>
+            UpdateFields.apply(origin, path, col.expr)
+        }
+      }
+    )
+
+  protected def transformFields(exp: Expression): Expression =
+    exp.transform { // simplify, normally done in optimizer UpdateFields
+      case UpdateFields(UpdateFields(struct, fieldOps1), fieldOps2) =>
+        UpdateFields(struct, fieldOps1 ++ fieldOps2 )
+    }
 
   /**
-   * Creates a new parser, introduced in 0.4 - 3.2.0 due to SparkSqlParser having no params
-   *
+   * Drops a field from a structure
+   * @param update
+   * @param fieldNames may be nested
    * @return
    */
-  def newParser() = {
-    new SparkSqlParser()
-  }
-
-  /**
-   * Registers functions with spark, Introduced in 0.4 - 3.2.0 support due to extra source parameter - "built-in" is used as no other option is remotely close
-   *
-   * @param funcReg
-   * @param name
-   * @param builder
-   */
-  def registerFunction(funcReg: FunctionRegistry)(name: String, builder: Seq[Expression] => Expression) =
-    funcReg.createOrReplaceTempFunction(name, builder, "built-in")
-
-  def toString(dataFrame: DataFrame, showParams: ShowParams = ShowParams()) =
-    dataFrame.showString(showParams.numRows, showParams.truncate, showParams.vertical)
-
-  /**
-   * Used by the SparkSessionExtensions mechanism
-   * @param extensions
-   * @param name
-   * @param builder
-   */
-  def registerFunctionViaExtension(extensions: SparkSessionExtensions)(name: String, builder: Seq[Expression] => Expression) =
-    extensions.injectFunction( (FunctionIdentifier(name), new ExpressionInfo(name, name) , builder) )
-
-  /**
-   * Used by the SparkSessionExtensions mechanism but registered via builtin registry
-   * @param name
-   * @param builder
-   */
-  def registerFunctionViaBuiltin(name: String, builder: Seq[Expression] => Expression) =
-    FunctionRegistry.builtin.registerFunction( FunctionIdentifier(name), new ExpressionInfo(name, name) , builder)
-
-  /**
-   * Type signature changed for 3.4 to more detailed setup, 12.2 already uses it
-   * @param errorSubClass
-   * @param messageParameters
-   * @return
-   */
-  def mismatch(errorSubClass: String, messageParameters: Map[String, String]): TypeCheckResult =
-    TypeCheckResult.TypeCheckFailure(s"$errorSubClass extra info - $messageParameters")
-
-
-  def toSQLType(t: AbstractDataType): String = t match {
-    case TypeCollection(types) => types.map(toSQLType).mkString("(", " or ", ")")
-    case dt: DataType => quoteByDefault(dt.sql)
-    case at => quoteByDefault(at.simpleString.toUpperCase(Locale.ROOT))
-  }
-  def toSQLExpr(e: Expression): String = {
-    quoteByDefault(toPrettySQL(e))
-  }
-
-  def usePrettyExpression(e: Expression): Expression = e transform {
-    case a: Attribute => new PrettyAttribute(a)
-    case Literal(s: UTF8String, StringType) => PrettyAttribute(s.toString, StringType)
-    case Literal(v, t: NumericType) if v != null => PrettyAttribute(v.toString, t)
-    case Literal(null, dataType) => PrettyAttribute("NULL", dataType)
-    case e: GetStructField =>
-      val name = e.name.getOrElse(e.childSchema(e.ordinal).name)
-      PrettyAttribute(usePrettyExpression(e.child).sql + "." + name, e.dataType)
-    case e: GetArrayStructFields =>
-      PrettyAttribute(usePrettyExpression(e.child) + "." + e.field.name, e.dataType)
-    case c: Cast =>
-      PrettyAttribute(usePrettyExpression(c.child).sql, c.dataType)
-  }
-
-  def toPrettySQL(e: Expression): String = usePrettyExpression(e).sql
-  // Converts an error class parameter to its SQL representation
-  def toSQLValue(v: Any, t: DataType): String = Literal.create(v, t) match {
-    case Literal(null, _) => "NULL"
-    case Literal(v: Float, FloatType) =>
-      if (v.isNaN) "NaN"
-      else if (v.isPosInfinity) "Infinity"
-      else if (v.isNegInfinity) "-Infinity"
-      else v.toString
-    case l @ Literal(v: Double, DoubleType) =>
-      if (v.isNaN) "NaN"
-      else if (v.isPosInfinity) "Infinity"
-      else if (v.isNegInfinity) "-Infinity"
-      else l.sql
-    case l => l.sql
-  }
-
-  private def quoteByDefault(elem: String): String = {
-    "\"" + elem + "\""
-  }
-
-
-  // https://issues.apache.org/jira/browse/SPARK-43019 in 3.5, backported to 13.1 dbr
-  def sparkOrdering(dataType: DataType): Ordering[_] = dataType.asInstanceOf[AtomicType].ordering
+  def drop_field(update: Column, fieldNames: String*): Column =
+    new Column(
+      transformFields{
+        fieldNames.foldRight(update.expr) {
+          case (fieldName, origin) =>
+            UpdateFields.apply(origin, fieldName)
+        }
+      }
+    )
 }

@@ -1,6 +1,6 @@
 package com.sparkutils.quality.impl.util
 
-import com.sparkutils.quality.impl.{DataFrameSyntaxError, ExpressionLookup, HasId, HasNonIdText, HasOutputText, HasRuleText, LambdaMultipleImplementationWithSameArityError, LambdaRelevant, NoOpRunOnPassProcessor, NonLambdaDocParameters, OutputExpressionRelevant, RuleError, RuleRegistrationFunctions, RuleRelevant, RuleWarning, RunOnPassProcessor}
+import com.sparkutils.quality.impl.{DataFrameSyntaxError, HasId, HasNonIdText, HasOutputText, HasRuleText, LambdaMultipleImplementationWithSameArityError, LambdaRelevant, NoOpRunOnPassProcessor, NonLambdaDocParameters, OutputExpressionRelevant, RuleError, RuleRegistrationFunctions, RuleRelevant, RuleWarning, RunOnPassProcessor}
 import com.sparkutils.quality.{Id, Rule, RuleSuite, RunOnPassProcessor}
 
 import scala.util.parsing.combinator.{JavaTokenParsers, PackratParsers}
@@ -8,80 +8,6 @@ import org.slf4j.LoggerFactory
 
 import scala.collection.mutable
 import java.net.URI
-
-sealed trait LambdaDocsToken
-
-case class ParamDoc(parameterName: String, docs: String) extends LambdaDocsToken
-case class Description(str: String) extends LambdaDocsToken
-case class ReturnDoc(str: String) extends LambdaDocsToken
-
-/**
- * Parser which adds token based string reading
- */
-trait NotATokenParser extends JavaTokenParsers {
-  def breakingTokens: Set[String]
-
-  lazy val notAToken =
-    new Parser[String] {
-      def apply(in: Input) = {
-        val source = in.source
-        val offset = in.offset
-        val start = handleWhiteSpace(source, offset)
-        var j = start
-        var break = 0
-        var fromStart = false
-        while (j < source.length && break == 0) {
-          val breakOption =
-            breakingTokens.find { token =>
-              val len = j - token.length
-              if (len > start) {
-                val comp = source.subSequence(j - token.length, j)
-
-                fromStart = false
-                token == comp
-              } else
-                if (j + token.length < source.length) {
-                  val comp = source.subSequence(j, j + token.length)
-
-                  fromStart = true
-                  token == comp
-                } else
-                  false
-
-            }
-          break = breakOption.fold(0)(_.length)
-
-          if (break == 0) {
-            j += 1
-          }
-        }
-
-        if (break > 0 && fromStart)
-          Failure("breakingToken found at at start of token parsing", in.drop(start - offset))
-        else
-          if (break > 0)
-            Success(source.subSequence(start, j - break).toString, in.drop((j - break) - offset))
-          else
-            Success(source.subSequence(start, j).toString, in.drop(j - offset))
-      }
-    }
-}
-
-/**
- * All params are optional
- * @param description
- * @param params
- * @param returnDescription
- */
-case class Docs(description: String = "", params: Map[String, String] = Map.empty, returnDescription: String = "")
-
-/**
- * Simple holder for items within a RuleSuite
- * @param t
- * @param docs
- * @tparam T
- */
-case class WithDocs[T](t: T, docs: Docs)
 
 /**
  * All identified docs, or empty Docs, for each RuleSuite expression type
@@ -407,58 +333,5 @@ ${showSummaryFor(relative.warnings, "Warnings")}
 ${showAll("Errors", relative.groupedErrors, ruleSuite, ruleSuiteDocs, relative.relativePath, idGen)}
 ${showAll("Warnings", relative.groupedWarnings, ruleSuite, ruleSuiteDocs, relative.relativePath, idGen)}
 """
-  }
-}
-
-/**
- * Parser for documentation on string expressions, with support for lambdas
- */
-object DocsParser extends NotATokenParser with PackratParsers {
-  val log = LoggerFactory.getLogger("DocParser")
-
-  val breakingTokens = Set("*/", "@param", "@return")
-
-  lazy val docs = "/**" ~> opt(description) ~ opt(params) ~ opt(ret) ~ ("*/") ~ ".*".r
-
-  lazy val description = notAToken ^^ (f => Description(f.trim))
-  lazy val params = rep(param)
-  lazy val param = "@param" ~> (ident ~ notAToken) ^^ (f => ParamDoc(f._1, f._2.trim))
-
-  lazy val ret = "@return" ~> notAToken ^^ (f => ReturnDoc(f.trim))
-
-  /**
-   * If there is a leading doc then it is removed
-   * @param s
-   * @return
-   */
-  def stripComments( s: String ): String = {
-    val ret = parseAll(phrase(docs), s)
-    ret match {
-      case Success(result, nextInput) =>
-        result._2
-
-      case NoSuccess(msg, nextInput) =>
-        s
-    }
-  }
-
-  /**
-   * Parses sql with a leading docs
-   * @param s
-   * @return Some(Docs) when there is a documentation object
-   */
-  def parse( s: String ): Option[Docs] = {
-    val ret = parseAll(phrase(docs), s)
-    ret match {
-      case Success(result, nextInput) =>
-        Some(Docs(result._1._1._1._1.map(_.str).getOrElse(""),
-          result._1._1._1._2.map(t => t.map( d => d.parameterName -> d.docs).toMap ).getOrElse(Map.empty),
-          result._1._1._2.map(_.str).getOrElse("")
-        ))
-
-      case NoSuccess(msg, nextInput) =>
-        log.debug(s"DocsParser couldn't pass - $msg")
-        None
-    }
   }
 }

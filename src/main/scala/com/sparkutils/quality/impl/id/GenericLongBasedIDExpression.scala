@@ -8,7 +8,7 @@ import org.apache.spark.sql.Column
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
 import org.apache.spark.sql.catalyst.expressions.{Expression, UnaryExpression}
-import org.apache.spark.sql.qualityFunctions.DigestFactory
+import org.apache.spark.sql.shim.hash.DigestFactory
 import org.apache.spark.sql.types.{ArrayType, DataType, LongType, StructType}
 
 

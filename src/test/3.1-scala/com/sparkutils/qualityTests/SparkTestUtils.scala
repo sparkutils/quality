@@ -57,4 +57,9 @@ object SparkTestUtils {
       else
       sparkPlan
 
+  def enumToScala[A](enum: java.util.Enumeration[A]) = {
+    import scala.collection.JavaConverters._
+
+    enumerationAsScalaIterator(enum)
+  }
 }

@@ -1,12 +1,10 @@
 package com.sparkutils.quality.impl.hash
 
-import java.security.MessageDigest
-
 import com.google.common.hash.{HashFunction, Hasher, Hashing}
 import com.sparkutils.quality.impl.util.{BytePackingUtils, TSLocal}
-import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionDescription}
-import org.apache.spark.sql.qualityFunctions.{Digest, DigestFactory, HashLongsExpression, InterpretedHashLongsFunction}
-import org.apache.spark.sql.types.{DataType, LongType, StructField, StructType}
+import org.apache.spark.sql.catalyst.expressions.Expression
+import org.apache.spark.sql.shim.hash.{Digest, DigestFactory, HashLongsExpression}
+import org.apache.spark.sql.types.DataType
 
 /**
  * Proxies HashFunction for this hash

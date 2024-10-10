@@ -6,6 +6,7 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.types.{CalendarIntervalType, DataType, DayTimeIntervalType, TimestampNTZType, UserDefinedType, YearMonthIntervalType}
 import org.yaml.snakeyaml.nodes.{MappingNode, Node, NodeTuple, ScalarNode, Tag}
 import com.sparkutils.quality.impl.yaml.QualityYamlEncoding._
+import org.apache.spark.sql.catalyst.expressions.{Expression, UpdateFields}
 import org.apache.spark.unsafe.types.CalendarInterval
 import org.yaml.snakeyaml.DumperOptions
 
@@ -128,4 +129,42 @@ object QualityYamlExt {
 
     case dataType => throw QualityException(s"Cannot find yaml representation for type $dataType")
   }
+  /**
+   * Adds fields, in order, for each field path it's paired transformation is applied to the update column
+   *
+   * @param update
+   * @param transformations
+   * @return a new copy of update with the changes applied
+   */
+  def update_field(update: Column, transformations: (String, Column)*): Column =
+    new Column(
+      transformFields{
+        transformations.foldRight(update.expr) {
+          case ((path, col), origin) =>
+            UpdateFields.apply(origin, path, col.expr)
+        }
+      }
+    )
+
+  protected def transformFields(exp: Expression): Expression =
+    exp.transform { // simplify, normally done in optimizer UpdateFields
+      case UpdateFields(UpdateFields(struct, fieldOps1), fieldOps2) =>
+        UpdateFields(struct, fieldOps1 ++ fieldOps2 )
+    }
+
+  /**
+   * Drops a field from a structure
+   * @param update
+   * @param fieldNames may be nested
+   * @return
+   */
+  def drop_field(update: Column, fieldNames: String*): Column =
+    new Column(
+      transformFields{
+        fieldNames.foldRight(update.expr) {
+          case (fieldName, origin) =>
+            UpdateFields.apply(origin, fieldName)
+        }
+      }
+    )
 }

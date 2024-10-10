@@ -48,15 +48,18 @@ Your expressions used, in dq/triggers, output expressions (for Rules and Folder)
      
     3.4 has allowed the use of most sub query patterns, such as checking foreign keys via an exists in a dq rule where the data is to large for maps, or selecting the maximum matching value in an output expression.  There are some oddities like you must use an alias on the input dataframe if a correlated subquery also has the same field names, not doing so results in either silent failure or at best an 'Expression "XXX" is not an rvalue' compilation error.  The ruleEngineWithStruct transformer will automatically add an alias of 'main' to the input dataframe.  
     
-    Lambdas however introduce some complications, 3.4 quite reasonably had no intention of supporting the kind of thing Quality is doing, so there is code making it work for the obvious use case of DRY using row attributes.  Attempting to use a lambda with parameters that are not attributes will result in an error e.g. given genMax:
-    
+    Lambdas however introduce some complications, 3.4 quite reasonably had no intention of supporting the kind of thing Quality is doing, so there is code making it work for the obvious use case of DRY using row attributes.
+
+    Spark 4.0 / 14.3 LTS introduces [SPARK-47509](https://issues.apache.org/jira/browse/SPARK-47509) which limits support by blocking all possible usages.  Quality versions after 0.1.3-RC4 work around this by translating all lambda functions at call site to the direct expression.  This change has had the added benefit of allowing more complex re-use patterns but may result in more complex errors or the 47509 error.
+
+    Per 47509, Quality enables this behaviour only when spark.sql.analyzer.allowSubqueryExpressionsInLambdasOrHigherOrderFunctions is false (the default for Spark 4) or not defined, otherwise the behaviour allows the usage as a higher order function (e.g. in transform etc.) and acts as prior to 0.1.3-RC4.
+
     ```scala
     LambdaFunction("genMax", "ii -> select max(i_s.i) from tableName i_s where i_s.i > ii", Id(2404,1)))
     ```
     
-    Calling with genMax(i) where i is an column attribute will work, calling with genMax(i * 1) will throw a QualityException. 
-    
-    This applies equally to Databricks 12.2 which back-ported this awesome functionality.
+    Calling with genMax(i) or genMax(i * 1) in an Rule or OutputExpression, where i is an column attribute will work and be translated as a join, per 47509 using it within transform will have correctness issues. 
+
 
 ## withColumn is BAD - how else can I add columns?
 

@@ -4,21 +4,21 @@ import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.functions._
 import com.sparkutils.quality.impl.aggregates.AggregateExpressions
 import com.sparkutils.quality.impl.bloom.{BucketedArrayParquetAggregator, ParquetAggregator}
-import com.sparkutils.quality.impl.hash.{HashFunctionFactory, HashFunctionsExpression, ZALongHashFunctionFactory, ZALongTupleHashFunctionFactory}
+import com.sparkutils.quality.impl.hash.{HashFunctionFactory, HashFunctionsExpression}
 import com.sparkutils.quality.impl.id.{GenericLongBasedIDExpression, model}
 import com.sparkutils.quality.impl.longPair.{AsUUID, LongPairExpression}
 import com.sparkutils.quality.impl.rng.{RandomBytes, RandomLongs}
 import com.sparkutils.quality.impl.util.{ComparableMapConverter, ComparableMapReverser, PrintCode}
 import com.sparkutils.quality.impl.yaml.{YamlDecoderExpr, YamlEncoderExpr}
 import com.sparkutils.quality.{QualityException, impl}
+import com.sparkutils.shim
 import org.apache.commons.rng.simple.RandomSource
-import org.apache.spark.sql.QualitySparkUtils.add
+import org.apache.spark.sql.ShimUtils.add
 import org.apache.spark.sql.catalyst.expressions.{Add, AttributeReference, CreateMap, Expression, Literal, UnresolvedNamedLambdaVariable, LambdaFunction => SLambdaFunction}
-import org.apache.spark.sql.catalyst.util.MapData
 import org.apache.spark.sql.qualityFunctions.LambdaFunctions.processTopCallFun
 import org.apache.spark.sql.qualityFunctions._
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.{Column, QualitySparkUtils, SparkSession, functions}
+import org.apache.spark.sql.{Column, ShimUtils, SparkSession, functions}
 import org.apache.spark.unsafe.types.UTF8String
 
 object RuleRegistrationFunctions {
@@ -156,8 +156,9 @@ object RuleRegistrationFunctions {
                                mapCompare: DataType => Option[(Any, Any) => Int] = (dataType: DataType) => utils.defaultMapCompare(dataType),
                                writer: String => Unit = println(_),
                                registerFunction: (String, Seq[Expression] => Expression) => Unit =
-                                 QualitySparkUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
+                                 ShimUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
                               ) {
+
     def register(name: String, argsf: Seq[Expression] => Expression, paramNumbers: Set[Int] = Set.empty, minimum: Int = -1) =
       registerWithChecks(registerFunction, name, argsf, paramNumbers, minimum)
 
@@ -323,7 +324,7 @@ object RuleRegistrationFunctions {
         qualityException(INC_REWRITE_GENEXP_ERR_MSG)
       case Seq( y ) =>
         val SLambdaFunction(a: Add, Seq(sum: UnresolvedNamedLambdaVariable), hidden ) = functions.expr("sumWith(sum -> sum + 1)").expr.children(0)
-        import QualitySparkUtils.{add => addf}
+        import ShimUtils.{add => addf}
         // could be a cast around x or three attributes plusing each other or....
         FunN(Seq(RefExpression(LongType)),
           SLambdaFunction(addf(a.left, y, LongType), Seq(sum), hidden )

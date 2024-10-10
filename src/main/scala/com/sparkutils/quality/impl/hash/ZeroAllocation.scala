@@ -1,10 +1,8 @@
 package com.sparkutils.quality.impl.hash
 
-import com.sparkutils.quality.impl.util.{BytePackingUtils, TSLocal}
+import com.sparkutils.quality.impl.util.TSLocal
 import net.openhft.hashing.{LongHashFunction, LongTupleHashFunction}
-import org.apache.spark.sql.catalyst.expressions.Expression
-import org.apache.spark.sql.qualityFunctions.{Digest, DigestFactory, HashLongsExpression}
-import org.apache.spark.sql.types.DataType
+import org.apache.spark.sql.shim.hash.{Digest, DigestFactory}
 
 /**
  * Proxies LongHashFunction for this hash, clearly it actually allocates as we use the last result to seed a new hasher

@@ -52,3 +52,11 @@ _Example Usage:_ Providing totals or other relevant aggregations over datasets o
 _What is stored:_
 ```plantuml format="svg_object" classes="shrink_to_fit" source="./docs/getting_started/expressionRunner.puml"
 ```
+
+You can also use the typedExpressionRunner, which saves the results of expressions with the same type.
+
+_Example Usage:_ Instead of checking if something exists in a view in a rule, then using the view's value in an Output expression, use typedExpressionRunner to save the lookup value directly.  The rule can check if rule_result is null, this can noticeably speed up view heavy queries.    
+
+_What is stored:_ For a type of STRUCT<key: INT, value: STRING>
+```plantuml format="svg_object" classes="shrink_to_fit" source="./docs/getting_started/typedExpressionRunner.puml"
+```

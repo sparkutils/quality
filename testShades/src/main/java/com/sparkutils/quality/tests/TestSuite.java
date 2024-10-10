@@ -57,4 +57,16 @@ public class TestSuite {
                 result.getRunCount() + ". Time: " +
                 result.getRunTime() + "ms.");
     }
+
+    /**
+     * Allow for running individual tests from DBRs using a higher scalatest
+     * @param cname
+     */
+    public static void runClass(String cname) throws java.lang.ClassNotFoundException {
+        JUnitCore junit = new JUnitCore();
+        junit.addListener(new TextListener(System.out));
+
+        Result result = junit.run( TestSuite.class.getClassLoader().loadClass(cname) );
+        resultReport(result);
+    }
 }

@@ -3,12 +3,14 @@ package com.sparkutils.quality.impl.bloom
 import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.{BloomFilterMap, RuleSuite}
 import com.sparkutils.quality.impl.{RuleRegistrationFunctions, RuleRunnerUtils}
+import com.sparkutils.shim.expressions.UnresolvedFunction4
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
 import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression, ExpressionDescription, Literal, NullIntolerant}
 import org.apache.spark.sql.types.{DataType, DoubleType, StringType}
-import org.apache.spark.sql.{Column, QualitySparkUtils}
+import org.apache.spark.sql.{Column, QualitySparkUtils, ShimUtils}
+import org.apache.spark.unsafe.types.UTF8String
 
 object BloomFilterLookup {
 
@@ -44,7 +46,22 @@ object BloomFilterLookup {
    * @param expression a single Expression, can be a complex tree or simple direct probabilityIn or rowid
    * @return The bloom id's used, for unresolved expression trees this may contain blooms which are not present in the bloom map
    */
-  def getBlooms(expression: Expression): Seq[String] = BloomFilterLookupSparkVersionSpecific.getBlooms(expression)
+  def getBlooms(expression: Expression): Seq[String] = {
+    val res = Seq.empty
+
+    def bloom(expression: Expression, acc: Seq[String]): Seq[String] = {
+
+      // case one
+      expression match {
+        case UnresolvedFunction4(name, Seq(left, Literal(id: UTF8String, StringType)), _, _) if name.replaceAll("_", "").toLowerCase == "probabilityin" => bloom(left, acc :+ id.toString)
+        case BloomFilterLookupExpression(left, Literal(id: UTF8String, StringType), _) => bloom(left, acc :+ id.toString)
+        case e: Expression => e.children.foldLeft(acc) { (acc, e) => bloom(e, acc) }
+        case _ => acc
+      }
+    }
+
+    bloom(expression, res)
+  }
 
 }
 
@@ -73,7 +90,7 @@ case class BloomFilterLookupExpression(left: Expression, right: Expression, bloo
   }
 
   lazy val converter = BloomExpressionLookup.bloomLookupValueConverter(left)
-  lazy val isPrimitive = QualitySparkUtils.isPrimitive(left.dataType) // in which case it's identity
+  lazy val isPrimitive = ShimUtils.isPrimitive(left.dataType) // in which case it's identity
 
   override def nullSafeEval(left: Any, right: Any): Any = {
     val (bloom: com.sparkutils.quality.BloomLookup, fpp) = bloomF(right)
