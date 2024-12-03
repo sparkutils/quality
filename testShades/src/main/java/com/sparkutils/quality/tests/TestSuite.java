@@ -17,7 +17,21 @@ public class TestSuite {
         setupDefaultsViaCurrentSession();
 
         JUnitCore junit = new JUnitCore();
-        junit.addListener(new TextListener(System.out));
+        junit.addListener(new TextListener(System.out) {
+            long start = 0;
+
+            @Override
+            public void testStarted(Description description){
+                start = System.currentTimeMillis();
+                System.out.print("Running: " + description.getDisplayName());
+            }
+
+            @Override
+            public void testFinished(Description description){
+                System.out.println("in: " + ((System.currentTimeMillis() - start)/1000 ) + "s");
+            }
+
+        });
 
         Result result = junit.run(
                 JoinValidationTest.class,
