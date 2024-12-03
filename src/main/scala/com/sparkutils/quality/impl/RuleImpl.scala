@@ -2,13 +2,15 @@ package com.sparkutils.quality.impl
 
 import com.sparkutils.quality
 import com.sparkutils.quality.{DisabledRule, DisabledRuleInt, Failed, FailedInt, GeneralExpressionResult, GeneralExpressionsResult, Id, IdTriple, OutputExpression, Passed, PassedInt, Probability, Rule, RuleResult, RuleSetResult, RuleSuite, RuleSuiteResult, SoftFailed, SoftFailedInt}
+import org.apache.spark.sql.ShimUtils.newParser
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedFunction}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext}
 import org.apache.spark.sql.catalyst.expressions.{Expression, ScalarSubquery, SubqueryExpression, UnresolvedNamedLambdaVariable, LambdaFunction => SparkLambdaFunction}
 import org.apache.spark.sql.qualityFunctions.{FunN, RefExpressionLazyType}
-import org.apache.spark.sql.types.Decimal
+import org.apache.spark.sql.types.{DataType, Decimal, StringType}
 import org.apache.spark.sql.{QualitySparkUtils, SparkSession}
+import org.apache.spark.unsafe.types.UTF8String
 
 import scala.collection.mutable
 
@@ -56,7 +58,7 @@ object RuleLogicUtils {
    */
   def expr(rule: String) = {
     val parser = SparkSession.getActiveSession.map(_.sessionState.sqlParser).getOrElse {
-      QualitySparkUtils.newParser()
+      newParser()
     }
     /*
     attempt for a simple expression, then try a plan with exactly one output row.
@@ -112,17 +114,25 @@ object RuleLogicUtils {
     case _: SubqueryExpression => true
   } ).nonEmpty
 
+  object UTF8Str {
+    def unapply(any: Any): Option[String] =
+      any match {
+        case u: UTF8String => Some(u.toString.toLowerCase)
+        case _ => None
+      }
+  }
+
   def anyToRuleResult(any: Any): RuleResult =
     any match {
       case b: Boolean => if (b) Passed else Failed
       case 0 | 0.0 => Failed
       case 1 | 1.0 => Passed
-      case -1 | -1.0 | "softfail" | "maybe" | "SoftFail" | "softFail" | "Softfail" | "Maybe" => SoftFailed
-      case -2  | -2.0 | "disabledrule" | "disabled" | "DisabledRule" | "disabledRule" | "Disabledrule" => DisabledRule
+      case -1 | -1.0 | UTF8Str("softfail" | "maybe") => SoftFailed
+      case -2  | -2.0 | UTF8Str("disabledrule" | "disabled") => DisabledRule
       case d: Double => Probability(d) // only spark 2 unless configured to behave like spark 2
       case d: Decimal => Probability(d.toDouble)
-      case "Passed" | "true" | "True" | "passed" | "Pass"| "pass" | "Yes" | "yes" | "1" | "1.0" => Passed
-      case "Failed" | "false" | "False" | "failed" | "Fail"| "fail" | "No" | "no" | "0" | "0.0" => Failed
+      case UTF8Str("true" | "passed" | "pass" | "yes" | "1" | "1.0") => Passed
+      case UTF8Str("false" | "failed" | "fail" | "no" | "0" | "0.0") => Failed
       case _ => Failed // anything else is a fail
     }
 
@@ -132,12 +142,12 @@ object RuleLogicUtils {
       case b: Boolean => if (b) PassedInt else FailedInt
       case 0 | 0.0 => FailedInt
       case 1 | 1.0 => PassedInt
-      case -1 | -1.0 | "softfail" | "maybe" | "SoftFail" | "softFail" | "Softfail" | "Maybe" => SoftFailedInt
-      case -2  | -2.0 | "disabledrule" | "disabled" | "DisabledRule" | "disabledRule" | "Disabledrule" => DisabledRuleInt
+      case -1 | -1.0 | UTF8Str("softfail" | "maybe") => SoftFailedInt
+      case -2  | -2.0 | UTF8Str("disabledrule" | "disabled") => DisabledRuleInt
       case d: Double => (d * PassedInt).toInt
       case d: Decimal => (d.toDouble * PassedInt).toInt
-      case "Passed" | "true" | "True" | "passed" | "Pass"| "pass" | "Yes" | "yes" | "1" | "1.0" => PassedInt
-      case "Failed" | "false" | "False" | "failed" | "Fail"| "fail" | "No" | "no" | "0" | "0.0" => FailedInt
+      case UTF8Str("true" | "passed" | "pass" | "yes" | "1" | "1.0") => PassedInt
+      case UTF8Str("false" | "failed" | "fail" | "no" | "0" | "0.0") => FailedInt
       case _ => FailedInt // anything else is a fail
     }
 
@@ -283,7 +293,7 @@ trait OutputExprLogic extends HasExpr {
 object UpdateFolderExpression {
   val currentResult = "currentResult"
 
-  import QualitySparkUtils.UnresolvedFunctionOps
+  import org.apache.spark.sql.ShimUtils.UnresolvedFunctionOps
 
   /**
    * Uses the template to add the arguments to the underlying updateField, replacing any currentResult's found with the correct
@@ -535,18 +545,23 @@ object RuleSuiteFunctions {
     (RuleSuiteResult(id, overall.currentResult, rawRuleSets.toMap), result)
   }
 
-  def evalExpressions(ruleSuite: RuleSuite, internalRow: InternalRow): GeneralExpressionsResult = {
+  def evalExpressions(ruleSuite: RuleSuite, internalRow: InternalRow, dataType: DataType): GeneralExpressionsResult[Any] = {
     import ruleSuite._
 
     val rawRuleSets =
       ruleSets.map { rs =>
-        val ruleSetRawRes: Seq[(VersionedId, GeneralExpressionResult)] = rs.rules.map { r =>
-          // it's a cast to string
-          val resultType = r.expression match {
-            case expr: HasExpr => expr.expr.children(0).dataType.sql
-          }
-          val ruleResult = r.expression.internalEval(internalRow).toString
-          r.id -> GeneralExpressionResult(ruleResult, resultType)
+        val ruleSetRawRes: Seq[(VersionedId, Any)] = rs.rules.map { r =>
+          val ruleResult = r.expression.internalEval(internalRow)
+          r.id -> (
+            if (dataType == quality.types.expressionResultTypeYaml) {
+              // it's a cast to string
+              val resultType = r.expression match {
+                case expr: HasExpr => expr.expr.children.head.dataType.sql
+              }
+              GeneralExpressionResult(ruleResult.toString, resultType)
+            } else
+              ruleResult
+            )
         }
         rs.id -> ruleSetRawRes.toMap
       }

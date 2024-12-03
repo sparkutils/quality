@@ -116,7 +116,8 @@ class ValidationTest extends FunSuite with TestUtils {
     assert(errors.toSeq match {
       // should be upset that test is unknown and we shouldn't get an SOE,
       // but because of the SOE we won't get unknownVariable name error either
-      case Seq(DataFrameSyntaxError(err)) if err.contains("test") && err.contains("function") => true
+      // Spark 4 uses routine instead of function
+      case Seq(DataFrameSyntaxError(err)) if err.contains("test") && (err.contains("function") || err.contains("routine"))  => true
       case _ => false
     } )
 
@@ -214,8 +215,8 @@ class ValidationTest extends FunSuite with TestUtils {
   }
 
   @Test
-  def testFunctionSyntaxError: Unit = {
-    val rs = RuleSuite(Id(0,1), Seq(RuleSet(Id(1,1), Seq(Rule(Id(2,1), ExpressionRule("fielda >> fieldb"))))))
+  def testFunctionSyntaxError: Unit = { // Spark 4 adds >> in SPARK-48168
+    val rs = RuleSuite(Id(0,1), Seq(RuleSet(Id(1,1), Seq(Rule(Id(2,1), ExpressionRule("fielda >>> fieldb"))))))
     val errors = ordered( validate(struct, rs) )
 
     assert(errors match {
@@ -248,9 +249,9 @@ class ValidationTest extends FunSuite with TestUtils {
   }
 
   @Test
-  def testOutputFunctionSyntaxError: Unit = {
+  def testOutputFunctionSyntaxError: Unit = {  // Spark 4 adds >> in SPARK-48168
     val rs = RuleSuite(Id(0,1), Seq(RuleSet(Id(1,1), Seq(Rule(Id(2,1), ExpressionRule("fielda > fieldb"),
-      RunOnPassProcessor(0, Id(1001,1), OutputExpression("fielda >> fieldb"))
+      RunOnPassProcessor(0, Id(1001,1), OutputExpression("fielda >>> fieldb"))
     )))))
     val errors = ordered( validate(struct, rs) )
 
@@ -275,12 +276,12 @@ class ValidationTest extends FunSuite with TestUtils {
   }
 
   @Test
-  def testAllTheThingsExceptLambdaSOE: Unit = {
+  def testAllTheThingsExceptLambdaSOE: Unit = { // Spark 4 adds >> in SPARK-48168
     val rs = RuleSuite(Id(0,1), Seq(RuleSet(Id(1,1), Seq(
       Rule(Id(2,1), ExpressionRule("fielda > fieldb"), RunOnPassProcessor(0, Id(1001,1), OutputExpression("fielda > b"))),
-      Rule(Id(3,1), ExpressionRule("fielda > fieldb"), RunOnPassProcessor(0, Id(1002,1), OutputExpression("fielda >> fieldb"))),
+      Rule(Id(3,1), ExpressionRule("fielda > fieldb"), RunOnPassProcessor(0, Id(1002,1), OutputExpression("fielda >>> fieldb"))),
       Rule(Id(4,1), ExpressionRule("fielda > b")),
-      Rule(Id(5,1), ExpressionRule("fielda >> fieldb"))
+      Rule(Id(5,1), ExpressionRule("fielda >>> fieldb"))
     ))), Seq(LambdaFunction("test", "variable -> outervariable", Id(6,1)),
       LambdaFunction("testCaller", "outervariable -> test(outervariable)", Id(7,2)),
       LambdaFunction("testCaller2", "(outervariable) -> test(outervariable)", Id(8,1))))

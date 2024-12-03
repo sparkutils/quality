@@ -2,7 +2,8 @@ package com.sparkutils.quality.impl.extension
 
 import com.sparkutils.quality.impl.id.{AsBase64Fields, AsBase64Struct, IDFromBase64, SizeOfIDString}
 import com.sparkutils.quality.impl.longPair.AsUUID
-import com.sparkutils.quality.impl.{PredicateHelperPlus, UUIDToLongsExpression}
+import com.sparkutils.quality.impl.UUIDToLongsExpression
+import com.sparkutils.shim.expressions.PredicateHelperPlus
 import org.apache.spark.sql.catalyst.expressions.{And, BinaryComparison, CreateNamedStruct, CreateStruct, EqualNullSafe, EqualTo, Equality, Expression, GetStructField, GreaterThan, GreaterThanOrEqual, If, In, LessThan, LessThanOrEqual, Literal, Or}
 import org.apache.spark.sql.catalyst.plans.logical.{ConstraintHelper, Filter, Join, LogicalPlan}
 import org.apache.spark.sql.catalyst.rules.Rule

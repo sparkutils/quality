@@ -56,6 +56,26 @@ Also ensure only the correct target Maven profile and source directories are ena
 
 The performance tests are not automated and must be manually run when needed.
 
+When running tests on jdk 17/21 you also need to add the following startup parameters:
+
+```
+--add-opens=java.base/java.lang=ALL-UNNAMED
+--add-opens=java.base/java.lang.invoke=ALL-UNNAMED
+--add-opens=java.base/java.lang.reflect=ALL-UNNAMED
+--add-opens=java.base/java.io=ALL-UNNAMED
+--add-opens=java.base/java.net=ALL-UNNAMED
+--add-opens=java.base/java.nio=ALL-UNNAMED
+--add-opens=java.base/java.util=ALL-UNNAMED
+--add-opens=java.base/java.util.concurrent=ALL-UNNAMED
+--add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED
+--add-opens=java.base/sun.nio.ch=ALL-UNNAMED
+--add-opens=java.base/sun.nio.cs=ALL-UNNAMED
+--add-opens=java.base/sun.security.action=ALL-UNNAMED
+--add-opens=java.base/sun.util.calendar=ALL-UNNAMED
+```
+
+Also for Spark 4 builds requiring 17/21 you must use Scala SDK 2.13.12 or similar which supports higher jdk versions. 
+
 ## Build tool dependencies
 
 Quality is cross compiled for different versions of Spark, Scala _and_ runtimes such as Databricks.  The format for artifact's is:
@@ -67,7 +87,7 @@ quality_RUNTIME_SPARKCOMPATVERSION_SCALACOMPATVERSION-VERSION.jar
 e.g.
 
 ```
-quality_3.4.1.oss_3.4_2.12-0.1.0.jar
+quality_3.4.1.oss_3.4_2.12-0.1.3.jar
 ```
 
 The build poms generate those variables via maven profiles, but you are advised to use properties to configure e.g. for Maven:
@@ -97,12 +117,27 @@ The full list of supported runtimes is below:
 | 3.3.2         | 3.3 | 13.1.dbr_      | 2.12 |
 | 3.4.1         | 3.4 | 3.4.1.oss_     | 2.12 |
 | 3.4.1         | 3.4 | 13.1.dbr_      | 2.12 |
+| 3.4.1         | 3.4 | 13.3.dbr_      | 2.12 |
+| 3.5.0         | 3.5 | 3.5.0.oss_     | 2.12 |
+| 3.5.0         | 3.5 | 14.0.dbr_      | 2.12 |
+| 3.5.0         | 3.5 | 14.3.dbr_      | 2.12 |
 
 2.4 support is deprecated and will be removed in a future version.  3.1.2 support is replaced by 3.1.3 due to interpreted encoder issues. 
 
 !!! note "Databricks 13.x support"
     13.0 also works on the 12.2.dbr_ build as of 10th May 2023, despite the Spark version difference.
     13.1 requires its own version as it backports 3.5 functionality.  The 13.1.dbr quality runtime build also works on 13.2 DBR. 
+    13.3 LTS has its own runtime
+
+!!! warning "Databricks 14.x support"
+    Due to back-porting of SPARK-44913 frameless 0.16.0 (the 3.5.0 release) is not binary compatible with 14.2 and above which has back-ported this 4.0 interface change.
+    Similarly, 4.0 / 14.2 introduces a change in resolution so a new runtime version is required upon a potential fix for 44913 in frameless.
+    As such 14.3 has its own runtime
+
+!!! warning "0.1.3 Requires com.sparkutils.frameless for newer releases"
+    Quality 0.1.3 uses [com.sparkutils.frameless](https://github.com/sparkutils/frameless) for the 3.5, 13.3 and 14.x releases together with the [shim project](https://github.com/sparkutils/shim), allowing quicker releases of Databricks runtime supports going forward.
+    The two frameless code bases are not binary compatible and will require recompilation.
+    This may revert to org.typelevel.frameless in the future.
 
 ## Sql functions vs column dsl
 
@@ -116,7 +151,7 @@ As there are many compatibility issues that Quality works around between the var
 
 ```xml
 <properties>
-    <qualityVersion>0.1.0</qualityVersion>
+    <qualityVersion>0.1.3</qualityVersion>
     <qualityTestPrefix>3.4.1.oss_</qualityTestPrefix>
     <qualityDatabricksPrefix>13.1.dbr_</qualityDatabricksPrefix>
     <sparkShortVersion>3.4</sparkShortVersion>
@@ -151,6 +186,8 @@ The known combinations requiring this approach is below:
 | 3.3.0         | 3.3               | 3.3.0.oss_        | 11.3.dbr_               | 2.12 | 
 | 3.3.2         | 3.3               | 3.3.2.oss_        | 12.2.dbr_               | 2.12 | 
 | 3.4.1         | 3.4               | 3.4.1.oss_        | 13.1.dbr_               | 2.12 | 
+| 3.5.0         | 3.5               | 3.5.0.oss_        | 14.0.dbr_               | 2.12 | 
+| 3.5.0         | 3.5               | 3.5.0.oss_        | 14.3.dbr_               | 2.12 | 
 
 ## Using the SQL functions on Spark Thrift (Hive) servers
 

@@ -4,7 +4,7 @@ import com.sparkutils.quality.impl.RuleRegistrationFunctions
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.qualityFunctions.utils
 import org.apache.spark.sql.types.DataType
-import org.apache.spark.sql.{QualitySparkUtils, SparkSession}
+import org.apache.spark.sql.{QualitySparkUtils, ShimUtils, SparkSession}
 
 trait RuleRunnerFunctionsImport {
 
@@ -24,7 +24,7 @@ trait RuleRunnerFunctionsImport {
                                mapCompare: DataType => Option[(Any, Any) => Int] = (dataType: DataType) => utils.defaultMapCompare(dataType),
                                writer: String => Unit = println(_),
                                registerFunction: (String, Seq[Expression] => Expression) => Unit =
-                                  QualitySparkUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
+                                  ShimUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
                        ) =
     RuleRegistrationFunctions.registerQualityFunctions(parseTypes,
       zero,

@@ -3,21 +3,23 @@ package com.sparkutils.quality.impl.mapLookup
 import com.sparkutils.quality.impl.RuleRegistrationFunctions.registerWithChecks
 import com.sparkutils.quality.impl.util.{Config, ConfigFactory, Row}
 import org.apache.spark.broadcast.Broadcast
-import org.apache.spark.sql.catalyst.CatalystTypeConverters
 import org.apache.spark.sql.catalyst.expressions.{Expression, IsNotNull}
 import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, MapData}
 import org.apache.spark.sql.functions.expr
 import org.apache.spark.sql.types.DataType
-import org.apache.spark.sql.{Column, DataFrame, Encoder, Encoders, QualitySparkUtils, SparkSession}
+import org.apache.spark.sql.{Column, DataFrame, Encoder, Encoders, ShimUtils, SparkSession}
+
+import com.sparkutils.shim.toCatalyst
 
 import scala.collection.JavaConverters._
+import scala.collection.Map
 
 object MapLookupFunctions {
 
   def registerMapLookupsAndFunction(mapLookups: MapLookups) {
     val funcReg = SparkSession.getActiveSession.get.sessionState.functionRegistry
     def register(name: String, argsf: Seq[Expression] => Expression, paramNumbers: Set[Int] = Set.empty, minimum: Int = -1) =
-      registerWithChecks(QualitySparkUtils.registerFunction(funcReg), name, argsf, paramNumbers, minimum)
+      registerWithChecks(ShimUtils.registerFunction(funcReg), name, argsf, paramNumbers, minimum)
 
     val f = (exps: Seq[Expression]) => MapLookup(exps(0), exps(1), mapLookups)
     register("map_lookup", f, Set(2))
@@ -45,13 +47,14 @@ object MapLookupFunctions {
         val (df, key, value) = mapCreator()
 
         mapFromDF(id, df, key, value)
-    }
+    }.toMap
 
   private def mapFromDF(id: String, df: DataFrame, key: Column, value: Column) = {
     val translated = df.select(key.as("key"), value.as("value"))
     val map = translated.toLocalIterator().asScala.map {
       mapPair =>
-        CatalystTypeConverters.convertToCatalyst(mapPair.get(0)) -> CatalystTypeConverters.convertToCatalyst(mapPair.get(1))
+        toCatalyst(mapPair.get(0)) ->
+          toCatalyst(mapPair.get(1))
     }.toMap
 
     val mapData: MapData = ArrayBasedMapData(map)

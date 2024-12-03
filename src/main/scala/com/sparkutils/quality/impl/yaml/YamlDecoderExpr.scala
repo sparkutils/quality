@@ -1,17 +1,17 @@
 package com.sparkutils.quality.impl.yaml
 
+import com.sparkutils.quality.impl.YamlDecoder
+
 import java.io.StringReader
 import java.util.Base64
-
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
 import org.apache.spark.sql.catalyst.expressions.{Expression, NullIntolerant, UnaryExpression}
 import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, ArrayData}
-import org.apache.spark.sql.qualityFunctions.InputTypeChecks
+import org.apache.spark.sql.shim.expressions.InputTypeChecks
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.UTF8String
-import org.yaml.snakeyaml.Yaml
 import org.yaml.snakeyaml.nodes._
 
 import scala.collection.JavaConverters._
@@ -129,7 +129,7 @@ object QualityYamlDecoding extends Logging {
 
                 converters(index)(tuple.getValueNode)
             }
-          InternalRow(values: _*)
+          InternalRow(values.toSeq: _*)
         }
       }
 
@@ -182,7 +182,7 @@ case class YamlDecoderExpr(child: Expression, dataType: DataType) extends UnaryE
   lazy val valueConverter = makeNodeConverter.applyOrElse(dataType, makeNodeConverterExt)
 
   override def nullSafeEval(input: Any): Any = {
-    val generator = new Yaml()
+    val generator = YamlDecoder.yaml
     val reader = new StringReader(input.toString)
 
     val node = generator.compose(reader)

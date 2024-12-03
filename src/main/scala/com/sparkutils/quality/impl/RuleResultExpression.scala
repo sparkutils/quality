@@ -4,11 +4,13 @@ import com.sparkutils.quality.impl.MapUtils.getMapEntry
 import com.sparkutils.quality.types._
 import org.apache.spark.sql.Column
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
+import org.apache.spark.sql.catalyst.analysis.TypeCheckResult.TypeCheckSuccess
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, ExprCode}
-import org.apache.spark.sql.catalyst.expressions.Expression
+import org.apache.spark.sql.catalyst.expressions.{ExpectsInputTypes, Expression}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.util.MapData
-import org.apache.spark.sql.qualityFunctions.InputTypeChecks
+import org.apache.spark.sql.shim.expressions.InputTypeChecks
 import org.apache.spark.sql.types.{DataType, IntegerType, LongType, StringType}
 
 object RuleResultExpression {
@@ -41,9 +43,20 @@ case class RuleResultExpression(children: Seq[Expression]) extends
   @transient
   protected var cachedRulePositions: Seq[Int] = Seq.empty
 
+  private def resetIfNull(): Unit = {
+    if (cachedSetPositions eq null) {
+      cachedSetPositions = Seq.empty
+    }
+    if (cachedRulePositions eq null) {
+      cachedRulePositions = Seq.empty
+    }
+
+  }
+
   override def nullable: Boolean = true
 
   override def eval(inputRow: InternalRow): Any = {
+    resetIfNull()
     val noneAreNull = Seq(children(0).eval(inputRow), children(1).eval(inputRow),
       children(2).eval(inputRow), children(3).eval(inputRow))
     if (noneAreNull.contains(null))
@@ -73,9 +86,9 @@ case class RuleResultExpression(children: Seq[Expression]) extends
     ctx.references += this
     val setClass = classOf[Seq[Int]].getName+"<Object>"
     val cachedSetPositions = ctx.addMutableState(setClass, "cachedSetPositions",
-      v => s"$v = ($setClass) scala.collection.Seq$$.MODULE$$.<Object>empty();")
+      v => s"$v = ($setClass) scala.collection.immutable.Seq$$.MODULE$$.<Object>empty();")
     val cachedRulePositions = ctx.addMutableState(setClass, "cachedRulePositions",
-      v => s"$v = ($setClass) scala.collection.Seq$$.MODULE$$.<Object>empty();")
+      v => s"$v = ($setClass) scala.collection.immutable.Seq$$.MODULE$$.<Object>empty();")
 
     val className = classOf[RuleResultExpression].getName
     val dataTypeName = classOf[DataType].getName
@@ -97,8 +110,8 @@ case class RuleResultExpression(children: Seq[Expression]) extends
 
     val companion = "com.sparkutils.quality.impl.RuleResultExpression"
 
-    val ruleSetResultClassName = "scala.Tuple2<InternalRow, scala.collection.Seq<Object>>"
-    val ruleResultClassName = "scala.Tuple2<Integer, scala.collection.Seq<Object>>"
+    val ruleSetResultClassName = "scala.Tuple2<InternalRow, scala.collection.immutable.Seq<Object>>"
+    val ruleResultClassName = "scala.Tuple2<Integer, scala.collection.immutable.Seq<Object>>"
 
     val dataTypeJava = CodeGenerator.boxedType(dataType)
 
@@ -111,19 +124,19 @@ case class RuleResultExpression(children: Seq[Expression]) extends
          boolean ${ev.isNull} = false;
          $dataTypeJava ${ev.value} = ${ CodeGenerator.defaultValue(dataType) };
 
-         if (${structCode.isNull} || ${structCode.isNull} || ${structCode.isNull} || ${structCode.isNull}) {
+         if (${structCode.isNull} || ${suiteCode.isNull} || ${setCode.isNull} || ${ruleCode.isNull}) {
            ${ev.isNull} = true;
          } else {
            ${classOf[InternalRow].getName} theStruct = ${structCode.value};
            Long suite = theStruct.getLong(0);
            if (suite == ${suiteCode.value}) {
               $ruleSetResultClassName ruleSetResult = $companion.getEntry(theStruct.getMap($extractResults), $cachedSetPositions, ${setCode.value}, $entryTypeRef);
-              $cachedSetPositions = (scala.collection.Seq<Object>) ruleSetResult._2();
+              $cachedSetPositions = (scala.collection.immutable.Seq<Object>) ruleSetResult._2();
               if (ruleSetResult._1() == null) {
                 ${ev.isNull} = true;
               } else {
                 $ruleResultClassName ruleResult = $companion.getEntry((($className)references[$referencesIndex]).access(ruleSetResult._1()), $cachedRulePositions, ${ruleCode.value}, $dataTypeRef);
-                $cachedRulePositions = (scala.collection.Seq<Object>) ruleResult._2();
+                $cachedRulePositions = (scala.collection.immutable.Seq<Object>) ruleResult._2();
                 if (ruleResult._1() == null) {
                   ${ev.isNull} = true;
                 } else {
@@ -140,8 +153,8 @@ case class RuleResultExpression(children: Seq[Expression]) extends
 
   lazy val (resultType, entryType, accessF) =
     children(0).dataType match {
-      case com.sparkutils.quality.types.expressionsResultsType =>
-        (expressionResultType, expressionsRuleSetType, (a: Any) => a.asInstanceOf[MapData] )
+      case ExpressionsResultsType(theType) =>
+        (theType, expressionsRuleSetType(theType), (a: Any) => a.asInstanceOf[MapData] )
       case com.sparkutils.quality.types.expressionsResultsNoDDLType =>
         (StringType, expressionsRuleSetNoDDLType, (a: Any) => a.asInstanceOf[MapData])
       case _ =>
@@ -156,6 +169,18 @@ case class RuleResultExpression(children: Seq[Expression]) extends
 
   override def inputDataTypes: Seq[Seq[DataType]] = Seq(
     Seq(ruleSuiteResultType, ruleSuiteDetailsResultType,
-      expressionsResultsType, expressionsResultsNoDDLType),
+      expressionsResultsType(expressionResultTypeYaml), expressionsResultsNoDDLType),
     Seq(LongType), Seq(LongType), Seq(LongType))
+
+  override def checkInputDataTypes(): TypeCheckResult = {
+    val res = ExpectsInputTypes.checkInputDataTypes(children, inputTypes)
+    if (res.isSuccess)
+      res
+    else
+      // is the resultType matching
+      children.head.dataType match {
+        case ExpressionsResultsType(_) => TypeCheckSuccess
+        case _ => res
+      }
+  }
 }

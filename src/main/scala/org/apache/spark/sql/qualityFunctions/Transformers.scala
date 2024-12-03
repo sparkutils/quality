@@ -1,7 +1,8 @@
 package org.apache.spark.sql.qualityFunctions
 
 import com.sparkutils.quality.QualityException.qualityException
-import com.sparkutils.quality.impl.{MapUtils, HigherOrderFunctionLike}
+import com.sparkutils.quality.impl.MapUtils
+import com.sparkutils.shim.expressions.HigherOrderFunctionLike
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
 import org.apache.spark.sql.catalyst.expressions.{Expression, HigherOrderFunction, LambdaFunction, Literal, NamedLambdaVariable}

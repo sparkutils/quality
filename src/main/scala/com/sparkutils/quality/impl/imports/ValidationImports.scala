@@ -1,9 +1,10 @@
 package com.sparkutils.quality.impl.imports
 
-import com.sparkutils.quality.impl.{ExpressionLookup, RuleError, RuleWarning, ShowParams, Validation}
+import com.sparkutils.quality.impl.{RuleError, RuleWarning, Validation}
 import com.sparkutils.quality.impl.util.RuleSuiteDocs.IdTrEither
 import com.sparkutils.quality.RuleSuite
-import com.sparkutils.quality.impl.util.RuleSuiteDocs
+import com.sparkutils.quality.impl.util.{ExpressionLookup, RuleSuiteDocs}
+import com.sparkutils.shim.ShowParams
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.{Column, DataFrame}
 

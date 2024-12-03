@@ -34,7 +34,7 @@ val gres =
 assert(gres == GeneralExpressionResult("'500'\n", "BIGINT"))
 ```
 
-To retrieve results in the correct type use [from_yaml](../sqlfunctions/#from_yaml) with the correct ddl.  As Spark needs an exact type for any expression you can't simply flatten or explode as with the other Quality runner types, each result can have it's own type.  As such it's recommended that the expressionRunner result row is cached and extraction is performed with one of the following pattern:
+To retrieve results in the correct type use [from_yaml](../../sqlfunctions/#from_yaml) with the correct ddl.  As Spark needs an exact type for any expression you can't simply flatten or explode as with the other Quality runner types, each result can have it's own type.  As such it's recommended that the expressionRunner result row is cached and extraction is performed with one of the following pattern:
 
 ```scala
 import sparkSession.implicits._

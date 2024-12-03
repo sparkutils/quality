@@ -33,7 +33,7 @@ case class RuleResultWithProcessor(ruleResult: RuleResult, runOnPassProcessor: i
   * Passed until any failure occurs
   */
 case class OverallResult(probablePass: Double = 0.8, currentResult: RuleResult = Passed) {
-  def process(ruleResult: RuleResult): OverallResult = copy(currentResult = impl.OverallResult.inplace(ruleResult, currentResult, probablePass))
+  def process(ruleResult: RuleResult): OverallResult = copy(currentResult = impl.OverallResultHelper.inplace(ruleResult, currentResult, probablePass))
 }
 
 /**
@@ -73,7 +73,7 @@ case class GeneralExpressionResult(ruleResult: String, resultDDL: String)
  * @param id
  * @param ruleSetResults
  */
-case class GeneralExpressionsResult(id: VersionedId, ruleSetResults: Map[VersionedId, Map[VersionedId, GeneralExpressionResult]]) extends Serializable
+case class GeneralExpressionsResult[R](id: VersionedId, ruleSetResults: Map[VersionedId, Map[VersionedId, R]]) extends Serializable
 
 /**
  * Represents the results of the ExpressionRunner after calling strip_result_ddl

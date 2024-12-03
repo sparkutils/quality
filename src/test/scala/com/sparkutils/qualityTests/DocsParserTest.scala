@@ -2,8 +2,9 @@ package com.sparkutils.qualityTests
 
 import com.sparkutils.quality.impl.util.{Docs, DocsParser}
 import org.junit.Test
+import org.scalatest.Matchers
 
-class DocsParserTest {
+class DocsParserTest extends Matchers {
 
   @Test
   def simpleParsingTest: Unit = {
@@ -14,6 +15,82 @@ class DocsParserTest {
     assert(res.contains(
       Docs("My Description", Map("name" -> "name desc", "othername" -> "othername desc"), "return val")
     ))
+  }
+
+  @Test
+  def leadingWhiteSpacesTest: Unit = {
+    val test = " \n\r\n\t  /** My Description @param name name desc @param othername othername desc @return return val*/ "
+
+    val res = DocsParser.parse(test)
+
+    assert(res.contains(
+      Docs("My Description", Map("name" -> "name desc", "othername" -> "othername desc"), "return val")
+    ))
+  }
+
+  @Test
+  def trailingWhiteSpacesWithAnnotationsTest: Unit = {
+    val test = "/** My Description @param name name desc @param othername othername desc @return return val*/  \n\r\n\t  @location"
+
+    val res = DocsParser.parse(test)
+
+    assert(res.contains(
+      Docs("My Description", Map("name" -> "name desc", "othername" -> "othername desc"), "return val")
+    ))
+  }
+
+  @Test
+  def multilineStarsOnLinesTest: Unit = {
+    val test =
+      """
+         /**
+          * My Description
+          * @param name name desc
+          * @param othername othername desc
+          * @return return val
+          */"""
+
+    val res = DocsParser.parse(test)
+
+    res should contain(
+      Docs("My Description", Map("name" -> "name desc", "othername" -> "othername desc"), "return val")
+    )
+  }
+
+  @Test
+  def emptyDescReturnStarsOnLinesTest: Unit = {
+    val test =
+      """
+       /**
+        * My Description
+        * @param name name desc
+        * @param othername othername desc
+        * @return
+        */"""
+
+    val res = DocsParser.parse(test)
+
+    res should contain(
+      Docs("My Description", Map("name" -> "name desc", "othername" -> "othername desc"), "")
+    )
+  }
+
+  @Test
+  def emptyDescParamStarsOnLinesTest: Unit = {
+    val test =
+      """
+     /**
+      * My Description
+      * @param name
+      * @param othername othername desc
+      * @return return val
+      */"""
+
+    val res = DocsParser.parse(test)
+
+    res should contain(
+      Docs("My Description", Map("name" -> "", "othername" -> "othername desc"), "return val")
+    )
   }
 
   @Test
