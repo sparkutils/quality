@@ -28,7 +28,7 @@ public class TestSuite {
 
             @Override
             public void testFinished(Description description){
-                System.out.println("in: " + ((System.currentTimeMillis() - start)/1000 ) + "s");
+                System.out.println(", finished in: " + ((System.currentTimeMillis() - start)/1000 ) + "s");
             }
 
         });

@@ -93,6 +93,9 @@ SparkTestUtils.setPath(fileLoc)
 Ideally at the end of your runs you'll see - after 10 minutes or so and some stdout - for example a run on DBR 15.4 provides:
 
 ```
+...
+Running: sequenceAsKeysDecimals(com.sparkutils.qualityTests.YamlTests), finished in: 1s
+
 Time: 633.686
 
 OK (416 tests)
