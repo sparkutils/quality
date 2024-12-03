@@ -4,6 +4,7 @@ import com.globalmentor.apache.hadoop.fs.BareLocalFileSystem
 import com.sparkutils.quality
 import com.sparkutils.quality.{RuleSuite, ruleRunner}
 import com.sparkutils.qualityTests.SparkTestUtils.getCorrectPlan
+import org.apache.spark.scheduler.cluster.CoarseGrainedClusterMessages.SparkAppConfig
 import org.apache.spark.sql.{Dataset, Row, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.{CodegenObjectFactoryMode, Expression}
 import org.apache.spark.sql.execution.{FileSourceScanExec, SparkPlan}
@@ -300,10 +301,11 @@ trait TestUtils {
   def not2_4_or_3_0_or_3_1(thunk: => Unit) =
     if (!Set("2.4", "3.0", "3.1").contains(sparkVersion)) thunk
 
-  lazy val onDatabricks = {
-    val dbfs = new File("/dbfs")
-    dbfs.exists
-  }
+  /**
+   * Assumes /dbfs existance proves running on Databricks
+   * @return
+   */
+  def onDatabricks: Boolean = TestUtilsEnvironment.onDatabricksFS
 
   /**
    * Don't run this test on Databricks - due to either running in a cluster or, in the case of trying for force soe's etc
@@ -362,5 +364,53 @@ trait TestUtils {
 
         res
     }.flatten
+
+}
+
+object TestUtilsEnvironment {
+
+  /**
+   * Checks if the master is local, if so it's likely tests, if spark.master is not defined it's false
+   */
+  def isLocal(sparkSession: SparkSession): Boolean =
+    sparkSession.conf.getOption("spark.master").fold(false)(_.toLowerCase().startsWith("local"))
+
+  lazy val onDatabricksFS = {
+    val dbfs = new File("/dbfs")
+    dbfs.exists
+  }
+
+  /**
+   * Databricks config is found on all delta running platforms, synapse/fabric _so far_ is not.  If any config
+   * starts with spark.synapse it is assumed to be running on synapse/fabric
+   * @param sparkSession
+   * @return
+   */
+  def onFabricOrSynapse(sparkSession: SparkSession): Boolean =
+    sparkSession.conf.getAll.exists(p => p._1.startsWith("spark.synapse"))
+
+  private var shouldCloseWasSet = false
+  private var shouldClose = true
+
+  /** allow test usage on non-build environments */
+  def setShouldCloseSession(shouldClose: Boolean): Unit = {
+    this.shouldClose = shouldClose
+    shouldCloseWasSet = true
+  }
+
+  lazy val shouldCloseSession = shouldClose
+
+  /**
+   * Only called from with in the test suite assume if the original values are not per default then they have been
+   * set that way.
+   * @param sparkSession if null it's assumed to be running locally, defaults win
+   */
+  def setupDefaults(sparkSession: SparkSession): Unit =
+    if (sparkSession ne null) {
+      if (!shouldCloseWasSet) {
+        shouldClose = isLocal(sparkSession) && !(onDatabricksFS || onFabricOrSynapse(sparkSession))
+      }
+    }
+
 
 }
