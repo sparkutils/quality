@@ -288,7 +288,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
   // 2.4 doesn't support forceInterpreted so we can't test that it _doesn't_ compile, databricks is cluster based so we'll not be able to capture it without dumping to files
   @Test
-  def testPrintCode(): Unit = not_Databricks{ not2_4 {
+  def testPrintCode(): Unit = not_Cluster{ not2_4 {
     // using eval we shouldn't get output
     forceInterpreted {
       doTestPrint(null, "my message is", null, null, "printCode")
@@ -342,7 +342,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
     // should fail
     try {
-      (df union df2 distinct).show
+      (df union df2 distinct).head//show
       fail("Is assumed to fail as spark doesn't order maps")
     } catch {
       case t: Throwable =>
@@ -356,7 +356,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     //comparable.show
     val unioned = comparable union comparable2 distinct
 
-    unioned.show
+    unioned.head
     assert(unioned.count == df.count)
   }
 
@@ -370,7 +370,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
       // should fail
       try {
-        (df union df2 distinct).show
+        (df union df2 distinct).head
         fail("Is assumed to fail as spark doesn't order maps")
       } catch {
         case t: Throwable =>
@@ -384,13 +384,13 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
       //comparable.show
       val unioned = comparable union comparable2 distinct
 
-      unioned.show
+      unioned.head
       if (thereCanBeOnlyOne)
         assert(unioned.count == 1)
       else
         assert(unioned.count == df.count)
 
-      unioned.sort("v").show
+      debug(unioned.sort("v").show)
     }
 
     // arrays
@@ -431,7 +431,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
     // should fail
     try {
-      (ds1 union ds2 distinct).show
+      (ds1 union ds2 distinct).head
       fail("Is assumed to fail as spark doesn't order maps")
     } catch {
       case t: Throwable =>
@@ -445,7 +445,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     //comparable.show
     val unioned = comparable union comparable2 distinct
 
-    unioned.show
+    unioned.head
     assert(unioned.count == 1) // because all 4 are identical
   }
 
@@ -458,11 +458,11 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
     import sparkSession.implicits._
     val ds = maps.reverse.map(m => MapArray(Seq(m.toMap))).toDS()
-    ds.show
+    ds.head
 
     // should fail
     try {
-      ds.sort("seq").show
+      ds.sort("seq").head
       fail("Is assumed to fail as spark doesn't order maps")
     } catch {
       case t: Throwable =>
@@ -473,7 +473,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     val comparable = ds.toDF.selectExpr("comparableMaps(seq) seq")
 
     val sorted = comparable.sort("seq").selectExpr("reverseComparableMaps(seq) seq").as[MapArray]
-    sorted.show
+    sorted.head
     sorted.collect().zipWithIndex.foreach{
       case (map,index) =>
         assert(map.seq(0) == maps(index).toMap) // because all 4 are identical
@@ -494,11 +494,11 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
     import sparkSession.implicits._
     val ds = maps.reverse.map(m => NestedMapStruct(NestedStruct(m.head._1, Map( m.head._1 -> MapArray(Seq(m.toMap)))))).toDS()
-    ds.show
+    ds.head
 
     // should fail
     try {
-      ds.sort("nested").show
+      ds.sort("nested").head
       fail("Is assumed to fail as spark doesn't order maps")
     } catch {
       case t: Throwable =>
@@ -509,7 +509,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     val comparable = ds.toDF.selectExpr("comparableMaps(nested) seq")
 
     val sorted = comparable.sort("seq").selectExpr("reverseComparableMaps(seq) nested").as[NestedMapStruct]
-    sorted.show
+    sorted.head
     sorted.collect().zipWithIndex.foreach {
       case (struct, index) =>
         assert(struct.nested.nested.head._2.seq(0) == maps(index).toMap) // because all 4 are identical
@@ -733,7 +733,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
   @Test
   def checkMinimumLengthWorks(): Unit =
     try {
-      sparkSession.range(1).selectExpr("hash_with()").show
+      sparkSession.range(1).selectExpr("hash_with()").head
       fail("should have thrown")
     } catch {
       case t: Throwable if t.getMessage.contains("A minimum of 2 parameters is required") =>

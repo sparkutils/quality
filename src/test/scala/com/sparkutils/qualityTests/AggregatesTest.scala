@@ -23,7 +23,7 @@ class AggregatesTest extends FunSuite with TestUtils {
     val mapCountExpr = df.select(expr(sql).as("mapCountExpr"))
 
     val map = mapCountExpr.head().getAs[Map[Long, Long]]("mapCountExpr")
-    println(map)
+    debug(println(map))
 
     assert(19 == map.size, "Should have had the full 1 until 20 items")
     assert( map.forall(_._2 == factor), "all entries should have had factor as the value")
@@ -60,7 +60,7 @@ class AggregatesTest extends FunSuite with TestUtils {
 
     val summed = df.select(agg_expr(LongType, col("id") % 2 > 0, sum_with(sum => sum + col("id")), results_with( (sum, count) => sum / count ) ).as("aggExpr"))
 
-    summed.show(1)
+    debug(summed.show(1))
 
     val set = (1 to 20).filter(_ % 2 > 0)
 
@@ -68,13 +68,13 @@ class AggregatesTest extends FunSuite with TestUtils {
 
     val summedNameF = df.select(agg_expr(LongType, col("id") % 2 > 0, inc, meanf).as("aggExpr"))
 
-    summedNameF.show(1)
+    debug(summedNameF.show(1))
 
     assert(summedNameF.head().getAs[Double]("aggExpr") == 1.0, "aggExpr did not have the correct math from NameF")
 
     val summedNameFParam = df.select(agg_expr(LongType, col("id") % 2 > 0, inc(col("id")), meanf).as("aggExpr"))
 
-    summedNameFParam.show(1)
+    debug(summedNameFParam.show(1))
 
     assert(summedNameFParam.head().getAs[Double]("aggExpr") ==  (set.sum / set.size), "aggExpr did not have the correct math from NameFParam")
   }
@@ -86,7 +86,7 @@ class AggregatesTest extends FunSuite with TestUtils {
 
     val summed = df.select(expr("aggExpr(id % 2 > 0, sumWith(sum -> sum + id), resultsWith( (sum, count) -> sum / count ) )").as("aggExpr"))
 
-    summed.show(1)
+    debug(summed.show(1))
 
     val set = (1 to 20).filter(_ % 2 > 0)
 
@@ -94,13 +94,13 @@ class AggregatesTest extends FunSuite with TestUtils {
 
     val summedNameF = df.select(expr("aggExpr(id % 2 > 0, inc(), meanF() )").as("aggExpr"))
 
-    summedNameF.show(1)
+    debug(summedNameF.show(1))
 
     assert(summedNameF.head().getAs[Double]("aggExpr") == 1.0, "aggExpr did not have the correct math from NameF")
 
     val summedNameFParam = df.select(expr("aggExpr(id % 2 > 0, inc(id), meanF() )").as("aggExpr"))
 
-    summedNameFParam.show(1)
+    debug(summedNameFParam.show(1))
 
     assert(summedNameFParam.head().getAs[Double]("aggExpr") ==  (set.sum / set.size), "aggExpr did not have the correct math from NameFParam")
   }

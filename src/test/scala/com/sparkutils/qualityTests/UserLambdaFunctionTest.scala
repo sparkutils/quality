@@ -35,7 +35,7 @@ class UserLambdaFunctionTest extends FunSuite with TestUtils {
       sparkSession.range(1).selectExpr("simple_bp_posting('a_rule', null) as test")
         //"named_struct('e', decimal(null), 'f', 1) as test")//" q1(1, null) as test")//simple_bp_posting('a_rule', null) as test")
 
-    ndf.show
+    ndf.head
 
   }
 
@@ -70,7 +70,7 @@ class UserLambdaFunctionTest extends FunSuite with TestUtils {
   }
 
   def doTest(ndf: DataFrame): Unit = {
-    ndf.show()
+    debug{ndf.show()}
     ndf.collect().foreach{r => assert(r.getAs[Double]("newcalc") == r.getAs[Int]("value") * r.getAs[Double]("ccyrate")) }
   }
 
@@ -157,7 +157,7 @@ class UserLambdaFunctionTest extends FunSuite with TestUtils {
 
     val ndf = df.withColumn("newcalc", expr("multThenAddWhenCHFOrValue(value, ccy, ccyrate)"))
 
-    ndf.show()
+    debug(ndf.show())
     ndf.collect().foreach{r => assert( r.getAs[Double]("newcalc") == (if (r.getAs[String]("ccy") == "CHF")
         (r.getAs[Int]("value") * r.getAs[Double]("ccyrate")) + r.getAs[Int]("value")
       else

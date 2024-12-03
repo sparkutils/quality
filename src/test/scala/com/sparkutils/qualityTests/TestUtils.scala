@@ -4,7 +4,6 @@ import com.globalmentor.apache.hadoop.fs.BareLocalFileSystem
 import com.sparkutils.quality
 import com.sparkutils.quality.{RuleSuite, ruleRunner}
 import com.sparkutils.qualityTests.SparkTestUtils.getCorrectPlan
-import org.apache.spark.scheduler.cluster.CoarseGrainedClusterMessages.SparkAppConfig
 import org.apache.spark.sql.{Dataset, Row, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.{CodegenObjectFactoryMode, Expression}
 import org.apache.spark.sql.execution.{FileSourceScanExec, SparkPlan}
@@ -308,11 +307,17 @@ trait TestUtils {
   def onDatabricks: Boolean = TestUtilsEnvironment.onDatabricksFS
 
   /**
+   * Should prefer not_Cluster as it works for fabric as well
+   *
    * Don't run this test on Databricks - due to either running in a cluster or, in the case of trying for force soe's etc
    * because Databricks defaults and Codegen are different
    */
+  @deprecated
   def not_Databricks(thunk: => Unit) =
     if (!onDatabricks) thunk
+
+  def not_Cluster(thunk: => Unit) =
+    if (TestUtilsEnvironment.shouldRunClusterTests) thunk
 
   /**
    * Only run when the extension is enabled
@@ -365,6 +370,8 @@ trait TestUtils {
         res
     }.flatten
 
+  def debug(thunk: => Unit): Unit =
+    TestUtilsEnvironment.debug(thunk)
 }
 
 object TestUtilsEnvironment {
@@ -389,28 +396,51 @@ object TestUtilsEnvironment {
   def onFabricOrSynapse(sparkSession: SparkSession): Boolean =
     sparkSession.conf.getAll.exists(p => p._1.startsWith("spark.synapse"))
 
-  private var shouldCloseWasSet = false
-  private var shouldClose = true
+  private var shouldRunClusterTestsWasSet = false
+  private var shouldRunClusterTestsV = true
 
   /** allow test usage on non-build environments */
-  def setShouldCloseSession(shouldClose: Boolean): Unit = {
-    this.shouldClose = shouldClose
-    shouldCloseWasSet = true
+  def setshouldRunClusterTests(shouldClose: Boolean): Unit = {
+    this.shouldRunClusterTestsV = shouldClose
+    shouldRunClusterTestsWasSet = true
   }
 
-  lazy val shouldCloseSession = shouldClose
+  lazy val shouldRunClusterTests = shouldRunClusterTestsV
+
+  private var shouldDebugLogWasSet = false
+  private var shouldDebugLogv = false
+
+  /** allow test usage on non-build environments */
+  def setShouldDebugLog(shouldDebugLog: Boolean): Unit = {
+    shouldDebugLogv = shouldDebugLog
+    shouldDebugLogWasSet = true
+  }
+
+  lazy val shouldDebugLog = shouldDebugLogv
 
   /**
    * Only called from with in the test suite assume if the original values are not per default then they have been
    * set that way.
+   * If shouldCloseSession is false and debug logging was not explicitly enabled then debug logging is disabled (protecting against any accidental defaulting of true).
    * @param sparkSession if null it's assumed to be running locally, defaults win
    */
   def setupDefaults(sparkSession: SparkSession): Unit =
     if (sparkSession ne null) {
-      if (!shouldCloseWasSet) {
-        shouldClose = isLocal(sparkSession) && !(onDatabricksFS || onFabricOrSynapse(sparkSession))
+      if (!shouldRunClusterTestsWasSet) {
+        setshouldRunClusterTests( isLocal(sparkSession) && !(onDatabricksFS || onFabricOrSynapse(sparkSession)) )
+      }
+      if (!shouldDebugLogWasSet) {
+        if (!shouldRunClusterTestsV) {
+          setShouldDebugLog(false)
+        }
       }
     }
 
+  def setupDefaultsViaCurrentSession(): Unit =
+    SparkSession.getActiveSession.foreach(setupDefaults(_))
 
+  def debug(thunk: => Unit): Unit =
+    if (shouldDebugLog) {
+      thunk
+    }
 }
