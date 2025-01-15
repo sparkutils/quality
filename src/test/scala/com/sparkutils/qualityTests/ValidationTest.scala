@@ -471,11 +471,11 @@ class ValidationTest extends FunSuite with TestUtils {
 
     assert(sorted match {
       case Seq(
-      RuleViewError("theview", Id(4,1)),
-      OutputRuleViewError("theview", Id(7,1)),
-      LambdaViewError("theview", Id(16,1))
-      )
-      => true
+        RuleViewError("theview", Id(4,1)),
+        OutputRuleViewError("theview", Id(7,1)),
+        LambdaViewError("theview", Id(16,1))
+        )
+        => true
       case _ => false
     } )
 

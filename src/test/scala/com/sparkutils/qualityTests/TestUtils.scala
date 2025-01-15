@@ -242,7 +242,7 @@ trait TestUtils {
 
   lazy val sparkFullVersion = {
     val pos = classOf[Expression].getPackage.getSpecificationVersion
-    if (pos eq null) // DBR is always null
+    if ((pos eq null) || pos == "0.0") // DBR is always null, Fabric 0.0
       SparkSession.active.version
     else
       pos
@@ -251,6 +251,7 @@ trait TestUtils {
   lazy val sparkVersion = {
     sparkFullVersion.split('.').take(2).mkString(".")
   }
+  println()
 
   /**
    * Don't run this test on 2.4 - typically due to not being able to control code gen properly
@@ -302,6 +303,7 @@ trait TestUtils {
 
   /**
    * Assumes /dbfs existance proves running on Databricks
+   * Prefer not_Cluster for pure cluster tests.
    * @return
    */
   def onDatabricks: Boolean = TestUtilsEnvironment.onDatabricksFS

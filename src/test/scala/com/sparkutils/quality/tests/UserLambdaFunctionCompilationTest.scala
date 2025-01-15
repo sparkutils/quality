@@ -124,7 +124,7 @@ class UserLambdaFunctionCompilationTest extends FunSuite with TestUtils {
     System.setProperty("quality.lambdaHandlers",s"bottom=${classOf[TestHandler].getName}")
     doSimpleNested
 
-    if (!onDatabricks) {
+    not_Cluster {
       // we'll functionally test it but these are set on other jvms
       assert(calledShouldTransform.get, true)
       assert(calledTransform.get, true)
