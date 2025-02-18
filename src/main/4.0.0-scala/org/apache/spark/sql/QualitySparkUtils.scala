@@ -8,6 +8,7 @@ import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, R
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, EqualNullSafe, Expression, ExpressionSet, Literal, UpdateFields}
 import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, UnaryNode}
 import org.apache.spark.sql.catalyst.rules.Rule
+import org.apache.spark.sql.classic.ClassicConversions.castToImpl
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.util.Utils
 
@@ -262,6 +263,6 @@ object QualitySparkUtils {
     )
 
 
-  type DatasetBase[F] = org.apache.spark.sql.api.Dataset[F]
+  type DatasetBase[F] = org.apache.spark.sql.Dataset[F]
 
 }

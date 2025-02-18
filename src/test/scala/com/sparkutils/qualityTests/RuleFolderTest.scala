@@ -3,8 +3,10 @@ package com.sparkutils.qualityTests
 import com.sparkutils.quality._
 import com.sparkutils.quality.functions.flatten_folder_results
 import com.sparkutils.quality.impl.RunOnPassProcessor
+import frameless.TypedExpressionEncoder
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.QualitySparkUtils.DatasetBase
+import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder
 import org.apache.spark.sql.catalyst.expressions.Literal
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.{IntegerType, StringType, StructField, StructType}
@@ -146,7 +148,7 @@ class RuleFolderTest extends FunSuite with TestUtils {
 
   def doReplaceTest(outdf: DataFrame): Unit = {
     import sparkSession.implicits._
-    outdf.show
+    //outdf.show
     val res = outdf.filter("subcode is not null").as[TestOn].collect()
 
     assert(res(0) == TestOn("edt", "4201", 1234))
@@ -208,13 +210,15 @@ class RuleFolderTest extends FunSuite with TestUtils {
     assert(fields.toSeq == Seq("foldedFields", "account", "product", "subcode"))
   }
 
+  // Below seem to have issues with casting as[ the fields are swapped.
+
   @Test
   def testSimpleProductionRulesReplaceDebug(): Unit = doTestSimpleProductionRulesReplaceDebug(false)
 
   @Test
   def testSimpleProductionRulesReplaceDebugSet(): Unit = doTestSimpleProductionRulesReplaceDebug(true)
 
-  def doTestSimpleProductionRulesReplaceDebug(useSetSyntax: Boolean): Unit = forceCodeGen {
+  def doTestSimpleProductionRulesReplaceDebug(useSetSyntax: Boolean): Unit = forceInterpreted {
     val (testDataDF, ruleSuite) = testAndRulesForReplace(useSetSyntax)
 
     val outdf = testDataDF.transform(foldAndReplaceFields(ruleSuite, Seq("account", "product", "subcode"), debugMode = true)).asInstanceOf[DataFrame]
@@ -224,19 +228,32 @@ class RuleFolderTest extends FunSuite with TestUtils {
     //val results = outdf.select("together.*").selectExpr("explode(result)").select("col.*").select("result.*")
     // results.show
     import com.sparkutils.quality.implicits._
-    val res = outdf.select("foldedFields.*").as[RuleFolderResult[Seq[(Int,TestOn)]]].collect()
+    val enc = TypedExpressionEncoder[RuleFolderResult[Seq[(Int,TestOn)]]]
+    val res = outdf.select("foldedFields.*").as(enc).collect()
 
-    // purposefully the wrong way around in the call, and the encoder is positional so we need to flip here
+    val expectedRaw = Seq(
+      Seq((1000, TestOn("4201", "edt", 1234))),
+      Seq((1000, TestOn("to", "fx", 90))),
+      Seq((1000, TestOn("to", "fxotc", 40))),
+      Seq((1000, TestOn("from", "eqotc", 60)), (1001, TestOn("from_fruit", "eqotc", 6000)))
+    )
+    val expected =
+      if (enc.isInstanceOf[ExpressionEncoder[RuleFolderResult[Seq[(Int,TestOn)]]]])
+      // purposefully the wrong way around in the call, and the encoder is positional so we need to flip here
+        expectedRaw
+      else
+        // for Spark 4 (sparkutils frameless 1.x) positional doesn't really exist (compatible does, but names will always be used)
+        // the type will be AgnosticEncoder
+        expectedRaw.map(s => s.map(p => p.copy(_2 = p._2.copy(product = p._2.account, account = p._2.product))))
+
     // this row will fail as the 0.6 doesn't class as a pass for the output expression - regardless of overall status
-    assert(res(0).result.contains( Seq((1000, TestOn("4201", "edt", 1234)))) )
+    assert(res(0).result.contains( expected(0) ) )
 
-    //    TestOn("fxotc", "4201", 40),
-    assert(res(3).result.contains(Seq((1000, TestOn("to", "fx", 90)))))
-    assert(res(4).result.contains(Seq((1000, TestOn("to", "fxotc", 40)))))
+    assert(res(3).result.contains( expected(1) ))
+    assert(res(4).result.contains( expected(2) ))
 
     // did the field replace work
-    assert(res(5).result.contains(Seq((1000, TestOn("from", "eqotc", 60)), (1001, TestOn("from_fruit", "eqotc", 6000)))))
-
+    assert(res(5).result.contains( expected(3) ))
   }
 
   @Test

@@ -42,7 +42,8 @@ private[quality] object RuleFolderRunnerUtils extends RuleFolderRunnerImports {
 case class RuleFolderRunner(ruleSuite: RuleSuite, left: Expression, right: Expression, resultDataType: () => DataType,
                             compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
                             variableFuncGroup: Int, forceRunnerEval: Boolean, expressionOffsets: Array[Int],
-                            dataRef: AtomicReference[DataType], forceTriggerEval: Boolean) extends BinaryExpression with NonSQLExpression with CodegenFallback {
+                            dataRef: AtomicReference[DataType], forceTriggerEval: Boolean
+                           ) extends BinaryExpression with NonSQLExpression with CodegenFallback {
 
   // hack to push type through to lambda's, resolution only happens on driver but only works with a projection e.g. withColumn or introducing an extra column
   if (left.resolved) {
@@ -171,5 +172,13 @@ case class RuleFolderRunner(ruleSuite: RuleSuite, left: Expression, right: Expre
 
   }
 
-  protected def withNewChildrenInternal(newLeft: Expression, newRight: Expression): Expression = copy(left = newLeft, right = newRight)
+  protected def withNewChildrenInternal(newLeft: Expression, newRight: Expression): Expression = {
+    // Spark 4 re-orders the checking of types, so we don't have a type until resolving
+    // as such we need to now force resolved to true - dropping 2.4 anyway
+    val c = newRight.transform{
+      case RefExpressionLazyType(a, n, false) =>
+        RefExpressionLazyType(a, n, true)
+    }
+    copy(left = newLeft, right = c)
+  }
 }

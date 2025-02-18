@@ -11,6 +11,8 @@ import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression, HigherO
 import org.apache.spark.sql.qualityFunctions.SubQueryLambda.namedToOuterReference
 import org.apache.spark.sql.types.{AbstractDataType, DataType}
 
+import java.util.concurrent.atomic.AtomicReference
+
 /**
  * Wraps other expressions and stores the result in an RefExpression -
  */
@@ -100,17 +102,17 @@ case class RefExpression(dataType: DataType,
  * @param dataTypeF
  * @param nullable
  */
-case class RefExpressionLazyType(dataTypeF: () => DataType,
-                                 nullable: Boolean)
+case class RefExpressionLazyType(dataTypeF: AtomicReference[DataType],
+                                 nullable: Boolean, _resolved: Boolean = true)
   extends LeafExpression with RefCodeGen {
 
   var value: Any = _
 
   override def eval(input: InternalRow): Any = value
 
-  override lazy val resolved: Boolean = true
+  override lazy val resolved: Boolean = _resolved
 
-  def dataType: DataType = dataTypeF()
+  def dataType: DataType = dataTypeF.get()
 
 }
 

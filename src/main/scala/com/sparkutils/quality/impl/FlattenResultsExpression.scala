@@ -3,6 +3,7 @@ package com.sparkutils.quality.impl
 import com.sparkutils.quality._
 import types._
 import com.sparkutils.quality.impl.util.Serializing
+import org.apache.spark.sql.ShimUtils
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
@@ -30,7 +31,7 @@ object FlattenStruct {
    * @return
    */
   def ruleSuiteDeserializer =
-    Encoders.ruleSuiteResultExpEnc.asInstanceOf[ExpressionEncoder[RuleSuiteResult]].resolveAndBind().deserializer
+    ShimUtils.expressionEncoder(Encoders.ruleSuiteResultExpEnc).resolveAndBind().deserializer
 }
 
 // NB actually adding the variables requires Star's, they only exist in plans against names

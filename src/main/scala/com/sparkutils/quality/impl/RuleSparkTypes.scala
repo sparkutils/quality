@@ -26,7 +26,7 @@ trait RuleSparkTypes {
   val ruleSuiteDetailsResultType: StructType = StructType(Seq(StructField("id", packedIdType), ruleSetsType ))
 
   /** Unlike DQ results the results of the expression are cast to string, with the original DDL */
-  val expressionResultTypeYaml: StructType = StructType(Seq(StructField("result", StringType), StructField("resultDDL", StringType)))
+  val expressionResultTypeYaml: StructType = StructType(Seq(StructField("ruleResult", StringType), StructField("resultDDL", StringType)))
   /** A given ruleSet's results of packedId's expressionResultType, with the original DDL */
   def expressionsRuleSetType(endType: DataType): MapType = MapType(packedIdType, endType)
   /** The collection of expression ruleSet's results, with the original DDL */
