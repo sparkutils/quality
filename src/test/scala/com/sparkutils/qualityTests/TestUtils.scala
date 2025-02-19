@@ -2,6 +2,7 @@ package com.sparkutils.qualityTests
 
 import com.globalmentor.apache.hadoop.fs.BareLocalFileSystem
 import com.sparkutils.quality
+import com.sparkutils.quality.impl.util.SparkVersions
 import com.sparkutils.quality.{RuleSuite, ruleRunner}
 import com.sparkutils.qualityTests.SparkTestUtils.getCorrectPlan
 import org.apache.spark.sql.QualitySparkUtils.DatasetBase
@@ -241,17 +242,9 @@ trait TestUtils {
     assert(passed == runs, "Should have passed all of them, nothing has changed in between runs")
   }
 
-  lazy val sparkFullVersion = {
-    val pos = classOf[Expression].getPackage.getSpecificationVersion
-    if (pos eq null) // DBR is always null
-      SparkSession.active.version
-    else
-      pos
-  }
+  def sparkFullVersion = SparkVersions.sparkFullVersion
 
-  lazy val sparkVersion = {
-    sparkFullVersion.split('.').take(2).mkString(".")
-  }
+  def sparkVersion = SparkVersions.sparkVersion
 
   /**
    * Don't run this test on 2.4 - typically due to not being able to control code gen properly

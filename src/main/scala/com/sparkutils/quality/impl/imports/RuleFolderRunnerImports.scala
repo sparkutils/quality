@@ -51,7 +51,7 @@ trait RuleFolderRunnerImports {
         starter
     }
 
-    val lazyRef = RefExpressionLazyType(dataRef, true, false)
+    val lazyRef = RefExpressionLazyType(dataRef, true)
 
     val liftLambda = (e: Expression) => FunN(Seq(lazyRef), e)
 

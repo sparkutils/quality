@@ -38,11 +38,11 @@ protected[quality] object AddDataFunctions {
         withFolder.schema.map(_.name)
       else
         Seq()
-    // lift the results TODO Spark4 throws with -1 on an empty try_element_at is only from 3.3.0 onwards
+    // lift the results
     val result =
       if (debugMode)
         withFolder.drop(fields : _*).selectExpr("*",
-          s"try_element_at($foldFieldName.result, -1).result as $tempFoldDebugName"
+          s"if(size($foldFieldName.result) == 0 or $foldFieldName.result is null, null, element_at($foldFieldName.result, -1)).result as $tempFoldDebugName"
         ).selectExpr("*", s"$tempFoldDebugName.*").drop(tempFoldDebugName)
       else
         withFolder.drop(fields : _*).selectExpr("*", s"$foldFieldName.result.*" )

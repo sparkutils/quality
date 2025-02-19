@@ -7,9 +7,10 @@ import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
 import org.apache.spark.sql.catalyst.expressions.{Expression, Literal, Unevaluable, UnsafeArrayData}
 import org.apache.spark.sql.catalyst.util.ArrayData
 import org.apache.spark.sql.types.{BooleanType, DataType, StructType}
-import java.util.concurrent.atomic.AtomicBoolean
 
+import java.util.concurrent.atomic.AtomicBoolean
 import org.apache.spark.internal.Logging
+import org.apache.spark.sql.SparkSession
 
 import scala.reflect.ClassTag
 
@@ -256,4 +257,24 @@ object Arrays {
       case _ => array.array
     }
 
+}
+
+/**
+ * With the introduction of the 4 runtime folder needs different
+ * resolved behaviour on lazytyperef, as such these move here
+ * from TestUtils
+ */
+object SparkVersions {
+
+  lazy val sparkFullVersion = {
+    val pos = classOf[Expression].getPackage.getSpecificationVersion
+    if (pos eq null) // DBR is always null
+      SparkSession.active.version
+    else
+      pos
+  }
+
+  lazy val sparkVersion = sparkFullVersion.split('.').take(2).mkString(".")
+
+  lazy val sparkMajorVersion = sparkFullVersion.split('.').head
 }

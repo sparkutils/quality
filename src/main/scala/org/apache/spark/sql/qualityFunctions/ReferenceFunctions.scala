@@ -2,6 +2,7 @@ package org.apache.spark.sql.qualityFunctions
 
 import com.sparkutils.quality.QualityException
 import com.sparkutils.quality.impl.RuleLogicUtils
+import com.sparkutils.quality.impl.util.SparkVersions
 import com.sparkutils.shim.expressions.HigherOrderFunctionLike
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{TypeCheckResult, UnresolvedAttribute}
@@ -97,13 +98,26 @@ case class RefExpression(dataType: DataType,
 
 }
 
+object RefExpressionLazyType {
+  /**
+   * Spark v4 calls checkArguments before the children are resolved
+   * This means a null type is returned causing a match exception
+   * Simply using false means the entire expression won't resolve.
+   * As such the default on v4 is false.
+   * NB Spark > 3.x will use withNewChildren allowing a transform before creating.
+   */
+  lazy val defaultResolved: Boolean = SparkVersions.sparkMajorVersion.toInt < 4
+}
+
 /**
  * Getter, trimmed version of NamedLambdaVariable as it should never be resolved
  * @param dataTypeF
  * @param nullable
  */
-case class RefExpressionLazyType(dataTypeF: AtomicReference[DataType],
-                                 nullable: Boolean, _resolved: Boolean = true)
+case class RefExpressionLazyType(
+  dataTypeF: AtomicReference[DataType],
+  nullable: Boolean,
+  _resolved: Boolean = RefExpressionLazyType.defaultResolved)
   extends LeafExpression with RefCodeGen {
 
   var value: Any = _
