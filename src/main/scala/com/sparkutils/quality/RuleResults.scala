@@ -63,10 +63,13 @@ case class RuleSuiteResult(id: VersionedId, overallResult: RuleResult, ruleSetRe
 
 /**
  * Represents the expression results of ExpressionRunner
- * @param ruleResult the result casted to string
+ * @param result the result casted to string
  * @param resultDDL the result type in ddl
  */
-case class GeneralExpressionResult(ruleResult: String, resultDDL: String)
+case class GeneralExpressionResult(result: String, resultDDL: String) {
+  // provided for compatibility
+  def ruleResult: String = result
+}
 
 /**
  * Represents the results of the ExpressionRunner

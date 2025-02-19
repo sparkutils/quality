@@ -16,6 +16,7 @@ import org.scalatest.FunSuite
 
 import java.util.UUID
 import com.sparkutils.quality.impl.yaml.{YamlDecoderExpr, YamlEncoderExpr}
+import frameless.TypedExpressionEncoder
 import org.apache.spark.sql.ShimUtils.expression
 
 import scala.language.postfixOps
@@ -637,11 +638,16 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
     val processed = taddDataQuality(sparkSession.range(1000).toDF, rowrs).select(expressionRunner(rs, renderOptions = Map("useFullScalarType" -> "true")))
 
+    val firstId = Id(30,3)
+    val firstRes = "!!java.lang.Long '499500'\n"
     val res = processed.selectExpr("expressionResults.*").as[GeneralExpressionsResult[GeneralExpressionResult]].head()
     assert(res == GeneralExpressionsResult[GeneralExpressionResult](Id(10, 2), Map(Id(20, 1) -> Map(
-      Id(30, 3) -> GeneralExpressionResult("!!java.lang.Long '499500'\n", "BIGINT"),
+      firstId -> GeneralExpressionResult(firstRes, "BIGINT"),
       Id(31, 3) -> GeneralExpressionResult("!!java.lang.Long '500'\n", "BIGINT")
     ))))
+
+    // just to test the forwarder for code compat
+    assert(res.ruleSetResults.head._2(firstId).ruleResult == firstRes)
 
     val gres =
       processed.selectExpr("rule_result(expressionResults, pack_ints(10,2), pack_ints(20,1), pack_ints(31,3)) rr")
