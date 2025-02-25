@@ -4,8 +4,9 @@ import com.sparkutils.quality.{Id, LambdaFunction, registerLambdaFunctions}
 import com.sparkutils.quality.impl.RuleRegistrationFunctions.INC_REWRITE_GENEXP_ERR_MSG
 import com.sparkutils.quality.functions._
 import com.sparkutils.qualityTests.mapLookup.TradeTests._
+import org.apache.spark.SparkException
 import org.apache.spark.sql.catalyst.expressions.GenericRowWithSchema
-import org.apache.spark.sql.functions.{col, expr, lit, struct, concat, when}
+import org.apache.spark.sql.functions.{col, concat, expr, lit, struct, when}
 import org.apache.spark.sql.types.{DecimalType, LongType, MapType, StringType, StructField, StructType}
 import org.apache.spark.sql.{Column, DataFrame, Dataset}
 import org.junit.Test
@@ -28,15 +29,72 @@ class AggregatesTest extends FunSuite with TestUtils {
     assert(19 == map.size, "Should have had the full 1 until 20 items")
     assert( map.forall(_._2 == factor), "all entries should have had factor as the value")
   }
-
   val mapTestSql = "aggExpr('MAP<LONG, LONG>',1 > 0, mapWith(id, entry -> entry + 1 ), returnSum() )"
 
   val mapDeprecatedTestSql = "aggExpr(1 > 0, mapWith('MAP<LONG, LONG>', id, entry -> entry + 1 ), returnSum('MAP<LONG, LONG>') )"
+
 
   // doesn't ever see the number in the map
   @Test
   def mapTest: Unit =
     doMapTest(identity, mapTestSql)
+
+  /**
+   * odd case map_with and constant params, Spark triggers it without full instantiation, the indexMap is null,
+   * swapping for lazy val works and triggers type errors
+   */
+  @Test
+  def mapWithConstants(): Unit = forceInterpreted {
+    try {
+      import sparkSession.implicits._
+
+      // register the various Quality sql functions as used below
+      com.sparkutils.quality.registerQualityFunctions()
+      val data = Seq(
+        PhoneStuff(1, 1, "iphone4", "ios", "celluer1"),
+        PhoneStuff(1, 2, "oppo", "android", "celluer2"),
+        PhoneStuff(1, 3, "vivo", "android", "celluer2"),
+        PhoneStuff(1, 4, "pixel", "android", "celluer3"),
+        PhoneStuff(1, 5, "iphone6", "ios", "celluer3"),
+        PhoneStuff(2, 3, "iphone4", "ios", "celluer1"),
+        PhoneStuff(2, 3, "oppo", "ios", "celluer1"),
+        PhoneStuff(2, 3, "vivo", "ios", "celluer4"),
+        PhoneStuff(2, 1, "pixel", "android", "celluer3"),
+        PhoneStuff(2, 1, "pixel", "android", "celluer3"),
+        PhoneStuff(2, 2, "iphone6", "ios", "celluer4"),
+        PhoneStuff(1, 1, "iphone4", "ios", "celluer1")
+      ).toDS()
+
+      def ddl(groupOn: String) =
+        s"MAP<STRUCT<hr:LONG, user:LONG, $groupOn: STRING>, LONG>"
+
+      def unique(groupOn: String, countOn: String) =
+        s"agg_expr('${ddl(groupOn)}', 1 > 0, map_with(struct('hr','user','$groupOn'), entry -> entry + 1), results_with( (sum, count) -> sum) ) $countOn"
+
+      data.selectExpr(unique("mobile_type", "mobile_count")).collect()
+
+      // below doesn't work as the indexes are incorrect TODO build a test case for it, likely drop index caching
+      /*
+      def uniqueSub(additionalGroup: Column): Column =
+        agg_expr(MapType(StringType, LongType), lit(1L) > lit(0L),
+          map_with(additionalGroup, col => col + lit(1L)), return_sum)
+
+      // looks good but really doesn't work well, it's just not built for it
+
+      data.groupBy("hr", "user").agg(
+        uniqueSub($"mobile").alias("mobile_count"),
+        uniqueSub($"mobile_type").alias("mobile_type_count"),
+        uniqueSub($"sim_type").alias("sim_type_count"),
+      ).show
+*/
+    } catch {
+      case t: SparkException if !t.getCause.isInstanceOf[NullPointerException]
+        && t.getMessage.contains("String")
+        => //passes
+        ()
+      case t: Throwable => throw t
+    }
+  }
 
   // should see lots of the number in the map, was untested under 0.4's
   @Test
@@ -306,3 +364,5 @@ class AggregatesTest extends FunSuite with TestUtils {
   def decimalPrecisionDeprecatedIncTest = doDecimalPrecisionTest(  expr("aggExpr(dec IS NOT NULL, inc('DECIMAL(38,18)', dec ), returnSum('DECIMAL(38,18)')) as agg" ) )
 
 }
+
+case class PhoneStuff(hr: Long, user: Long, mobile: String, mobile_type: String, sim_type: String)

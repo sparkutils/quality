@@ -30,8 +30,8 @@ case class MapTransform(argument: Expression, key: Expression, function: Express
     zeroF(valueType).getOrElse(qualityException(s"Could not find zero for type ${valueType}"))
   }
 
-  // thread local map for indexes
-  @transient val indexMap = new java.lang.ThreadLocal[scala.collection.mutable.Map[Any, Int]] {
+  // thread local map for indexes - TODO does not seem to work on nested aggregations, the input map is incorrect
+  @transient lazy val indexMap = new java.lang.ThreadLocal[scala.collection.mutable.Map[Any, Int]] {
     override def initialValue: scala.collection.mutable.Map[Any, Int] = {
       scala.collection.mutable.Map[Any, Int]()
     }
