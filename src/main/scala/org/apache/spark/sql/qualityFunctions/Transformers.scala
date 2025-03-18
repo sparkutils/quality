@@ -60,7 +60,7 @@ case class MapTransform(argument: Expression, key: Expression, function: Express
     val theMap = argument.eval(inputRow).asInstanceOf[MapData]
     val theKey = key.eval(inputRow)
 
-    val iMap = indexMap.get()
+    var iMap = indexMap.get()
 
     val index =
       iMap.getOrElse(theKey,{
@@ -70,7 +70,23 @@ case class MapTransform(argument: Expression, key: Expression, function: Express
         }
         i
       })
-    if (index > -1) {
+
+    val indexIsBroken =
+      index match {
+        case index if index >= theMap.numElements() =>
+          true
+        case index if index > -1 && theMap.keyArray().array(index) != theKey =>
+          true
+        case _ => false
+      }
+
+    if (indexIsBroken) {
+      // reset it, but probably not helpful
+      iMap = scala.collection.mutable.Map[Any, Int]()
+      indexMap.set(iMap)
+    }
+
+    if (index > -1 && !indexIsBroken) {
       val theValue = theMap.valueArray.array(index)
       elementVar.value.set(theValue)
       /// copy() in case we need copys do the map first

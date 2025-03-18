@@ -8,9 +8,10 @@ import org.apache.spark.SparkException
 import org.apache.spark.sql.catalyst.expressions.GenericRowWithSchema
 import org.apache.spark.sql.functions.{col, concat, expr, lit, struct, when}
 import org.apache.spark.sql.types.{DecimalType, LongType, MapType, StringType, StructField, StructType}
-import org.apache.spark.sql.{Column, DataFrame, Dataset}
+import org.apache.spark.sql.{Column, DataFrame, Dataset, Encoder, functions}
 import org.junit.Test
 import org.scalatest.FunSuite
+import org.scalatest.Matchers.convertToAnyShouldWrapper
 
 class AggregatesTest extends FunSuite with TestUtils {
 
@@ -40,60 +41,79 @@ class AggregatesTest extends FunSuite with TestUtils {
     doMapTest(identity, mapTestSql)
 
   /**
-   * odd case map_with and constant params, Spark triggers it without full instantiation, the indexMap is null,
-   * swapping for lazy val works and triggers type errors
+   * mapWith nested under a groupBy fails before 0.1.3.1
    */
   @Test
-  def mapWithConstants(): Unit = forceInterpreted {
-    try {
-      import sparkSession.implicits._
+  def groupByNestedMapWith(): Unit = evalCodeGens {
+    import sparkSession.implicits._
 
-      // register the various Quality sql functions as used below
-      com.sparkutils.quality.registerQualityFunctions()
-      val data = Seq(
-        PhoneStuff(1, 1, "iphone4", "ios", "celluer1"),
-        PhoneStuff(1, 2, "oppo", "android", "celluer2"),
-        PhoneStuff(1, 3, "vivo", "android", "celluer2"),
-        PhoneStuff(1, 4, "pixel", "android", "celluer3"),
-        PhoneStuff(1, 5, "iphone6", "ios", "celluer3"),
-        PhoneStuff(2, 3, "iphone4", "ios", "celluer1"),
-        PhoneStuff(2, 3, "oppo", "ios", "celluer1"),
-        PhoneStuff(2, 3, "vivo", "ios", "celluer4"),
-        PhoneStuff(2, 1, "pixel", "android", "celluer3"),
-        PhoneStuff(2, 1, "pixel", "android", "celluer3"),
-        PhoneStuff(2, 2, "iphone6", "ios", "celluer4"),
-        PhoneStuff(1, 1, "iphone4", "ios", "celluer1")
-      ).toDS()
+    // register the various Quality sql functions as used below
+    com.sparkutils.quality.registerQualityFunctions()
+    val data = Seq(
+      PhoneStuff(1, 1, "iphone4", "ios", "celluer1"),
+      PhoneStuff(1, 2, "oppo", "android", "celluer2"),
+      PhoneStuff(1, 3, "vivo", "android", "celluer2"),
+      PhoneStuff(1, 4, "pixel", "android", "celluer3"),
+      PhoneStuff(1, 5, "iphone6", "ios", "celluer3"),
+      PhoneStuff(2, 3, "iphone4", "ios", "celluer1"),
+      PhoneStuff(2, 3, "oppo", "ios", "celluer1"),
+      PhoneStuff(2, 3, "vivo", "ios", "celluer4"),
+      PhoneStuff(2, 1, "pixel", "android", "celluer3"),
+      PhoneStuff(2, 1, "pixel", "android", "celluer3"),
+      PhoneStuff(2, 2, "iphone6", "ios", "celluer4"),
+      PhoneStuff(1, 1, "iphone4", "ios", "celluer1")
+    ).toDS()
 
-      def ddl(groupOn: String) =
-        s"MAP<STRUCT<hr:LONG, user:LONG, $groupOn: STRING>, LONG>"
+    val pureSQL =
+      data.selectExpr("hr", "user",
+          "explode(map(" +
+            "'mobile',mobile," +
+            "'mobile_type',mobile_type," +
+            "'sim_type',sim_type" +
+            "))")
+        .groupBy("hr", "user", "key", "value").count()
+        .groupBy("hr", "key", "value")
+        .agg(
+          functions.sum("count").alias("total_count"),
+          functions.count("*").alias("unique_count")
+        )
 
-      def unique(groupOn: String, countOn: String) =
-        s"agg_expr('${ddl(groupOn)}', 1 > 0, map_with(struct('hr','user','$groupOn'), entry -> entry + 1), results_with( (sum, count) -> sum) ) $countOn"
+    // below doesn't work as the indexes are incorrect TODO build a test case for it, likely drop index caching
 
-      data.selectExpr(unique("mobile_type", "mobile_count")).collect()
+    def uniqueSub(additionalGroup: String): Column =
+      agg_expr(MapType(
+        StructType(Seq(
+          StructField("user", LongType),
+          StructField(additionalGroup, StringType))),
+        LongType
+      ), lit(1L) > lit(0L),
+        map_with( functions.struct(functions.col("user"), functions.col(additionalGroup)), col => col + lit(1L)), return_sum)
 
-      // below doesn't work as the indexes are incorrect TODO build a test case for it, likely drop index caching
-      /*
-      def uniqueSub(additionalGroup: Column): Column =
-        agg_expr(MapType(StringType, LongType), lit(1L) > lit(0L),
-          map_with(additionalGroup, col => col + lit(1L)), return_sum)
+    // looks good but really doesn't work well, it's just not built for it
 
-      // looks good but really doesn't work well, it's just not built for it
+    type RES = (Long, Map[(Long, String), Long], Map[(Long, String), Long], Map[(Long, String), Long])
 
-      data.groupBy("hr", "user").agg(
-        uniqueSub($"mobile").alias("mobile_count"),
-        uniqueSub($"mobile_type").alias("mobile_type_count"),
-        uniqueSub($"sim_type").alias("sim_type_count"),
-      ).show
-*/
-    } catch {
-      case t: SparkException if !t.getCause.isInstanceOf[NullPointerException]
-        && t.getMessage.contains("String")
-        => //passes
-        ()
-      case t: Throwable => throw t
-    }
+    val res =
+      data.groupBy("hr").agg(
+        uniqueSub("mobile").alias("mobile_count"),
+        uniqueSub("mobile_type").alias("mobile_type_count"),
+        uniqueSub("sim_type").alias("sim_type_count"),
+      ).as[(Long, Map[(Long, String), Long], Map[(Long, String), Long], Map[(Long, String), Long])].collect()
+
+    def pairs(res: RES, which: RES => Map[(Long, String), Long], name: String) =
+      which(res).groupBy(_._1._2).map { mapPairs =>
+        (res._1, name, mapPairs._1, mapPairs._2.values.sum, mapPairs._2.keys.size) // total, unique
+      }
+
+    val reformatted =
+      (res.flatMap { hrPair =>
+        pairs(hrPair, _._2, "mobile") ++
+        pairs(hrPair, _._3, "mobile_type") ++
+        pairs(hrPair, _._4, "sim_type")
+      }).toSeq.toDS.toDF("hr", "key", "value", "total_count", "unique_count")
+
+    reformatted.count shouldBe pureSQL.count
+    reformatted.union(pureSQL).distinct().count shouldBe pureSQL.count
   }
 
   // should see lots of the number in the map, was untested under 0.4's
