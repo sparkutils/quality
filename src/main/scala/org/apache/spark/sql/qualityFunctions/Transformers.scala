@@ -60,7 +60,7 @@ case class MapTransform(argument: Expression, key: Expression, function: Express
     val theMap = argument.eval(inputRow).asInstanceOf[MapData]
     val theKey = key.eval(inputRow)
 
-    var iMap = indexMap.get()
+    val iMap = indexMap.get()
 
     def resetIndex = {
       val i = theMap.keyArray.array.indexOf(theKey)
@@ -87,9 +87,9 @@ case class MapTransform(argument: Expression, key: Expression, function: Express
 
     if (indexIsBroken) {
       // reset it, won't be useful groupBy agg usage
-      iMap = scala.collection.mutable.Map[Any, Int]()
-      indexMap.set(iMap)
-      index = resetIndex
+      val i = theMap.keyArray.array.indexOf(theKey)
+      iMap.put(theKey, i)
+      index = i
     }
 
     if (index > -1) {
