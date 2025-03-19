@@ -375,7 +375,7 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
         def assertWithPlan(condition: Boolean, hint: Any) = {
           if (!condition) {
             debug(println(s"<---- filter was $filter"))
-            ds.explain(true)
+            // ds.explain(true)
           }
           assert(condition, hint)
         }
