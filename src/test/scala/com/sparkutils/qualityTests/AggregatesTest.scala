@@ -75,7 +75,7 @@ class AggregatesTest extends FunSuite with TestUtils {
       data.groupBy("hr","user").agg(
         uniqueSub("mobile", return_sum).alias("mobile_count"),
         uniqueSub("mobile_type", return_sum).alias("mobile_type_count"),
-        uniqueSub("sim_type", return_sum).alias("sim_type_count"),
+        uniqueSub("sim_type", return_sum).alias("sim_type_count")
       )
 
     val joined =
@@ -148,7 +148,7 @@ class AggregatesTest extends FunSuite with TestUtils {
       data.groupBy("hr").agg(
         uniqueSub("mobile", return_sum).alias("mobile_count"),
         uniqueSub("mobile_type", return_sum).alias("mobile_type_count"),
-        uniqueSub("sim_type", return_sum).alias("sim_type_count"),
+        uniqueSub("sim_type", return_sum).alias("sim_type_count")
       )
 
     val res =
