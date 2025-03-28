@@ -179,7 +179,7 @@ class IDTests extends FunSuite with TestUtils {
     registerQualityFunctions()
 
     def testRes(rngExploded: DataFrame): Unit = {
-      rngExploded.show
+      debug(rngExploded.show)
       assert(rngExploded.schema.fields.map(_.name).toSeq
         == Seq("id", "rng_id_base", "rng_id_i0", "rng_id_i1"), "Column names incorrect")
     }
@@ -199,7 +199,7 @@ class IDTests extends FunSuite with TestUtils {
     registerQualityFunctions()
 
     def testRes(rngExploded: DataFrame): Unit = {
-      rngExploded.show
+      debug(rngExploded.show)
       assert(rngExploded.schema.fields.map(_.name).toSeq
         == Seq("id", "rng_id_base", "rng_id_i0", "rng_id_i1"), "Column names incorrect")
     }
@@ -257,7 +257,7 @@ class IDTests extends FunSuite with TestUtils {
    * should generate a 32bit which is padded to 64, fake digest to trigger this
    */
   @Test
-  def testFakeIDGenDigestFun: Unit = not_Databricks {
+  def testFakeIDGenDigestFun: Unit = not_Cluster {
     class TwoByteProvider extends Provider("TwoByte", 0.1, "fake digest") {
       put("MessageDigest.TwoByte", classOf[TwoByteDigest].getName)
     }
@@ -281,7 +281,7 @@ class IDTests extends FunSuite with TestUtils {
     import sparkSession.implicits._
 
     def testRes(md5Exploded: DataFrame): Unit = {
-      md5Exploded.show
+      debug(md5Exploded.show)
       val slice = Seq("id", "md5_id_base") ++ (0 until longCount).map(i => s"md5_id_i$i")
       assert(md5Exploded.schema.fields.map(_.name).toSeq
         .containsSlice(slice), "Column names incorrect")
@@ -317,7 +317,7 @@ class IDTests extends FunSuite with TestUtils {
     import sparkSession.implicits._
 
     def testRes(md5Exploded: DataFrame): Unit = {
-      md5Exploded.show
+      debug(md5Exploded.show)
       assert(md5Exploded.schema.fields.map(_.name).toSeq
         .containsSlice( Seq("id", "md5_id_base", "md5_id_i0", "md5_id_i1")), "Column names incorrect")
     }
@@ -341,7 +341,7 @@ class IDTests extends FunSuite with TestUtils {
 
     val df = sparkSession.range(0, 6000)
     val uniqueExploded = df.withColumn("unique_id", unique_id("unique_id")).selectExpr("id","unique_id.*")
-    uniqueExploded.show
+    debug(uniqueExploded.show)
     assert(uniqueExploded.schema.fields.map(_.name).toSeq
       == Seq("id", "unique_id_base", "unique_id_i0", "unique_id_i1"), "Column names incorrect")
 
@@ -360,7 +360,7 @@ class IDTests extends FunSuite with TestUtils {
     assert(gen.ms != gen2.ms, "Separate actions need separate ms")
 
     val uniqueExplodedSQL = df.selectExpr("*", "uniqueid('unique_id') as unique_id").selectExpr("id","unique_id.*")
-    uniqueExplodedSQL.show
+    debug(uniqueExplodedSQL.show)
     assert(uniqueExplodedSQL.schema.fields.map(_.name).toSeq
       == Seq("id", "unique_id_base", "unique_id_i0", "unique_id_i1"), "Column names incorrect")
 

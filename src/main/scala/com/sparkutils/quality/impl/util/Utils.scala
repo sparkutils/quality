@@ -268,7 +268,7 @@ object SparkVersions {
 
   lazy val sparkFullVersion = {
     val pos = classOf[Expression].getPackage.getSpecificationVersion
-    if (pos eq null) // DBR is always null
+    if ((pos eq null) || pos == "0.0") // DBR is always null, Fabric 0.0
       SparkSession.active.version
     else
       pos

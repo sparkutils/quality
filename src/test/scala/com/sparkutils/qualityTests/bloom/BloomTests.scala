@@ -84,7 +84,7 @@ class BloomTests extends FunSuite with TestUtils {
       Pair(0, 3430)
     )).toDF()
     val compdf = func(blooms, comporig)
-    compdf.show(30)
+    debug(compdf.show(30))
 
     assert(4 == compdf.filter("probability = 0.0").count(), "Should have only 3 rows not finding a match")
     assert(9 == compdf.filter(s"probability = $fpp").count(), s"Should have had 9 rows with $fpp, either a rounding error or borked")
@@ -236,7 +236,7 @@ class BloomTests extends FunSuite with TestUtils {
     ))
 
     val ids = getBlooms(rules)
-    ids.foreach(println)
+    debug(ids.foreach(println))
 
     val expected = Seq("ids", "dont have it", "amy", "bungle")
     assert(expected == ids, "Did not get the expected id's in the right order")

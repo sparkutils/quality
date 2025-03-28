@@ -5,6 +5,7 @@ import com.sparkutils.quality.impl.RuleRegistrationFunctions.{defaultAdd, defaul
 import org.apache.spark.sql.Column
 import org.apache.spark.sql.ShimUtils.{column, expression}
 import org.apache.spark.sql.catalyst.expressions.{Expression, LambdaFunction}
+import org.apache.spark.sql.functions.struct
 import org.apache.spark.sql.qualityFunctions.{FunN, MapTransform, RefExpression}
 import org.apache.spark.sql.shim.utils.createLambda
 import org.apache.spark.sql.types.{DataType, LongType, MapType}
@@ -115,6 +116,12 @@ trait AggregateFunctionImports {
    */
   val return_sum: ResultsExpression =
     ResultsWith(createLambda((sum, count) => sum), "return_sum")
+
+  /**
+   * returns both the count and sum
+   */
+  val return_both: ResultsExpression =
+    ResultsWith(createLambda((sum, count) => struct(sum, count)), "return_both")
 
   /**
    * Creates an entry in a map sum with id and the result of 'sum' with the previous sum at that id as it's parameter.

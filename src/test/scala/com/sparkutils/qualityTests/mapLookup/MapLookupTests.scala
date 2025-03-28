@@ -59,7 +59,7 @@ object MapLookupTest {
       expr("mapLookup('countryCode', country)").as("countrystuff"),
       expr("mapLookup('countryCode', country).ccy").as("countrystuffccy")
     )
-    res.show()
+    TestUtilsEnvironment.debug(res.show())
 
     val countryLookup = countryCodeCCY.map(t => t._1 -> new GenericRowWithSchema(Array(t._2, t._3), structType)).toMap
     import scala.collection.JavaConverters._

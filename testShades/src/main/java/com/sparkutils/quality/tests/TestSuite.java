@@ -8,12 +8,30 @@ import com.sparkutils.quality.tests.*;
 import com.sparkutils.qualityTests.bloom.*;
 import com.sparkutils.qualityTests.id.*;
 import com.sparkutils.qualityTests.mapLookup.*;
+import static com.sparkutils.qualityTests.TestUtilsEnvironment.setupDefaultsViaCurrentSession;
 
 public class TestSuite {
+
     public static void runTests() {
+        // use the active session to setup defaults if present.
+        setupDefaultsViaCurrentSession();
 
         JUnitCore junit = new JUnitCore();
-        junit.addListener(new TextListener(System.out));
+        junit.addListener(new TextListener(System.out) {
+            long start = 0;
+
+            @Override
+            public void testStarted(Description description){
+                start = System.currentTimeMillis();
+                System.out.print("Running: " + description.getDisplayName());
+            }
+
+            @Override
+            public void testFinished(Description description){
+                System.out.println(", finished in: " + ((System.currentTimeMillis() - start)/1000 ) + "s");
+            }
+
+        });
 
         Result result = junit.run(
                 JoinValidationTest.class,

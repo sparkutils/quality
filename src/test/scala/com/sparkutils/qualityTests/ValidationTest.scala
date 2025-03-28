@@ -323,7 +323,7 @@ class ValidationTest extends FunSuite with TestUtils {
     // for debug
     errs.size
     warns.size
-    println(shown)
+    debug(println(shown))
     assert(shown.toLowerCase.contains("null"))
   }
 
@@ -361,7 +361,7 @@ class ValidationTest extends FunSuite with TestUtils {
     val errors = ordered( (errs, warns) )
 
     assert(errors.isEmpty)
-    println(shown)
+    debug(println(shown))
     assert(shown.contains(packId(Id(1,1)).toString)) // 4294967297
   }
 
@@ -471,11 +471,11 @@ class ValidationTest extends FunSuite with TestUtils {
 
     assert(sorted match {
       case Seq(
-      RuleViewError("theview", Id(4,1)),
-      OutputRuleViewError("theview", Id(7,1)),
-      LambdaViewError("theview", Id(16,1))
-      )
-      => true
+        RuleViewError("theview", Id(4,1)),
+        OutputRuleViewError("theview", Id(7,1)),
+        LambdaViewError("theview", Id(16,1))
+        )
+        => true
       case _ => false
     } )
 

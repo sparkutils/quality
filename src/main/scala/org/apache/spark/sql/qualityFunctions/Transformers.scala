@@ -31,7 +31,7 @@ case class MapTransform(argument: Expression, key: Expression, function: Express
   }
 
   // thread local map for indexes
-  @transient val indexMap = new java.lang.ThreadLocal[scala.collection.mutable.Map[Any, Int]] {
+  @transient lazy val indexMap = new java.lang.ThreadLocal[scala.collection.mutable.Map[Any, Int]] {
     override def initialValue: scala.collection.mutable.Map[Any, Int] = {
       scala.collection.mutable.Map[Any, Int]()
     }
@@ -62,18 +62,39 @@ case class MapTransform(argument: Expression, key: Expression, function: Express
 
     val iMap = indexMap.get()
 
-    val index =
+    def resetIndex = {
+      val i = theMap.keyArray.array.indexOf(theKey)
+      if (i < 0) {
+        iMap.put(theKey, i)
+      }
+      i
+    }
+
+    var index =
       iMap.getOrElse(theKey,{
-        val i = theMap.keyArray.array.indexOf(theKey)
-        if (i < 0) {
-          iMap.put(theKey, i)
-        }
-        i
+        resetIndex
       })
+
+    val indexIsBroken =
+      index match {
+        case index if index >= theMap.numElements() =>
+          true
+        // when groupBy agg nested usage the map is not having the same entries
+        case index if index > -1 && theMap.keyArray().array(index) != theKey =>
+          true
+        case _ => false
+      }
+
+    if (indexIsBroken) {
+      // reset it, won't be useful groupBy agg usage
+      val i = theMap.keyArray.array.indexOf(theKey)
+      iMap.put(theKey, i)
+      index = i
+    }
+
     if (index > -1) {
       val theValue = theMap.valueArray.array(index)
       elementVar.value.set(theValue)
-      /// copy() in case we need copys do the map first
       val theRes = function.eval(inputRow)
       if (theRes != null) {
         theMap.valueArray.update(index, theRes)
@@ -81,6 +102,7 @@ case class MapTransform(argument: Expression, key: Expression, function: Express
       theMap
     } else {
       iMap.put(theKey, theMap.numElements() )
+
       // first time, needs to be added in
       val keyAr = theMap.keyArray.array
       val valAr = theMap.valueArray.array

@@ -88,7 +88,7 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
 
   @Test
   def testExtension(): Unit = when_not_disabled { not2_4 {
-    not_Databricks { // will never work on 2.4 and Databricks has a fixed session
+    not_Cluster { // will never work on 2.4 and Databricks has a fixed session
       wrapWithExtension { tsparkSession =>
         import tsparkSession.implicits._
 
@@ -104,7 +104,7 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
 
   @Test
   def testExtensionDisableSpecific(): Unit = when_not_disabled { not2_4 {
-    not_Databricks { // will never work on 2.4 and Databricks has a fixed session
+    not_Cluster { // will never work on 2.4 and Databricks has a fixed session
       Testing.test {
         wrapWithExtensionT(tsparkSession => {}, AsUUIDFilter.getClass.getName)
       }
@@ -115,7 +115,7 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
 
   @Test
   def testExtensionDisableStar(): Unit = when_not_disabled { not2_4 {
-    not_Databricks { // will never work on 2.4 and Databricks has a fixed session
+    not_Cluster { // will never work on 2.4 and Databricks has a fixed session
       Testing.test {
         wrapWithExtensionT(tsparkSession => {}, "*")
       }
@@ -135,7 +135,7 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
 
   @Test
   def testForceFunctionInjection(): Unit = when_not_disabled { not2_4 {
-    not_Databricks { // will never work on 2.4 and Databricks has a fixed session
+    not_Cluster { // will never work on 2.4 and Databricks has a fixed session
       // need to clear the existing quality functions out first
       com.sparkutils.quality.registerQualityFunctions(
         registerFunction = (str: String, f: Seq[Expression] => Expression) => FunctionRegistry.builtin.dropFunction(FunctionIdentifier(str))
@@ -155,7 +155,7 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
 
   @Test
   def testDefaultFunctionRegistrationViaBuiltIn(): Unit = when_not_disabled { not2_4 {
-    not_Databricks { // will never work on 2.4 and Databricks has a fixed session
+    not_Cluster { // will never work on 2.4 and Databricks has a fixed session
       Testing.test {
         wrapWithExtensionT(createview)
       }
@@ -172,7 +172,7 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
   }
 
   @Test
-  def testAsymmetricFilterPlan(): Unit = when_not_disabled { not_Databricks { // will never work on 2.4 and Databricks has a fixed session
+  def testAsymmetricFilterPlan(): Unit = when_not_disabled { not_Cluster { // will never work on 2.4 and Databricks has a fixed session
     doAsymmetricFilterPlanCall()
   } }
 
@@ -218,12 +218,12 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
   }
 
   @Test
-  def testAsymmetricFilterPlanJoinEq(): Unit = not_Databricks {
+  def testAsymmetricFilterPlanJoinEq(): Unit = not_Cluster {
     doTestAsymmetricFilterPlanJoin(wrapWithExtension _, "eq", (l, r) => l.===(r))
   }
 
   @Test
-  def testAsymmetricFilterEqSQL(): Unit = when_not_disabled { not_Databricks { not2_4 {
+  def testAsymmetricFilterEqSQL(): Unit = when_not_disabled { not_Cluster { not2_4 {
     cleanUp("./metastore_db")
 
     wrapWithExtensionT(sparkSession => {
@@ -255,7 +255,7 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
   }
 
   @Test
-  def testAsymmetricFilterPlanJoinEQN(): Unit = not_Databricks {
+  def testAsymmetricFilterPlanJoinEQN(): Unit = not_Cluster {
     doTestAsymmetricFilterPlanJoin(wrapWithExtension _, "eqn", (l, r) => l.<=>(r))
   }
 
@@ -265,7 +265,7 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
   }
 
   @Test
-  def testAsymmetricFilterPlanJoinLt(): Unit = not_Databricks {
+  def testAsymmetricFilterPlanJoinLt(): Unit = not_Cluster {
     doTestAsymmetricFilterPlanJoin(wrapWithExtension _, "lt", (l, r) => l.<(r))
   }
 
@@ -275,7 +275,7 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
   }
 
   @Test
-  def testAsymmetricFilterPlanJoinLte(): Unit = not_Databricks {
+  def testAsymmetricFilterPlanJoinLte(): Unit = not_Cluster {
     doTestAsymmetricFilterPlanJoin(wrapWithExtension _, "lte", (l, r) => l.<=(r))
   }
 
@@ -285,7 +285,7 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
   }
 
   @Test
-  def testAsymmetricFilterPlanJoinGt(): Unit = not_Databricks {
+  def testAsymmetricFilterPlanJoinGt(): Unit = not_Cluster {
     doTestAsymmetricFilterPlanJoin(wrapWithExtension _, "gt", (l, r) => l.>(r))
   }
 
@@ -296,7 +296,7 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
 
 
   @Test
-  def testAsymmetricFilterPlanJoinGte(): Unit = not_Databricks {
+  def testAsymmetricFilterPlanJoinGte(): Unit = not_Cluster {
     doTestAsymmetricFilterPlanJoin(wrapWithExtension _, "gte", (l, r) => l.>=(r))
   }
 
@@ -374,8 +374,8 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
 
         def assertWithPlan(condition: Boolean, hint: Any) = {
           if (!condition) {
-            println(s"<---- filter was $filter")
-            ds.explain(true)
+            debug(println(s"<---- filter was $filter"))
+            // ds.explain(true)
           }
           assert(condition, hint)
         }
@@ -469,7 +469,7 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
     genBase64(s"id_base64(${prefix}base, ${prefix}i0, ${prefix}i1) as ${prefix}id", prefix, tsparkSession)
 
   @Test
-  def testAsymmetricFilterPlanIdCallFields(): Unit = not_Databricks {
+  def testAsymmetricFilterPlanIdCallFields(): Unit = not_Cluster {
     doAsymmetricFilterPlanCallIdsFields( idsWithContextFields(""), wrapWithExtension _)
   }
 
@@ -547,37 +547,37 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
     } }
 
   @Test
-  def testAsymmetricFilterPlanIdJoinDifferentSizeStruct(): Unit = not_Databricks {
+  def testAsymmetricFilterPlanIdJoinDifferentSizeStruct(): Unit = not_Cluster {
     doTestDifferentLengthsIdJoin(wrapWithExtension _, "structs different sizes",  viaJoinIDStructsLarger, (l, r) => l.===(r) )
   }
 
   @Test
-  def testAsymmetricFilterPlanIdJoinDifferentSizeFields(): Unit = not_Databricks {
+  def testAsymmetricFilterPlanIdJoinDifferentSizeFields(): Unit = not_Cluster {
     doTestDifferentLengthsIdJoin(wrapWithExtension _, "fields different sizes",  viaJoinIDFieldsLarger, (l, r) => l.===(r) )
   }
 
   @Test
-  def testAsymmetricFilterPlanIdJoinDifferentSizeMixed(): Unit = not_Databricks {
+  def testAsymmetricFilterPlanIdJoinDifferentSizeMixed(): Unit = not_Cluster {
     doTestDifferentLengthsIdJoin(wrapWithExtension _, "mixed different sizes",  viaJoinIDsMixedLarger, (l, r) => l.===(r) )
   }
 
   @Test
-  def testAsymmetricFilterPlanIdJoinDifferentSizeStructLT(): Unit = not_Databricks {
+  def testAsymmetricFilterPlanIdJoinDifferentSizeStructLT(): Unit = not_Cluster {
     doTestDifferentLengthsIdJoin(wrapWithExtension _, "structs different sizes",  viaJoinIDStructsLarger, (l, r) => l.<(r) )
   }
 
   @Test
-  def testAsymmetricFilterPlanIdJoinDifferentSizeFieldsLT(): Unit = not_Databricks {
+  def testAsymmetricFilterPlanIdJoinDifferentSizeFieldsLT(): Unit = not_Cluster {
     doTestDifferentLengthsIdJoin(wrapWithExtension _, "fields different sizes",  viaJoinIDFieldsLarger, (l, r) => l.<(r) )
   }
 
   @Test
-  def testAsymmetricFilterPlanIdJoinDifferentSizeMixedLT(): Unit = not_Databricks {
+  def testAsymmetricFilterPlanIdJoinDifferentSizeMixedLT(): Unit = not_Cluster {
     doTestDifferentLengthsIdJoin(wrapWithExtension _, "mixed different sizes",  viaJoinIDsMixedLarger, (l, r) => l.<(r) )
   }
 
   @Test
-  def testAsymmetricFilterPlanIdCallStructs(): Unit = not_Databricks {
+  def testAsymmetricFilterPlanIdCallStructs(): Unit = not_Cluster {
     doAsymmetricFilterPlanCallIdsFields( idsWithContextStruct(""), wrapWithExtension _)
   }
 
@@ -587,7 +587,7 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
   }
 
   @Test
-  def testDifferentLengthsId(): Unit = not_Databricks{
+  def testDifferentLengthsId(): Unit = not_Cluster{
     // will trigger the IF clause and return false, so no records are found and, given no broken down part equals, no pushed down predicates either.
     try {
       doTestAsymmetricFilterPlan(idsWithContextStruct(""), Seq(
@@ -612,80 +612,80 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
     ), true, viaExtension = viaExtension, verifyJoinPlan = verifyJoinPlanID(_)) }
 
   @Test
-  def testAsymmetricFilterPlanJoinFieldsEq(): Unit = not_Databricks {
+  def testAsymmetricFilterPlanJoinFieldsEq(): Unit = not_Cluster {
     doTestAsymmetricFilterPlanJoinIDS(wrapWithExtension _, "eq", (l, r) => l.===(r), viaJoinIDFields)
   }
   @Test
-  def testAsymmetricFilterPlanJoinStructEq(): Unit = not_Databricks {
+  def testAsymmetricFilterPlanJoinStructEq(): Unit = not_Cluster {
     doTestAsymmetricFilterPlanJoinIDS(wrapWithExtension _, "eq", (l, r) => l.===(r), viaJoinIDStructs)
   }
   @Test
-  def testAsymmetricFilterPlanJoinMixedEq(): Unit = not_Databricks {
+  def testAsymmetricFilterPlanJoinMixedEq(): Unit = not_Cluster {
     doTestAsymmetricFilterPlanJoinIDS(wrapWithExtension _, "eq", (l, r) => l.===(r), viaJoinIDsMixed)
   }
 
   @Test
-  def testAsymmetricFilterPlanJoinFieldsEqn(): Unit = not_Databricks {
+  def testAsymmetricFilterPlanJoinFieldsEqn(): Unit = not_Cluster {
     doTestAsymmetricFilterPlanJoinIDS(wrapWithExtension _, "eqn", (l, r) => l.<=>(r), viaJoinIDFields)
   }
   @Test
-  def testAsymmetricFilterPlanJoinStructEqn(): Unit = not_Databricks {
+  def testAsymmetricFilterPlanJoinStructEqn(): Unit = not_Cluster {
     doTestAsymmetricFilterPlanJoinIDS(wrapWithExtension _, "eqn", (l, r) => l.<=>(r), viaJoinIDStructs)
   }
   @Test
-  def testAsymmetricFilterPlanJoinMixedEqn(): Unit = not_Databricks {
+  def testAsymmetricFilterPlanJoinMixedEqn(): Unit = not_Cluster {
     doTestAsymmetricFilterPlanJoinIDS(wrapWithExtension _, "eqn", (l, r) => l.<=>(r), viaJoinIDsMixed)
   }
 
   @Test
-  def testAsymmetricFilterPlanJoinFieldsLt(): Unit = not_Databricks {
+  def testAsymmetricFilterPlanJoinFieldsLt(): Unit = not_Cluster {
     doTestAsymmetricFilterPlanJoinIDS(wrapWithExtension _, "lt", (l, r) => l.<(r), viaJoinIDFields)
   }
   @Test
-  def testAsymmetricFilterPlanJoinStructLt(): Unit = not_Databricks {
+  def testAsymmetricFilterPlanJoinStructLt(): Unit = not_Cluster {
     doTestAsymmetricFilterPlanJoinIDS(wrapWithExtension _, "lt", (l, r) => l.<(r), viaJoinIDStructs)
   }
   @Test
-  def testAsymmetricFilterPlanJoinMixedLt(): Unit = not_Databricks {
+  def testAsymmetricFilterPlanJoinMixedLt(): Unit = not_Cluster {
     doTestAsymmetricFilterPlanJoinIDS(wrapWithExtension _, "lt", (l, r) => l.<(r), viaJoinIDsMixed)
   }
 
   @Test
-  def testAsymmetricFilterPlanJoinFieldsLtEq(): Unit = not_Databricks {
+  def testAsymmetricFilterPlanJoinFieldsLtEq(): Unit = not_Cluster {
     doTestAsymmetricFilterPlanJoinIDS(wrapWithExtension _, "lte", (l, r) => l.<=(r), viaJoinIDFields)
   }
   @Test
-  def testAsymmetricFilterPlanJoinStructLtEq(): Unit = not_Databricks {
+  def testAsymmetricFilterPlanJoinStructLtEq(): Unit = not_Cluster {
     doTestAsymmetricFilterPlanJoinIDS(wrapWithExtension _, "lte", (l, r) => l.<=(r), viaJoinIDStructs)
   }
   @Test
-  def testAsymmetricFilterPlanJoinMixedLtEq(): Unit = not_Databricks {
+  def testAsymmetricFilterPlanJoinMixedLtEq(): Unit = not_Cluster {
     doTestAsymmetricFilterPlanJoinIDS(wrapWithExtension _, "lte", (l, r) => l.<=(r), viaJoinIDsMixed)
   }
 
   @Test
-  def testAsymmetricFilterPlanJoinFieldsGt(): Unit = not_Databricks {
+  def testAsymmetricFilterPlanJoinFieldsGt(): Unit = not_Cluster {
     doTestAsymmetricFilterPlanJoinIDS(wrapWithExtension _, "gt", (l, r) => l.>(r), viaJoinIDFields)
   }
   @Test
-  def testAsymmetricFilterPlanJoinStructGt(): Unit = not_Databricks {
+  def testAsymmetricFilterPlanJoinStructGt(): Unit = not_Cluster {
     doTestAsymmetricFilterPlanJoinIDS(wrapWithExtension _, "gt", (l, r) => l.>(r), viaJoinIDStructs)
   }
   @Test
-  def testAsymmetricFilterPlanJoinMixedGt(): Unit = not_Databricks {
+  def testAsymmetricFilterPlanJoinMixedGt(): Unit = not_Cluster {
     doTestAsymmetricFilterPlanJoinIDS(wrapWithExtension _, "gt", (l, r) => l.>(r), viaJoinIDsMixed)
   }
 
   @Test
-  def testAsymmetricFilterPlanJoinFieldsGtEq(): Unit = not_Databricks {
+  def testAsymmetricFilterPlanJoinFieldsGtEq(): Unit = not_Cluster {
     doTestAsymmetricFilterPlanJoinIDS(wrapWithExtension _, "gte", (l, r) => l.>=(r), viaJoinIDFields)
   }
   @Test
-  def testAsymmetricFilterPlanJoinStructGtEq(): Unit = not_Databricks {
+  def testAsymmetricFilterPlanJoinStructGtEq(): Unit = not_Cluster {
     doTestAsymmetricFilterPlanJoinIDS(wrapWithExtension _, "gte", (l, r) => l.>=(r), viaJoinIDStructs)
   }
   @Test
-  def testAsymmetricFilterPlanJoinMixedGtEq(): Unit = not_Databricks {
+  def testAsymmetricFilterPlanJoinMixedGtEq(): Unit = not_Cluster {
     doTestAsymmetricFilterPlanJoinIDS(wrapWithExtension _, "gte", (l, r) => l.>=(r), viaJoinIDsMixed)
   }
 

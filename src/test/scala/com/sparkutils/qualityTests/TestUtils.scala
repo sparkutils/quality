@@ -294,17 +294,25 @@ trait TestUtils {
   def not2_4_or_3_0_or_3_1(thunk: => Unit) =
     if (!Set("2.4", "3.0", "3.1").contains(sparkVersion)) thunk
 
-  lazy val onDatabricks = {
-    val dbfs = new File("/dbfs")
-    dbfs.exists
-  }
+  /**
+   * Assumes /dbfs existance proves running on Databricks
+   * Prefer not_Cluster for pure cluster tests.
+   * @return
+   */
+  def onDatabricks: Boolean = TestUtilsEnvironment.onDatabricksFS
 
   /**
+   * Should prefer not_Cluster as it works for fabric as well
+   *
    * Don't run this test on Databricks - due to either running in a cluster or, in the case of trying for force soe's etc
    * because Databricks defaults and Codegen are different
    */
+  @deprecated
   def not_Databricks(thunk: => Unit) =
     if (!onDatabricks) thunk
+
+  def not_Cluster(thunk: => Unit) =
+    if (TestUtilsEnvironment.shouldRunClusterTests) thunk
 
   /**
    * Only run when the extension is enabled
@@ -357,4 +365,77 @@ trait TestUtils {
         res
     }.flatten
 
+  def debug(thunk: => Unit): Unit =
+    TestUtilsEnvironment.debug(thunk)
+}
+
+object TestUtilsEnvironment {
+
+  /**
+   * Checks if the master is local, if so it's likely tests, if spark.master is not defined it's false
+   */
+  def isLocal(sparkSession: SparkSession): Boolean =
+    sparkSession.conf.getOption("spark.master").fold(false)(_.toLowerCase().startsWith("local"))
+
+  lazy val onDatabricksFS = {
+    val dbfs = new File("/dbfs")
+    dbfs.exists
+  }
+
+  /**
+   * Databricks config is found on all delta running platforms, synapse/fabric _so far_ is not.  If any config
+   * starts with spark.synapse it is assumed to be running on synapse/fabric
+   * @param sparkSession
+   * @return
+   */
+  def onFabricOrSynapse(sparkSession: SparkSession): Boolean =
+    sparkSession.conf.getAll.exists(p => p._1.startsWith("spark.synapse"))
+
+  private var shouldRunClusterTestsWasSet = false
+  private var shouldRunClusterTestsV = true
+
+  /** allow test usage on non-build environments */
+  def setshouldRunClusterTests(shouldClose: Boolean): Unit = {
+    this.shouldRunClusterTestsV = shouldClose
+    shouldRunClusterTestsWasSet = true
+  }
+
+  lazy val shouldRunClusterTests = shouldRunClusterTestsV
+
+  private var shouldDebugLogWasSet = false
+  private var shouldDebugLogv = false
+
+  /** allow test usage on non-build environments */
+  def setShouldDebugLog(shouldDebugLog: Boolean): Unit = {
+    shouldDebugLogv = shouldDebugLog
+    shouldDebugLogWasSet = true
+  }
+
+  lazy val shouldDebugLog = shouldDebugLogv
+
+  /**
+   * Only called from with in the test suite assume if the original values are not per default then they have been
+   * set that way.
+   * If shouldCloseSession is false and debug logging was not explicitly enabled then debug logging is disabled (protecting against any accidental defaulting of true).
+   * @param sparkSession if null it's assumed to be running locally, defaults win
+   */
+  def setupDefaults(sparkSession: SparkSession): Unit =
+    if (sparkSession ne null) {
+      if (!shouldRunClusterTestsWasSet) {
+        setshouldRunClusterTests( isLocal(sparkSession) && !(onDatabricksFS || onFabricOrSynapse(sparkSession)) )
+      }
+      if (!shouldDebugLogWasSet) {
+        if (!shouldRunClusterTestsV) {
+          setShouldDebugLog(false)
+        }
+      }
+    }
+
+  def setupDefaultsViaCurrentSession(): Unit =
+    SparkSession.getActiveSession.foreach(setupDefaults(_))
+
+  def debug(thunk: => Unit): Unit =
+    if (shouldDebugLog) {
+      thunk
+    }
 }

@@ -122,6 +122,8 @@ The full list of supported runtimes is below:
 | 3.5.0         | 3.5 | 14.0.dbr_      | 2.12 |
 | 3.5.0         | 3.5 | 14.3.dbr_      | 2.12 |
 
+Fabric 1.3 uses the 3.5.0.oss_ runtime, other Fabric runtimes may run on their equivalent OSS version.  Databricks 15.4 LTS is compatible with the 14.3.dbr_ runtime.
+
 2.4 support is deprecated and will be removed in a future version.  3.1.2 support is replaced by 3.1.3 due to interpreted encoder issues. 
 
 !!! note "Databricks 13.x support"

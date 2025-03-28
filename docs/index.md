@@ -17,8 +17,7 @@ Write rules using simple SQL or create re-usable functions via SQL Lambdas.
 
 Your rules are just versioned data, store them wherever convenient, use them by simply defining a column.
 
-* :new:{.pulseABit} [typed expression runner](advanced/expressionRunner.md) - a typed version of expressionRunner for saving expression results of the same type
-* :new:{.pulseABit} Spark 3.5.0 and DBR 14.x Support
+* :new:{.pulseABit} test packages for [Fabric](getting_started/running_on_fabric.md)
 
 Rules are evaluated lazily during Spark actions, such as writing a row, with results saved in a single predictable column.
 

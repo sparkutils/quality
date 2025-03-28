@@ -78,7 +78,7 @@ class RuleEngineTest extends FunSuite with TestUtils {
 
     val outdf = testDataDF.withColumn("together", rer(testDataDF))
     //outdf.show
-    outdf.select("together.*").show
+    debug(outdf.select("together.*").show)
     val res = outdf.select("together.*").as[RuleEngineResult[Seq[NewPosting]]].collect()
 
     // this row will fail as the 0.6 doesn't class as a pass for the output expression - regardless of overall status
@@ -142,15 +142,19 @@ class RuleEngineTest extends FunSuite with TestUtils {
     val outdfi2 = interimT.select(explode(flatten_rule_results(col("together"))) as "expl")
     assert(outdfi.union(outdfi2).distinct().count == outdfi.distinct().count)
 
-    println("outdfi show")
+    debug {
+      println("outdfi show")
 
-    outdfi.show
-    outdfi.printSchema
+      outdfi.show
+      outdfi.printSchema
+    }
 
     val interim = outdfi.selectExpr("expl.result")
-    interim.printSchema
+    debug {
+      interim.printSchema
+      interim.show
+    }
 
-    interim.show
     val res = interim.as[Seq[Posting]].collect()
     assert(res(0) == Seq(Posting("from", "4201"), Posting("to","other_account1")))
     assert(res(6) == Seq(Posting("from", "another_account"), Posting("to","4206")))
@@ -170,7 +174,7 @@ class RuleEngineTest extends FunSuite with TestUtils {
     val testDataDF = testData.toDF()
 
     val outdf = testDataDF.withColumn("together", rer(testDataDF)).selectExpr("*", "together.result")
-    outdf.show
+    debug( outdf.show )
 
     val res = outdf.select("result").as[Seq[Posting]].collect()
     val just4201 = Seq(Posting("from", "another_account"), Posting("to","4201"))
@@ -208,8 +212,10 @@ class RuleEngineTest extends FunSuite with TestUtils {
     val testDataDF = testData.toDF()
 
     val outdf = testDataDF.withColumn("together", rer(testDataDF)).selectExpr("*", "together.result")
-    outdf.show
-    outdf.printSchema
+    debug {
+      outdf.show
+      outdf.printSchema
+    }
 
     val res = outdf.select("result").as[Seq[(Int, Seq[Posting])]].collect()
     val just4201 = Seq(Posting("from", "another_account"), Posting("to","4201"))

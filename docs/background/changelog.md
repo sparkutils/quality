@@ -1,4 +1,10 @@
-### 0.1.3 <small>19th April, 2024</small>
+### 0.1.3.1 <small>3rd December, 2024</small>
+
+#68 - Test setup improvements for running testShades on Fabric (reduced logging and share Databricks behaviour)
+
+#69 - Use different scopes for OSS testShade builds for Fabric testing
+
+### 0.1.3 <small>4th October, 2024</small>
 
 #53 - Docs parser is now more forgiving, empty descriptions are tolerated and normal scaladoc syntax is allowed
 

@@ -64,7 +64,7 @@ class RoundTripTest extends FunSuite with RowTools with TestUtils {
 
     //newenc.schema.printTreeString()
     val ds = df.selectExpr("named_struct('left_lower', `1`, 'left_higher', `2`)","DataQuality").as[(TestIdLeft, RuleSuiteResult)]
-    ds.show
+    debug(ds.show)
     // it's sufficient to run the results for this test, if it can't be encoded it will throw on count
     assert(ds.count == writeRows + 1)
   }
@@ -85,7 +85,7 @@ class RoundTripTest extends FunSuite with RowTools with TestUtils {
     val rere = taddDataQuality( df.sparkSession.read.parquet(outputDir+"/ruleRes"), rules )
     // won't work with code gen as it's reducing columns
 //    rere.select(explode(col("DataQuality.ruleSetResults"))).show()
-    rere.select(col("*"), explode(col("DataQuality.ruleSetResults"))).show()
+    rere.select(col("*"), explode(col("DataQuality.ruleSetResults"))).head
 
     // it's sufficient to run the results for this test, if it can't be encoded it will throw on count
     assert(rere.count == writeRows + 1)
@@ -122,7 +122,7 @@ class RoundTripTest extends FunSuite with RowTools with TestUtils {
     ))
 
     val lambdaDF = toLambdaDS(rules)
-    lambdaDF.show()
+    debug(lambdaDF.show())
 
     val df = toRuleSuiteDF(rules)
     val rereadWithoutLambdas = readRulesFromDF(df,
@@ -199,10 +199,10 @@ class RoundTripTest extends FunSuite with RowTools with TestUtils {
       import sparkSession.implicits._
       flattened.toDF
     }
-    outputExpressionsDF.show()
+    debug(outputExpressionsDF.show())
 
     val lambdaDF = toLambdaDS(rules)
-    lambdaDF.show()
+    debug(lambdaDF.show())
 
     val df = toDS(rules)
     val rereadWithoutLambdas = readRulesFromDF(df.toDF(),

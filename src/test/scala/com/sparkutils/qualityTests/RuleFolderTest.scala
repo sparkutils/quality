@@ -148,7 +148,9 @@ class RuleFolderTest extends FunSuite with TestUtils {
 
   def doReplaceTest(outdf: DataFrame): Unit = {
     import sparkSession.implicits._
-    //outdf.show
+
+    debug(outdf.show)
+
     val res = outdf.filter("subcode is not null").as[TestOn].collect()
 
     assert(res(0) == TestOn("edt", "4201", 1234))
