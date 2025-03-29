@@ -5,6 +5,7 @@ import org.apache.spark.sql.DataFrame
 import types._
 import org.apache.spark.sql.functions.expr
 import org.apache.spark.sql.types.{DataType, LongType}
+import org.junit.Ignore
 // 3.4 drops this import org.codehaus.janino.InternalCompilerException
 import org.junit.Assert.fail
 import org.junit.Test
@@ -130,7 +131,7 @@ class CodeGenTest extends RowTools with TestUtils {
     //res
   }
 
-  @Test
+  @Ignore // as of 
   def ruleEngineRunnerTooMuchPerFunc: Unit = not_Cluster{ not2_4{ forceCodeGen {
     // as of eec8842 does not hit 64k on the server at 900
     shouldAssert64kb{

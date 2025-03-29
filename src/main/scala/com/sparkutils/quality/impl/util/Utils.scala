@@ -30,7 +30,8 @@ object DebugTime extends Logging {
 }
 
 /**
- * Same as unevaluable but the queryplan runs
+ * Same as unevaluable but the queryplan runs.  This version requires compileEvals = true (rules are independent and
+ * will not use Subexpression Elimination at eval time) and as such cannot be used with SubExprEvaluationRuntime
  * @param children
  */
 case class PassThrough(children: Seq[Expression]) extends Expression with CodegenFallback {
@@ -41,6 +42,23 @@ case class PassThrough(children: Seq[Expression]) extends Expression with Codege
   override def dataType: DataType = BooleanType
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
+}
+
+/**
+ * Same as unevaluable but the queryplan runs.  This version should only be used for eval (compileEvals = false) of
+ * rules / triggers and for any output expressions, it may take part in SubExprEvaluationRuntime
+ * @param children
+ */
+case class PassThroughEvalOnly(children: Seq[Expression]) extends Expression {
+  override def nullable: Boolean = true
+
+  override def eval(input: InternalRow): Any = Literal(true).eval(input)
+
+  override def dataType: DataType = BooleanType
+
+  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
+
+  protected def doGenCode(ctx: org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev: org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = ???
 }
 
 /**

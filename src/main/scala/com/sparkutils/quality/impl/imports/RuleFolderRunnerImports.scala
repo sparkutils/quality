@@ -2,8 +2,8 @@ package com.sparkutils.quality.impl.imports
 
 import com.sparkutils.quality.RuleSuite
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenExpressions
-import com.sparkutils.quality.impl.{RuleFolderRunner, RuleLogicUtils}
-import com.sparkutils.quality.impl.util.{NonPassThrough, PassThrough}
+import com.sparkutils.quality.impl.{RuleFolderRunner, RuleFolderRunnerEval, RuleLogicUtils}
+import com.sparkutils.quality.impl.util.{NonPassThrough, PassThrough, PassThroughEvalOnly}
 import org.apache.spark.sql.ShimUtils.{column, expression}
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.qualityFunctions.{FunN, RefExpressionLazyType}
@@ -57,16 +57,35 @@ trait RuleFolderRunnerImports {
 
     val (expressions, indexes) = flattenExpressions(ruleSuite, liftLambda)
 
-    val runner = new RuleFolderRunner(RuleLogicUtils.cleanExprs(ruleSuite), expression(startingStruct), PassThrough( expressions ), realType, compileEvals = compileEvals,
-      debugMode = debugMode, variablesPerFunc, variableFuncGroup, forceRunnerEval = forceRunnerEval, expressionOffsets = indexes, dataRef, forceTriggerEval)
+    val cleaed = RuleLogicUtils.cleanExprs(ruleSuite)
+    val starter = expression(startingStruct)
+    val exprs =
+      // ExpressionProxy and SubExprEvaluationRuntime cannot be used with compileEvals
+      if (compileEvals)
+        PassThrough(expressions)
+      else
+        PassThroughEvalOnly(expressions)
+
+    val runner =
+      if (forceRunnerEval || resolveWith.isDefined)
+        new RuleFolderRunnerEval(cleaed, starter, exprs,
+          realType, compileEvals = compileEvals,
+          debugMode = debugMode, variablesPerFunc, variableFuncGroup,
+          expressionOffsets = indexes, dataRef, forceTriggerEval)
+      else
+        new RuleFolderRunner(cleaed, starter, exprs,
+          realType, compileEvals = compileEvals,
+          debugMode = debugMode, variablesPerFunc, variableFuncGroup,
+          expressionOffsets = indexes, dataRef, forceTriggerEval)
 
     column(
       QualitySparkUtils.resolveWithOverride(resolveWith).map { df =>
         val resolved = QualitySparkUtils.resolveExpression(df, runner)
 
-        resolved.asInstanceOf[RuleFolderRunner].copy(right = resolved.children(1) match {
+        resolved.asInstanceOf[RuleFolderRunner].copy(right = resolved.children.head match {
           // replace the expr
           case PassThrough(children) => NonPassThrough(children)
+          case PassThroughEvalOnly(children) => NonPassThrough(children)
         })
       } getOrElse runner
     )

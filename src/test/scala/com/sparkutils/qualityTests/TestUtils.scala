@@ -188,7 +188,7 @@ trait TestUtils {
   def taddDataQuality(dataFrame: Dataset[Row], rules: RuleSuite, name: String = "DataQuality", compileEvals: Boolean = true): Dataset[Row] = {
     import org.apache.spark.sql.functions.expr
     val tdf = dataFrame.drop(name) // some gen tests add this
-    val rr = ruleRunner(rules, compileEvals, resolveWith = if (doResolve.get()) Some(tdf) else None)
+    val rr = ruleRunner(rules, compileEvals, resolveWith = if (doResolve.get()) Some(tdf) else None, forceRunnerEval = false)
     tdf.select(expr("*"), rr.as(name))
   }
 

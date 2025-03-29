@@ -2,15 +2,16 @@ package com.sparkutils.quality.impl
 
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.imports.RuleFolderRunnerImports
-import com.sparkutils.quality.impl.util.{NonPassThrough, PassThrough}
+import com.sparkutils.quality.impl.util.{NonPassThrough, PassThrough, PassThroughEvalOnly}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
-import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode}
 import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression, NonSQLExpression}
 import org.apache.spark.sql.qualityFunctions.{FunN, RefExpressionLazyType}
 import org.apache.spark.sql.types._
 
 import java.util.concurrent.atomic.AtomicReference
+import scala.reflect.{ClassTag, classTag}
 
 
 
@@ -39,11 +40,22 @@ private[quality] object RuleFolderRunnerUtils extends RuleFolderRunnerImports {
   * Children will be rewritten by the plan, it's then re-incorporated into ruleSuite
   * expressionOffsets.length is the length of the trigger expressions in realChildren, realChildren(expressionOffsets.length + expressionOffsets(x)) will be the correct OutputExpression
   */
-case class RuleFolderRunner(ruleSuite: RuleSuite, left: Expression, right: Expression, resultDataType: () => DataType,
-                            compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
-                            variableFuncGroup: Int, forceRunnerEval: Boolean, expressionOffsets: Array[Int],
-                            dataRef: AtomicReference[DataType], forceTriggerEval: Boolean
-                           ) extends BinaryExpression with NonSQLExpression with CodegenFallback {
+trait RuleFolderRunnerBase[T] extends BinaryExpression with NonSQLExpression {
+
+  val ruleSuite: RuleSuite
+  val left: Expression
+  val right: Expression
+  val resultDataType: () => DataType
+  val compileEvals: Boolean
+  val debugMode: Boolean
+  val variablesPerFunc: Int
+  val variableFuncGroup: Int
+  val expressionOffsets: Array[Int]
+  val dataRef: AtomicReference[DataType]
+  val forceTriggerEval: Boolean
+
+  implicit val classTagT: ClassTag[T]
+  val tClass: Class[T]
 
   // hack to push type through to lambda's, resolution only happens on driver but only works with a projection e.g. withColumn or introducing an extra column
   if (left.resolved) {
@@ -59,6 +71,7 @@ case class RuleFolderRunner(ruleSuite: RuleSuite, left: Expression, right: Expre
     right match {
       case r @ NonPassThrough(_) => r.rules
       case PassThrough(children) => children
+      case PassThroughEvalOnly(children) => children
     }
 
   // only used for compilation
@@ -83,11 +96,7 @@ case class RuleFolderRunner(ruleSuite: RuleSuite, left: Expression, right: Expre
       StructField(name = "result", dataType = resultDataType(), nullable = true)
     ))
 
-  override protected def doGenCode(ctx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = {
-    if (forceRunnerEval) {
-      return super[CodegenFallback].doGenCode(ctx, ev)
-    }
-
+  protected def doGenCodeI(ctx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = {
     ctx.references += this
 
     // need to setup the folder variable to pass around, create it with "left"
@@ -96,7 +105,7 @@ case class RuleFolderRunner(ruleSuite: RuleSuite, left: Expression, right: Expre
       ctx.freshName("folderV") )
 
     val ruleRunnerExpressionIdx = ctx.references.size - 1
-    val ruleRunnerClassName = classOf[RuleFolderRunner].getName
+    val ruleRunnerClassName = tClass.getName
     val funName = classOf[FunN].getName
     val lazyRefName = classOf[RefExpressionLazyType].getName
 
@@ -109,7 +118,7 @@ case class RuleFolderRunner(ruleSuite: RuleSuite, left: Expression, right: Expre
       v => s"$v = ${expressionOffsets.size};")
 
     val compilerTerms =
-      RuleEngineRunnerUtils.genCompilerTerms[RuleFolderRunner](ctx, right, expressionOffsets, realChildren,
+      RuleEngineRunnerUtils.genCompilerTerms[T](ctx, right, expressionOffsets, realChildren,
         debugMode, variablesPerFunc, variableFuncGroup, forceTriggerEval,
         // capture the current
         extraResult = (outArrTerm: String) => s"$folderV = $outArrTerm;",
@@ -119,7 +128,7 @@ case class RuleFolderRunner(ruleSuite: RuleSuite, left: Expression, right: Expre
         orderOffset = (idx: Int) => reordered(idx),
         // we shouldn't check salience as we are already ordered by it
         salienceCheck = false
-      ).getOrElse(return super[CodegenFallback].doGenCode(ctx, ev))
+      )
 
     import compilerTerms._
 
@@ -172,6 +181,22 @@ case class RuleFolderRunner(ruleSuite: RuleSuite, left: Expression, right: Expre
 
   }
 
+
+  // TODO #21 - migrate to withNewChildren when 2.4 is dropped
+  def withNewChilds(newLeft: Expression, newRight: Expression): Expression
+}
+
+
+/**
+ * Children will be rewritten by the plan, it's then re-incorporated into ruleSuite
+ * expressionOffsets.length is the length of the trigger expressions in realChildren, realChildren(expressionOffsets.length + expressionOffsets(x)) will be the correct OutputExpression
+ */
+case class RuleFolderRunnerEval(ruleSuite: RuleSuite, left: Expression, right: Expression, resultDataType: () => DataType,
+                            compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
+                            variableFuncGroup: Int, expressionOffsets: Array[Int],
+                            dataRef: AtomicReference[DataType], forceTriggerEval: Boolean
+                           ) extends RuleFolderRunnerBase[RuleFolderRunnerEval] with CodegenFallback {
+
   protected def withNewChildrenInternal(newLeft: Expression, newRight: Expression): Expression = {
     // Spark 4 re-orders the checking of types, so we don't have a type until resolving
     // as such we need to now force resolved to true - dropping 2.4 anyway
@@ -181,4 +206,39 @@ case class RuleFolderRunner(ruleSuite: RuleSuite, left: Expression, right: Expre
     }
     copy(left = newLeft, right = c)
   }
+
+  override def withNewChilds(newLeft: Expression, newRight: Expression): Expression = withNewChildrenInternal(newLeft, newRight)
+
+  override implicit val classTagT: ClassTag[RuleFolderRunnerEval] = ClassTag(classOf[RuleFolderRunnerEval])
+
+  override val tClass: Class[RuleFolderRunnerEval] = classOf[RuleFolderRunnerEval]
+}
+
+
+/**
+ * Children will be rewritten by the plan, it's then re-incorporated into ruleSuite
+ * expressionOffsets.length is the length of the trigger expressions in realChildren, realChildren(expressionOffsets.length + expressionOffsets(x)) will be the correct OutputExpression
+ */
+case class RuleFolderRunner(ruleSuite: RuleSuite, left: Expression, right: Expression, resultDataType: () => DataType,
+                                compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
+                                variableFuncGroup: Int, expressionOffsets: Array[Int],
+                                dataRef: AtomicReference[DataType], forceTriggerEval: Boolean
+                               ) extends RuleFolderRunnerBase[RuleFolderRunner] {
+
+  protected def withNewChildrenInternal(newLeft: Expression, newRight: Expression): Expression = {
+    // Spark 4 re-orders the checking of types, so we don't have a type until resolving
+    // as such we need to now force resolved to true - dropping 2.4 anyway
+    val c = newRight.transform{
+      case RefExpressionLazyType(a, n, false) =>
+        RefExpressionLazyType(a, n, true)
+    }
+    copy(left = newLeft, right = c)
+  }
+
+  override def withNewChilds(newLeft: Expression, newRight: Expression): Expression = withNewChildrenInternal(newLeft, newRight)
+
+  override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = doGenCodeI(ctx, ev)
+
+  override implicit val classTagT: ClassTag[RuleFolderRunner] = ClassTag(classOf[RuleFolderRunner])
+  override val tClass: Class[RuleFolderRunner] = classOf[RuleFolderRunner]
 }

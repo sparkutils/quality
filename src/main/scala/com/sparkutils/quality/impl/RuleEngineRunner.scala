@@ -8,10 +8,10 @@ import com.sparkutils.quality.impl.RuleRunnerUtils.{genRuleSuiteTerm, packTheId}
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.imports.{RuleEngineRunnerImports, RuleResultsImports}
 import RuleResultsImports.packId
-import com.sparkutils.quality.impl.util.{NonPassThrough, PassThrough}
+import com.sparkutils.quality.impl.util.{NonPassThrough, PassThrough, PassThroughEvalOnly}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenFallback}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode}
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression, UnaryExpression}
 import org.apache.spark.sql.catalyst.util.GenericArrayData
 import org.apache.spark.sql.types._
@@ -19,7 +19,7 @@ import org.apache.spark.sql.{Column, DataFrame, QualitySparkUtils, ShimUtils}
 
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
-import scala.reflect.ClassTag
+import scala.reflect.{ClassTag, classTag}
 
 object RuleEngineRunnerImpl {
 
@@ -49,17 +49,31 @@ object RuleEngineRunnerImpl {
 
     val (expressions, indexes) = flattenExpressions(ruleSuite)
 
-    // clean out expressions, UnresolvedRelations etc. from subquery usage
-    val runner = new RuleEngineRunner(RuleLogicUtils.cleanExprs(ruleSuite), PassThrough( expressions ), realType, compileEvals,
-      debugMode, variablesPerFunc, variableFuncGroup, forceRunnerEval, expressionOffsets = indexes, forceTriggerEval)
+    val cleaned = RuleLogicUtils.cleanExprs(ruleSuite)
+    val exprs =
+      // ExpressionProxy and SubExprEvaluationRuntime cannot be used with compileEvals
+      if (compileEvals)
+        PassThrough(expressions)
+      else
+        PassThroughEvalOnly(expressions)
+
+    // clean out expressions, UnresolvedRelations etc. from subquery usage forceRunnerEval,
+    val runner =
+      if (forceRunnerEval || resolveWith.isDefined)
+        new RuleEngineRunnerEval(cleaned, exprs, realType, compileEvals,
+          debugMode, variablesPerFunc, variableFuncGroup, expressionOffsets = indexes, forceTriggerEval)
+      else
+        new RuleEngineRunner(cleaned, exprs, realType, compileEvals,
+          debugMode, variablesPerFunc, variableFuncGroup, expressionOffsets = indexes, forceTriggerEval)
 
     ShimUtils.column(
       QualitySparkUtils.resolveWithOverride(resolveWith).map { df =>
         val resolved = QualitySparkUtils.resolveExpression(df, runner)
 
-        resolved.asInstanceOf[RuleEngineRunner].copy(child = resolved.children(0) match {
+        resolved.asInstanceOf[RuleEngineRunnerBase[_]].withNewChild(resolved.children.head match {
           // replace the expr
           case PassThrough(children) => NonPassThrough(children)
+          case PassThroughEvalOnly(children) => NonPassThrough(children)
         })
       } getOrElse runner
     )
@@ -182,13 +196,8 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
                        orderOffset: Int => Int = identity,
                        salienceCheck: Boolean = true
                       ):
-    Option[CompilerTerms] = {
+    CompilerTerms = {
     val i = ctx.INPUT_ROW
-
-    if (child.isInstanceOf[NonPassThrough] && (i eq null) ) {
-      // for some reason code gen ends up with assuming iterator based gen on children instead of simple gen - the actual gen isn't even called for flattenResultsTest, only for withResolve, could be dragons.
-      return None
-    }
 
     val (paramsDef, paramsCall) =
       if (i ne null)
@@ -319,12 +328,12 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
       stepWithIf
     }.grouped(variablesPerFunc).grouped(variableFuncGroup)
 
-    Some(
-      CompilerTerms(RuleRunnerUtils.generateFunctionGroups(ctx, allExpr, paramsDef, paramsCall),
-        paramsCall, utilsName, ruleSuitTerm, ruleSuiteArrays, resArrTerm,
-        currentSalience, ruleTupleArrTerm, currentOutputIndex, outArrTerm,
-        salienceArrTerm)
-    )
+
+    CompilerTerms(RuleRunnerUtils.generateFunctionGroups(ctx, allExpr, paramsDef, paramsCall),
+      paramsCall, utilsName, ruleSuitTerm, ruleSuiteArrays, resArrTerm,
+      currentSalience, ruleTupleArrTerm, currentOutputIndex, outArrTerm,
+      salienceArrTerm)
+
   }
 
 }
@@ -333,10 +342,18 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
   * Children will be rewritten by the plan, it's then re-incorporated into ruleSuite
   * expressionOffsets.length is the length of the trigger expressions in realChildren, realChildren(expressionOffsets.length + expressionOffsets(x)) will be the correct OutputExpression
   */
-case class RuleEngineRunner(ruleSuite: RuleSuite, child: Expression, resultDataType: DataType,
-                            compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
-                            variableFuncGroup: Int, forceRunnerEval: Boolean, expressionOffsets: Array[Int],
-                            forceTriggerEval: Boolean) extends UnaryExpression with NonSQLExpression with CodegenFallback {
+trait RuleEngineRunnerBase[T] extends UnaryExpression with NonSQLExpression {
+  val ruleSuite: RuleSuite
+  val child: Expression
+  val resultDataType: DataType
+  val compileEvals: Boolean
+  val debugMode: Boolean
+  val variablesPerFunc: Int
+  val variableFuncGroup: Int
+  val forceTriggerEval: Boolean
+  val expressionOffsets: Array[Int]
+
+  implicit val classTagT: ClassTag[T]
 
   import RuleEngineRunnerUtils._
 
@@ -344,6 +361,7 @@ case class RuleEngineRunner(ruleSuite: RuleSuite, child: Expression, resultDataT
     child match {
       case r @ NonPassThrough(_) => r.rules
       case PassThrough(children) => children
+      case PassThroughEvalOnly(children) => children
     }
 
   // only used for compilation
@@ -369,16 +387,12 @@ case class RuleEngineRunner(ruleSuite: RuleSuite, child: Expression, resultDataT
       StructField(name = "result", dataType = resultDataType, nullable = true)
     ))
 
-  override protected def doGenCode(ctx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = {
-    if (forceRunnerEval) {
-      return super[CodegenFallback].doGenCode(ctx, ev)
-    }
-
+  protected def doGenCodeI(ctx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = {
     ctx.references += this
 
     val compilerTerms =
-      RuleEngineRunnerUtils.genCompilerTerms[RuleEngineRunner](ctx, child, expressionOffsets, realChildren,
-        debugMode, variablesPerFunc, variableFuncGroup, forceTriggerEval).getOrElse(return super[CodegenFallback].doGenCode(ctx, ev))
+      RuleEngineRunnerUtils.genCompilerTerms[T](ctx, child, expressionOffsets, realChildren,
+        debugMode, variablesPerFunc, variableFuncGroup, forceTriggerEval)
 
     import compilerTerms._
 
@@ -424,5 +438,35 @@ case class RuleEngineRunner(ruleSuite: RuleSuite, child: Expression, resultDataT
 
   }
 
-  protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
+
+  // TODO #21 - migrate to withNewChildren when 2.4 is dropped
+  def withNewChild(newChild: Expression): Expression
 }
+
+case class RuleEngineRunnerEval(ruleSuite: RuleSuite, child: Expression, resultDataType: DataType,
+                            compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
+                            variableFuncGroup: Int, expressionOffsets: Array[Int],
+                            forceTriggerEval: Boolean) extends RuleEngineRunnerBase[RuleEngineRunnerEval] with CodegenFallback {
+
+  protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
+
+  override def withNewChild(newChild: Expression): Expression = copy(child = newChild)
+
+  override implicit val classTagT: ClassTag[RuleEngineRunnerEval] = ClassTag(classOf[RuleEngineRunnerEval])
+}
+
+
+case class RuleEngineRunner(ruleSuite: RuleSuite, child: Expression, resultDataType: DataType,
+                                compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
+                                variableFuncGroup: Int, expressionOffsets: Array[Int],
+                                forceTriggerEval: Boolean) extends RuleEngineRunnerBase[RuleEngineRunner] with CodegenFallback {
+
+  protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
+
+  override def withNewChild(newChild: Expression): Expression = copy(child = newChild)
+
+  override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = doGenCodeI(ctx, ev)
+
+  override implicit val classTagT: ClassTag[RuleEngineRunner] = ClassTag(classOf[RuleEngineRunner])
+}
+
