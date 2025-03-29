@@ -1,10 +1,10 @@
 package org.apache.spark.sql
 
 import com.sparkutils.quality.impl.util.DebugTime.debugTime
-import com.sparkutils.quality.impl.util.PassThroughCompileEvals
-import com.sparkutils.quality.impl.{RuleEngineRunner, RuleFolderRunner, RuleRunner}
+import com.sparkutils.quality.impl.util.{PassThrough, PassThroughCompileEvals}
+import com.sparkutils.quality.impl.{RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
 import org.apache.spark.sql.QualityStructFunctions.UpdateFields
-import org.apache.spark.sql.ShimUtils.{toSQLExpr, toSQLType}
+import org.apache.spark.sql.ShimUtils.{column, toSQLExpr, toSQLType}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, ResolveCreateNamedStruct, ResolveHigherOrderFunctions, ResolveInlineTables, ResolveLambdaVariables, ResolveTimeZone, Resolver, TypeCheckResult, TypeCoercion, UnresolvedAttribute, UnresolvedExtractValue}
 import org.apache.spark.sql.catalyst.catalog.SessionCatalog
@@ -23,6 +23,8 @@ import scala.collection.mutable.ArrayBuffer
  * Set of utilities to reach in to private functions
  */
 object QualitySparkUtils {
+
+  type DatasetBase[F] = org.apache.spark.sql.Dataset[F]
 
   /**
    * Where resolveWith is not possible (e.g. 10.x DBRs) it is disabled here.
@@ -177,17 +179,15 @@ object QualitySparkUtils {
     }
     // special case as it's faster to do individual items it seems, 36816ms vs 48974ms
     expr match {
-      case r @ RuleEngineRunner(ruleSuite, PassThroughCompileEvals( expressions ), realType, compileEvals, debugMode, func, group, forceRunnerEval, expressionOffsets, forceTriggerEval) =>
-        val nexprs = expressions.map(forExpr)
-        RuleEngineRunner(ruleSuite, PassThroughCompileEvals( nexprs ), realType, compileEvals, debugMode, func, group, forceRunnerEval, expressionOffsets, forceTriggerEval)
-      case r @ RuleFolderRunner(ruleSuite, left, PassThroughCompileEvals( expressions ), resultDataType, compileEvals, debugMode, variablesPerFunc,
-        variableFuncGroup, forceRunnerEval, expressionOffsets, dataRef, forceTriggerEval) =>
-        val nexprs = expressions.map(forExpr)
-        RuleFolderRunner(ruleSuite, left, PassThroughCompileEvals( nexprs ), resultDataType, compileEvals, debugMode, variablesPerFunc,
-          variableFuncGroup, forceRunnerEval, expressionOffsets, dataRef, forceTriggerEval)
-      case r @ RuleRunner(ruleSuite, PassThroughCompileEvals( expressions ), compileEvals, func, group, forceRunnerEval) =>
-        val nexprs = expressions.map(forExpr)
-        RuleRunner(ruleSuite, PassThroughCompileEvals( nexprs ), compileEvals, func, group, forceRunnerEval)
+      case r: RuleEngineRunnerBase[_] if r.child.isInstanceOf[PassThrough] =>
+        val nexprs = r.child.children.map(forExpr)
+        r.withNewChildren(Seq(r.child.withNewChildren(nexprs)))
+      case r: RuleFolderRunnerBase[_] if r.right.isInstanceOf[PassThrough]  =>
+        val nexprs = r.right.children.map(forExpr)
+        r.withNewChildren(Seq(r.left, r.right.withNewChildren(nexprs)))
+      case r: RuleRunnerBase[_] if r.child.isInstanceOf[PassThrough] =>
+        val nexprs = r.child.children.map(forExpr)
+        r.withNewChildren(Seq(PassThroughCompileEvals(nexprs)))
       case _ => forExpr(expr)
     }
   }
