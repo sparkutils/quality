@@ -29,19 +29,27 @@ object DebugTime extends Logging {
 
 }
 
-/**
- * Same as unevaluable but the queryplan runs.  This version requires compileEvals = true (rules are independent and
- * will not use Subexpression Elimination at eval time) and as such cannot be used with SubExprEvaluationRuntime
- * @param children
- */
-case class PassThrough(children: Seq[Expression]) extends Expression with CodegenFallback {
+trait PassThrough extends Expression {
   override def nullable: Boolean = true
 
   override def eval(input: InternalRow): Any = Literal(true).eval(input)
 
   override def dataType: DataType = BooleanType
 
+  // TODO #21 - migrate to withNewChildren when 2.4 is dropped
+  def withNewChilds(newChildren: IndexedSeq[Expression]): Expression
+}
+
+/**
+ * Same as unevaluable but the queryplan runs.  This version requires compileEvals = true (rules are independent and
+ * will not use Subexpression Elimination at eval time) and as such cannot be used with SubExprEvaluationRuntime
+ * @param children
+ */
+case class PassThroughCompileEvals(children: Seq[Expression]) extends PassThrough with CodegenFallback {
+
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
+
+  override def withNewChilds(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
 }
 
 /**
@@ -49,16 +57,12 @@ case class PassThrough(children: Seq[Expression]) extends Expression with Codege
  * rules / triggers and for any output expressions, it may take part in SubExprEvaluationRuntime
  * @param children
  */
-case class PassThroughEvalOnly(children: Seq[Expression]) extends Expression {
-  override def nullable: Boolean = true
-
-  override def eval(input: InternalRow): Any = Literal(true).eval(input)
-
-  override def dataType: DataType = BooleanType
-
+case class PassThroughEvalOnly(children: Seq[Expression]) extends PassThrough {
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
 
   protected def doGenCode(ctx: org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev: org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = ???
+
+  override def withNewChilds(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
 }
 
 /**

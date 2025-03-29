@@ -1,7 +1,7 @@
 package org.apache.spark.sql
 
 import com.sparkutils.quality.impl.util.DebugTime.debugTime
-import com.sparkutils.quality.impl.util.PassThrough
+import com.sparkutils.quality.impl.util.PassThroughCompileEvals
 import com.sparkutils.quality.impl.{RuleEngineRunner, RuleFolderRunner, RuleRunner}
 import org.apache.spark.sql.QualityStructFunctions.UpdateFields
 import org.apache.spark.sql.ShimUtils.{toSQLExpr, toSQLType}
@@ -177,17 +177,17 @@ object QualitySparkUtils {
     }
     // special case as it's faster to do individual items it seems, 36816ms vs 48974ms
     expr match {
-      case r @ RuleEngineRunner(ruleSuite, PassThrough( expressions ), realType, compileEvals, debugMode, func, group, forceRunnerEval, expressionOffsets, forceTriggerEval) =>
+      case r @ RuleEngineRunner(ruleSuite, PassThroughCompileEvals( expressions ), realType, compileEvals, debugMode, func, group, forceRunnerEval, expressionOffsets, forceTriggerEval) =>
         val nexprs = expressions.map(forExpr)
-        RuleEngineRunner(ruleSuite, PassThrough( nexprs ), realType, compileEvals, debugMode, func, group, forceRunnerEval, expressionOffsets, forceTriggerEval)
-      case r @ RuleFolderRunner(ruleSuite, left, PassThrough( expressions ), resultDataType, compileEvals, debugMode, variablesPerFunc,
+        RuleEngineRunner(ruleSuite, PassThroughCompileEvals( nexprs ), realType, compileEvals, debugMode, func, group, forceRunnerEval, expressionOffsets, forceTriggerEval)
+      case r @ RuleFolderRunner(ruleSuite, left, PassThroughCompileEvals( expressions ), resultDataType, compileEvals, debugMode, variablesPerFunc,
         variableFuncGroup, forceRunnerEval, expressionOffsets, dataRef, forceTriggerEval) =>
         val nexprs = expressions.map(forExpr)
-        RuleFolderRunner(ruleSuite, left, PassThrough( nexprs ), resultDataType, compileEvals, debugMode, variablesPerFunc,
+        RuleFolderRunner(ruleSuite, left, PassThroughCompileEvals( nexprs ), resultDataType, compileEvals, debugMode, variablesPerFunc,
           variableFuncGroup, forceRunnerEval, expressionOffsets, dataRef, forceTriggerEval)
-      case r @ RuleRunner(ruleSuite, PassThrough( expressions ), compileEvals, func, group, forceRunnerEval) =>
+      case r @ RuleRunner(ruleSuite, PassThroughCompileEvals( expressions ), compileEvals, func, group, forceRunnerEval) =>
         val nexprs = expressions.map(forExpr)
-        RuleRunner(ruleSuite, PassThrough( nexprs ), compileEvals, func, group, forceRunnerEval)
+        RuleRunner(ruleSuite, PassThroughCompileEvals( nexprs ), compileEvals, func, group, forceRunnerEval)
       case _ => forExpr(expr)
     }
   }

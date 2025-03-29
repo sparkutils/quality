@@ -1,7 +1,7 @@
 package org.apache.spark.sql
 
 import com.sparkutils.quality.impl.util.DebugTime.debugTime
-import com.sparkutils.quality.impl.util.PassThrough
+import com.sparkutils.quality.impl.util.{PassThrough, PassThroughCompileEvals}
 import com.sparkutils.quality.impl.{RuleEngineRunner, RuleEngineRunnerBase, RuleFolderRunner, RuleFolderRunnerBase, RuleRunner, RuleRunnerBase}
 import org.apache.spark.sql.ShimUtils.{column, expression}
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCoercion}
@@ -178,13 +178,13 @@ object QualitySparkUtils {
     expr match {
       case r: RuleEngineRunnerBase[_] if r.child.isInstanceOf[PassThrough] =>
         val nexprs = r.child.children.map(forExpr)
-        r.withNewChild(PassThrough(nexprs))
+        r.withNewChildren(Seq(r.child.withNewChildren(nexprs)))
       case r: RuleFolderRunnerBase[_] if r.right.isInstanceOf[PassThrough]  =>
         val nexprs = r.right.children.map(forExpr)
-        r.withNewChilds(r.left, PassThrough(nexprs))
+        r.withNewChildren(Seq(r.left, r.right.withNewChildren(nexprs)))
       case r: RuleRunnerBase[_] if r.child.isInstanceOf[PassThrough] =>
         val nexprs = r.child.children.map(forExpr)
-        r.withNewChild(PassThrough(nexprs))
+        r.withNewChildren(Seq(PassThroughCompileEvals(nexprs)))
       case _ => forExpr(expr)
     }
   }

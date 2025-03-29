@@ -2,7 +2,7 @@ package com.sparkutils.quality.impl
 
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.imports.RuleFolderRunnerImports
-import com.sparkutils.quality.impl.util.{NonPassThrough, PassThrough, PassThroughEvalOnly}
+import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals, PassThroughEvalOnly}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode}
@@ -70,7 +70,7 @@ trait RuleFolderRunnerBase[T] extends BinaryExpression with NonSQLExpression {
   lazy val realChildren =
     right match {
       case r @ NonPassThrough(_) => r.rules
-      case PassThrough(children) => children
+      case PassThroughCompileEvals(children) => children
       case PassThroughEvalOnly(children) => children
     }
 
@@ -180,10 +180,6 @@ trait RuleFolderRunnerBase[T] extends BinaryExpression with NonSQLExpression {
     res
 
   }
-
-
-  // TODO #21 - migrate to withNewChildren when 2.4 is dropped
-  def withNewChilds(newLeft: Expression, newRight: Expression): Expression
 }
 
 
@@ -206,8 +202,6 @@ case class RuleFolderRunnerEval(ruleSuite: RuleSuite, left: Expression, right: E
     }
     copy(left = newLeft, right = c)
   }
-
-  override def withNewChilds(newLeft: Expression, newRight: Expression): Expression = withNewChildrenInternal(newLeft, newRight)
 
   override implicit val classTagT: ClassTag[RuleFolderRunnerEval] = ClassTag(classOf[RuleFolderRunnerEval])
 
@@ -234,8 +228,6 @@ case class RuleFolderRunner(ruleSuite: RuleSuite, left: Expression, right: Expre
     }
     copy(left = newLeft, right = c)
   }
-
-  override def withNewChilds(newLeft: Expression, newRight: Expression): Expression = withNewChildrenInternal(newLeft, newRight)
 
   override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = doGenCodeI(ctx, ev)
 

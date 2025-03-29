@@ -176,10 +176,6 @@ trait ExpressionRunnerBase[T] extends Expression with NonSQLExpression {
 
   override def dataType: DataType =
     expressionsResultsType(ddlType)
-
-
-  // TODO #21 - migrate to withNewChildren when 2.4 is dropped
-  def withNewChilds(newChildren: Seq[Expression]): Expression
 }
 
 /**
@@ -192,8 +188,6 @@ case class ExpressionRunnerEval(ruleSuite: RuleSuite, children: Seq[Expression],
                             compileEvals: Boolean, variablesPerFunc: Int,
                             variableFuncGroup: Int)
   extends ExpressionRunnerBase[ExpressionRunnerEval] with CodegenFallback {
-
-  override def withNewChilds(newChildren: Seq[Expression]): Expression = copy(children = newChildren)
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
 
@@ -210,8 +204,6 @@ case class ExpressionRunner(ruleSuite: RuleSuite, children: Seq[Expression], ddl
                                 compileEvals: Boolean, variablesPerFunc: Int,
                                 variableFuncGroup: Int)
   extends ExpressionRunnerBase[ExpressionRunner] {
-
-  override def withNewChilds(newChildren: Seq[Expression]): Expression = copy(children = newChildren)
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
 

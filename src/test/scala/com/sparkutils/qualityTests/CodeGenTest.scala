@@ -131,7 +131,7 @@ class CodeGenTest extends RowTools with TestUtils {
     //res
   }
 
-  @Ignore // as of 
+  @Ignore // as of e149d590 (#71) no longer triggered on Spark4
   def ruleEngineRunnerTooMuchPerFunc: Unit = not_Cluster{ not2_4{ forceCodeGen {
     // as of eec8842 does not hit 64k on the server at 900
     shouldAssert64kb{

@@ -3,7 +3,7 @@ package com.sparkutils.quality.impl.imports
 import com.sparkutils.quality.RuleSuite
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenExpressions
 import com.sparkutils.quality.impl.{RuleFolderRunner, RuleFolderRunnerEval, RuleLogicUtils}
-import com.sparkutils.quality.impl.util.{NonPassThrough, PassThrough, PassThroughEvalOnly}
+import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals, PassThroughEvalOnly}
 import org.apache.spark.sql.ShimUtils.{column, expression}
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.qualityFunctions.{FunN, RefExpressionLazyType}
@@ -62,7 +62,7 @@ trait RuleFolderRunnerImports {
     val exprs =
       // ExpressionProxy and SubExprEvaluationRuntime cannot be used with compileEvals
       if (compileEvals)
-        PassThrough(expressions)
+        PassThroughCompileEvals(expressions)
       else
         PassThroughEvalOnly(expressions)
 
@@ -82,11 +82,11 @@ trait RuleFolderRunnerImports {
       QualitySparkUtils.resolveWithOverride(resolveWith).map { df =>
         val resolved = QualitySparkUtils.resolveExpression(df, runner)
 
-        resolved.asInstanceOf[RuleFolderRunner].copy(right = resolved.children.head match {
+        resolved.withNewChildren(Seq(runner.left, resolved.children.head match {
           // replace the expr
-          case PassThrough(children) => NonPassThrough(children)
+          case PassThroughCompileEvals(children) => NonPassThrough(children)
           case PassThroughEvalOnly(children) => NonPassThrough(children)
-        })
+        }))
       } getOrElse runner
     )
   }

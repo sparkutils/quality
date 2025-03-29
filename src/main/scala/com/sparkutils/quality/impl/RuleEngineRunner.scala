@@ -8,7 +8,7 @@ import com.sparkutils.quality.impl.RuleRunnerUtils.{genRuleSuiteTerm, packTheId}
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.imports.{RuleEngineRunnerImports, RuleResultsImports}
 import RuleResultsImports.packId
-import com.sparkutils.quality.impl.util.{NonPassThrough, PassThrough, PassThroughEvalOnly}
+import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals, PassThroughEvalOnly}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode}
@@ -53,7 +53,7 @@ object RuleEngineRunnerImpl {
     val exprs =
       // ExpressionProxy and SubExprEvaluationRuntime cannot be used with compileEvals
       if (compileEvals)
-        PassThrough(expressions)
+        PassThroughCompileEvals(expressions)
       else
         PassThroughEvalOnly(expressions)
 
@@ -70,11 +70,11 @@ object RuleEngineRunnerImpl {
       QualitySparkUtils.resolveWithOverride(resolveWith).map { df =>
         val resolved = QualitySparkUtils.resolveExpression(df, runner)
 
-        resolved.asInstanceOf[RuleEngineRunnerBase[_]].withNewChild(resolved.children.head match {
+        resolved.withNewChildren(Seq(resolved.children.head match {
           // replace the expr
-          case PassThrough(children) => NonPassThrough(children)
+          case PassThroughCompileEvals(children) => NonPassThrough(children)
           case PassThroughEvalOnly(children) => NonPassThrough(children)
-        })
+        }))
       } getOrElse runner
     )
   }
@@ -360,7 +360,7 @@ trait RuleEngineRunnerBase[T] extends UnaryExpression with NonSQLExpression {
   lazy val realChildren =
     child match {
       case r @ NonPassThrough(_) => r.rules
-      case PassThrough(children) => children
+      case PassThroughCompileEvals(children) => children
       case PassThroughEvalOnly(children) => children
     }
 
@@ -437,10 +437,6 @@ trait RuleEngineRunnerBase[T] extends UnaryExpression with NonSQLExpression {
     res
 
   }
-
-
-  // TODO #21 - migrate to withNewChildren when 2.4 is dropped
-  def withNewChild(newChild: Expression): Expression
 }
 
 case class RuleEngineRunnerEval(ruleSuite: RuleSuite, child: Expression, resultDataType: DataType,
@@ -449,8 +445,6 @@ case class RuleEngineRunnerEval(ruleSuite: RuleSuite, child: Expression, resultD
                             forceTriggerEval: Boolean) extends RuleEngineRunnerBase[RuleEngineRunnerEval] with CodegenFallback {
 
   protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
-
-  override def withNewChild(newChild: Expression): Expression = copy(child = newChild)
 
   override implicit val classTagT: ClassTag[RuleEngineRunnerEval] = ClassTag(classOf[RuleEngineRunnerEval])
 }
@@ -462,8 +456,6 @@ case class RuleEngineRunner(ruleSuite: RuleSuite, child: Expression, resultDataT
                                 forceTriggerEval: Boolean) extends RuleEngineRunnerBase[RuleEngineRunner] with CodegenFallback {
 
   protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
-
-  override def withNewChild(newChild: Expression): Expression = copy(child = newChild)
 
   override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = doGenCodeI(ctx, ev)
 

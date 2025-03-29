@@ -6,7 +6,7 @@ import com.sparkutils.quality.impl.imports.RuleResultsImports.packId
 import com.sparkutils.quality._
 import types.ruleSuiteResultType
 import com.sparkutils.quality.impl.imports.RuleRunnerImports
-import com.sparkutils.quality.impl.util.{NonPassThrough, PassThrough, PassThroughEvalOnly}
+import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals, PassThroughEvalOnly}
 import org.apache.spark.sql.ShimUtils.column
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
@@ -59,7 +59,7 @@ protected[quality] object RuleRunnerImpl {
     val input =
       // ExpressionProxy and SubExprEvaluationRuntime cannot be used with compileEvals
       if (compileEvals)
-        PassThrough( flattened )
+        PassThroughCompileEvals( flattened )
       else
         PassThroughEvalOnly( flattened )
 
@@ -75,11 +75,11 @@ protected[quality] object RuleRunnerImpl {
       QualitySparkUtils.resolveWithOverride(resolveWith).map { df =>
         val resolved = QualitySparkUtils.resolveExpression(df, runner)
 
-        resolved.asInstanceOf[RuleRunnerBase[_]].withNewChild(resolved.children.head match {
+        resolved.withNewChildren(Seq(resolved.children.head match {
           // replace the expr
-          case PassThrough(children) => NonPassThrough(children)
+          case PassThroughCompileEvals(children) => NonPassThrough(children)
           case PassThroughEvalOnly(children) => NonPassThrough(children)
-        })
+        }))
       } getOrElse runner
     )
   }
@@ -316,7 +316,7 @@ trait RuleRunnerBase[T] extends UnaryExpression with NonSQLExpression {
   lazy val realChildren =
     child match {
       case r @ NonPassThrough(_) => r.rules
-      case PassThrough(children) => children
+      case PassThroughCompileEvals(children) => children
       case PassThroughEvalOnly(children) => children
     }
 
@@ -359,9 +359,6 @@ trait RuleRunnerBase[T] extends UnaryExpression with NonSQLExpression {
       (code: ExprValue, idx: Int) => s"com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt($code)"
     )
   }
-
-  // TODO #21 - migrate to withNewChildren when 2.4 is dropped
-  def withNewChild(newChild: Expression): Expression
 }
 
 case class RuleRunnerEval(ruleSuite: RuleSuite, child: Expression, compileEvals: Boolean,
@@ -370,7 +367,6 @@ case class RuleRunnerEval(ruleSuite: RuleSuite, child: Expression, compileEvals:
 
   protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
 
-  override def withNewChild(newChild: Expression): Expression = copy(child = newChild)
 
   override implicit val tClass: ClassTag[RuleRunnerEval] = ClassTag(classOf[RuleRunnerEval])
 }
@@ -382,8 +378,6 @@ case class RuleRunner(ruleSuite: RuleSuite, child: Expression, compileEvals: Boo
   protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = doGenCodeI(ctx, ev)
 
   protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
-
-  override def withNewChild(newChild: Expression): Expression = copy(child = newChild)
 
   override implicit val tClass: ClassTag[RuleRunner] = ClassTag(classOf[RuleRunner])
 }
