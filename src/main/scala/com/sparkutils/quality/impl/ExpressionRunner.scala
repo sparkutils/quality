@@ -197,7 +197,7 @@ case class ExpressionRunnerEval(ruleSuite: RuleSuite, child: Expression, ddlType
 
   override implicit val classTagT: ClassTag[ExpressionRunnerEval] = ClassTag(classOf[ExpressionRunnerEval])
 
-  override protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
+  protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
 }
 
 /**
@@ -210,7 +210,7 @@ case class ExpressionRunner(ruleSuite: RuleSuite, child: Expression, ddlType: Da
   extends ExpressionRunnerBase[ExpressionRunner] {
 
 
-  override protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
+  protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
 
   override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = doGenCodeI(ctx, ev)
 

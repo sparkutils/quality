@@ -187,66 +187,6 @@ concat(fielda, fieldb)
 ## Lambdas
 
 
-## Lambda test
-    
-### Rule - Id - 6, 1 <a name="lambda_6_1"></a> -  <a href="../sampleDocsValidation/#Warnings_6_1" class="rule_warning">1 Warnings</a>
-__Name__ test
-lambda description
-
-|Parameter|Description|
-|---|---|
-|fielda|lambda desc|
-
-
-
-    
-
-```sql
-variable -> variable
-```
-
-
-
-<div class="lambdas_used comma-list">
-<p>Called by Rules:</p>
-<ul>
-
-<li> <a href="#rule_4_1">4 - 1</a> </li>
-
-<li> <a href="#rule_5_1">5 - 1</a> </li>
-</ul>
-</div>
-
-
-
-
-## Lambda testCaller3
-    
-### Rule - Id - 8, 1 <a name="lambda_8_1"></a> - 
-__Name__ testCaller3
-lambda description only
-
-
-
-    
-
-```sql
-(outervariable1, variable2, variable3) -> testCaller2(outervariable1, variable2)
-```
-
-<div class="lambdas_used comma-list">
-<p>Lambda used:</p>
-<ul>
-
-<li> <a href="#lambda_7_2">testCaller2</a> </li>
-</ul>
-</div>
-
-
-
-
-
-
 ## Lambda testCaller2
     
 ### Rule - Id - 7, 2 <a name="lambda_7_2"></a> - 
@@ -292,6 +232,66 @@ __Name__ testCaller2
 <div class="lambdas_used comma-list">
 <p>Called by Rules:</p>
 <ul>
+
+<li> <a href="#rule_4_1">4 - 1</a> </li>
+</ul>
+</div>
+
+
+
+
+## Lambda testCaller3
+    
+### Rule - Id - 8, 1 <a name="lambda_8_1"></a> - 
+__Name__ testCaller3
+lambda description only
+
+
+
+    
+
+```sql
+(outervariable1, variable2, variable3) -> testCaller2(outervariable1, variable2)
+```
+
+<div class="lambdas_used comma-list">
+<p>Lambda used:</p>
+<ul>
+
+<li> <a href="#lambda_7_2">testCaller2</a> </li>
+</ul>
+</div>
+
+
+
+
+
+
+## Lambda test
+    
+### Rule - Id - 6, 1 <a name="lambda_6_1"></a> -  <a href="../sampleDocsValidation/#Warnings_6_1" class="rule_warning">1 Warnings</a>
+__Name__ test
+lambda description
+
+|Parameter|Description|
+|---|---|
+|fielda|lambda desc|
+
+
+
+    
+
+```sql
+variable -> variable
+```
+
+
+
+<div class="lambdas_used comma-list">
+<p>Called by Rules:</p>
+<ul>
+
+<li> <a href="#rule_5_1">5 - 1</a> </li>
 
 <li> <a href="#rule_4_1">4 - 1</a> </li>
 </ul>

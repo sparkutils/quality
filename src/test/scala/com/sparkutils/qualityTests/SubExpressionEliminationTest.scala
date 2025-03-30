@@ -71,7 +71,7 @@ class SubExpressionEliminationTest extends FunSuite with TestUtils {
   def runnerShouldNotEliminateWithRunnerEval(): Unit = evalCodeGensNoResolve { doRunner(expectedTriggerRules, ruleRunner(_, compileEvals = false, forceRunnerEval = true)) }
 
   @Test
-  def runnerShouldEliminate(): Unit = evalCodeGensNoResolve{ doRunner(expectedEliminatedTriggerRules, ruleRunner(_, compileEvals = false)) }
+  def runnerShouldEliminate(): Unit = not2_4 { evalCodeGensNoResolve{ doRunner(expectedEliminatedTriggerRules, ruleRunner(_, compileEvals = false)) } }
 
   // adds an output expression
   def doOutput(count: Int, rsf: RuleSuite => Column, expr: String): Unit =
@@ -93,7 +93,7 @@ class SubExpressionEliminationTest extends FunSuite with TestUtils {
 
   // note there should be no more calls as the outputexpr is already eliminated
   @Test
-  def engineShouldEliminate(): Unit = evalCodeGensNoResolve{ doOutput(expectedEliminatedTriggerRules, ruleEngineRunner(_, IntegerType, forceTriggerEval = false, compileEvals = false), outputExpr) }
+  def engineShouldEliminate(): Unit = not2_4 { evalCodeGensNoResolve{ doOutput(expectedEliminatedTriggerRules, ruleEngineRunner(_, IntegerType, forceTriggerEval = false, compileEvals = false), outputExpr) } }
 
   @Test
   def controlExpression(): Unit = evalCodeGensNoResolve{ doRunner(expectedTriggerRules, ExpressionRunner(_, ddlType = "boolean")) }  // defaults may change later
@@ -104,7 +104,7 @@ class SubExpressionEliminationTest extends FunSuite with TestUtils {
 
   // note there should be no more calls as the outputexpr is already eliminated
   @Test
-  def expressionShouldEliminate(): Unit = evalCodeGensNoResolve { doRunner(expectedEliminatedTriggerRules, ExpressionRunner(_, ddlType = "boolean", compileEvals = false)) }
+  def expressionShouldEliminate(): Unit = not2_4 { evalCodeGensNoResolve { doRunner(expectedEliminatedTriggerRules, ExpressionRunner(_, ddlType = "boolean", compileEvals = false)) } }
 
   val folderExpr = "a -> if(myequal(product, 'p1'), a, named_struct('r',0))"
   val starter = sql.functions.struct(sql.functions.lit(1).as("r"))
@@ -119,10 +119,10 @@ class SubExpressionEliminationTest extends FunSuite with TestUtils {
 
   // note there should be no more calls as the outputexpr is already eliminated
   @Test
-  def folderShouldEliminate(): Unit = evalCodeGensNoResolve{ doOutput(expectedEliminatedTriggerRules, ruleFolderRunner(_, starter, compileEvals = false), folderExpr) }
+  def folderShouldEliminate(): Unit = not2_4 { evalCodeGensNoResolve{ doOutput(expectedEliminatedTriggerRules, ruleFolderRunner(_, starter, compileEvals = false), folderExpr) } }
 
   @Test
-  def folderShouldEliminateWithTriggersFalse(): Unit = evalCodeGensNoResolve{ doOutput(expectedEliminatedTriggerRules, ruleFolderRunner(_, starter, compileEvals = false, forceTriggerEval = false), folderExpr) }
+  def folderShouldEliminateWithTriggersFalse(): Unit = not2_4 { evalCodeGensNoResolve{ doOutput(expectedEliminatedTriggerRules, ruleFolderRunner(_, starter, compileEvals = false, forceTriggerEval = false), folderExpr) } }
 
 }
 
@@ -134,7 +134,7 @@ object EqualToTest {
 // EqualTo that triggers counter
 case class EqualToTest(left: Expression, right: Expression)
   extends BinaryExpression {
-  override def nullIntolerant: Boolean = true
+  def nullIntolerant: Boolean = true
   protected lazy val ordering: Ordering[Any] = TypeUtils.getInterpretedOrdering(left.dataType)
 
   protected override def nullSafeEval(left: Any, right: Any): Any = {
@@ -147,7 +147,7 @@ case class EqualToTest(left: Expression, right: Expression)
     ${ctx.genEqual(left.dataType, c1, c2)};com.sparkutils.qualityTests.EqualToTest.inc()
     """)
 
-  override protected def withNewChildrenInternal(newLeft: Expression, newRight: Expression): EqualToTest =
+  protected def withNewChildrenInternal(newLeft: Expression, newRight: Expression): EqualToTest =
     copy(left = newLeft, right = newRight)
 
   override def dataType: DataType = BooleanType
