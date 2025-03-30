@@ -1,5 +1,6 @@
 package org.apache.spark.sql
 
+import org.apache.spark.sql.ShimUtils.column
 import com.sparkutils.quality.QualityException
 import com.sparkutils.quality.impl.yaml.QualityYamlDecoding._
 import org.apache.spark.sql.catalyst.InternalRow
