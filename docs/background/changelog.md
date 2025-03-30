@@ -18,7 +18,7 @@
 > elimination in WholeStageCodeGen use:
 > 
 > * forceTriggerEval = false, // this allows expressions within triggers and output rules to be re-used in compilation
-> * forceRunnerEval = false and // this allows wholestagecodegen, including elimination, but for small datasets compilation time may dominate
+> * forceRunnerEval = false and // this allows wholestagecodegen, including elimination, but for small datasets compilation time may dominate.  Using true will disable all elimination, interpreted or wholestage
 > * resolveWith = None // (this is the default and is experimental), using resolveWith will automatically disable wholestagecodegen (effectively the same as forceRunnerEval = true).
 
 #73 - Spark 4.0 support (with an upgrade to Shim 0.2.0)

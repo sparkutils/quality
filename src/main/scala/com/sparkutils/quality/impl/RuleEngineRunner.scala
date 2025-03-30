@@ -453,7 +453,7 @@ case class RuleEngineRunnerEval(ruleSuite: RuleSuite, child: Expression, resultD
 case class RuleEngineRunner(ruleSuite: RuleSuite, child: Expression, resultDataType: DataType,
                                 compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
                                 variableFuncGroup: Int, expressionOffsets: Array[Int],
-                                forceTriggerEval: Boolean) extends RuleEngineRunnerBase[RuleEngineRunner] with CodegenFallback {
+                                forceTriggerEval: Boolean) extends RuleEngineRunnerBase[RuleEngineRunner] {
 
   protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
 
