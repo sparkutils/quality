@@ -4,7 +4,7 @@ import com.sparkutils.quality
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.RuleRunnerUtils.{RuleSuiteResultArray, flattenExpressions, genRuleSuiteTerm, nonOutputRuleGen, reincorporateExpressions}
 import com.sparkutils.quality.impl.imports.RuleResultsImports.packId
-import com.sparkutils.quality.impl.util.Arrays
+import com.sparkutils.quality.impl.util.{Arrays, NonPassThrough, PassThroughCompileEvals, PassThroughEvalOnly}
 import com.sparkutils.quality.impl.yaml.YamlEncoderExpr
 import com.sparkutils.quality.types._
 import org.apache.spark.sql.{Column, ShimUtils}
@@ -16,15 +16,12 @@ import org.apache.spark.sql.shim.expressions.InputTypeChecks
 import org.apache.spark.sql.types.{DataType, StringType}
 import org.apache.spark.unsafe.types.UTF8String
 
-import scala.reflect.{ClassTag, classTag}
+import scala.reflect.ClassTag
 
 object ExpressionRunner {
   /**
    * Runs the ruleSuite expressions saving results as a tuple of (ruleResult: yaml, resultType: String)
    *
-   * @param ruleSuite
-   * @param name
-   * @return
    */
   def apply(ruleSuite: RuleSuite, name: String = "expressionResults", renderOptions: Map[String, String] = Map.empty, ddlType: String = "",
             variablesPerFunc: Int = 40, variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false, compileEvals: Boolean = true): Column = {
@@ -35,6 +32,12 @@ object ExpressionRunner {
         expressions.map( i => YamlEncoderExpr(i, renderOptions))
       else
         expressions
+    val exprs =
+      // ExpressionProxy and SubExprEvaluationRuntime cannot be used with compileEvals
+      if (compileEvals)
+        PassThroughCompileEvals(collectExpressions)
+      else
+        PassThroughEvalOnly(collectExpressions)
 
     val ddl_type =
       if (ddlType.isEmpty)
@@ -46,11 +49,11 @@ object ExpressionRunner {
 
     ShimUtils.column(
       if (forceRunnerEval)
-        new ExpressionRunnerEval(cleaned, collectExpressions,
+        new ExpressionRunnerEval(cleaned, exprs,
           ddl_type, variablesPerFunc = variablesPerFunc, variableFuncGroup = variableFuncGroup,
           compileEvals = compileEvals)
       else
-        new ExpressionRunner(cleaned, collectExpressions,
+        new ExpressionRunner(cleaned, exprs,
           ddl_type, variablesPerFunc = variablesPerFunc, variableFuncGroup = variableFuncGroup,
           compileEvals = compileEvals)
     ).as(name)
@@ -79,7 +82,7 @@ private[quality] object ExpressionRunnerUtils {
 
   def fillDDLs(ar: Array[Any], children: Seq[Expression]): Unit = {
     for( i <- 0 until children.size) {
-      ar(i) = UTF8String.fromString(children(i).children(0).dataType.sql)
+      ar(i) = UTF8String.fromString(children(i).children.head.dataType.sql)
     }
   }
 
@@ -108,17 +111,13 @@ private[quality] object ExpressionRunnerUtils {
 
 }
 
-
 /**
  * Creates an extensible wrapper result column for aggregate expressions, storing the results as yaml
  *
- * @param ruleSuite
- * @param children
  */
-trait ExpressionRunnerBase[T] extends Expression with NonSQLExpression {
+trait ExpressionRunnerBase[T] extends UnaryExpression with NonSQLExpression {
 
   val ruleSuite: RuleSuite
-  val children: Seq[Expression]
   val ddlType: DataType
   val compileEvals: Boolean
   val variablesPerFunc: Int
@@ -126,10 +125,19 @@ trait ExpressionRunnerBase[T] extends Expression with NonSQLExpression {
 
   implicit val classTagT: ClassTag[T]
 
+  lazy val realChildren =
+    child match {
+      case r @ NonPassThrough(_) => r.rules
+      case PassThroughCompileEvals(children) => children
+      case PassThroughEvalOnly(children) => children
+    }
+
+  override def toString: String = s"ExpressionRunner(${realChildren.mkString(", ")})"
+
   override def nullable: Boolean = false
 
   // used only for eval, compiled uses the children directly
-  lazy val reincorporated = reincorporateExpressions(ruleSuite, children, compileEvals)
+  lazy val reincorporated = reincorporateExpressions(ruleSuite, realChildren, compileEvals)
 
   // keep it simple for this one. - can return an internal row or whatever..
   override def eval(input: InternalRow): Any = {
@@ -153,9 +161,9 @@ trait ExpressionRunnerBase[T] extends Expression with NonSQLExpression {
       v =>
         if (ddlType == quality.types.expressionResultTypeYaml)
           s"""
-            $v = new $strType[${children.size}];\n
+            $v = new $strType[${realChildren.size}];\n
             \n
-            $utilsName.fillDDLs($v, ${termF._2("children", classOf[Seq[Expression]].getName)});
+            $utilsName.fillDDLs($v, ${termF._2("realChildren", classOf[Seq[Expression]].getName)});
           """
         else
           s"""
@@ -169,7 +177,7 @@ trait ExpressionRunnerBase[T] extends Expression with NonSQLExpression {
       else
         s"$code"
 
-    nonOutputRuleGen(ctx, ev, i, ruleSuitTerm, utilsName, children, variablesPerFunc, variableFuncGroup,
+    nonOutputRuleGen(ctx, ev, i, ruleSuitTerm, utilsName, realChildren, variablesPerFunc, variableFuncGroup,
       yamlOrType(_,_)
     )
   }
@@ -181,31 +189,28 @@ trait ExpressionRunnerBase[T] extends Expression with NonSQLExpression {
 /**
  * Creates an extensible wrapper result column for aggregate expressions, storing the results as yaml
  *
- * @param ruleSuite
- * @param children
  */
-case class ExpressionRunnerEval(ruleSuite: RuleSuite, children: Seq[Expression], ddlType: DataType,
+case class ExpressionRunnerEval(ruleSuite: RuleSuite, child: Expression, ddlType: DataType,
                             compileEvals: Boolean, variablesPerFunc: Int,
                             variableFuncGroup: Int)
   extends ExpressionRunnerBase[ExpressionRunnerEval] with CodegenFallback {
 
-  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
-
   override implicit val classTagT: ClassTag[ExpressionRunnerEval] = ClassTag(classOf[ExpressionRunnerEval])
+
+  override protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
 }
 
 /**
  * Creates an extensible wrapper result column for aggregate expressions, storing the results as yaml
  *
- * @param ruleSuite
- * @param children
  */
-case class ExpressionRunner(ruleSuite: RuleSuite, children: Seq[Expression], ddlType: DataType,
+case class ExpressionRunner(ruleSuite: RuleSuite, child: Expression, ddlType: DataType,
                                 compileEvals: Boolean, variablesPerFunc: Int,
                                 variableFuncGroup: Int)
   extends ExpressionRunnerBase[ExpressionRunner] {
 
-  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
+
+  override protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
 
   override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = doGenCodeI(ctx, ev)
 

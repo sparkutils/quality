@@ -13,11 +13,11 @@ trait ExpressionRunnerImports {
    * @param name
    * @return
    */
-  def typedExpressionRunner(ruleSuite: RuleSuite, ddlType: String, name: String = "expressionResults") =
-    ExpressionRunner(ruleSuite, name, Map.empty, ddlType)
+  def typedExpressionRunner(ruleSuite: RuleSuite, ddlType: String, name: String = "expressionResults", forceRunnerEval: Boolean = false) =
+    ExpressionRunner(ruleSuite, name, Map.empty, ddlType, forceRunnerEval = forceRunnerEval)
 
-  def expressionRunner(ruleSuite: RuleSuite, name: String = "expressionResults", renderOptions: Map[String, String] = Map.empty) =
-    ExpressionRunner(ruleSuite, name, renderOptions)
+  def expressionRunner(ruleSuite: RuleSuite, name: String = "expressionResults", renderOptions: Map[String, String] = Map.empty, forceRunnerEval: Boolean = false) =
+    ExpressionRunner(ruleSuite, name, renderOptions, forceRunnerEval = forceRunnerEval)
 
 }
 

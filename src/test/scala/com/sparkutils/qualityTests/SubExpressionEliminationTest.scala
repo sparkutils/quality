@@ -1,11 +1,10 @@
 package com.sparkutils.qualityTests
 
-import com.sparkutils.quality
 import org.apache.spark.sql.{Column, ShimUtils, SparkSession}
-import org.apache.spark.sql.catalyst.expressions.{BinaryComparison, BinaryExpression, EqualTo, Expression}
+import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
 import org.junit.{Before, Test}
-import org.scalatest.{FunSuite, Matchers}
+import org.scalatest.FunSuite
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.ExpressionRunner
 import com.sparkutils.quality.impl.RuleLogicUtils.mapRules
@@ -15,7 +14,6 @@ import org.apache.spark.sql.types.{BooleanType, DataType, IntegerType}
 import org.scalatest.Matchers.convertToAnyShouldWrapper
 
 import java.util.concurrent.atomic.AtomicInteger
-import scala.collection.immutable.Seq
 
 /**
  * tests if sub expressions are properly eliminated in the various runner configurations
@@ -97,18 +95,16 @@ class SubExpressionEliminationTest extends FunSuite with TestUtils {
   @Test
   def engineShouldEliminate(): Unit = evalCodeGensNoResolve{ doOutput(expectedEliminatedTriggerRules, ruleEngineRunner(_, IntegerType, forceTriggerEval = false, compileEvals = false), outputExpr) }
 
-  // expression runner behaves the same as engine, typed is the same class anyway
-
   @Test
-  def controlExpression(): Unit = evalCodeGensNoResolve{ doOutput(expectedTriggerRules + expectedOutputRules, ExpressionRunner(_, ddlType = "int"), outputExpr) }  // defaults may change later
+  def controlExpression(): Unit = evalCodeGensNoResolve{ doRunner(expectedTriggerRules, ExpressionRunner(_, ddlType = "boolean")) }  // defaults may change later
 
   // forceRunnerEval disables codegen elimination as CodeGenFallback is also ignored for interpreted
   @Test
-  def expressionShouldNotEliminateWithRunnerEval(): Unit = evalCodeGensNoResolve { doOutput(expectedTriggerRules + expectedOutputRules, ExpressionRunner(_, ddlType = "int", compileEvals = false, forceRunnerEval = true), outputExpr) }
+  def expressionShouldNotEliminateWithRunnerEval(): Unit = evalCodeGensNoResolve { doRunner(expectedTriggerRules, ExpressionRunner(_, ddlType = "boolean", compileEvals = false, forceRunnerEval = true)) }
 
   // note there should be no more calls as the outputexpr is already eliminated
   @Test
-  def expressionShouldEliminate(): Unit = evalCodeGensNoResolve{ doOutput(expectedEliminatedTriggerRules, ExpressionRunner(_, ddlType = "int", compileEvals = false), outputExpr) }
+  def expressionShouldEliminate(): Unit = evalCodeGensNoResolve { doRunner(expectedEliminatedTriggerRules, ExpressionRunner(_, ddlType = "boolean", compileEvals = false)) }
 
   val folderExpr = "a -> if(myequal(product, 'p1'), a, named_struct('r',0))"
   val starter = sql.functions.struct(sql.functions.lit(1).as("r"))
@@ -124,6 +120,9 @@ class SubExpressionEliminationTest extends FunSuite with TestUtils {
   // note there should be no more calls as the outputexpr is already eliminated
   @Test
   def folderShouldEliminate(): Unit = evalCodeGensNoResolve{ doOutput(expectedEliminatedTriggerRules, ruleFolderRunner(_, starter, compileEvals = false), folderExpr) }
+
+  @Test
+  def folderShouldEliminateWithTriggersFalse(): Unit = evalCodeGensNoResolve{ doOutput(expectedEliminatedTriggerRules, ruleFolderRunner(_, starter, compileEvals = false, forceTriggerEval = false), folderExpr) }
 
 }
 

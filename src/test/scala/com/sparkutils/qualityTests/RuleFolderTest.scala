@@ -50,7 +50,7 @@ class RuleFolderTest extends FunSuite with TestUtils {
 
     (dataFrame: DataFrame) =>
       ruleFolderRunner(transformRuleSuite(ruleSuite), struct(lit("").as("transfer_type"), $"account", $"product", $"subcode"), debugMode = debugMode,
-        resolveWith = if (doResolve.get()) Some(dataFrame) else None, compileEvals = compileEvals, forceTriggerEval = false) // forceTriggerEval is false to allow checking subexpr elim in generated code
+        resolveWith = if (doResolve.get()) Some(dataFrame) else None, compileEvals = compileEvals)
   }
 
   // Must use NoResolve as it fails on 2.4 with an npe, resolving on higher works fine

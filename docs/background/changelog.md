@@ -10,16 +10,7 @@
 
 > In order to ensure behavioural compatibility this is not enabled on runners by default in 0.1.3.1.
 > 
-> You can enable elimination for interpreted rule evaluation use:
-> 
-> * compileEvals = false // this allows ExpressionProxy and SubExprEvaluationRuntime usage but may be slower when rule logic is not shared  
->  
-> In order for applicable runners to use
-> elimination in WholeStageCodeGen use:
-> 
-> * forceTriggerEval = false, // this allows expressions within triggers and output rules to be re-used in compilation
-> * forceRunnerEval = false and // this allows wholestagecodegen, including elimination, but for small datasets compilation time may dominate.  Using true will disable all elimination, interpreted or wholestage
-> * resolveWith = None // (this is the default and is experimental), using resolveWith will automatically disable wholestagecodegen (effectively the same as forceRunnerEval = true).
+> To enable elimination ensure resolveWith = None (the default and not available in ExpressionRunner), compileEvals = false and forceRunnerEval = false (the default)
 
 #73 - Spark 4.0 support (with an upgrade to Shim 0.2.0)
 
