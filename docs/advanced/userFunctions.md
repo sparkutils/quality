@@ -30,6 +30,13 @@ Single argument lambdas should not use brackets around the parameters and zero a
 ??? warning "Don't use 'current'... as a lambda variable name on 2.4"
     Bizarrely this causes the parser to fail on 2.4 only, no more recent version suffers this.  Same goes for left or right as names.
 
+!!! info "0.1.3.1 optimisations can be enabled"
+    0.1.3.1 introduces the expansion of Qualitylambda functions, allowing sub expression elimination to take place.  The entire rewrite plan must be enabled by calling `com.sparkutils.quality.enableFunNRewrites()` within your SparkSession or by default via the Quality extensions.
+
+    You can put the comment `/* USED_AS_LAMBDA */` in an individual rule definition to disable expansion for the entire user function subtree.
+
+    This is unlikely to be needed, but is provided to allow overriding should issues arise.
+
 ## What about default parameter or different length parameter length Lambdas?  
 
 To define multiple parameter length lambdas just define new lambdas with the same name but different argument lengths.  You can freely call the same lambda name with different parameters e.g.:

@@ -131,7 +131,7 @@ class AggregatesTest extends FunSuite with TestUtils {
           functions.count("*").alias("unique_count")
         )
 
-    pureSQL.show
+    debug( pureSQL.show )
 
     def uniqueSub(additionalGroup: String, resultsExpression: ResultsExpression): Column =
       agg_expr(MapType(
@@ -394,7 +394,7 @@ class AggregatesTest extends FunSuite with TestUtils {
   def decimalPrecisionIncDSLTest = doDecimalPrecisionTestF( df => agg_expr(DecimalType(38,18), df("dec").isNotNull, inc(df("dec")), return_sum) as "agg" )
 
   @Test
-  def decimalPrecisionHofTest = {
+  def decimalPrecisionHofTest = funNRewrites {
     val sf = LambdaFunction("myinc", "entry -> entry + dec", Id(0,3))
     val sf2 = LambdaFunction("myinc", "(entry, f) -> entry + dec + f", Id(0,3))
     val rf = LambdaFunction("myretsum", "(sum, count) -> sum", Id(0,3))
@@ -418,13 +418,13 @@ class AggregatesTest extends FunSuite with TestUtils {
   }
 
   @Test
-  def decimalPrecisionIncExprTest = doDecimalPrecisionTest( expr(  "aggExpr('DECIMAL(38,18)', dec IS NOT NULL, inc(dec + 0), returnSum()) as agg" ) )
+  def decimalPrecisionIncExprTest = funNRewrites { doDecimalPrecisionTest( expr(  "aggExpr('DECIMAL(38,18)', dec IS NOT NULL, inc(dec + 0), returnSum()) as agg" ) ) }
 
   @Test
-  def decimalPrecisionIncExprDSLTest = doDecimalPrecisionTestF( df => agg_expr(DecimalType(38,18), df("dec").isNotNull, inc(df("dec") + 0 ), return_sum) as "agg")
+  def decimalPrecisionIncExprDSLTest = funNRewrites { doDecimalPrecisionTestF( df => agg_expr(DecimalType(38,18), df("dec").isNotNull, inc(df("dec") + 0 ), return_sum) as "agg") }
 
   @Test
-  def decimalPrecisionNO_REWRITEIncTest = try {
+  def decimalPrecisionNO_REWRITEIncTest = funNRewrites { try {
     doDecimalPrecisionTest( expr( "aggExpr('NO_REWRITE', dec IS NOT NULL, inc('DECIMAL(38,18)', cast( dec as DECIMAL(38,18))), returnSum('DECIMAL(38,18)')) as agg" ) )
     fail("Should have thrown " + INC_REWRITE_GENEXP_ERR_MSG)
   } catch {
@@ -432,10 +432,10 @@ class AggregatesTest extends FunSuite with TestUtils {
       // passed
     case t: Throwable =>
       fail("Should have thrown " + INC_REWRITE_GENEXP_ERR_MSG +" but threw ", t)
-  }
+  } }
 
   @Test
-  def decimalPrecisionDeprecatedIncTest = doDecimalPrecisionTest(  expr("aggExpr(dec IS NOT NULL, inc('DECIMAL(38,18)', dec ), returnSum('DECIMAL(38,18)')) as agg" ) )
+  def decimalPrecisionDeprecatedIncTest = funNRewrites { doDecimalPrecisionTest(  expr("aggExpr(dec IS NOT NULL, inc('DECIMAL(38,18)', dec ), returnSum('DECIMAL(38,18)')) as agg" ) ) }
 
 }
 

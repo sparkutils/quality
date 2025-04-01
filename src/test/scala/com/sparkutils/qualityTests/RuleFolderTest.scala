@@ -55,7 +55,7 @@ class RuleFolderTest extends FunSuite with TestUtils {
 
   // Must use NoResolve as it fails on 2.4 with an npe, resolving on higher works fine
   @Test
-  def testSimpleProductionRules(): Unit = evalCodeGensNoResolve {
+  def testSimpleProductionRules(): Unit = evalCodeGensNoResolve { funNRewrites {
     val rer = irules(
       Seq((ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040,1),
         OutputExpression("thecurrent -> updateField(updateField(thecurrent, 'subcode', 1234), 'transfer_type', 'from')"))),
@@ -96,7 +96,7 @@ class RuleFolderTest extends FunSuite with TestUtils {
     // did the field replace work
     assert(res(5).result.contains(Seq((1000, NewPosting("from", "4201", "eqotc", 60)), (1001, NewPosting("from", "4201_fruit", "eqotc", 60)))))
 
-  }
+  } }
 
   def testAndRulesForReplace(useSetSyntax: Boolean) = {
     registerLambdaFunctions(Seq(
@@ -185,7 +185,7 @@ class RuleFolderTest extends FunSuite with TestUtils {
   @Test
   def testSimpleProductionRulesReplaceOutOfOrderSet(): Unit = doTestSimpleProductionRulesReplaceOutOfOrder(true)
 
-  def doTestSimpleProductionRulesReplaceOutOfOrder(useSetSyntax: Boolean): Unit = evalCodeGens {
+  def doTestSimpleProductionRulesReplaceOutOfOrder(useSetSyntax: Boolean): Unit = evalCodeGens { funNRewrites {
     val (testDataDF, ruleSuite) = testAndRulesForReplace(useSetSyntax)
 
     val outdf = testDataDF.transform(foldAndReplaceFields(ruleSuite, Seq("account", "product", "subcode"), maintainOrder = false)).asInstanceOf[DataFrame]
@@ -193,7 +193,7 @@ class RuleFolderTest extends FunSuite with TestUtils {
     doReplaceTest(outdf)
     val fields = outdf.schema.fields.map(_.name)
     assert(fields.toSeq == Seq("foldedFields", "account", "product", "subcode"))
-  }
+  } }
 
   @Test
   def testSimpleProductionRulesReplaceCustomDDL(): Unit = doTestSimpleProductionRulesReplaceCustomDDL(false)
@@ -201,7 +201,7 @@ class RuleFolderTest extends FunSuite with TestUtils {
   @Test
   def testSimpleProductionRulesReplaceCustomDDLSet(): Unit = doTestSimpleProductionRulesReplaceCustomDDL(true)
 
-  def doTestSimpleProductionRulesReplaceCustomDDL(useSetSyntax: Boolean): Unit = evalCodeGens {
+  def doTestSimpleProductionRulesReplaceCustomDDL(useSetSyntax: Boolean): Unit = evalCodeGens { funNRewrites {
     val (testDataDF, ruleSuite) = testAndRulesForReplace(useSetSyntax)
 
     val outdf = testDataDF.transform(foldAndReplaceFieldsWithStruct(ruleSuite, StructType(Seq(StructField("account", StringType),
@@ -210,7 +210,7 @@ class RuleFolderTest extends FunSuite with TestUtils {
     doReplaceTest(outdf)
     val fields = outdf.schema.fields.map(_.name)
     assert(fields.toSeq == Seq("foldedFields", "account", "product", "subcode"))
-  }
+  } }
 
   // Below seem to have issues with casting as[ the fields are swapped.
 
@@ -220,7 +220,7 @@ class RuleFolderTest extends FunSuite with TestUtils {
   @Test
   def testSimpleProductionRulesReplaceDebugSet(): Unit = doTestSimpleProductionRulesReplaceDebug(true)
 
-  def doTestSimpleProductionRulesReplaceDebug(useSetSyntax: Boolean): Unit = evalCodeGensNoResolve {
+  def doTestSimpleProductionRulesReplaceDebug(useSetSyntax: Boolean): Unit = evalCodeGensNoResolve { funNRewrites {
     val (testDataDF, ruleSuite) = testAndRulesForReplace(useSetSyntax)
 
     val outdf = testDataDF.transform(foldAndReplaceFields(ruleSuite, Seq("account", "product", "subcode"), debugMode = true)).asInstanceOf[DataFrame]
@@ -256,7 +256,7 @@ class RuleFolderTest extends FunSuite with TestUtils {
 
     // did the field replace work
     assert(res(5).result.contains( expected(3) ))
-  }
+  } }
 
   @Test
   def testFlattenResults(): Unit = doTestFlattenResults(false)
@@ -264,7 +264,7 @@ class RuleFolderTest extends FunSuite with TestUtils {
   @Test
   def testFlattenResultsSet(): Unit = doTestFlattenResults(true)
 
-  def doTestFlattenResults(useSetSyntax: Boolean): Unit =  evalCodeGens {//forceInterpreted { // evalCodeGensNoResolve {
+  def doTestFlattenResults(useSetSyntax: Boolean): Unit =  evalCodeGens { funNRewrites {//forceInterpreted { // evalCodeGensNoResolve {
     val (testDataDF, ruleSuite) = testAndRulesForReplace(useSetSyntax)
 
     import sparkSession.implicits._
@@ -315,7 +315,7 @@ class RuleFolderTest extends FunSuite with TestUtils {
     for{ i <- 12 until 16}
       assert(res(i) == TestOn("fxotc", "to", 40))
 
-  }
+  } }
 
   @Test
   def testSetSyntaxButNoEqualTo(): Unit = {

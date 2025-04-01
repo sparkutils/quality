@@ -98,9 +98,9 @@ Running: sequenceAsKeysDecimals(com.sparkutils.qualityTests.YamlTests), finished
 
 Time: 633.686
 
-OK (416 tests)
+OK (430 tests)
 
-Finished. Result: Failures: 0. Ignored: 0. Tests run: 405. Time: 633686ms.
+Finished. Result: Failures: 0. Ignored: 0. Tests run: 430. Time: 633686ms.
 import com.sparkutils.quality.tests.TestSuite
 import com.sparkutils.qualityTests.SparkTestUtils
 fileLoc: String = /dbfs/databricks/quality_test

@@ -11,6 +11,10 @@
 > In order to ensure behavioural compatibility this is not enabled on runners by default in 0.1.3.1.
 > 
 > To enable elimination ensure resolveWith = None (the default and not available in ExpressionRunner), compileEvals = false and forceRunnerEval = false (the default)
+> 
+> As part of this optimisation LambdaFunctions are rewritten and expanded as normal expression trees by a plan re-write. If this causes problems a `/* USED_AS_LAMBDA */` comment may be added to the LambdaFunction definition to disable this expansion for the entire sub-tree. 
+> 
+> The entire rewrite plan must be enabled by calling `com.sparkutils.quality.enableFunNRewrites()` within your SparkSession or by default via the Quality extensions. 
 
 #73 - Spark 4.0 support (with an upgrade to Shim 0.2.0)
 

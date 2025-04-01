@@ -58,7 +58,7 @@ class RuleEngineTest extends FunSuite with TestUtils {
   }
 
   @Test
-  def testSimpleProductionRules(): Unit = evalCodeGensNoResolve {
+  def testSimpleProductionRules(): Unit = evalCodeGensNoResolve { funNRewrites {
     val rer = irules(
       Seq((ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040,1),
         OutputExpression("array(account_row('from'), account_row('to', 'other_account1'))"))),
@@ -95,7 +95,7 @@ class RuleEngineTest extends FunSuite with TestUtils {
     assert(res(5).result.contains(Seq(NewPosting("fromWithField", "4201", "eqotc", 6000), NewPosting("to", "other_account1", "eqotc", 60))))
 
 
-  }
+  } }
 
   @Test
   def testProbabilityRuleFail = doTestProbabilityRules(OverallResult(currentResult = Failed))
@@ -103,7 +103,7 @@ class RuleEngineTest extends FunSuite with TestUtils {
   @Test
   def testProbabilityRulePass = doTestProbabilityRules(OverallResult(probablePass = 0.6, currentResult = Passed))
 
-  def doTestProbabilityRules(overallResult: OverallResult): Unit = evalCodeGens {
+  def doTestProbabilityRules(overallResult: OverallResult): Unit = evalCodeGens { funNRewrites {
     val rer = irules(
       Seq((ExpressionRule("0.6"), RunOnPassProcessor(1000, Id(1040,1),
         OutputExpression("array(account_row('from'), account_row('to', 'other_account1'))"))))
@@ -122,10 +122,10 @@ class RuleEngineTest extends FunSuite with TestUtils {
     assert(res(0).result.isEmpty)
     assert(res(0).salientRule.isEmpty)
     assert(res(0).ruleSuiteResults.overallResult == overallResult.currentResult)
-  }
+  } }
 
   @Test
-  def testFlattenResults(): Unit = evalCodeGensNoResolve {
+  def testFlattenResults(): Unit = evalCodeGensNoResolve { funNRewrites {
     val rer = rules(
       (ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040,1),
         OutputExpression("array(account_row('from', account), account_row('to', 'other_account1'))"))),
@@ -159,10 +159,10 @@ class RuleEngineTest extends FunSuite with TestUtils {
     assert(res(0) == Seq(Posting("from", "4201"), Posting("to","other_account1")))
     assert(res(6) == Seq(Posting("from", "another_account"), Posting("to","4206")))
     assert(res(8) == Seq(Posting("from", "another_account"), Posting("to","4201")))
-  }
+  } }
 
   @Test
-  def testSalience(): Unit = evalCodeGensNoResolve {
+  def testSalience(): Unit = evalCodeGensNoResolve { funNRewrites {
     val rer = rules(
       (ExpressionRule("product = 'eqotc' and account = '4201'"), RunOnPassProcessor(100, Id(1040,1),
         OutputExpression("array(updateField(account_row('fr', account), 'transfer_type', 'from'), account_row('to', 'other_account1'))"))),
@@ -196,10 +196,10 @@ class RuleEngineTest extends FunSuite with TestUtils {
     assert(sruleres(1) == nulls)
     assert(sruleres(2) == nulls)
     assert(sruleres(3) == nulls)
-  }
+  } }
 
   @Test
-  def testDebug(): Unit = evalCodeGens {
+  def testDebug(): Unit = evalCodeGens { funNRewrites {
     val rer = debugRules(
       (ExpressionRule("product = 'eqotc' and account = '4201'"), RunOnPassProcessor(100, Id(1040,1),
         OutputExpression("array(account_row('from', account), account_row('to', 'other_account1'))"))),
@@ -223,10 +223,10 @@ class RuleEngineTest extends FunSuite with TestUtils {
     assert(res(0) == Seq(justSeq))
     assert(res(4) == Seq(justSeq))
     assert(res(5) == Seq((100, Seq(Posting("from", "4201"), Posting("to","other_account1"))), justSeq))
-  }
+  } }
 
   @Test
-  def testHugeAmountOfRulesSOE(): Unit = evalCodeGensNoResolve {
+  def testHugeAmountOfRulesSOE(): Unit = evalCodeGensNoResolve { funNRewrites {
     val rer = irules(
       Seq.fill(4000)(ExpressionRule(1 to 50 map ((i: Int) => s"(product = 'edt' and subcode = ${40 + i})") mkString " or "),
         RunOnPassProcessor(1000, Id(3010, 1),
@@ -268,7 +268,7 @@ class RuleEngineTest extends FunSuite with TestUtils {
     val os = new ObjectOutputStream(bos)
     os.writeObject(expression(rerer))
     val bytes = bos.toByteArray()
-  }
+  } }
 
 
   @Test

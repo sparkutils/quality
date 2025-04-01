@@ -18,7 +18,7 @@ class LookupIdentificationTest extends FunSuite with TestUtils {
   var asis = (arg1: String, arg2: String) => s"$arg1, $arg2"
   var flipped = (arg1: String, arg2: String) => s"$arg2, $arg1"
 
-  def doSimpleLambdaTest[A](lookupF: String, lookupType: String => A, argMaker: (String, String) => String): Unit = evalCodeGensNoResolve {
+  def doSimpleLambdaTest[A](lookupF: String, lookupType: String => A, argMaker: (String, String) => String): Unit = evalCodeGensNoResolve { funNRewrites {
     import com.sparkutils.quality._
     registerQualityFunctions()
 
@@ -36,10 +36,10 @@ class LookupIdentificationTest extends FunSuite with TestUtils {
       Id(20,3) -> Set(lookupType("funky"), lookupType("funky2"), lookupType("funky3"), lookupType("funkyFuncInFunc"),
         lookupType("funkyX")), Id(80,3) -> Set(lookupType("other")))
     assert(res.lambdaResults.lookupConstants == expected)
-  }
+  } }
 
   @Test
-  def testMixed: Unit = evalCodeGensNoResolve {
+  def testMixed: Unit = evalCodeGensNoResolve { funNRewrites {
     import com.sparkutils.quality._
     registerQualityFunctions()
 
@@ -52,7 +52,7 @@ class LookupIdentificationTest extends FunSuite with TestUtils {
     val expected = Map(Id(2,3) -> Set(MapLookupType("ccyRate"), BloomLookupType("ccyRate")) )
     assert(res.lambdaResults.lookupConstants == expected)
 
-  }
+  } }
 
 
 }

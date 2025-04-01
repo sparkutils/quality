@@ -83,7 +83,7 @@ object AggregateExpressions {
     evaluate match {
       case FunN(Seq(RefExpression(_, nullable, _), cref),
       LambdaFunction(function, Seq(sparam: NamedLambdaVariable, cparam: NamedLambdaVariable), hidden),
-      name, _, _) =>
+      name, _, _, _) =>
 
         val correctedFunction =
           if (wrapCastOnly)
@@ -97,7 +97,7 @@ object AggregateExpressions {
 
       // when we partially apply the lambda is further down
       case FunForward(Seq(RefExpression(_, nullable, paramIndex), cref) :+ (
-        i@FunN(funparams, LambdaFunction(function, params, hidden), _, _, _)
+        i@FunN(funparams, LambdaFunction(function, params, hidden), _, _, _, _)
         )) =>
         // params can be longer and not 1:1 due to placeholders
         val sparam = params(paramIndex).asInstanceOf[NamedLambdaVariable]
@@ -124,7 +124,7 @@ object AggregateExpressions {
       // for sumWith
       case FunN(Seq(RefExpression(_, nullable, _)),
       LambdaFunction(fun, Seq(param: NamedLambdaVariable), hidden),
-      name, _, _) =>
+      name, _, _, _) =>
 
         val correctedFunction =
           if (wrapCastOnly)
@@ -153,7 +153,7 @@ object AggregateExpressions {
 
       // when we partially apply the lambda is further down
       case FunForward(Seq(RefExpression(_, nullable, paramIndex)) :+ (
-        i@FunN(funparams, LambdaFunction(function, params, hidden), _, _, _)
+        i@FunN(funparams, LambdaFunction(function, params, hidden), _, _, _, _)
         )) =>
         // params can be longer and not 1:1 due to placeholders
         val sparam = params(paramIndex).asInstanceOf[NamedLambdaVariable]

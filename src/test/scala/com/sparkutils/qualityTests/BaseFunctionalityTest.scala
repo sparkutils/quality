@@ -285,21 +285,22 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
   }
 
   @Test
-  def testPrintExpr(): Unit =
+  def testPrintExpr(): Unit = funNRewrites {
     doTestPrint("Expression toStr is ->", "my message is", "my message is", "plus(1, 1, lambda", "printExpr")
+  }
 
   // 2.4 doesn't support forceInterpreted so we can't test that it _doesn't_ compile, databricks is cluster based so we'll not be able to capture it without dumping to files
   @Test
   def testPrintCode(): Unit = not_Cluster{ not2_4 {
     // using eval we shouldn't get output
-    forceInterpreted {
+    forceInterpreted {  funNRewrites {
       doTestPrint(null, "my message is", null, null, "printCode")
-    }
+    } }
 
     // should generate output for code gen
-    forceCodeGen {
+    forceCodeGen {  funNRewrites {
       doTestPrint(PrintCode(expression(lit(""))).msg, "my message is", "my message is", "private int FunN_0(InternalRow i)", "printCode")
-    }
+    } }
   }}
 
   def doTestPrint(default: String, custom: String, customTest: String, addTest: String, expr: String): Unit = {
@@ -575,7 +576,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
   }
 
   @Test
-  def testRuleResult(): Unit = evalCodeGensNoResolve {
+  def testRuleResult(): Unit = evalCodeGensNoResolve { funNRewrites {
     val rules = genRules(27, 27)
 
     val toWrite = 1400 // writeRows
@@ -583,10 +584,10 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     val df = taddDataQuality(dataFrameLong(toWrite, 27, ruleSuiteResultType, null), rules)
 
     doTheRuleResultTest(df, toWrite)
-  }
+  } }
 
   @Test
-  def testRuleResultDetails(): Unit = evalCodeGensNoResolve {
+  def testRuleResultDetails(): Unit = evalCodeGensNoResolve { funNRewrites {
     val rules = genRules(27, 27)
 
     val toWrite = 1400 // writeRows
@@ -595,7 +596,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
     doTheRuleResultTest(df.selectExpr("rule_Suite_Result_Details(DataQuality) DataQuality"), toWrite)
     doTheRuleResultTest(df.select(rule_suite_result_details(col("DataQuality")) as "DataQuality"), toWrite)
-  }
+  } }
 
   def doTheRuleResultTest(df: DataFrame, toWrite: Int): Unit = {
     import sparkSession.implicits._
@@ -624,7 +625,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
   }
 
   @Test
-  def testExpressionsWithAggregate(): Unit = evalCodeGensNoResolve {
+  def testExpressionsWithAggregate(): Unit = evalCodeGensNoResolve { funNRewrites {
     val rowrs = RuleSuite(Id(11, 2), Seq(RuleSet(Id(21, 1), Seq(
       Rule(Id(40, 3), ExpressionRule("iseven(id)"))
     ))), lambdaFunctions = Seq(LambdaFunction("iseven", "p -> p % 2 = 0", Id(1020, 2))))
@@ -678,7 +679,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
     val obj = yaml.load[Long](res.ruleSetResults(Id(20,1))(Id(30,3)).ruleResult);
     assert(obj == 499500L)
-  }
+  } }
 
 
   @Test

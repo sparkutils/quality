@@ -5,9 +5,10 @@ import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
 import org.junit.{Before, Test}
 import org.scalatest.FunSuite
-import com.sparkutils.quality._
+import com.sparkutils.quality.{LambdaFunction, _}
 import com.sparkutils.quality.impl.ExpressionRunner
 import com.sparkutils.quality.impl.RuleLogicUtils.mapRules
+import com.sparkutils.quality.impl.extension.FunNRewrite
 import org.apache.spark.sql
 import org.apache.spark.sql.catalyst.util.TypeUtils
 import org.apache.spark.sql.types.{BooleanType, DataType, IntegerType}
@@ -28,14 +29,19 @@ class SubExpressionEliminationTest extends FunSuite with TestUtils {
   )
 
   val triggers = Seq(
-    Rule(Id(1,1), ExpressionRule("myequal(product, 'p1') and myequal(subcode, 1)")),
-    Rule(Id(2,1), ExpressionRule("myequal(product, 'p1') and myequal(subcode, 0)")),
-    Rule(Id(3,1), ExpressionRule("myequal(product, 'p2') and myequal(subcode, 1)")),
-    Rule(Id(4,1), ExpressionRule("myequal(product, 'p2') and myequal(subcode, 0)")),
-    Rule(Id(5,1), ExpressionRule("myequal(product, 'p1') and myequal(account, 'a1')")),
-    Rule(Id(6,1), ExpressionRule("myequal(product, 'p1') and myequal(account, 'a2')")),
-    Rule(Id(7,1), ExpressionRule("myequal(product, 'p2') and myequal(account, 'a1')")),
-    Rule(Id(8,1), ExpressionRule("myequal(product, 'p2') and myequal(account, 'a2')"))
+    Rule(Id(1,1), ExpressionRule("myequal(product, 'p1') and myequal2(subcode, 1)")),
+    Rule(Id(2,1), ExpressionRule("myequal(product, 'p1') and myequal2(subcode, 0)")),
+    Rule(Id(3,1), ExpressionRule("myequal(product, 'p2') and myequal2(subcode, 1)")),
+    Rule(Id(4,1), ExpressionRule("myequal(product, 'p2') and myequal2(subcode, 0)")),
+    Rule(Id(5,1), ExpressionRule("myequal(product, 'p1') and myequal2(account, 'a1')")),
+    Rule(Id(6,1), ExpressionRule("myequal(product, 'p1') and myequal2(account, 'a2')")),
+    Rule(Id(7,1), ExpressionRule("myequal(product, 'p2') and myequal2(account, 'a1')")),
+    Rule(Id(8,1), ExpressionRule("myequal(product, 'p2') and myequal2(account, 'a2')"))
+  )
+
+  val lambdas = Seq(
+    LambdaFunction("myequal2","(a, b) -> myequal3(a,b)",Id(1,1)),
+    LambdaFunction("myequal3","(a, b) -> myequal(a,b)",Id(2,1))
   )
 
   val registerFunction: (String, Seq[Expression] => Expression) => Unit =
@@ -50,7 +56,7 @@ class SubExpressionEliminationTest extends FunSuite with TestUtils {
   // can't do cluster runs as this is local vm only
   def doRunner(count: Int, rsf: RuleSuite => Column): Unit = not_Cluster{
     EqualToTest.counter.set(0)
-    val rs = RuleSuite(Id(1,1), Seq(RuleSet(Id(1,1), triggers)))
+    val rs = RuleSuite(Id(1,1), Seq(RuleSet(Id(1,1), triggers)), lambdaFunctions = lambdas)
     import sparkSession.implicits._
     val res = data.toDS().withColumn("dq", rsf(rs)).collect()
     val cur = EqualToTest.counter.get()
@@ -71,7 +77,7 @@ class SubExpressionEliminationTest extends FunSuite with TestUtils {
   def runnerShouldNotEliminateWithRunnerEval(): Unit = evalCodeGensNoResolve { doRunner(expectedTriggerRules, ruleRunner(_, compileEvals = false, forceRunnerEval = true)) }
 
   @Test
-  def runnerShouldEliminate(): Unit = v3_2_and_above { evalCodeGensNoResolve{ doRunner(expectedEliminatedTriggerRules, ruleRunner(_, compileEvals = false)) } }
+  def runnerShouldEliminate(): Unit = v3_2_and_above { evalCodeGensNoResolve { doRunner(expectedEliminatedTriggerRules, ruleRunner(_, compileEvals = false)) } }
 
   // adds an output expression
   def doOutput(count: Int, rsf: RuleSuite => Column, expr: String): Unit =

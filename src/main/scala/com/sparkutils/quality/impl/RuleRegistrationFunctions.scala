@@ -236,7 +236,7 @@ object RuleRegistrationFunctions {
     }, Set(1))
 
     register(LambdaFunctions.CallFun, {
-      case (fun@ FunN(_, l@ SLambdaFunction(ff : FunForward, _, _), _, _, _)) +: args =>
+      case (fun@ FunN(_, l@ SLambdaFunction(ff : FunForward, _, _), _, _, _, _)) +: args =>
         processTopCallFun(fun, l, ff, args)
       case t => qualityException(s"${LambdaFunctions.CallFun} should only be used to process partially applied functions returned by a user lambda, got $t instead")
     }, minimum = 1)
@@ -248,7 +248,7 @@ object RuleRegistrationFunctions {
             // attempt to take a look at exps1 to identify if it's a FunN or mapWith
             val typ =
               exps(1) match {
-                case FunN(Seq(RefExpression(dataType, _, _)), _, _, _, _) => dataType // would default to long anyway
+                case FunN(Seq(RefExpression(dataType, _, _)), _, _, _, _, _) => dataType // would default to long anyway
                 case MapTransform(RefExpression(t: MapType, _, _), _, _, _) => t
                 case _ => LongType
               }

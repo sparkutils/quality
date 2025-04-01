@@ -53,7 +53,7 @@ trait RuleFolderRunnerImports {
 
     val lazyRef = RefExpressionLazyType(dataRef, true)
 
-    val liftLambda = (e: Expression) => FunN(Seq(lazyRef), e)
+    val liftLambda = (e: Expression) => FunN(Seq(lazyRef), e, usedAsLambda = true)
 
     val (expressions, indexes) = flattenExpressions(ruleSuite, liftLambda)
 

@@ -168,7 +168,7 @@ class MapLookupTests extends FunSuite with TestUtils {
   }
 
   @Test
-  def taxonomyLookup: Unit = forceInterpreted {
+  def taxonomyLookup: Unit = forceInterpreted { funNRewrites {
     val orchid = Seq("open","difficult","prized")
 
     // 1) if a hierarchy is not given whole term is null and default to input (null, null) key
@@ -211,7 +211,7 @@ class MapLookupTests extends FunSuite with TestUtils {
     assert(testLookup("flowers", null) == Seq(), "Rule 4")
 
     // NB this only works as there is a struct (tuple) wrapping the fields so the lookup itself is non-null, although the values are null
-  }
+  } }
 }
 
 case class Item(hierarchy: String, item: String, attributes: scala.collection.immutable.Seq[String])

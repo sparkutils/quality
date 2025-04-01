@@ -2,12 +2,14 @@ package com.sparkutils.qualityTests
 
 import com.globalmentor.apache.hadoop.fs.BareLocalFileSystem
 import com.sparkutils.quality
+import com.sparkutils.quality.impl.extension.FunNRewrite
 import com.sparkutils.quality.impl.util.SparkVersions
 import com.sparkutils.quality.{RuleSuite, ruleRunner}
 import com.sparkutils.qualityTests.SparkTestUtils.getCorrectPlan
 import org.apache.spark.sql.QualitySparkUtils.DatasetBase
 import org.apache.spark.sql.{Dataset, Row, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.{CodegenObjectFactoryMode, Expression}
+import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.execution.{FileSourceScanExec, SparkPlan}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.sources.Filter
@@ -367,6 +369,25 @@ trait TestUtils {
 
   def debug(thunk: => Unit): Unit =
     TestUtilsEnvironment.debug(thunk)
+
+  def testPlan(logicalPlanRule: org.apache.spark.sql.catalyst.rules.Rule[LogicalPlan], secondRunWithoutPlan: Boolean = true)(thunk: => Unit): Unit = {
+    val cur = SparkSession.getActiveSession.get.experimental.extraOptimizations
+    try{
+      SparkSession.getActiveSession.get.experimental.extraOptimizations :+ logicalPlanRule
+      thunk
+    } finally {
+      SparkSession.getActiveSession.get.experimental.extraOptimizations = cur
+      if (secondRunWithoutPlan) {
+        thunk // re-run it
+      }
+    }
+  }
+
+  /**
+   * enable funN rewrites, runs the test twice, once under the optimisation, once without
+   */
+  val funNRewrites = testPlan(FunNRewrite) _
+
 }
 
 object TestUtilsEnvironment {

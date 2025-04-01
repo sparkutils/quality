@@ -95,7 +95,7 @@ class RoundTripTest extends FunSuite with RowTools with TestUtils {
    * Verify roundtripping of storage
    */
   @Test
-  def ruleSuiteRoundTrippingToDF: Unit = evalCodeGens {
+  def ruleSuiteRoundTrippingToDF: Unit = evalCodeGens {  funNRewrites {
     val rsId = Id(1,1)
     val rules = RuleSuite(rsId, Seq(
       RuleSet(Id(50, 1), Seq(
@@ -156,13 +156,13 @@ class RoundTripTest extends FunSuite with RowTools with TestUtils {
     }
 
     assert(toOrdered(rules) == toOrdered(reRules), "The rules were not identical")
-  }
+  } }
 
   /**
    * Verify roundtripping of storage
    */
   @Test
-  def ruleEngineSuiteRoundTrippingToDF: Unit = evalCodeGens {
+  def ruleEngineSuiteRoundTrippingToDF: Unit = evalCodeGens { funNRewrites {
     val rsId = Id(1,1)
     val rules = RuleSuite(rsId, Seq(
       RuleSet(Id(50, 1), Seq(
@@ -250,6 +250,6 @@ class RoundTripTest extends FunSuite with RowTools with TestUtils {
     }
 
     assert(toOrdered(rules) == toOrdered(reRules), "The rules were not identical")
-  }
+  } }
 
 }

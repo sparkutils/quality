@@ -62,7 +62,9 @@ public class TestSuite {
                 ViewLoaderTest.class,
                 MapLoaderTest.class,
                 BloomLoaderTest.class,
-                YamlTests.class
+                YamlTests.class,
+                SubExpressionEliminationTest.class,
+                VersionSerializingTest.class
         );
 
         resultReport(result);

@@ -4,17 +4,34 @@ import org.apache.spark.sql.ShimUtils.column
 import com.sparkutils.quality.impl.util.DebugTime.debugTime
 import com.sparkutils.quality.impl.util.{PassThrough, PassThroughCompileEvals}
 import com.sparkutils.quality.impl.{RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
+import com.sparkutils.shim.expressions.HigherOrderFunctionLike
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveHigherOrderFunctions, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCoercion}
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, EqualNullSafe, Expression, ExpressionSet, Literal, UpdateFields}
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, EqualNullSafe, Expression, ExpressionSet, HigherOrderFunction, Literal, UpdateFields}
 import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, UnaryNode}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.qualityFunctions.FunN
 import org.apache.spark.util.Utils
 
 /**
  * Set of utilities to reach in to private functions
  */
 object QualitySparkUtils {
+  def funNRewrite(plan: LogicalPlan, expressionToExpression: PartialFunction[Expression, Expression]): LogicalPlan =
+    plan.transformExpressionsDownWithPruning {
+      // if it's an actual lambda (e.g. folder) we should not expand it for now
+      case f: FunN if f.usedAsLambda || f.children.exists { // immediate children check
+        case f: FunN =>
+          f.usedAsLambda // false is fine
+        case _: HigherOrderFunction => true
+        case _: HigherOrderFunctionLike => true
+        case _ => false
+      } => false // if it's an actual lambda (e.g. folder) we should not expand it for now
+      case f: FunN if !f.usedAsLambda => true // otherwise assume it's fine
+      case _: HigherOrderFunction => false
+      case _: HigherOrderFunctionLike => false
+      case _ => true
+    }(expressionToExpression)
 
   type DatasetBase[F] = org.apache.spark.sql.Dataset[F]
 

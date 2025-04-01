@@ -197,7 +197,7 @@ object LambdaCompilationUtils {
       expr.collect {
         case e: HigherOrderFunction if compilationHandlers.contains(e.getClass.getName) =>
           Left(e -> compilationHandlers(e.getClass.getName).shouldTransform(e))
-        case e @ FunN(_, _, Some(name), _, _) if compilationHandlers.contains(name) =>
+        case e @ FunN(_, _, Some(name), _, _, _) if compilationHandlers.contains(name) =>
           Left(e -> compilationHandlers(name).shouldTransform(e))
         case f: FunN =>
           Left(f -> Seq())
@@ -226,7 +226,7 @@ object LambdaCompilationUtils {
       expr.transformDown {
         case e: HigherOrderFunction if compilationHandlers.contains(e.getClass.getName) =>
           replaceWithHandler(e, e.getClass.getName)
-        case e @ FunN(_, _, Some(name), _, _) if compilationHandlers.contains(name) =>
+        case e @ FunN(_, _, Some(name), _, _, _) if compilationHandlers.contains(name) =>
           replaceWithHandler(e, name)
         case e: FunN =>
           replaceNLVs(e).asInstanceOf[FunN].

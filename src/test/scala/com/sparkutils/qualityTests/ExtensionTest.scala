@@ -1,7 +1,7 @@
 package com.sparkutils.qualityTests
 
 import java.io.File
-import com.sparkutils.quality.impl.extension.{AsUUIDFilter, ExtensionTesting, IDBase64Filter, QualitySparkExtension}
+import com.sparkutils.quality.impl.extension.{AsUUIDFilter, ExtensionTesting, FunNRewrite, IDBase64Filter, QualitySparkExtension}
 import com.sparkutils.quality.impl.extension.QualitySparkExtension.disableRulesConf
 import com.sparkutils.quality.impl.util.Testing
 import org.apache.spark.sql.catalyst.expressions.{And, Attribute, BinaryComparison, EqualTo, Equality, Expression, Or}
@@ -109,7 +109,7 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
         wrapWithExtensionT(tsparkSession => {}, AsUUIDFilter.getClass.getName)
       }
       val str = ExtensionTesting.disableRuleResult
-      assert(str.indexOf(s"${disableRulesConf} = Set(${AsUUIDFilter.getClass.getName}) leaving List(${IDBase64Filter.getClass.getName}) remaining") > -1, s"str didn't have the expected contents, got $str")
+      assert(str.indexOf(s"${disableRulesConf} = Set(${AsUUIDFilter.getClass.getName}) leaving List(${IDBase64Filter.getClass.getName}, ${FunNRewrite.getClass.getName}) remaining") > -1, s"str didn't have the expected contents, got $str")
     }
   } }
 

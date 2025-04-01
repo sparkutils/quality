@@ -80,15 +80,15 @@ class UserLambdaFunctionCompilationTest extends FunSuite with TestUtils {
   }
 
   @Test
-  def runDisabledCompilation: Unit = evalCodeGens {
+  def runDisabledCompilation: Unit = evalCodeGens { funNRewrites {
     System.setProperty("quality.lambdaHandlers",s"${classOf[FunN].getName}=${classOf[DoCodegenFallbackHandler].getName}")
     doSimpleNested
-  }
+  } }
 
   @Test
-  def runNestedCompilation: Unit = evalCodeGens {
+  def runNestedCompilation: Unit = evalCodeGens { funNRewrites {
     doSimpleNested
-  }
+  } }
 
   def doWithFilterHof: Unit = {
     if (SparkTestUtils.skipHofs && !onDatabricks) return
@@ -107,18 +107,18 @@ class UserLambdaFunctionCompilationTest extends FunSuite with TestUtils {
   }
 
   @Test
-  def withDefaultHoF: Unit = evalCodeGens {
+  def withDefaultHoF: Unit = evalCodeGens { funNRewrites {
     doWithFilterHof
-  }
+  } }
 
   @Test
-  def withSpecifiedHoFHandler: Unit = evalCodeGens {
+  def withSpecifiedHoFHandler: Unit = evalCodeGens { funNRewrites {
     sparkSession.sparkContext.setLocalProperty("quality.lambdaHandlers",s"${classOf[ArrayFilter].getName}=${classOf[DoCodegenFallbackHandler].getName}")
     doWithFilterHof
-  }
+  } }
 
   @Test
-  def runDisabledBottom: Unit = forceCodeGen {
+  def runDisabledBottom: Unit = forceCodeGen { funNRewrites {
 
     reinit()
     System.setProperty("quality.lambdaHandlers",s"bottom=${classOf[TestHandler].getName}")
@@ -128,7 +128,7 @@ class UserLambdaFunctionCompilationTest extends FunSuite with TestUtils {
       // we'll functionally test it but these are set on other jvms
       assert(calledShouldTransform.get, true)
       assert(calledTransform.get, true)
-    }
+    } }
   }
 
 }

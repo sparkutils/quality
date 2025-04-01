@@ -154,7 +154,7 @@ trait SeqArgs {
 case class FunForward(children: Seq[Expression])
   extends Expression with CodegenFallback {
 
-  lazy val params :+ (function @ FunN(args, fun, _, _, _)) = children
+  lazy val params :+ (function @ FunN(args, fun, _, _, _, _)) = children
 
   def nullable: Boolean = function.nullable
 
@@ -183,7 +183,7 @@ case class FunForward(children: Seq[Expression])
  * @param name the lambda name when available
  */
 case class FunN(arguments: Seq[Expression], function: Expression, name: Option[String] = None,
-                processed: Boolean = false, attemptCodeGen: Boolean = false)
+                processed: Boolean = false, attemptCodeGen: Boolean = false, usedAsLambda: Boolean = false)
   extends HigherOrderFunctionLike with CodegenFallback with SeqArgs with FunDoGenCode {
 
   override def prettyName: String = name.getOrElse(super.prettyName)

@@ -215,6 +215,8 @@ These two currently existing optimisations are applied to joins and filters agai
 
 In order to use the query optimisations within normal job / calculator writing you must still register via spark.sql.extensions but you'll also be able to continue using the rest of the Quality functionality.  
 
+The extension also enables the FunNRewrite optimisation (as of 0.1.3.1 and Spark 3.2 and higher) which expands user functions allowing sub expression elimination.
+
 ### Configuring on Databricks runtimes
 
 In order to register the extensions on Databricks runtimes you need to additionally create a cluster init script much like:

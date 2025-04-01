@@ -155,7 +155,7 @@ object LambdaFunctions {
                 }
                   , true)
               else
-                (FunN(replacedArgs, replacedFun, Some(name)), false)
+                (FunN(replacedArgs, replacedFun, Some(name), usedAsLambda = p._1.rule.indexOf("/* USED_AS_LAMBDA */") > -1), false)
 
             if (numPlaceHolders == 0 || numPlaceHolders == expsToUse.size || hadQuery)
               actualFun
