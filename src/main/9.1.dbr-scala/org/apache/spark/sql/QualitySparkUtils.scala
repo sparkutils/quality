@@ -23,6 +23,9 @@ import scala.collection.mutable.ArrayBuffer
  * Set of utilities to reach in to private functions
  */
 object QualitySparkUtils {
+  def funNRewrite(plan: LogicalPlan, expressionToExpression: PartialFunction[Expression, Expression]): LogicalPlan =
+    plan
+
   type DatasetBase[F] = org.apache.spark.sql.Dataset[F]
 
   /**
