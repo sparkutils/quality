@@ -70,10 +70,10 @@ trait TestUtils {
     else
       sparkSessionBuilder
 
-  val sparkSession = sparkSessionF
-  val sqlContext = sqlContextF
+  lazy val sparkSession = sparkSessionF
+  lazy val sqlContext = sqlContextF
 
-  val outputDir = SparkTestUtils.ouputDir
+  lazy val outputDir = SparkTestUtils.ouputDir
 
   def stop(start: Long) = {
     val stop = System.currentTimeMillis()
@@ -260,7 +260,7 @@ trait TestUtils {
   def not3_4(thunk: => Unit) =
     if (sparkVersion != "3.4") thunk
 
-  val sparkVersionNumericMajor = sparkVersion.replace(".","").toInt
+  lazy val sparkVersionNumericMajor = sparkVersion.replace(".","").toInt
 
   /**
    * Don't run this test on 3.4 or greater - gc's on code gen
@@ -386,7 +386,7 @@ trait TestUtils {
   /**
    * enable funN rewrites, runs the test twice, once under the optimisation, once without
    */
-  val funNRewrites = testPlan(FunNRewrite) _
+  lazy val funNRewrites = testPlan(FunNRewrite) _
 
 }
 
