@@ -17,7 +17,7 @@ import org.junit.Before
 
 import java.io.File
 
-trait TestUtils {
+trait TestUtils extends Serializable {
   val hostMode = {
     val tmp = System.getenv("QUALITY_SPARK_HOSTS")
     if (tmp eq null)
@@ -98,6 +98,8 @@ trait TestUtils {
 
   @Before
   def setup(): Unit = {
+    // no-op to force it to be created
+    sparkSession.conf
     cleanupOutput()
     quality.registerQualityFunctions()
   }
