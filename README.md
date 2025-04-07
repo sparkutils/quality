@@ -1,6 +1,6 @@
 # Quality
 
-Run high performance complex Data Quality and data processing rules using simple SQL in a batch or streaming Spark application at scale.
+Run high performance complex Data Quality and data processing rules using simple SQL in a batch or streaming Spark application at scale. 
 
 Write rules using simple SQL or create re-usable functions via SQL Lambdas - your rules are just versioned data, store them wherever convenient, use them by simply defining a column.
 
