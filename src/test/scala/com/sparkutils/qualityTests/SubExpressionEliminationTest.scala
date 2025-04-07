@@ -44,11 +44,14 @@ class SubExpressionEliminationTest extends FunSuite with TestUtils {
     LambdaFunction("myequal3","(a, b) -> myequal(a,b)",Id(2,1))
   )
 
-  val registerFunction: (String, Seq[Expression] => Expression) => Unit =
+  lazy val registerFunction: (String, Seq[Expression] => Expression) => Unit =
     ShimUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
 
   @Before
   def resetCountAndRegister(): Unit = {
+    // no-op to force it to be created (parent hasn't happened yet)
+    sparkSession.conf
+
     EqualToTest.counter.set(0)
     registerFunction("myequal", exprs => EqualToTest(exprs.head, exprs.last))
   }
