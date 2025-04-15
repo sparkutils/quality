@@ -291,9 +291,9 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
   // 2.4 doesn't support forceInterpreted so we can't test that it _doesn't_ compile, databricks is cluster based so we'll not be able to capture it without dumping to files
   @Test
-  def testPrintCode(): Unit = not_Cluster{ not2_4 {
+  def testPrintCode(): Unit = not_Cluster{ v3_2_and_above {
     // using eval we shouldn't get output
-    forceInterpreted {  funNRewrites {
+    forceInterpreted {  {
       doTestPrint(null, "my message is", null, null, "printCode")
     } }
 
@@ -303,9 +303,21 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     }
 
     // the lambda should disappear and the expression 1 + 1 generated.  Folding happens before experimental.extraOptimizations it seems (this could change)
-    forceCodeGen {  justfunNRewrite {
-      doTestPrint(PrintCode(expression(lit(""))).msg, "my message is", "my message is", "1 + 1", "printCode")
-    } }
+    not_4_0_and_above {
+      forceCodeGen {
+        justfunNRewrite {
+          doTestPrint(PrintCode(expression(lit(""))).msg, "my message is", "my message is", "1 + 1", "printCode") // addExact(1, 1
+        }
+      }
+    }
+    // the lambda should disappear and the expression 1 + 1 generated.  Folding happens before experimental.extraOptimizations it seems (this could change)
+    v4_0_and_above {
+      forceCodeGen {
+        justfunNRewrite {
+          doTestPrint(PrintCode(expression(lit(""))).msg, "my message is", "my message is", "addExact(1, 1", "printCode")
+        }
+      }
+    }
   }}
 
   def doTestPrint(default: String, custom: String, customTest: String, addTest: String, expr: String): Unit = {

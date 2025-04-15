@@ -234,6 +234,23 @@ s"""
   }
 
 
+  def genParams(i: String, ctx: CodegenContext) =
+    if (i ne null)
+      (s"InternalRow $i", s"$i")
+    else
+      (ctx.currentVars.map(v =>
+        if (v.value.javaType.isPrimitive)
+          s"${v.value.javaType} ${v.value}"
+        else
+          s"${v.value.javaType.getName} ${v.value}, ${v.isNull.javaType} ${v.isNull}"
+      ).mkString(", ")
+        , ctx.currentVars.map(v =>
+        if (v.value.javaType.isPrimitive)
+          s"${v.value}"
+        else
+          s"${v.value}, ${v.isNull}"
+      ).mkString(", "))
+
   def nonOutputRuleGen(ctx: CodegenContext, ev: ExprCode, i: String, ruleSuitTerm: String, utilsName: String,
                        realChildren: Seq[Expression], variablesPerFunc: Int, variableFuncGroup: Int,
                        resultF: (ExprValue, Int) => String
@@ -257,22 +274,7 @@ s"""
       converted
     }.grouped(variablesPerFunc).grouped(variableFuncGroup)
 
-    val (paramsDef, paramsCall) =
-      if (i ne null)
-        (s"InternalRow $i", s"$i")
-      else
-        (ctx.currentVars.map(v =>
-          if (v.value.javaType.isPrimitive)
-            s"${v.value.javaType} ${v.value}"
-          else
-            s"${v.value.javaType.getName} ${v.value}, ${v.isNull.javaType} ${v.isNull}"
-        ).mkString(", ")
-          , ctx.currentVars.map(v =>
-          if (v.value.javaType.isPrimitive)
-            s"${v.value}"
-          else
-            s"${v.value}, ${v.isNull}"
-        ).mkString(", "))
+    val (paramsDef, paramsCall) = genParams(i, ctx)
 
     val funNames: Iterator[String] =
       RuleRunnerUtils.generateFunctionGroups(ctx, allExpr, paramsDef, paramsCall)

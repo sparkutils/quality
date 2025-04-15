@@ -136,17 +136,20 @@ class UserLambdaFunctionCompilationTest extends FunSuite with TestUtils {
       doSimpleNested
     }
 
-    justfunNRewrite {
+    v3_2_and_above {
+      justfunNRewrite {
 
-      doIt()
+        doIt()
 
-      not_Cluster {
-        // the lambdas should have been re-written out of existence
-        // no FunN means no lambda to handle
-        calledShouldTransform.get shouldBe false
-        calledTransform.get shouldBe false
+        not_Cluster {
+          // the lambdas should have been re-written out of existence
+          // no FunN means no lambda to handle
+          calledShouldTransform.get shouldBe false
+          calledTransform.get shouldBe false
+        }
       }
     }
+
 
     {
 

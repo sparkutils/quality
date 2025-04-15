@@ -199,12 +199,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
     CompilerTerms = {
     val i = ctx.INPUT_ROW
 
-    val (paramsDef, paramsCall) =
-      if (i ne null)
-        (s"InternalRow $i", s"$i")
-      else
-        (ctx.currentVars.map(v => s"${if (v.value.javaType.isPrimitive) v.value.javaType else v.value.javaType.getName} ${v.value}, ${v.isNull.javaType} ${v.isNull}").mkString(", "),
-          ctx.currentVars.map(v => s"${v.value}, ${v.isNull}").mkString(", "))
+    val (paramsDef, paramsCall) = RuleRunnerUtils.genParams(i, ctx)
 
     // bind the rules
     val (ruleSuitTerm, termFun) = genRuleSuiteTerm[T](ctx)

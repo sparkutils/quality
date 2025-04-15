@@ -285,6 +285,20 @@ trait TestUtils extends Serializable {
     if (sparkVersionNumericMajor >= 32) thunk
 
   /**
+   * introduced for the printCode, Add(1,1) now is addExact
+   * @param thunk
+   */
+  def not_4_0_and_above(thunk: => Unit) =
+    if (sparkVersionNumericMajor < 40) thunk
+
+  /**
+   * introduced for the printCode, Add(1,1) now is addExact
+   * @param thunk
+   */
+  def v4_0_and_above(thunk: => Unit) =
+    if (sparkVersionNumericMajor >= 40) thunk
+
+  /**
    * Only run this on 2.4
    * @param thunk
    */
@@ -372,10 +386,12 @@ trait TestUtils extends Serializable {
   def debug(thunk: => Unit): Unit =
     TestUtilsEnvironment.debug(thunk)
 
-  def testPlan(logicalPlanRule: org.apache.spark.sql.catalyst.rules.Rule[LogicalPlan], secondRunWithoutPlan: Boolean = true)(thunk: => Unit): Unit = {
+  def testPlan(logicalPlanRule: org.apache.spark.sql.catalyst.rules.Rule[LogicalPlan], secondRunWithoutPlan: Boolean = true, disable: Int => Boolean = _ => false)(thunk: => Unit): Unit = {
     val cur = SparkSession.getActiveSession.get.experimental.extraOptimizations
     try{
-      SparkSession.getActiveSession.get.experimental.extraOptimizations = SparkSession.getActiveSession.get.experimental.extraOptimizations :+ logicalPlanRule
+      if (!disable(sparkVersionNumericMajor)) {
+        SparkSession.getActiveSession.get.experimental.extraOptimizations = SparkSession.getActiveSession.get.experimental.extraOptimizations :+ logicalPlanRule
+      }
       thunk
     } finally {
       SparkSession.getActiveSession.get.experimental.extraOptimizations = cur

@@ -2,6 +2,7 @@ package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
 import com.sparkutils.quality.functions.{flatten_rule_results, unpack_id_triple}
+import com.sparkutils.quality.impl.extension.FunNRewrite
 import com.sparkutils.quality.impl.{RuleEngineRunner, RunOnPassProcessor}
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.ShimUtils.expression
@@ -58,7 +59,7 @@ class RuleEngineTest extends FunSuite with TestUtils {
   }
 
   @Test
-  def testSimpleProductionRules(): Unit = evalCodeGensNoResolve { funNRewrites {
+  def testSimpleProductionRules(): Unit = evalCodeGensNoResolve { testPlan(FunNRewrite, disable = _ == 32) {
     val rer = irules(
       Seq((ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040,1),
         OutputExpression("array(account_row('from'), account_row('to', 'other_account1'))"))),

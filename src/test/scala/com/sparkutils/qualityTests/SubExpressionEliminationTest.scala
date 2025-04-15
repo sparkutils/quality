@@ -1,7 +1,7 @@
 package com.sparkutils.qualityTests
 
 import org.apache.spark.sql.{Column, ShimUtils, SparkSession}
-import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression}
+import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression, NullIntolerant}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
 import org.junit.{Before, Test}
 import org.scalatest.FunSuite
@@ -142,8 +142,8 @@ object EqualToTest {
 
 // EqualTo that triggers counter
 case class EqualToTest(left: Expression, right: Expression)
-  extends BinaryExpression {
-  def nullIntolerant: Boolean = true
+  extends BinaryExpression with NullIntolerant {
+
   protected lazy val ordering: Ordering[Any] = TypeUtils.getInterpretedOrdering(left.dataType)
 
   protected override def nullSafeEval(left: Any, right: Any): Any = {
