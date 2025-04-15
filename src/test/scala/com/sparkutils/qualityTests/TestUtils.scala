@@ -389,6 +389,10 @@ trait TestUtils extends Serializable {
    * enable funN rewrites, runs the test twice, once under the optimisation, once without
    */
   lazy val funNRewrites = testPlan(FunNRewrite) _
+  /**
+   * enable funN rewrites for one test run only
+   */
+  lazy val justfunNRewrite = testPlan(FunNRewrite, secondRunWithoutPlan = false) _
 
 }
 

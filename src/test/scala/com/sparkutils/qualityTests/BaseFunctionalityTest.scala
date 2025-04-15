@@ -298,8 +298,13 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     } }
 
     // should generate output for code gen
-    forceCodeGen {  funNRewrites {
+    forceCodeGen {
       doTestPrint(PrintCode(expression(lit(""))).msg, "my message is", "my message is", "private int FunN_0(InternalRow i)", "printCode")
+    }
+
+    // the lambda should disappear and the expression 1 + 1 generated.  Folding happens before experimental.extraOptimizations it seems (this could change)
+    forceCodeGen {  justfunNRewrite {
+      doTestPrint(PrintCode(expression(lit(""))).msg, "my message is", "my message is", "1 + 1", "printCode")
     } }
   }}
 
@@ -308,6 +313,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     import sparkSession.implicits._
     val plus = LambdaFunction("plus", "(a, b) -> a + b", Id(3,2)) // force compile with codegen
     registerLambdaFunctions(Seq(plus))
+    Holder.res = ""
     registerQualityFunctions(writer = {Holder.res = _})
 
     import Holder.res
