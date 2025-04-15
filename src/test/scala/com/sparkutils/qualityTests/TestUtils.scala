@@ -375,7 +375,7 @@ trait TestUtils extends Serializable {
   def testPlan(logicalPlanRule: org.apache.spark.sql.catalyst.rules.Rule[LogicalPlan], secondRunWithoutPlan: Boolean = true)(thunk: => Unit): Unit = {
     val cur = SparkSession.getActiveSession.get.experimental.extraOptimizations
     try{
-      SparkSession.getActiveSession.get.experimental.extraOptimizations :+ logicalPlanRule
+      SparkSession.getActiveSession.get.experimental.extraOptimizations = SparkSession.getActiveSession.get.experimental.extraOptimizations :+ logicalPlanRule
       thunk
     } finally {
       SparkSession.getActiveSession.get.experimental.extraOptimizations = cur

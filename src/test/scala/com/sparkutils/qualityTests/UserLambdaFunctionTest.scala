@@ -3,7 +3,7 @@ package com.sparkutils.qualityTests
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.VersionedId
 import com.sparkutils.quality.impl.extension.FunNRewrite
-import org.apache.spark.sql.{DataFrame, QualitySparkUtils}
+import org.apache.spark.sql.{DataFrame, QualitySparkUtils, SaveMode}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.qualityFunctions.PlaceHolderExpression
 import org.apache.spark.sql.types.LongType
@@ -435,7 +435,8 @@ class UserLambdaFunctionTest extends FunSuite with TestUtils {
     val actualOverriddenCall = resolve("_", Seq(expression(lit("int")), expression(lit(false)))).get
     assert(!actualOverriddenCall.nullable)
 
-    val plus = LambdaFunction("plus", "(a, b) -> a + b", Id(1,2))
+    // this one is actually passed around as a lambda so it cannot be re-written.
+    val plus = LambdaFunction("plus", "/* USED_AS_LAMBDA */ (a, b) -> a + b", Id(1,2))
     // this isn't actually tested for false or true as the top level binding overrides it, but it's tested to prove coverage
     val test = LambdaFunction("plusTest", "(f, a) -> callFun(callFun(f, _('long', false), 1), a)", Id(3,2))
     val test2 = LambdaFunction("plusTest2", "(f, a) -> callFun(callFun(f, _('long'), 1), a)", Id(3,2))
@@ -470,4 +471,30 @@ class UserLambdaFunctionTest extends FunSuite with TestUtils {
   def runLoadsEval(): Unit = forceInterpreted{ loadsOf{ doHOFDropin() }}
   @Test
   def runLoadsCodeGen(): Unit = forceCodeGen{ loadsOf{  doHOFDropin() }} */
+
+
+  @Test
+  def withCaseAsFunction_constantFolding(): Unit = forceCodeGen { testPlan(FunNRewrite, secondRunWithoutPlan = false) {
+    val funs = Seq(
+      LambdaFunction("casey", """(theValue, i) ->
+        CASE
+        WHEN theValue = 'a' THEN 1-- * i
+        WHEN theValue = 'b' THEN 2-- * i
+        WHEN theValue = 'c' THEN 3-- * i
+        ELSE 0 --* i
+        END
+        """, Id(10, 2))
+    )
+    registerLambdaFunctions(funs)
+
+    val ndf =
+      sparkSession.range(100000).selectExpr("casey('a', id) as a"," casey('b', id) as b"," casey('c', id) as c", " casey('f', id) as o")
+    //"named_struct('e', decimal(null), 'f', 1) as test")//" q1(1, null) as test")//simple_bp_posting('a_rule', null) as test")
+    ndf.write.mode(SaveMode.Overwrite).parquet(outputDir + "/casey")
+    ndf.head
+    println("")
+
+
+  } }
+
 }
