@@ -39,8 +39,9 @@ trait RuleRunnerFunctionsImport {
    * HigherOrderFunctions, or declares the `/* USED_AS_LAMBDA */` comment, the lambda function will be expanded,
    * replacing all LambdaVariables with the input expressions.
    */
-  def enableFunNRewrites(): Unit = {
-    SparkSession.getActiveSession.get.experimental.extraOptimizations =
-      SparkSession.getActiveSession.get.experimental.extraOptimizations :+ FunNRewrite
-  }
+  def enableFunNRewrites(): Unit =
+    if (!SparkSession.getActiveSession.get.experimental.extraOptimizations.exists(_ eq FunNRewrite)) {
+      SparkSession.getActiveSession.get.experimental.extraOptimizations =
+        SparkSession.getActiveSession.get.experimental.extraOptimizations :+ FunNRewrite
+    }
 }
