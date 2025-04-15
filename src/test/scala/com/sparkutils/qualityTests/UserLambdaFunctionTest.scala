@@ -436,7 +436,7 @@ class UserLambdaFunctionTest extends FunSuite with TestUtils {
     assert(!actualOverriddenCall.nullable)
 
     // this one is actually passed around as a lambda so it cannot be re-written.
-    val plus = LambdaFunction("plus", "/* USED_AS_LAMBDA */ (a, b) -> a + b", Id(1,2))
+    val plus = LambdaFunction("plus", "(a, b) -> a + b", Id(1,2))
     // this isn't actually tested for false or true as the top level binding overrides it, but it's tested to prove coverage
     val test = LambdaFunction("plusTest", "(f, a) -> callFun(callFun(f, _('long', false), 1), a)", Id(3,2))
     val test2 = LambdaFunction("plusTest2", "(f, a) -> callFun(callFun(f, _('long'), 1), a)", Id(3,2))

@@ -255,7 +255,7 @@ object LambdaFunctions {
     val res = tmp.copy( arguments = tmp.arguments.map{
       case ref: RefExpression => args(ref.index)
       case e => e
-    })
+    }, usedAsLambda = true)
 
     res
   }
