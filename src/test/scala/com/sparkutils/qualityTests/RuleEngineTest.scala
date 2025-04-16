@@ -178,10 +178,10 @@ class RuleEngineTest extends FunSuite with TestUtils {
     debug( outdf.show )
 
     val res = outdf.select("result").as[Seq[Posting]].collect()
-    val just4201 = Seq(Posting("from", "another_account"), Posting("to","4201"))
-    assert(res(0) == just4201)
-    assert(res(4) == just4201)
-    assert(res(5) == Seq(Posting("from", "4201"), Posting("to","other_account1")))
+    val just4201 = Vector(Posting("from", "another_account"), Posting("to","4201"))
+    assert(res(0).toVector == just4201)
+    assert(res(4).toVector == just4201)
+    assert(res(5).toVector == Vector(Posting("from", "4201"), Posting("to","other_account1")))
 
     // prove unpackIdTriple works
     val srulec = outdf.select(unpack_id_triple(col("together.salientRule")) as "salientRule").selectExpr("salientRule.*")
@@ -219,11 +219,11 @@ class RuleEngineTest extends FunSuite with TestUtils {
     }
 
     val res = outdf.select("result").as[Seq[(Int, Seq[Posting])]].collect()
-    val just4201 = Seq(Posting("from", "another_account"), Posting("to","4201"))
+    val just4201 = Vector(Posting("from", "another_account"), Posting("to","4201"))
     val justSeq = (1000, just4201)
-    assert(res(0) == Seq(justSeq))
-    assert(res(4) == Seq(justSeq))
-    assert(res(5) == Seq((100, Seq(Posting("from", "4201"), Posting("to","other_account1"))), justSeq))
+    assert(res(0).toVector == Vector(justSeq))
+    assert(res(4).toVector == Vector(justSeq))
+    assert(res(5).toVector == Vector((100, Seq(Posting("from", "4201"), Posting("to","other_account1"))), justSeq))
   } }
 
   @Test
