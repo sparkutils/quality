@@ -186,6 +186,12 @@ case class FunN(arguments: Seq[Expression], function: Expression, name: Option[S
                 processed: Boolean = false, attemptCodeGen: Boolean = false, usedAsLambda: Boolean = false)
   extends HigherOrderFunctionLike with CodegenFallback with SeqArgs with FunDoGenCode {
 
+  /* #71 - default just checks arguments, but FunNRewrite will take the actual function so it's possible
+      it is nullable. ArrrayAaggregate for example (hit on Databricks) argument.nullable || finish.nullable
+      only the argument part is covered by default HOF nullable.
+   */
+  override def nullable: Boolean = super.nullable || function.nullable
+
   override def prettyName: String = name.getOrElse(super.prettyName)
 
   override def argumentTypes: Seq[AbstractDataType] = arguments.map(_.dataType)
