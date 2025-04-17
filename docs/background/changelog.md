@@ -1,5 +1,9 @@
 ### 0.1.3.1 <small>3rd December, 2024</small>
 
+#76 - DBR 16.3 support - Databricks introduced a number of API changes not found in Spark 4, nonVolatile, extra UnresolvedFunction param (several issues pending)
+
+#75 - DBR 15.4 support - Databricks introduced a breaking fix wrt rng uage
+
 #68 - Test setup improvements for running testShades on Fabric (reduced logging and share Databricks behaviour)
 
 #69 - Use different scopes for OSS testShade builds for Fabric testing (bug in snakeyml usage)

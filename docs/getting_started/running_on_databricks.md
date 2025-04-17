@@ -65,7 +65,11 @@ As of 6th June 2023 0.0.2 run against the 12.2.dbr LTS build also works on 13.0.
 
 ## Running on Databricks Runtime 15.4 LTS
 
-15.4 LTS is compatible with the 14.3.dbr runtime.
+15.4 LTS now requires it's own runtime if you are using rng functions as Databricks introduced a breaking change in optimisation of Nondeterministic functions (which relies on a newly introduced Expression.nonVolatile field not present in OSS Spark)
+
+## Running on Databricks Runtime 16.3
+
+16.3 Introduced a number of API changes, Stream is returned in some unexpected forceInterpreted cases,  and UnresolvedFunction gets a new param.  
 
 ## Testing out Quality via Notebooks
 
