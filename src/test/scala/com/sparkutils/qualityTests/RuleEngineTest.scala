@@ -223,7 +223,7 @@ class RuleEngineTest extends FunSuite with TestUtils {
     val justSeq = (1000, just4201)
     assert(res(0).toVector == Vector(justSeq))
     assert(res(4).toVector == Vector(justSeq))
-    assert(res(5).toVector == Vector((100, Seq(Posting("from", "4201"), Posting("to","other_account1"))), justSeq))
+    assert(res(5).toVector.map(p => p.copy(_2 = p._2.toVector)) == Vector((100, Seq(Posting("from", "4201"), Posting("to","other_account1"))), justSeq))
   } }
 
   @Test
