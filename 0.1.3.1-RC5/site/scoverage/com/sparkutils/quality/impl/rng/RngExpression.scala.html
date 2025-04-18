@@ -1,0 +1,1668 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/sparkutils/quality/impl/rng/RngExpression.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality.impl.rng
+</span>2 <span style=''>
+</span>3 <span style=''>import com.sparkutils.shim.expressions.StatefulLike
+</span>4 <span style=''>import org.apache.commons.rng.simple.RandomSource
+</span>5 <span style=''>import org.apache.spark.sql.Column
+</span>6 <span style=''>import org.apache.spark.sql.ShimUtils.column
+</span>7 <span style=''>import org.apache.spark.sql.catalyst.InternalRow
+</span>8 <span style=''>import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionWithRandomSeed, LeafExpression, Literal, Rand}
+</span>9 <span style=''>import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
+</span>10 <span style=''>import org.apache.spark.sql.types.{BinaryType, DataType, LongType, StructField, StructType}
+</span>11 <span style=''>
+</span>12 <span style=''>object RandomBytes {
+</span>13 <span style=''>  /**
+</span>14 <span style=''>   * Creates a random number generator using a given commons-rng source
+</span>15 <span style=''>   *
+</span>16 <span style=''>   * @param randomSource commons-rng random source
+</span>17 <span style=''>   * @param numBytes the number of bytes to produce in the array, defaulting to 16
+</span>18 <span style=''>   * @param seed the seed to use / mixin
+</span>19 <span style=''>   * @return a column with the appropriate rng defined
+</span>20 <span style=''>   */
+</span>21 <span style=''>  def apply(randomSource: RandomSource, numBytes: Int = 16, seed: Long = 0): Column =
+</span>22 <span style=''>    </span><span style='background: #AEF1AE'>column( apply(numBytes, randomSource, seed) )</span><span style=''>
+</span>23 <span style=''>
+</span>24 <span style=''>  def apply(numBytes: Int, randomSource: RandomSource, seed: Long): Expression =
+</span>25 <span style=''>    if (</span><span style='background: #AEF1AE'>randomSource.isJumpable</span><span style=''>)
+</span>26 <span style=''>      </span><span style='background: #AEF1AE'>RandBytesWithJump(seed, numBytes, randomSource)</span><span style=''>
+</span>27 <span style=''>    else
+</span>28 <span style=''>      </span><span style='background: #AEF1AE'>RandBytesNonJump(seed, numBytes, randomSource)</span><span style=''>
+</span>29 <span style=''>}
+</span>30 <span style=''>
+</span>31 <span style=''>/**
+</span>32 <span style=''> * Creates a Jumpable random number generator
+</span>33 <span style=''> * @param definedSeed starting / mixing seed for all new rng instances
+</span>34 <span style=''> * @param numBytes length of the binary array to fill in bytes
+</span>35 <span style=''> * @param source
+</span>36 <span style=''> */
+</span>37 <span style=''>case class RandBytesWithJump(definedSeed: Long, numBytes: Int, source: RandomSource) extends RandBytes with Jumpable {
+</span>38 <span style=''>  type ThisType = RandBytesWithJump
+</span>39 <span style=''>  override def freshCopy: ThisType = </span><span style='background: #F0ADAD'>copy()</span><span style=''>
+</span>40 <span style=''>}
+</span>41 <span style=''>
+</span>42 <span style=''>case class RandBytesNonJump(definedSeed: Long, numBytes: Int, source: RandomSource) extends RandBytes with RngImpl {
+</span>43 <span style=''>  type ThisType = RandBytesNonJump
+</span>44 <span style=''>  override def freshCopy: ThisType = </span><span style='background: #F0ADAD'>copy()</span><span style=''>
+</span>45 <span style=''>}
+</span>46 <span style=''>
+</span>47 <span style=''>/**
+</span>48 <span style=''> * Base implementation for random number byte generation with pluggable implementations
+</span>49 <span style=''> */
+</span>50 <span style=''>abstract class RandBytes extends LeafExpression with StatefulLike
+</span>51 <span style=''>  with ExpressionWithRandomSeed with CodegenFallback with RngImpl {
+</span>52 <span style=''>
+</span>53 <span style=''>  type ThisType &lt;: RandBytes
+</span>54 <span style=''>
+</span>55 <span style=''>  override def withNewSeed(seed: Long): ThisType = {
+</span>56 <span style=''>    val r = </span><span style='background: #AEF1AE'>freshCopy()</span><span style=''>
+</span>57 <span style=''>    </span><span style='background: #AEF1AE'>r.reSeed(seed)</span><span style=''>
+</span>58 <span style=''>    r
+</span>59 <span style=''>  }
+</span>60 <span style=''>
+</span>61 <span style=''>  override lazy val resolved: Boolean = isNull
+</span>62 <span style=''>
+</span>63 <span style=''>  override def nullable: Boolean = </span><span style='background: #AEF1AE'>false</span><span style=''>
+</span>64 <span style=''>
+</span>65 <span style=''>  override def dataType: DataType = </span><span style='background: #AEF1AE'>BinaryType</span><span style=''>
+</span>66 <span style=''>
+</span>67 <span style=''>  override protected def initializeInternal(partitionIndex: Int): Unit = {
+</span>68 <span style=''>    // if rand is already set don't redo
+</span>69 <span style=''>    </span><span style='background: #AEF1AE'>reSeedOrBranch(partitionIndex)</span><span style=''>
+</span>70 <span style=''>  }
+</span>71 <span style=''>
+</span>72 <span style=''>  override protected def evalInternal(input: InternalRow): Any = {
+</span>73 <span style=''>    val res = </span><span style='background: #AEF1AE'>nextBytes()</span><span style=''>
+</span>74 <span style=''>    res
+</span>75 <span style=''>  }
+</span>76 <span style=''>
+</span>77 <span style=''>  def seedExpression: Expression = </span><span style='background: #AEF1AE'>Literal(definedSeed, LongType)</span><span style=''>
+</span>78 <span style=''>}
+</span>79 <span style=''>
+</span>80 <span style=''>object RandomLongs {
+</span>81 <span style=''>
+</span>82 <span style=''>  val structType = </span><span style='background: #AEF1AE'>com.sparkutils.quality.impl.longPair.LongPair.structType</span><span style=''>
+</span>83 <span style=''>  // #60 - preview2 defaults to nullable when no schema is specified
+</span>84 <span style=''>  val structTypeNullable = </span><span style='background: #AEF1AE'>structType.copy(fields = structType.fields.map(_.copy(nullable = true)))</span><span style=''>
+</span>85 <span style=''>
+</span>86 <span style=''>  /**
+</span>87 <span style=''>   * Creates a random number generator using a given commons-rng source
+</span>88 <span style=''>   *
+</span>89 <span style=''>   * @param randomSource commons-rng random source
+</span>90 <span style=''>   * @param seed the seed to use / mixin
+</span>91 <span style=''>   * @return a column with the appropriate rng defined
+</span>92 <span style=''>   */
+</span>93 <span style=''>  def apply(randomSource: RandomSource, seed: Long = 0): Column =
+</span>94 <span style=''>    </span><span style='background: #AEF1AE'>column( create(randomSource, seed) )</span><span style=''>
+</span>95 <span style=''>
+</span>96 <span style=''>  def create(randomSource: RandomSource, seed: Long = 0): Expression =
+</span>97 <span style=''>    if (</span><span style='background: #AEF1AE'>randomSource.isJumpable</span><span style=''>)
+</span>98 <span style=''>      </span><span style='background: #AEF1AE'>RandLongsWithJump(seed, randomSource)</span><span style=''>
+</span>99 <span style=''>    else
+</span>100 <span style=''>      </span><span style='background: #AEF1AE'>RandLongsNonJump(seed, randomSource)</span><span style=''>
+</span>101 <span style=''>}
+</span>102 <span style=''>
+</span>103 <span style=''>/**
+</span>104 <span style=''> * Creates a Jumpable random number generator
+</span>105 <span style=''> * @param definedSeed starting / mixing seed for all new rng instances
+</span>106 <span style=''> * @param source
+</span>107 <span style=''> */
+</span>108 <span style=''>case class RandLongsWithJump(definedSeed: Long, source: RandomSource) extends RandLongs with Jumpable {
+</span>109 <span style=''>  type ThisType = RandLongsWithJump
+</span>110 <span style=''>  override def freshCopy: ThisType = </span><span style='background: #F0ADAD'>copy()</span><span style=''>
+</span>111 <span style=''>}
+</span>112 <span style=''>
+</span>113 <span style=''>case class RandLongsNonJump(definedSeed: Long, source: RandomSource) extends RandLongs with RngImpl {
+</span>114 <span style=''>  type ThisType = RandLongsNonJump
+</span>115 <span style=''>  override def freshCopy: ThisType = </span><span style='background: #F0ADAD'>copy()</span><span style=''>
+</span>116 <span style=''>}
+</span>117 <span style=''>
+</span>118 <span style=''>/**
+</span>119 <span style=''> * Base implementation for random number two long (128 bit) generation with pluggable implementations
+</span>120 <span style=''> */
+</span>121 <span style=''>abstract class RandLongs extends LeafExpression with StatefulLike
+</span>122 <span style=''>  with ExpressionWithRandomSeed with CodegenFallback with RngImpl {
+</span>123 <span style=''>
+</span>124 <span style=''>  type ThisType &lt;: RandLongs
+</span>125 <span style=''>
+</span>126 <span style=''>  override def withNewSeed(seed: Long): ThisType = {
+</span>127 <span style=''>    val r = </span><span style='background: #AEF1AE'>freshCopy()</span><span style=''>
+</span>128 <span style=''>    </span><span style='background: #AEF1AE'>r.reSeed(seed)</span><span style=''>
+</span>129 <span style=''>    r
+</span>130 <span style=''>  }
+</span>131 <span style=''>
+</span>132 <span style=''>  override lazy val resolved: Boolean = isNull
+</span>133 <span style=''>
+</span>134 <span style=''>  override def nullable: Boolean = </span><span style='background: #AEF1AE'>false</span><span style=''>
+</span>135 <span style=''>
+</span>136 <span style=''>  override def dataType: DataType = </span><span style='background: #AEF1AE'>RandomLongs.structType</span><span style=''>
+</span>137 <span style=''>
+</span>138 <span style=''>  override protected def initializeInternal(partitionIndex: Int): Unit = {
+</span>139 <span style=''>    // if rand is already set don't redo
+</span>140 <span style=''>    </span><span style='background: #AEF1AE'>reSeedOrBranch(partitionIndex)</span><span style=''>
+</span>141 <span style=''>  }
+</span>142 <span style=''>
+</span>143 <span style=''>  override protected def evalInternal(input: InternalRow): Any = {
+</span>144 <span style=''>    </span><span style='background: #AEF1AE'>InternalRow(nextLong(), nextLong())</span><span style=''>
+</span>145 <span style=''>  }
+</span>146 <span style=''>
+</span>147 <span style=''>  def numBytes: Int = </span><span style='background: #AEF1AE'>0</span><span style=''>
+</span>148 <span style=''>
+</span>149 <span style=''>  def seedExpression: Expression = </span><span style='background: #AEF1AE'>Literal(definedSeed, LongType)</span><span style=''>
+</span>150 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          22
+        </td>
+        <td>
+          6052
+        </td>
+        <td>
+          995
+          -
+          1030
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.rng.RandomBytes.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RandomBytes.this.apply(numBytes, randomSource, seed)
+        </td>
+      </tr><tr>
+        <td>
+          22
+        </td>
+        <td>
+          6053
+        </td>
+        <td>
+          987
+          -
+          1032
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.ShimUtils.column
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.ShimUtils.column(RandomBytes.this.apply(numBytes, randomSource, seed))
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          6054
+        </td>
+        <td>
+          1123
+          -
+          1146
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.commons.rng.simple.RandomSource.isJumpable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          randomSource.isJumpable()
+        </td>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          6055
+        </td>
+        <td>
+          1154
+          -
+          1201
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.rng.RandBytesWithJump.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RandBytesWithJump.apply(seed, numBytes, randomSource)
+        </td>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          6056
+        </td>
+        <td>
+          1154
+          -
+          1201
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.rng.RandBytesWithJump.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RandBytesWithJump.apply(seed, numBytes, randomSource)
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          6058
+        </td>
+        <td>
+          1217
+          -
+          1263
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.rng.RandBytesNonJump.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RandBytesNonJump.apply(seed, numBytes, randomSource)
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          6057
+        </td>
+        <td>
+          1217
+          -
+          1263
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.rng.RandBytesNonJump.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RandBytesNonJump.apply(seed, numBytes, randomSource)
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          6061
+        </td>
+        <td>
+          1664
+          -
+          1664
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.rng.RandBytesWithJump.copy$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          RandBytesWithJump.this.copy$default$3
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          6060
+        </td>
+        <td>
+          1664
+          -
+          1664
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.rng.RandBytesWithJump.copy$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          RandBytesWithJump.this.copy$default$2
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          6059
+        </td>
+        <td>
+          1664
+          -
+          1664
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.rng.RandBytesWithJump.copy$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          RandBytesWithJump.this.copy$default$1
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          6062
+        </td>
+        <td>
+          1664
+          -
+          1670
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.rng.RandBytesWithJump.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          RandBytesWithJump.this.copy(RandBytesWithJump.this.copy$default$1, RandBytesWithJump.this.copy$default$2, RandBytesWithJump.this.copy$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          6064
+        </td>
+        <td>
+          1863
+          -
+          1863
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.rng.RandBytesNonJump.copy$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          RandBytesNonJump.this.copy$default$2
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          6063
+        </td>
+        <td>
+          1863
+          -
+          1863
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.rng.RandBytesNonJump.copy$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          RandBytesNonJump.this.copy$default$1
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          6066
+        </td>
+        <td>
+          1863
+          -
+          1869
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.rng.RandBytesNonJump.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          RandBytesNonJump.this.copy(RandBytesNonJump.this.copy$default$1, RandBytesNonJump.this.copy$default$2, RandBytesNonJump.this.copy$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          6065
+        </td>
+        <td>
+          1863
+          -
+          1863
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.rng.RandBytesNonJump.copy$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          RandBytesNonJump.this.copy$default$3
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          6067
+        </td>
+        <td>
+          2199
+          -
+          2210
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.rng.RngImpl.freshCopy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RandBytes.this.freshCopy()
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          6068
+        </td>
+        <td>
+          2215
+          -
+          2229
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.rng.RngImpl.reSeed
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          r.reSeed(seed)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          6069
+        </td>
+        <td>
+          2324
+          -
+          2329
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          6070
+        </td>
+        <td>
+          2367
+          -
+          2377
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.BinaryType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.BinaryType
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          6072
+        </td>
+        <td>
+          2499
+          -
+          2529
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.rng.RngImpl.reSeedOrBranch
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RandBytes.this.reSeedOrBranch(partitionIndex.toLong)
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          6071
+        </td>
+        <td>
+          2514
+          -
+          2528
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Int.toLong
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          partitionIndex.toLong
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          6073
+        </td>
+        <td>
+          2616
+          -
+          2627
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.rng.RngImpl.nextBytes
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RandBytes.this.nextBytes()
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          6076
+        </td>
+        <td>
+          2676
+          -
+          2706
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Literal.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.Literal.apply(RandBytes.this.definedSeed, org.apache.spark.sql.types.LongType)
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          6075
+        </td>
+        <td>
+          2697
+          -
+          2705
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.LongType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.LongType
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          6074
+        </td>
+        <td>
+          2684
+          -
+          2695
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.rng.RngImpl.definedSeed
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RandBytes.this.definedSeed
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          6077
+        </td>
+        <td>
+          2751
+          -
+          2807
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.longPair.LongPair.structType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.longPair.LongPair.structType
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          6079
+        </td>
+        <td>
+          2969
+          -
+          2973
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          6082
+        </td>
+        <td>
+          2953
+          -
+          2953
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.copy$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$1.copy$default$4
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          6085
+        </td>
+        <td>
+          2929
+          -
+          2975
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](RandomLongs.this.structType.fields).map[org.apache.spark.sql.types.StructField, Array[org.apache.spark.sql.types.StructField]](((x$1: org.apache.spark.sql.types.StructField) =&gt; {
+  &lt;artifact&gt; val x$1: Boolean = true;
+  &lt;artifact&gt; val x$2: String = x$1.copy$default$1;
+  &lt;artifact&gt; val x$3: org.apache.spark.sql.types.DataType = x$1.copy$default$2;
+  &lt;artifact&gt; val x$4: org.apache.spark.sql.types.Metadata = x$1.copy$default$4;
+  x$1.copy(x$2, x$3, x$1, x$4)
+}))(scala.this.Array.canBuildFrom[org.apache.spark.sql.types.StructField]((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField])))
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          6078
+        </td>
+        <td>
+          2929
+          -
+          2946
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.fields
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RandomLongs.this.structType.fields
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          6081
+        </td>
+        <td>
+          2953
+          -
+          2953
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.copy$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$1.copy$default$2
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          6084
+        </td>
+        <td>
+          2950
+          -
+          2950
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Array.canBuildFrom[org.apache.spark.sql.types.StructField]((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField]))
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          6083
+        </td>
+        <td>
+          2951
+          -
+          2974
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$1.copy(x$2, x$3, x$1, x$4)
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          6086
+        </td>
+        <td>
+          2904
+          -
+          2976
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RandomLongs.this.structType.copy(scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](RandomLongs.this.structType.fields).map[org.apache.spark.sql.types.StructField, Array[org.apache.spark.sql.types.StructField]](((x$1: org.apache.spark.sql.types.StructField) =&gt; {
+  &lt;artifact&gt; val x$1: Boolean = true;
+  &lt;artifact&gt; val x$2: String = x$1.copy$default$1;
+  &lt;artifact&gt; val x$3: org.apache.spark.sql.types.DataType = x$1.copy$default$2;
+  &lt;artifact&gt; val x$4: org.apache.spark.sql.types.Metadata = x$1.copy$default$4;
+  x$1.copy(x$2, x$3, x$1, x$4)
+}))(scala.this.Array.canBuildFrom[org.apache.spark.sql.types.StructField]((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField]))))
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          6080
+        </td>
+        <td>
+          2953
+          -
+          2953
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.copy$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$1.copy$default$1
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          6088
+        </td>
+        <td>
+          3284
+          -
+          3320
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.ShimUtils.column
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.ShimUtils.column(RandomLongs.this.create(randomSource, seed))
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          6087
+        </td>
+        <td>
+          3292
+          -
+          3318
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.rng.RandomLongs.create
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RandomLongs.this.create(randomSource, seed)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          6089
+        </td>
+        <td>
+          3401
+          -
+          3424
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.commons.rng.simple.RandomSource.isJumpable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          randomSource.isJumpable()
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          6091
+        </td>
+        <td>
+          3432
+          -
+          3469
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.rng.RandLongsWithJump.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RandLongsWithJump.apply(seed, randomSource)
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          6090
+        </td>
+        <td>
+          3432
+          -
+          3469
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.rng.RandLongsWithJump.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RandLongsWithJump.apply(seed, randomSource)
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          6093
+        </td>
+        <td>
+          3485
+          -
+          3521
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.rng.RandLongsNonJump.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RandLongsNonJump.apply(seed, randomSource)
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          6092
+        </td>
+        <td>
+          3485
+          -
+          3521
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.rng.RandLongsNonJump.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RandLongsNonJump.apply(seed, randomSource)
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          6094
+        </td>
+        <td>
+          3844
+          -
+          3844
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.rng.RandLongsWithJump.copy$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          RandLongsWithJump.this.copy$default$1
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          6096
+        </td>
+        <td>
+          3844
+          -
+          3850
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.rng.RandLongsWithJump.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          RandLongsWithJump.this.copy(RandLongsWithJump.this.copy$default$1, RandLongsWithJump.this.copy$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          6095
+        </td>
+        <td>
+          3844
+          -
+          3844
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.rng.RandLongsWithJump.copy$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          RandLongsWithJump.this.copy$default$2
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          6097
+        </td>
+        <td>
+          4028
+          -
+          4028
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.rng.RandLongsNonJump.copy$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          RandLongsNonJump.this.copy$default$1
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          6099
+        </td>
+        <td>
+          4028
+          -
+          4034
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.rng.RandLongsNonJump.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          RandLongsNonJump.this.copy(RandLongsNonJump.this.copy$default$1, RandLongsNonJump.this.copy$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          6098
+        </td>
+        <td>
+          4028
+          -
+          4028
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.rng.RandLongsNonJump.copy$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          RandLongsNonJump.this.copy$default$2
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          6100
+        </td>
+        <td>
+          4378
+          -
+          4389
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.rng.RngImpl.freshCopy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RandLongs.this.freshCopy()
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          6101
+        </td>
+        <td>
+          4394
+          -
+          4408
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.rng.RngImpl.reSeed
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          r.reSeed(seed)
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          6102
+        </td>
+        <td>
+          4503
+          -
+          4508
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          6103
+        </td>
+        <td>
+          4546
+          -
+          4568
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.rng.RandomLongs.structType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RandomLongs.structType
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          6105
+        </td>
+        <td>
+          4690
+          -
+          4720
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.rng.RngImpl.reSeedOrBranch
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RandLongs.this.reSeedOrBranch(partitionIndex.toLong)
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          6104
+        </td>
+        <td>
+          4705
+          -
+          4719
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Int.toLong
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          partitionIndex.toLong
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          6106
+        </td>
+        <td>
+          4809
+          -
+          4819
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.rng.RngImpl.nextLong
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RandLongs.this.nextLong()
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          6108
+        </td>
+        <td>
+          4797
+          -
+          4832
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.InternalRow.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.InternalRow.apply(RandLongs.this.nextLong(), RandLongs.this.nextLong())
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          6107
+        </td>
+        <td>
+          4821
+          -
+          4831
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.rng.RngImpl.nextLong
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RandLongs.this.nextLong()
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          6109
+        </td>
+        <td>
+          4860
+          -
+          4861
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          6112
+        </td>
+        <td>
+          4898
+          -
+          4928
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Literal.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.Literal.apply(RandLongs.this.definedSeed, org.apache.spark.sql.types.LongType)
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          6111
+        </td>
+        <td>
+          4919
+          -
+          4927
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.LongType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.LongType
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          6110
+        </td>
+        <td>
+          4906
+          -
+          4917
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.rng.RngImpl.definedSeed
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RandLongs.this.definedSeed
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
