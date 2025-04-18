@@ -1,5 +1,7 @@
 ### 0.1.3.1 <small>3rd December, 2024</small>
 
+#78 - Allow extra plans to be added after a rewrite, ConstantFolding as a default given it gives a slight boost.
+
 #76 - DBR 16.3 support - Databricks introduced a number of API changes not found in Spark 4, extra UnresolvedFunction params. (also includes #75)
 
 #75 - DBR 15.4 support - Databricks introduced nonVolatile, a breaking change affecting all StatefulLike/Nondeterministic (rngs, uuids, unique_id), there is also a regression wrt interpreted Spark encoders (returning Stream and incorrect results) - the test cases have moved to Frameless encoders.
