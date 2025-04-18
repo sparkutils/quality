@@ -162,8 +162,7 @@ class RuleEngineTest extends FunSuite with TestUtils {
     assert(res(8) == Seq(Posting("from", "another_account"), Posting("to","4201")))
   } }
 
-  @Test
-  def testSalience(): Unit = evalCodeGensNoResolve { funNRewrites {
+  def doSalience(): Unit = {
     val rer = rules(
       (ExpressionRule("product = 'eqotc' and account = '4201'"), RunOnPassProcessor(100, Id(1040,1),
         OutputExpression("array(updateField(account_row('fr', account), 'transfer_type', 'from'), account_row('to', 'other_account1'))"))),
@@ -197,10 +196,28 @@ class RuleEngineTest extends FunSuite with TestUtils {
     assert(sruleres(1) == nulls)
     assert(sruleres(2) == nulls)
     assert(sruleres(3) == nulls)
-  } }
+  }
 
   @Test
-  def testDebug(): Unit = evalCodeGensNoResolve { funNRewrites {
+  def testSalience(): Unit = {
+
+    not_Databricks { // #75 bug from 15.4 on encoder usage, row is fine
+      forceInterpreted {
+        funNRewrites {
+          doSalience()
+        }
+      }
+    }
+
+    forceCodeGen {
+      funNRewrites {
+        doSalience()
+      }
+    }
+
+  }
+
+  def doDebugTest(): Unit = {
     val rer = debugRules(
       (ExpressionRule("product = 'eqotc' and account = '4201'"), RunOnPassProcessor(100, Id(1040,1),
         OutputExpression("array(account_row('from', account), account_row('to', 'other_account1'))"))),
@@ -224,7 +241,27 @@ class RuleEngineTest extends FunSuite with TestUtils {
     assert(res(0).toVector == Vector(justSeq))
     assert(res(4).toVector == Vector(justSeq))
     assert(res(5).toVector.map(p => p.copy(_2 = p._2.toVector)) == Vector((100, Vector(Posting("from", "4201"), Posting("to","other_account1"))), justSeq))
-  } }
+
+  }
+
+  @Test
+  def testDebug(): Unit = {
+
+    not_Databricks { // #75 bug from 15.4 on encoder usage, row is fine
+      forceInterpreted {
+        funNRewrites {
+          doDebugTest()
+        }
+      }
+    }
+
+    forceCodeGen {
+      funNRewrites {
+        doDebugTest()
+      }
+    }
+
+  }
 
   @Test
   def testHugeAmountOfRulesSOE(): Unit = evalCodeGensNoResolve { funNRewrites {
