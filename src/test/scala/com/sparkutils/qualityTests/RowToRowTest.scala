@@ -2,10 +2,12 @@ package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
 import com.sparkutils.quality.functions.{flatten_rule_results, unpack_id_triple}
+import com.sparkutils.quality.impl.FlattenStruct.ruleSuiteDeserializer
 import com.sparkutils.quality.impl.extension.FunNRewrite
-import com.sparkutils.quality.impl.{RuleEngineRunner, RunOnPassProcessor}
+import com.sparkutils.quality.impl.{Encoders, RuleEngineRunner, RunOnPassProcessor}
 import com.sparkutils.shim.expressions.PredicateHelperPlus
-import org.apache.spark.sql.{DataFrame, Dataset, QualitySparkUtils, Row, SparkSession}
+import frameless.{TypedEncoder, TypedExpressionEncoder}
+import org.apache.spark.sql.{DataFrame, Dataset, QualitySparkUtils, Row, ShimUtils, SparkSession}
 import org.apache.spark.sql.ShimUtils.{expression, isPrimitive}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.encoders.{ExpressionEncoder, RowEncoder}
@@ -14,7 +16,7 @@ import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, LogicalPlan, 
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.{SparkPlan, WholeStageCodegenExec}
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.types.{BooleanType, DataType, IntegerType, StringType, StructField, StructType}
+import org.apache.spark.sql.types.{BooleanType, DataType, IntegerType, ObjectType, StringType, StructField, StructType}
 import org.apache.spark.unsafe.types.UTF8String
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -42,14 +44,14 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
     StructField("subcode", IntegerType, nullable = false)
   ))
 
-  def map(seq: Seq[TestOn], projection: Projection, resi: Int): Seq[Int] = seq.map{ s =>
-    val i = InternalRow(UTF8String.fromString(s.product), UTF8String.fromString(s.account), s.subcode)
-    projection.asInstanceOf[MutableProjection].target(InternalRow(null, null, null, null, null))
-    val r = projection(i)
-    r.getInt(resi)
-  }
-
   test("simple projection") { not2_4 {
+
+    def map(seq: Seq[TestOn], projection: Projection, resi: Int): Seq[Int] = seq.map{ s =>
+      val i = InternalRow(UTF8String.fromString(s.product), UTF8String.fromString(s.account), s.subcode)
+      val r = projection(i)
+      r.getInt(resi)
+    }
+
     val s = sparkSession // force it
     registerQualityFunctions()
 
@@ -60,11 +62,91 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
     ))
 
     val exprs = QualitySparkUtils.resolveExpressions(typ, taddOverallResultsAndDetailsF(rs))
-    val iprocessor = QualitySparkUtils.rowProcessor(exprs, false)
-    val cprocessor = QualitySparkUtils.rowProcessor(exprs, true)
+    val iprocessor = QualitySparkUtils.rowProcessor(exprs, false).asInstanceOf[MutableProjection]
+    iprocessor.target(InternalRow(null, null, null, null, null))
+    iprocessor.initialize(0)
+    val cprocessor = QualitySparkUtils.rowProcessor(exprs, true).asInstanceOf[MutableProjection]
+    cprocessor.target(InternalRow(null, null, null, null, null))
+    cprocessor.initialize(0)
+
     val ro = map(testData, iprocessor, exprs.length - 2)
     ro shouldBe Seq(PassedInt, PassedInt, PassedInt, FailedInt, PassedInt, FailedInt)
     val rc = map(testData, cprocessor, exprs.length - 2)
     rc shouldBe Seq(PassedInt, PassedInt, PassedInt, FailedInt, PassedInt, FailedInt)
+  } }
+
+  test("encoder output projection") { not2_4 {
+    val s = sparkSession // force it
+    registerQualityFunctions()
+
+    val enc = QualitySparkUtils.rowProcessor(Seq(ruleSuiteDeserializer), true).asInstanceOf[MutableProjection]
+    enc.target(InternalRow(null))
+
+    def map(seq: Seq[TestOn], projection: Projection, resi: Int): Seq[RuleSuiteResult] = seq.map{ s =>
+      val i = InternalRow(UTF8String.fromString(s.product), UTF8String.fromString(s.account), s.subcode)
+      val r = projection(i)
+      enc(r.getStruct(resi, 2)).get(0, ObjectType(classOf[RuleSuiteResult])).asInstanceOf[RuleSuiteResult]
+    }
+
+    val rs = RuleSuite(Id(1,1), Seq(
+      RuleSet(Id(50, 1), Seq(
+        Rule(Id(100, 1), ExpressionRule("if(product like '%otc%', account = '4201', subcode = 50)"))
+      ))
+    ))
+
+    val exprs = QualitySparkUtils.resolveExpressions(typ, taddDataQualityF(rs))
+    val iprocessor = QualitySparkUtils.rowProcessor(exprs, false).asInstanceOf[MutableProjection]
+    iprocessor.target(InternalRow(null, null, null, null, null))
+    iprocessor.initialize(0)
+    val cprocessor = QualitySparkUtils.rowProcessor(exprs, true).asInstanceOf[MutableProjection]
+    cprocessor.target(InternalRow(null, null, null, null, null))
+    cprocessor.initialize(0)
+
+    val ro = map(testData, iprocessor, exprs.length - 1)
+    ro.map(_.overallResult) shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
+    val rc = map(testData, cprocessor, exprs.length - 1)
+    rc.map(_.overallResult)  shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
+  } }
+
+
+
+  test("encoder input and output projection") { not2_4 {
+    val s = sparkSession // force it
+    registerQualityFunctions()
+
+    val encFrom = TypedExpressionEncoder[TestOn]
+
+    val exprTo = ShimUtils.expressionEncoder(encFrom).resolveAndBind().serializer
+    val dec = QualitySparkUtils.rowProcessor(exprTo, true).asInstanceOf[MutableProjection]
+    dec.target(InternalRow(null, null, null))
+
+    val enc = QualitySparkUtils.rowProcessor(Seq(ruleSuiteDeserializer), true).asInstanceOf[MutableProjection]
+    enc.target(InternalRow(null, null))
+
+    def map(seq: Seq[TestOn], projection: Projection, resi: Int): Seq[RuleSuiteResult] = seq.map{ s =>
+      val i = dec(InternalRow(s))
+      val r = projection(i)
+      enc(r.getStruct(resi, 2)).get(0, ObjectType(classOf[RuleSuiteResult])).asInstanceOf[RuleSuiteResult]
+    }
+
+    val rs = RuleSuite(Id(1,1), Seq(
+      RuleSet(Id(50, 1), Seq(
+        Rule(Id(100, 1), ExpressionRule("if(product like '%otc%', account = '4201', subcode = 50)"))
+      ))
+    ))
+
+    val exprs = QualitySparkUtils.resolveExpressions[TestOn](encFrom, taddDataQualityF(rs))
+
+    val iprocessor = QualitySparkUtils.rowProcessor(exprs, false).asInstanceOf[MutableProjection]
+    iprocessor.target(InternalRow(null, null, null, null, null))
+    iprocessor.initialize(0)
+    val cprocessor = QualitySparkUtils.rowProcessor(exprs, true).asInstanceOf[MutableProjection]
+    cprocessor.target(InternalRow(null, null, null, null, null))
+    cprocessor.initialize(0)
+
+    val ro = map(testData, iprocessor, exprs.length - 1)
+    ro.map(_.overallResult) shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
+    val rc = map(testData, cprocessor, exprs.length - 1)
+    rc.map(_.overallResult)  shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
   } }
 }
