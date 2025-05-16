@@ -4,13 +4,16 @@ import org.apache.spark.sql.ShimUtils.column
 import com.sparkutils.quality.impl.util.DebugTime.debugTime
 import com.sparkutils.quality.impl.util.{PassThrough, PassThroughCompileEvals}
 import com.sparkutils.quality.impl.{RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
-import com.sparkutils.shim.expressions.HigherOrderFunctionLike
+import com.sparkutils.shim.expressions.{HigherOrderFunctionLike, PredicateHelperPlus}
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveHigherOrderFunctions, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCoercion}
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, EqualNullSafe, Expression, ExpressionSet, HigherOrderFunction, Literal, UpdateFields}
-import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, UnaryNode}
+import org.apache.spark.sql.catalyst.encoders.RowEncoder
+import org.apache.spark.sql.catalyst.expressions.codegen.GenerateMutableProjection
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, BindReferences, EqualNullSafe, Expression, ExpressionSet, HigherOrderFunction, InterpretedMutableProjection, Literal, Projection, UpdateFields}
+import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, LogicalPlan, Project, UnaryNode}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.qualityFunctions.FunN
+import org.apache.spark.sql.types.StructType
 import org.apache.spark.util.Utils
 
 /**
@@ -34,6 +37,59 @@ object QualitySparkUtils {
     }(expressionToExpression)
 
   type DatasetBase[F] = org.apache.spark.sql.Dataset[F]
+
+  case class EvaluableExpressions(plan: LogicalPlan) extends PredicateHelperPlus {
+    def expressions: Seq[Expression] = plan match {
+      case p: Project => p.expressions.map{
+        e => findRootExpression(e, plan).getOrElse(e)
+      }
+      case _ => plan.expressions
+    }
+  }
+
+  /**
+   * Provides a starting plan for a dataframe, resolves the
+   *
+   * @param fields input types
+   * @param dataFrameF
+   * @return
+   */
+  def resolveExpressions(fields: StructType, dataFrameF: DataFrame => DataFrame): Seq[Expression] = {
+
+    val plan = LocalRelation(fields.fields.map{ field =>
+      AttributeReference(field.name, field.dataType, field.nullable, field.metadata)()
+    })
+    val ag = RowEncoder.apply(fields)
+
+    // this constructor stops execute plan being called too early
+    val df = dataFrameF(
+      new Dataset[Row](SparkSession.getActiveSession.get.sqlContext, plan, ag)
+    )
+
+    // lookup the actual expressions
+    val res = debugTime("find underlying expressions") {
+      EvaluableExpressions(df.queryExecution.analyzed).expressions
+    }
+
+    val fres = debugTime("bindReferences") {
+      BindReferences.bindReferences(res, df.logicalPlan.allAttributes)
+    }
+
+    fres
+  }
+
+  /**
+   * Creates a projection from InputRow to InputRow.
+   * @param exprs expressions from resolveExpressions, already resolved without
+   * @param compile
+   * @return typically a mutable projection, callers must ensure partition is set and the target row is provided
+   */
+  def rowProcessor(exprs: Seq[Expression], compile: Boolean = true): Projection  = {
+    if (compile)
+      GenerateMutableProjection.generate(exprs, SQLConf.get.subexpressionEliminationEnabled)
+    else
+      InterpretedMutableProjection.createProjection(exprs)
+  }
 
   /**
    * Where resolveWith is not possible (e.g. 10.x DBRs) it is disabled here.

@@ -49,7 +49,7 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
     r.getInt(resi)
   }
 
-  test("simple projection") {
+  test("simple projection") { not2_4 {
     val s = sparkSession // force it
     registerQualityFunctions()
 
@@ -66,5 +66,5 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
     ro shouldBe Seq(PassedInt, PassedInt, PassedInt, FailedInt, PassedInt, FailedInt)
     val rc = map(testData, cprocessor, exprs.length - 2)
     rc shouldBe Seq(PassedInt, PassedInt, PassedInt, FailedInt, PassedInt, FailedInt)
-  }
+  } }
 }

@@ -29,6 +29,25 @@ object QualitySparkUtils {
   type DatasetBase[F] = org.apache.spark.sql.Dataset[F]
 
   /**
+   * Provides a starting plan for a dataframe, resolves the
+   *
+   * @param fields input types
+   * @param dataFrameF
+   * @return
+   */
+  def resolveExpressions(fields: StructType, dataFrameF: DataFrame => DataFrame): Seq[Expression] =
+    throw new Exception("Not supported on any 2.4 runtime")
+
+  /**
+   * Creates a projection from InputRow to InputRow.
+   * @param exprs expressions from resolveExpressions, already resolved without
+   * @param compile
+   * @return typically a mutable projection, callers must ensure partition is set and the target row is provided
+   */
+  def rowProcessor(exprs: Seq[Expression], compile: Boolean = true): Projection =
+    throw new Exception("Not supported on any 2.4 runtime")
+
+  /**
    * Where resolveWith is not possible (e.g. 10.x DBRs) it is disabled here.
    * This is, in the 10.x DBR case, due to the class files for UnaryNode (FakePlan) being radically different and causing an IncompatibleClassChangeError: Implementing class
    * @param orig

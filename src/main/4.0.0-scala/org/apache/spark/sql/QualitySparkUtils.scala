@@ -35,6 +35,57 @@ object QualitySparkUtils {
       case _ => true
     }(expressionToExpression)
 
+  case class EvaluableExpressions(plan: LogicalPlan) extends PredicateHelperPlus {
+    def expressions: Seq[Expression] = plan match {
+      case p: Project => p.expressions.map{
+        e => findRootExpression(e, plan).getOrElse(e)
+      }
+      case _ => plan.expressions
+    }
+  }
+
+  /**
+   * Provides a starting plan for a dataframe, resolves the
+   *
+   * @param fields input types
+   * @param dataFrameF
+   * @return
+   */
+  def resolveExpressions(fields: StructType, dataFrameF: DataFrame => DataFrame): Seq[Expression] = {
+
+    val plan = LocalRelation(fields)
+    val ag = RowEncoder.encoderFor(fields)
+
+    // this constructor stops execute plan being called too early
+    val df = dataFrameF(
+      new Dataset[Row](SparkSession.getActiveSession.get.sqlContext, plan, ExpressionEncoder(ag))
+    )
+
+    // lookup the actual expressions
+    val res = debugTime("find underlying expressions") {
+      EvaluableExpressions(df.queryExecution.analyzed).expressions
+    }
+
+    val fres = debugTime("bindReferences") {
+      BindReferences.bindReferences(res, df.logicalPlan.allAttributes)
+    }
+
+    fres
+  }
+
+  /**
+   * Creates a projection from InputRow to InputRow.
+   * @param exprs expressions from resolveExpressions, already resolved without
+   * @param compile
+   * @return typically a mutable projection, callers must ensure partition is set and the target row is provided
+   */
+  def rowProcessor(exprs: Seq[Expression], compile: Boolean = true): Projection  = {
+    if (compile)
+      GenerateMutableProjection.generate(exprs, SQLConf.get.subexpressionEliminationEnabled)
+    else
+      InterpretedMutableProjection.createProjection(exprs)
+  }
+
   /**
    * Where resolveWith is not possible (e.g. 10.x DBRs) it is disabled here.
    * This is, in the 10.x DBR case, due to the class files for UnaryNode (FakePlan) being radically different and causing an IncompatibleClassChangeError: Implementing class

@@ -6,7 +6,6 @@ import com.sparkutils.quality.impl.util.{PassThrough, PassThroughCompileEvals}
 import com.sparkutils.quality.impl.{RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
 import com.sparkutils.shim.expressions.{HigherOrderFunctionLike, PredicateHelperPlus}
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCoercion}
-import org.apache.spark.sql.catalyst.catalog.SessionCatalog
 import org.apache.spark.sql.catalyst.encoders.{ExpressionEncoder, RowEncoder}
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateMutableProjection
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, EqualNullSafe, Expression, ExpressionSet, HigherOrderFunction, InterpretedMutableProjection, Literal, Projection, UpdateFields}
@@ -14,7 +13,7 @@ import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, LogicalPlan, 
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.qualityFunctions.FunN
-import org.apache.spark.sql.types.{StructField, StructType}
+import org.apache.spark.sql.types.StructType
 import org.apache.spark.util.Utils
 
 /**
@@ -61,7 +60,7 @@ object QualitySparkUtils {
 
     val plan = dataFrame.select("*").logicalPlan // select * needed for toDF's etc. from dataset to force evaluation of the attributes
     val res = debugTime("tryResolveReferences") {
-      tryResolveReferences(sparkSession.sessionState.analyzer)(expr, plan)
+      tryResolveReferences(sparkSession)(expr, plan)
     }
 
     val fres = debugTime("bindReferences") {
@@ -76,7 +75,7 @@ object QualitySparkUtils {
       case p: Project => p.expressions.map{
         e => findRootExpression(e, plan).getOrElse(e)
       }
-      case a => plan.expressions
+      case _ => plan.expressions
     }
   }
 
@@ -97,12 +96,11 @@ object QualitySparkUtils {
       new Dataset[Row](SparkSession.getActiveSession.get.sqlContext, plan, ExpressionEncoder(ag))
     )
 
-    val res = EvaluableExpressions(df.queryExecution.analyzed).expressions
-/*
-    val res = debugTime("tryResolveReferences") {
-      tryResolveReferencesExprs(SparkSession.getActiveSession.get.sessionState.analyzer)(df.logicalPlan.expressions, df.logicalPlan)
+    // lookup the actual expressions
+    val res = debugTime("find underlying expressions") {
+      EvaluableExpressions(df.queryExecution.analyzed).expressions
     }
-*/
+
     val fres = debugTime("bindReferences") {
       BindReferences.bindReferences(res, df.logicalPlan.allAttributes)
     }
@@ -130,7 +128,9 @@ object QualitySparkUtils {
 
     var start = System.currentTimeMillis
 
+
     var continue = true
+    val analyzer = SparkSession.getActiveSession.get.sessionState.analyzer
 
     // Run until fix point (or the max number of iterations as specified in the strategy.
     while (continue) {
@@ -177,8 +177,8 @@ object QualitySparkUtils {
   case class Batch(name: String, strategy: Strategy, rules: Rule[LogicalPlan]*)
 
 
-  def resolution(analyzer: Analyzer): Batch = {
-    val conf = SQLConf.get// sparkSession.sqlContext.conf
+  def resolution(analyzer: Analyzer, sparkSession: SparkSession, plan: LogicalPlan) = {
+    val conf = sparkSession.sqlContext.conf
     val fixedPoint = new Strategy(
       conf.analyzerMaxIterations,
       errorOnExceed = true,
@@ -187,7 +187,7 @@ object QualitySparkUtils {
     import analyzer._
 
     Batch("Resolution", fixedPoint,
-      new ResolveCatalogs(catalogManager) ::
+        new ResolveCatalogs(catalogManager) ::
         ResolveInsertInto ::
         ResolveRelations ::
         ResolvePartitionSpec ::
@@ -228,14 +228,15 @@ object QualitySparkUtils {
 
   // below based on approach from delta / discussed with Alex to use a Project, LeafNode should be fine
   protected def tryResolveReferences(
-                                      analyzer: Analyzer)(
+                                      sparkSession: SparkSession)(
                                       expr: Expression,
                                       child: LogicalPlan): Expression = {
+    val analyzer = sparkSession.sessionState.analyzer
 
     def forExpr(expr: Expression) = {
       val newPlan = FakePlan(expr, child)
       //analyzer.execute(newPlan)
-      execute(newPlan, resolution(analyzer))
+      execute(newPlan, resolution(analyzer, sparkSession, newPlan))
       match {
         case FakePlan(resolvedExpr, _) =>
           // Return even if it did not successfully resolve
@@ -259,73 +260,6 @@ object QualitySparkUtils {
         r.withNewChildren(Seq(PassThroughCompileEvals(nexprs)))
       case _ => forExpr(expr)
     }
-  }
-
-  // below based on approach from delta / discussed with Alex to use a Project, LeafNode should be fine
-  protected def tryResolveReferencesExprs(
-                                           analyzer: Analyzer)(
-                                           exprs: Seq[Expression],
-                                           child: LogicalPlan): Seq[Expression] = {
-
-    def forExpr(exprs: Seq[Expression]): Seq[Expression] = {
-      val newPlan = FakePlanExprs(exprs, child)
-      //analyzer.execute(newPlan)
-      execute(newPlan, resolution(analyzer))
-      match {
-        case FakePlanExprs(resolvedExprs, _) =>
-          // Return even if it did not successfully resolve
-          resolvedExprs
-        case _ =>
-          // This is unexpected
-          throw new Exception(
-            s"Could not resolve expression $exprs with child $child}")
-      }
-    }
-    // special case as it's faster to do individual items it seems, 36816ms vs 48974ms
-    exprs.map {
-      case r: RuleEngineRunnerBase[_] if r.child.isInstanceOf[PassThrough] =>
-        val nexprs = forExpr(r.child.children)
-        r.withNewChildren(Seq(r.child.withNewChildren(nexprs)))
-      case r: RuleFolderRunnerBase[_] if r.right.isInstanceOf[PassThrough]  =>
-        val nexprs = forExpr(r.right.children)
-        r.withNewChildren(Seq(r.left, r.right.withNewChildren(nexprs)))
-      case r: RuleRunnerBase[_] if r.child.isInstanceOf[PassThrough] =>
-        val nexprs = forExpr(r.child.children)
-        r.withNewChildren(Seq(PassThroughCompileEvals(nexprs)))
-      case r =>
-        val nexprs = forExpr(r.children)
-        r.withNewChildren(nexprs)
-    }
-  }
-
-  case class FakePlanExprs(exprs: Seq[Expression], child: LogicalPlan)
-    extends UnaryNode {
-
-    override def output: Seq[Attribute] = child.allAttributes.attrs
-
-    override def maxRows: Option[Long] = Some(1)
-
-    protected def mygetAllValidConstraints(projectList: Seq[Expression]): Set[Expression] = {
-      var allConstraints = Set.empty[Expression]
-      projectList.foreach {
-        case a@Alias(l: Literal, _) =>
-          allConstraints += EqualNullSafe(a.toAttribute, l)
-        case a@Alias(e, _) =>
-          // For every alias in `projectList`, replace the reference in constraints by its attribute.
-          allConstraints ++= allConstraints.map(_ transform {
-            case expr: Expression if expr.semanticEquals(e) =>
-              a.toAttribute
-          })
-          allConstraints += EqualNullSafe(e, a.toAttribute)
-        case _ => // Don't change.
-      }
-
-      allConstraints
-    }
-
-    override lazy val validConstraints: ExpressionSet = ExpressionSet(mygetAllValidConstraints(exprs))
-
-    protected def withNewChildInternal(newChild: LogicalPlan): LogicalPlan = copy(child = newChild)
   }
 
   case class FakePlan(expr: Expression, child: LogicalPlan)
