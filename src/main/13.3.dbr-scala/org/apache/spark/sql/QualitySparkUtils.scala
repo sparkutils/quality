@@ -56,6 +56,16 @@ object QualitySparkUtils {
     throw new Exception("Not supported on Databricks runtimes")
 
   /**
+   * Provides a starting plan for a dataframe, resolves the
+   *
+   * @param encFrom starting data type to encode from
+   * @param dataFrameF
+   * @return
+   */
+  def resolveExpressions[T](encFrom: Encoder[T], dataFrameF: DataFrame => DataFrame): Seq[Expression] =
+    throw new Exception("Not supported on Databricks runtimes")
+
+  /**
    * Where resolveWith is not possible (e.g. 10.x DBRs) it is disabled here.
    * This is, in the 10.x DBR case, due to the class files for UnaryNode (FakePlan) being radically different and causing an IncompatibleClassChangeError: Implementing class
    * @param orig

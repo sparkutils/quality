@@ -39,6 +39,16 @@ object QualitySparkUtils {
     throw new Exception("Not supported on Databricks runtimes")
 
   /**
+   * Provides a starting plan for a dataframe, resolves the
+   *
+   * @param encFrom starting data type to encode from
+   * @param dataFrameF
+   * @return
+   */
+  def resolveExpressions[T](encFrom: Encoder[T], dataFrameF: DataFrame => DataFrame): Seq[Expression] =
+    throw new Exception("Not supported on Databricks runtimes")
+
+  /**
    * Creates a projection from InputRow to InputRow.
    * @param exprs expressions from resolveExpressions, already resolved without
    * @param compile

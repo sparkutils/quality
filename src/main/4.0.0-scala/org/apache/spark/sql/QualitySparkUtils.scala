@@ -74,6 +74,36 @@ object QualitySparkUtils {
   }
 
   /**
+   * Provides a starting plan for a dataframe, resolves the
+   *
+   * @param encFrom starting data type to encode from
+   * @param dataFrameF
+   * @return
+   */
+  def resolveExpressions[T](encFrom: Encoder[T], dataFrameF: DataFrame => DataFrame): Seq[Expression] = {
+    val enc = ShimUtils.expressionEncoder(encFrom)
+
+    val plan = LocalRelation(enc.schema)
+    val exprTo = enc.resolveAndBind().serializer
+
+    // this constructor stops execute plan being called too early
+    val df = dataFrameF(
+      new Dataset[T](SparkSession.getActiveSession.get.sqlContext, plan, enc).toDF()
+    )
+
+    // lookup the actual expressions
+    val res = debugTime("find underlying expressions") {
+      EvaluableExpressions(df.queryExecution.analyzed).expressions
+    }
+
+    val fres = debugTime("bindReferences") {
+      BindReferences.bindReferences(res, df.logicalPlan.allAttributes)
+    }
+
+    fres
+  }
+
+  /**
    * Creates a projection from InputRow to InputRow.
    * @param exprs expressions from resolveExpressions, already resolved without
    * @param compile
