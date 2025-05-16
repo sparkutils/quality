@@ -80,7 +80,7 @@ object QualitySparkUtils {
   def resolveExpressions[T](encFrom: Encoder[T], dataFrameF: DataFrame => DataFrame): Seq[Expression] = {
     val enc = ShimUtils.expressionEncoder(encFrom)
 
-    val plan = val plan = LocalRelation(enc.schema.fields.map{ field =>
+    val plan = LocalRelation(enc.schema.fields.map{ field =>
       AttributeReference(field.name, field.dataType, field.nullable, field.metadata)()
     })
 
