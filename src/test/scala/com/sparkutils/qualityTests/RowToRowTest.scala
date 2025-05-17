@@ -5,6 +5,7 @@ import com.sparkutils.quality.functions.{flatten_rule_results, unpack_id_triple}
 import com.sparkutils.quality.impl.FlattenStruct.ruleSuiteDeserializer
 import com.sparkutils.quality.impl.extension.FunNRewrite
 import com.sparkutils.quality.impl.{Encoders, RuleEngineRunner, RunOnPassProcessor}
+import com.sparkutils.quality.sparkless.{ProcessFunctions, Processor}
 import com.sparkutils.shim.expressions.PredicateHelperPlus
 import frameless.{TypedEncoder, TypedExpressionEncoder}
 import org.apache.spark.sql.{DataFrame, Dataset, QualitySparkUtils, Row, ShimUtils, SparkSession}
@@ -44,7 +45,7 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
     StructField("subcode", IntegerType, nullable = false)
   ))
 
-  test("simple projection") { not2_4 {
+  test("simple projection") { not2_4 { not_Cluster {
 
     def map(seq: Seq[TestOn], projection: Projection, resi: Int): Seq[Int] = seq.map{ s =>
       val i = InternalRow(UTF8String.fromString(s.product), UTF8String.fromString(s.account), s.subcode)
@@ -73,9 +74,9 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
     ro shouldBe Seq(PassedInt, PassedInt, PassedInt, FailedInt, PassedInt, FailedInt)
     val rc = map(testData, cprocessor, exprs.length - 2)
     rc shouldBe Seq(PassedInt, PassedInt, PassedInt, FailedInt, PassedInt, FailedInt)
-  } }
+  } } }
 
-  test("encoder output projection") { not2_4 {
+  test("encoder output projection") { not2_4 { not_Cluster {
     val s = sparkSession // force it
     registerQualityFunctions()
 
@@ -106,27 +107,15 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
     ro.map(_.overallResult) shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
     val rc = map(testData, cprocessor, exprs.length - 1)
     rc.map(_.overallResult)  shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
-  } }
+  } } }
 
-
-
-  test("encoder input and output projection") { not2_4 {
+  test("via ProcessFactory") { not2_4 { not_Cluster {
     val s = sparkSession // force it
-    registerQualityFunctions()
 
-    val encFrom = TypedExpressionEncoder[TestOn]
+    import s.implicits._
 
-    val exprTo = ShimUtils.expressionEncoder(encFrom).resolveAndBind().serializer
-    val dec = QualitySparkUtils.rowProcessor(exprTo, true).asInstanceOf[MutableProjection]
-    dec.target(InternalRow(null, null, null))
-
-    val enc = QualitySparkUtils.rowProcessor(Seq(ruleSuiteDeserializer), true).asInstanceOf[MutableProjection]
-    enc.target(InternalRow(null, null))
-
-    def map(seq: Seq[TestOn], projection: Projection, resi: Int): Seq[RuleSuiteResult] = seq.map{ s =>
-      val i = dec(InternalRow(s))
-      val r = projection(i)
-      enc(r.getStruct(resi, 2)).get(0, ObjectType(classOf[RuleSuiteResult])).asInstanceOf[RuleSuiteResult]
+    def map(seq: Seq[TestOn], process: Processor[TestOn, RuleSuiteResult]): Seq[RuleSuiteResult] = seq.map{ s =>
+      process(s)
     }
 
     val rs = RuleSuite(Id(1,1), Seq(
@@ -135,18 +124,35 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
       ))
     ))
 
-    val exprs = QualitySparkUtils.resolveExpressions[TestOn](encFrom, taddDataQualityF(rs))
+    val processor = ProcessFunctions.dqFactory[TestOn](rs, false).instance
 
-    val iprocessor = QualitySparkUtils.rowProcessor(exprs, false).asInstanceOf[MutableProjection]
-    iprocessor.target(InternalRow(null, null, null, null, null))
-    iprocessor.initialize(0)
-    val cprocessor = QualitySparkUtils.rowProcessor(exprs, true).asInstanceOf[MutableProjection]
-    cprocessor.target(InternalRow(null, null, null, null, null))
-    cprocessor.initialize(0)
-
-    val ro = map(testData, iprocessor, exprs.length - 1)
+    val ro = map(testData, processor)
     ro.map(_.overallResult) shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
-    val rc = map(testData, cprocessor, exprs.length - 1)
+    val rc = map(testData, processor)
     rc.map(_.overallResult)  shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
-  } }
+  } } }
+
+  test("via ProcessFactory two results") { not2_4 { not_Cluster {
+    val s = sparkSession // force it
+
+    import s.implicits._
+
+    def map(seq: Seq[TestOn], process: Processor[TestOn, (RuleResult, RuleSuiteResultDetails)]): Seq[RuleResult] = seq.map{ s =>
+      process(s)._1
+    }
+
+    val rs = RuleSuite(Id(1,1), Seq(
+      RuleSet(Id(50, 1), Seq(
+        Rule(Id(100, 1), ExpressionRule("if(product like '%otc%', account = '4201', subcode = 50)"))
+      ))
+    ))
+
+    val processor = ProcessFunctions.dqDetailsFactory[TestOn](rs, false).instance
+
+    val ro = map(testData, processor)
+    ro shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
+    val rc = map(testData, processor)
+    rc shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
+  } } }
+
 }
