@@ -1,54 +1,17 @@
 package com.sparkutils.quality.sparkless
 
 import com.sparkutils.quality.impl.extension.FunNRewrite
-import com.sparkutils.quality.{RuleEngineResult, RuleResult, RuleSuite, RuleSuiteResult, RuleSuiteResultDetails, addDataQualityF, addOverallResultsAndDetailsF, enableOptimizations, impl, registerQualityFunctions}
-import frameless.TypedExpressionEncoder
+import com.sparkutils.quality.{RuleEngineResult, RuleResult, RuleSuite, RuleSuiteResult, RuleSuiteResultDetails, addDataQualityF, addOverallResultsAndDetailsF, enableOptimizations, impl, registerQualityFunctions, ruleEngineWithStructF}
+import frameless.{TypedEncoder, TypedExpressionEncoder}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Expression, GenericInternalRow, MutableProjection}
 import org.apache.spark.sql.catalyst.optimizer.ConstantFolding
-import org.apache.spark.sql.types.{DataType, ObjectType, StructType}
+import org.apache.spark.sql.types.{DataType, ObjectType, StructField, StructType}
 import org.apache.spark.sql.{DataFrame, Encoder, Encoders, QualitySparkUtils, ShimUtils}
 
+import scala.reflect.ClassTag
+
 object ProcessFunctions {
-
-  /**
-   * Bean based processor for DQ rules
-   * @param input
-   * @param compile when true compilation of processors takes place
-   * @tparam I
-   * @return
-   */
-  def dqFactory[I](input: Class[I], ruleSuite: RuleSuite, compile: Boolean): ProcessorFactory[I, RuleSuiteResult] =
-    dqFactory(ruleSuite, compile)(Encoders.bean(input))
-
-  /**
-   * Bean based processor for DQ rules with compilation enabled
-   * @param input
-   * @tparam I
-   * @return
-   */
-  def dqFactory[I](input: Class[I], ruleSuite: RuleSuite): ProcessorFactory[I, RuleSuiteResult] =
-    dqFactory(ruleSuite)(Encoders.bean(input))
-
-
-  /**
-   * Bean based processor for DQ rules with details
-   * @param input
-   * @param compile when true compilation of processors takes place
-   * @tparam I
-   * @return
-   */
-  def dqDetailsFactory[I](input: Class[I], ruleSuite: RuleSuite, compile: Boolean): ProcessorFactory[I, (RuleResult, RuleSuiteResultDetails)] =
-    dqDetailsFactory(ruleSuite)(Encoders.bean(input))
-
-  /**
-   * Bean based processor for DQ rules with details and compilation enabled
-   * @param input
-   * @tparam I
-   * @return
-   */
-  def dqDetailsFactory[I](input: Class[I], ruleSuite: RuleSuite): ProcessorFactory[I, (RuleResult, RuleSuiteResultDetails)] =
-    dqDetailsFactory(ruleSuite)(Encoders.bean(input))
 
   /**
    * processor for DQ rules
@@ -76,19 +39,55 @@ object ProcessFunctions {
   }
 
   /**
+   * Bean based processor for DQ rules with details and compilation enabled and debug disabled
+   * @param input
+   * @tparam I the input type
+   * @tparam T the result type of the rule engine
+   * @return
+
+  def ruleEngineFactory[I, T](input: Class[I], output: Class[T], ruleSuite: RuleSuite, outputType: DataType): ProcessorFactory[I, RuleEngineResult[T]] = {
+    import com.sparkutils.quality.implicits._
+    val benc = Encoders.bean(input)
+
+    val boenc = Encoders.bean(output)
+    val oexpr = ShimUtils.expressionEncoder(boenc)
+
+    val ser = oexpr.serializer
+    implicit val cltag: ClassTag[T] = ClassTag(output)
+
+    implicit val btenc = new TypedEncoder[T] {
+
+      override def nullable: Boolean = true
+
+      override def jvmRepr: DataType = oexpr.deserializer.dataType
+
+      override def catalystRepr: DataType =
+        StructType(
+          ser.map(n => StructField(n.qualifiedName, n.dataType, n.nullable))
+        )
+
+      override def fromCatalyst(path: Expression): Expression =
+        oexpr.deserializer
+
+      override def toCatalyst(path: Expression): Expression =
+        path
+    }
+
+    val enc = TypedExpressionEncoder[RuleEngineResult[T]]
+    ruleEngineFactory(ruleSuite, outputType)(Encoders.bean(input), resEnc = enc)
+  }*/
+
+  /**
    * processor for ruleEngine
    * @param input
    * @tparam I
    * @tparam T result type
    * @return
    */
-  def ruleEngineFactory[I: Encoder, T: Encoder](ruleSuite: RuleSuite, compile: Boolean = true): ProcessorFactory[I, RuleEngineResult[T]] = {
-    import com.sparkutils.quality.implicits._
-    val tup = TypedExpressionEncoder[(RuleResult, RuleSuiteResultDetails)]
-    processFactory[I, (RuleResult, RuleSuiteResultDetails)](addOverallResultsAndDetailsF(ruleSuite), compile)(
-      implicitly[Encoder[I]], tup
-    )
-  }
+  def ruleEngineFactory[I: Encoder, T](ruleSuite: RuleSuite, outputType: DataType, compile: Boolean = true,
+    debugMode: Boolean = false)(implicit resEnc: Encoder[RuleEngineResult[T]]): ProcessorFactory[I, RuleEngineResult[T]] =
+    processFactory[I, RuleEngineResult[T]](ruleEngineWithStructF(ruleSuite, outputType, debugMode = debugMode), compile)(
+      implicitly[Encoder[I]], resEnc)
 
   /**
    * Generic processor for encoders over a dataframe transformation

@@ -9,8 +9,11 @@ import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, R
 import org.apache.spark.sql.catalyst.encoders.{ExpressionEncoder, RowEncoder}
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateMutableProjection
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, EqualNullSafe, Expression, ExpressionSet, HigherOrderFunction, InterpretedMutableProjection, Literal, Projection, UpdateFields}
+import org.apache.spark.sql.catalyst.optimizer.{BooleanSimplification, CollapseProject, CombineConcats, CombineTypedFilters, ConstantFolding, ConstantPropagation, EliminateMapObjects, EliminateSerialization, FoldablePropagation, LikeSimplification, NormalizeFloatingNumbers, NullDownPropagation, NullPropagation, ObjectSerializerPruning, OptimizeCsvJsonExprs, OptimizeIn, OptimizeRand, OptimizeUpdateFields, PruneFilters, PushFoldableIntoBranches, ReassignLambdaVariableID, RemoveDispensableExpressions, RemoveNoopOperators, RemoveRedundantAggregates, RemoveRedundantAliases, ReorderAssociativeOperator, ReplaceNullWithFalseInPredicate, ReplaceUpdateFieldsExpression, RewriteCorrelatedScalarSubquery, RewriteLateralSubquery, SimplifyBinaryComparison, SimplifyCaseConversionExpressions, SimplifyCasts, SimplifyConditionals, SimplifyExtractValueOps, UnwrapCastInBinaryComparison}
 import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, LogicalPlan, Project, UnaryNode}
 import org.apache.spark.sql.catalyst.rules.Rule
+import org.apache.spark.sql.catalyst.util.GeneratedColumnAnalyzer.FixedPoint
+import org.apache.spark.sql.delta.DeltaOperations.Optimize
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.qualityFunctions.FunN
 import org.apache.spark.sql.types.StructType
@@ -79,6 +82,41 @@ object QualitySparkUtils {
     }
   }
 
+  lazy val optimizerBatches = Seq(
+    CollapseProject,
+    NullPropagation,
+    NullDownPropagation,
+    ConstantPropagation,
+    FoldablePropagation,
+    OptimizeIn,
+    OptimizeRand,
+    ConstantFolding,
+    ReorderAssociativeOperator,
+    LikeSimplification,
+    BooleanSimplification,
+    SimplifyConditionals,
+    PushFoldableIntoBranches,
+    RemoveDispensableExpressions,
+    SimplifyBinaryComparison,
+    ReplaceNullWithFalseInPredicate,
+    SimplifyCasts,
+    SimplifyCaseConversionExpressions,
+    EliminateSerialization,
+    RemoveRedundantAliases,
+    UnwrapCastInBinaryComparison,
+    RemoveNoopOperators,
+    OptimizeUpdateFields,
+    SimplifyExtractValueOps,
+    OptimizeCsvJsonExprs,
+    CombineConcats,
+    EliminateMapObjects,
+    CombineTypedFilters,
+    ObjectSerializerPruning,
+    ReassignLambdaVariableID,
+    NormalizeFloatingNumbers,
+    ReplaceUpdateFieldsExpression
+  )
+
   /**
    * Provides a starting plan for a dataframe, resolves the
    *
@@ -96,13 +134,21 @@ object QualitySparkUtils {
       new Dataset[Row](SparkSession.getActiveSession.get.sqlContext, plan, ExpressionEncoder(ag))
     )
 
+    // force an optimize
+    val aplan =
+      (optimizerBatches ++ SparkSession.getActiveSession.get.experimental.extraOptimizations).
+        foldLeft(df.queryExecution.analyzed){
+        (p, b) =>
+          b.apply(p)
+      }
+
     // lookup the actual expressions
     val res = debugTime("find underlying expressions") {
-      EvaluableExpressions(df.queryExecution.analyzed).expressions
+      EvaluableExpressions(aplan).expressions
     }
 
     val fres = debugTime("bindReferences") {
-      BindReferences.bindReferences(res, df.logicalPlan.allAttributes)
+      BindReferences.bindReferences(res, aplan.allAttributes)
     }
 
     fres
@@ -126,13 +172,21 @@ object QualitySparkUtils {
       new Dataset[T](SparkSession.getActiveSession.get.sqlContext, plan, enc).toDF()
     )
 
+    // force an optimize
+    val aplan =
+      (optimizerBatches ++ SparkSession.getActiveSession.get.experimental.extraOptimizations).
+        foldLeft(df.queryExecution.analyzed){
+        (p, b) =>
+          b.apply(p)
+      }
+
     // lookup the actual expressions
     val res = debugTime("find underlying expressions") {
-      EvaluableExpressions(df.queryExecution.analyzed).expressions
+      EvaluableExpressions(aplan).expressions
     }
 
     val fres = debugTime("bindReferences") {
-      BindReferences.bindReferences(res, df.logicalPlan.allAttributes)
+      BindReferences.bindReferences(res, aplan.allAttributes)
     }
 
     fres
