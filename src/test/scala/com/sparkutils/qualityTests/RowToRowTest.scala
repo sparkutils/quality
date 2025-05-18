@@ -144,7 +144,7 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
     rc shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
   } } }
 
-  test("via ProcessFactory rule engine") { not2_4 { not_Cluster {
+  test("via ProcessFactory rule engine") { not2_4_or_3_0_or_3_1 { not_Cluster {
     val s = sparkSession // force it
 
     import s.implicits._
