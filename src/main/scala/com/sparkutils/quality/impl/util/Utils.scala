@@ -248,6 +248,14 @@ object Comparison {
 
 }
 
+object Optional {
+  def toOptional[T](option: Option[T]): java.util.Optional[T] =
+    if (option.isEmpty)
+      java.util.Optional.empty()
+    else
+      java.util.Optional.of(option.get)
+}
+
 object Arrays {
   /**
    * UnsafeArrayData doesn't allow calling .array, foreach when needed and for others use array
