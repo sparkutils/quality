@@ -1,15 +1,13 @@
 package com.sparkutils.quality.sparkless
 
 import com.sparkutils.quality.impl.extension.FunNRewrite
-import com.sparkutils.quality.{RuleEngineResult, RuleResult, RuleSuite, RuleSuiteResult, RuleSuiteResultDetails, addDataQualityF, addOverallResultsAndDetailsF, enableOptimizations, impl, registerQualityFunctions, ruleEngineWithStructF}
-import frameless.{TypedEncoder, TypedExpressionEncoder}
+import com.sparkutils.quality._
+import frameless.TypedExpressionEncoder
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Expression, GenericInternalRow, MutableProjection}
 import org.apache.spark.sql.catalyst.optimizer.ConstantFolding
-import org.apache.spark.sql.types.{DataType, ObjectType, StructField, StructType}
-import org.apache.spark.sql.{DataFrame, Encoder, Encoders, QualitySparkUtils, ShimUtils}
-
-import scala.reflect.ClassTag
+import org.apache.spark.sql.types.{DataType, ObjectType, StructType}
+import org.apache.spark.sql.{DataFrame, Encoder, QualitySparkUtils, ShimUtils}
 
 object ProcessFunctions {
 
@@ -37,45 +35,6 @@ object ProcessFunctions {
       implicitly[Encoder[I]], tup
     )
   }
-
-  /**
-   * Bean based processor for DQ rules with details and compilation enabled and debug disabled
-   * @param input
-   * @tparam I the input type
-   * @tparam T the result type of the rule engine
-   * @return
-
-  def ruleEngineFactory[I, T](input: Class[I], output: Class[T], ruleSuite: RuleSuite, outputType: DataType): ProcessorFactory[I, RuleEngineResult[T]] = {
-    import com.sparkutils.quality.implicits._
-    val benc = Encoders.bean(input)
-
-    val boenc = Encoders.bean(output)
-    val oexpr = ShimUtils.expressionEncoder(boenc)
-
-    val ser = oexpr.serializer
-    implicit val cltag: ClassTag[T] = ClassTag(output)
-
-    implicit val btenc = new TypedEncoder[T] {
-
-      override def nullable: Boolean = true
-
-      override def jvmRepr: DataType = oexpr.deserializer.dataType
-
-      override def catalystRepr: DataType =
-        StructType(
-          ser.map(n => StructField(n.qualifiedName, n.dataType, n.nullable))
-        )
-
-      override def fromCatalyst(path: Expression): Expression =
-        oexpr.deserializer
-
-      override def toCatalyst(path: Expression): Expression =
-        path
-    }
-
-    val enc = TypedExpressionEncoder[RuleEngineResult[T]]
-    ruleEngineFactory(ruleSuite, outputType)(Encoders.bean(input), resEnc = enc)
-  }*/
 
   /**
    * processor for ruleEngine
