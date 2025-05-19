@@ -21,10 +21,13 @@ import scala.reflect.ClassTag
 object ExpressionRunner {
   /**
    * Runs the ruleSuite expressions saving results as a tuple of (ruleResult: yaml, resultType: String)
-   *
+   * Supplying a ddlType triggers the output type for the expression to be that ddl type, rather than using yaml conversion.
+   * @param renderOptions provides rendering options to the underlying snake yaml implementation
+   * @param ddlType optional DDL string, when present yaml output is disabled and the output expressions must all have the same type
+   * @param name the default column name "expressionResults"
    */
   def apply(ruleSuite: RuleSuite, name: String = "expressionResults", renderOptions: Map[String, String] = Map.empty, ddlType: String = "",
-            variablesPerFunc: Int = 40, variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false, compileEvals: Boolean = true): Column = {
+            variablesPerFunc: Int = 40, variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false, compileEvals: Boolean = false): Column = {
     com.sparkutils.quality.registerLambdaFunctions( ruleSuite.lambdaFunctions )
     val expressions = flattenExpressions(ruleSuite)
     val collectExpressions =

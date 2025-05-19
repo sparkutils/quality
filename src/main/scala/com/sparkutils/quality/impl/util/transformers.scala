@@ -19,9 +19,11 @@ protected[quality] object AddDataFunctions {
    * @param useType In the case you must use select and can't use withColumn you may provide a type directly to stop the NPE
    * @return
    */
-  def ifoldAndReplaceFields[P[R] >: DatasetBase[R]](rules: RuleSuite, fields: Seq[String], foldFieldName: String = "foldedFields", debugMode: Boolean = false,
-                           tempFoldDebugName: String = "tempFOLDDEBUG",
-                           maintainOrder: Boolean = true, useType: Option[StructType] = None): P[SRow] => P[SRow] = rdf => {
+  def ifoldAndReplaceFields[P[R] >: DatasetBase[R]](rules: RuleSuite, fields: Seq[String], foldFieldName: String = "foldedFields",
+                           debugMode: Boolean = false, tempFoldDebugName: String = "tempFOLDDEBUG",
+                           maintainOrder: Boolean = true, useType: Option[StructType] = None,
+                           compileEvals: Boolean = false, forceRunnerEval: Boolean = false,
+                           forceTriggerEval: Boolean = false): P[SRow] => P[SRow] = rdf => {
     val df = rdf.asInstanceOf[DataFrame]
     import org.apache.spark.sql.functions._
 
@@ -29,7 +31,8 @@ protected[quality] object AddDataFunctions {
     val withFolder = {
       // select NPEs needs projection to work
       //df.select(expr("*"), ruleFolderRunner(rules, theStruct).as(foldFieldName))
-      df.withColumn(foldFieldName, ruleFolderRunner(rules, theStruct, debugMode = debugMode, useType = useType) )
+      df.withColumn(foldFieldName, ruleFolderRunner(rules, theStruct, debugMode = debugMode, useType = useType,
+        compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval) )
     }
 
     // create now as the schema will have the folder, which we may want to keep

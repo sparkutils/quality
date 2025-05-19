@@ -2,12 +2,16 @@ package com.sparkutils.quality.sparkless
 
 import com.sparkutils.quality.impl.extension.FunNRewrite
 import com.sparkutils.quality._
-import frameless.TypedExpressionEncoder
+import frameless.{TypedEncoder, TypedExpressionEncoder}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{Expression, GenericInternalRow, MutableProjection}
+import org.apache.spark.sql.catalyst.analysis.GetColumnByOrdinal
+import org.apache.spark.sql.catalyst.expressions.objects.MapObjects
+import org.apache.spark.sql.catalyst.expressions.{Alias, Expression, GenericInternalRow, If, IsNull, Literal, MutableProjection, NullIf}
 import org.apache.spark.sql.catalyst.optimizer.ConstantFolding
-import org.apache.spark.sql.types.{DataType, ObjectType, StructType}
+import org.apache.spark.sql.types.{DataType, ObjectType, StructField, StructType}
 import org.apache.spark.sql.{DataFrame, Encoder, QualitySparkUtils, ShimUtils}
+
+import scala.reflect.ClassTag
 
 object ProcessFunctions {
 
@@ -35,6 +39,53 @@ object ProcessFunctions {
       implicitly[Encoder[I]], tup
     )
   }
+
+  /**
+   * processor for ruleEngine with encoding over the nested T in RuleEngineResult[T].
+   * *Note* you must use AgnosticEncoders in 3.4+ in order to be able to support Java collections/generics,
+   * reflection via .bean is not sufficient for java generics.
+   * @param input
+   * @tparam I the input type
+   * @tparam T the result type of the rule engine
+   * @return
+   *
+  def ruleEngineFactoryT[I: Encoder, T: Encoder](ruleSuite: RuleSuite, outputType: DataType, compile: Boolean = true,
+                                                 debugMode: Boolean = false): ProcessorFactory[I, RuleEngineResult[T]] = {
+    import com.sparkutils.quality.implicits._
+
+    val oexpr = ShimUtils.expressionEncoder(implicitly[Encoder[T]])
+
+    val ser = oexpr.serializer
+    implicit val cltag = oexpr.clsTag
+
+    implicit val btenc = new TypedEncoder[T] {
+
+      override def nullable: Boolean = true
+
+      override def jvmRepr: DataType = oexpr.deserializer.dataType
+
+      override def catalystRepr: DataType =
+        oexpr.serializer.head.dataType
+      /*  StructType(
+          ser.map(n => StructField(n.qualifiedName, n.dataType, n.nullable))
+        )*/
+
+      override def fromCatalyst(path: Expression): Expression = {
+        val de = oexpr.deserializer
+        val use = de transformUp {
+          case GetColumnByOrdinal(i, dt) => path
+        }
+        If(IsNull(path), Literal(null), use)
+      }
+
+      // only used by resolveAndBind
+      override def toCatalyst(path: Expression): Expression =
+        path
+    }
+
+    implicit val enc = TypedExpressionEncoder[RuleEngineResult[T]]
+    ruleEngineFactory[I, T](ruleSuite, outputType, compile = compile, debugMode = debugMode)
+  } */
 
   /**
    * processor for ruleEngine

@@ -12,9 +12,6 @@ import org.junit.runner.RunWith
 import org.scalatest.{FunSuite, Matchers}
 import org.scalatestplus.junit.JUnitRunner
 
-import scala.collection.JavaConverters._
-import scala.beans.BeanProperty
-
 // purposefully NOT in the testShade as this is inappropriate for actual spark usage
 @RunWith(classOf[JUnitRunner])
 class RowToRowTest extends FunSuite with Matchers  with TestUtils {
@@ -205,4 +202,63 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
     res(5).salientRule shouldBe Some(SalientRule(Id(1,1),Id(50,1),Id(200,1)))
   } } }
 
+/*
+  test("via ProcessFactory rule engine T") { not2_4_or_3_0_or_3_1 { not_Cluster {
+    val s = sparkSession // force it
+
+    import s.implicits._
+
+    val DDL = "ARRAY<STRUCT<`transfer_type`: STRING, `account`: STRING, `product`: STRING, `subcode`: INTEGER >>"
+    registerLambdaFunctions(Seq(
+      LambdaFunction("account_row", "(transfer_type, account) -> named_struct('transfer_type', transfer_type, 'account', account, 'product', product, 'subcode', subcode)", Id(123, 23)),
+      LambdaFunction("account_row", "transfer_type -> account_row(transfer_type, account)", Id(123, 24)),
+      LambdaFunction("subcode", "(transfer_type, sub) -> updateField(account_row(transfer_type, account), 'subcode', sub)", Id(123, 25))
+    ))
+
+    val expressionRules = Seq((ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040,1),
+      OutputExpression("array(account_row('from'), account_row('to', 'other_account1'))"))),
+      (ExpressionRule("product like '%fx%'"), RunOnPassProcessor(1000, Id(1042,1),
+        OutputExpression("array(named_struct('transfer_type', 'from', 'account', 'another_account', 'product', product, 'subcode', subcode), named_struct('transfer_type', 'to', 'account', account, 'product', product, 'subcode', subcode))"))),
+      (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1000, Id(1043,1),
+        OutputExpression("array(subcode('fromWithField', 6000), account_row('to', 'other_account1'))")))
+    )
+
+    val rules =
+      for { ((exp, processor), idOffset) <- expressionRules.zipWithIndex }
+        yield Rule(Id(100 * idOffset, 1), exp, processor)
+
+    val rsId = Id(1, 1)
+    val ruleSuite = RuleSuite(rsId, Seq(
+      RuleSet(Id(50, 1), rules
+      )))
+
+    def map(seq: Seq[TestOn], process: Processor[TestOn, RuleEngineResult[Seq[NewPosting]]]): Seq[RuleEngineResult[Seq[NewPosting]]] = seq.map{ s =>
+      process(s)
+    }
+
+    val processor = ProcessFunctions.ruleEngineFactoryT[TestOn, Seq[NewPosting]](ruleSuite, DataType.fromDDL(DDL), compile = false).instance
+
+    val res = map(testData, processor)
+
+    // first three all failed
+    for(i <- 0 until 3) {
+      res(i).result.isEmpty shouldBe true
+      res(i).salientRule.isEmpty shouldBe true
+      res(i).ruleSuiteResults.overallResult shouldBe Failed
+    }
+    for(i <- 3 until 6) {
+      res(i).result.isDefined shouldBe true
+      res(i).salientRule.isDefined shouldBe true
+      res(i).ruleSuiteResults.overallResult shouldBe Failed
+    }
+
+    res(3).result shouldBe Some(Seq(NewPosting("from", "another_account", "fx", 60), NewPosting("to","4206", "fx", 60)))
+    res(3).salientRule shouldBe Some(SalientRule(Id(1,1),Id(50,1),Id(100,1)))
+
+    res(4).result shouldBe Some(Seq(NewPosting("from", "another_account", "fxotc", 40), NewPosting("to","4201", "fxotc", 40)))
+    res(4).salientRule shouldBe Some(SalientRule(Id(1,1),Id(50,1),Id(100,1)))
+
+    res(5).result shouldBe Some(Seq(NewPosting("fromWithField", "4200", "eqotc", 6000), NewPosting("to","other_account1", "eqotc", 60)))
+    res(5).salientRule shouldBe Some(SalientRule(Id(1,1),Id(50,1),Id(200,1)))
+  } } } */
 }
