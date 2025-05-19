@@ -7,7 +7,7 @@ import frameless.{TypedEncoder, TypedExpressionEncoder}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{GetColumnByOrdinal, UnresolvedAttribute}
 import org.apache.spark.sql.catalyst.expressions.objects.{InitializeJavaBean, Invoke, MapObjects, NewInstance, UnresolvedMapObjects, WrapOption}
-import org.apache.spark.sql.catalyst.expressions.{Alias, BoundReference, CreateStruct, Expression, GenericInternalRow, GetStructField, If, IsNull, Literal, MutableProjection, NullIf}
+import org.apache.spark.sql.catalyst.expressions.{Alias, BoundReference, CreateStruct, Expression, GenericInternalRow, GetStructField, If, IsNull, Literal, MutableProjection, NamedExpression, NullIf}
 import org.apache.spark.sql.catalyst.optimizer.ConstantFolding
 import org.apache.spark.sql.types.{DataType, ObjectType, StructField, StructType}
 import org.apache.spark.sql.{DataFrame, Encoder, QualitySparkUtils, ShimUtils}
@@ -70,8 +70,8 @@ object ProcessFunctions {
         if (se.length == 1)
           se.head.dataType
         else
-          StructType(
-            se.map(n => StructField(n.qualifiedName, n.dataType, n.nullable))
+          StructType( // 2.4 only cast
+            se.map(n => StructField(n.asInstanceOf[NamedExpression].qualifiedName, n.dataType, n.nullable))
           )
       }
 
@@ -82,7 +82,10 @@ object ProcessFunctions {
           case a: Alias =>
             a.child match {
               case m: UnresolvedMapObjects => a.withNewChildren(Seq( m.copy(child = path) ))
-              case a => a
+              case a => a.transformUp {
+                case _: GetColumnByOrdinal =>
+                  path
+              }
             }
           case m: UnresolvedMapObjects => m.copy(child = path)
           case n: NewInstance =>
@@ -116,7 +119,10 @@ object ProcessFunctions {
               case _: GetColumnByOrdinal =>
                 path
             }
-          case a => a
+          case a => a.transformUp {
+            case _: GetColumnByOrdinal =>
+              path
+          }
         }
         r
 
