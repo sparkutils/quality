@@ -2,11 +2,12 @@ package com.sparkutils.quality.sparkless
 
 import com.sparkutils.quality.impl.extension.FunNRewrite
 import com.sparkutils.quality._
+import com.sparkutils.shim.expressions.{CreateNamedStruct1, GetStructField3}
 import frameless.{TypedEncoder, TypedExpressionEncoder}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.analysis.GetColumnByOrdinal
-import org.apache.spark.sql.catalyst.expressions.objects.MapObjects
-import org.apache.spark.sql.catalyst.expressions.{Alias, Expression, GenericInternalRow, If, IsNull, Literal, MutableProjection, NullIf}
+import org.apache.spark.sql.catalyst.analysis.{GetColumnByOrdinal, UnresolvedAttribute}
+import org.apache.spark.sql.catalyst.expressions.objects.{MapObjects, NewInstance, UnresolvedMapObjects, WrapOption}
+import org.apache.spark.sql.catalyst.expressions.{Alias, BoundReference, CreateStruct, Expression, GenericInternalRow, GetStructField, If, IsNull, Literal, MutableProjection, NullIf}
 import org.apache.spark.sql.catalyst.optimizer.ConstantFolding
 import org.apache.spark.sql.types.{DataType, ObjectType, StructField, StructType}
 import org.apache.spark.sql.{DataFrame, Encoder, QualitySparkUtils, ShimUtils}
@@ -48,7 +49,7 @@ object ProcessFunctions {
    * @tparam I the input type
    * @tparam T the result type of the rule engine
    * @return
-   *
+   */
   def ruleEngineFactoryT[I: Encoder, T: Encoder](ruleSuite: RuleSuite, outputType: DataType, compile: Boolean = true,
                                                  debugMode: Boolean = false): ProcessorFactory[I, RuleEngineResult[T]] = {
     import com.sparkutils.quality.implicits._
@@ -64,28 +65,66 @@ object ProcessFunctions {
 
       override def jvmRepr: DataType = oexpr.deserializer.dataType
 
-      override def catalystRepr: DataType =
-        oexpr.serializer.head.dataType
-      /*  StructType(
-          ser.map(n => StructField(n.qualifiedName, n.dataType, n.nullable))
-        )*/
+      override def catalystRepr: DataType = {
+        val se = oexpr.serializer
+        if (se.length == 1)
+          se.head.dataType
+        else
+          StructType(
+            se.map(n => StructField(n.qualifiedName, n.dataType, n.nullable))
+          )
+      }
 
       override def fromCatalyst(path: Expression): Expression = {
         val de = oexpr.deserializer
-        val use = de transformUp {
-          case GetColumnByOrdinal(i, dt) => path
+        val r =
+        de match {
+          case a: Alias =>
+            a.child match {
+              case m: UnresolvedMapObjects => a.withNewChildren(Seq( m.copy(child = path) ))
+            }
+          case m: UnresolvedMapObjects => m.copy(child = path)
+          case n: NewInstance =>
+            // likely references or invokes expecting a flat structure not nested
+            If(IsNull(path), Literal(null),
+              n.withNewChildren(n.children.zipWithIndex map {
+                case (c, i) =>
+                  c.transform {
+                    case u: UnresolvedAttribute if u.name == oexpr.serializer(i).name =>
+                      GetStructField3(path, i)
+                  }
+              })
+            ) // TODO beans, simples and maps
+          case a => a
         }
-        If(IsNull(path), Literal(null), use)
+        r
+
       }
 
       // only used by resolveAndBind
-      override def toCatalyst(path: Expression): Expression =
-        path
+      override def toCatalyst(path: Expression): Expression = {
+        val se = oexpr.serializer
+        if (se.length == 1)
+          se.head match {
+            case a: Alias =>
+              a.child match {
+                case m: MapObjects => a.withNewChildren(Seq( m.copy(inputData = path) ))
+              }
+            case m: MapObjects => m.copy(inputData = path)
+            case a => a
+          }
+        else
+          CreateNamedStruct1(se.zipWithIndex.flatMap{
+            case (e,i) => Seq[Expression](Literal(oexpr.serializer(i).qualifiedName), e.transformUp{
+              case b: BoundReference => path
+            })
+          })
+      }
     }
 
     implicit val enc = TypedExpressionEncoder[RuleEngineResult[T]]
     ruleEngineFactory[I, T](ruleSuite, outputType, compile = compile, debugMode = debugMode)
-  } */
+  }
 
   /**
    * processor for ruleEngine

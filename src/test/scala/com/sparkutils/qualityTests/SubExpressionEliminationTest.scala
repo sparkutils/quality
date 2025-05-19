@@ -105,7 +105,7 @@ class SubExpressionEliminationTest extends FunSuite with TestUtils {
   def engineShouldEliminate(): Unit = v3_2_and_above { evalCodeGensNoResolve{ doOutput(expectedEliminatedTriggerRules, ruleEngineRunner(_, IntegerType, forceTriggerEval = false, compileEvals = false), outputExpr) } }
 
   @Test
-  def controlExpression(): Unit = evalCodeGensNoResolve{ doRunner(expectedTriggerRules, ExpressionRunner(_, ddlType = "boolean")) }  // defaults may change later
+  def controlExpression(): Unit = evalCodeGensNoResolve{ doRunner(expectedTriggerRules, ExpressionRunner(_, ddlType = "boolean", forceRunnerEval = true)) }  // defaults may change later
 
   // forceRunnerEval disables codegen elimination as CodeGenFallback is also ignored for interpreted
   @Test
@@ -120,7 +120,7 @@ class SubExpressionEliminationTest extends FunSuite with TestUtils {
   val folderOverhead = rows // not entirely sure why
 
   @Test
-  def controlFolder(): Unit = evalCodeGensNoResolve{ doOutput(expectedTriggerRules + expectedOutputRules + folderOverhead, ruleFolderRunner(_, starter), folderExpr) }  // defaults may change later
+  def controlFolder(): Unit = evalCodeGensNoResolve{ doOutput(expectedTriggerRules + expectedOutputRules + folderOverhead, ruleFolderRunner(_, starter, forceRunnerEval = true), folderExpr) }  // defaults may change later
 
   // forceRunnerEval disables codegen elimination as CodeGenFallback is also ignored for interpreted
   @Test
