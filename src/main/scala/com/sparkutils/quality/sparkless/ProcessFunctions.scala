@@ -6,7 +6,7 @@ import com.sparkutils.shim.expressions.{CreateNamedStruct1, GetStructField3}
 import frameless.{TypedEncoder, TypedExpressionEncoder}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{GetColumnByOrdinal, UnresolvedAttribute}
-import org.apache.spark.sql.catalyst.expressions.objects.{MapObjects, NewInstance, UnresolvedMapObjects, WrapOption}
+import org.apache.spark.sql.catalyst.expressions.objects.{InitializeJavaBean, Invoke, MapObjects, NewInstance, UnresolvedMapObjects, WrapOption}
 import org.apache.spark.sql.catalyst.expressions.{Alias, BoundReference, CreateStruct, Expression, GenericInternalRow, GetStructField, If, IsNull, Literal, MutableProjection, NullIf}
 import org.apache.spark.sql.catalyst.optimizer.ConstantFolding
 import org.apache.spark.sql.types.{DataType, ObjectType, StructField, StructType}
@@ -82,19 +82,40 @@ object ProcessFunctions {
           case a: Alias =>
             a.child match {
               case m: UnresolvedMapObjects => a.withNewChildren(Seq( m.copy(child = path) ))
+              case a => a
             }
           case m: UnresolvedMapObjects => m.copy(child = path)
           case n: NewInstance =>
+            val o = outputType.asInstanceOf[StructType].zipWithIndex.map{case (e,i) => e.name -> i }.toMap
+
             // likely references or invokes expecting a flat structure not nested
             If(IsNull(path), Literal(null),
-              n.withNewChildren(n.children.zipWithIndex map {
-                case (c, i) =>
-                  c.transform {
-                    case u: UnresolvedAttribute if u.name == oexpr.serializer(i).name =>
-                      GetStructField3(path, i)
-                  }
+              n.withNewChildren(n.children map {
+                _.transform {
+                  case u: UnresolvedAttribute if o.contains(u.name) =>
+                    GetStructField3(path, o(u.name))
+                }
               })
-            ) // TODO beans, simples and maps
+            )
+          case i: InitializeJavaBean =>
+            val o = outputType.asInstanceOf[StructType].zipWithIndex.map{case (e,i) => e.name -> i }.toMap
+
+            If(IsNull(path), Literal(null),
+              i.copy(setters =
+                i.setters.map{ p =>
+                  (p._1, p._2.transform {
+                    case u: UnresolvedAttribute if o.contains(u.name) =>
+                      GetStructField3(path, o(u.name))
+                  })
+                }
+              )
+            )
+          // all single fields from a struct
+          case i: Invoke =>
+            i.transformUp {
+              case _: GetColumnByOrdinal =>
+                path
+            }
           case a => a
         }
         r
@@ -109,16 +130,32 @@ object ProcessFunctions {
             case a: Alias =>
               a.child match {
                 case m: MapObjects => a.withNewChildren(Seq( m.copy(inputData = path) ))
+                case a => a.transformUp {
+                  case b: BoundReference => path
+                }
               }
             case m: MapObjects => m.copy(inputData = path)
-            case a => a
-          }
-        else
-          CreateNamedStruct1(se.zipWithIndex.flatMap{
-            case (e,i) => Seq[Expression](Literal(oexpr.serializer(i).qualifiedName), e.transformUp{
+            case a => a.transformUp {
               case b: BoundReference => path
-            })
-          })
+            }
+          }
+        else {
+          val o = outputType.asInstanceOf[StructType]
+
+          val dealiased = se.map {
+            case a: Alias =>
+              a.name -> a.child.transformUp {
+                case b: BoundReference => path
+              }
+          }.toMap
+
+          CreateNamedStruct1(
+            o.fields.map(f => f.name -> dealiased(f.name)).flatMap{
+              case (name, e) =>
+                Seq[Expression](Literal(name), e)
+            }
+          )
+        }
       }
     }
 
