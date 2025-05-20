@@ -1,11 +1,10 @@
 package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality.{RuleSuite, ruleFolderRunner}
+import com.sparkutils.shim.expressions.CreateNamedStruct1
 import org.apache.spark.sql.{Column, DataFrame, ShimUtils, Row => SRow}
 import org.apache.spark.sql.QualitySparkUtils.DatasetBase
 import org.apache.spark.sql.types.StructType
-
-import javax.swing.text.html.HTML.Attribute
 
 protected[quality] object AddDataFunctions {
 
@@ -34,7 +33,9 @@ protected[quality] object AddDataFunctions {
     val theStruct = fields.fold( fields =>
       struct(fields.head, fields.tail :_*),
       pairs =>
-        named_struct(pairs.flatMap(p => Seq(lit(p._1), p._2)) :_*)
+        ShimUtils.column(
+          CreateNamedStruct1(pairs.flatMap(p => Seq(lit(p._1), p._2)).map(ShimUtils.expression(_)))
+        )
     )
     val withFolder =
       df.select(expr("*"), ruleFolderRunner(rules, theStruct, debugMode = debugMode, useType = useType,
