@@ -820,7 +820,7 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
       Map(
         Id(30, 3) -> "true\n",
         Id(31, 3) -> "edt\n",
-        Id(32, 3) -> "50\n",
+        Id(32, 3) -> "50\n"
       ),
       Map(
         Id(30, 3) -> "true\n",
@@ -844,6 +844,29 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
         Id(32, 3) -> "60\n"
       )
     )
+  } } } }
+
+
+  test("prove processors can't have subqueries") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve {
+    val s = sparkSession // force it
+    import s.implicits._
+
+    testData.toDS.createOrReplaceTempView("testData")
+
+    val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+      Rule(Id(30, 3), ExpressionRule("select max(account) from testData t where t.account = account")),
+      Rule(Id(31, 3), ExpressionRule("product")),
+      Rule(Id(32, 3), ExpressionRule("subcode"))
+    ))))
+
+    def map(seq: Seq[TestOn], process: Processor[TestOn, GeneralExpressionsResultNoDDL]): Seq[GeneralExpressionsResultNoDDL] = seq.map{ s =>
+      process(s)
+    }
+
+    val e = intercept[QualityException] {
+      ProcessFunctions.expressionYamlNoDDLRunnerFactory[TestOn](rs, compile = inCodegen).instance
+    }
+    e.msg shouldBe "SubQuery's are not allowed in Processors"
   } } } }
 
 }

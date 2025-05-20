@@ -3,15 +3,11 @@ package com.sparkutils.quality.sparkless
 import com.sparkutils.quality.impl.extension.FunNRewrite
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.util.Encoding.fromNormalEncoder
-import com.sparkutils.quality.impl.util.ForceNullable
-import com.sparkutils.shim.expressions.{CreateNamedStruct1, GetStructField3}
 import frameless.{TypedEncoder, TypedExpressionEncoder}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.analysis.{GetColumnByOrdinal, UnresolvedAttribute}
-import org.apache.spark.sql.catalyst.expressions.objects.{InitializeJavaBean, Invoke, MapObjects, NewInstance, UnresolvedMapObjects, WrapOption}
-import org.apache.spark.sql.catalyst.expressions.{Alias, BoundReference, CreateStruct, Expression, GenericInternalRow, GetStructField, If, IsNull, Literal, MutableProjection, NamedExpression, NullIf}
+import org.apache.spark.sql.catalyst.expressions.{Expression, GenericInternalRow, MutableProjection, ScalarSubquery, SubqueryExpression}
 import org.apache.spark.sql.catalyst.optimizer.ConstantFolding
-import org.apache.spark.sql.types.{DataType, ObjectType, StructField, StructType}
+import org.apache.spark.sql.types.{DataType, ObjectType, StructType}
 import org.apache.spark.sql.{Column, DataFrame, Encoder, QualitySparkUtils, ShimUtils}
 
 import scala.reflect.ClassTag
@@ -234,6 +230,15 @@ object ProcessFunctions {
     val exprFrom = ShimUtils.expressionEncoder(iEnc).resolveAndBind().serializer
     val exprTo = ShimUtils.expressionEncoder(implicitly[Encoder[O]]).resolveAndBind().deserializer
     val exprs = QualitySparkUtils.resolveExpressions[I](iEnc, dataFrameFunction)
+
+    val hasSubQuery =
+      exprs.map(_.collectFirst {
+        case s: SubqueryExpression => true
+      }.getOrElse(false))
+
+    if (hasSubQuery.contains(true)) {
+      throw new QualityException("SubQuery's are not allowed in Processors")
+    }
 
     new ProcessorFactory[I, O] {
 

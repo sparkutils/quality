@@ -38,8 +38,11 @@ protected[quality] object AddDataFunctions {
         )
     )
     val withFolder =
+      /* < 3.2 can't handle select
       df.select(expr("*"), ruleFolderRunner(rules, theStruct, debugMode = debugMode, useType = useType,
-       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval).as(foldFieldName))
+       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval).as(foldFieldName))*/
+      df.withColumn(foldFieldName, ruleFolderRunner(rules, theStruct, debugMode = debugMode, useType = useType,
+        compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval))
 
     // create now as the schema will have the folder, which we may want to keep
     val namesInOrder =

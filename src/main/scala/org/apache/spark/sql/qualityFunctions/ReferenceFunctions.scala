@@ -98,6 +98,17 @@ case class RefExpression(dataType: DataType,
 
 }
 
+object RefExpressionLazyType {
+  /**
+   * withNewChildren on 3.2 and above works correctly for resolution allowing a transform before creating.
+   */
+  lazy val defaultResolved: Boolean = {
+    val bits = SparkVersions.sparkVersion.split('.')
+    val ver = s"${bits(0)}${bits(1)}".toInt
+    ver <= 32
+  }
+}
+
 /**
  * Getter, trimmed version of NamedLambdaVariable as it should never be resolved
  * @param dataTypeF
@@ -106,7 +117,7 @@ case class RefExpression(dataType: DataType,
 case class RefExpressionLazyType(
   dataTypeF: AtomicReference[DataType],
   nullable: Boolean,
-  _resolved: Boolean = false)
+  _resolved: Boolean = RefExpressionLazyType.defaultResolved)
   extends LeafExpression with RefCodeGen {
 
   var value: Any = _
