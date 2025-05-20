@@ -2,6 +2,7 @@ package com.sparkutils.quality.sparkless
 
 import com.sparkutils.quality.impl.extension.FunNRewrite
 import com.sparkutils.quality._
+import com.sparkutils.quality.impl.util.ForceNullable
 import com.sparkutils.shim.expressions.{CreateNamedStruct1, GetStructField3}
 import frameless.{TypedEncoder, TypedExpressionEncoder}
 import org.apache.spark.sql.catalyst.InternalRow
@@ -82,8 +83,7 @@ object ProcessFunctions {
             case n: NewInstance =>
               val o = outputType.asInstanceOf[StructType].zipWithIndex.map{case (e,i) => e.name -> i }.toMap
 
-              // likely references or invokes expecting a flat structure not nested
-              If(IsNull(path), Literal(null),
+              If(IsNull(ForceNullable(path)), Literal(null),
                 n.withNewChildren(n.children map {
                   _.transform {
                     case u: UnresolvedAttribute if o.contains(u.name) =>
@@ -94,7 +94,7 @@ object ProcessFunctions {
             case i: InitializeJavaBean =>
               val o = outputType.asInstanceOf[StructType].zipWithIndex.map{case (e,i) => e.name -> i }.toMap
 
-              If(IsNull(path), Literal(null),
+              If(IsNull(ForceNullable(path)), Literal(null),
                 i.copy(setters =
                   i.setters.map{ p =>
                     (p._1, p._2.transform {
@@ -147,7 +147,7 @@ object ProcessFunctions {
           }.toMap
 
           CreateNamedStruct1(
-            o.fields.map(f => f.name -> dealiased(f.name)).flatMap{
+            o.fields.map(f => f.name -> dealiased(f.name)).flatMap {
               case (name, e) =>
                 Seq[Expression](Literal(name), e)
             }
@@ -296,7 +296,7 @@ object ProcessFunctions {
           val dec = QualitySparkUtils.rowProcessor(exprFrom, compile).asInstanceOf[MutableProjection]
           dec.target(new GenericInternalRow(Array.ofDim[Any](exprFrom.length)))
 
-          val enc = QualitySparkUtils.rowProcessor(Seq(exprTo), compile).asInstanceOf[MutableProjection]
+          val enc = QualitySparkUtils.rowProcessor(Seq(exprTo), true).asInstanceOf[MutableProjection]
           val toSize =
             exprTo.dataType match {
               case s: StructType => s.length

@@ -3,14 +3,15 @@ package com.sparkutils.quality.impl.util
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.RuleLogicUtils
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
-import org.apache.spark.sql.catalyst.expressions.{Expression, Literal, Unevaluable, UnsafeArrayData}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode, JavaCode}
+import org.apache.spark.sql.catalyst.expressions.{Expression, Literal, UnaryExpression, Unevaluable, UnsafeArrayData}
 import org.apache.spark.sql.catalyst.util.ArrayData
 import org.apache.spark.sql.types.{BooleanType, DataType, StructType}
 
 import java.util.concurrent.atomic.AtomicBoolean
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 
 import scala.reflect.ClassTag
 
@@ -307,4 +308,39 @@ object SparkVersions {
   lazy val sparkVersion = sparkFullVersion.split('.').take(2).mkString(".")
 
   lazy val sparkMajorVersion = sparkFullVersion.split('.').head
+}
+
+/**
+ * Frameless sets path in foldable encoders to nullable == false, but it really is nullable
+ * Spark then just accesses the struct which is null.  This forces codegen only
+ */
+case class ForceNullable(child: Expression) extends Expression {
+
+  val children = Seq(child)
+
+  override def nullable: Boolean = true
+
+  override def eval(input: InternalRow): Any = child.eval(input)
+
+  override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
+    val c = child.genCode(ctx)
+    val typ = JavaCode.javaType(dataType)
+    val boxed = JavaCode.boxedType(dataType)
+    ev.copy(code =
+      code"""
+            ${c.code}
+            boolean ${ev.isNull} = true;
+            $typ ${ev.value} = null;
+            if (${c.value} != null) {
+              ${ev.isNull} = false;
+              ${ev.value} = ($boxed) ${c.value};
+            }
+            """)
+  }
+
+
+  override def dataType: DataType = child.dataType
+
+  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
+    copy(child = newChildren.head)
 }

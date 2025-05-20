@@ -33,7 +33,7 @@ trait TestUtils extends Serializable {
       tmp
   }
 
-  def loggingLevel: String = "ERROR"
+  def loggingLevel: String = "DEBUG"
 
   def sparkSessionF: SparkSession = {
     val sparkSession = registerFS(SparkSession.builder()).config("spark.master", s"local[$hostMode]").config("spark.ui.enabled", false).getOrCreate()
@@ -119,6 +119,11 @@ trait TestUtils extends Serializable {
     withSQLConf(SQLConf.CODEGEN_FACTORY_MODE.key -> codegenMode) {
       f
     }
+  }
+
+  def inCodegen: Boolean = {
+    sparkSession.conf.get(SQLConf.CODEGEN_FACTORY_MODE.key) ==
+      CodegenObjectFactoryMode.CODEGEN_ONLY.toString
   }
 
   /**

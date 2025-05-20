@@ -48,7 +48,7 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
     StructField("subcode", IntegerType, nullable = false)
   ))
 
-  test("simple projection") { not2_4 { not_Cluster {
+  test("simple projection") { not2_4 { not_Cluster { evalCodeGensNoResolve {
 
     def map(seq: Seq[TestOn], projection: Projection, resi: Int): Seq[Int] = seq.map{ s =>
       val i = InternalRow(UTF8String.fromString(s.product), UTF8String.fromString(s.account), s.subcode)
@@ -66,10 +66,10 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
     ))
 
     val exprs = QualitySparkUtils.resolveExpressions(typ, taddOverallResultsAndDetailsF(rs))
-    val iprocessor = QualitySparkUtils.rowProcessor(exprs).asInstanceOf[MutableProjection]
+    val iprocessor = QualitySparkUtils.rowProcessor(exprs, inCodegen).asInstanceOf[MutableProjection]
     iprocessor.target(InternalRow(null, null, null, null, null))
     iprocessor.initialize(0)
-    val cprocessor = QualitySparkUtils.rowProcessor(exprs, true).asInstanceOf[MutableProjection]
+    val cprocessor = QualitySparkUtils.rowProcessor(exprs, inCodegen).asInstanceOf[MutableProjection]
     cprocessor.target(InternalRow(null, null, null, null, null))
     cprocessor.initialize(0)
 
@@ -77,13 +77,13 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
     ro shouldBe Seq(PassedInt, PassedInt, PassedInt, FailedInt, PassedInt, FailedInt)
     val rc = map(testData, cprocessor, exprs.length - 2)
     rc shouldBe Seq(PassedInt, PassedInt, PassedInt, FailedInt, PassedInt, FailedInt)
-  } } }
+  } } } }
 
-  test("encoder output projection") { not2_4 { not_Cluster {
+  test("encoder output projection") { not2_4 { not_Cluster { evalCodeGensNoResolve {
     val s = sparkSession // force it
     registerQualityFunctions()
 
-    val enc = QualitySparkUtils.rowProcessor(Seq(ruleSuiteDeserializer), true).asInstanceOf[MutableProjection]
+    val enc = QualitySparkUtils.rowProcessor(Seq(ruleSuiteDeserializer), inCodegen).asInstanceOf[MutableProjection]
     enc.target(InternalRow(null))
 
     def map(seq: Seq[TestOn], projection: Projection, resi: Int): Seq[RuleSuiteResult] = seq.map{ s =>
@@ -110,9 +110,9 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
     ro.map(_.overallResult) shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
     val rc = map(testData, cprocessor, exprs.length - 1)
     rc.map(_.overallResult)  shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
-  } } }
+  } } } }
 
-  test("via ProcessFactory") { not2_4 { not_Cluster {
+  test("via ProcessFactory") { not2_4 { not_Cluster { evalCodeGensNoResolve {
     val s = sparkSession // force it
 
     import s.implicits._
@@ -127,15 +127,15 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
       ))
     ))
 
-    val processor = ProcessFunctions.dqFactory[TestOn](rs, true).instance
+    val processor = ProcessFunctions.dqFactory[TestOn](rs, inCodegen).instance
 
     val ro = map(testData, processor)
     ro.map(_.overallResult) shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
     val rc = map(testData, processor)
     rc.map(_.overallResult)  shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
-  } } }
+  } } } }
 
-  test("via ProcessFactory rule details") { not2_4 { not_Cluster {
+  test("via ProcessFactory rule details") { not2_4 { not_Cluster { evalCodeGensNoResolve {
     val s = sparkSession // force it
 
     import s.implicits._
@@ -150,15 +150,15 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
       ))
     ))
 
-    val processor = ProcessFunctions.dqDetailsFactory[TestOn](rs).instance
+    val processor = ProcessFunctions.dqDetailsFactory[TestOn](rs, inCodegen).instance
 
     val ro = map(testData, processor)
     ro shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
     val rc = map(testData, processor)
     rc shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
-  } } }
+  } } } }
 
-  test("via ProcessFactory rule engine") { not2_4_or_3_0_or_3_1 { not_Cluster {
+  test("via ProcessFactory rule engine") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve {
     val s = sparkSession // force it
 
     import s.implicits._
@@ -193,7 +193,7 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
 
     import com.sparkutils.quality.implicits._
 
-    val processor = ProcessFunctions.ruleEngineFactory[TestOn, Seq[NewPosting]](ruleSuite, DataType.fromDDL(DDL), compile = false).instance
+    val processor = ProcessFunctions.ruleEngineFactory[TestOn, Seq[NewPosting]](ruleSuite, DataType.fromDDL(DDL), compile = inCodegen).instance
 
     val res = map(testData, processor)
 
@@ -217,9 +217,9 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
 
     res(5).result shouldBe Some(Seq(NewPosting("fromWithField", "4200", "eqotc", 6000), NewPosting("to","other_account1", "eqotc", 60)))
     res(5).salientRule shouldBe Some(SalientRule(Id(1,1),Id(50,1),Id(200,1)))
-  } } }
+  } } } }
 
-  test("via ProcessFactory rule engine T array") { not2_4_or_3_0_or_3_1 { not_Cluster {
+  test("via ProcessFactory rule engine T array") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve {
     val s = sparkSession // force it
 
     import s.implicits._
@@ -252,7 +252,7 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
       process(s)
     }
 
-    val processor = ProcessFunctions.ruleEngineFactoryT[TestOn, Seq[NewPosting]](ruleSuite, DataType.fromDDL(DDL), compile = false).instance
+    val processor = ProcessFunctions.ruleEngineFactoryT[TestOn, Seq[NewPosting]](ruleSuite, DataType.fromDDL(DDL), compile = inCodegen).instance
 
     val res = map(testData, processor)
 
@@ -276,9 +276,9 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
 
     res(5).result shouldBe Some(Seq(NewPosting("fromWithField", "4200", "eqotc", 6000), NewPosting("to","other_account1", "eqotc", 60)))
     res(5).salientRule shouldBe Some(SalientRule(Id(1,1),Id(50,1),Id(200,1)))
-  } } }
+  } } } }
 
-  test("via ProcessFactory rule engine T product") { not2_4_or_3_0_or_3_1 { not_Cluster {
+  test("via ProcessFactory rule engine T product") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve {
     val s = sparkSession // force it
 
     import s.implicits._
@@ -311,7 +311,7 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
       process(s)
     }
 
-    val processor = ProcessFunctions.ruleEngineFactoryT[TestOn, NewPosting](ruleSuite, DataType.fromDDL(DDL), compile = false).instance
+    val processor = ProcessFunctions.ruleEngineFactoryT[TestOn, NewPosting](ruleSuite, DataType.fromDDL(DDL), compile = inCodegen).instance
 
     val res = map(testData, processor)
 
@@ -335,9 +335,71 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
 
     res(5).result shouldBe Some(NewPosting("fromWithField", "4200", "eqotc", 6000))
     res(5).salientRule shouldBe Some(SalientRule(Id(1,1),Id(50,1),Id(200,1)))
-  } } }
+  } } } }
 
-  test("via ProcessFactory rule engine T bean") { not2_4_or_3_0_or_3_1 { not_Cluster {
+
+  test("via ProcessFactory rule engine product") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve {
+    val s = sparkSession // force it
+
+    import s.implicits._
+
+    val DDL = "STRUCT<`transfer_type`: STRING, `account`: STRING, `product`: STRING, `subcode`: INTEGER >"
+    registerLambdaFunctions(Seq(
+      LambdaFunction("account_row", "(transfer_type, account) -> named_struct('transfer_type', transfer_type, 'account', account, 'product', product, 'subcode', subcode)", Id(123, 23)),
+      LambdaFunction("account_row", "transfer_type -> account_row(transfer_type, account)", Id(123, 24)),
+      LambdaFunction("subcode", "(transfer_type, sub) -> updateField(account_row(transfer_type, account), 'subcode', sub)", Id(123, 25))
+    ))
+
+    val expressionRules = Seq((ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040,1),
+      OutputExpression("account_row('from'), account_row('to', 'other_account1')"))),
+      (ExpressionRule("product like '%fx%'"), RunOnPassProcessor(1000, Id(1042,1),
+        OutputExpression("named_struct('transfer_type', 'from', 'account', 'another_account', 'product', product, 'subcode', subcode)"))),
+      (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1000, Id(1043,1),
+        OutputExpression("subcode('fromWithField', 6000)")))
+    )
+
+    val rules =
+      for { ((exp, processor), idOffset) <- expressionRules.zipWithIndex }
+        yield Rule(Id(100 * idOffset, 1), exp, processor)
+
+    val rsId = Id(1, 1)
+    val ruleSuite = RuleSuite(rsId, Seq(
+      RuleSet(Id(50, 1), rules
+      )))
+
+    def map(seq: Seq[TestOn], process: Processor[TestOn, RuleEngineResult[NewPosting]]): Seq[RuleEngineResult[NewPosting]] = seq.map{ s =>
+      process(s)
+    }
+
+    import com.sparkutils.quality.implicits._
+
+    val processor = ProcessFunctions.ruleEngineFactory[TestOn, NewPosting](ruleSuite, DataType.fromDDL(DDL), compile = inCodegen).instance
+
+    val res = map(testData, processor)
+
+    // first three all failed
+    for(i <- 0 until 3) {
+      res(i).result.isEmpty shouldBe true
+      res(i).salientRule.isEmpty shouldBe true
+      res(i).ruleSuiteResults.overallResult shouldBe Failed
+    }
+    for(i <- 3 until 6) {
+      res(i).result.isDefined shouldBe true
+      res(i).salientRule.isDefined shouldBe true
+      res(i).ruleSuiteResults.overallResult shouldBe Failed
+    }
+
+    res(3).result shouldBe Some(NewPosting("from", "another_account", "fx", 60))
+    res(3).salientRule shouldBe Some(SalientRule(Id(1,1),Id(50,1),Id(100,1)))
+
+    res(4).result shouldBe Some(NewPosting("from", "another_account", "fxotc", 40))
+    res(4).salientRule shouldBe Some(SalientRule(Id(1,1),Id(50,1),Id(100,1)))
+
+    res(5).result shouldBe Some(NewPosting("fromWithField", "4200", "eqotc", 6000))
+    res(5).salientRule shouldBe Some(SalientRule(Id(1,1),Id(50,1),Id(200,1)))
+  } } } }
+
+  test("via ProcessFactory rule engine T bean") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve {
     val s = sparkSession // force it
 
     import s.implicits._
@@ -372,7 +434,7 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
 
     implicit val beany = Encoders.bean(classOf[NewPostingBean])
 
-    val processor = ProcessFunctions.ruleEngineFactoryT[TestOn, NewPostingBean](ruleSuite, DataType.fromDDL(DDL), compile = false).instance
+    val processor = ProcessFunctions.ruleEngineFactoryT[TestOn, NewPostingBean](ruleSuite, DataType.fromDDL(DDL), compile = inCodegen).instance
 
     val res = map(testData, processor)
 
@@ -396,10 +458,10 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
 
     res(5).result.map(_.toNewPosting()) shouldBe Some(NewPosting("fromWithField", "4200", "eqotc", 6000))
     res(5).salientRule shouldBe Some(SalientRule(Id(1,1),Id(50,1),Id(200,1)))
-  } } }
+  } } } }
 
 
-  test("via ProcessFactory rule engine T string") { not2_4_or_3_0_or_3_1 { not_Cluster {
+  test("via ProcessFactory rule engine T string") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve {
     val s = sparkSession // force it
 
     import s.implicits._
@@ -427,7 +489,7 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
       process(s)
     }
 
-    val processor = ProcessFunctions.ruleEngineFactoryT[TestOn, String](ruleSuite, DataType.fromDDL(DDL), compile = false).instance
+    val processor = ProcessFunctions.ruleEngineFactoryT[TestOn, String](ruleSuite, DataType.fromDDL(DDL), compile = inCodegen).instance
 
     val res = map(testData, processor)
 
@@ -451,9 +513,9 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
 
     res(5).result shouldBe Some("fromWithField")
     res(5).salientRule shouldBe Some(SalientRule(Id(1,1),Id(50,1),Id(200,1)))
-  } } }
+  } } } }
 
-  test("via ProcessFactory rule engine T map") { not2_4_or_3_0_or_3_1 { not_Cluster {
+  test("via ProcessFactory rule engine T map") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve {
     val s = sparkSession // force it
 
     import s.implicits._
@@ -481,7 +543,7 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
       process(s)
     }
 
-    val processor = ProcessFunctions.ruleEngineFactoryT[TestOn, Map[String,String]](ruleSuite, DataType.fromDDL(DDL), compile = false).instance
+    val processor = ProcessFunctions.ruleEngineFactoryT[TestOn, Map[String,String]](ruleSuite, DataType.fromDDL(DDL), compile = inCodegen).instance
 
     val res = map(testData, processor)
 
@@ -505,9 +567,9 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
 
     res(5).result shouldBe Some(Map("transfer" -> "fromWithField"))
     res(5).salientRule shouldBe Some(SalientRule(Id(1,1),Id(50,1),Id(200,1)))
-  } } }
+  } } } }
 
-  test("via ProcessFactory folder engine T product") { not2_4_or_3_0_or_3_1 { not_Cluster {
+  test("via ProcessFactory folder engine T product") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve {
     val s = sparkSession // force it
 
     import s.implicits._
@@ -544,7 +606,7 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
     }
 
     val processor = ProcessFunctions.ruleFolderFactoryT[TestOn, TestOn](ruleSuite, DataType.fromDDL(DDL).asInstanceOf[StructType],
-      compile = false).instance
+      compile = inCodegen).instance
 
     val res = map(testData, processor)
 
@@ -563,10 +625,10 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
     res(4).result shouldBe Some(TestOn("to", "4201", 40))
 
     res(5).result shouldBe Some(TestOn("from", "4200_fruit", 60))
-  } } }
+  } } } }
 
 
-  test("via ProcessFactory folder engine T bean extra output fields") { not2_4_or_3_0_or_3_1 { not_Cluster {
+  test("via ProcessFactory folder engine T bean extra output fields") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve {
     val s = sparkSession // force it
 
     import s.implicits._
@@ -607,7 +669,7 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
     val processor = ProcessFunctions.ruleFolderFactoryWithStructStarterT[TestOn, NewPostingBean](ruleSuite,
       Seq(("transfer_type", lit("dummy")), ("account", col("account")), ("product", col("product")), ("subcode", col("subcode"))),
       DataType.fromDDL(DDL).asInstanceOf[StructType],
-      compile = false).instance
+      compile = inCodegen).instance
 
     val res = map(testData, processor)
 
@@ -626,7 +688,7 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
     res(4).result.map(_.toNewPosting()) shouldBe Some(NewPosting("to", "4201", "fxotc", 40))
 
     res(5).result.map(_.toNewPosting()) shouldBe Some(NewPosting("from", "4200_fruit", "eqotc", 60))
-  } } }
+  } } } }
 
 
 }
