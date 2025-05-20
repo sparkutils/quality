@@ -1,5 +1,6 @@
 package com.sparkutils.qualityTests
 
+import com.sparkutils.quality
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.FlattenStruct.ruleSuiteDeserializer
 import com.sparkutils.quality.sparkless.{ProcessFunctions, Processor}
@@ -690,5 +691,159 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
     res(5).result.map(_.toNewPosting()) shouldBe Some(NewPosting("from", "4200_fruit", "eqotc", 60))
   } } } }
 
+
+  test("via ProcessFactory expression T ") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve {
+    val s = sparkSession // force it
+
+    import s.implicits._
+
+    val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+      Rule(Id(30, 3), ExpressionRule("account like '42%'")),
+      Rule(Id(31, 3), ExpressionRule("product like 'fx%'")),
+      Rule(Id(32, 3), ExpressionRule("subcode = 40"))
+    ))))
+
+    def map(seq: Seq[TestOn], process: Processor[TestOn, GeneralExpressionsResult[Boolean]]): Seq[GeneralExpressionsResult[Boolean]] = seq.map{ s =>
+      process(s)
+    }
+
+    implicit val bool = Encoders.BOOLEAN
+
+    val processor = ProcessFunctions.expressionRunnerFactoryT[TestOn, Boolean](rs, BooleanType,
+      compile = inCodegen).instance
+
+    val res = map(testData, processor)
+
+    res.map(_.ruleSetResults(Id(20,1))) shouldBe Seq(
+      Map(
+        Id(30, 3) -> true,
+        Id(31, 3) -> false,
+        Id(32, 3) -> false
+      ),
+      Map(
+        Id(30, 3) -> true,
+        Id(31, 3) -> false,
+        Id(32, 3) -> true
+      ),Map(
+        Id(30, 3) -> true,
+        Id(31, 3) -> false,
+        Id(32, 3) -> false
+      ),Map(
+        Id(30, 3) -> true,
+        Id(31, 3) -> true,
+        Id(32, 3) -> false
+      ),Map(
+        Id(30, 3) -> true,
+        Id(31, 3) -> true,
+        Id(32, 3) -> true
+      ),Map(
+        Id(30, 3) -> true,
+        Id(31, 3) -> false,
+        Id(32, 3) -> false
+      )
+    )
+  } } } }
+
+  test("via ProcessFactory expression yaml") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve {
+    val s = sparkSession // force it
+
+    import s.implicits._
+
+    val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+      Rule(Id(30, 3), ExpressionRule("account like '42%'")),
+      Rule(Id(31, 3), ExpressionRule("product")),
+      Rule(Id(32, 3), ExpressionRule("subcode"))
+    ))))
+
+    def map(seq: Seq[TestOn], process: Processor[TestOn, GeneralExpressionsResult[GeneralExpressionResult]]): Seq[GeneralExpressionsResult[GeneralExpressionResult]] = seq.map{ s =>
+      process(s)
+    }
+
+    val processor = ProcessFunctions.expressionYamlRunnerFactory[TestOn](rs, compile = inCodegen).instance
+
+    val res = map(testData, processor)
+
+    val STRING = "STRING"
+    val BOOLEAN = "BOOLEAN"
+    val INT = "INT"
+
+    res.map(_.ruleSetResults(Id(20,1))) shouldBe Seq(
+      Map(
+        Id(30, 3) -> GeneralExpressionResult("true\n", BOOLEAN),
+        Id(31, 3) -> GeneralExpressionResult("edt\n", STRING),
+        Id(32, 3) -> GeneralExpressionResult("50\n", INT)
+      ),
+      Map(
+        Id(30, 3) -> GeneralExpressionResult("true\n", BOOLEAN),
+        Id(31, 3) -> GeneralExpressionResult("otc\n", STRING),
+        Id(32, 3) -> GeneralExpressionResult("40\n", INT)
+      ),Map(
+        Id(30, 3) -> GeneralExpressionResult("true\n", BOOLEAN),
+        Id(31, 3) -> GeneralExpressionResult("fi\n", STRING),
+        Id(32, 3) -> GeneralExpressionResult("50\n", INT)
+      ),Map(
+        Id(30, 3) -> GeneralExpressionResult("true\n", BOOLEAN),
+        Id(31, 3) -> GeneralExpressionResult("fx\n", STRING),
+        Id(32, 3) -> GeneralExpressionResult("60\n", INT)
+      ),Map(
+        Id(30, 3) -> GeneralExpressionResult("true\n", BOOLEAN),
+        Id(31, 3) -> GeneralExpressionResult("fxotc\n", STRING),
+        Id(32, 3) -> GeneralExpressionResult("40\n", INT)
+      ),Map(
+        Id(30, 3) -> GeneralExpressionResult("true\n", BOOLEAN),
+        Id(31, 3) -> GeneralExpressionResult("eqotc\n", STRING),
+        Id(32, 3) -> GeneralExpressionResult("60\n", INT)
+      )
+    )
+  } } } }
+
+  test("via ProcessFactory expression yaml noddl") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve {
+    val s = sparkSession // force it
+
+    import s.implicits._
+
+    val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+      Rule(Id(30, 3), ExpressionRule("account like '42%'")),
+      Rule(Id(31, 3), ExpressionRule("product")),
+      Rule(Id(32, 3), ExpressionRule("subcode"))
+    ))))
+
+    def map(seq: Seq[TestOn], process: Processor[TestOn, GeneralExpressionsResultNoDDL]): Seq[GeneralExpressionsResultNoDDL] = seq.map{ s =>
+      process(s)
+    }
+
+    val processor = ProcessFunctions.expressionYamlNoDDLRunnerFactory[TestOn](rs, compile = inCodegen).instance
+
+    val res = map(testData, processor)
+
+    res.map(_.ruleSetResults(Id(20,1))) shouldBe Seq(
+      Map(
+        Id(30, 3) -> "true\n",
+        Id(31, 3) -> "edt\n",
+        Id(32, 3) -> "50\n",
+      ),
+      Map(
+        Id(30, 3) -> "true\n",
+        Id(31, 3) -> "otc\n",
+        Id(32, 3) -> "40\n"
+      ),Map(
+        Id(30, 3) -> "true\n",
+        Id(31, 3) -> "fi\n",
+        Id(32, 3) -> "50\n"
+      ),Map(
+        Id(30, 3) -> "true\n",
+        Id(31, 3) -> "fx\n",
+        Id(32, 3) -> "60\n"
+      ),Map(
+        Id(30, 3) -> "true\n",
+        Id(31, 3) -> "fxotc\n",
+        Id(32, 3) -> "40\n"
+      ),Map(
+        Id(30, 3) -> "true\n",
+        Id(31, 3) -> "eqotc\n",
+        Id(32, 3) -> "60\n"
+      )
+    )
+  } } } }
 
 }

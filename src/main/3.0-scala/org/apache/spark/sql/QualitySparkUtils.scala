@@ -4,6 +4,7 @@ import com.sparkutils.quality.impl.util.DebugTime.debugTime
 import com.sparkutils.quality.impl.util.{PassThrough, PassThroughCompileEvals}
 import com.sparkutils.quality.impl.{RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
 import com.sparkutils.shim.expressions.PredicateHelperPlus
+import org.apache.spark.sql.QualitySparkUtils.optimizerBatches
 import org.apache.spark.sql.QualityStructFunctions.UpdateFields
 import org.apache.spark.sql.ShimUtils.{column, toSQLExpr, toSQLType}
 import org.apache.spark.sql.catalyst.InternalRow
@@ -13,6 +14,7 @@ import org.apache.spark.sql.catalyst.encoders.RowEncoder
 import org.apache.spark.sql.catalyst.errors.TreeNodeException
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode, GenerateMutableProjection}
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, BindReferences, CreateNamedStruct, EqualNullSafe, Expression, ExtractValue, GetStructField, If, InterpretedMutableProjection, IsNull, LeafExpression, Literal, Projection, UnaryExpression, Unevaluable}
+import org.apache.spark.sql.catalyst.optimizer.{BooleanSimplification, CollapseProject, CombineConcats, CombineTypedFilters, ConstantFolding, ConstantPropagation, EliminateMapObjects, EliminateSerialization, FoldablePropagation, LikeSimplification, NormalizeFloatingNumbers, NullPropagation, ObjectSerializerPruning, OptimizeIn, ReassignLambdaVariableID, RemoveDispensableExpressions, RemoveNoopOperators, RemoveRedundantAliases, ReorderAssociativeOperator, ReplaceNullWithFalseInPredicate, SimplifyBinaryComparison, SimplifyCaseConversionExpressions, SimplifyCasts, SimplifyConditionals, SimplifyExtractValueOps}
 import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, LogicalPlan, Project, UnaryNode}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.internal.SQLConf
@@ -39,6 +41,34 @@ object QualitySparkUtils {
     }
   }
 
+  lazy val optimizerBatches = Seq(
+    CollapseProject,
+    NullPropagation,
+    ConstantPropagation,
+    FoldablePropagation,
+    OptimizeIn,
+    ConstantFolding,
+    ReorderAssociativeOperator,
+    LikeSimplification,
+    BooleanSimplification,
+    SimplifyConditionals,
+    RemoveDispensableExpressions,
+    SimplifyBinaryComparison,
+    ReplaceNullWithFalseInPredicate,
+    SimplifyCasts,
+    SimplifyCaseConversionExpressions,
+    EliminateSerialization,
+    RemoveRedundantAliases,
+    RemoveNoopOperators,
+    SimplifyExtractValueOps,
+    CombineConcats,
+    EliminateMapObjects,
+    CombineTypedFilters,
+    ObjectSerializerPruning,
+    ReassignLambdaVariableID,
+    NormalizeFloatingNumbers
+  )
+
   /**
    * Provides a starting plan for a dataframe, resolves the
    *
@@ -58,9 +88,17 @@ object QualitySparkUtils {
       new Dataset[Row](SparkSession.getActiveSession.get.sqlContext, plan, ag)
     )
 
+    // force an optimize
+    val aplan =
+      (optimizerBatches ++ SparkSession.getActiveSession.get.experimental.extraOptimizations).
+        foldLeft(df.queryExecution.analyzed){
+          (p, b) =>
+            b.apply(p)
+        }
+
     // lookup the actual expressions
     val res = debugTime("find underlying expressions") {
-      EvaluableExpressions(df.queryExecution.analyzed).expressions
+      EvaluableExpressions(aplan).expressions
     }
 
     // folder introduces multiple projections, these are the ones we explicitly use
@@ -92,9 +130,17 @@ object QualitySparkUtils {
       new Dataset[T](SparkSession.getActiveSession.get.sqlContext, plan, enc).toDF()
     )
 
+    // force an optimize
+    val aplan =
+      (optimizerBatches ++ SparkSession.getActiveSession.get.experimental.extraOptimizations).
+        foldLeft(df.queryExecution.analyzed){
+          (p, b) =>
+            b.apply(p)
+        }
+
     // lookup the actual expressions
     val res = debugTime("find underlying expressions") {
-      EvaluableExpressions(df.queryExecution.analyzed).expressions
+      EvaluableExpressions(aplan).expressions
     }
 
     // folder introduces multiple projections, these are the ones we explicitly use

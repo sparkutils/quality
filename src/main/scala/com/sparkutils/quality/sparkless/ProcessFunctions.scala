@@ -2,6 +2,7 @@ package com.sparkutils.quality.sparkless
 
 import com.sparkutils.quality.impl.extension.FunNRewrite
 import com.sparkutils.quality._
+import com.sparkutils.quality.impl.util.Encoding.fromNormalEncoder
 import com.sparkutils.quality.impl.util.ForceNullable
 import com.sparkutils.shim.expressions.{CreateNamedStruct1, GetStructField3}
 import frameless.{TypedEncoder, TypedExpressionEncoder}
@@ -46,118 +47,6 @@ object ProcessFunctions {
     )
   }
 
-  private def fromNormalEncoder[T: Encoder](outputType: DataType): TypedEncoder[T] = {
-    val oexpr = ShimUtils.expressionEncoder(implicitly[Encoder[T]])
-
-    implicit val cltag = oexpr.clsTag
-
-    new TypedEncoder[T] {
-
-      override def nullable: Boolean = true
-
-      override def jvmRepr: DataType = oexpr.deserializer.dataType
-
-      override def catalystRepr: DataType = {
-        val se = oexpr.serializer
-        if (se.length == 1)
-          se.head.dataType
-        else
-          StructType( // 2.4 only cast
-            se.map(n => StructField(n.asInstanceOf[NamedExpression].qualifiedName, n.dataType, n.nullable))
-          )
-      }
-
-      override def fromCatalyst(path: Expression): Expression = {
-        val de = oexpr.deserializer
-        val r =
-          de match {
-            case a: Alias =>
-              a.child match {
-                case m: UnresolvedMapObjects => a.withNewChildren(Seq( m.copy(child = path) ))
-                case a => a.transformUp {
-                  case _: GetColumnByOrdinal =>
-                    path
-                }
-              }
-            case m: UnresolvedMapObjects => m.copy(child = path)
-            case n: NewInstance =>
-              val o = outputType.asInstanceOf[StructType].zipWithIndex.map{case (e,i) => e.name -> i }.toMap
-
-              If(IsNull(ForceNullable(path)), Literal(null),
-                n.withNewChildren(n.children map {
-                  _.transform {
-                    case u: UnresolvedAttribute if o.contains(u.name) =>
-                      GetStructField3(path, o(u.name))
-                  }
-                })
-              )
-            case i: InitializeJavaBean =>
-              val o = outputType.asInstanceOf[StructType].zipWithIndex.map{case (e,i) => e.name -> i }.toMap
-
-              If(IsNull(ForceNullable(path)), Literal(null),
-                i.copy(setters =
-                  i.setters.map{ p =>
-                    (p._1, p._2.transform {
-                      case u: UnresolvedAttribute if o.contains(u.name) =>
-                        GetStructField3(path, o(u.name))
-                    })
-                  }
-                )
-              )
-            // all single fields from a struct
-            case i: Invoke =>
-              i.transformUp {
-                case _: GetColumnByOrdinal =>
-                  path
-              }
-            case a => a.transformUp {
-              case _: GetColumnByOrdinal =>
-                path
-            }
-          }
-        r
-
-      }
-
-      // only used by resolveAndBind
-      override def toCatalyst(path: Expression): Expression = {
-        val se = oexpr.serializer
-        if (se.length == 1)
-          se.head match {
-            case a: Alias =>
-              a.child match {
-                case m: MapObjects => a.withNewChildren(Seq( m.copy(inputData = path) ))
-                case a => a.transformUp {
-                  case b: BoundReference => path
-                }
-              }
-            case m: MapObjects => m.copy(inputData = path)
-            case a => a.transformUp {
-              case b: BoundReference => path
-            }
-          }
-        else {
-          val o = outputType.asInstanceOf[StructType]
-
-          val dealiased = se.map {
-            case a: Alias =>
-              a.name -> a.child.transformUp {
-                case b: BoundReference => path
-              }
-          }.toMap
-
-          CreateNamedStruct1(
-            o.fields.map(f => f.name -> dealiased(f.name)).flatMap {
-              case (name, e) =>
-                Seq[Expression](Literal(name), e)
-            }
-          )
-        }
-      }
-    }
-
-  }
-
   /**
    * processor for ruleEngine with encoding over the nested T in RuleEngineResult[T].
    * *Note* you must use AgnosticEncoders in 3.4+ in order to be able to support Java collections/generics,
@@ -194,7 +83,7 @@ object ProcessFunctions {
 
 
   /**
-   * processor for ruleEngine with encoding over the nested T in RuleEngineResult[T].
+   * processor for ruleFolder with encoding over the nested T in RuleFolderResult[T].
    * *Note* you must use AgnosticEncoders in 3.4+ in order to be able to support Java collections/generics,
    * reflection via .bean is not sufficient for java generics.
    * @param input
@@ -228,7 +117,7 @@ object ProcessFunctions {
       implicitly[Encoder[I]], resEnc)
 
   /**
-   * processor for ruleEngine with encoding over the nested T in RuleEngineResult[T].
+   * processor for ruleFolder with encoding over the nested T in RuleFolderResult[T].
    * *Note* you must use AgnosticEncoders in 3.4+ in order to be able to support Java collections/generics,
    * reflection via .bean is not sufficient for java generics.
    * @param input
@@ -260,6 +149,74 @@ object ProcessFunctions {
     processFactory[I, RuleFolderResult[T]](foldAndReplaceFieldPairsWithStruct(ruleSuite, fields, outputType, debugMode = debugMode,
       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval), compile)(
       implicitly[Encoder[I]], resEnc)
+
+
+  /**
+   * processor for expressionRunner with encoding over the nested T in GeneralExpressionsResult[T].  You must supply
+   * the outputType for T
+   * *Note* you must use AgnosticEncoders in 3.4+ in order to be able to support Java collections/generics,
+   * reflection via .bean is not sufficient for java generics.
+   * @param input
+   * @tparam I the input type
+   * @tparam T the result type of the rule engine
+   * @return
+   */
+  def expressionRunnerFactoryT[I: Encoder, T: Encoder](ruleSuite: RuleSuite, outputType: DataType,
+      compile: Boolean = true, compileEvals: Boolean = false,
+      forceRunnerEval: Boolean = false): ProcessorFactory[I, GeneralExpressionsResult[T]] = {
+    import com.sparkutils.quality.implicits._
+    implicit val ttyped: TypedEncoder[T] = fromNormalEncoder[T](outputType)
+    implicit val enc = TypedExpressionEncoder[GeneralExpressionsResult[T]]
+    expressionRunnerFactory[I, T](ruleSuite, outputType = outputType, compile = compile,
+      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval)
+  }
+
+  /**
+   * processor for expressionRunner producing T, the outputType must be specified for the T
+   * @param input
+   * @tparam I
+   * @tparam T result type
+   * @return
+   */
+  def expressionRunnerFactory[I: Encoder, T](ruleSuite: RuleSuite, outputType: DataType,
+      compile: Boolean = true, compileEvals: Boolean = false,
+      forceRunnerEval: Boolean = false)(implicit resEnc: Encoder[GeneralExpressionsResult[T]]):
+      ProcessorFactory[I, GeneralExpressionsResult[T]] =
+    processFactory[I, GeneralExpressionsResult[T]](addExpressionRunnerF(ruleSuite, ddlType = outputType.sql,
+      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval), compile)(
+      implicitly[Encoder[I]], resEnc)
+
+  /**
+   * processor for expressionRunner producing Yaml, resulting in GeneralExpressionsResultNoDDL
+   * @param input
+   * @tparam I
+   * @return
+   */
+  def expressionYamlRunnerFactory[I: Encoder](ruleSuite: RuleSuite, renderOptions: Map[String, String] = Map.empty,
+                                             compile: Boolean = true, compileEvals: Boolean = false,
+                                             forceRunnerEval: Boolean = false):
+  ProcessorFactory[I, GeneralExpressionsResult[GeneralExpressionResult]] = {
+    import com.sparkutils.quality.implicits._
+    processFactory[I, GeneralExpressionsResult[GeneralExpressionResult]](addExpressionRunnerF(ruleSuite, renderOptions = renderOptions,
+      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval), compile)(
+      implicitly[Encoder[I]], TypedExpressionEncoder[GeneralExpressionsResult[GeneralExpressionResult]])
+  }
+
+  /**
+   * processor for expressionRunner producing Yaml, resulting in GeneralExpressionsResultNoDDL
+   * @param input
+   * @tparam I
+   * @return
+   */
+  def expressionYamlNoDDLRunnerFactory[I: Encoder](ruleSuite: RuleSuite, renderOptions: Map[String, String] = Map.empty,
+                                              compile: Boolean = true, compileEvals: Boolean = false,
+                                              forceRunnerEval: Boolean = false):
+  ProcessorFactory[I, GeneralExpressionsResultNoDDL] = {
+    import com.sparkutils.quality.implicits._
+    processFactory[I, GeneralExpressionsResultNoDDL](addExpressionRunnerF(ruleSuite, renderOptions = renderOptions,
+      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, stripDDL = true), compile)(
+      implicitly[Encoder[I]], generalExpressionsResultNoDDLExpEnc)
+  }
 
   /**
    * Generic processor for encoders over a dataframe transformation
