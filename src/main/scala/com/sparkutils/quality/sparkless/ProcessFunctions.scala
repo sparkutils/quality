@@ -296,7 +296,7 @@ object ProcessFunctions {
           val dec = QualitySparkUtils.rowProcessor(exprFrom, compile).asInstanceOf[MutableProjection]
           dec.target(new GenericInternalRow(Array.ofDim[Any](exprFrom.length)))
 
-          val enc = QualitySparkUtils.rowProcessor(Seq(exprTo), true).asInstanceOf[MutableProjection]
+          val enc = QualitySparkUtils.rowProcessor(Seq(exprTo), compile).asInstanceOf[MutableProjection]
           val toSize =
             exprTo.dataType match {
               case s: StructType => s.length

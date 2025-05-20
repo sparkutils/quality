@@ -122,8 +122,10 @@ trait TestUtils extends Serializable {
   }
 
   def inCodegen: Boolean = {
-    sparkSession.conf.get(SQLConf.CODEGEN_FACTORY_MODE.key) ==
-      CodegenObjectFactoryMode.CODEGEN_ONLY.toString
+    val r = SQLConf.get.getConfString(SQLConf.CODEGEN_FACTORY_MODE.key)
+
+    r == CodegenObjectFactoryMode.CODEGEN_ONLY.toString ||
+      r == CodegenObjectFactoryMode.FALLBACK.toString
   }
 
   /**
