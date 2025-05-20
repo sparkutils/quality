@@ -1,9 +1,11 @@
 package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality.{RuleSuite, ruleFolderRunner}
-import org.apache.spark.sql.{DataFrame, Row => SRow}
+import org.apache.spark.sql.{Column, DataFrame, ShimUtils, Row => SRow}
 import org.apache.spark.sql.QualitySparkUtils.DatasetBase
 import org.apache.spark.sql.types.StructType
+
+import javax.swing.text.html.HTML.Attribute
 
 protected[quality] object AddDataFunctions {
 
@@ -19,7 +21,7 @@ protected[quality] object AddDataFunctions {
    * @param useType In the case you must use select and can't use withColumn you may provide a type directly to stop the NPE
    * @return
    */
-  def ifoldAndReplaceFields[P[R] >: DatasetBase[R]](rules: RuleSuite, fields: Seq[String], foldFieldName: String = "foldedFields",
+  def ifoldAndReplaceFields[P[R] >: DatasetBase[R]](rules: RuleSuite, fields: Either[Seq[String], Seq[(String, Column)]], foldFieldName: String = "foldedFields",
                            debugMode: Boolean = false, tempFoldDebugName: String = "tempFOLDDEBUG",
                            maintainOrder: Boolean = true, useType: Option[StructType] = None,
                            compileEvals: Boolean = false, forceRunnerEval: Boolean = false,
@@ -27,13 +29,16 @@ protected[quality] object AddDataFunctions {
     val df = rdf.asInstanceOf[DataFrame]
     import org.apache.spark.sql.functions._
 
-    val theStruct = struct(fields.head, fields.tail :_*)
-    val withFolder = {
-      // select NPEs needs projection to work
-      //df.select(expr("*"), ruleFolderRunner(rules, theStruct).as(foldFieldName))
-      df.withColumn(foldFieldName, ruleFolderRunner(rules, theStruct, debugMode = debugMode, useType = useType,
-        compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval) )
-    }
+    val fieldNames = fields.fold(identity, _.map(_._1))
+
+    val theStruct = fields.fold( fields =>
+      struct(fields.head, fields.tail :_*),
+      pairs =>
+        named_struct(pairs.flatMap(p => Seq(lit(p._1), p._2)) :_*)
+    )
+    val withFolder =
+      df.select(expr("*"), ruleFolderRunner(rules, theStruct, debugMode = debugMode, useType = useType,
+       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval).as(foldFieldName))
 
     // create now as the schema will have the folder, which we may want to keep
     val namesInOrder =
@@ -44,11 +49,11 @@ protected[quality] object AddDataFunctions {
     // lift the results
     val result =
       if (debugMode)
-        withFolder.drop(fields : _*).selectExpr("*",
+        withFolder.drop(fieldNames : _*).selectExpr("*",
           s"if(size($foldFieldName.result) == 0 or $foldFieldName.result is null, null, element_at($foldFieldName.result, -1)).result as $tempFoldDebugName"
         ).selectExpr("*", s"$tempFoldDebugName.*").drop(tempFoldDebugName)
       else
-        withFolder.drop(fields : _*).selectExpr("*", s"$foldFieldName.result.*" )
+        withFolder.drop(fieldNames : _*).selectExpr("*", s"$foldFieldName.result.*" )
 
     // bring back to top level in the correct order
     if (maintainOrder)

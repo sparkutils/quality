@@ -10,7 +10,7 @@ import org.apache.spark.sql.catalyst.expressions.objects.{InitializeJavaBean, In
 import org.apache.spark.sql.catalyst.expressions.{Alias, BoundReference, CreateStruct, Expression, GenericInternalRow, GetStructField, If, IsNull, Literal, MutableProjection, NamedExpression, NullIf}
 import org.apache.spark.sql.catalyst.optimizer.ConstantFolding
 import org.apache.spark.sql.types.{DataType, ObjectType, StructField, StructType}
-import org.apache.spark.sql.{DataFrame, Encoder, QualitySparkUtils, ShimUtils}
+import org.apache.spark.sql.{Column, DataFrame, Encoder, QualitySparkUtils, ShimUtils}
 
 import scala.reflect.ClassTag
 
@@ -22,8 +22,10 @@ object ProcessFunctions {
    * @tparam I
    * @return
    */
-  def dqFactory[I: Encoder](ruleSuite: RuleSuite, compile: Boolean = true): ProcessorFactory[I, RuleSuiteResult] =
-    processFactory[I, RuleSuiteResult](addDataQualityF(ruleSuite), compile)(
+  def dqFactory[I: Encoder](ruleSuite: RuleSuite, compile: Boolean = true, compileEvals: Boolean = false,
+                            forceRunnerEval: Boolean = false): ProcessorFactory[I, RuleSuiteResult] =
+    processFactory[I, RuleSuiteResult](addDataQualityF(ruleSuite, compileEvals = compileEvals,
+      forceRunnerEval = forceRunnerEval), compile)(
       implicitly[Encoder[I]], impl.Encoders.ruleSuiteResultExpEnc
     )
 
@@ -33,33 +35,22 @@ object ProcessFunctions {
    * @tparam I
    * @return
    */
-  def dqDetailsFactory[I: Encoder](ruleSuite: RuleSuite, compile: Boolean = true): ProcessorFactory[I, (RuleResult, RuleSuiteResultDetails)] = {
+  def dqDetailsFactory[I: Encoder](ruleSuite: RuleSuite, compile: Boolean = true, compileEvals: Boolean = false,
+                                   forceRunnerEval: Boolean = false): ProcessorFactory[I, (RuleResult, RuleSuiteResultDetails)] = {
     import com.sparkutils.quality.implicits._
     val tup = TypedExpressionEncoder[(RuleResult, RuleSuiteResultDetails)]
-    processFactory[I, (RuleResult, RuleSuiteResultDetails)](addOverallResultsAndDetailsF(ruleSuite), compile)(
+    processFactory[I, (RuleResult, RuleSuiteResultDetails)](addOverallResultsAndDetailsF(ruleSuite,
+      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval), compile)(
       implicitly[Encoder[I]], tup
     )
   }
 
-  /**
-   * processor for ruleEngine with encoding over the nested T in RuleEngineResult[T].
-   * *Note* you must use AgnosticEncoders in 3.4+ in order to be able to support Java collections/generics,
-   * reflection via .bean is not sufficient for java generics.
-   * @param input
-   * @tparam I the input type
-   * @tparam T the result type of the rule engine
-   * @return
-   */
-  def ruleEngineFactoryT[I: Encoder, T: Encoder](ruleSuite: RuleSuite, outputType: DataType, compile: Boolean = true,
-                                                 debugMode: Boolean = false): ProcessorFactory[I, RuleEngineResult[T]] = {
-    import com.sparkutils.quality.implicits._
-
+  private def fromNormalEncoder[T: Encoder](outputType: DataType): TypedEncoder[T] = {
     val oexpr = ShimUtils.expressionEncoder(implicitly[Encoder[T]])
 
-    val ser = oexpr.serializer
     implicit val cltag = oexpr.clsTag
 
-    implicit val btenc = new TypedEncoder[T] {
+    new TypedEncoder[T] {
 
       override def nullable: Boolean = true
 
@@ -78,52 +69,52 @@ object ProcessFunctions {
       override def fromCatalyst(path: Expression): Expression = {
         val de = oexpr.deserializer
         val r =
-        de match {
-          case a: Alias =>
-            a.child match {
-              case m: UnresolvedMapObjects => a.withNewChildren(Seq( m.copy(child = path) ))
-              case a => a.transformUp {
+          de match {
+            case a: Alias =>
+              a.child match {
+                case m: UnresolvedMapObjects => a.withNewChildren(Seq( m.copy(child = path) ))
+                case a => a.transformUp {
+                  case _: GetColumnByOrdinal =>
+                    path
+                }
+              }
+            case m: UnresolvedMapObjects => m.copy(child = path)
+            case n: NewInstance =>
+              val o = outputType.asInstanceOf[StructType].zipWithIndex.map{case (e,i) => e.name -> i }.toMap
+
+              // likely references or invokes expecting a flat structure not nested
+              If(IsNull(path), Literal(null),
+                n.withNewChildren(n.children map {
+                  _.transform {
+                    case u: UnresolvedAttribute if o.contains(u.name) =>
+                      GetStructField3(path, o(u.name))
+                  }
+                })
+              )
+            case i: InitializeJavaBean =>
+              val o = outputType.asInstanceOf[StructType].zipWithIndex.map{case (e,i) => e.name -> i }.toMap
+
+              If(IsNull(path), Literal(null),
+                i.copy(setters =
+                  i.setters.map{ p =>
+                    (p._1, p._2.transform {
+                      case u: UnresolvedAttribute if o.contains(u.name) =>
+                        GetStructField3(path, o(u.name))
+                    })
+                  }
+                )
+              )
+            // all single fields from a struct
+            case i: Invoke =>
+              i.transformUp {
                 case _: GetColumnByOrdinal =>
                   path
               }
-            }
-          case m: UnresolvedMapObjects => m.copy(child = path)
-          case n: NewInstance =>
-            val o = outputType.asInstanceOf[StructType].zipWithIndex.map{case (e,i) => e.name -> i }.toMap
-
-            // likely references or invokes expecting a flat structure not nested
-            If(IsNull(path), Literal(null),
-              n.withNewChildren(n.children map {
-                _.transform {
-                  case u: UnresolvedAttribute if o.contains(u.name) =>
-                    GetStructField3(path, o(u.name))
-                }
-              })
-            )
-          case i: InitializeJavaBean =>
-            val o = outputType.asInstanceOf[StructType].zipWithIndex.map{case (e,i) => e.name -> i }.toMap
-
-            If(IsNull(path), Literal(null),
-              i.copy(setters =
-                i.setters.map{ p =>
-                  (p._1, p._2.transform {
-                    case u: UnresolvedAttribute if o.contains(u.name) =>
-                      GetStructField3(path, o(u.name))
-                  })
-                }
-              )
-            )
-          // all single fields from a struct
-          case i: Invoke =>
-            i.transformUp {
+            case a => a.transformUp {
               case _: GetColumnByOrdinal =>
                 path
             }
-          case a => a.transformUp {
-            case _: GetColumnByOrdinal =>
-              path
           }
-        }
         r
 
       }
@@ -165,8 +156,25 @@ object ProcessFunctions {
       }
     }
 
+  }
+
+  /**
+   * processor for ruleEngine with encoding over the nested T in RuleEngineResult[T].
+   * *Note* you must use AgnosticEncoders in 3.4+ in order to be able to support Java collections/generics,
+   * reflection via .bean is not sufficient for java generics.
+   * @param input
+   * @tparam I the input type
+   * @tparam T the result type of the rule engine
+   * @return
+   */
+  def ruleEngineFactoryT[I: Encoder, T: Encoder](ruleSuite: RuleSuite, outputType: DataType, compile: Boolean = true,
+      debugMode: Boolean = false, compileEvals: Boolean = false,
+      forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false): ProcessorFactory[I, RuleEngineResult[T]] = {
+    import com.sparkutils.quality.implicits._
+    implicit val ttyped: TypedEncoder[T] = fromNormalEncoder[T](outputType)
     implicit val enc = TypedExpressionEncoder[RuleEngineResult[T]]
-    ruleEngineFactory[I, T](ruleSuite, outputType, compile = compile, debugMode = debugMode)
+    ruleEngineFactory[I, T](ruleSuite, outputType, compile = compile, debugMode = debugMode,
+      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval)
   }
 
   /**
@@ -177,8 +185,80 @@ object ProcessFunctions {
    * @return
    */
   def ruleEngineFactory[I: Encoder, T](ruleSuite: RuleSuite, outputType: DataType, compile: Boolean = true,
-    debugMode: Boolean = false)(implicit resEnc: Encoder[RuleEngineResult[T]]): ProcessorFactory[I, RuleEngineResult[T]] =
-    processFactory[I, RuleEngineResult[T]](ruleEngineWithStructF(ruleSuite, outputType, debugMode = debugMode), compile)(
+      debugMode: Boolean = false, compileEvals: Boolean = false,
+      forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false)(implicit resEnc: Encoder[RuleEngineResult[T]]):
+        ProcessorFactory[I, RuleEngineResult[T]] =
+    processFactory[I, RuleEngineResult[T]](ruleEngineWithStructF(ruleSuite, outputType, debugMode = debugMode,
+      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval), compile)(
+      implicitly[Encoder[I]], resEnc)
+
+
+  /**
+   * processor for ruleEngine with encoding over the nested T in RuleEngineResult[T].
+   * *Note* you must use AgnosticEncoders in 3.4+ in order to be able to support Java collections/generics,
+   * reflection via .bean is not sufficient for java generics.
+   * @param input
+   * @tparam I the input type
+   * @tparam T the result type of the rule engine
+   * @return
+   */
+  def ruleFolderFactoryT[I: Encoder, T: Encoder](ruleSuite: RuleSuite, outputType: StructType, compile: Boolean = true,
+      debugMode: Boolean = false, compileEvals: Boolean = false,
+      forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false): ProcessorFactory[I, RuleFolderResult[T]] = {
+    import com.sparkutils.quality.implicits._
+    implicit val ttyped: TypedEncoder[T] = fromNormalEncoder[T](outputType)
+    implicit val enc = TypedExpressionEncoder[RuleFolderResult[T]]
+    ruleFolderFactory[I, T](ruleSuite, outputType, compile = compile, debugMode = debugMode,
+      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval)
+  }
+
+  /**
+   * processor for ruleFolder
+   * @param input
+   * @tparam I
+   * @tparam T result type
+   * @return
+   */
+  def ruleFolderFactory[I: Encoder, T](ruleSuite: RuleSuite, outputType: StructType, compile: Boolean = true,
+      debugMode: Boolean = false, compileEvals: Boolean = false,
+      forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false)(implicit resEnc: Encoder[RuleFolderResult[T]]):
+      ProcessorFactory[I, RuleFolderResult[T]] =
+    processFactory[I, RuleFolderResult[T]](foldAndReplaceFieldsWithStruct(ruleSuite, outputType, debugMode = debugMode,
+      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval), compile)(
+      implicitly[Encoder[I]], resEnc)
+
+  /**
+   * processor for ruleEngine with encoding over the nested T in RuleEngineResult[T].
+   * *Note* you must use AgnosticEncoders in 3.4+ in order to be able to support Java collections/generics,
+   * reflection via .bean is not sufficient for java generics.
+   * @param input
+   * @tparam I the input type
+   * @tparam T the result type of the rule engine
+   * @return
+   */
+  def ruleFolderFactoryWithStructStarterT[I: Encoder, T: Encoder](ruleSuite: RuleSuite, fields: Seq[(String, Column)], outputType: StructType, compile: Boolean = true,
+                                                 debugMode: Boolean = false, compileEvals: Boolean = false,
+                                                 forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false): ProcessorFactory[I, RuleFolderResult[T]] = {
+    import com.sparkutils.quality.implicits._
+    implicit val ttyped: TypedEncoder[T] = fromNormalEncoder[T](outputType)
+    implicit val enc = TypedExpressionEncoder[RuleFolderResult[T]]
+    ruleFolderFactoryWithStructStarter[I, T](ruleSuite, fields, outputType, compile = compile, debugMode = debugMode,
+      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval)
+  }
+
+  /**
+   * processor for ruleFolder
+   * @param input
+   * @tparam I
+   * @tparam T result type
+   * @return
+   */
+  def ruleFolderFactoryWithStructStarter[I: Encoder, T](ruleSuite: RuleSuite, fields: Seq[(String, Column)], outputType: StructType, compile: Boolean = true,
+                                       debugMode: Boolean = false, compileEvals: Boolean = false,
+                                       forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false)(implicit resEnc: Encoder[RuleFolderResult[T]]):
+  ProcessorFactory[I, RuleFolderResult[T]] =
+    processFactory[I, RuleFolderResult[T]](foldAndReplaceFieldPairsWithStruct(ruleSuite, fields, outputType, debugMode = debugMode,
+      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval), compile)(
       implicitly[Encoder[I]], resEnc)
 
   /**

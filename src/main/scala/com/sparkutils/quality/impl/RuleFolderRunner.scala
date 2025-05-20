@@ -57,7 +57,8 @@ trait RuleFolderRunnerBase[T] extends BinaryExpression with NonSQLExpression {
   implicit val classTagT: ClassTag[T]
   val tClass: Class[T]
 
-  // hack to push type through to lambda's, resolution only happens on driver but only works with a projection e.g. withColumn or introducing an extra column
+  // hack to push type through to lambda's on 2.4, should be in withNewChildren after 2.4 is dropped,
+  // resolution only happens on driver
   if (left.resolved) {
     dataRef.set(left.dataType)
   }
@@ -194,12 +195,15 @@ case class RuleFolderRunnerEval(ruleSuite: RuleSuite, left: Expression, right: E
                            ) extends RuleFolderRunnerBase[RuleFolderRunnerEval] with CodegenFallback {
 
   protected def withNewChildrenInternal(newLeft: Expression, newRight: Expression): Expression = {
-    // Spark 4 re-orders the checking of types, so we don't have a type until resolving
-    // as such we need to now force resolved to true - dropping 2.4 anyway
-    val c = newRight.transform{
-      case RefExpressionLazyType(a, n, false) =>
-        RefExpressionLazyType(a, n, true)
-    }
+    val c =
+      if (newLeft.resolved)
+        newRight.transform{
+          case RefExpressionLazyType(a, n, false) =>
+            RefExpressionLazyType(a, n, true)
+        }
+      else
+        newRight
+
     copy(left = newLeft, right = c)
   }
 
@@ -222,10 +226,15 @@ case class RuleFolderRunner(ruleSuite: RuleSuite, left: Expression, right: Expre
   protected def withNewChildrenInternal(newLeft: Expression, newRight: Expression): Expression = {
     // Spark 4 re-orders the checking of types, so we don't have a type until resolving
     // as such we need to now force resolved to true - dropping 2.4 anyway
-    val c = newRight.transform{
-      case RefExpressionLazyType(a, n, false) =>
-        RefExpressionLazyType(a, n, true)
-    }
+    val c =
+      if (newLeft.resolved)
+        newRight.transform{
+          case RefExpressionLazyType(a, n, false) =>
+            RefExpressionLazyType(a, n, true)
+        }
+      else
+        newRight
+
     copy(left = newLeft, right = c)
   }
 

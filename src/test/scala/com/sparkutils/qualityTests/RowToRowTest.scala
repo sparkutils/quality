@@ -6,6 +6,7 @@ import com.sparkutils.quality.sparkless.{ProcessFunctions, Processor}
 import org.apache.spark.sql.{Encoders, QualitySparkUtils}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{MutableProjection, Projection}
+import org.apache.spark.sql.functions.{col, lit}
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.UTF8String
 import org.junit.runner.RunWith
@@ -505,4 +506,127 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
     res(5).result shouldBe Some(Map("transfer" -> "fromWithField"))
     res(5).salientRule shouldBe Some(SalientRule(Id(1,1),Id(50,1),Id(200,1)))
   } } }
+
+  test("via ProcessFactory folder engine T product") { not2_4_or_3_0_or_3_1 { not_Cluster {
+    val s = sparkSession // force it
+
+    import s.implicits._
+
+    val DDL = "STRUCT<`account`: STRING, `product`: STRING, `subcode`: INTEGER >"
+    registerLambdaFunctions(Seq(
+      LambdaFunction("account_row", "(transfer_type, account) -> named_struct('account', account, 'product', transfer_type, 'subcode', subcode)", Id(123, 23)),
+      LambdaFunction("account_row", "transfer_type -> account_row(transfer_type, account)", Id(123, 24)),
+      LambdaFunction("subcode", "(transfer_type, sub) -> updateField(account_row(transfer_type, account), 'subcode', sub)", Id(123, 25))
+    ))
+
+    val expressionRules = Seq((ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040, 1),
+      OutputExpression("thecurrent -> updateField(updateField(thecurrent, 'subcode', 1234), 'account', 'from')"))),
+
+      (ExpressionRule("product like '%fx%'"), RunOnPassProcessor(1000, Id(1042, 1),
+        OutputExpression("thecurrent -> updateField(thecurrent, 'product', 'to')"))),
+      (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1000, Id(1043, 1),
+        OutputExpression("thecurrent -> updateField(thecurrent, 'product', 'from')"))),
+      (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1001, Id(1044, 1),
+        OutputExpression("thecurrent -> update_field(thecurrent, 'account', concat(account,'_fruit'))")))
+    )
+
+    val rules =
+      for { ((exp, processor), idOffset) <- expressionRules.zipWithIndex }
+        yield Rule(Id(100 * idOffset, 1), exp, processor)
+
+    val rsId = Id(1, 1)
+    val ruleSuite = RuleSuite(rsId, Seq(
+      RuleSet(Id(50, 1), rules
+      )))
+
+    def map(seq: Seq[TestOn], process: Processor[TestOn, RuleFolderResult[TestOn]]): Seq[RuleFolderResult[TestOn]] = seq.map{ s =>
+      process(s)
+    }
+
+    val processor = ProcessFunctions.ruleFolderFactoryT[TestOn, TestOn](ruleSuite, DataType.fromDDL(DDL).asInstanceOf[StructType],
+      compile = false).instance
+
+    val res = map(testData, processor)
+
+    // first three all failed
+    for(i <- 0 until 3) {
+      res(i).result.isEmpty shouldBe true
+      res(i).ruleSuiteResults.overallResult shouldBe Failed
+    }
+    for(i <- 3 until 6) {
+      res(i).result.isDefined shouldBe true
+      res(i).ruleSuiteResults.overallResult shouldBe Failed
+    }
+
+    res(3).result shouldBe Some(TestOn("to", "4206", 60))
+
+    res(4).result shouldBe Some(TestOn("to", "4201", 40))
+
+    res(5).result shouldBe Some(TestOn("from", "4200_fruit", 60))
+  } } }
+
+
+  test("via ProcessFactory folder engine T bean extra output fields") { not2_4_or_3_0_or_3_1 { not_Cluster {
+    val s = sparkSession // force it
+
+    import s.implicits._
+
+    val DDL = "STRUCT<`transfer_type`: STRING, `account`: STRING, `product`: STRING, `subcode`: INTEGER >"
+    registerLambdaFunctions(Seq(
+      LambdaFunction("account_row", "(transfer_type, account) -> named_struct('transfer_type', transfer_type, 'account', account, 'product', product, 'subcode', subcode)", Id(123, 23)),
+      LambdaFunction("account_row", "transfer_type -> account_row(transfer_type, account)", Id(123, 24)),
+      LambdaFunction("subcode", "(transfer_type, sub) -> updateField(account_row(transfer_type, account), 'subcode', sub)", Id(123, 25))
+    ))
+
+    val expressionRules = Seq((ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040, 1),
+      OutputExpression("thecurrent -> updateField(updateField(thecurrent, 'subcode', 1234), 'account', 'from')"))),
+
+      (ExpressionRule("product like '%fx%'"), RunOnPassProcessor(1000, Id(1042, 1),
+        OutputExpression("thecurrent -> updateField(thecurrent, 'transfer_type', 'to')"))),
+      (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1000, Id(1043, 1),
+        OutputExpression("thecurrent -> updateField(thecurrent, 'transfer_type', 'from')"))),
+      (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1001, Id(1044, 1),
+        OutputExpression("thecurrent -> update_field(thecurrent, 'account', concat(account,'_fruit'))")))
+    )
+
+    val rules =
+      for { ((exp, processor), idOffset) <- expressionRules.zipWithIndex }
+        yield Rule(Id(100 * idOffset, 1), exp, processor)
+
+    val rsId = Id(1, 1)
+    val ruleSuite = RuleSuite(rsId, Seq(
+      RuleSet(Id(50, 1), rules
+      )))
+
+    def map(seq: Seq[TestOn], process: Processor[TestOn, RuleFolderResult[NewPostingBean]]): Seq[RuleFolderResult[NewPostingBean]] = seq.map{ s =>
+      process(s)
+    }
+
+    implicit val beany = Encoders.bean(classOf[NewPostingBean])
+
+    val processor = ProcessFunctions.ruleFolderFactoryWithStructStarterT[TestOn, NewPostingBean](ruleSuite,
+      Seq(("transfer_type", lit("dummy")), ("account", col("account")), ("product", col("product")), ("subcode", col("subcode"))),
+      DataType.fromDDL(DDL).asInstanceOf[StructType],
+      compile = false).instance
+
+    val res = map(testData, processor)
+
+    // first three all failed
+    for(i <- 0 until 3) {
+      res(i).result.isEmpty shouldBe true
+      res(i).ruleSuiteResults.overallResult shouldBe Failed
+    }
+    for(i <- 3 until 6) {
+      res(i).result.isDefined shouldBe true
+      res(i).ruleSuiteResults.overallResult shouldBe Failed
+    }
+
+    res(3).result.map(_.toNewPosting()) shouldBe Some(NewPosting("to", "4206", "fx", 60))
+
+    res(4).result.map(_.toNewPosting()) shouldBe Some(NewPosting("to", "4201", "fxotc", 40))
+
+    res(5).result.map(_.toNewPosting()) shouldBe Some(NewPosting("from", "4200_fruit", "eqotc", 60))
+  } } }
+
+
 }

@@ -4,7 +4,7 @@ import com.sparkutils.quality.RuleSuite
 import com.sparkutils.quality.impl.util.AddDataFunctions.ifoldAndReplaceFields
 import com.sparkutils.quality.impl.{ExpressionRunner, RuleEngineRunnerImpl, RuleRunnerImpl}
 import org.apache.spark.sql.QualitySparkUtils.DatasetBase
-import org.apache.spark.sql.{DataFrame, Row => SRow}
+import org.apache.spark.sql.{Column, DataFrame, Row => SRow}
 import org.apache.spark.sql.types.{DataType, StructType}
 
 trait AddDataFunctionsImports {
@@ -81,7 +81,26 @@ trait AddDataFunctionsImports {
       debugMode: Boolean = false, tempFoldDebugName: String = "tempFOLDDEBUG",
       maintainOrder: Boolean = true, compileEvals: Boolean = false, forceRunnerEval: Boolean = false,
       forceTriggerEval: Boolean = false): P[SRow] => P[SRow] =
-    ifoldAndReplaceFields(rules, fields, foldFieldName,
+    ifoldAndReplaceFields(rules, Left(fields), foldFieldName,
+      debugMode, tempFoldDebugName, maintainOrder, compileEvals = compileEvals,
+      forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval)
+
+  /**
+   * Leverages the foldRunner to replace fields, the input fields pairs are used to create a structure that the rules fold over.
+   * Any field references in the providing pairs are then dropped from the original Dataframe and added back from the resulting structure.
+   *
+   * NOTE: The field order and types of the original DF will be maintained only when maintainOrder is true.  As it requires access to the schema it may incur extra work.
+   *
+   * @param rules
+   * @param debugMode when true the last results are taken for the replaced fields
+   * @param maintainOrder when true the schema is used to replace fields in the correct location, when false they are simply appended
+   * @return
+   */
+  def foldAndReplaceFieldPairs[P[R] >: DatasetBase[R]](rules: RuleSuite, fields: Seq[(String, Column)], foldFieldName: String = "foldedFields",
+                                                   debugMode: Boolean = false, tempFoldDebugName: String = "tempFOLDDEBUG",
+                                                   maintainOrder: Boolean = true, compileEvals: Boolean = false, forceRunnerEval: Boolean = false,
+                                                   forceTriggerEval: Boolean = false): P[SRow] => P[SRow] =
+    ifoldAndReplaceFields(rules, Right(fields), foldFieldName,
       debugMode, tempFoldDebugName, maintainOrder, compileEvals = compileEvals,
       forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval)
 
@@ -103,7 +122,30 @@ trait AddDataFunctionsImports {
       debugMode: Boolean = false, tempFoldDebugName: String = "tempFOLDDEBUG",
       maintainOrder: Boolean = true, compileEvals: Boolean = false,
       forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false): P[SRow] => P[SRow] =
-    AddDataFunctions.ifoldAndReplaceFields(rules, struct.fields.map(_.name), foldFieldName,
+    AddDataFunctions.ifoldAndReplaceFields(rules, Left(struct.fields.map(_.name)), foldFieldName,
+      debugMode, tempFoldDebugName, maintainOrder, useType = Some(struct), compileEvals = compileEvals,
+      forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval)
+
+  /**
+   * Leverages the foldRunner to replace fields, the input field pairs are used to create a structure that the rules fold over,
+   * the type must match the provided struct.
+   * Any field references in the providing pairs are then dropped from the original Dataframe and added back from the resulting structure.
+   *
+   * This version should only be used when you require select(*, foldRunner) to be used, it requires you fully specify types.
+   *
+   * NOTE: The field order and types of the original DF will be maintained only when maintainOrder is true.  As it requires access to the schema it may incur extra work.
+   *
+   * @param rules
+   * @param struct The fields, and types, are used to call the foldRunner.  These types must match in the input fields
+   * @param debugMode when true the last results are taken for the replaced fields
+   * @param maintainOrder when true the schema is used to replace fields in the correct location, when false they are simply appended
+   * @return
+   */
+  def foldAndReplaceFieldPairsWithStruct[P[R] >: DatasetBase[R]](rules: RuleSuite, fields: Seq[(String, Column)], struct: StructType, foldFieldName: String = "foldedFields",
+                                                             debugMode: Boolean = false, tempFoldDebugName: String = "tempFOLDDEBUG",
+                                                             maintainOrder: Boolean = true, compileEvals: Boolean = false,
+                                                             forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false): P[SRow] => P[SRow] =
+    AddDataFunctions.ifoldAndReplaceFields(rules, Right(fields), foldFieldName,
       debugMode, tempFoldDebugName, maintainOrder, useType = Some(struct), compileEvals = compileEvals,
       forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval)
 

@@ -115,8 +115,11 @@ object QualitySparkUtils {
       EvaluableExpressions(aplan).expressions
     }
 
+    // folder introduces multiple projections, these are the ones we explicitly use
     val fres = debugTime("bindReferences") {
-      BindReferences.bindReferences(res, aplan.allAttributes)
+      res.map(BindReferences.bindReference(_, df.queryExecution.analyzed.allAttributes, allowFailures = true)).
+        map(BindReferences.bindReference(_, aplan.allAttributes, allowFailures = true)).
+        map(BindReferences.bindReference(_, plan.output, allowFailures = true))
     }
 
     fres
@@ -153,8 +156,11 @@ object QualitySparkUtils {
       EvaluableExpressions(aplan).expressions
     }
 
+    // folder introduces multiple projections, these are the ones we explicitly use
     val fres = debugTime("bindReferences") {
-      BindReferences.bindReferences(res, aplan.allAttributes)
+      res.map(BindReferences.bindReference(_, df.queryExecution.analyzed.allAttributes, allowFailures = true)).
+        map(BindReferences.bindReference(_, aplan.allAttributes, allowFailures = true)).
+        map(BindReferences.bindReference(_, plan.output, allowFailures = true))
     }
 
     fres

@@ -98,17 +98,6 @@ case class RefExpression(dataType: DataType,
 
 }
 
-object RefExpressionLazyType {
-  /**
-   * Spark v4 calls checkArguments before the children are resolved
-   * This means a null type is returned causing a match exception
-   * Simply using false means the entire expression won't resolve.
-   * As such the default on v4 is false.
-   * NB Spark > 3.x will use withNewChildren allowing a transform before creating.
-   */
-  lazy val defaultResolved: Boolean = SparkVersions.sparkMajorVersion.toInt < 4
-}
-
 /**
  * Getter, trimmed version of NamedLambdaVariable as it should never be resolved
  * @param dataTypeF
@@ -117,7 +106,7 @@ object RefExpressionLazyType {
 case class RefExpressionLazyType(
   dataTypeF: AtomicReference[DataType],
   nullable: Boolean,
-  _resolved: Boolean = RefExpressionLazyType.defaultResolved)
+  _resolved: Boolean = false)
   extends LeafExpression with RefCodeGen {
 
   var value: Any = _
@@ -187,7 +176,7 @@ case class FunN(arguments: Seq[Expression], function: Expression, name: Option[S
   extends HigherOrderFunctionLike with CodegenFallback with SeqArgs with FunDoGenCode {
 
   /* #71 - default just checks arguments, but FunNRewrite will take the actual function so it's possible
-      it is nullable. ArrrayAaggregate for example (hit on Databricks) argument.nullable || finish.nullable
+      it is nullable. ArrayAggregate for example (hit on Databricks) argument.nullable || finish.nullable
       only the argument part is covered by default HOF nullable.
    */
   override def nullable: Boolean = super.nullable || function.nullable
