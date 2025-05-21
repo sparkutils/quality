@@ -3,7 +3,9 @@ package com.sparkutils.qualityTests
 import com.sparkutils.quality
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.FlattenStruct.ruleSuiteDeserializer
+import com.sparkutils.quality.sparkless.impl.Processors.NO_QUERY_PLANS
 import com.sparkutils.quality.sparkless.{ProcessFunctions, Processor}
+import org.apache.avro.SchemaBuilder
 import org.apache.spark.sql.{Encoders, QualitySparkUtils}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{MutableProjection, Projection}
@@ -866,7 +868,38 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
     val e = intercept[QualityException] {
       ProcessFunctions.expressionYamlNoDDLRunnerFactory[TestOn](rs, compile = inCodegen).instance
     }
-    e.msg shouldBe "SubQuery's are not allowed in Processors"
+    e.msg shouldBe NO_QUERY_PLANS
+  } } } }
+
+  test("via ProcessFactory with Avro inputs") { not2_4 { not_Cluster { evalCodeGensNoResolve {
+    val s = sparkSession // force it
+
+    var testOnAvro = SchemaBuilder.record("testOnAvro")
+      .namespace("com.teston")
+      .fields()
+      .requiredString("product")
+      .requiredString("account")
+      .requiredInt("subcode")
+      .endRecord()
+
+    import s.implicits._
+
+    def map(seq: Seq[TestOn], process: Processor[TestOn, RuleSuiteResult]): Seq[RuleSuiteResult] = seq.map{ s =>
+      process(s)
+    }
+
+    val rs = RuleSuite(Id(1,1), Seq(
+      RuleSet(Id(50, 1), Seq(
+        Rule(Id(100, 1), ExpressionRule("if(product like '%otc%', account = '4201', subcode = 50)"))
+      ))
+    ))
+
+    val processor = ProcessFunctions.dqFactory[TestOn](rs, inCodegen).instance
+
+    val ro = map(testData, processor)
+    ro.map(_.overallResult) shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
+    val rc = map(testData, processor)
+    rc.map(_.overallResult)  shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
   } } } }
 
 }

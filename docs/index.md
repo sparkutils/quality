@@ -19,7 +19,7 @@ Your rules are just versioned data, store them wherever convenient, use them by 
 
 * :new:{.pulseABit} test packages for [Fabric](getting_started/running_on_fabric.md)
 * :new:{.pulseABit} 5-10% speed bump with a change in compilation defaults
-* :new:{.pulseABit} sparkless row level processors added for non-spark runtimes (uses spark at compilation time)
+* :new:{.pulseABit} sparkless [row level processors](advanced/processors.md) added for non-spark runtimes (uses spark at compilation time)
 
 Rules are evaluated lazily during Spark actions, such as writing a row, with results saved in a single predictable column.
 

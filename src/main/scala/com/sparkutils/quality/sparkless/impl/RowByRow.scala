@@ -1,0 +1,90 @@
+package com.sparkutils.quality.sparkless.impl
+
+import com.sparkutils.quality.enableOptimizations
+import com.sparkutils.quality.impl.GenerateDecoderOpEncoderProjection
+import com.sparkutils.quality.impl.extension.FunNRewrite
+import com.sparkutils.quality.sparkless.{Processor, ProcessorFactory}
+import org.apache.spark.sql.{DataFrame, Encoder, QualitySparkUtils, ShimUtils}
+import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
+import org.apache.spark.sql.catalyst.expressions.Expression
+import org.apache.spark.sql.catalyst.optimizer.ConstantFolding
+
+/**
+ * Represents a row by row process with Input and Output processors with an operation in between
+ * @tparam I
+ * @tparam O
+ */
+abstract class DecoderOpEncoderProjection[I, O] extends (I => O) {
+
+  def apply(input: I): O
+
+  /**
+   * For compiled code this is a call to new with the same context references if there is no stateful expressions
+   * Where expressions are stateful with CodegenFallback the entire GenerateDecoderOpEncoderProjection.generate code is called again.
+   */
+  def newInstance: DecoderOpEncoderProjection[I, O]
+
+  /**
+   * Initialize stateless expressions with this partition
+   */
+  def initialize(partition: Int): Unit
+}
+
+object Processors {
+  val NO_QUERY_PLANS = "PlanExpressions (e.g. SubQueries) are not allowed in Processors"
+
+  /**
+   * Are there any stateful expressions in interpreted mode (or fallback) require fresh copies
+   * @param exprs These expressions must be fully resolved, bound and optimised
+   * @param compile when false any stateful expression returns true, by default compilation for stateful CodegenFallback is true
+   * @return
+   */
+  def isCopyNeeded(exprs: Seq[Expression], compile: Boolean = true): Boolean =
+    exprs.collect {
+      case e: CodegenFallback if ShimUtils.isStateful(e)  => e
+    }.nonEmpty || ( !compile &&
+      exprs.collect {
+        case e: Expression if ShimUtils.isStateful(e)  => e
+      }.nonEmpty
+    )
+
+  /**
+   * Creates a ProcessFactory[I,O], when forceMutable || !compile is true it uses chained MutableProjections,
+   * otherwise, and by default, GenerateDecoderOpEncoderProjection.
+   *
+   * GenerateDecoderOpEncoderProjection is likely far faster on larger rules or higher number of threads for throughput.
+   * Unlike Spark compilation caching, which evaluates codegen for an expression tree every time, the codegen takes place
+   * once, each instance call simply returns a new class instance with fresh state for a thread.
+   *
+   * The chained MutableProjections generate new class code for each instance.  They will also recreate the entire
+   * expression tree if a stateful expression is identified when compile = false
+   *
+   * @param dataFrameFunction
+   * @param compile when false reverts to interpreted mode, when true and forceMutable is true it is recommended to cache the instances
+   * @param forceMutable when true it forces MutableProjection's to be used, compiled or otherwise, the default of false is likely far faster
+   * @tparam I
+   * @tparam O
+   * @return
+   */
+  def processFactory[I: Encoder, O: Encoder](dataFrameFunction: DataFrame => DataFrame, compile: Boolean = true, forceMutable: Boolean = false): ProcessorFactory[I, O] = {
+    if (forceMutable || !compile)
+      MutableProjectionProcessor.processFactory[I, O](dataFrameFunction, compile)
+    else {
+      enableOptimizations(Seq(FunNRewrite, ConstantFolding))
+
+      val iEnc = implicitly[Encoder[I]]
+      val exprs = QualitySparkUtils.resolveExpressions[I](iEnc, dataFrameFunction)
+
+      val projector = GenerateDecoderOpEncoderProjection.generate[I, O](exprs, true)
+      new ProcessorFactory[I, O] {
+        override def instance: Processor[I, O] = new Processor[I, O] {
+          private val theInstance = projector.newInstance
+          override def apply(i: I): O = theInstance(i)
+          override def setPartition(partition: Int): Unit = theInstance.initialize(partition)
+          override def close(): Unit = {}
+        }
+      }
+    }
+  }
+
+}
