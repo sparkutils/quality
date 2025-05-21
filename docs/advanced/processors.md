@@ -8,6 +8,8 @@ val sparkSession = SparkSession.builder().
   config("spark.master", s"local[1]").
   config("spark.ui.enabled", false).getOrCreate()
 
+registerQualityFunctions() // optional
+
 try {
   val ruleSuite = // get rulesuite
   import sparkSession.implicits._
@@ -86,3 +88,38 @@ For simple beans it's enough to use the Spark Encoders.bean(Class[_]) to derive 
     In Spark 3.4 and above you can use AgnosticEncoders instead and specify the types.
 
 What about something more interesting like an Avro message? 
+
+```scala
+val testOnAvro = SchemaBuilder.record("testOnAvro")
+  .namespace("com.teston")
+  .fields()
+  .requiredString("product")
+  .requiredString("account")
+  .requiredInt("subcode")
+  .endRecord()
+val datumWriter = new GenericDatumWriter[GenericRecord](testOnAvro);
+
+val bos = new ByteArrayOutputStream()
+val enc = EncoderFactory.get().binaryEncoder(bos, null)
+
+val avroTestData = testData.map{d =>
+  val r = new GenericData.Record(testOnAvro)
+  r.put("product", d.product)
+  r.put("account", d.account)
+  r.put("subcode", d.subcode)
+  datumWriter.write(r, enc)
+  enc.flush()
+  val ba = bos.toByteArray
+  bos.reset()
+  ba
+}
+
+import s.implicits._
+
+val processorFactory = ProcessFunctions.dqFactory[Array[Byte]](rs, inCodegen, extraProjection =
+  _.withColumn("vals", org.apache.spark.sql.avro.functions.from_avro(col("value"), testOnAvro.toString)).
+    select("vals.*"))
+  ...
+```
+
+extraProjection allows conversion based on existing Spark conversion functions.

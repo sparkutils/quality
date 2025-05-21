@@ -11,8 +11,6 @@ import org.apache.spark.sql.catalyst.optimizer.ConstantFolding
 
 /**
  * Represents a row by row process with Input and Output processors with an operation in between
- * @tparam I
- * @tparam O
  */
 abstract class DecoderOpEncoderProjection[I, O] extends (I => O) {
 
@@ -62,20 +60,24 @@ object Processors {
    * @param dataFrameFunction
    * @param compile when false reverts to interpreted mode, when true and forceMutable is true it is recommended to cache the instances
    * @param forceMutable when true it forces MutableProjection's to be used, compiled or otherwise, the default of false is likely far faster
+   * @param toSize specifies the number of fields required to deserialize and create the O
    * @tparam I
    * @tparam O
    * @return
    */
-  def processFactory[I: Encoder, O: Encoder](dataFrameFunction: DataFrame => DataFrame, compile: Boolean = true, forceMutable: Boolean = false): ProcessorFactory[I, O] = {
+  def processFactory[I: Encoder, O: Encoder](dataFrameFunction: DataFrame => DataFrame, toSize: Int, compile: Boolean = true,
+      forceMutable: Boolean = false, extraProjection: DataFrame => DataFrame = identity): ProcessorFactory[I, O] = {
     if (forceMutable || !compile)
-      MutableProjectionProcessor.processFactory[I, O](dataFrameFunction, compile)
+      MutableProjectionProcessor.processFactory[I, O](dataFrameFunction, toSize, compile, extraProjection)
     else {
       enableOptimizations(Seq(FunNRewrite, ConstantFolding))
 
       val iEnc = implicitly[Encoder[I]]
-      val exprs = QualitySparkUtils.resolveExpressions[I](iEnc, dataFrameFunction)
+      val exprs = QualitySparkUtils.resolveExpressions[I](iEnc, df => {
+        dataFrameFunction(extraProjection(df))
+      })
 
-      val projector = GenerateDecoderOpEncoderProjection.generate[I, O](exprs, true)
+      val projector = GenerateDecoderOpEncoderProjection.generate[I, O](exprs, useSubexprElimination = true, toSize)
       new ProcessorFactory[I, O] {
         override def instance: Processor[I, O] = new Processor[I, O] {
           private val theInstance = projector.newInstance

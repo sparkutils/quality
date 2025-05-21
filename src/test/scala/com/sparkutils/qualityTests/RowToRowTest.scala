@@ -6,6 +6,8 @@ import com.sparkutils.quality.impl.FlattenStruct.ruleSuiteDeserializer
 import com.sparkutils.quality.sparkless.impl.Processors.NO_QUERY_PLANS
 import com.sparkutils.quality.sparkless.{ProcessFunctions, Processor}
 import org.apache.avro.SchemaBuilder
+import org.apache.avro.generic.{GenericData, GenericDatumWriter, GenericRecord}
+import org.apache.avro.io.{DirectBinaryEncoder, EncoderFactory}
 import org.apache.spark.sql.{Encoders, QualitySparkUtils}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{MutableProjection, Projection}
@@ -16,6 +18,7 @@ import org.junit.runner.RunWith
 import org.scalatest.{FunSuite, Matchers}
 import org.scalatestplus.junit.JUnitRunner
 
+import java.io.ByteArrayOutputStream
 import scala.beans.BeanProperty
 
 class NewPostingBean(){
@@ -132,8 +135,6 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
 
     val processor = ProcessFunctions.dqFactory[TestOn](rs, inCodegen).instance
 
-    val ro = map(testData, processor)
-    ro.map(_.overallResult) shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
     val rc = map(testData, processor)
     rc.map(_.overallResult)  shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
   } } } }
@@ -142,6 +143,8 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
     val s = sparkSession // force it
 
     import s.implicits._
+
+    registerQualityFunctions()
 
     def map(seq: Seq[TestOn], process: Processor[TestOn, (RuleResult, RuleSuiteResultDetails)]): Seq[RuleResult] = seq.map{ s =>
       process(s)._1
@@ -155,8 +158,6 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
 
     val processor = ProcessFunctions.dqDetailsFactory[TestOn](rs, inCodegen).instance
 
-    val ro = map(testData, processor)
-    ro shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
     val rc = map(testData, processor)
     rc shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
   } } } }
@@ -874,17 +875,33 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
   test("via ProcessFactory with Avro inputs") { not2_4 { not_Cluster { evalCodeGensNoResolve {
     val s = sparkSession // force it
 
-    var testOnAvro = SchemaBuilder.record("testOnAvro")
+    val testOnAvro = SchemaBuilder.record("testOnAvro")
       .namespace("com.teston")
       .fields()
       .requiredString("product")
       .requiredString("account")
       .requiredInt("subcode")
       .endRecord()
+    val datumWriter = new GenericDatumWriter[GenericRecord](testOnAvro);
+
+    val bos = new ByteArrayOutputStream()
+    val enc = EncoderFactory.get().binaryEncoder(bos, null)
+
+    val avroTestData = testData.map{d =>
+      val r = new GenericData.Record(testOnAvro)
+      r.put("product", d.product)
+      r.put("account", d.account)
+      r.put("subcode", d.subcode)
+      datumWriter.write(r, enc)
+      enc.flush()
+      val ba = bos.toByteArray
+      bos.reset()
+      ba
+    }
 
     import s.implicits._
 
-    def map(seq: Seq[TestOn], process: Processor[TestOn, RuleSuiteResult]): Seq[RuleSuiteResult] = seq.map{ s =>
+    def map(seq: Seq[Array[Byte]], process: Processor[Array[Byte], RuleSuiteResult]): Seq[RuleSuiteResult] = seq.map{ s =>
       process(s)
     }
 
@@ -894,12 +911,12 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
       ))
     ))
 
-    val processor = ProcessFunctions.dqFactory[TestOn](rs, inCodegen).instance
+    val processor = ProcessFunctions.dqFactory[Array[Byte]](rs, inCodegen, extraProjection =
+      _.withColumn("vals", org.apache.spark.sql.avro.functions.from_avro(col("value"), testOnAvro.toString)).
+        select("vals.*")).instance
 
-    val ro = map(testData, processor)
+    val ro = map(avroTestData, processor)
     ro.map(_.overallResult) shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
-    val rc = map(testData, processor)
-    rc.map(_.overallResult)  shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
   } } } }
 
 }
