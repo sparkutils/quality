@@ -1,5 +1,7 @@
 ### 0.1.3.1 <small>3rd December, 2024</small>
 
+#81 - Enable Quality row level runners to be used outside a spark runtime (still requires spark to build of course)
+
 #78 - Allow extra plans to be added after a rewrite, ConstantFolding as a default given it gives a slight boost.
 
 #76 - DBR 16.3 support - Databricks introduced a number of API changes not found in Spark 4, extra UnresolvedFunction params. (also includes #75)

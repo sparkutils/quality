@@ -123,3 +123,32 @@ val processorFactory = ProcessFunctions.dqFactory[Array[Byte]](rs, inCodegen, ex
 ```
 
 extraProjection allows conversion based on existing Spark conversion functions.
+
+## Map Functions
+
+As correlated subqueries cannot be run outside of Spark the Quality Map functions must be used:
+
+```scala
+registerQualityFunctions()
+
+val theMap = Seq((40, true),
+  (50, false),
+  (60, true)
+)
+val lookups = mapLookupsFromDFs(Map(
+  "subcodes" -> ( () => {
+    val df = theMap.toDF("subcode", "isvalid")
+    (df, column("subcode"), column("isvalid"))
+  } )
+), LocalBroadcast(_))
+
+registerMapLookupsAndFunction(lookups)
+
+val rs = RuleSuite(Id(1,1), Seq(
+  RuleSet(Id(50, 1), Seq(
+    Rule(Id(100, 1), ExpressionRule("if(product like '%otc%', account = '4201', mapLookup('subcodes', subcode))"))
+  ))
+))
+```
+
+Note the use of LocalBroadcast, this implementation of Sparks Broadcast can be used without a SparkSession and just wraps the value.

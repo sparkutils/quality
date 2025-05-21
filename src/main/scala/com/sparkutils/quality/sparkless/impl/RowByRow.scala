@@ -4,10 +4,14 @@ import com.sparkutils.quality.enableOptimizations
 import com.sparkutils.quality.impl.GenerateDecoderOpEncoderProjection
 import com.sparkutils.quality.impl.extension.FunNRewrite
 import com.sparkutils.quality.sparkless.{Processor, ProcessorFactory}
+import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.{DataFrame, Encoder, QualitySparkUtils, ShimUtils}
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.optimizer.ConstantFolding
+import org.apache.spark.sql.catalyst.util.MapData
+
+import scala.reflect.ClassTag
 
 /**
  * Represents a row by row process with Input and Output processors with an operation in between
@@ -89,4 +93,10 @@ object Processors {
     }
   }
 
+}
+
+case class LocalBroadcast[T: ClassTag](_value: T, _id: Long = 0) extends Broadcast[T](_id) {
+  override protected def getValue(): T = _value
+  override protected def doUnpersist(blocking: Boolean): Unit = ???
+  override protected def doDestroy(blocking: Boolean): Unit = ???
 }

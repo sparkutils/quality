@@ -3,15 +3,18 @@ package com.sparkutils.qualityTests
 import com.sparkutils.quality
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.FlattenStruct.ruleSuiteDeserializer
+import com.sparkutils.quality.sparkless.impl.LocalBroadcast
 import com.sparkutils.quality.sparkless.impl.Processors.NO_QUERY_PLANS
 import com.sparkutils.quality.sparkless.{ProcessFunctions, Processor}
 import org.apache.avro.SchemaBuilder
 import org.apache.avro.generic.{GenericData, GenericDatumWriter, GenericRecord}
 import org.apache.avro.io.{DirectBinaryEncoder, EncoderFactory}
+import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.{Encoders, QualitySparkUtils}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{MutableProjection, Projection}
-import org.apache.spark.sql.functions.{col, lit}
+import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, MapData}
+import org.apache.spark.sql.functions.{col, column, lit}
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.UTF8String
 import org.junit.runner.RunWith
@@ -917,6 +920,43 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
 
     val ro = map(avroTestData, processor)
     ro.map(_.overallResult) shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
+  } } } }
+
+  test("via ProcessFactory map's") { not2_4 { not_Cluster { evalCodeGensNoResolve {
+    val s = sparkSession // force it
+
+    import s.implicits._
+
+    registerQualityFunctions()
+
+    val theMap = Seq((40, true),
+      (50, false),
+      (60, true)
+    )
+    val lookups = mapLookupsFromDFs(Map(
+      "subcodes" -> ( () => {
+        val df = theMap.toDF("subcode", "isvalid")
+        (df, column("subcode"), column("isvalid"))
+      } )
+    ), LocalBroadcast(_))
+
+    registerMapLookupsAndFunction(lookups)
+
+
+    def map(seq: Seq[TestOn], process: Processor[TestOn, RuleSuiteResult]): Seq[RuleSuiteResult] = seq.map{ s =>
+      process(s)
+    }
+
+    val rs = RuleSuite(Id(1,1), Seq(
+      RuleSet(Id(50, 1), Seq(
+        Rule(Id(100, 1), ExpressionRule("if(product like '%otc%', account = '4201', mapLookup('subcodes', subcode))"))
+      ))
+    ))
+
+    val processor = ProcessFunctions.dqFactory[TestOn](rs, inCodegen).instance
+
+    val rc = map(testData, processor)
+    rc.map(_.overallResult)  shouldBe Seq(Failed, Passed, Failed, Passed, Passed, Failed)
   } } } }
 
 }
