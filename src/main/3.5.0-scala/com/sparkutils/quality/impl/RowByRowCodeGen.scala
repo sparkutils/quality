@@ -21,18 +21,22 @@ import org.apache.spark.sql.types.StructType
  */
 object GenerateDecoderOpEncoderProjection extends CodeGenerator[Seq[Expression], DecoderOpEncoderProjection[_,_]] {
 
+  // $COVERAGE-OFF$
   protected def canonicalize(in: Seq[Expression]): Seq[Expression] =
     in.map(ExpressionCanonicalizer.execute)
 
   protected def bind(in: Seq[Expression], inputSchema: Seq[Attribute]): Seq[Expression] =
     bindReferences(in, inputSchema)
+  // $COVERAGE-ON$
 
   def generate[I: Encoder, O: Encoder](expressions: Seq[Expression],
                                        useSubexprElimination: Boolean, toSize: Int): DecoderOpEncoderProjection[I,O] = {
     create(canonicalize(expressions), useSubexprElimination, toSize)
   }
 
+  // $COVERAGE-OFF$
   protected def create(expressions: Seq[Expression]): DecoderOpEncoderProjection[_,_] = ???
+  // $COVERAGE-ON$
 
   def projections(ctx: CodegenContext, expressions: Seq[Expression], mutableRow: String, useSubexprElimination: Boolean = false) = {
     val validExpr = expressions.zipWithIndex.filter {

@@ -1,6 +1,5 @@
 package com.sparkutils.qualityTests
 
-import com.sparkutils.quality
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.FlattenStruct.ruleSuiteDeserializer
 import com.sparkutils.quality.sparkless.impl.LocalBroadcast
@@ -8,12 +7,11 @@ import com.sparkutils.quality.sparkless.impl.Processors.NO_QUERY_PLANS
 import com.sparkutils.quality.sparkless.{ProcessFunctions, Processor}
 import org.apache.avro.SchemaBuilder
 import org.apache.avro.generic.{GenericData, GenericDatumWriter, GenericRecord}
-import org.apache.avro.io.{DirectBinaryEncoder, EncoderFactory}
-import org.apache.spark.broadcast.Broadcast
+import org.apache.avro.io.EncoderFactory
 import org.apache.spark.sql.{Encoders, QualitySparkUtils}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{MutableProjection, Projection}
-import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, MapData}
+
 import org.apache.spark.sql.functions.{col, column, lit}
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.UTF8String
@@ -23,6 +21,8 @@ import org.scalatestplus.junit.JUnitRunner
 
 import java.io.ByteArrayOutputStream
 import scala.beans.BeanProperty
+
+import scala.collection.JavaConverters._
 
 class NewPostingBean(){
   @BeanProperty
@@ -121,14 +121,14 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
     rc.map(_.overallResult)  shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
   } } } }
 
+  def map[I,O](seq: Seq[I], process: Processor[I, O]): Seq[O] = seq.map{ s =>
+    process(s)
+  }
+
   test("via ProcessFactory") { not2_4 { not_Cluster { evalCodeGensNoResolve {
     val s = sparkSession // force it
 
     import s.implicits._
-
-    def map(seq: Seq[TestOn], process: Processor[TestOn, RuleSuiteResult]): Seq[RuleSuiteResult] = seq.map{ s =>
-      process(s)
-    }
 
     val rs = RuleSuite(Id(1,1), Seq(
       RuleSet(Id(50, 1), Seq(
@@ -140,6 +140,7 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
 
     val rc = map(testData, processor)
     rc.map(_.overallResult)  shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
+    rc.map(_.getRuleSetResults.asScala.flatMap(_._2.getRuleResults.asScala)) shouldBe rc.map(_.ruleSetResults.flatMap(_._2.ruleResults))
   } } } }
 
   test("via ProcessFactory rule details") { not2_4 { not_Cluster { evalCodeGensNoResolve {
@@ -148,10 +149,6 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
     import s.implicits._
 
     registerQualityFunctions()
-
-    def map(seq: Seq[TestOn], process: Processor[TestOn, (RuleResult, RuleSuiteResultDetails)]): Seq[RuleResult] = seq.map{ s =>
-      process(s)._1
-    }
 
     val rs = RuleSuite(Id(1,1), Seq(
       RuleSet(Id(50, 1), Seq(
@@ -162,7 +159,8 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
     val processor = ProcessFunctions.dqDetailsFactory[TestOn](rs, inCodegen).instance
 
     val rc = map(testData, processor)
-    rc shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
+    rc.map(_._1) shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
+    rc.map(_._2.getRuleSetResults.asScala.toMap) shouldBe rc.map(_._2.ruleSetResults)
   } } } }
 
   test("via ProcessFactory rule engine") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve {
@@ -193,10 +191,6 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
     val ruleSuite = RuleSuite(rsId, Seq(
       RuleSet(Id(50, 1), rules
       )))
-
-    def map(seq: Seq[TestOn], process: Processor[TestOn, RuleEngineResult[Seq[NewPosting]]]): Seq[RuleEngineResult[Seq[NewPosting]]] = seq.map{ s =>
-      process(s)
-    }
 
     import com.sparkutils.quality.implicits._
 
@@ -255,10 +249,6 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
       RuleSet(Id(50, 1), rules
       )))
 
-    def map(seq: Seq[TestOn], process: Processor[TestOn, RuleEngineResult[Seq[NewPosting]]]): Seq[RuleEngineResult[Seq[NewPosting]]] = seq.map{ s =>
-      process(s)
-    }
-
     val processor = ProcessFunctions.ruleEngineFactoryT[TestOn, Seq[NewPosting]](ruleSuite, DataType.fromDDL(DDL), compile = inCodegen).instance
 
     val res = map(testData, processor)
@@ -313,10 +303,6 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
     val ruleSuite = RuleSuite(rsId, Seq(
       RuleSet(Id(50, 1), rules
       )))
-
-    def map(seq: Seq[TestOn], process: Processor[TestOn, RuleEngineResult[NewPosting]]): Seq[RuleEngineResult[NewPosting]] = seq.map{ s =>
-      process(s)
-    }
 
     val processor = ProcessFunctions.ruleEngineFactoryT[TestOn, NewPosting](ruleSuite, DataType.fromDDL(DDL), compile = inCodegen).instance
 
@@ -373,10 +359,6 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
     val ruleSuite = RuleSuite(rsId, Seq(
       RuleSet(Id(50, 1), rules
       )))
-
-    def map(seq: Seq[TestOn], process: Processor[TestOn, RuleEngineResult[NewPosting]]): Seq[RuleEngineResult[NewPosting]] = seq.map{ s =>
-      process(s)
-    }
 
     import com.sparkutils.quality.implicits._
 
@@ -435,10 +417,6 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
       RuleSet(Id(50, 1), rules
       )))
 
-    def map(seq: Seq[TestOn], process: Processor[TestOn, RuleEngineResult[NewPostingBean]]): Seq[RuleEngineResult[NewPostingBean]] = seq.map{ s =>
-      process(s)
-    }
-
     implicit val beany = Encoders.bean(classOf[NewPostingBean])
 
     val processor = ProcessFunctions.ruleEngineFactoryT[TestOn, NewPostingBean](ruleSuite, DataType.fromDDL(DDL), compile = inCodegen).instance
@@ -492,10 +470,6 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
       RuleSet(Id(50, 1), rules
       )))
 
-    def map(seq: Seq[TestOn], process: Processor[TestOn, RuleEngineResult[String]]): Seq[RuleEngineResult[String]] = seq.map{ s =>
-      process(s)
-    }
-
     val processor = ProcessFunctions.ruleEngineFactoryT[TestOn, String](ruleSuite, DataType.fromDDL(DDL), compile = inCodegen).instance
 
     val res = map(testData, processor)
@@ -546,13 +520,12 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
       RuleSet(Id(50, 1), rules
       )))
 
-    def map(seq: Seq[TestOn], process: Processor[TestOn, RuleEngineResult[Map[String,String]]]): Seq[RuleEngineResult[Map[String,String]]] = seq.map{ s =>
-      process(s)
-    }
-
     val processor = ProcessFunctions.ruleEngineFactoryT[TestOn, Map[String,String]](ruleSuite, DataType.fromDDL(DDL), compile = inCodegen).instance
 
     val res = map(testData, processor)
+
+    res.map(t => Option(t.getResult.orElse(null))) shouldBe res.map(_.result)
+    res.map(t => Option(t.getSalientRule.orElse(null))) shouldBe res.map(_.salientRule)
 
     // first three all failed
     for(i <- 0 until 3) {
@@ -608,15 +581,12 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
       RuleSet(Id(50, 1), rules
       )))
 
-    def map(seq: Seq[TestOn], process: Processor[TestOn, RuleFolderResult[TestOn]]): Seq[RuleFolderResult[TestOn]] = seq.map{ s =>
-      process(s)
-    }
-
     val processor = ProcessFunctions.ruleFolderFactoryT[TestOn, TestOn](ruleSuite, DataType.fromDDL(DDL).asInstanceOf[StructType],
       compile = inCodegen).instance
 
     val res = map(testData, processor)
 
+    res.map(t => Option(t.getResult.orElse(null))) shouldBe res.map(_.result)
     // first three all failed
     for(i <- 0 until 3) {
       res(i).result.isEmpty shouldBe true
@@ -667,10 +637,6 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
       RuleSet(Id(50, 1), rules
       )))
 
-    def map(seq: Seq[TestOn], process: Processor[TestOn, RuleFolderResult[NewPostingBean]]): Seq[RuleFolderResult[NewPostingBean]] = seq.map{ s =>
-      process(s)
-    }
-
     implicit val beany = Encoders.bean(classOf[NewPostingBean])
 
     val processor = ProcessFunctions.ruleFolderFactoryWithStructStarterT[TestOn, NewPostingBean](ruleSuite,
@@ -709,17 +675,13 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
       Rule(Id(32, 3), ExpressionRule("subcode = 40"))
     ))))
 
-    def map(seq: Seq[TestOn], process: Processor[TestOn, GeneralExpressionsResult[Boolean]]): Seq[GeneralExpressionsResult[Boolean]] = seq.map{ s =>
-      process(s)
-    }
-
     implicit val bool = Encoders.BOOLEAN
 
     val processor = ProcessFunctions.expressionRunnerFactoryT[TestOn, Boolean](rs, BooleanType,
       compile = inCodegen).instance
 
     val res = map(testData, processor)
-
+    res.map(_.getRuleSetResults.asScala) shouldBe res.map(_.ruleSetResults)
     res.map(_.ruleSetResults(Id(20,1))) shouldBe Seq(
       Map(
         Id(30, 3) -> true,
@@ -760,10 +722,6 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
       Rule(Id(31, 3), ExpressionRule("product")),
       Rule(Id(32, 3), ExpressionRule("subcode"))
     ))))
-
-    def map(seq: Seq[TestOn], process: Processor[TestOn, GeneralExpressionsResult[GeneralExpressionResult]]): Seq[GeneralExpressionsResult[GeneralExpressionResult]] = seq.map{ s =>
-      process(s)
-    }
 
     val processor = ProcessFunctions.expressionYamlRunnerFactory[TestOn](rs, compile = inCodegen).instance
 
@@ -814,14 +772,11 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
       Rule(Id(32, 3), ExpressionRule("subcode"))
     ))))
 
-    def map(seq: Seq[TestOn], process: Processor[TestOn, GeneralExpressionsResultNoDDL]): Seq[GeneralExpressionsResultNoDDL] = seq.map{ s =>
-      process(s)
-    }
-
     val processor = ProcessFunctions.expressionYamlNoDDLRunnerFactory[TestOn](rs, compile = inCodegen).instance
 
     val res = map(testData, processor)
 
+    res.map(_.getRuleSetResults.asScala) shouldBe res.map(_.ruleSetResults)
     res.map(_.ruleSetResults(Id(20,1))) shouldBe Seq(
       Map(
         Id(30, 3) -> "true\n",
@@ -865,10 +820,6 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
       Rule(Id(32, 3), ExpressionRule("subcode"))
     ))))
 
-    def map(seq: Seq[TestOn], process: Processor[TestOn, GeneralExpressionsResultNoDDL]): Seq[GeneralExpressionsResultNoDDL] = seq.map{ s =>
-      process(s)
-    }
-
     val e = intercept[QualityException] {
       ProcessFunctions.expressionYamlNoDDLRunnerFactory[TestOn](rs, compile = inCodegen).instance
     }
@@ -904,10 +855,6 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
 
     import s.implicits._
 
-    def map(seq: Seq[Array[Byte]], process: Processor[Array[Byte], RuleSuiteResult]): Seq[RuleSuiteResult] = seq.map{ s =>
-      process(s)
-    }
-
     val rs = RuleSuite(Id(1,1), Seq(
       RuleSet(Id(50, 1), Seq(
         Rule(Id(100, 1), ExpressionRule("if(product like '%otc%', account = '4201', subcode = 50)"))
@@ -941,11 +888,6 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
     ), LocalBroadcast(_))
 
     registerMapLookupsAndFunction(lookups)
-
-
-    def map(seq: Seq[TestOn], process: Processor[TestOn, RuleSuiteResult]): Seq[RuleSuiteResult] = seq.map{ s =>
-      process(s)
-    }
 
     val rs = RuleSuite(Id(1,1), Seq(
       RuleSet(Id(50, 1), Seq(
