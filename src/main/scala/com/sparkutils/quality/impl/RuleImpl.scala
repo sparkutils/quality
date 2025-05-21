@@ -125,11 +125,12 @@ object RuleLogicUtils {
   def anyToRuleResult(any: Any): RuleResult =
     any match {
       case b: Boolean => if (b) Passed else Failed
-      case 0 | 0.0 => Failed
-      case 1 | 1.0 => Passed
-      case -1 | -1.0 | UTF8Str("softfail" | "maybe") => SoftFailed
-      case -2  | -2.0 | UTF8Str("disabledrule" | "disabled") => DisabledRule
+      case 0 | 0.0 | 0L => Failed
+      case 1 | 1.0 | 1L => Passed
+      case -1 | -1.0 | -1L | UTF8Str("softfail" | "maybe") => SoftFailed
+      case -2  | -2.0 | -2L | UTF8Str("disabledrule" | "disabled") => DisabledRule
       case d: Double => Probability(d) // only spark 2 unless configured to behave like spark 2
+      case d: Float => Probability(d) // only spark 2 unless configured to behave like spark 2
       case d: Decimal => Probability(d.toDouble)
       case UTF8Str("true" | "passed" | "pass" | "yes" | "1" | "1.0") => Passed
       case UTF8Str("false" | "failed" | "fail" | "no" | "0" | "0.0") => Failed
@@ -140,11 +141,12 @@ object RuleLogicUtils {
   def anyToRuleResultInt(any: Any): Int =
     any match {
       case b: Boolean => if (b) PassedInt else FailedInt
-      case 0 | 0.0 => FailedInt
-      case 1 | 1.0 => PassedInt
-      case -1 | -1.0 | UTF8Str("softfail" | "maybe") => SoftFailedInt
-      case -2  | -2.0 | UTF8Str("disabledrule" | "disabled") => DisabledRuleInt
+      case 0 | 0.0 | 0L => FailedInt
+      case 1 | 1.0 | 1L => PassedInt
+      case -1 | -1.0 | -1L | UTF8Str("softfail" | "maybe") => SoftFailedInt
+      case -2  | -2.0 | -2L | UTF8Str("disabledrule" | "disabled") => DisabledRuleInt
       case d: Double => (d * PassedInt).toInt
+      case d: Float => (d * PassedInt).toInt
       case d: Decimal => (d.toDouble * PassedInt).toInt
       case UTF8Str("true" | "passed" | "pass" | "yes" | "1" | "1.0") => PassedInt
       case UTF8Str("false" | "failed" | "fail" | "no" | "0" | "0.0") => FailedInt

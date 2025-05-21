@@ -3,6 +3,8 @@ package com.sparkutils.quality.impl.imports
 import com.sparkutils.quality.impl.RuleRegistrationFunctions
 import com.sparkutils.quality.impl.extension.FunNRewrite
 import org.apache.spark.sql.catalyst.expressions.Expression
+import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
+import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.qualityFunctions.utils
 import org.apache.spark.sql.types.DataType
 import org.apache.spark.sql.{QualitySparkUtils, ShimUtils, SparkSession}
@@ -40,8 +42,22 @@ trait RuleRunnerFunctionsImport {
    * replacing all LambdaVariables with the input expressions.
    */
   def enableFunNRewrites(): Unit =
-    if (!SparkSession.getActiveSession.get.experimental.extraOptimizations.exists(_ eq FunNRewrite)) {
+    addOptimisation(FunNRewrite)
+
+  private def addOptimisation(plan: Rule[LogicalPlan]): Unit =
+    if (!SparkSession.getActiveSession.get.experimental.extraOptimizations.contains(plan)) {
       SparkSession.getActiveSession.get.experimental.extraOptimizations =
-        SparkSession.getActiveSession.get.experimental.extraOptimizations :+ FunNRewrite
+        SparkSession.getActiveSession.get.experimental.extraOptimizations :+ plan
     }
+
+  /**
+   * Enables optimisations via experimental.extraOptimizations, first checking if they are already present
+   * and ensuring all are added in order, can be used in place of enableFunNRewrites or additionally, for
+   * example adding ConstantFolding may improve performance for given rule types
+   * @param extraOptimizations rules to be added in order
+   */
+  def enableOptimizations(extraOptimizations: Seq[Rule[LogicalPlan]]): Unit = extraOptimizations.foreach(
+    addOptimisation(_)
+  )
+
 }

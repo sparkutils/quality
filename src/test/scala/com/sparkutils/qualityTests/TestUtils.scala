@@ -121,6 +121,13 @@ trait TestUtils extends Serializable {
     }
   }
 
+  def inCodegen: Boolean = {
+    val r = SQLConf.get.getConfString(SQLConf.CODEGEN_FACTORY_MODE.key)
+
+    r == CodegenObjectFactoryMode.CODEGEN_ONLY.toString ||
+      r == CodegenObjectFactoryMode.FALLBACK.toString
+  }
+
   /**
    * Forces resolveWith to be used where possible
    */

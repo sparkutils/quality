@@ -574,7 +574,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
       ))
       val testDF = seq.toDF("i").as("main")
       testDF.collect()
-      val resdf = addDataQuality(testDF, rs)
+      val resdf = addDataQuality(testDF, rs, forceRunnerEval = true)
       try {
         val res = resdf.selectExpr("DataQuality.overallResult").as[Int].collect()
         assert(res.filterNot(_ == PassedInt).length == 3) // 1 with just 101 above, 3 fail with 100 as well
