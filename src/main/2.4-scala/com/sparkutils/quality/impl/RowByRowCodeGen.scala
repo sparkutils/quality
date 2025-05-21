@@ -14,7 +14,7 @@ import org.apache.spark.sql.catalyst.expressions._
  */
 object GenerateDecoderOpEncoderProjection {
   def generate[I: Encoder, O: Encoder](expressions: Seq[Expression],
-                                       useSubexprElimination: Boolean): DecoderOpEncoderProjection[I,O] =
+                                       useSubexprElimination: Boolean, toSize: Int): DecoderOpEncoderProjection[I,O] =
     throw new Exception("Not supported on any 2.4 runtime")
 
 }
