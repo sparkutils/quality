@@ -33,10 +33,9 @@ object MutableProjectionProcessor {
       dataFrameFunction(extraProjection(df))
     })
 
-    if (exprs.exists(_.exists{
-      case s: PlanExpression[_] => true
-      case _ => false
-    })) {
+    if (exprs.exists(_.collect {
+      case s: PlanExpression[_] => s
+      }.nonEmpty)) {
       throw new QualityException(NO_QUERY_PLANS)
     }
 

@@ -87,13 +87,11 @@ object GenerateDecoderOpEncoderProjection extends CodeGenerator[Seq[Expression],
     val exprFrom = ShimUtils.expressionEncoder(iEnc).resolveAndBind().serializer
     val exprTo = ShimUtils.expressionEncoder(implicitly[Encoder[O]]).resolveAndBind().deserializer
 
-    if (expressions.exists(_.exists{
-      case s: PlanExpression[_] => true
-      case _ => false
-      })) {
+    if (expressions.exists(_.collect {
+      case s: PlanExpression[_] => s
+      }.nonEmpty)) {
       throw new QualityException(NO_QUERY_PLANS)
     }
-
 
     val (resTypeIsStruct, resType) =
       if (toSize == 1)
