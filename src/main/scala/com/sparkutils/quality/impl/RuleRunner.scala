@@ -6,6 +6,7 @@ import com.sparkutils.quality.impl.imports.RuleResultsImports.packId
 import com.sparkutils.quality._
 import types.ruleSuiteResultType
 import com.sparkutils.quality.impl.imports.RuleRunnerImports
+import com.sparkutils.quality.impl.util.SubQueryWrapper.hasASubQuery
 import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals, PassThroughEvalOnly}
 import org.apache.spark.sql.ShimUtils.column
 import org.apache.spark.sql.catalyst.InternalRow
@@ -16,6 +17,7 @@ import org.apache.spark.sql.catalyst.util.ArrayBasedMapData
 import org.apache.spark.sql.types.DataType
 import org.apache.spark.sql.{Column, DataFrame, QualitySparkUtils}
 
+import scala.collection.mutable
 import scala.reflect.{ClassTag, classTag}
 
 object PackId {
@@ -234,18 +236,26 @@ s"""
     (ruleSuitTerm, realChildrenTerm)
   }
 
+  val filterUneededNames = (exprCode: ExprCode) =>
+    exprCode.value.code.startsWith("bhj_") || exprCode.value.code.startsWith("inputadapter_")
 
+  /**
+   * Filters out broadcast hash join bhj_ and inputadapter_ fields, these are top level and not needed
+   * @param i
+   * @param ctx
+   * @return
+   */
   def genParams(i: String, ctx: CodegenContext) =
     if (i ne null)
       (s"InternalRow $i", s"$i")
     else
-      (ctx.currentVars.map(v =>
+      (ctx.currentVars.filterNot(filterUneededNames).map(v =>
         if (v.value.javaType.isPrimitive)
           s"${v.value.javaType} ${v.value}"
         else
           s"${v.value.javaType.getName} ${v.value}, ${v.isNull.javaType} ${v.isNull}"
       ).mkString(", ")
-        , ctx.currentVars.map(v =>
+        , ctx.currentVars.filterNot(filterUneededNames).map(v =>
         if (v.value.javaType.isPrimitive)
           s"${v.value}"
         else
@@ -265,14 +275,22 @@ s"""
     val arrTerm = ctx.addMutableState(ruleRes + "[]", ctx.freshName("results"),
       v => s"$v = new $ruleRes[${realChildren.size}];")
 
+    val pushToTop = mutable.Set.empty[String]
+
     val allExpr = realChildren.zipWithIndex.map { case (child, idx) =>
       val eval = child.genCode(ctx)
+      val mustBeDeclaredUpTop = hasASubQuery(child)
+
       val converted =
         s"""${eval.code}\n
 
              $arrTerm[$idx] = ${eval.isNull} ? null : ${resultF(eval.value, idx)};"""
 
-      converted
+      if (mustBeDeclaredUpTop) {
+        pushToTop.add(s"//moved to top\n$converted\n")
+        ""
+      } else
+        converted
     }.grouped(variablesPerFunc).grouped(variableFuncGroup)
 
     val (paramsDef, paramsCall) = genParams(i, ctx)
@@ -282,6 +300,7 @@ s"""
 
     val res = ev.copy(code =
       code"""
+      ${pushToTop.mkString("\n")}
       ${funNames.map { f => s"$f($paramsCall);" }.mkString("\n")}
 
       InternalRow ${ev.value} = $utilsName.evalArray($ruleSuitTerm, $ruleSuiteArrays, $arrTerm);

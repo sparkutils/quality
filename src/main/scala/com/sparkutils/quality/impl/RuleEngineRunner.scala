@@ -8,7 +8,8 @@ import com.sparkutils.quality.impl.RuleRunnerUtils.{genRuleSuiteTerm, packTheId}
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.imports.{RuleEngineRunnerImports, RuleResultsImports}
 import RuleResultsImports.packId
-import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals, PassThroughEvalOnly}
+import com.sparkutils.quality.impl.util.SubQueryWrapper.hasASubQuery
+import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals, PassThroughEvalOnly, SubQueryWrapper}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode}
@@ -186,7 +187,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
   case class CompilerTerms(funNames: _root_.scala.collection.Iterator[_root_.scala.Predef.String],
                            paramsCall: String, utilsName: String, ruleSuitTerm: String, ruleSuiteArrays: String, resArrTerm: String,
                            currentSalience: String, ruleTupleArrTerm: String, currentOutputIndex: String, outArrTerm: String,
-                           salienceArrTerm: String)
+                           salienceArrTerm: String, pushToTop: String)
 
   def genCompilerTerms[T: ClassTag](ctx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext,
                   child: Expression, expressionOffsets: Array[Int], realChildren: Seq[Expression],
@@ -243,10 +244,13 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
       // can't use the primitive type as it can't handle nulls
       if (javaType.isPrimitive) CodeGenerator.boxedType(javaType.getSimpleName) else javaType.getName
     }
+
     val outArrTerm = ctx.addMutableState(output+"[]", ctx.freshName("output"),
       v => s"$v = new $output[$offset];")
 
     val triggerRules = realChildren.slice(0, offset)
+
+    val pushToTop = mutable.Set.empty[String]
 
     def codeGen(exp: Expression, idx: Int, funName: String) = {
       val (evalPre, eval) =
@@ -254,7 +258,18 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
           ("", s"$utilsName.ruleResultToInt($childrenFuncTerm[$idx].eval($i))")
         else {
           val eval = exp.genCode(ctx)
-          (eval.code, s"com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt(${eval.isNull} ? null : ${eval.value})")
+
+          val mustBeDeclaredUpTop = hasASubQuery(exp)
+          if (mustBeDeclaredUpTop) {
+            pushToTop.add(
+              s"""
+                 // trigger moved to the top
+                 ${eval.code}
+                 $resArrTerm[$idx] = com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt(${eval.isNull} ? null : ${eval.value});
+                 """)
+            ("", s"(Integer) $resArrTerm[$idx]")
+          } else
+            (eval.code, s"com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt(${eval.isNull} ? null : ${eval.value})")
         }
 
       val converted =
@@ -264,7 +279,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
 
             $resArrTerm[$idx] = $currRuleResTerm;
             if ( ( $currRuleResTerm == $PassedInt ) ${if (!debugMode && salienceCheck) s" && ( $currentSalience > $salienceArrTerm[$idx] ) " else "" }) {
-              $funName($paramsCall, $idx);
+              $funName($paramsCall${if (paramsCall.isEmpty) "" else ","} $idx);
             } ${if (!debugMode) "" else s"""
               else {
               $outArrTerm[$idx] = null;
@@ -282,32 +297,68 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
         val exprFuncName = ctx.freshName(s"outputExprFun$i")
 
         val exp = realChildren(offset + i)
+        val mustBeDeclaredUpTop = hasASubQuery(exp)
+
         val eval = exp.genCode(ctx)
 
-        ctx.addNewFunction(exprFuncName,
+        val body =
           s"""
-   private void $exprFuncName($paramsDef, int $index) {
-            ${extraSetup(index, i)} \n
-            ${eval.code} \n
+              ${extraSetup(index, i)} \n
+              ${eval.code} \n
 
-     ${
+
+              $outArrTerm[$i] = ${eval.isNull} ? null : ($output)${eval.value}; \n
+              ${extraResult(s"$outArrTerm[$i]")}
+        """
+
+        if (mustBeDeclaredUpTop) {
+          pushToTop.add(s"""
+                  // moved from $exprFuncName
+                  $body
+                  // end
+                  """)
+          ctx.addNewFunction(exprFuncName,s"""
+   private void $exprFuncName($paramsDef${if (paramsDef.isEmpty) "" else ","} int $index) {
+             // top level codegen would have gone here
+      ${
             if (debugMode)
               s"""
-            $currentOutputIndex += 1; \n
+              $currentOutputIndex += 1; \n
 
-            """
+              """
             else
               s"""
 
-            $currentSalience = $salienceArrTerm[$index]; \n
-            $currentOutputIndex = $index; \n
-            """
+              $currentSalience = $salienceArrTerm[$index]; \n
+              $currentOutputIndex = $index; \n
+              """
           }
-            $outArrTerm[$index] = ${eval.isNull} ? null : ($output)${eval.value}; \n
-            ${extraResult(s"$outArrTerm[$index]")}
-   }
+      }
+  """)
+        } else
+        ctx.addNewFunction(exprFuncName,
+          s"""
+   private void $exprFuncName($paramsDef${if (paramsDef.isEmpty) "" else ","} int $index) {
+            $body
+
+      ${
+            if (debugMode)
+              s"""
+              $currentOutputIndex += 1; \n
+
+              """
+            else
+              s"""
+
+              $currentSalience = $salienceArrTerm[$index]; \n
+              $currentOutputIndex = $index; \n
+              """
+          }
+      }
   """
-        )
+            )
+
+
       }
 
     // ensure ordering and re-use
@@ -327,7 +378,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
     CompilerTerms(RuleRunnerUtils.generateFunctionGroups(ctx, allExpr, paramsDef, paramsCall),
       paramsCall, utilsName, ruleSuitTerm, ruleSuiteArrays, resArrTerm,
       currentSalience, ruleTupleArrTerm, currentOutputIndex, outArrTerm,
-      salienceArrTerm)
+      salienceArrTerm, pushToTop.mkString("\n"))
 
   }
 
@@ -394,6 +445,7 @@ trait RuleEngineRunnerBase[T] extends UnaryExpression with NonSQLExpression {
     // for debug currentOutputIndex is the count of matches
 
     val pre = s"""
+          $pushToTop
           $currentSalience = java.lang.Integer.MAX_VALUE;
           $currentOutputIndex = -1;
           ${funNames.map{f => s"$f($paramsCall);"}.mkString("\n")}

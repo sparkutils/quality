@@ -303,7 +303,7 @@ class RuleEngineTest extends FunSuite with TestUtils {
       ))
       val testDF = seq.toDF("i").as("main")
       testDF.collect()
-      val resdf = testDF.transform(ruleEngineWithStructF(rs, StructType(Seq(StructField("col1",IntegerType))), forceRunnerEval = true))
+      val resdf = testDF.transform(ruleEngineWithStructF(rs, StructType(Seq(StructField("col1",IntegerType)))))
       try {
         val res = resdf.selectExpr("ruleEngine.result.col1").as[Option[Int]].collect()
         assert(res.count(_.isEmpty) == 1)
@@ -336,7 +336,7 @@ class RuleEngineTest extends FunSuite with TestUtils {
       ))
       val testDF = seq.toDF("i")
       testDF.collect()
-      val resdf = testDF.transform(ruleEngineWithStructF(rs, IntegerType, forceRunnerEval = true))
+      val resdf = testDF.transform(ruleEngineWithStructF(rs, IntegerType))
       try {
         val res = resdf.selectExpr("ruleEngine.result").as[Option[Int]].collect()
         assert(res.count(_.isEmpty) == 1)
@@ -410,7 +410,7 @@ class RuleEngineTest extends FunSuite with TestUtils {
       ), Seq(LambdaFunction("genMax", sub(), Id(2404,1))))
       val testDF = seq.toDF("i").as("main")
       testDF.collect()
-      val resdf = testDF.transform(ruleEngineWithStructF(rs, IntegerType, forceRunnerEval = true))
+      val resdf = testDF.transform(ruleEngineWithStructF(rs, IntegerType))
       try {
         val res = resdf.selectExpr("ruleEngine.result").as[Option[Int]].collect()
         // the o.g. '4' value should return null
@@ -446,7 +446,7 @@ class RuleEngineTest extends FunSuite with TestUtils {
       ), Seq(LambdaFunction("genMax", sub(), Id(2404,1))))
       val testDF = seq.toDF("i")
       testDF.collect()
-      val resdf = testDF.transform(ruleEngineWithStructF(rs, IntegerType, forceRunnerEval = true)) // uses main default
+      val resdf = testDF.transform(ruleEngineWithStructF(rs, IntegerType)) // uses main default
       try {
         val res = resdf.selectExpr("ruleEngine.result").as[Option[Int]].collect()
         // the o.g. '4' value should return null

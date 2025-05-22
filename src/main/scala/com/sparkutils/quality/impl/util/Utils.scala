@@ -493,3 +493,10 @@ case class SubQueryWrapper(children: Seq[Expression]) extends Expression {
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
 }
+
+object SubQueryWrapper {
+  def hasASubQuery(expr: Expression): Boolean =
+    (expr.collectFirst {
+      case s: SubQueryWrapper => s
+    }.isDefined)
+}
