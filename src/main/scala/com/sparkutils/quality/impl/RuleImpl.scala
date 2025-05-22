@@ -2,7 +2,6 @@ package com.sparkutils.quality.impl
 
 import com.sparkutils.quality
 import com.sparkutils.quality.impl.ExpressionCompiler.withExpressionCompiler
-import com.sparkutils.quality.impl.util.SubQueryWrapper
 import com.sparkutils.quality.{DisabledRule, DisabledRuleInt, Failed, FailedInt, GeneralExpressionResult, GeneralExpressionsResult, Id, IdTriple, OutputExpression, Passed, PassedInt, Probability, Rule, RuleResult, RuleSetResult, RuleSuite, RuleSuiteResult, SoftFailed, SoftFailedInt}
 import org.apache.spark.sql.ShimUtils.newParser
 import org.apache.spark.sql.catalyst.InternalRow
@@ -111,9 +110,7 @@ object RuleLogicUtils {
         case _ => rawExpr
       }
 
-    res/*.transformUp {
-      case s: SubqueryExpression => SubQueryWrapper(s)
-    }*/
+    res
   }
 
   def hasSubQuery(expression: Expression): Boolean = ( expression collect {
