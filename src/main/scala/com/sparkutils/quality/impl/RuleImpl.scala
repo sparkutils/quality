@@ -112,7 +112,7 @@ object RuleLogicUtils {
       }
 
     res.transformUp {
-      case s: SubqueryExpression => SubQueryWrapper(s)
+      case s: SubqueryExpression => SubQueryWrapper(Seq(s))
     }
   }
 

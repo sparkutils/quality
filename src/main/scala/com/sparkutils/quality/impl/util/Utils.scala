@@ -6,7 +6,7 @@ import com.sparkutils.shim.expressions.{CreateNamedStruct1, GetStructField3}
 import frameless.TypedEncoder
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode, JavaCode}
-import org.apache.spark.sql.catalyst.expressions.{Alias, BoundReference, Expression, If, IsNull, Literal, NamedExpression, UnaryExpression, Unevaluable, UnsafeArrayData}
+import org.apache.spark.sql.catalyst.expressions.{Alias, BoundReference, Expression, If, IsNull, Literal, NamedExpression, Unevaluable, UnsafeArrayData}
 import org.apache.spark.sql.catalyst.util.ArrayData
 import org.apache.spark.sql.types.{BooleanType, DataType, StructField, StructType}
 
@@ -474,18 +474,22 @@ object Encoding {
 
 }
 
+/**
+ * wrap subexprs so we can correctly identify the subquery post bindreferences
+ * @param children
+ */
 case class SubQueryWrapper(children: Seq[Expression]) extends Expression {
 
-  override def nullable: Boolean = super.nullable
-
+  override def nullable: Boolean = children.head.nullable
+  override def foldable: Boolean = false
   override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
-    val expr = child.genCode(ctx)
+    val expr = children.head.genCode(ctx)
     expr
   }
 
-  override protected def nullSafeEval(input: Any): Any = child.nullSafeEval(input)
+  override def eval(input: InternalRow): Any = children.head.eval(input)
 
-  override def dataType: DataType = child.dataType
+  override def dataType: DataType = children.head.dataType
 
-  override protected def withNewChildInternal(newChild: Expression): Expression = copy(child)
+  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
 }
