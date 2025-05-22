@@ -383,8 +383,8 @@ class RuleEngineTest extends FunSuite with TestUtils {
       }
 
       // test no alias paths as well
-      testRes(testDF.transform(ruleEngineWithStructF(rs, IntegerType, alias = null, forceRunnerEval = true)).asInstanceOf[DataFrame])
-      testRes(testDF.transform(ruleEngineWithStructF(rs, IntegerType, alias = "", forceRunnerEval = true)).asInstanceOf[DataFrame])
+      testRes(testDF.transform(ruleEngineWithStructF(rs, IntegerType, alias = null)).asInstanceOf[DataFrame])
+      testRes(testDF.transform(ruleEngineWithStructF(rs, IntegerType, alias = "")).asInstanceOf[DataFrame])
     }
   }
 

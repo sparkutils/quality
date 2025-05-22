@@ -111,9 +111,9 @@ object RuleLogicUtils {
         case _ => rawExpr
       }
 
-    res/*.transformUp {
+    res.transformUp {
       case s: SubqueryExpression => SubQueryWrapper(s)
-    }*/
+    }
   }
 
   def hasSubQuery(expression: Expression): Boolean = ( expression collect {

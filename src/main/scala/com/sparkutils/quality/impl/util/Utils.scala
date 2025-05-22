@@ -474,14 +474,16 @@ object Encoding {
 
 }
 
-case class SubQueryWrapper(child: Expression) extends UnaryExpression {
+case class SubQueryWrapper(children: Seq[Expression]) extends Expression {
+
+  override def nullable: Boolean = super.nullable
 
   override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
     val expr = child.genCode(ctx)
     expr
   }
 
-  override protected def nullSafeEval(input: Any): Any = super.nullSafeEval(input)
+  override protected def nullSafeEval(input: Any): Any = child.nullSafeEval(input)
 
   override def dataType: DataType = child.dataType
 
