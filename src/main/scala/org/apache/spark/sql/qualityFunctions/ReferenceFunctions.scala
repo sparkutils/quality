@@ -98,7 +98,7 @@ trait RefCodeGen {
 
         val toCache = ev.copy(code = code"",
           isNull = GlobalValue(theNull, CodeGenerator.javaClass(dataType)),
-          value = GlobalValue(theVar, CodeGenerator.javaClass(dataType)),
+          value = GlobalValue(theVar, CodeGenerator.javaClass(dataType))
         )
         _generated.put(ctx, toCache)
         toCache
