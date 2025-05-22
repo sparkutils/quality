@@ -1,7 +1,7 @@
 package org.apache.spark.sql.qualityFunctions
 
 import com.sparkutils.quality.QualityException
-import com.sparkutils.quality.impl.RuleLogicUtils
+import com.sparkutils.quality.impl.{ExpressionCompiler, RuleLogicUtils}
 import com.sparkutils.quality.impl.util.SparkVersions
 import com.sparkutils.shim.expressions.HigherOrderFunctionLike
 import org.apache.spark.sql.catalyst.InternalRow
@@ -71,25 +71,40 @@ trait RefCodeGen {
   @transient
   var _generated: mutable.Map[CodegenContext, ExprCode] = _
 
-  protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
-    if (_generated == null){
-      _generated = mutable.Map.empty
-    }
-    val cached = _generated.get(ctx)
-    if (cached.isEmpty) {
+  protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode =
+    if (ExpressionCompiler.inExpressionCompiler) {
+      // evals are compiled but ruleFolder is eval, so forceInterpreted style scenarios
+      val idx = ctx.references.length
+      ctx.references += this
       val javaType = CodeGenerator.javaType(dataType)
-      val theVar = ctx.addMutableState(javaType, ctx.freshName("RefExpr"), useFreshName = false)
-      val theNull = ctx.addMutableState("boolean", ctx.freshName("RefExprNull"), useFreshName = false)
+      val boxed = CodeGenerator.boxedType(dataType)
 
-      val toCache = ev.copy(code = code"",
-        isNull = GlobalValue(theNull, CodeGenerator.javaClass(dataType)),
-        value = GlobalValue(theVar, CodeGenerator.javaClass(dataType)),
-      )
-      _generated.put(ctx, toCache)
-      toCache
-    } else
-      cached.get
-  }
+      val clazz = this.getClass.getName
+      ev.copy(code =
+        code"""
+        $javaType ${ev.value} = ($boxed) (($clazz)references[$idx]).value();
+
+        boolean ${ev.isNull} = ${ev.value} == null;
+      """)
+    } else {
+      if (_generated == null){
+        _generated = mutable.Map.empty
+      }
+      val cached = _generated.get(ctx)
+      if (cached.isEmpty) {
+        val javaType = CodeGenerator.javaType(dataType)
+        val theVar = ctx.addMutableState(javaType, ctx.freshName("RefExpr"), useFreshName = false)
+        val theNull = ctx.addMutableState("boolean", ctx.freshName("RefExprNull"), useFreshName = false)
+
+        val toCache = ev.copy(code = code"",
+          isNull = GlobalValue(theNull, CodeGenerator.javaClass(dataType)),
+          value = GlobalValue(theVar, CodeGenerator.javaClass(dataType)),
+        )
+        _generated.put(ctx, toCache)
+        toCache
+      } else
+        cached.get
+    }
 }
 
 /**

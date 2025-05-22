@@ -1,6 +1,7 @@
 package com.sparkutils.quality.impl
 
 import com.sparkutils.quality
+import com.sparkutils.quality.impl.ExpressionCompiler.withExpressionCompiler
 import com.sparkutils.quality.{DisabledRule, DisabledRuleInt, Failed, FailedInt, GeneralExpressionResult, GeneralExpressionsResult, Id, IdTriple, OutputExpression, Passed, PassedInt, Probability, Rule, RuleResult, RuleSetResult, RuleSuite, RuleSuiteResult, SoftFailed, SoftFailedInt}
 import org.apache.spark.sql.ShimUtils.newParser
 import org.apache.spark.sql.catalyst.InternalRow
@@ -227,8 +228,25 @@ case class ExpressionRuleExpr( rule: String, override val expr: Expression ) ext
   override def reset(): Unit = super[HasRuleText].reset()
 }
 
+object ExpressionCompiler {
+  private val tlsForReferences = new ThreadLocal[Boolean] {
+    override def initialValue(): Boolean = false
+  }
+
+  def inExpressionCompiler: Boolean = tlsForReferences.get()
+
+  def withExpressionCompiler[T](thunk: => T): T = {
+    try {
+      tlsForReferences.set(true)
+      thunk
+    } finally {
+      tlsForReferences.set(false)
+    }
+  }
+}
+
 trait ExpressionCompiler extends HasExpr {
-  lazy val codegen = {
+  lazy val codegen = withExpressionCompiler {
     val ctx = new CodegenContext()
     val eval = expr.genCode(ctx)
     val javaType = CodeGenerator.javaType(expr.dataType)
@@ -525,6 +543,10 @@ object RuleSuiteFunctions {
       row =  rule.eval(
         inputRow
       ).asInstanceOf[InternalRow]
+
+      if (row == null || inputRow == null) {
+        println()
+      }
 
       seq :+ (salience, if (debugMode)
         row.copy
