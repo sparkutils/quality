@@ -13,6 +13,7 @@ import org.apache.spark.sql.qualityFunctions.SubQueryLambda.namedToOuterReferenc
 import org.apache.spark.sql.types.{AbstractDataType, DataType}
 
 import java.util.concurrent.atomic.AtomicReference
+import scala.collection.mutable
 
 /**
  * Wraps other expressions and stores the result in an RefExpression -
@@ -68,20 +69,26 @@ trait RefCodeGen {
 
   // never return a different object from this gen code
   @transient
-  var _generated: ExprCode = null
+  var _generated: mutable.Map[CodegenContext, ExprCode] = _
 
   protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
-    if (_generated == null) {
+    if (_generated == null){
+      _generated = mutable.Map.empty
+    }
+    val cached = _generated.get(ctx)
+    if (cached.isEmpty) {
       val javaType = CodeGenerator.javaType(dataType)
       val theVar = ctx.addMutableState(javaType, ctx.freshName("RefExpr"), useFreshName = false)
       val theNull = ctx.addMutableState("boolean", ctx.freshName("RefExprNull"), useFreshName = false)
 
-      _generated = ev.copy(code = code"",
+      val toCache = ev.copy(code = code"",
         isNull = GlobalValue(theNull, CodeGenerator.javaClass(dataType)),
         value = GlobalValue(theVar, CodeGenerator.javaClass(dataType)),
       )
-    }
-    _generated
+      _generated.put(ctx, toCache)
+      toCache
+    } else
+      cached.get
   }
 }
 

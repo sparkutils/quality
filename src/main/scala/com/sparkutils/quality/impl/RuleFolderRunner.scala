@@ -105,18 +105,10 @@ trait RuleFolderRunnerBase[T] extends BinaryExpression with NonSQLExpression {
     val folderV = ctx.addMutableState( "InternalRow",
       ctx.freshName("folderV") )
 
-    val ruleRunnerExpressionIdx = ctx.references.size - 1
-    val ruleRunnerClassName = tClass.getName
-    val funName = classOf[FunN].getName
-    val lazyRefName = classOf[RefExpressionLazyType].getName
-
     // order by salience
     val salience = com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenSalience(ruleSuite)
     val outputs = 0 until (realChildren.size - expressionOffsets.size)
     val reordered = outputs zip salience sortBy(_._2) map(_._1)
-
-    val offsetTerm = ctx.addMutableState("int", ctx.freshName("offset"),
-      v => s"$v = ${expressionOffsets.size};")
 
     val lazyRefsGenCode = realChildren.drop(expressionOffsets.length).map(_.asInstanceOf[FunN].arguments.head.genCode(ctx))
 
@@ -126,10 +118,8 @@ trait RuleFolderRunnerBase[T] extends BinaryExpression with NonSQLExpression {
         // capture the current
         extraResult = (outArrTerm: String) => s"$folderV = $outArrTerm;",
         extraSetup = (idx: String, i: Int) =>
-          // set the current
-          //s"(($lazyRefName)(($funName)(($ruleRunnerClassName)references[$ruleRunnerExpressionIdx]).realChildren().apply($offsetTerm + $idx)).arguments().apply(0)).value_$$eq($folderV);",
           s"""
-          // set the current row for the fold for the $i'th rule
+          // set the current row for the fold for flattened rule $i
           ${lazyRefsGenCode(i).value} = $folderV;
           ${lazyRefsGenCode(i).isNull} = $folderV == null;
           """,
