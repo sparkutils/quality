@@ -2,6 +2,7 @@ package com.sparkutils.quality.impl
 
 import com.sparkutils.quality
 import com.sparkutils.quality.impl.ExpressionCompiler.withExpressionCompiler
+import com.sparkutils.quality.impl.util.SubQueryWrapper
 import com.sparkutils.quality.{DisabledRule, DisabledRuleInt, Failed, FailedInt, GeneralExpressionResult, GeneralExpressionsResult, Id, IdTriple, OutputExpression, Passed, PassedInt, Probability, Rule, RuleResult, RuleSetResult, RuleSuite, RuleSuiteResult, SoftFailed, SoftFailedInt}
 import org.apache.spark.sql.ShimUtils.newParser
 import org.apache.spark.sql.catalyst.InternalRow
@@ -96,19 +97,23 @@ object RuleLogicUtils {
         case l: SparkLambdaFunction if hasSubQuery(l) =>
           // The lambda's will be parsed as UnresolvedAttributes and not the needed lambdas
           val names = l.arguments.map(a => a.name -> a).toMap
-          l.transform {
-            case s: SubqueryExpression => s.withNewPlan( s.plan.transform{
+          l.transformUp {
+            case s: SubqueryExpression =>
+              s.withNewPlan( s.plan.transform{
               case snippet =>
                 snippet.transformAllExpressions {
                   case a: UnresolvedAttribute =>
                     names.get(a.name).map(lamVar => lamVar).getOrElse(a)
                 }
-            })
+              }
+            )
           }
         case _ => rawExpr
       }
 
-    res
+    res/*.transformUp {
+      case s: SubqueryExpression => SubQueryWrapper(s)
+    }*/
   }
 
   def hasSubQuery(expression: Expression): Boolean = ( expression collect {
