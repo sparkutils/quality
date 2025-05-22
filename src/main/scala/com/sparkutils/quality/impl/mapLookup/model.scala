@@ -41,15 +41,18 @@ object MapLookupFunctions {
     * @param creators a map of string id to MapCreator
     * @return a map of id to broadcast variables needed for exact lookup and mapping checks
     */
-  def mapLookupsFromDFs(creators: Map[String, MapCreator]): MapLookups =
+  def mapLookupsFromDFs(creators: Map[String, MapCreator], broadcastFunction: MapData => Broadcast[MapData] =
+        SparkSession.active.sparkContext.broadcast(_)
+                       ): MapLookups =
     creators.map{
       case (id, mapCreator: MapCreator) =>
         val (df, key, value) = mapCreator()
 
-        mapFromDF(id, df, key, value)
+        mapFromDF(id, df, key, value, broadcastFunction)
     }.toMap
 
-  private def mapFromDF(id: String, df: DataFrame, key: Column, value: Column) = {
+  private def mapFromDF(id: String, df: DataFrame, key: Column, value: Column, broadcastFunction: MapData => Broadcast[MapData] =
+    SparkSession.active.sparkContext.broadcast(_)) = {
     val translated = df.select(key.as("key"), value.as("value"))
     val map = translated.toLocalIterator().asScala.map {
       mapPair =>
@@ -58,7 +61,7 @@ object MapLookupFunctions {
     }.toMap
 
     val mapData: MapData = ArrayBasedMapData(map)
-    id -> (df.sparkSession.sparkContext.broadcast(mapData), translated.schema.last.dataType)
+    id -> (broadcastFunction(mapData), translated.schema.last.dataType)
   }
 
   implicit val factory =

@@ -187,6 +187,39 @@ concat(fielda, fieldb)
 ## Lambdas
 
 
+## Lambda test
+    
+### Rule - Id - 6, 1 <a name="lambda_6_1"></a> -  <a href="../sampleDocsValidation/#Warnings_6_1" class="rule_warning">1 Warnings</a>
+__Name__ test
+lambda description
+
+|Parameter|Description|
+|---|---|
+|fielda|lambda desc|
+
+
+
+    
+
+```sql
+variable -> variable
+```
+
+
+
+<div class="lambdas_used comma-list">
+<p>Called by Rules:</p>
+<ul>
+
+<li> <a href="#rule_5_1">5 - 1</a> </li>
+
+<li> <a href="#rule_4_1">4 - 1</a> </li>
+</ul>
+</div>
+
+
+
+
 ## Lambda testCaller2
     
 ### Rule - Id - 7, 2 <a name="lambda_7_2"></a> - 
@@ -263,39 +296,6 @@ lambda description only
 </div>
 
 
-
-
-
-
-## Lambda test
-    
-### Rule - Id - 6, 1 <a name="lambda_6_1"></a> -  <a href="../sampleDocsValidation/#Warnings_6_1" class="rule_warning">1 Warnings</a>
-__Name__ test
-lambda description
-
-|Parameter|Description|
-|---|---|
-|fielda|lambda desc|
-
-
-
-    
-
-```sql
-variable -> variable
-```
-
-
-
-<div class="lambdas_used comma-list">
-<p>Called by Rules:</p>
-<ul>
-
-<li> <a href="#rule_5_1">5 - 1</a> </li>
-
-<li> <a href="#rule_4_1">4 - 1</a> </li>
-</ul>
-</div>
 
 
 

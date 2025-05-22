@@ -3,7 +3,7 @@ package com.sparkutils.qualityTests
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.VersionedId
 import com.sparkutils.quality.impl.extension.FunNRewrite
-import org.apache.spark.sql.{DataFrame, QualitySparkUtils}
+import org.apache.spark.sql.{DataFrame, QualitySparkUtils, SaveMode}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.qualityFunctions.PlaceHolderExpression
 import org.apache.spark.sql.types.LongType
@@ -435,6 +435,7 @@ class UserLambdaFunctionTest extends FunSuite with TestUtils {
     val actualOverriddenCall = resolve("_", Seq(expression(lit("int")), expression(lit(false)))).get
     assert(!actualOverriddenCall.nullable)
 
+    // this one is actually passed around as a lambda so it cannot be re-written.
     val plus = LambdaFunction("plus", "(a, b) -> a + b", Id(1,2))
     // this isn't actually tested for false or true as the top level binding overrides it, but it's tested to prove coverage
     val test = LambdaFunction("plusTest", "(f, a) -> callFun(callFun(f, _('long', false), 1), a)", Id(3,2))

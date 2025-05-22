@@ -57,7 +57,8 @@ trait RuleFolderRunnerBase[T] extends BinaryExpression with NonSQLExpression {
   implicit val classTagT: ClassTag[T]
   val tClass: Class[T]
 
-  // hack to push type through to lambda's, resolution only happens on driver but only works with a projection e.g. withColumn or introducing an extra column
+  // hack to push type through to lambda's on 2.4, should be in withNewChildren after 2.4 is dropped,
+  // resolution only happens on driver
   if (left.resolved) {
     dataRef.set(left.dataType)
   }
@@ -104,27 +105,24 @@ trait RuleFolderRunnerBase[T] extends BinaryExpression with NonSQLExpression {
     val folderV = ctx.addMutableState( "InternalRow",
       ctx.freshName("folderV") )
 
-    val ruleRunnerExpressionIdx = ctx.references.size - 1
-    val ruleRunnerClassName = tClass.getName
-    val funName = classOf[FunN].getName
-    val lazyRefName = classOf[RefExpressionLazyType].getName
-
     // order by salience
     val salience = com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenSalience(ruleSuite)
     val outputs = 0 until (realChildren.size - expressionOffsets.size)
     val reordered = outputs zip salience sortBy(_._2) map(_._1)
 
-    val offsetTerm = ctx.addMutableState("int", ctx.freshName("offset"),
-      v => s"$v = ${expressionOffsets.size};")
+    val lazyRefsGenCode = realChildren.drop(expressionOffsets.length).map(_.asInstanceOf[FunN].arguments.head.genCode(ctx))
 
     val compilerTerms =
       RuleEngineRunnerUtils.genCompilerTerms[T](ctx, right, expressionOffsets, realChildren,
         debugMode, variablesPerFunc, variableFuncGroup, forceTriggerEval,
         // capture the current
         extraResult = (outArrTerm: String) => s"$folderV = $outArrTerm;",
-        extraSetup = (idx: String) =>
-          // set the current
-          s"(($lazyRefName)(($funName)(($ruleRunnerClassName)references[$ruleRunnerExpressionIdx]).realChildren().apply($offsetTerm + $idx)).arguments().apply(0)).value_$$eq($folderV);",
+        extraSetup = (idx: String, i: Int) =>
+          s"""
+          // set the current row for the fold for flattened rule $i
+          ${lazyRefsGenCode(i).value} = $folderV;
+          ${lazyRefsGenCode(i).isNull} = $folderV == null;
+          """,
         orderOffset = (idx: Int) => reordered(idx),
         // we shouldn't check salience as we are already ordered by it
         salienceCheck = false
@@ -194,12 +192,15 @@ case class RuleFolderRunnerEval(ruleSuite: RuleSuite, left: Expression, right: E
                            ) extends RuleFolderRunnerBase[RuleFolderRunnerEval] with CodegenFallback {
 
   protected def withNewChildrenInternal(newLeft: Expression, newRight: Expression): Expression = {
-    // Spark 4 re-orders the checking of types, so we don't have a type until resolving
-    // as such we need to now force resolved to true - dropping 2.4 anyway
-    val c = newRight.transform{
-      case RefExpressionLazyType(a, n, false) =>
-        RefExpressionLazyType(a, n, true)
-    }
+    val c =
+      if (newLeft.resolved)
+        newRight.transform{
+          case RefExpressionLazyType(a, n, false) =>
+            RefExpressionLazyType(a, n, true)
+        }
+      else
+        newRight
+
     copy(left = newLeft, right = c)
   }
 
@@ -222,10 +223,15 @@ case class RuleFolderRunner(ruleSuite: RuleSuite, left: Expression, right: Expre
   protected def withNewChildrenInternal(newLeft: Expression, newRight: Expression): Expression = {
     // Spark 4 re-orders the checking of types, so we don't have a type until resolving
     // as such we need to now force resolved to true - dropping 2.4 anyway
-    val c = newRight.transform{
-      case RefExpressionLazyType(a, n, false) =>
-        RefExpressionLazyType(a, n, true)
-    }
+    val c =
+      if (newLeft.resolved)
+        newRight.transform{
+          case RefExpressionLazyType(a, n, false) =>
+            RefExpressionLazyType(a, n, true)
+        }
+      else
+        newRight
+
     copy(left = newLeft, right = c)
   }
 

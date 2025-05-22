@@ -35,6 +35,8 @@ Single argument lambdas should not use brackets around the parameters and zero a
 
     You can put the comment `/* USED_AS_LAMBDA */` in an individual rule definition to disable expansion for the entire user function subtree.  This is unlikely to be needed, but is provided to allow overriding should issues arise.
 
+    The use of re-writes with 3.2.x has been identified in one test case (testSimpleProductionRules) as problematic for codegen, please use more recent Spark versions.    
+
 ## What about default parameter or different length parameter length Lambdas?  
 
 To define multiple parameter length lambdas just define new lambdas with the same name but different argument lengths.  You can freely call the same lambda name with different parameters e.g.:

@@ -2,6 +2,7 @@ package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
 import com.sparkutils.quality.functions.{flatten_rule_results, unpack_id_triple}
+import com.sparkutils.quality.impl.extension.FunNRewrite
 import com.sparkutils.quality.impl.{RuleEngineRunner, RunOnPassProcessor}
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.ShimUtils.expression
@@ -58,7 +59,7 @@ class RuleEngineTest extends FunSuite with TestUtils {
   }
 
   @Test
-  def testSimpleProductionRules(): Unit = evalCodeGensNoResolve { funNRewrites {
+  def testSimpleProductionRules(): Unit = evalCodeGensNoResolve { testPlan(FunNRewrite, disable = _ == 32) {
     val rer = irules(
       Seq((ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040,1),
         OutputExpression("array(account_row('from'), account_row('to', 'other_account1'))"))),
@@ -170,13 +171,18 @@ class RuleEngineTest extends FunSuite with TestUtils {
         OutputExpression("array(named_struct('transfer_type', 'from', 'account', 'another_account', 'product', product, 'subcode', subcode), named_struct('transfer_type', 'to', 'account', account, 'product', product, 'subcode', subcode))")))
     )
 
-    import sparkSession.implicits._
-    val testDataDF = testData.toDF()
+    val testDataDF = {
+      import sparkSession.implicits._
+      testData.toDF()
+    }
+
+    // # 75 has issues with encoding on interpreted with dbr 15.4
+    import frameless._
 
     val outdf = testDataDF.withColumn("together", rer(testDataDF)).selectExpr("*", "together.result")
     debug( outdf.show )
 
-    val res = outdf.select("result").as[Seq[Posting]].collect()
+    val res = outdf.select("result").as[Seq[Posting]](TypedExpressionEncoder[Seq[Posting]]).collect()
     val just4201 = Seq(Posting("from", "another_account"), Posting("to","4201"))
     assert(res(0) == just4201)
     assert(res(4) == just4201)
@@ -189,7 +195,8 @@ class RuleEngineTest extends FunSuite with TestUtils {
 
     // need Option for the int's because they may be null.
     val sruleres = srule.select("ruleSuiteId","ruleSuiteVersion","ruleSetId","ruleSetVersion","ruleId","ruleVersion").
-      as[(Option[Int],Option[Int],Option[Int],Option[Int],Option[Int],Option[Int])].collect
+      as[(Option[Int],Option[Int],Option[Int],Option[Int],Option[Int],Option[Int])](
+        TypedExpressionEncoder[(Option[Int],Option[Int],Option[Int],Option[Int],Option[Int],Option[Int])]).collect
     assert(sruleres(0) == (Some(1),Some(1),Some(50),Some(1),Some(100),Some(1)))
     // prove it's all nulls here i.e. salientRule is null if no rule matched
     val nulls = (None,None,None,None,None,None)
@@ -207,9 +214,11 @@ class RuleEngineTest extends FunSuite with TestUtils {
         OutputExpression("array(named_struct('transfer_type', 'from', 'account', 'another_account', 'product', product, 'subcode', subcode), named_struct('transfer_type', 'to', 'account', account, 'product', product, 'subcode', subcode))")))
     )
 
-    import sparkSession.implicits._
-
-    val testDataDF = testData.toDF()
+    val testDataDF = {
+      import sparkSession.implicits._
+      testData.toDF()
+    }
+    import frameless._
 
     val outdf = testDataDF.withColumn("together", rer(testDataDF)).selectExpr("*", "together.result")
     debug {
@@ -217,7 +226,7 @@ class RuleEngineTest extends FunSuite with TestUtils {
       outdf.printSchema
     }
 
-    val res = outdf.select("result").as[Seq[(Int, Seq[Posting])]].collect()
+    val res = outdf.select("result").as[Seq[(Int, Seq[Posting])]](TypedExpressionEncoder[Seq[(Int, Seq[Posting])]]).collect()
     val just4201 = Seq(Posting("from", "another_account"), Posting("to","4201"))
     val justSeq = (1000, just4201)
     assert(res(0) == Seq(justSeq))
@@ -294,7 +303,7 @@ class RuleEngineTest extends FunSuite with TestUtils {
       ))
       val testDF = seq.toDF("i").as("main")
       testDF.collect()
-      val resdf = testDF.transform(ruleEngineWithStructF(rs, StructType(Seq(StructField("col1",IntegerType)))))
+      val resdf = testDF.transform(ruleEngineWithStructF(rs, StructType(Seq(StructField("col1",IntegerType))), forceRunnerEval = true))
       try {
         val res = resdf.selectExpr("ruleEngine.result.col1").as[Option[Int]].collect()
         assert(res.count(_.isEmpty) == 1)
@@ -327,7 +336,7 @@ class RuleEngineTest extends FunSuite with TestUtils {
       ))
       val testDF = seq.toDF("i")
       testDF.collect()
-      val resdf = testDF.transform(ruleEngineWithStructF(rs, IntegerType))
+      val resdf = testDF.transform(ruleEngineWithStructF(rs, IntegerType, forceRunnerEval = true))
       try {
         val res = resdf.selectExpr("ruleEngine.result").as[Option[Int]].collect()
         assert(res.count(_.isEmpty) == 1)
@@ -374,8 +383,8 @@ class RuleEngineTest extends FunSuite with TestUtils {
       }
 
       // test no alias paths as well
-      testRes(testDF.transform(ruleEngineWithStructF(rs, IntegerType, alias = null)).asInstanceOf[DataFrame])
-      testRes(testDF.transform(ruleEngineWithStructF(rs, IntegerType, alias = "")).asInstanceOf[DataFrame])
+      testRes(testDF.transform(ruleEngineWithStructF(rs, IntegerType, alias = null, forceRunnerEval = true)).asInstanceOf[DataFrame])
+      testRes(testDF.transform(ruleEngineWithStructF(rs, IntegerType, alias = "", forceRunnerEval = true)).asInstanceOf[DataFrame])
     }
   }
 
@@ -401,7 +410,7 @@ class RuleEngineTest extends FunSuite with TestUtils {
       ), Seq(LambdaFunction("genMax", sub(), Id(2404,1))))
       val testDF = seq.toDF("i").as("main")
       testDF.collect()
-      val resdf = testDF.transform(ruleEngineWithStructF(rs, IntegerType))
+      val resdf = testDF.transform(ruleEngineWithStructF(rs, IntegerType, forceRunnerEval = true))
       try {
         val res = resdf.selectExpr("ruleEngine.result").as[Option[Int]].collect()
         // the o.g. '4' value should return null
@@ -437,7 +446,7 @@ class RuleEngineTest extends FunSuite with TestUtils {
       ), Seq(LambdaFunction("genMax", sub(), Id(2404,1))))
       val testDF = seq.toDF("i")
       testDF.collect()
-      val resdf = testDF.transform(ruleEngineWithStructF(rs, IntegerType)) // uses main default
+      val resdf = testDF.transform(ruleEngineWithStructF(rs, IntegerType, forceRunnerEval = true)) // uses main default
       try {
         val res = resdf.selectExpr("ruleEngine.result").as[Option[Int]].collect()
         // the o.g. '4' value should return null

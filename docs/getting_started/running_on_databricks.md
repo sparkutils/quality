@@ -65,7 +65,19 @@ As of 6th June 2023 0.0.2 run against the 12.2.dbr LTS build also works on 13.0.
 
 ## Running on Databricks Runtime 15.4 LTS
 
-15.4 LTS is compatible with the 14.3.dbr runtime.
+0.1.3.1 support introduced.
+
+15.4 LTS now requires its own runtime if you are using rng functions as Databricks introduced a breaking change in optimisation of Nondeterministic functions (which relies on a newly introduced Expression.nonVolatile field not present in OSS Spark)
+
+As of 0.1.3.1-RC5 there is a regression wrt interpreted mode and "Spark" encoding, if you are receiving Stream results you may also get incorrect reults.  This is being tracked under #77, use Frameless encoder derivation to guarantee results if this occurs.
+
+## Running on Databricks Runtime 16.3
+
+0.1.3.1 support introduced.
+
+16.3 Introduced a number of API changes, Stream is returned in some unexpected forceInterpreted cases,  and UnresolvedFunction gets a new param.  
+
+As of 0.1.3.1-RC5 there is a regression wrt interpreted mode and "Spark" encoding, if you are receiving Stream results you may also get incorrect reults.  This is being tracked under #77, use Frameless encoder derivation to guarantee results if this occurs.
 
 ## Testing out Quality via Notebooks
 
@@ -98,7 +110,7 @@ Running: sequenceAsKeysDecimals(com.sparkutils.qualityTests.YamlTests), finished
 
 Time: 633.686
 
-OK (430 tests)
+OK (431 tests)
 
 Finished. Result: Failures: 0. Ignored: 0. Tests run: 430. Time: 633686ms.
 import com.sparkutils.quality.tests.TestSuite

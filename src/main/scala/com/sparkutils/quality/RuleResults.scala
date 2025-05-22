@@ -1,6 +1,9 @@
 package com.sparkutils.quality
 
 import com.sparkutils.quality.impl.VersionedId
+import com.sparkutils.quality.impl.util.Optional
+
+import scala.collection.JavaConverters._
 
 sealed trait RuleResult extends Serializable
 
@@ -41,7 +44,9 @@ case class OverallResult(probablePass: Double = 0.8, currentResult: RuleResult =
   * @param overallResult
   * @param ruleResults rule id -> ruleresult
   */
-case class RuleSetResult(overallResult: RuleResult, ruleResults: Map[VersionedId, RuleResult]) extends Serializable
+case class RuleSetResult(overallResult: RuleResult, ruleResults: Map[VersionedId, RuleResult]) extends Serializable {
+  def getRuleResults: java.util.Map[VersionedId, RuleResult] = ruleResults.asJava
+}
 
 /**
  * Results for all rules run against a dataframe without the overallResult.  Performance differences for filtering on top level fields
@@ -49,7 +54,9 @@ case class RuleSetResult(overallResult: RuleResult, ruleResults: Map[VersionedId
  * @param id
  * @param ruleSetResults
  */
-case class RuleSuiteResultDetails(id: VersionedId, ruleSetResults: Map[VersionedId, RuleSetResult]) extends Serializable
+case class RuleSuiteResultDetails(id: VersionedId, ruleSetResults: Map[VersionedId, RuleSetResult]) extends Serializable {
+  def getRuleSetResults: java.util.Map[VersionedId, RuleSetResult] = ruleSetResults.asJava
+}
 
 /**
   * Results for all rules run against a dataframe
@@ -59,6 +66,7 @@ case class RuleSuiteResultDetails(id: VersionedId, ruleSetResults: Map[Versioned
   */
 case class RuleSuiteResult(id: VersionedId, overallResult: RuleResult, ruleSetResults: Map[VersionedId, RuleSetResult]) extends Serializable {
   def details: RuleSuiteResultDetails = RuleSuiteResultDetails(id, ruleSetResults)
+  def getRuleSetResults: java.util.Map[VersionedId, RuleSetResult] = ruleSetResults.asJava
 }
 
 /**
@@ -76,14 +84,18 @@ case class GeneralExpressionResult(result: String, resultDDL: String) {
  * @param id
  * @param ruleSetResults
  */
-case class GeneralExpressionsResult[R](id: VersionedId, ruleSetResults: Map[VersionedId, Map[VersionedId, R]]) extends Serializable
+case class GeneralExpressionsResult[R](id: VersionedId, ruleSetResults: Map[VersionedId, Map[VersionedId, R]]) extends Serializable {
+  def getRuleSetResults: java.util.Map[VersionedId, Map[VersionedId, R]] = ruleSetResults.asJava
+}
 
 /**
  * Represents the results of the ExpressionRunner after calling strip_result_ddl
  * @param id
  * @param ruleSetResults
  */
-case class GeneralExpressionsResultNoDDL(id: VersionedId, ruleSetResults: Map[VersionedId, Map[VersionedId, String]]) extends Serializable
+case class GeneralExpressionsResultNoDDL(id: VersionedId, ruleSetResults: Map[VersionedId, Map[VersionedId, String]]) extends Serializable {
+  def getRuleSetResults: java.util.Map[VersionedId, Map[VersionedId, String]] = ruleSetResults.asJava
+}
 
 /**
  * Represents the rule that matched a given RuleEngine result
@@ -100,6 +112,9 @@ case class SalientRule(ruleSuiteId: VersionedId, ruleSetId: VersionedId, ruleId:
  * @param result The result type for this row, if no rule matched this will be None, if a rule matched but the outputexpression returned null this will also be None
  */
 case class RuleEngineResult[T](ruleSuiteResults: RuleSuiteResult, salientRule: Option[SalientRule], result: Option[T]) extends Serializable {
+  def getSalientRule: java.util.Optional[SalientRule] = Optional.toOptional(salientRule)
+
+  def getResult: java.util.Optional[T] = Optional.toOptional(result)
 }
 
 /**
@@ -108,4 +123,5 @@ case class RuleEngineResult[T](ruleSuiteResults: RuleSuiteResult, salientRule: O
  * @param result The result type for this row, if no rule matched this will be None, if a rule matched but the outputexpression returned null this will also be None
  */
 case class RuleFolderResult[T](ruleSuiteResults: RuleSuiteResult, result: Option[T]) extends Serializable {
+  def getResult: java.util.Optional[T] = Optional.toOptional(result)
 }
