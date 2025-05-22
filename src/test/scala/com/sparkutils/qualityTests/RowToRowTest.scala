@@ -551,6 +551,7 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
 
   test("via ProcessFactory folder engine T product") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve {
     val s = sparkSession // force it
+    registerQualityFunctions()
 
     import s.implicits._
 

@@ -7,7 +7,7 @@ import com.sparkutils.shim.expressions.HigherOrderFunctionLike
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{TypeCheckResult, UnresolvedAttribute}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode, GlobalValue, JavaCode}
 import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression, HigherOrderFunction, LambdaFunction, LeafExpression, NamedExpression, NamedLambdaVariable, OuterReference, SubqueryExpression, UnresolvedNamedLambdaVariable}
 import org.apache.spark.sql.qualityFunctions.SubQueryLambda.namedToOuterReference
 import org.apache.spark.sql.types.{AbstractDataType, DataType}
@@ -65,19 +65,23 @@ case class RunAllReturnLast(children: Seq[Expression]) extends Expression
 
 trait RefCodeGen {
   def dataType: DataType
+
+  // never return a different object from this gen code
+  @transient
+  var _generated: ExprCode = null
+
   protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
-    val idx = ctx.references.length
-    ctx.references += this
-    val javaType = CodeGenerator.javaType(dataType)
-    val boxed = CodeGenerator.boxedType(dataType)
+    if (_generated == null) {
+      val javaType = CodeGenerator.javaType(dataType)
+      val theVar = ctx.addMutableState(javaType, ctx.freshName("RefExpr"), useFreshName = false)
+      val theNull = ctx.addMutableState("boolean", ctx.freshName("RefExprNull"), useFreshName = false)
 
-    val clazz = this.getClass.getName
-    ev.copy(code =
-      code"""
-        $javaType ${ev.value} = ($boxed) (($clazz)references[$idx]).value();
-
-        boolean ${ev.isNull} = ${ev.value} == null;
-      """)
+      _generated = ev.copy(code = code"",
+        isNull = GlobalValue(theNull, CodeGenerator.javaClass(dataType)),
+        value = GlobalValue(theVar, CodeGenerator.javaClass(dataType)),
+      )
+    }
+    _generated
   }
 }
 

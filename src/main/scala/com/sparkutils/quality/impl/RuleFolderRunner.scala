@@ -118,14 +118,21 @@ trait RuleFolderRunnerBase[T] extends BinaryExpression with NonSQLExpression {
     val offsetTerm = ctx.addMutableState("int", ctx.freshName("offset"),
       v => s"$v = ${expressionOffsets.size};")
 
+    val lazyRefsGenCode = realChildren.drop(expressionOffsets.length).map(_.asInstanceOf[FunN].arguments.head.genCode(ctx))
+
     val compilerTerms =
       RuleEngineRunnerUtils.genCompilerTerms[T](ctx, right, expressionOffsets, realChildren,
         debugMode, variablesPerFunc, variableFuncGroup, forceTriggerEval,
         // capture the current
         extraResult = (outArrTerm: String) => s"$folderV = $outArrTerm;",
-        extraSetup = (idx: String) =>
+        extraSetup = (idx: String, i: Int) =>
           // set the current
-          s"(($lazyRefName)(($funName)(($ruleRunnerClassName)references[$ruleRunnerExpressionIdx]).realChildren().apply($offsetTerm + $idx)).arguments().apply(0)).value_$$eq($folderV);",
+          //s"(($lazyRefName)(($funName)(($ruleRunnerClassName)references[$ruleRunnerExpressionIdx]).realChildren().apply($offsetTerm + $idx)).arguments().apply(0)).value_$$eq($folderV);",
+          s"""
+          // set the current row for the fold for the $i'th rule
+          ${lazyRefsGenCode(i).value} = $folderV;
+          ${lazyRefsGenCode(i).isNull} = $folderV == null;
+          """,
         orderOffset = (idx: Int) => reordered(idx),
         // we shouldn't check salience as we are already ordered by it
         salienceCheck = false

@@ -192,7 +192,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
                   child: Expression, expressionOffsets: Array[Int], realChildren: Seq[Expression],
                        debugMode: Boolean, variablesPerFunc: Int, variableFuncGroup: Int, forceTriggerEval: Boolean,
                        extraResult: String => String = (_ : String) => "",
-                       extraSetup: String => String = (_ : String) => "",
+                       extraSetup: (String, Int) => String = (_ : String, _: Int) => "",
                        orderOffset: Int => Int = identity,
                        salienceCheck: Boolean = true
                       ):
@@ -287,7 +287,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
         ctx.addNewFunction(exprFuncName,
           s"""
    private void $exprFuncName($paramsDef, int $index) {
-            ${extraSetup(index)} \n
+            ${extraSetup(index, i)} \n
             ${eval.code} \n
 
      ${
