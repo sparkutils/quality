@@ -70,11 +70,13 @@ object Processors {
    * @return
    */
   def processFactory[I: Encoder, O: Encoder](dataFrameFunction: DataFrame => DataFrame, toSize: Int, compile: Boolean = true,
-      forceMutable: Boolean = false, extraProjection: DataFrame => DataFrame = identity): ProcessorFactory[I, O] = {
+      forceMutable: Boolean = false, extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true): ProcessorFactory[I, O] = {
     if (forceMutable || !compile)
-      MutableProjectionProcessor.processFactory[I, O](dataFrameFunction, toSize, compile, extraProjection)
+      MutableProjectionProcessor.processFactory[I, O](dataFrameFunction, toSize, compile, extraProjection, enableQualityOptimisations = enableQualityOptimisations)
     else {
-      enableOptimizations(Seq(FunNRewrite, ConstantFolding))
+      if (enableQualityOptimisations) {
+        enableOptimizations(Seq(FunNRewrite, ConstantFolding))
+      }
 
       val iEnc = implicitly[Encoder[I]]
       val exprs = QualitySparkUtils.resolveExpressions[I](iEnc, df => {

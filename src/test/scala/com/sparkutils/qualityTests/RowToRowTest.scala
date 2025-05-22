@@ -11,17 +11,15 @@ import org.apache.avro.io.EncoderFactory
 import org.apache.spark.sql.{Encoders, QualitySparkUtils}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{MutableProjection, Projection}
-
 import org.apache.spark.sql.functions.{col, column, lit}
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.UTF8String
 import org.junit.runner.RunWith
-import org.scalatest.{FunSuite, Matchers}
+import org.scalatest.{BeforeAndAfterAll, FunSuite, Matchers}
 import org.scalatestplus.junit.JUnitRunner
 
 import java.io.ByteArrayOutputStream
 import scala.beans.BeanProperty
-
 import scala.collection.JavaConverters._
 
 class NewPostingBean(){
@@ -40,7 +38,7 @@ class NewPostingBean(){
 
 // purposefully NOT in the testShade as this is inappropriate for actual spark usage
 @RunWith(classOf[JUnitRunner])
-class RowToRowTest extends FunSuite with Matchers  with TestUtils {
+class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with TestUtils {
 
   val testData=Seq(
     TestOn("edt", "4251", 50),
@@ -57,16 +55,17 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
     StructField("subcode", IntegerType, nullable = false)
   ))
 
-  test("simple projection") { not2_4 { not_Cluster { evalCodeGensNoResolve {
+  override protected def beforeAll(): Unit = {
+    val s = sparkSession // force it
+    registerQualityFunctions()
+  }
 
+  test("simple projection") { not2_4 { not_Cluster { evalCodeGensNoResolve {
     def map(seq: Seq[TestOn], projection: Projection, resi: Int): Seq[Int] = seq.map{ s =>
       val i = InternalRow(UTF8String.fromString(s.product), UTF8String.fromString(s.account), s.subcode)
       val r = projection(i)
       r.getInt(resi)
     }
-
-    val s = sparkSession // force it
-    registerQualityFunctions()
 
     val rs = RuleSuite(Id(1,1), Seq(
       RuleSet(Id(50, 1), Seq(
@@ -89,9 +88,6 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
   } } } }
 
   test("encoder output projection") { not2_4 { not_Cluster { evalCodeGensNoResolve {
-    val s = sparkSession // force it
-    registerQualityFunctions()
-
     val enc = QualitySparkUtils.rowProcessor(Seq(ruleSuiteDeserializer), inCodegen).asInstanceOf[MutableProjection]
     enc.target(InternalRow(null))
 
@@ -126,9 +122,7 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
   }
 
   test("via ProcessFactory") { not2_4 { not_Cluster { evalCodeGensNoResolve {
-    val s = sparkSession // force it
-
-    import s.implicits._
+    import sparkSession.implicits._
 
     val rs = RuleSuite(Id(1,1), Seq(
       RuleSet(Id(50, 1), Seq(
@@ -144,11 +138,7 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
   } } } }
 
   test("via ProcessFactory rule details") { not2_4 { not_Cluster { evalCodeGensNoResolve {
-    val s = sparkSession // force it
-
-    import s.implicits._
-
-    registerQualityFunctions()
+    import sparkSession.implicits._
 
     val rs = RuleSuite(Id(1,1), Seq(
       RuleSet(Id(50, 1), Seq(
@@ -164,9 +154,7 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
   } } } }
 
   test("via ProcessFactory rule engine") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve {
-    val s = sparkSession // force it
-
-    import s.implicits._
+    import sparkSession.implicits._
 
     val DDL = "ARRAY<STRUCT<`transfer_type`: STRING, `account`: STRING, `product`: STRING, `subcode`: INTEGER >>"
     registerLambdaFunctions(Seq(
@@ -221,9 +209,7 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
   } } } }
 
   test("via ProcessFactory rule engine T array") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve {
-    val s = sparkSession // force it
-
-    import s.implicits._
+    import sparkSession.implicits._
 
     val DDL = "ARRAY<STRUCT<`transfer_type`: STRING, `account`: STRING, `product`: STRING, `subcode`: INTEGER >>"
     registerLambdaFunctions(Seq(
@@ -276,9 +262,7 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
   } } } }
 
   test("via ProcessFactory rule engine T product") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve {
-    val s = sparkSession // force it
-
-    import s.implicits._
+    import sparkSession.implicits._
 
     val DDL = "STRUCT<`transfer_type`: STRING, `account`: STRING, `product`: STRING, `subcode`: INTEGER >"
     registerLambdaFunctions(Seq(
@@ -332,9 +316,7 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
 
 
   test("via ProcessFactory rule engine product") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve {
-    val s = sparkSession // force it
-
-    import s.implicits._
+    import sparkSession.implicits._
 
     val DDL = "STRUCT<`transfer_type`: STRING, `account`: STRING, `product`: STRING, `subcode`: INTEGER >"
     registerLambdaFunctions(Seq(
@@ -389,9 +371,7 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
   } } } }
 
   test("via ProcessFactory rule engine T bean") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve {
-    val s = sparkSession // force it
-
-    import s.implicits._
+    import sparkSession.implicits._
 
     val DDL = "STRUCT<`transfer_type`: STRING, `account`: STRING, `product`: STRING, `subcode`: INTEGER >"
     registerLambdaFunctions(Seq(
@@ -447,9 +427,7 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
 
 
   test("via ProcessFactory rule engine T string") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve {
-    val s = sparkSession // force it
-
-    import s.implicits._
+    import sparkSession.implicits._
 
     val DDL = "STRING"
 
@@ -497,9 +475,7 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
   } } } }
 
   test("via ProcessFactory rule engine T map") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve {
-    val s = sparkSession // force it
-
-    import s.implicits._
+    import sparkSession.implicits._
 
     val DDL = "map<STRING, String>"
 
@@ -550,10 +526,7 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
   } } } }
 
   test("via ProcessFactory folder engine T product") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve {
-    val s = sparkSession // force it
-    registerQualityFunctions()
-
-    import s.implicits._
+    import sparkSession.implicits._
 
     val DDL = "STRUCT<`account`: STRING, `product`: STRING, `subcode`: INTEGER >"
     registerLambdaFunctions(Seq(
@@ -607,9 +580,7 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
 
 
   test("via ProcessFactory folder engine T bean extra output fields") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve {
-    val s = sparkSession // force it
-
-    import s.implicits._
+    import sparkSession.implicits._
 
     val DDL = "STRUCT<`transfer_type`: STRING, `account`: STRING, `product`: STRING, `subcode`: INTEGER >"
     registerLambdaFunctions(Seq(
@@ -666,9 +637,7 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
 
 
   test("via ProcessFactory expression T ") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve {
-    val s = sparkSession // force it
-
-    import s.implicits._
+    import sparkSession.implicits._
 
     val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
       Rule(Id(30, 3), ExpressionRule("account like '42%'")),
@@ -714,9 +683,7 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
   } } } }
 
   test("via ProcessFactory expression yaml") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve {
-    val s = sparkSession // force it
-
-    import s.implicits._
+    import sparkSession.implicits._
 
     val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
       Rule(Id(30, 3), ExpressionRule("account like '42%'")),
@@ -763,9 +730,7 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
   } } } }
 
   test("via ProcessFactory expression yaml noddl") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve {
-    val s = sparkSession // force it
-
-    import s.implicits._
+    import sparkSession.implicits._
 
     val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
       Rule(Id(30, 3), ExpressionRule("account like '42%'")),
@@ -810,8 +775,7 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
 
 
   test("prove processors can't have subqueries") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve {
-    val s = sparkSession // force it
-    import s.implicits._
+    import sparkSession.implicits._
 
     testData.toDS.createOrReplaceTempView("testData")
 
@@ -828,8 +792,6 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
   } } } }
 
   test("via ProcessFactory with Avro inputs") { not2_4 { not_Cluster { evalCodeGensNoResolve {
-    val s = sparkSession // force it
-
     val testOnAvro = SchemaBuilder.record("testOnAvro")
       .namespace("com.teston")
       .fields()
@@ -854,7 +816,7 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
       ba
     }
 
-    import s.implicits._
+    import sparkSession.implicits._
 
     val rs = RuleSuite(Id(1,1), Seq(
       RuleSet(Id(50, 1), Seq(
@@ -871,11 +833,7 @@ class RowToRowTest extends FunSuite with Matchers  with TestUtils {
   } } } }
 
   test("via ProcessFactory map's") { not2_4 { not_Cluster { evalCodeGensNoResolve {
-    val s = sparkSession // force it
-
-    import s.implicits._
-
-    registerQualityFunctions()
+    import sparkSession.implicits._
 
     val theMap = Seq((40, true),
       (50, false),
