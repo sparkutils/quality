@@ -235,34 +235,35 @@ s"""
 
     (ruleSuitTerm, realChildrenTerm)
   }
+/*
+  lazy val filterPrefixes =
+    com.sparkutils.quality.getConfig("quality_param_filter_prefixes","").split(',').map(_.trim).toSet ++ Set(
+      "bhj_", "inputadapter_", "columnartorow_"
+    )
 
-  val filterUneededNames = (exprCode: ExprCode) =>
-    exprCode.value.code.startsWith("bhj_") || exprCode.value.code.startsWith("inputadapter_")
-
+  val filterUneededNames = (exprCode: ExprCode) => false
+   // filterPrefixes.exists(p => exprCode.value.code.startsWith(p))
+*/
   /**
-   * Filters out broadcast hash join bhj_ and inputadapter_ fields, these are top level and not needed
+   *
+   *
    * @param i
    * @param ctx
    * @return
    */
-  def genParams(i: String, ctx: CodegenContext) =
-    if (i ne null)
-      (s"InternalRow $i", s"$i")
-    else
-      (ctx.currentVars.filterNot(filterUneededNames).map(v =>
-        if (v.value.javaType.isPrimitive)
-          s"${v.value.javaType} ${v.value}"
-        else
-          s"${v.value.javaType.getName} ${v.value}, ${v.isNull.javaType} ${v.isNull}"
-      ).mkString(", ")
-        , ctx.currentVars.filterNot(filterUneededNames).map(v =>
-        if (v.value.javaType.isPrimitive)
-          s"${v.value}"
-        else
-          s"${v.value}, ${v.isNull}"
-      ).mkString(", "))
+  def genParams(ctx: CodegenContext, child: Expression) = {
+    val (a, b) = CodeGenerator.getLocalInputVariableValues(ctx, child)
+// bhj_isNull_6
+    ((a.map(v =>
+      if (v.javaType.isPrimitive)
+        s"${v.javaType} ${v}"
+      else
+        s"${v.javaType.getName} ${v}"
+    ).mkString(", ")
+      , a.mkString(", ")), b)
+  }
 
-  def nonOutputRuleGen(ctx: CodegenContext, ev: ExprCode, i: String, ruleSuitTerm: String, utilsName: String,
+  def nonOutputRuleGen(ctx: CodegenContext, runner: Expression, ev: ExprCode, ruleSuitTerm: String, utilsName: String,
                        realChildren: Seq[Expression], variablesPerFunc: Int, variableFuncGroup: Int,
                        resultF: (ExprValue, Int) => String
                       ): ExprCode = {
@@ -293,7 +294,7 @@ s"""
         converted
     }.grouped(variablesPerFunc).grouped(variableFuncGroup)
 
-    val (paramsDef, paramsCall) = genParams(i, ctx)
+    val ((paramsDef, paramsCall), topCode) = genParams(ctx, runner)
 
     val funNames: Iterator[String] =
       RuleRunnerUtils.generateFunctionGroups(ctx, allExpr, paramsDef, paramsCall)
@@ -364,7 +365,6 @@ trait RuleRunnerBase[T] extends UnaryExpression with NonSQLExpression {
    * @return
    */
   protected def doGenCodeI(ctx: CodegenContext, ev: ExprCode): ExprCode = {
-    val i = ctx.INPUT_ROW
 /*
     if (child.isInstanceOf[NonPassThrough] && (i eq null) ) {
       // for some reason code gen ends up with assuming iterator based gen on children instead of simple gen - the actual gen isn't even called for flattenResultsTest, only for withResolve, could be dragons.
@@ -377,7 +377,7 @@ trait RuleRunnerBase[T] extends UnaryExpression with NonSQLExpression {
     val ruleSuitTerm = genRuleSuiteTerm[T](ctx)._1
     val utilsName = "com.sparkutils.quality.impl.RuleRunnerUtils"
 
-    nonOutputRuleGen(ctx, ev, i, ruleSuitTerm, utilsName, realChildren, variablesPerFunc, variableFuncGroup,
+    nonOutputRuleGen(ctx, this, ev, ruleSuitTerm, utilsName, realChildren, variablesPerFunc, variableFuncGroup,
       (code: ExprValue, idx: Int) => s"com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt($code)"
     )
   }

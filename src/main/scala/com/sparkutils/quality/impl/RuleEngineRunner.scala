@@ -200,7 +200,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
     CompilerTerms = {
     val i = ctx.INPUT_ROW
 
-    val (paramsDef, paramsCall) = RuleRunnerUtils.genParams(i, ctx)
+    val ((paramsDef, paramsCall), topCode) = RuleRunnerUtils.genParams(ctx, child)
 
     // bind the rules
     val (ruleSuitTerm, termFun) = genRuleSuiteTerm[T](ctx)
@@ -250,7 +250,8 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
 
     val triggerRules = realChildren.slice(0, offset)
 
-    val pushToTop = mutable.Set.empty[String]
+    val pushToTop = mutable.Set.empty[String] ++
+      topCode.map(_.code.code)
 
     def codeGen(exp: Expression, idx: Int, funName: String) = {
       val (evalPre, eval) =
@@ -263,7 +264,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
           val edt = eval.value.javaType
           val theCast = if (edt.isPrimitive) CodeGenerator.boxedType(edt.getSimpleName) else edt.getName
 
-          val mustBeDeclaredUpTop = hasASubQuery(exp)
+          val mustBeDeclaredUpTop = false //hasASubQuery(exp)
           if (mustBeDeclaredUpTop) {
             pushToTop.add(
               s"""
@@ -301,7 +302,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
         val exprFuncName = ctx.freshName(s"outputExprFun$i")
 
         val exp = realChildren(offset + i)
-        val mustBeDeclaredUpTop = hasASubQuery(exp)
+        val mustBeDeclaredUpTop = false // hasASubQuery(exp)
 
         val eval = exp.genCode(ctx)
 
