@@ -10,6 +10,7 @@ import com.sparkutils.quality.impl.imports.{RuleEngineRunnerImports, RuleResults
 import RuleResultsImports.packId
 import com.sparkutils.quality.impl.util.SubQueryWrapper.hasASubQuery
 import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals, PassThroughEvalOnly, SubQueryWrapper}
+import org.apache.spark.sql.QualitySparkUtils.genParams
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode}
@@ -200,7 +201,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
     CompilerTerms = {
     val i = ctx.INPUT_ROW
 
-    val ((paramsDef, paramsCall), topCode) = RuleRunnerUtils.genParams(ctx, child)
+    val (paramsDef, paramsCall, pushToTop) = genParams(ctx, child)
 
     // bind the rules
     val (ruleSuitTerm, termFun) = genRuleSuiteTerm[T](ctx)
@@ -250,9 +251,6 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
 
     val triggerRules = realChildren.slice(0, offset)
 
-    val pushToTop = mutable.Set.empty[String] ++
-      topCode.map(_.code.code)
-
     def codeGen(exp: Expression, idx: Int, funName: String) = {
       val (evalPre, eval) =
         if (forceTriggerEval)
@@ -264,17 +262,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
           val edt = eval.value.javaType
           val theCast = if (edt.isPrimitive) CodeGenerator.boxedType(edt.getSimpleName) else edt.getName
 
-          val mustBeDeclaredUpTop = false //hasASubQuery(exp)
-          if (mustBeDeclaredUpTop) {
-            pushToTop.add(
-              s"""
-                 // trigger moved to the top
-                 ${eval.code}
-                 $resArrTerm[$idx] = new Integer( com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt(${eval.isNull} ? null : ($theCast) ${eval.value}) );
-                 """)
-            ("", s"($resArrTerm[$idx] == null) ? $FailedInt : (Integer) $resArrTerm[$idx]")
-          } else
-            (eval.code, s"new Integer( com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt(${eval.isNull} ? null : ($theCast) ${eval.value}) )")
+          (eval.code, s"new Integer( com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt(${eval.isNull} ? null : ($theCast) ${eval.value}) )")
         }
 
       val converted =
@@ -302,8 +290,6 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
         val exprFuncName = ctx.freshName(s"outputExprFun$i")
 
         val exp = realChildren(offset + i)
-        val mustBeDeclaredUpTop = false // hasASubQuery(exp)
-
         val eval = exp.genCode(ctx)
 
         val body =
@@ -315,31 +301,6 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
               ${extraResult(s"$outArrTerm[$i]")}
         """
 
-        if (mustBeDeclaredUpTop) {
-          pushToTop.add(s"""
-                  // moved from $exprFuncName
-                  $body
-                  // end
-                  """)
-          ctx.addNewFunction(exprFuncName,s"""
-   private void $exprFuncName($paramsDef${if (paramsDef.isEmpty) "" else ","} int $index) {
-             // top level codegen would have gone here
-      ${
-            if (debugMode)
-              s"""
-              $currentOutputIndex += 1; \n
-
-              """
-            else
-              s"""
-
-              $currentSalience = $salienceArrTerm[$index]; \n
-              $currentOutputIndex = $index; \n
-              """
-          }
-      }
-  """)
-        } else
         ctx.addNewFunction(exprFuncName,
           s"""
    private void $exprFuncName($paramsDef${if (paramsDef.isEmpty) "" else ","} int $index) {
@@ -382,7 +343,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
     CompilerTerms(RuleRunnerUtils.generateFunctionGroups(ctx, allExpr, paramsDef, paramsCall),
       paramsCall, utilsName, ruleSuitTerm, ruleSuiteArrays, resArrTerm,
       currentSalience, ruleTupleArrTerm, currentOutputIndex, outArrTerm,
-      salienceArrTerm, pushToTop.mkString("\n"))
+      salienceArrTerm, pushToTop)
 
   }
 

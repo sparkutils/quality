@@ -8,6 +8,7 @@ import types.ruleSuiteResultType
 import com.sparkutils.quality.impl.imports.RuleRunnerImports
 import com.sparkutils.quality.impl.util.SubQueryWrapper.hasASubQuery
 import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals, PassThroughEvalOnly}
+import org.apache.spark.sql.QualitySparkUtils.genParams
 import org.apache.spark.sql.ShimUtils.column
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
@@ -235,33 +236,6 @@ s"""
 
     (ruleSuitTerm, realChildrenTerm)
   }
-/*
-  lazy val filterPrefixes =
-    com.sparkutils.quality.getConfig("quality_param_filter_prefixes","").split(',').map(_.trim).toSet ++ Set(
-      "bhj_", "inputadapter_", "columnartorow_"
-    )
-
-  val filterUneededNames = (exprCode: ExprCode) => false
-   // filterPrefixes.exists(p => exprCode.value.code.startsWith(p))
-*/
-  /**
-   *
-   *
-   * @param i
-   * @param ctx
-   * @return
-   */
-  def genParams(ctx: CodegenContext, child: Expression) = {
-    val (a, b) = CodeGenerator.getLocalInputVariableValues(ctx, child)
-// bhj_isNull_6
-    ((a.map(v =>
-      if (v.javaType.isPrimitive)
-        s"${v.javaType} ${v}"
-      else
-        s"${v.javaType.getName} ${v}"
-    ).mkString(", ")
-      , a.mkString(", ")), b)
-  }
 
   def nonOutputRuleGen(ctx: CodegenContext, runner: Expression, ev: ExprCode, ruleSuitTerm: String, utilsName: String,
                        realChildren: Seq[Expression], variablesPerFunc: Int, variableFuncGroup: Int,
@@ -272,36 +246,29 @@ s"""
       v => s"$v = com.sparkutils.quality.impl.RuleRunnerUtils.ruleSuiteArrays($ruleSuitTerm);"
     )
 
+    val (paramsDef, paramsCall, pushToTop) = genParams(ctx, runner)
+
     val ruleRes = "java.lang.Object"
     val arrTerm = ctx.addMutableState(ruleRes + "[]", ctx.freshName("results"),
       v => s"$v = new $ruleRes[${realChildren.size}];")
 
-    val pushToTop = mutable.Set.empty[String]
-
     val allExpr = realChildren.zipWithIndex.map { case (child, idx) =>
       val eval = child.genCode(ctx)
-      val mustBeDeclaredUpTop = hasASubQuery(child)
 
       val converted =
         s"""${eval.code}\n
 
              $arrTerm[$idx] = ${eval.isNull} ? null : ${resultF(eval.value, idx)};"""
 
-      if (mustBeDeclaredUpTop) {
-        pushToTop.add(s"//moved to top\n$converted\n")
-        ""
-      } else
-        converted
+      converted
     }.grouped(variablesPerFunc).grouped(variableFuncGroup)
-
-    val ((paramsDef, paramsCall), topCode) = genParams(ctx, runner)
 
     val funNames: Iterator[String] =
       RuleRunnerUtils.generateFunctionGroups(ctx, allExpr, paramsDef, paramsCall)
 
     val res = ev.copy(code =
       code"""
-      ${pushToTop.mkString("\n")}
+      $pushToTop
       ${funNames.map { f => s"$f($paramsCall);" }.mkString("\n")}
 
       InternalRow ${ev.value} = $utilsName.evalArray($ruleSuitTerm, $ruleSuiteArrays, $arrTerm);
