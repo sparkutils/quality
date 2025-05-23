@@ -259,17 +259,21 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
         else {
           val eval = exp.genCode(ctx)
 
+          // auto boxing on databricks doesn't work due to old janino see #82
+          val edt = eval.value.javaType
+          val theCast = if (edt.isPrimitive) CodeGenerator.boxedType(edt.getSimpleName) else edt.getName
+
           val mustBeDeclaredUpTop = hasASubQuery(exp)
           if (mustBeDeclaredUpTop) {
             pushToTop.add(
               s"""
                  // trigger moved to the top
                  ${eval.code}
-                 $resArrTerm[$idx] = com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt(${eval.isNull} ? null : ${eval.value});
+                 $resArrTerm[$idx] = new Integer( com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt(${eval.isNull} ? null : ($theCast) ${eval.value}) );
                  """)
-            ("", s"(Integer) $resArrTerm[$idx]")
+            ("", s"($resArrTerm[$idx] == null) ? $FailedInt : (Integer) $resArrTerm[$idx]")
           } else
-            (eval.code, s"com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt(${eval.isNull} ? null : ${eval.value})")
+            (eval.code, s"new Integer( com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt(${eval.isNull} ? null : ($theCast) ${eval.value}) )")
         }
 
       val converted =
@@ -277,7 +281,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
             $evalPre
             $currRuleResTerm = $eval;
 
-            $resArrTerm[$idx] = $currRuleResTerm;
+            $resArrTerm[$idx] = (Integer) $currRuleResTerm;
             if ( ( $currRuleResTerm == $PassedInt ) ${if (!debugMode && salienceCheck) s" && ( $currentSalience > $salienceArrTerm[$idx] ) " else "" }) {
               $funName($paramsCall${if (paramsCall.isEmpty) "" else ","} $idx);
             } ${if (!debugMode) "" else s"""
@@ -305,7 +309,6 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
           s"""
               ${extraSetup(index, i)} \n
               ${eval.code} \n
-
 
               $outArrTerm[$i] = ${eval.isNull} ? null : ($output)${eval.value}; \n
               ${extraResult(s"$outArrTerm[$i]")}
