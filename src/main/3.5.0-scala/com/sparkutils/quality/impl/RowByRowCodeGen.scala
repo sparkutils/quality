@@ -141,7 +141,7 @@ object GenerateDecoderOpEncoderProjection extends CodeGenerator[Seq[Expression],
     val nullInput = ctx.freshName("_i_isNull")
     val cast = JavaCode.boxedType(exprFromType)
 
-    val topVarName = ctx.addMutableState(iEnc.clsTag.runtimeClass.getName, input, useFreshName = false)
+    val topVarName = ctx.addMutableState(JavaCode.javaType(exprFromType).code, input, useFreshName = false)
     val topNullName = ctx.addMutableState("boolean", nullInput, useFreshName = false)
     val topVar: ExprCode = ExprCode(code =
       code"""
