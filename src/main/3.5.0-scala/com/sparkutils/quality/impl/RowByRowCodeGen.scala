@@ -190,14 +190,14 @@ object GenerateDecoderOpEncoderProjection extends CodeGenerator[Seq[Expression],
     val allProjections =  ctx.splitExpressionsWithCurrentInputs(projectionCodes.map(_._2))
     val allUpdates = ctx.splitExpressionsWithCurrentInputs(projectionCodes.map(_._3))
 
-    // replace the code with empty block so the usage is against null/value only
-    val oexprVals = projectionCodes.map(_._1.copy(code = EmptyBlock))
+    // replace the code with empty block so the usage is against null/value only, but only the actual input fields
+    val oexprVals = projectionCodes.drop( expressions.length - toSize).map(_._1.copy(code = EmptyBlock))
 
-    /*if (useSubexprElimination) {
-      ctx.currentVars = oexprVals ++ subExprStates.map(_._2.eval)
-    }*/
+    if (useSubexprElimination) {
+      ctx.currentVars = oexprVals
+    }
+
     ctx.currentVars = null
-
     ctx.INPUT_ROW = "dec"
     val decProjectionCodes = projections(ctx, Seq(exprTo), "decRow", useSubexprElimination = useSubexprElimination)//, subExprStates)
 
@@ -285,7 +285,7 @@ object GenerateDecoderOpEncoderProjection extends CodeGenerator[Seq[Expression],
 
           InternalRow dec = (InternalRow) interim;
           // dec subexprs
-          ${encSubExprs}
+          ${decSubExprs}
           // decoding projections
           $decProjections
           // decoding updates, should only be for index 0
