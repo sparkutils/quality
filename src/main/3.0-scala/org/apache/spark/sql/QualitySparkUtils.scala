@@ -38,13 +38,15 @@ object QualitySparkUtils {
   def genParams(ctx: CodegenContext, child: Expression): (String, String, String) = {
     val a = CodeGenerator.getLocalInputVariableValues(ctx, child)
 
-    (a.map(v =>
+    val ordered = a.toSeq.sortBy(_.variableName)
+
+    (ordered.map(v =>
       if (v.javaType.isPrimitive)
         s"${v.javaType} ${v}"
       else
         s"${v.javaType.getName} ${v}"
     ).mkString(", ")
-      , a.mkString(", "), "")
+      , ordered.mkString(", "), "")
   }
 
   def funNRewrite(plan: LogicalPlan, expressionToExpression: PartialFunction[Expression, Expression]): LogicalPlan =

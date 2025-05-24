@@ -11,6 +11,8 @@ import org.apache.spark.sql.catalyst.expressions.aggregate.NoOp
 import org.apache.spark.sql.catalyst.expressions.codegen._
 import org.apache.spark.sql.types.StructType
 
+//import scala.collection.immutable.{Map, Seq}
+
 /**
  * CODE is based on MutableProjection and generates a transformation between two encoders over a middle operation.
  * The generated class itself can create new instances directly, unlike Spark projections that need to go through the
@@ -38,12 +40,25 @@ object GenerateDecoderOpEncoderProjection extends CodeGenerator[Seq[Expression],
   protected def create(expressions: Seq[Expression]): DecoderOpEncoderProjection[_,_] = ???
   // $COVERAGE-ON$
 
-  def projections(ctx: CodegenContext, expressions: Seq[Expression], mutableRow: String, useSubexprElimination: Boolean = false) = {
+  // only for subexpresssion elimination, the tree is cleaned for statefuls on each new invocation, just not the first
+  // one and freshCopyIfContainsStatefulExpression is also >3.4.1 only
+  def generateExpressions(ctx: CodegenContext, expressions: Seq[Expression], subExprState: Map[ExpressionEquals,
+    SubExprEliminationState]): Seq[ExprCode] =
+    ctx.withSubExprEliminationExprs(subExprState)( expressions.map(e => e.genCode(ctx) ) )
+
+  def projections(ctx: CodegenContext, expressions: Seq[Expression], mutableRow: String, useSubexprElimination: Boolean = false,
+                  subExprState: Map[ExpressionEquals, SubExprEliminationState] = Map.empty) = {
     val validExpr = expressions.zipWithIndex.filter {
       case (NoOp, _) => false
       case _ => true
     }
-    val exprVals = ctx.generateExpressions(validExpr.map(_._1), useSubexprElimination)
+
+    val exprVals =
+      if (useSubexprElimination)
+        generateExpressions(ctx, validExpr.map(_._1), subExprState)
+      else
+        // non wholestage approach
+        ctx.generateExpressions(validExpr.map(_._1), useSubexprElimination)
 
     // 4-tuples: (code for projection, isNull variable name, value variable name, column index)
     val projectionCodes: Seq[(String, String)] = validExpr.zip(exprVals).map {
@@ -51,6 +66,7 @@ object GenerateDecoderOpEncoderProjection extends CodeGenerator[Seq[Expression],
         val value = JavaCode.global(
           ctx.addMutableState(CodeGenerator.javaType(e.dataType), "value"),
           e.dataType)
+
         val (code, isNull) = if (e.nullable) {
           val isNull = ctx.addMutableState(CodeGenerator.JAVA_BOOLEAN, "isNull")
           (s"""
@@ -82,6 +98,13 @@ object GenerateDecoderOpEncoderProjection extends CodeGenerator[Seq[Expression],
   }
   // $COVERAGE-ON$
 
+  // directly taken from wholestage
+  protected def evaluateVariables(variables: Seq[ExprCode]): String = {
+    val evaluate = variables.filter(_.code.nonEmpty).map(_.code.toString).mkString("\n")
+    variables.foreach(_.code = EmptyBlock)
+    evaluate
+  }
+
   private def create[I: Encoder, O: Encoder](
                       expressions: Seq[Expression],
                       useSubexprElimination: Boolean, toSize: Int): DecoderOpEncoderProjection[I,O] = {
@@ -107,23 +130,59 @@ object GenerateDecoderOpEncoderProjection extends CodeGenerator[Seq[Expression],
 
     val ctx = newCodeGenContext()
 
-    val projectionCodes = projections(ctx, expressions, "mutableRow", useSubexprElimination)
-
-    // Evaluate all the subexpressions.
-    val evalSubexpr = ctx.subexprFunctionsCode
-
-    val allProjections = ctx.splitExpressionsWithCurrentInputs(projectionCodes.map(_._1))
-    val allUpdates = ctx.splitExpressionsWithCurrentInputs(projectionCodes.map(_._2))
+    // the code references to the other fields is already present inside of expressions, works for input_row based,
+    // but not wholestage approach, this is performed by all the CodegenSupport execs via attribute lookups
+    val exprsToUse = expressions.drop( expressions.length - toSize)
 
     ctx.INPUT_ROW = "enc"
-    val encProjectionCodes = projections(ctx, exprFrom, "encRow")
+
+    // Evaluate all the subexpressions.
+    // only for input_row projections val evalSubexpr = ctx.subexprFunctionsCode
+    val (subExprsCode, subExprInputs, subExprStates: Map[ExpressionEquals, SubExprEliminationState]) =
+      if (useSubexprElimination) {
+        val subExprs = ctx.subexpressionEliminationForWholeStageCodegen(exprFrom ++ exprsToUse ++ Seq(exprTo))
+        (ctx.evaluateSubExprEliminationState(subExprs.states.values), subExprs.exprCodesNeedEvaluate, subExprs.states)
+      } else
+        ("", Seq.empty, Map.empty)
+
+    val encProjectionCodes = projections(ctx, exprFrom, "encRow", useSubexprElimination = useSubexprElimination, subExprStates)
 
     val encProjections = ctx.splitExpressionsWithCurrentInputs(encProjectionCodes.map(_._1))
     val encUpdates = ctx.splitExpressionsWithCurrentInputs(encProjectionCodes.map(_._2))
 
-    ctx.INPUT_ROW = "dec"
-    val decProjectionCodes = projections(ctx, Seq(exprTo), "decRow")
+    val exprVals =
+      if (useSubexprElimination)
+        generateExpressions(ctx, exprFrom, subExprStates)
+      else
+        ctx.generateExpressions(exprFrom, useSubexprElimination)
 
+    // we need InputRow to start with, after that we can bind to name
+    if (useSubexprElimination) {
+      ctx.currentVars = exprVals ++ subExprStates.map(_._2.eval)
+    }
+
+    ctx.INPUT_ROW = "mutableRow"
+
+    val projectionCodes = projections(ctx, exprsToUse, "mutableRow", useSubexprElimination = useSubexprElimination, subExprStates)
+
+    val allProjections = ctx.splitExpressionsWithCurrentInputs(projectionCodes.map(_._1))
+    val allUpdates = ctx.splitExpressionsWithCurrentInputs(projectionCodes.map(_._2))
+
+    // replace the code with empty block so the usage is against null/value only
+    val oexprVals =
+      (if (useSubexprElimination)
+        generateExpressions(ctx, exprsToUse, subExprStates)
+      else
+        ctx.generateExpressions(exprsToUse, useSubexprElimination)).map(_.copy(code = EmptyBlock))
+
+    if (useSubexprElimination) {
+      ctx.currentVars = oexprVals ++ subExprStates.map(_._2.eval)
+    }
+
+    ctx.INPUT_ROW = "dec"
+    val decProjectionCodes = projections(ctx, Seq(exprTo), "decRow", useSubexprElimination = useSubexprElimination, subExprStates)
+
+    val (a, b) = CodeGenerator.getLocalInputVariableValues(ctx, exprTo, subExprStates)
     val decProjections = ctx.splitExpressionsWithCurrentInputs(decProjectionCodes.map(_._1))
     val decUpdates = ctx.splitExpressionsWithCurrentInputs(decProjectionCodes.map(_._2))
 
@@ -168,12 +227,19 @@ object GenerateDecoderOpEncoderProjection extends CodeGenerator[Seq[Expression],
         //public ${implicitly[Encoder[O]].clsTag.runtimeClass.getName} apply(${implicitly[Encoder[I]].clsTag.runtimeClass.getName} _i) {
         public java.lang.Object apply(java.lang.Object _i) {
           inRow.update(0, _i);
+
           InternalRow enc = (InternalRow) inRow;
+          // common sub-expressions
+          // setup
+          ${evaluateVariables(subExprInputs)}
+          // the code
+          $subExprsCode
+          // encoding from object done by subexprs
           $encProjections
           $encUpdates
 
           InternalRow i = (InternalRow) encRow;
-          $evalSubexpr
+          // projections doing the actual work
           $allProjections
           // copy all the results into MutableRow
           $allUpdates
@@ -181,17 +247,22 @@ object GenerateDecoderOpEncoderProjection extends CodeGenerator[Seq[Expression],
           // uncomment to debug the output, extraProjection can introduce extra fields..
           // com.sparkutils.quality.impl.GenerateDecoderOpEncoderProjection.debug(mutableRow);
 
-          ${
+          // prepare input row for decoding to end user type
+          ${""
             if (toSize == 1 && resTypeIsStruct)
-              s"interim = mutableRow.getStruct(${expressions.length - 1}, ${resType.length});"
+              s"interim = mutableRow.getStruct(0, ${resType.length});"
             else
               (for(i <- 0 until toSize) yield
-                s"interim.update($i, ${CodeGenerator.getValue("mutableRow", expressions((expressions.length - toSize) + i).dataType, ((expressions.length - toSize) + i).toString)});"
+                s"interim.update($i, ${CodeGenerator.getValue("mutableRow", expressions((expressions.length - toSize) + i).dataType, i.toString)});"
                 ).mkString("\n")
           }
 
           InternalRow dec = (InternalRow) interim;
+          // init dec
+          //initDec
+          // decoding projections
           $decProjections
+          // decoding updates, should only be for index 0
           $decUpdates
 
           return (${implicitly[Encoder[O]].clsTag.runtimeClass.getName}) decRow.get(0, new org.apache.spark.sql.types.ObjectType(Object.class));
