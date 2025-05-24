@@ -33,7 +33,7 @@ trait TestUtils extends Serializable {
       tmp
   }
 
-  def loggingLevel: String = "ERROR"
+  def loggingLevel: String = "DEBUG"
 
   def sparkSessionF: SparkSession = {
     val sparkSession = registerFS(SparkSession.builder()).config("spark.master", s"local[$hostMode]").config("spark.ui.enabled", false).getOrCreate()
