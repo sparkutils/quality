@@ -332,12 +332,6 @@ trait RuleRunnerBase[T] extends UnaryExpression with NonSQLExpression {
    * @return
    */
   protected def doGenCodeI(ctx: CodegenContext, ev: ExprCode): ExprCode = {
-/*
-    if (child.isInstanceOf[NonPassThrough] && (i eq null) ) {
-      // for some reason code gen ends up with assuming iterator based gen on children instead of simple gen - the actual gen isn't even called for flattenResultsTest, only for withResolve, could be dragons.
-      return CodegenFallback.doGenCode(this, ctx, ev)
-    }*/
-
     ctx.references += this
 
     // bind the rules
