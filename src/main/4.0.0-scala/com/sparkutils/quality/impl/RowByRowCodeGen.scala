@@ -128,8 +128,6 @@ object GenerateDecoderOpEncoderProjection extends CodeGenerator[Seq[Expression],
     val decProjections = ctx.splitExpressionsWithCurrentInputs(decProjectionCodes.map(_._1))
     val decUpdates = ctx.splitExpressionsWithCurrentInputs(decProjectionCodes.map(_._2))
 
-    val decSubExprs = ctx.subexprFunctionsCode.replace(evalSubexpr,"")
-
     val codeBody = s"""
       public java.lang.Object generate(Object[] references) {
         return new SpecificMutableProjection(references);
@@ -201,7 +199,7 @@ object GenerateDecoderOpEncoderProjection extends CodeGenerator[Seq[Expression],
 
           InternalRow dec = (InternalRow) interim;
           // dec subexprs
-          $decSubExprs
+          //decSubExprs
           // dec projections
           $decProjections
           // dec updates

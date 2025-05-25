@@ -39,7 +39,7 @@ object GenerateDecoderOpEncoderProjection extends CodeGenerator[Seq[Expression],
       case (NoOp, _) => false
       case _ => true
     }
-    val exprVals = ctx.generateExpressions(validExpr.map(_._1), useSubexprElimination)
+    val exprVals = ctx.generateExpressions(validExpr.map(_._1), useSubexprElimination).toIndexedSeq
 
     // 4-tuples: (code for projection, isNull variable name, value variable name, column index)
     val projectionCodes: Seq[(String, String)] = validExpr.zip(exprVals).map {
@@ -106,7 +106,7 @@ object GenerateDecoderOpEncoderProjection extends CodeGenerator[Seq[Expression],
 
 
     ctx.INPUT_ROW = "enc"
-    val encProjectionCodes = projections(ctx, exprFrom, "encRow")
+    val encProjectionCodes = projections(ctx, exprFrom, "encRow").toIndexedSeq
 
     val encProjections = ctx.splitExpressionsWithCurrentInputs(encProjectionCodes.map(_._1))
     val encUpdates = ctx.splitExpressionsWithCurrentInputs(encProjectionCodes.map(_._2))
@@ -114,7 +114,7 @@ object GenerateDecoderOpEncoderProjection extends CodeGenerator[Seq[Expression],
 
     ctx.INPUT_ROW = "i"
 
-    val projectionCodes = projections(ctx, expressions, "mutableRow", useSubexprElimination)
+    val projectionCodes = projections(ctx, expressions, "mutableRow", useSubexprElimination).toIndexedSeq
 
     // Evaluate all the subexpressions.
     val evalSubexpr = ctx.subexprFunctionsCode.replace(encSubExprs, "")
@@ -123,12 +123,11 @@ object GenerateDecoderOpEncoderProjection extends CodeGenerator[Seq[Expression],
     val allUpdates = ctx.splitExpressionsWithCurrentInputs(projectionCodes.map(_._2))
 
     ctx.INPUT_ROW = "dec"
-    val decProjectionCodes = projections(ctx, Seq(exprTo), "decRow")
+
+    val decProjectionCodes = projections(ctx, Seq(exprTo), "decRow").toIndexedSeq
 
     val decProjections = ctx.splitExpressionsWithCurrentInputs(decProjectionCodes.map(_._1))
     val decUpdates = ctx.splitExpressionsWithCurrentInputs(decProjectionCodes.map(_._2))
-
-    val decSubExprs = ctx.subexprFunctionsCode.replace(evalSubexpr,"")
 
     val codeBody = s"""
       public java.lang.Object generate(Object[] references) {
@@ -201,7 +200,7 @@ object GenerateDecoderOpEncoderProjection extends CodeGenerator[Seq[Expression],
 
           InternalRow dec = (InternalRow) interim;
           // dec subexprs
-          $decSubExprs
+          //decSubExprs
           // dec projections
           $decProjections
           // dec updates
