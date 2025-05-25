@@ -1,7 +1,7 @@
 package com.sparkutils.quality.sparkless.impl
 
 import com.sparkutils.quality.enableOptimizations
-import com.sparkutils.quality.impl.GenerateDecoderOpEncoderProjection
+import com.sparkutils.quality.impl.{GenerateDecoderOpEncoderProjection, GenerateDecoderOpEncoderVarProjection}
 import com.sparkutils.quality.impl.extension.FunNRewrite
 import com.sparkutils.quality.sparkless.{Processor, ProcessorFactory}
 import org.apache.spark.broadcast.Broadcast
@@ -64,13 +64,14 @@ object Processors {
    * @param dataFrameFunction
    * @param compile when false reverts to interpreted mode, when true and forceMutable is true it is recommended to cache the instances
    * @param forceMutable when true it forces MutableProjection's to be used, compiled or otherwise, the default of false is likely far faster
+   * @param forceVarCompilation defaulting to true it will, when compile is true and forceMutable is false, use variables rather than INPUT_ROW to generate code
    * @param toSize specifies the number of fields required to deserialize and create the O
    * @tparam I
    * @tparam O
    * @return
    */
   def processFactory[I: Encoder, O: Encoder](dataFrameFunction: DataFrame => DataFrame, toSize: Int, compile: Boolean = true,
-      forceMutable: Boolean = false, extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true): ProcessorFactory[I, O] = {
+      forceMutable: Boolean = false, forceVarCompilation: Boolean = true, extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true): ProcessorFactory[I, O] = {
     if (forceMutable || !compile)
       MutableProjectionProcessor.processFactory[I, O](dataFrameFunction, toSize, compile, extraProjection, enableQualityOptimisations = enableQualityOptimisations)
     else {
@@ -83,7 +84,11 @@ object Processors {
         dataFrameFunction(extraProjection(df))
       })
 
-      val projector = GenerateDecoderOpEncoderProjection.generate[I, O](exprs, useSubexprElimination = true, toSize)
+      val projector =
+        if (forceVarCompilation)
+          GenerateDecoderOpEncoderVarProjection.create[I, O](exprs, toSize)
+        else
+          GenerateDecoderOpEncoderProjection.generate[I, O](exprs, useSubexprElimination = true, toSize)
       new ProcessorFactory[I, O] {
         override def instance: Processor[I, O] = new Processor[I, O] {
           private val theInstance = projector.newInstance
