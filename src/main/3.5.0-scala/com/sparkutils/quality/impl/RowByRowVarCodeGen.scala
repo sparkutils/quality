@@ -168,7 +168,7 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
       }
 
     // we need InputRow to start with, after that we can bind to name
-    ctx.currentVars = exprVals ++ subExprStates.map(_._2.eval) ++ topVarRef
+    ctx.currentVars = exprVals ++ subExprStates.map(_._2.eval).map(_.copy(code = EmptyBlock)) ++ topVarRef
 
     // generate the full set
     val projectionCodes = projections(ctx, expressions, "mutableRow", subExprStates)
