@@ -41,7 +41,7 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
   // one and freshCopyIfContainsStatefulExpression is also >3.4.1 only
   def generateExpressions(ctx: CodegenContext, expressions: Seq[Expression], subExprState: Map[ExpressionEquals,
     SubExprEliminationState]): Seq[ExprCode] =
-    ctx.withSubExprEliminationExprs(subExprState)( expressions.map(e => e.genCode(ctx) ) )
+    ctx.withSubExprEliminationExprs(subExprState)( expressions.toIndexedSeq.map(e => e.genCode(ctx) ) )
 
   def projections(ctx: CodegenContext, expressions: Seq[Expression], mutableRow: String,
                   subExprState: Map[ExpressionEquals, SubExprEliminationState] = Map.empty) = {
@@ -51,7 +51,7 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
     }
 
     val exprVals =
-      generateExpressions(ctx, validExpr.map(_._1), subExprState)
+      generateExpressions(ctx, validExpr.map(_._1), subExprState).toIndexedSeq
 
     // 4-tuples: (code for projection, isNull variable name, value variable name, column index)
     val projectionCodes: Seq[(ExprCode, String, String)] = validExpr.zip(exprVals).map {
@@ -163,10 +163,10 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
 
     ctx.currentVars = topVarRef
 
-    val encProjectionCodes = projections(ctx, exprFrom, "encRow")
+    val encProjectionCodes = projections(ctx, exprFrom, "encRow").toIndexedSeq // streams suck
 
-    val encProjections = ctx.splitExpressionsWithCurrentInputs(encProjectionCodes.map(_._2))
-    val encUpdates = ctx.splitExpressionsWithCurrentInputs(encProjectionCodes.map(_._3))
+    val encProjections = encProjectionCodes.map(_._2).mkString("\n")
+    val encUpdates = encProjectionCodes.map(_._3).mkString("\n")
 
     ctx.currentVars = null
     val encSubExprs = ctx.subexprFunctionsCode
@@ -189,10 +189,10 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
     ctx.currentVars = exprVals ++ subExprStates.map(_._2.eval).map(_.copy(code = EmptyBlock)) ++ topVarRef
 
     // generate the full set
-    val projectionCodes = projections(ctx, expressions, "mutableRow", subExprStates)
+    val projectionCodes = projections(ctx, expressions, "mutableRow", subExprStates).toIndexedSeq // streams suck
 
-    val allProjections =  ctx.splitExpressionsWithCurrentInputs(projectionCodes.map(_._2))
-    val allUpdates = ctx.splitExpressionsWithCurrentInputs(projectionCodes.map(_._3))
+    val allProjections =  projectionCodes.map(_._2).mkString("\n")
+    val allUpdates = projectionCodes.map(_._3).mkString("\n")
 
     // create vars for the interesting results
     val oexprVals = projectionCodes.drop( expressions.length - toSize).map(_._1.copy(code = EmptyBlock))
@@ -209,7 +209,7 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
 
     ///ctx.currentVars = null // it requires the vars to be provided for each input param
     ctx.INPUT_ROW = "dec"
-    val decProjectionCodes = projections(ctx, Seq(exprTo), "decRow")//, subExprStates)
+    val decProjectionCodes = projections(ctx, Seq(exprTo), "decRow").toIndexedSeq // streams suck
 
     val decProjections = ctx.splitExpressionsWithCurrentInputs(decProjectionCodes.map(_._2))
     val decUpdates = ctx.splitExpressionsWithCurrentInputs(decProjectionCodes.map(_._3))
