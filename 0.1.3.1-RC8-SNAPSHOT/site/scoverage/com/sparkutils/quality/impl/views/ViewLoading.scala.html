@@ -1,0 +1,1985 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/sparkutils/quality/impl/views/ViewLoading.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality.impl.views
+</span>2 <span style=''>
+</span>3 <span style=''>import com.sparkutils.quality.impl.Validation
+</span>4 <span style=''>import com.sparkutils.quality.impl.util.{Config, ConfigFactory, Row}
+</span>5 <span style=''>import org.apache.spark.sql._
+</span>6 <span style=''>
+</span>7 <span style=''>import scala.collection.mutable
+</span>8 <span style=''>
+</span>9 <span style=''>/**
+</span>10 <span style=''> * Represents a configuration row for view loading
+</span>11 <span style=''> * @param name the view name, this will be used to manage dependencies
+</span>12 <span style=''> * @param source either a loaded DataFrame or an sql to run against the catalog
+</span>13 <span style=''> */
+</span>14 <span style=''>case class ViewConfig(override val name: String, override val source: Either[DataFrame, String]) extends Config(name, source)
+</span>15 <span style=''>
+</span>16 <span style=''>/**
+</span>17 <span style=''> * Underlying row information converted into a ViewConfig with the following logic:
+</span>18 <span style=''> *
+</span>19 <span style=''> * a) if token is specified sql is ignored
+</span>20 <span style=''> * b) if token is null sql is used
+</span>21 <span style=''> * c) if both are null the row will not be used
+</span>22 <span style=''> */
+</span>23 <span style=''>private[views] case class ViewRow(override val name: String, override val token: Option[String],
+</span>24 <span style=''>                                  override val filter: Option[String], override val sql: Option[String])
+</span>25 <span style=''>  extends Row(name, token, filter, sql)
+</span>26 <span style=''>
+</span>27 <span style=''>/**
+</span>28 <span style=''> * For which a given view doesn't exist, but it's not one of the view configs
+</span>29 <span style=''> */
+</span>30 <span style=''>case class MissingViewAnalysisException(cause: Exception, message: String, viewName: String, sql: String, missingRelationNames: Set[String] ) extends RuntimeException(cause)
+</span>31 <span style=''>
+</span>32 <span style=''>/**
+</span>33 <span style=''> * A parser exception or similar occurred
+</span>34 <span style=''> */
+</span>35 <span style=''>case class ViewLoaderAnalysisException(cause: Exception, message: String, viewName: String, sql: String ) extends RuntimeException(cause)
+</span>36 <span style=''>
+</span>37 <span style=''>case class ViewLoadResults( replaced: Set[String], failedToLoadDueToCycles: Boolean, notLoadedViews: Set[String])
+</span>38 <span style=''>
+</span>39 <span style=''>object ViewLoader {
+</span>40 <span style=''>
+</span>41 <span style=''>  implicit val factory =
+</span>42 <span style=''>    </span><span style='background: #AEF1AE'>new</span><span style=''> ConfigFactory[ViewConfig, ViewRow] {
+</span>43 <span style=''>      override def create(base: Config, row: ViewRow): ViewConfig =
+</span>44 <span style=''>        </span><span style='background: #AEF1AE'>ViewConfig(base.name, base.source)</span><span style=''>
+</span>45 <span style=''>    }
+</span>46 <span style=''>
+</span>47 <span style=''>  implicit val viewRowEncoder: Encoder[ViewRow] = </span><span style='background: #AEF1AE'>Encoders.product[ViewRow]</span><span style=''>
+</span>48 <span style=''>
+</span>49 <span style=''>  /**
+</span>50 <span style=''>   * Attempts to load all the views present in the config.  If a view is already registered in that name it will be replaced.
+</span>51 <span style=''>   * @param viewConfigs
+</span>52 <span style=''>   * @return the names of views which have been replaced
+</span>53 <span style=''>   */
+</span>54 <span style=''>  def loadViews(viewConfigs: Seq[ViewConfig]): ViewLoadResults = {
+</span>55 <span style=''>
+</span>56 <span style=''>    // assume some will not load, attempt count is used to stop cycles, 2x should be enough
+</span>57 <span style=''>    var attemptCount = </span><span style='background: #AEF1AE'>0</span><span style=''>
+</span>58 <span style=''>    var done = </span><span style='background: #AEF1AE'>false</span><span style=''>
+</span>59 <span style=''>    var leftToProcess = </span><span style='background: #AEF1AE'>viewConfigs.map(t =&gt; t.name -&gt; t).toMap</span><span style=''>
+</span>60 <span style=''>
+</span>61 <span style=''>    val replaced = </span><span style='background: #AEF1AE'>mutable.Set.empty[String]</span><span style=''>
+</span>62 <span style=''>    // if we are missing a relation and the name is declared try to load that first
+</span>63 <span style=''>    var mapOf = leftToProcess
+</span>64 <span style=''>    var processed = </span><span style='background: #AEF1AE'>mutable.Set.empty[String]</span><span style=''>
+</span>65 <span style=''>
+</span>66 <span style=''>    def processView(viewPair: ViewConfig): Unit =
+</span>67 <span style=''>      if (</span><span style='background: #AEF1AE'>attemptCount &lt; (viewConfigs.size * 2)</span><span style=''>) {
+</span>68 <span style=''>        </span><span style='background: #AEF1AE'>try {
+</span>69 <span style=''></span><span style='background: #AEF1AE'>          val (name, config) = (viewPair.name, viewPair)
+</span>70 <span style=''></span><span style='background: #AEF1AE'>          if (Validation.defaultViewLookup(name)) {
+</span>71 <span style=''></span><span style='background: #AEF1AE'>            replaced += name
+</span>72 <span style=''></span><span style='background: #AEF1AE'>          }
+</span>73 <span style=''></span><span style='background: #AEF1AE'>
+</span>74 <span style=''></span><span style='background: #AEF1AE'>          config.source.fold(identity, SparkSession.active.sql(_))
+</span>75 <span style=''></span><span style='background: #AEF1AE'>           .createOrReplaceTempView(name)
+</span>76 <span style=''></span><span style='background: #AEF1AE'>
+</span>77 <span style=''></span><span style='background: #AEF1AE'>          // it worked, remove it
+</span>78 <span style=''></span><span style='background: #AEF1AE'>          leftToProcess = leftToProcess - name
+</span>79 <span style=''></span><span style='background: #AEF1AE'>          processed = processed + name
+</span>80 <span style=''></span><span style='background: #AEF1AE'>        } catch {
+</span>81 <span style=''></span><span style='background: #AEF1AE'>          // 3.5 introduced two different exceptions, ParserException and ExtendedAnalysisException
+</span>82 <span style=''></span><span style='background: #AEF1AE'>          // AnalysisException no longer has the plan
+</span>83 <span style=''></span><span style='background: #AEF1AE'>          case e: Exception =&gt;
+</span>84 <span style=''></span><span style='background: #AEF1AE'>            val res = ShimUtils.tableOrViewNotFound(e).getOrElse(throw e)
+</span>85 <span style=''></span><span style='background: #AEF1AE'>            val sql = viewPair.source.right.getOrElse(&quot;&quot;)
+</span>86 <span style=''></span><span style='background: #AEF1AE'>
+</span>87 <span style=''></span><span style='background: #AEF1AE'>            res.fold(a =&gt; throw ViewLoaderAnalysisException(a, s&quot;AnalysisException for view ${viewPair.name}: $sql&quot;, viewPair.name, sql),
+</span>88 <span style=''></span><span style='background: #AEF1AE'>              views =&gt; {
+</span>89 <span style=''></span><span style='background: #AEF1AE'>                val missingNames =
+</span>90 <span style=''></span><span style='background: #AEF1AE'>                  views.flatMap { name =&gt;
+</span>91 <span style=''></span><span style='background: #AEF1AE'>                    val lookupName =
+</span>92 <span style=''></span><span style='background: #AEF1AE'>                      if (mapOf.contains(name))
+</span>93 <span style=''></span><span style='background: #AEF1AE'>                        name
+</span>94 <span style=''></span><span style='background: #AEF1AE'>                      else
+</span>95 <span style=''></span><span style='background: #AEF1AE'>                        s&quot;`$name`&quot;
+</span>96 <span style=''></span><span style='background: #AEF1AE'>
+</span>97 <span style=''></span><span style='background: #AEF1AE'>                    if (mapOf.contains(lookupName)) { // quoted must also be in the view name if it's got minus' etc., on Spark &lt; 3.2 this will be incorrectly unquoted
+</span>98 <span style=''></span><span style='background: #AEF1AE'>                      attemptCount += 1
+</span>99 <span style=''></span><span style='background: #AEF1AE'>                      processView(mapOf(lookupName))
+</span>100 <span style=''></span><span style='background: #AEF1AE'>                      None
+</span>101 <span style=''></span><span style='background: #AEF1AE'>                    } else // not one we can actually do anything about
+</span>102 <span style=''></span><span style='background: #AEF1AE'>                      Some(name)
+</span>103 <span style=''></span><span style='background: #AEF1AE'>                  }
+</span>104 <span style=''></span><span style='background: #AEF1AE'>                if (!missingNames.isEmpty) {
+</span>105 <span style=''></span><span style='background: #AEF1AE'>                  throw MissingViewAnalysisException(e, s&quot;Missing relations for view ${viewPair.name}: $missingNames used in sql $sql&quot;, viewPair.name, sql, missingNames)
+</span>106 <span style=''></span><span style='background: #AEF1AE'>                }
+</span>107 <span style=''></span><span style='background: #AEF1AE'>              }
+</span>108 <span style=''></span><span style='background: #AEF1AE'>            )
+</span>109 <span style=''></span><span style='background: #AEF1AE'>        }</span><span style=''>
+</span>110 <span style=''>      }
+</span>111 <span style=''>
+</span>112 <span style=''>    while(</span><span style='background: #AEF1AE'>(attemptCount &lt; (viewConfigs.size * 2)) &amp;&amp; !done</span><span style=''>)</span><span style='background: #AEF1AE'>{
+</span>113 <span style=''></span><span style='background: #AEF1AE'>      attemptCount += 1
+</span>114 <span style=''></span><span style='background: #AEF1AE'>      leftToProcess.headOption.fold {
+</span>115 <span style=''></span><span style='background: #AEF1AE'>        done = true;
+</span>116 <span style=''></span><span style='background: #AEF1AE'>      } { p =&gt;
+</span>117 <span style=''></span><span style='background: #AEF1AE'>        processView(p._2)
+</span>118 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>119 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>120 <span style=''>    </span><span style='background: #AEF1AE'>ViewLoadResults(replaced.toSet, !done, leftToProcess.keySet)</span><span style=''>
+</span>121 <span style=''>  }
+</span>122 <span style=''>
+</span>123 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          8393
+        </td>
+        <td>
+          1638
+          -
+          1641
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.views.ViewLoader.$anon.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new $anon()
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          8391
+        </td>
+        <td>
+          1777
+          -
+          1788
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.Config.source
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          base.source
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          8390
+        </td>
+        <td>
+          1766
+          -
+          1775
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.Config.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          base.name
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          8392
+        </td>
+        <td>
+          1755
+          -
+          1789
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.views.ViewConfig.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ViewConfig.apply(base.name, base.source)
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          8394
+        </td>
+        <td>
+          1847
+          -
+          1872
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          org.apache.spark.sql.Encoders.product
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.Encoders.product[com.sparkutils.quality.impl.views.ViewRow](({
+  val $u: reflect.runtime.universe.type = scala.reflect.runtime.`package`.universe;
+  val $m: $u.Mirror = scala.reflect.runtime.`package`.universe.runtimeMirror(this.getClass().getClassLoader());
+  $u.TypeTag.apply[com.sparkutils.quality.impl.views.ViewRow]($m, {
+    final class $typecreator1 extends TypeCreator {
+      def &lt;init&gt;(): $typecreator1 = {
+        $typecreator1.super.&lt;init&gt;();
+        ()
+      };
+      def apply[U &lt;: scala.reflect.api.Universe with Singleton]($m$untyped: scala.reflect.api.Mirror[U]): U#Type = {
+        val $u: U = $m$untyped.universe;
+        val $m: $u.Mirror = $m$untyped.asInstanceOf[$u.Mirror];
+        $m.staticClass(&quot;com.sparkutils.quality.impl.views.ViewRow&quot;).asType.toTypeConstructor
+      }
+    };
+    new $typecreator1()
+  })
+}: reflect.runtime.universe.TypeTag[com.sparkutils.quality.impl.views.ViewRow]))
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          8395
+        </td>
+        <td>
+          2276
+          -
+          2277
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          8396
+        </td>
+        <td>
+          2293
+          -
+          2298
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          8400
+        </td>
+        <td>
+          2323
+          -
+          2362
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          viewConfigs.map[(String, com.sparkutils.quality.impl.views.ViewConfig), Seq[(String, com.sparkutils.quality.impl.views.ViewConfig)]](((t: com.sparkutils.quality.impl.views.ViewConfig) =&gt; scala.Predef.ArrowAssoc[String](t.name).-&gt;[com.sparkutils.quality.impl.views.ViewConfig](t)))(collection.this.Seq.canBuildFrom[(String, com.sparkutils.quality.impl.views.ViewConfig)]).toMap[String, com.sparkutils.quality.impl.views.ViewConfig](scala.Predef.$conforms[(String, com.sparkutils.quality.impl.views.ViewConfig)])
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          8397
+        </td>
+        <td>
+          2344
+          -
+          2355
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.ArrowAssoc[String](t.name).-&gt;[com.sparkutils.quality.impl.views.ViewConfig](t)
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          8399
+        </td>
+        <td>
+          2357
+          -
+          2357
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.$conforms[(String, com.sparkutils.quality.impl.views.ViewConfig)]
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          8398
+        </td>
+        <td>
+          2338
+          -
+          2338
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[(String, com.sparkutils.quality.impl.views.ViewConfig)]
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          8401
+        </td>
+        <td>
+          2383
+          -
+          2408
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.mutable.Set.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.mutable.Set.empty[String]
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          8402
+        </td>
+        <td>
+          2543
+          -
+          2568
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.mutable.Set.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.mutable.Set.empty[String]
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          8403
+        </td>
+        <td>
+          2646
+          -
+          2666
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.*
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          viewConfigs.size.*(2)
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          8444
+        </td>
+        <td>
+          2626
+          -
+          2626
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          8404
+        </td>
+        <td>
+          2630
+          -
+          2667
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&lt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          attemptCount.&lt;(viewConfigs.size.*(2))
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          8443
+        </td>
+        <td>
+          2626
+          -
+          2626
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          8415
+        </td>
+        <td>
+          2695
+          -
+          3065
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  &lt;synthetic&gt; &lt;artifact&gt; private[this] val x$1: (String, com.sparkutils.quality.impl.views.ViewConfig) = (scala.Tuple2.apply[String, com.sparkutils.quality.impl.views.ViewConfig](viewPair.name, viewPair): (String, com.sparkutils.quality.impl.views.ViewConfig) @unchecked) match {
+    case (_1: String, _2: com.sparkutils.quality.impl.views.ViewConfig)(String, com.sparkutils.quality.impl.views.ViewConfig)((name @ _), (config @ _)) =&gt; scala.Tuple2.apply[String, com.sparkutils.quality.impl.views.ViewConfig](name, config)
+  };
+  val name: String = x$1._1;
+  val config: com.sparkutils.quality.impl.views.ViewConfig = x$1._2;
+  if (com.sparkutils.quality.impl.Validation.defaultViewLookup.apply(name))
+    replaced.+=(name)
+  else
+    ();
+  config.source.fold[org.apache.spark.sql.DataFrame]({
+  ((x: org.apache.spark.sql.DataFrame) =&gt; scala.Predef.identity[org.apache.spark.sql.DataFrame](x))
+}, ((x$2: String) =&gt; org.apache.spark.sql.SparkSession.active.sql(x$2))).createOrReplaceTempView(name);
+  leftToProcess = leftToProcess.-(name);
+  processed = processed.+(name)
+}
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          8442
+        </td>
+        <td>
+          2679
+          -
+          4504
+        </td>
+        <td>
+          Try
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          try {
+  &lt;synthetic&gt; &lt;artifact&gt; private[this] val x$1: (String, com.sparkutils.quality.impl.views.ViewConfig) = (scala.Tuple2.apply[String, com.sparkutils.quality.impl.views.ViewConfig](viewPair.name, viewPair): (String, com.sparkutils.quality.impl.views.ViewConfig) @unchecked) match {
+    case (_1: String, _2: com.sparkutils.quality.impl.views.ViewConfig)(String, com.sparkutils.quality.impl.views.ViewConfig)((name @ _), (config @ _)) =&gt; scala.Tuple2.apply[String, com.sparkutils.quality.impl.views.ViewConfig](name, config)
+  };
+  val name: String = x$1._1;
+  val config: com.sparkutils.quality.impl.views.ViewConfig = x$1._2;
+  if (com.sparkutils.quality.impl.Validation.defaultViewLookup.apply(name))
+    replaced.+=(name)
+  else
+    ();
+  config.source.fold[org.apache.spark.sql.DataFrame]({
+  ((x: org.apache.spark.sql.DataFrame) =&gt; scala.Predef.identity[org.apache.spark.sql.DataFrame](x))
+}, ((x$2: String) =&gt; org.apache.spark.sql.SparkSession.active.sql(x$2))).createOrReplaceTempView(name);
+  leftToProcess = leftToProcess.-(name);
+  processed = processed.+(name)
+} catch {
+  case (e @ (_: Exception)) =&gt; {
+    val res: Either[Exception,Set[String]] = org.apache.spark.sql.ShimUtils.tableOrViewNotFound(e).getOrElse[Either[Exception,Set[String]]](throw e);
+    val sql: String = viewPair.source.right.getOrElse[String](&quot;&quot;);
+    res.fold[Unit](((a: Exception) =&gt; throw ViewLoaderAnalysisException.apply(a, scala.StringContext.apply(&quot;AnalysisException for view &quot;, &quot;: &quot;, &quot;&quot;).s(viewPair.name, sql), viewPair.name, sql)), ((views: Set[String]) =&gt; {
+      val missingNames: scala.collection.immutable.Set[String] = views.flatMap[String, scala.collection.immutable.Set[String]](((name: String) =&gt; {
+        val lookupName: String = if (mapOf.contains(name))
+          name
+        else
+          scala.StringContext.apply(&quot;`&quot;, &quot;`&quot;).s(name);
+        if (mapOf.contains(lookupName))
+          {
+            attemptCount = attemptCount.+(1);
+            processView(mapOf.apply(lookupName));
+            scala.this.Option.option2Iterable[Nothing](scala.None)
+          }
+        else
+          scala.this.Option.option2Iterable[String](scala.Some.apply[String](name))
+      }))(immutable.this.Set.canBuildFrom[String]);
+      if (missingNames.isEmpty.unary_!)
+        throw MissingViewAnalysisException.apply(e, scala.StringContext.apply(&quot;Missing relations for view &quot;, &quot;: &quot;, &quot; used in sql &quot;, &quot;&quot;).s(viewPair.name, missingNames, sql), viewPair.name, sql, missingNames)
+      else
+        ()
+    }))
+  }
+}
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          8406
+        </td>
+        <td>
+          2706
+          -
+          2706
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$1._2
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          8405
+        </td>
+        <td>
+          2700
+          -
+          2700
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$1._1
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          8411
+        </td>
+        <td>
+          2752
+          -
+          2752
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          8410
+        </td>
+        <td>
+          2752
+          -
+          2752
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          8407
+        </td>
+        <td>
+          2756
+          -
+          2790
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.Validation.defaultViewLookup.apply(name)
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          8409
+        </td>
+        <td>
+          2806
+          -
+          2822
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.mutable.SetLike.+=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          replaced.+=(name)
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          8408
+        </td>
+        <td>
+          2806
+          -
+          2822
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.SetLike.+=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          replaced.+=(name)
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          8412
+        </td>
+        <td>
+          2846
+          -
+          2944
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Dataset.createOrReplaceTempView
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          config.source.fold[org.apache.spark.sql.DataFrame]({
+  ((x: org.apache.spark.sql.DataFrame) =&gt; scala.Predef.identity[org.apache.spark.sql.DataFrame](x))
+}, ((x$2: String) =&gt; org.apache.spark.sql.SparkSession.active.sql(x$2))).createOrReplaceTempView(name)
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          8413
+        </td>
+        <td>
+          3006
+          -
+          3026
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.-
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          leftToProcess.-(name)
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          8414
+        </td>
+        <td>
+          3049
+          -
+          3065
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.SetLike.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          processed.+(name)
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          8417
+        </td>
+        <td>
+          3291
+          -
+          3342
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.ShimUtils.tableOrViewNotFound(e).getOrElse[Either[Exception,Set[String]]](throw e)
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          8416
+        </td>
+        <td>
+          3334
+          -
+          3341
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          throw e
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          8418
+        </td>
+        <td>
+          3365
+          -
+          3400
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Either.RightProjection.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          viewPair.source.right.getOrElse[String](&quot;&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          8441
+        </td>
+        <td>
+          3414
+          -
+          4494
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Either.fold
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.fold[Unit](((a: Exception) =&gt; throw ViewLoaderAnalysisException.apply(a, scala.StringContext.apply(&quot;AnalysisException for view &quot;, &quot;: &quot;, &quot;&quot;).s(viewPair.name, sql), viewPair.name, sql)), ((views: Set[String]) =&gt; {
+  val missingNames: scala.collection.immutable.Set[String] = views.flatMap[String, scala.collection.immutable.Set[String]](((name: String) =&gt; {
+    val lookupName: String = if (mapOf.contains(name))
+      name
+    else
+      scala.StringContext.apply(&quot;`&quot;, &quot;`&quot;).s(name);
+    if (mapOf.contains(lookupName))
+      {
+        attemptCount = attemptCount.+(1);
+        processView(mapOf.apply(lookupName));
+        scala.this.Option.option2Iterable[Nothing](scala.None)
+      }
+    else
+      scala.this.Option.option2Iterable[String](scala.Some.apply[String](name))
+  }))(immutable.this.Set.canBuildFrom[String]);
+  if (missingNames.isEmpty.unary_!)
+    throw MissingViewAnalysisException.apply(e, scala.StringContext.apply(&quot;Missing relations for view &quot;, &quot;: &quot;, &quot; used in sql &quot;, &quot;&quot;).s(viewPair.name, missingNames, sql), viewPair.name, sql, missingNames)
+  else
+    ()
+}))
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          8419
+        </td>
+        <td>
+          3428
+          -
+          3538
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          throw ViewLoaderAnalysisException.apply(a, scala.StringContext.apply(&quot;AnalysisException for view &quot;, &quot;: &quot;, &quot;&quot;).s(viewPair.name, sql), viewPair.name, sql)
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          8435
+        </td>
+        <td>
+          3618
+          -
+          4231
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.flatMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          views.flatMap[String, scala.collection.immutable.Set[String]](((name: String) =&gt; {
+  val lookupName: String = if (mapOf.contains(name))
+    name
+  else
+    scala.StringContext.apply(&quot;`&quot;, &quot;`&quot;).s(name);
+  if (mapOf.contains(lookupName))
+    {
+      attemptCount = attemptCount.+(1);
+      processView(mapOf.apply(lookupName));
+      scala.this.Option.option2Iterable[Nothing](scala.None)
+    }
+  else
+    scala.this.Option.option2Iterable[String](scala.Some.apply[String](name))
+}))(immutable.this.Set.canBuildFrom[String])
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          8434
+        </td>
+        <td>
+          3632
+          -
+          3632
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Set.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          immutable.this.Set.canBuildFrom[String]
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          8420
+        </td>
+        <td>
+          3705
+          -
+          3725
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.contains
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          mapOf.contains(name)
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          8421
+        </td>
+        <td>
+          3751
+          -
+          3755
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.sparkutils.quality.impl.views.ViewLoader.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          name
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          8423
+        </td>
+        <td>
+          3807
+          -
+          3817
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;`&quot;, &quot;`&quot;).s(name)
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          8422
+        </td>
+        <td>
+          3807
+          -
+          3817
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;`&quot;, &quot;`&quot;).s(name)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          8430
+        </td>
+        <td>
+          3871
+          -
+          4128
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  attemptCount = attemptCount.+(1);
+  processView(mapOf.apply(lookupName));
+  scala.this.Option.option2Iterable[Nothing](scala.None)
+}
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          8424
+        </td>
+        <td>
+          3843
+          -
+          3869
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.contains
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          mapOf.contains(lookupName)
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          8425
+        </td>
+        <td>
+          4009
+          -
+          4026
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          attemptCount.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          8427
+        </td>
+        <td>
+          4049
+          -
+          4079
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.views.ViewLoader.processView
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          processView(mapOf.apply(lookupName))
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          8426
+        </td>
+        <td>
+          4061
+          -
+          4078
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          mapOf.apply(lookupName)
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          8429
+        </td>
+        <td>
+          4102
+          -
+          4106
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.Option.option2Iterable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Option.option2Iterable[Nothing](scala.None)
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          8428
+        </td>
+        <td>
+          4102
+          -
+          4106
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          8432
+        </td>
+        <td>
+          4201
+          -
+          4211
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.Option.option2Iterable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Option.option2Iterable[String](scala.Some.apply[String](name))
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          8431
+        </td>
+        <td>
+          4201
+          -
+          4211
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[String](name)
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          8433
+        </td>
+        <td>
+          4201
+          -
+          4211
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Option.option2Iterable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Option.option2Iterable[String](scala.Some.apply[String](name))
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          8436
+        </td>
+        <td>
+          4252
+          -
+          4273
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          missingNames.isEmpty.unary_!
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          8439
+        </td>
+        <td>
+          4248
+          -
+          4248
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          8440
+        </td>
+        <td>
+          4248
+          -
+          4248
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          8438
+        </td>
+        <td>
+          4295
+          -
+          4446
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          throw MissingViewAnalysisException.apply(e, scala.StringContext.apply(&quot;Missing relations for view &quot;, &quot;: &quot;, &quot; used in sql &quot;, &quot;&quot;).s(viewPair.name, missingNames, sql), viewPair.name, sql, missingNames)
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          8437
+        </td>
+        <td>
+          4295
+          -
+          4446
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          throw MissingViewAnalysisException.apply(e, scala.StringContext.apply(&quot;Missing relations for view &quot;, &quot;: &quot;, &quot; used in sql &quot;, &quot;&quot;).s(viewPair.name, missingNames, sql), viewPair.name, sql, missingNames)
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          8454
+        </td>
+        <td>
+          4573
+          -
+          4712
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  {
+    attemptCount = attemptCount.+(1);
+    leftToProcess.headOption.fold[Unit](done = true)(((p: (String, com.sparkutils.quality.impl.views.ViewConfig)) =&gt; processView(p._2)))
+  };
+  while$1()
+}
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          8445
+        </td>
+        <td>
+          4541
+          -
+          4561
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.*
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          viewConfigs.size.*(2)
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          8456
+        </td>
+        <td>
+          4518
+          -
+          4518
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          8447
+        </td>
+        <td>
+          4524
+          -
+          4572
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          attemptCount.&lt;(viewConfigs.size.*(2)).&amp;&amp;(done.unary_!)
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          8453
+        </td>
+        <td>
+          4573
+          -
+          4573
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.views.ViewLoader.while$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          while$1()
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          8446
+        </td>
+        <td>
+          4567
+          -
+          4572
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          done.unary_!
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          8455
+        </td>
+        <td>
+          4518
+          -
+          4518
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          8448
+        </td>
+        <td>
+          4581
+          -
+          4598
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          attemptCount.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          8449
+        </td>
+        <td>
+          4652
+          -
+          4656
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          116
+        </td>
+        <td>
+          8452
+        </td>
+        <td>
+          4605
+          -
+          4706
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.fold
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          leftToProcess.headOption.fold[Unit](done = true)(((p: (String, com.sparkutils.quality.impl.views.ViewConfig)) =&gt; processView(p._2)))
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          8450
+        </td>
+        <td>
+          4693
+          -
+          4697
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          p._2
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          8451
+        </td>
+        <td>
+          4681
+          -
+          4698
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.views.ViewLoader.processView
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          processView(p._2)
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          8457
+        </td>
+        <td>
+          4733
+          -
+          4747
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toSet
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          replaced.toSet[String]
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          8459
+        </td>
+        <td>
+          4756
+          -
+          4776
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.immutable.MapLike.keySet
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          leftToProcess.keySet
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          8458
+        </td>
+        <td>
+          4749
+          -
+          4754
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          done.unary_!
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          8460
+        </td>
+        <td>
+          4717
+          -
+          4777
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.views.ViewLoadResults.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ViewLoadResults.apply(replaced.toSet[String], done.unary_!, leftToProcess.keySet)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

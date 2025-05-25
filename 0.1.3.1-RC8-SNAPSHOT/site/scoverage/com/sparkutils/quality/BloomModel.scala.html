@@ -1,0 +1,1751 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/sparkutils/quality/BloomModel.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality
+</span>2 <span style=''>
+</span>3 <span style=''>import java.io.{ByteArrayInputStream, ByteArrayOutputStream, File, FileInputStream, ObjectInputStream, ObjectOutputStream, Serializable}
+</span>4 <span style=''>import java.nio.{ByteOrder, IntBuffer}
+</span>5 <span style=''>import java.nio.channels.FileChannel
+</span>6 <span style=''>
+</span>7 <span style=''>import org.apache.spark.util.sketch.BloomFilter
+</span>8 <span style=''>
+</span>9 <span style=''>/**
+</span>10 <span style=''> * Simple does it contain function to test a bloom
+</span>11 <span style=''> */
+</span>12 <span style=''>trait BloomLookup {
+</span>13 <span style=''>  def apply(any: Any): Boolean = </span><span style='background: #AEF1AE'>mightContain(any)</span><span style=''>
+</span>14 <span style=''>
+</span>15 <span style=''>  def mightContain(any: Any): Boolean
+</span>16 <span style=''>}
+</span>17 <span style=''>
+</span>18 <span style=''>case class SparkBloomFilter( bloom: BloomFilter ) extends BloomLookup {
+</span>19 <span style=''>  override def mightContain(any: Any): Boolean =
+</span>20 <span style=''>    any match {
+</span>21 <span style=''>      case s: String =&gt; </span><span style='background: #AEF1AE'>bloom.mightContainString(s)</span><span style=''>
+</span>22 <span style=''>      case b: Array[Byte] =&gt; </span><span style='background: #AEF1AE'>bloom.mightContainBinary(b)</span><span style=''>
+</span>23 <span style=''>      case l: Long =&gt; </span><span style='background: #AEF1AE'>bloom.mightContainLong(l)</span><span style=''>
+</span>24 <span style=''>      case _ =&gt; </span><span style='background: #AEF1AE'>bloom.mightContain(any)</span><span style=''>
+</span>25 <span style=''>    }
+</span>26 <span style=''>}
+</span>27 <span style=''>
+</span>28 <span style=''>/**
+</span>29 <span style=''> * Represents the shared file location of a bucked bloom filter.  There should be files with names 0..numBuckets containing
+</span>30 <span style=''> * the same number of bytes representing each bucket.
+</span>31 <span style=''> *
+</span>32 <span style=''> * @param rootDir  The directory which contains each bucket
+</span>33 <span style=''> * @param fpp  The fpp for this bloom - note it is informational only and will not be used in further processing
+</span>34 <span style=''> * @param numBuckets The number of buckets within this bloom
+</span>35 <span style=''> */
+</span>36 <span style=''>case class BloomModel(rootDir: String, fpp: Double, numBuckets: Int) extends Serializable {
+</span>37 <span style=''>  /**
+</span>38 <span style=''>   * Provides memory mapped buffers from the underlying files
+</span>39 <span style=''>   * @return
+</span>40 <span style=''>   */
+</span>41 <span style=''>  def maps: Seq[IntBuffer] =
+</span>42 <span style=''>    (</span><span style='background: #AEF1AE'>0 until numBuckets).map { i =&gt;
+</span>43 <span style=''></span><span style='background: #AEF1AE'>      val file = new File(rootDir, i.toString)
+</span>44 <span style=''></span><span style='background: #AEF1AE'>      val mapped = new FileInputStream(file).getChannel.map(FileChannel.MapMode.READ_ONLY, 0, file.length())
+</span>45 <span style=''></span><span style='background: #AEF1AE'>      mapped.order(ByteOrder.LITTLE_ENDIAN).asIntBuffer()
+</span>46 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>47 <span style=''>
+</span>48 <span style=''>  /**
+</span>49 <span style=''>   * Serializes the definition of this bucketfiles, not the underlying bytes of the bloom
+</span>50 <span style=''>   * @return
+</span>51 <span style=''>   */
+</span>52 <span style=''>  def serialize: Array[Byte] = {
+</span>53 <span style=''>    val bos = </span><span style='background: #AEF1AE'>new ByteArrayOutputStream()</span><span style=''>
+</span>54 <span style=''>    val oos = </span><span style='background: #AEF1AE'>new ObjectOutputStream(bos)</span><span style=''>
+</span>55 <span style=''>    </span><span style='background: #AEF1AE'>oos.writeObject(this)</span><span style=''>
+</span>56 <span style=''>    </span><span style='background: #AEF1AE'>oos.flush()</span><span style=''>
+</span>57 <span style=''>    val bytes = </span><span style='background: #AEF1AE'>bos.toByteArray</span><span style=''>
+</span>58 <span style=''>    </span><span style='background: #AEF1AE'>bos.close()</span><span style=''>
+</span>59 <span style=''>    bytes
+</span>60 <span style=''>  }
+</span>61 <span style=''>
+</span>62 <span style=''>  /**
+</span>63 <span style=''>   * Only performed lazily
+</span>64 <span style=''>   * @return
+</span>65 <span style=''>   */
+</span>66 <span style=''>  def read: Array[Array[Byte]] = {
+</span>67 <span style=''>    val size = </span><span style='background: #AEF1AE'>new File(rootDir, &quot;0&quot;).length().toInt</span><span style=''> // safe as it's never more than an array
+</span>68 <span style=''>    val ar = </span><span style='background: #AEF1AE'>Array.ofDim[Array[Byte]](numBuckets)</span><span style=''>
+</span>69 <span style=''>    </span><span style='background: #AEF1AE'>for { i &lt;- 0 until numBuckets} {
+</span>70 <span style=''></span><span style='background: #AEF1AE'>      val f = new File(rootDir, i.toString)
+</span>71 <span style=''></span><span style='background: #AEF1AE'>      val fis = new FileInputStream(f)
+</span>72 <span style=''></span><span style='background: #AEF1AE'>      ar(i) = Array.ofDim[Byte](size)
+</span>73 <span style=''></span><span style='background: #AEF1AE'>      fis.read(ar(i))
+</span>74 <span style=''></span><span style='background: #AEF1AE'>      fis.close()
+</span>75 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>76 <span style=''>    ar
+</span>77 <span style=''>  }
+</span>78 <span style=''>
+</span>79 <span style=''>  /**
+</span>80 <span style=''>   * Removes other directories from the parent root id
+</span>81 <span style=''>   */
+</span>82 <span style=''>  def cleanupOthers(): Unit ={
+</span>83 <span style=''>    val file = </span><span style='background: #AEF1AE'>new File(rootDir)</span><span style=''>
+</span>84 <span style=''>    val name = </span><span style='background: #AEF1AE'>file.getName</span><span style=''>
+</span>85 <span style=''>    val siblings = </span><span style='background: #AEF1AE'>file.getParentFile.listFiles().filterNot(_.getName == name)</span><span style=''>
+</span>86 <span style=''>    </span><span style='background: #AEF1AE'>siblings.foreach(_.listFiles().foreach(_.delete()))</span><span style=''>
+</span>87 <span style=''>    </span><span style='background: #AEF1AE'>siblings.foreach(_.delete())</span><span style=''>
+</span>88 <span style=''>  }
+</span>89 <span style=''>
+</span>90 <span style=''>  /**
+</span>91 <span style=''>   * Removes this bloom's files, this is advised only after you have processed or otherwise saved it's results.  It will remove everything under this bloomid
+</span>92 <span style=''>   */
+</span>93 <span style=''>  def removeThisBloom(): Unit = {
+</span>94 <span style=''>    val file = </span><span style='background: #F0ADAD'>new File(rootDir)</span><span style=''>
+</span>95 <span style=''>    val siblings = </span><span style='background: #AEF1AE'>file.getParentFile.listFiles()</span><span style=''>
+</span>96 <span style=''>    </span><span style='background: #AEF1AE'>siblings.foreach(_.listFiles().foreach(_.delete()))</span><span style=''>
+</span>97 <span style=''>    </span><span style='background: #AEF1AE'>siblings.foreach(_.delete())</span><span style=''>
+</span>98 <span style=''>  }
+</span>99 <span style=''>}
+</span>100 <span style=''>
+</span>101 <span style=''>object BloomModel {
+</span>102 <span style=''>  /**
+</span>103 <span style=''>   * Deserializes from the bytes, must have been created by a compatible BucketFiles.serialize
+</span>104 <span style=''>   * @param storageFormat
+</span>105 <span style=''>   * @return
+</span>106 <span style=''>   */
+</span>107 <span style=''>  def deserialize(storageFormat: Array[Byte]): BloomModel = {
+</span>108 <span style=''>    val ios = </span><span style='background: #AEF1AE'>new ByteArrayInputStream(storageFormat)</span><span style=''>
+</span>109 <span style=''>    val oos = </span><span style='background: #AEF1AE'>new ObjectInputStream(ios)</span><span style=''>
+</span>110 <span style=''>    val bucketedFiles = </span><span style='background: #AEF1AE'>oos.readObject().asInstanceOf[BloomModel]</span><span style=''>
+</span>111 <span style=''>    </span><span style='background: #AEF1AE'>oos.close()</span><span style=''>
+</span>112 <span style=''>    </span><span style='background: #AEF1AE'>ios.close()</span><span style=''>
+</span>113 <span style=''>    bucketedFiles
+</span>114 <span style=''>  }
+</span>115 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          13
+        </td>
+        <td>
+          534
+        </td>
+        <td>
+          407
+          -
+          424
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.BloomLookup.mightContain
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomLookup.this.mightContain(any)
+        </td>
+      </tr><tr>
+        <td>
+          21
+        </td>
+        <td>
+          535
+        </td>
+        <td>
+          628
+          -
+          655
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.util.sketch.BloomFilter.mightContainString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SparkBloomFilter.this.bloom.mightContainString(s)
+        </td>
+      </tr><tr>
+        <td>
+          22
+        </td>
+        <td>
+          536
+        </td>
+        <td>
+          685
+          -
+          712
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.util.sketch.BloomFilter.mightContainBinary
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SparkBloomFilter.this.bloom.mightContainBinary(b)
+        </td>
+      </tr><tr>
+        <td>
+          23
+        </td>
+        <td>
+          537
+        </td>
+        <td>
+          735
+          -
+          760
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.util.sketch.BloomFilter.mightContainLong
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SparkBloomFilter.this.bloom.mightContainLong(l)
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          538
+        </td>
+        <td>
+          777
+          -
+          800
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.util.sketch.BloomFilter.mightContain
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SparkBloomFilter.this.bloom.mightContain(any)
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          550
+        </td>
+        <td>
+          1446
+          -
+          1696
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.intWrapper(0).until(BloomModel.this.numBuckets).map[java.nio.IntBuffer, Seq[java.nio.IntBuffer]](((i: Int) =&gt; {
+  val file: java.io.File = new java.io.File(BloomModel.this.rootDir, i.toString());
+  val mapped: java.nio.MappedByteBuffer = new java.io.FileInputStream(file).getChannel().map(java.nio.channels.FileChannel.MapMode.READ_ONLY, 0L, file.length());
+  mapped.order(java.nio.ByteOrder.LITTLE_ENDIAN).asIntBuffer()
+}))(immutable.this.IndexedSeq.canBuildFrom[java.nio.IntBuffer])
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          540
+        </td>
+        <td>
+          1454
+          -
+          1464
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.BloomModel.numBuckets
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomModel.this.numBuckets
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          549
+        </td>
+        <td>
+          1470
+          -
+          1470
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.IndexedSeq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          immutable.this.IndexedSeq.canBuildFrom[java.nio.IntBuffer]
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          539
+        </td>
+        <td>
+          1446
+          -
+          1447
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          541
+        </td>
+        <td>
+          1503
+          -
+          1510
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.BloomModel.rootDir
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomModel.this.rootDir
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          543
+        </td>
+        <td>
+          1494
+          -
+          1523
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.File.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new java.io.File(BloomModel.this.rootDir, i.toString())
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          542
+        </td>
+        <td>
+          1512
+          -
+          1522
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Any.toString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          i.toString()
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          546
+        </td>
+        <td>
+          1618
+          -
+          1631
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.File.length
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          file.length()
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          545
+        </td>
+        <td>
+          1615
+          -
+          1616
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0L
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          544
+        </td>
+        <td>
+          1584
+          -
+          1613
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          java.nio.channels.FileChannel.MapMode.READ_ONLY
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          java.nio.channels.FileChannel.MapMode.READ_ONLY
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          547
+        </td>
+        <td>
+          1543
+          -
+          1632
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.nio.channels.FileChannel.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new java.io.FileInputStream(file).getChannel().map(java.nio.channels.FileChannel.MapMode.READ_ONLY, 0L, file.length())
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          548
+        </td>
+        <td>
+          1639
+          -
+          1690
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.nio.ByteBuffer.asIntBuffer
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          mapped.order(java.nio.ByteOrder.LITTLE_ENDIAN).asIntBuffer()
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          551
+        </td>
+        <td>
+          1860
+          -
+          1887
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.ByteArrayOutputStream.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new java.io.ByteArrayOutputStream()
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          552
+        </td>
+        <td>
+          1902
+          -
+          1929
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.ObjectOutputStream.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new java.io.ObjectOutputStream(bos)
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          553
+        </td>
+        <td>
+          1934
+          -
+          1955
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.ObjectOutputStream.writeObject
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          oos.writeObject(this)
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          554
+        </td>
+        <td>
+          1960
+          -
+          1971
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.ObjectOutputStream.flush
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          oos.flush()
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          555
+        </td>
+        <td>
+          1988
+          -
+          2003
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.ByteArrayOutputStream.toByteArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          bos.toByteArray()
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          556
+        </td>
+        <td>
+          2008
+          -
+          2019
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.ByteArrayOutputStream.close
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          bos.close()
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          559
+        </td>
+        <td>
+          2137
+          -
+          2174
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Long.toInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new java.io.File(BloomModel.this.rootDir, &quot;0&quot;).length().toInt
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          558
+        </td>
+        <td>
+          2155
+          -
+          2158
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;0&quot;
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          557
+        </td>
+        <td>
+          2146
+          -
+          2153
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.BloomModel.rootDir
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomModel.this.rootDir
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          561
+        </td>
+        <td>
+          2229
+          -
+          2265
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.ofDim
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Array.ofDim[Array[Byte]](BloomModel.this.numBuckets)((ClassTag.apply[Array[Byte]](scala.runtime.ScalaRunTime.arrayClass(classOf[scala.Byte])): scala.reflect.ClassTag[Array[Byte]]))
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          560
+        </td>
+        <td>
+          2254
+          -
+          2264
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.BloomModel.numBuckets
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomModel.this.numBuckets
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          573
+        </td>
+        <td>
+          2270
+          -
+          2469
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.Range.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.intWrapper(0).until(BloomModel.this.numBuckets).foreach[Unit](((i: Int) =&gt; {
+  val f: java.io.File = new java.io.File(BloomModel.this.rootDir, i.toString());
+  val fis: java.io.FileInputStream = new java.io.FileInputStream(f);
+  ar.update(i, scala.Array.ofDim[Byte](size)((ClassTag.Byte: scala.reflect.ClassTag[Byte])));
+  fis.read(ar.apply(i));
+  fis.close()
+}))
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          563
+        </td>
+        <td>
+          2289
+          -
+          2299
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.BloomModel.numBuckets
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomModel.this.numBuckets
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          562
+        </td>
+        <td>
+          2281
+          -
+          2282
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          564
+        </td>
+        <td>
+          2326
+          -
+          2333
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.BloomModel.rootDir
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomModel.this.rootDir
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          566
+        </td>
+        <td>
+          2317
+          -
+          2346
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.File.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new java.io.File(BloomModel.this.rootDir, i.toString())
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          565
+        </td>
+        <td>
+          2335
+          -
+          2345
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Any.toString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          i.toString()
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          567
+        </td>
+        <td>
+          2363
+          -
+          2385
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.FileInputStream.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new java.io.FileInputStream(f)
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          568
+        </td>
+        <td>
+          2400
+          -
+          2423
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.ofDim
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Array.ofDim[Byte](size)((ClassTag.Byte: scala.reflect.ClassTag[Byte]))
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          569
+        </td>
+        <td>
+          2392
+          -
+          2423
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ar.update(i, scala.Array.ofDim[Byte](size)((ClassTag.Byte: scala.reflect.ClassTag[Byte])))
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          570
+        </td>
+        <td>
+          2439
+          -
+          2444
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ar.apply(i)
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          571
+        </td>
+        <td>
+          2430
+          -
+          2445
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.FileInputStream.read
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          fis.read(ar.apply(i))
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          572
+        </td>
+        <td>
+          2452
+          -
+          2463
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.FileInputStream.close
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          fis.close()
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          575
+        </td>
+        <td>
+          2595
+          -
+          2612
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.File.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new java.io.File(BloomModel.this.rootDir)
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          574
+        </td>
+        <td>
+          2604
+          -
+          2611
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.BloomModel.rootDir
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomModel.this.rootDir
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          576
+        </td>
+        <td>
+          2628
+          -
+          2640
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.File.getName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          file.getName()
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          577
+        </td>
+        <td>
+          2660
+          -
+          2690
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.File.listFiles
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          file.getParentFile().listFiles()
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          579
+        </td>
+        <td>
+          2660
+          -
+          2719
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableLike.filterNot
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.refArrayOps[java.io.File](file.getParentFile().listFiles()).filterNot(((x$1: java.io.File) =&gt; x$1.getName().==(name)))
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          578
+        </td>
+        <td>
+          2701
+          -
+          2718
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$1.getName().==(name)
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          582
+        </td>
+        <td>
+          2741
+          -
+          2774
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IndexedSeqOptimized.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.refArrayOps[java.io.File](x$2.listFiles()).foreach[Boolean](((x$3: java.io.File) =&gt; x$3.delete()))
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          581
+        </td>
+        <td>
+          2763
+          -
+          2773
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.File.delete
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$3.delete()
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          580
+        </td>
+        <td>
+          2741
+          -
+          2754
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.File.listFiles
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$2.listFiles()
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          583
+        </td>
+        <td>
+          2724
+          -
+          2775
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IndexedSeqOptimized.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.refArrayOps[java.io.File](siblings).foreach[Unit](((x$2: java.io.File) =&gt; scala.Predef.refArrayOps[java.io.File](x$2.listFiles()).foreach[Boolean](((x$3: java.io.File) =&gt; x$3.delete()))))
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          585
+        </td>
+        <td>
+          2780
+          -
+          2808
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IndexedSeqOptimized.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.refArrayOps[java.io.File](siblings).foreach[Boolean](((x$4: java.io.File) =&gt; x$4.delete()))
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          584
+        </td>
+        <td>
+          2797
+          -
+          2807
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.File.delete
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$4.delete()
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          587
+        </td>
+        <td>
+          3033
+          -
+          3050
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.File.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new java.io.File(BloomModel.this.rootDir)
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          586
+        </td>
+        <td>
+          3042
+          -
+          3049
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.BloomModel.rootDir
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          BloomModel.this.rootDir
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          588
+        </td>
+        <td>
+          3070
+          -
+          3100
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.File.listFiles
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          file.getParentFile().listFiles()
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          591
+        </td>
+        <td>
+          3122
+          -
+          3155
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IndexedSeqOptimized.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.refArrayOps[java.io.File](x$5.listFiles()).foreach[Boolean](((x$6: java.io.File) =&gt; x$6.delete()))
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          590
+        </td>
+        <td>
+          3144
+          -
+          3154
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.File.delete
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$6.delete()
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          589
+        </td>
+        <td>
+          3122
+          -
+          3135
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.File.listFiles
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$5.listFiles()
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          592
+        </td>
+        <td>
+          3105
+          -
+          3156
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IndexedSeqOptimized.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.refArrayOps[java.io.File](siblings).foreach[Unit](((x$5: java.io.File) =&gt; scala.Predef.refArrayOps[java.io.File](x$5.listFiles()).foreach[Boolean](((x$6: java.io.File) =&gt; x$6.delete()))))
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          594
+        </td>
+        <td>
+          3161
+          -
+          3189
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IndexedSeqOptimized.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.refArrayOps[java.io.File](siblings).foreach[Boolean](((x$7: java.io.File) =&gt; x$7.delete()))
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          593
+        </td>
+        <td>
+          3178
+          -
+          3188
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.File.delete
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$7.delete()
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          595
+        </td>
+        <td>
+          3439
+          -
+          3478
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.ByteArrayInputStream.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new java.io.ByteArrayInputStream(storageFormat)
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          596
+        </td>
+        <td>
+          3493
+          -
+          3519
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.ObjectInputStream.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new java.io.ObjectInputStream(ios)
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          597
+        </td>
+        <td>
+          3544
+          -
+          3585
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          oos.readObject().asInstanceOf[com.sparkutils.quality.BloomModel]
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          598
+        </td>
+        <td>
+          3590
+          -
+          3601
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.ObjectInputStream.close
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          oos.close()
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          599
+        </td>
+        <td>
+          3606
+          -
+          3617
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.ByteArrayInputStream.close
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ios.close()
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
