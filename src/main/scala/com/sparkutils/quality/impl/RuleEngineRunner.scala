@@ -417,7 +417,7 @@ trait RuleEngineRunnerBase[T] extends UnaryExpression with NonSQLExpression {
       """
     val post = s"""
 
-          //boolean ${ev.isNull} = false;
+          boolean ${ev.isNull} = false;
       """
 
     val res =
