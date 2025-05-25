@@ -12,7 +12,8 @@ import com.sparkutils.shim.expressions.{HigherOrderFunctionLike, PredicateHelper
 import org.apache.spark.sql.QualitySparkUtils.optimizerBatches
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCoercion}
 import org.apache.spark.sql.catalyst.encoders.{ExpressionEncoder, RowEncoder}
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, GenerateMutableProjection}
+import org.apache.spark.sql.catalyst.expressions.codegen.ExprUtils.stripBrackets
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, ExprUtils, GenerateMutableProjection}
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, BindReferences, EqualNullSafe, Expression, ExpressionSet, HigherOrderFunction, InterpretedMutableProjection, Literal, Projection, UpdateFields}
 import org.apache.spark.sql.catalyst.optimizer.{BooleanSimplification, CollapseProject, CombineConcats, CombineTypedFilters, ConstantFolding, ConstantPropagation, EliminateMapObjects, EliminateSerialization, FoldablePropagation, LikeSimplification, NormalizeFloatingNumbers, NullDownPropagation, NullPropagation, ObjectSerializerPruning, OptimizeCsvJsonExprs, OptimizeIn, OptimizeUpdateFields, PushFoldableIntoBranches, ReassignLambdaVariableID, RemoveDispensableExpressions, RemoveNoopOperators, RemoveRedundantAliases, ReorderAssociativeOperator, ReplaceNullWithFalseInPredicate, ReplaceUpdateFieldsExpression, SimplifyBinaryComparison, SimplifyCaseConversionExpressions, SimplifyCasts, SimplifyConditionals, SimplifyExtractValueOps, UnwrapCastInBinaryComparison}
 import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, LogicalPlan, Project, UnaryNode}
@@ -35,17 +36,24 @@ object QualitySparkUtils {
    * @return (parameters for function decleration, parmaters for calling, code that must be before fungroup)
    */
   def genParams(ctx: CodegenContext, child: Expression): (String, String, String) = {
-    val (a, b) = CodeGenerator.getLocalInputVariableValues(ctx, child)
+    val (a, b) = CodeGenerator.getLocalInputVariableValues(ctx, child, ExprUtils.currentSubExprState(ctx))
 
-    val ordered = a.toSeq.sortBy(_.variableName)
+    // filter out any top level arrays, the input is a set, so params need the same order
+    val ordered = a.toSeq.filterNot(ExprUtils.isVariableMutableArray(ctx, _)).sortBy(_.variableName)
 
-    (ordered.map(v =>
-      if (v.javaType.isPrimitive)
-        s"${v.javaType} ${v}"
-      else
-        s"${v.javaType.getName} ${v}"
-    ).mkString(", ")
-      , ordered.mkString(", "), b.map(_.code.code).mkString("\n"))
+    (ordered.map { v =>
+      val typ =
+        if (v.javaType.isArray)
+          s"${v.javaType.getComponentType.getName}[]"
+        else
+          if (v.javaType.isPrimitive)
+            v.javaType.toString
+          else
+            v.javaType.getName
+
+      s"$typ ${stripBrackets(v)}"
+    }.mkString(", ")
+      , ordered.map(stripBrackets).mkString(", "), b.map(_.code.code).mkString("\n"))
   }
 
   def funNRewrite(plan: LogicalPlan, expressionToExpression: PartialFunction[Expression, Expression]): LogicalPlan =
