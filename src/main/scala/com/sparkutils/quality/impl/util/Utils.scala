@@ -5,7 +5,7 @@ import com.sparkutils.quality.impl.RuleLogicUtils
 import com.sparkutils.shim.expressions.{CreateNamedStruct1, GetStructField3}
 import frameless.TypedEncoder
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode, JavaCode}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode, ExprUtils, ExprValue, JavaCode, VariableValue}
 import org.apache.spark.sql.catalyst.expressions.{Alias, BoundReference, Expression, If, IsNull, Literal, NamedExpression, Unevaluable, UnsafeArrayData}
 import org.apache.spark.sql.catalyst.util.ArrayData
 import org.apache.spark.sql.types.{BooleanType, DataType, StructField, StructType}
@@ -499,4 +499,39 @@ object SubQueryWrapper {
     (expr.collectFirst {
       case s: SubQueryWrapper => s
     }.isDefined)
+}
+
+object Params {
+
+  def stripBrackets(v: VariableValue): (String, String) = {
+    val openb = v.toString().indexOf("[")
+    if (openb == -1)
+      (v.variableName, "")
+    else
+      (v.variableName.dropRight(v.length - openb), v.variableName.drop(openb))
+  }
+
+  def formatParams(ctx: CodegenContext, a: Seq[ExprValue]): (String, String) = {
+    // filter out any top level arrays, the input is a set, so params need the same order
+    val ordered = a.flatMap {
+      //case a: VariableValue if ExprUtils.isVariableMutableArray(ctx, a) => None
+      case a: VariableValue => Some(a)
+      case _ => None
+    }
+
+    (ordered.map { v =>
+      val (stripped, _) = stripBrackets(v)
+
+      val (typ, array) =
+        if (v.javaType.isArray)
+          (s"${v.javaType.getComponentType.getName}", "[]")
+        else if (v.javaType.isPrimitive)
+          (v.javaType.toString, "")
+        else
+          (v.javaType.getName, "")
+
+      s"$typ$array $stripped"
+    }.mkString(", ")
+      , ordered.mkString(", "))
+  }
 }

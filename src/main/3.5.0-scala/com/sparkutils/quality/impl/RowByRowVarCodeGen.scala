@@ -1,6 +1,7 @@
 package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.QualityException
+import com.sparkutils.quality.impl.util.Params.formatParams
 import com.sparkutils.quality.sparkless.impl.DecoderOpEncoderProjection
 import com.sparkutils.quality.sparkless.impl.Processors.{NO_QUERY_PLANS, isCopyNeeded}
 import org.apache.spark.sql.catalyst.InternalRow
@@ -190,10 +191,12 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
     val allProjections = projectionCodes.map(_._2).mkString("\n")
     val allUpdates = projectionCodes.map(_._3).mkString("\n")
 
-    val processorResult = projectionCodes.last._1.value
+    val processorResult = projectionCodes.takeRight(toSize).map(_._1.value)
 
     // create vars for the interesting results
     val oexprVals = projectionCodes.drop( expressions.length - toSize).map(_._1.copy(code = EmptyBlock))
+
+    val (projectionParamsDecl, projectionParamsCall) = formatParams( ctx, ctx.currentVars.flatMap(e => Seq(e.value, e.isNull)) )
 
     val decSetupCodes =
       if (toSize == 1 && resTypeIsStruct)
@@ -255,6 +258,10 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
           ${ctx.initPartition()}
         }
 
+        public void projections(InternalRow i${if (projectionParamsCall.nonEmpty) "," else ""} $projectionParamsDecl){
+          $allProjections
+        }
+
         //public ${implicitly[Encoder[O]].clsTag.runtimeClass.getName} apply(${implicitly[Encoder[I]].clsTag.runtimeClass.getName} _i) {
         public java.lang.Object apply(java.lang.Object _i) {
           inRow.update(0, _i);
@@ -281,10 +288,14 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
           $projectionSubExprsCode
 
           // projections doing the actual work
-          $allProjections
+          projections(i${if (projectionParamsCall.nonEmpty) "," else ""} $projectionParamsCall);
           // copy all the results into MutableRow
           // allUpdates
-          mutableRow.update(${expressions.size - 1}, $processorResult.copy());
+          ${
+            (for(i <- 1 to toSize) yield
+              s"mutableRow.update(${expressions.size - i}, ${processorResult(toSize - i)});" // .copy() shouldn't be needed for row by row
+              ).mkString("\n")
+          }
 
           // uncomment to debug the output, extraProjection can introduce extra fields..
           // com.sparkutils.quality.impl.GenerateDecoderOpEncoderVarProjection.debug(mutableRow, $topVarName);
@@ -311,7 +322,7 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
           // decoding projections
           $decProjections
           // decoding updates, should only be for index 0
-          $decUpdates
+          //decUpdates
 
           return /*(${implicitly[Encoder[O]].clsTag.runtimeClass.getName})*/ $returnValue;//decRow.get(0, new org.apache.spark.sql.types.ObjectType(Object.class));
         }
