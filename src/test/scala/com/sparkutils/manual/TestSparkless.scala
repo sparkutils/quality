@@ -44,12 +44,13 @@ object TestSparkless {
       implicit val renc = ShimUtils.rowEncoder(longSchema(cols, LongType))
       ProcessFunctions.dqFactory[Row](genRules(rules, cols)//,
       //  forceMutable = true
+        ,forceVarCompilation = true
       ).instance
     }
     def startup[T](processor: (Int, Int) => Processor[Row, T])(params: (Int, Int)) = {
       processor(params._1, params._2)
     }
-
+/*
     println("|rulesetCount|fieldCount|actual number of rules|")
     println("|-|-|-|")
     for{
@@ -58,8 +59,8 @@ object TestSparkless {
     } {
       println(s"| $rules | $fields | ${genRules(rules, fields).ruleSets.flatMap(_.rules).size} |")
     }
-
-    //val r = startup(processor)(200,200)
+*/
+    val r = startup(processor)(100,90)
 
 /*
     object implicits extends SQLImplicits with Serializable {

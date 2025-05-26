@@ -26,16 +26,14 @@ import org.apache.spark.sql.types.{DataType, StructField, StructType}
 object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expression], DecoderOpEncoderProjection[_,_]] {
 
   // $COVERAGE-OFF$
-  protected def canonicalize(in: Seq[Expression]): Seq[Expression] =
-    in.map(ExpressionCanonicalizer.execute)
-
   protected def bind(in: Seq[Expression], inputSchema: Seq[Attribute]): Seq[Expression] =
     bindReferences(in, inputSchema)
+  protected def create(expressions: Seq[Expression]): DecoderOpEncoderProjection[_,_] = ???
+
+  protected def canonicalize(in: Seq[Expression]): Seq[Expression] =
+    in.map(ExpressionCanonicalizer.execute)
   // $COVERAGE-ON$
 
-  // $COVERAGE-OFF$
-  protected def create(expressions: Seq[Expression]): DecoderOpEncoderProjection[_,_] = ???
-  // $COVERAGE-ON$
 
   // only for subexpresssion elimination, the tree is cleaned for statefuls on each new invocation, just not the first
   // one and freshCopyIfContainsStatefulExpression is also >3.4.1 only

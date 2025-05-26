@@ -24,15 +24,17 @@ object GenerateDecoderOpEncoderProjection extends CodeGenerator[Seq[Expression],
   protected def canonicalize(in: Seq[Expression]): Seq[Expression] =
     in.map(ExpressionCanonicalizer.execute)
 
+  // $COVERAGE-OFF$
   protected def bind(in: Seq[Expression], inputSchema: Seq[Attribute]): Seq[Expression] =
     bindReferences(in, inputSchema)
+
+  protected def create(expressions: Seq[Expression]): DecoderOpEncoderProjection[_,_] = ???
+  // $COVERAGE-ON$
 
   def generate[I: Encoder, O: Encoder](expressions: Seq[Expression],
                                        useSubexprElimination: Boolean, toSize: Int): DecoderOpEncoderProjection[I,O] = {
     create(canonicalize(expressions), useSubexprElimination, toSize)
   }
-
-  protected def create(expressions: Seq[Expression]): DecoderOpEncoderProjection[_,_] = ???
 
   def projections(ctx: CodegenContext, expressions: Seq[Expression], mutableRow: String, useSubexprElimination: Boolean = false) = {
     val validExpr = expressions.zipWithIndex.filter {
