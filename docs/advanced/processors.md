@@ -152,3 +152,57 @@ val rs = RuleSuite(Id(1,1), Seq(
 ```
 
 Note the use of LocalBroadcast, this implementation of Sparks Broadcast can be used without a SparkSession and just wraps the value.
+
+## Performance
+
+All the information presented below is captured here in [the Processor benchmark](https://sparkutils.github.io/quality/benchmarks/0.1.3.1-RC8-processor-throughput/).  The run is informative but has some outlier behaviours, and should be taken as a guideline only (be warned it takes almost a day to run).  This test evaluates compilation startup time only in the XStartup tests and the time for both startup and running through 100k rows at each fieldCount in a single thread (on a i9-9900K CPU @ 3.60GHz).  The inputs for each row are an array of longs, provided by spark's user land Row,  
+
+??? "info" By way of explanation the test combinations are found here
+
+    |rulesetCount|fieldCount|actual number of rules|
+    |-|-|-|
+    | 25 | 10 | 30 |
+    | 25 | 20 | 55 |
+    | 25 | 30 | 80 |
+    | 25 | 40 | 105 |
+    | 25 | 50 | 130 |
+    | 50 | 10 | 60 |
+    | 50 | 20 | 110 |
+    | 50 | 30 | 160 |
+    | 50 | 40 | 210 |
+    | 50 | 50 | 260 |
+    | 75 | 10 | 90 |
+    | 75 | 20 | 165 |
+    | 75 | 30 | 240 |
+    | 75 | 40 | 315 |
+    | 75 | 50 | 390 |
+    | 100 | 10 | 120 |
+    | 100 | 20 | 220 |
+    | 100 | 30 | 320 |
+    | 100 | 40 | 420 |
+    | 100 | 50 | 520 |
+    | 125 | 10 | 150 |
+    | 125 | 20 | 275 |
+    | 125 | 30 | 400 |
+    | 125 | 40 | 525 |
+    | 125 | 50 | 650 |
+    | 150 | 10 | 180 |
+    | 150 | 20 | 330 |
+    | 150 | 30 | 480 |
+    | 150 | 40 | 630 |
+    | 150 | 50 | 780 |
+
+As noted above the fastest startup time is with 'compile = false' as no compilation takes place, this holds true until about 
+the 780 rule mark where compilation catches up with the traversal and new expression tree copying cost.  Each subsequent instance call
+will however pay the same cost again, moreover the actual runtime is by far the worst option:
+
+![default_vs_interpreted_processor.png](../img/default_vs_interpreted_processor.png)
+
+The lower green line represents the default configuration, which compiles a class and only creates new instances in the general case.  The 
+below graph shows the performance trend across multiple rule and field complexities:
+
+![default_processor_combos.png](../img/default_processor_combos.png)
+
+In the top right case that's 780 rules total (run across 50 fields) with a cost of about 9.7ms per row (100,000 ms / 10,300 rows) or 0.012ms/rule/row. 
+
+The performance of the default configuration is consistently the best accept for far smaller numbers of rules and field combinations, observable by selecting the 10 fieldCount, every other combination has the default CompiledProjections (GenerateDecoderOpEncoderProjection) in the lead by a good enough margin.  

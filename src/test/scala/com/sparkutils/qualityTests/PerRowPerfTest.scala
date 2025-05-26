@@ -64,8 +64,8 @@ trait RowTools extends TestUtils {
 
 //  val fields = Gen.range("fieldCount")(27, 30, 5) // 1500 gives gc issues, takes forever to warm up, probably will soe
 //  val ruleSets = Gen.range("rulesetCount")(27,30, 5) // number of rule sets run  2, 1)//
-  val fields = Gen.range("fieldCount")(150, 150, 5) // 800 gives 1500 gives gc issues, takes forever to warm up, probably will soe
-  val ruleSets = Gen.range("rulesetCount")(150,150, 5) // number of rule sets run  2, 1)//
+  val fields = Gen.range("fieldCount")(50, 50, 10) // 800 gives 1500 gives gc issues, takes forever to warm up, probably will soe
+  val ruleSets = Gen.range("rulesetCount")(150, 150, 25) // number of rule sets run  2, 1)//
 
   val generator = crossProduct(ruleSets, fields)
 

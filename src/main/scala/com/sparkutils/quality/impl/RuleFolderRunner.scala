@@ -136,6 +136,7 @@ trait RuleFolderRunnerBase[T] extends BinaryExpression with NonSQLExpression {
     val pre = s"""
           $currentSalience = java.lang.Integer.MAX_VALUE;
           $currentOutputIndex = -1;
+          $pushToTop
 
           // starting
           ${starterEval.code}

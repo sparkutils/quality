@@ -21,12 +21,14 @@ import org.apache.spark.sql.types.StructType
  */
 object GenerateDecoderOpEncoderProjection extends CodeGenerator[Seq[Expression], DecoderOpEncoderProjection[_,_]] {
 
-  // $COVERAGE-OFF$
   protected def canonicalize(in: Seq[Expression]): Seq[Expression] =
     in.map(ExpressionCanonicalizer.execute)
 
+  // $COVERAGE-OFF$
   protected def bind(in: Seq[Expression], inputSchema: Seq[Attribute]): Seq[Expression] =
     bindReferences(in, inputSchema)
+
+  protected def create(expressions: Seq[Expression]): DecoderOpEncoderProjection[_,_] = ???
   // $COVERAGE-ON$
 
   def generate[I: Encoder, O: Encoder](expressions: Seq[Expression],
@@ -34,16 +36,12 @@ object GenerateDecoderOpEncoderProjection extends CodeGenerator[Seq[Expression],
     create(canonicalize(expressions), useSubexprElimination, toSize)
   }
 
-  // $COVERAGE-OFF$
-  protected def create(expressions: Seq[Expression]): DecoderOpEncoderProjection[_,_] = ???
-  // $COVERAGE-ON$
-
   def projections(ctx: CodegenContext, expressions: Seq[Expression], mutableRow: String, useSubexprElimination: Boolean = false) = {
     val validExpr = expressions.zipWithIndex.filter {
       case (NoOp, _) => false
       case _ => true
     }
-    val exprVals = ctx.generateExpressions(validExpr.map(_._1), useSubexprElimination)
+    val exprVals = ctx.generateExpressions(validExpr.map(_._1), useSubexprElimination).toIndexedSeq
 
     // 4-tuples: (code for projection, isNull variable name, value variable name, column index)
     val projectionCodes: Seq[(String, String)] = validExpr.zip(exprVals).map {
@@ -98,6 +96,7 @@ object GenerateDecoderOpEncoderProjection extends CodeGenerator[Seq[Expression],
       throw new QualityException(NO_QUERY_PLANS)
     }
 
+
     val (resTypeIsStruct, resType) =
       if (toSize == 1)
         (expressions.last.dataType.isInstanceOf[StructType],
@@ -107,22 +106,27 @@ object GenerateDecoderOpEncoderProjection extends CodeGenerator[Seq[Expression],
 
     val ctx = newCodeGenContext()
 
-    val projectionCodes = projections(ctx, expressions, "mutableRow", useSubexprElimination)
+
+    ctx.INPUT_ROW = "enc"
+    val encProjectionCodes = projections(ctx, exprFrom, "encRow").toIndexedSeq
+
+    val encProjections = ctx.splitExpressionsWithCurrentInputs(encProjectionCodes.map(_._1))
+    val encUpdates = ctx.splitExpressionsWithCurrentInputs(encProjectionCodes.map(_._2))
+    val encSubExprs = ctx.subexprFunctionsCode
+
+    ctx.INPUT_ROW = "i"
+
+    val projectionCodes = projections(ctx, expressions, "mutableRow", useSubexprElimination).toIndexedSeq
 
     // Evaluate all the subexpressions.
-    val evalSubexpr = ctx.subexprFunctionsCode
+    val evalSubexpr = ctx.subexprFunctionsCode.replace(encSubExprs, "")
 
     val allProjections = ctx.splitExpressionsWithCurrentInputs(projectionCodes.map(_._1))
     val allUpdates = ctx.splitExpressionsWithCurrentInputs(projectionCodes.map(_._2))
 
-    ctx.INPUT_ROW = "enc"
-    val encProjectionCodes = projections(ctx, exprFrom, "encRow")
-
-    val encProjections = ctx.splitExpressionsWithCurrentInputs(encProjectionCodes.map(_._1))
-    val encUpdates = ctx.splitExpressionsWithCurrentInputs(encProjectionCodes.map(_._2))
-
     ctx.INPUT_ROW = "dec"
-    val decProjectionCodes = projections(ctx, Seq(exprTo), "decRow")
+
+    val decProjectionCodes = projections(ctx, Seq(exprTo), "decRow").toIndexedSeq
 
     val decProjections = ctx.splitExpressionsWithCurrentInputs(decProjectionCodes.map(_._1))
     val decUpdates = ctx.splitExpressionsWithCurrentInputs(decProjectionCodes.map(_._2))
@@ -169,11 +173,17 @@ object GenerateDecoderOpEncoderProjection extends CodeGenerator[Seq[Expression],
         public java.lang.Object apply(java.lang.Object _i) {
           inRow.update(0, _i);
           InternalRow enc = (InternalRow) inRow;
+          // enc subexprs
+          $encSubExprs
+          // enc projections
           $encProjections
+          // enc updates
           $encUpdates
 
           InternalRow i = (InternalRow) encRow;
+          // eval sub exprs
           $evalSubexpr
+          // eval projections
           $allProjections
           // copy all the results into MutableRow
           $allUpdates
@@ -191,7 +201,11 @@ object GenerateDecoderOpEncoderProjection extends CodeGenerator[Seq[Expression],
           }
 
           InternalRow dec = (InternalRow) interim;
+          // dec subexprs
+          //decSubExprs
+          // dec projections
           $decProjections
+          // dec updates
           $decUpdates
 
           return (${implicitly[Encoder[O]].clsTag.runtimeClass.getName}) decRow.get(0, new org.apache.spark.sql.types.ObjectType(Object.class));

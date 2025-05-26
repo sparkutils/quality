@@ -9,7 +9,8 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, ResolveCatalogs, ResolveHigherOrderFunctions, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, Resolver, TimeWindowing, TypeCheckResult, TypeCoercion, UnresolvedAttribute, UnresolvedExtractValue}
 import org.apache.spark.sql.catalyst.catalog.SessionCatalog
 import org.apache.spark.sql.catalyst.errors.TreeNodeException
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode}
+import org.apache.spark.sql.catalyst.expressions.codegen.ExprUtils.stripBrackets
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode, ExprUtils}
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, CreateNamedStruct, EqualNullSafe, Expression, ExpressionSet, ExtractValue, GetStructField, If, IsNull, LeafExpression, Literal, Projection, UnaryExpression, Unevaluable}
 import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, UnaryNode}
 import org.apache.spark.sql.catalyst.rules.Rule
@@ -23,6 +24,35 @@ import scala.collection.mutable.ArrayBuffer
  * Set of utilities to reach in to private functions
  */
 object QualitySparkUtils {
+
+  /**
+   * Spark >3.1 supports the very useful getLocalInputVariableValues, 2.4 needs the previous approach
+   *
+   * @param i
+   * @param ctx
+   * @return (parameters for function decleration, parmaters for calling, code that must be before fungroup)
+   */
+  def genParams(ctx: CodegenContext, child: Expression): (String, String, String) = {
+    val (a, b) = CodeGenerator.getLocalInputVariableValues(ctx, child, ExprUtils.currentSubExprState(ctx))
+
+    // filter out any top level arrays, the input is a set, so params need the same order
+    val ordered = a.toSeq.filterNot(ExprUtils.isVariableMutableArray(ctx, _)).sortBy(_.variableName)
+
+    (ordered.map { v =>
+      val typ =
+        if (v.javaType.isArray)
+          s"${v.javaType.getComponentType.getName}[]"
+        else
+          if (v.javaType.isPrimitive)
+            v.javaType.toString
+          else
+            v.javaType.getName
+
+      s"$typ ${stripBrackets(v)}"
+    }.mkString(", ")
+      , ordered.map(stripBrackets).mkString(", "), b.map(_.code.code).mkString("\n"))
+  }
+
   def funNRewrite(plan: LogicalPlan, expressionToExpression: PartialFunction[Expression, Expression]): LogicalPlan =
     plan
 

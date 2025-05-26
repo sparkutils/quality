@@ -1,5 +1,9 @@
 ### 0.1.3.1 <small>3rd December, 2024</small>
 
+This is the last release of 2.4, 3.0 is deprecated as of this release, similarly, Databricks versions 9.1 through to 13.3 are also now deprecated and unsupported functionality (fixes for #84 will be gladly accepted).
+
+#82 - Wholestage codegen support for Correlated Subqueries, improved support for pass-through fields from plans
+
 #81 - Enable Quality row level runners to be used outside a spark runtime (still requires spark to build of course)
 
 #78 - Allow extra plans to be added after a rewrite, ConstantFolding as a default given it gives a slight boost.
