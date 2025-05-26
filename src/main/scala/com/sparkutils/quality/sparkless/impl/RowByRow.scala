@@ -10,6 +10,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.optimizer.ConstantFolding
 import org.apache.spark.sql.catalyst.util.MapData
+import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.types.{ArrayType, DataType, MapType, StructType, UserDefinedType}
 
 import scala.reflect.ClassTag
 
@@ -56,7 +58,8 @@ object Processors {
    *
    * GenerateDecoderOpEncoderProjection is likely far faster on larger rules or higher number of threads for throughput.
    * Unlike Spark compilation caching, which evaluates codegen for an expression tree every time, the codegen takes place
-   * once, each instance call simply returns a new class instance with fresh state for a thread.
+   * once, each instance call simply returns a new class instance with fresh state for a thread.  Once the number of
+   * input fields goes beyond spark.sql.codegen.maxFields (100) the code will fallback to INPUT_ROW based processing.
    *
    * The chained MutableProjections generate new class code for each instance.  They will also recreate the entire
    * expression tree if a stateful expression is identified when compile = false
@@ -64,14 +67,14 @@ object Processors {
    * @param dataFrameFunction
    * @param compile when false reverts to interpreted mode, when true and forceMutable is true it is recommended to cache the instances
    * @param forceMutable when true it forces MutableProjection's to be used, compiled or otherwise, the default of false is likely far faster
-   * @param forceVarCompilation defaulting to true it will, when compile is true and forceMutable is false, use variables rather than INPUT_ROW to generate code
+   * @param forceVarCompilation defaulting to false it will, when compile is true and forceMutable is false, use variables rather than INPUT_ROW to generate code.  Using true is (at 0.1.3.1) not advised, there are performance and code size issues
    * @param toSize specifies the number of fields required to deserialize and create the O
    * @tparam I
    * @tparam O
    * @return
    */
   def processFactory[I: Encoder, O: Encoder](dataFrameFunction: DataFrame => DataFrame, toSize: Int, compile: Boolean = true,
-      forceMutable: Boolean = false, forceVarCompilation: Boolean = true, extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true): ProcessorFactory[I, O] = {
+      forceMutable: Boolean = false, forceVarCompilation: Boolean = false, extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true): ProcessorFactory[I, O] = {
     if (forceMutable || !compile)
       MutableProjectionProcessor.processFactory[I, O](dataFrameFunction, toSize, compile, extraProjection, enableQualityOptimisations = enableQualityOptimisations)
     else {
@@ -84,8 +87,20 @@ object Processors {
         dataFrameFunction(extraProjection(df))
       })
 
+      def numOfNestedFields(dataType: DataType): Int = dataType match {
+        case dt: StructType => dt.fields.map(f => numOfNestedFields(f.dataType)).sum
+        case m: MapType => numOfNestedFields(m.keyType) + numOfNestedFields(m.valueType)
+        case a: ArrayType => numOfNestedFields(a.elementType)
+        case u: UserDefinedType[_] => numOfNestedFields(u.sqlType)
+        case _ => 1
+      }
+
+      def isTooManyFields(conf: SQLConf, dataType: DataType): Boolean = {
+        numOfNestedFields(dataType) > conf.wholeStageMaxNumFields
+      }
+
       val projector =
-        if (forceVarCompilation)
+        if (forceVarCompilation && !isTooManyFields(SQLConf.get, iEnc.schema))
           GenerateDecoderOpEncoderVarProjection.create[I, O](exprs, toSize)
         else
           GenerateDecoderOpEncoderProjection.generate[I, O](exprs, useSubexprElimination = true, toSize)

@@ -32,10 +32,10 @@ import scala.reflect.ClassTag
  * With forceMutable set as true a higher cost implementation based on Spark provided MutableProjections will be used,
  * if there are issues in actual processing this option is worth trying.
  *
- * The default of forceVarCompilation = true uses a wholeStageCodeGen style approach for subexpressions and removes
+ * EXPERIMENTAL - forceVarCompilation = true uses a wholeStageCodeGen style approach for subexpressions and removes
  * the use of InternalRow wherever possible, use forceVarCompilation = true to instead use InternalRow based processing.
- * The compilation overhead may be larger with VarCompilation, albeit typically paid once, but should result in a faster
- * ore stack based evaluation.
+ * The compilation overhead is higher with VarCompilation, albeit typically paid once, however the current (0.1.3.1)
+ * implementation is substantially slower than the default of forceVarCompilation = false.
  *
  * The defaults, including runner specific compilation options, are chosen for general larger volumes of data processing.
  *
@@ -55,7 +55,7 @@ object ProcessFunctions {
   def dqFactory[I: Encoder](ruleSuite: RuleSuite, compile: Boolean = true, compileEvals: Boolean = false,
       forceRunnerEval: Boolean = false, forceMutable: Boolean = false,
       extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
-      forceVarCompilation: Boolean = true): ProcessorFactory[I, RuleSuiteResult] =
+      forceVarCompilation: Boolean = false): ProcessorFactory[I, RuleSuiteResult] =
     processFactory[I, RuleSuiteResult](addDataQualityF(ruleSuite, compileEvals = compileEvals,
       forceRunnerEval = forceRunnerEval), 1, compile, forceMutable = forceMutable,
       extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
@@ -72,7 +72,7 @@ object ProcessFunctions {
   def dqDetailsFactory[I: Encoder](ruleSuite: RuleSuite, compile: Boolean = true, compileEvals: Boolean = false,
       forceRunnerEval: Boolean = false, forceMutable: Boolean = false,
       extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
-      forceVarCompilation: Boolean = true): ProcessorFactory[I, (RuleResult, RuleSuiteResultDetails)] = {
+      forceVarCompilation: Boolean = false): ProcessorFactory[I, (RuleResult, RuleSuiteResultDetails)] = {
     import com.sparkutils.quality.implicits._
     val tup = TypedExpressionEncoder[(RuleResult, RuleSuiteResultDetails)]
     processFactory[I, (RuleResult, RuleSuiteResultDetails)](addOverallResultsAndDetailsF(ruleSuite,
@@ -96,7 +96,7 @@ object ProcessFunctions {
       debugMode: Boolean = false, compileEvals: Boolean = false,
       forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false, forceMutable: Boolean = false,
       extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
-      forceVarCompilation: Boolean = true): ProcessorFactory[I, RuleEngineResult[T]] = {
+      forceVarCompilation: Boolean = false): ProcessorFactory[I, RuleEngineResult[T]] = {
     import com.sparkutils.quality.implicits._
     implicit val ttyped: TypedEncoder[T] = fromNormalEncoder[T](outputType)
     implicit val enc = TypedExpressionEncoder[RuleEngineResult[T]]
@@ -117,7 +117,7 @@ object ProcessFunctions {
       debugMode: Boolean = false, compileEvals: Boolean = false,
       forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false, forceMutable: Boolean = false,
       extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
-      forceVarCompilation: Boolean = true)(implicit resEnc: Encoder[RuleEngineResult[T]]):
+      forceVarCompilation: Boolean = false)(implicit resEnc: Encoder[RuleEngineResult[T]]):
         ProcessorFactory[I, RuleEngineResult[T]] =
     processFactory[I, RuleEngineResult[T]](ruleEngineWithStructF(ruleSuite, outputType, debugMode = debugMode,
       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval), 1, compile,
@@ -139,7 +139,7 @@ object ProcessFunctions {
       debugMode: Boolean = false, compileEvals: Boolean = false,
       forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false, forceMutable: Boolean = false,
       extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
-      forceVarCompilation: Boolean = true): ProcessorFactory[I, RuleFolderResult[T]] = {
+      forceVarCompilation: Boolean = false): ProcessorFactory[I, RuleFolderResult[T]] = {
     import com.sparkutils.quality.implicits._
     implicit val ttyped: TypedEncoder[T] = fromNormalEncoder[T](outputType)
     implicit val enc = TypedExpressionEncoder[RuleFolderResult[T]]
@@ -160,7 +160,7 @@ object ProcessFunctions {
       debugMode: Boolean = false, compileEvals: Boolean = false,
       forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false, forceMutable: Boolean = false,
       extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
-      forceVarCompilation: Boolean = true)(implicit resEnc: Encoder[RuleFolderResult[T]]):
+      forceVarCompilation: Boolean = false)(implicit resEnc: Encoder[RuleFolderResult[T]]):
       ProcessorFactory[I, RuleFolderResult[T]] =
     processFactory[I, RuleFolderResult[T]](foldAndReplaceFieldsWithStruct(ruleSuite, outputType, debugMode = debugMode,
       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval), 1, compile,
@@ -181,7 +181,7 @@ object ProcessFunctions {
       outputType: StructType, compile: Boolean = true, debugMode: Boolean = false, compileEvals: Boolean = false,
       forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false, forceMutable: Boolean = false,
       extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
-      forceVarCompilation: Boolean = true): ProcessorFactory[I, RuleFolderResult[T]] = {
+      forceVarCompilation: Boolean = false): ProcessorFactory[I, RuleFolderResult[T]] = {
     import com.sparkutils.quality.implicits._
     implicit val ttyped: TypedEncoder[T] = fromNormalEncoder[T](outputType)
     implicit val enc = TypedExpressionEncoder[RuleFolderResult[T]]
@@ -202,7 +202,7 @@ object ProcessFunctions {
       outputType: StructType, compile: Boolean = true, debugMode: Boolean = false, compileEvals: Boolean = false,
       forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false, forceMutable: Boolean = false,
       extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
-      forceVarCompilation: Boolean = true)(implicit resEnc: Encoder[RuleFolderResult[T]]):
+      forceVarCompilation: Boolean = false)(implicit resEnc: Encoder[RuleFolderResult[T]]):
       ProcessorFactory[I, RuleFolderResult[T]] =
     processFactory[I, RuleFolderResult[T]](foldAndReplaceFieldPairsWithStruct(ruleSuite, fields, outputType, debugMode = debugMode,
       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval), 1, compile,
@@ -225,7 +225,7 @@ object ProcessFunctions {
       compile: Boolean = true, compileEvals: Boolean = false,
       forceRunnerEval: Boolean = false, forceMutable: Boolean = false,
       extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
-      forceVarCompilation: Boolean = true): ProcessorFactory[I, GeneralExpressionsResult[T]] = {
+      forceVarCompilation: Boolean = false): ProcessorFactory[I, GeneralExpressionsResult[T]] = {
     import com.sparkutils.quality.implicits._
     implicit val ttyped: TypedEncoder[T] = fromNormalEncoder[T](outputType)
     implicit val enc = TypedExpressionEncoder[GeneralExpressionsResult[T]]
@@ -246,7 +246,7 @@ object ProcessFunctions {
       compile: Boolean = true, compileEvals: Boolean = false,
       forceRunnerEval: Boolean = false, forceMutable: Boolean = false,
       extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
-      forceVarCompilation: Boolean = true)
+      forceVarCompilation: Boolean = false)
       (implicit resEnc: Encoder[GeneralExpressionsResult[T]]):
       ProcessorFactory[I, GeneralExpressionsResult[T]] =
     processFactory[I, GeneralExpressionsResult[T]](addExpressionRunnerF(ruleSuite, ddlType = outputType.sql,
@@ -265,7 +265,7 @@ object ProcessFunctions {
       compile: Boolean = true, compileEvals: Boolean = false,
       forceRunnerEval: Boolean = false, forceMutable: Boolean = false,
       extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
-      forceVarCompilation: Boolean = true):
+      forceVarCompilation: Boolean = false):
       ProcessorFactory[I, GeneralExpressionsResult[GeneralExpressionResult]] = {
     import com.sparkutils.quality.implicits._
     processFactory[I, GeneralExpressionsResult[GeneralExpressionResult]](addExpressionRunnerF(ruleSuite, renderOptions = renderOptions,
@@ -285,7 +285,7 @@ object ProcessFunctions {
       compile: Boolean = true, compileEvals: Boolean = false,
       forceRunnerEval: Boolean = false, forceMutable: Boolean = false,
       extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
-      forceVarCompilation: Boolean = true):
+      forceVarCompilation: Boolean = false):
       ProcessorFactory[I, GeneralExpressionsResultNoDDL] = {
     import com.sparkutils.quality.implicits._
     processFactory[I, GeneralExpressionsResultNoDDL](addExpressionRunnerF(ruleSuite, renderOptions = renderOptions,

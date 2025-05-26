@@ -42,12 +42,20 @@ object TestSparkless {
 
     val processor = (rules: Int, cols: Int) => {
       implicit val renc = ShimUtils.rowEncoder(longSchema(cols, LongType))
-      ProcessFunctions.dqFactory[Row](genRules(rules, cols),
-        forceVarCompilation = false).instance
+      ProcessFunctions.dqFactory[Row](genRules(rules, cols)//,
+      //  forceMutable = true
+      ).instance
     }
     def startup[T](processor: (Int, Int) => Processor[Row, T])(params: (Int, Int)) = {
       processor(params._1, params._2)
     }
+
+    /*for{
+      rules <- 25 to 150 by 25
+      fields <- 10 to 50 by 10
+    } {
+      println(s"$rules rules $fields fields config is ${genRules(rules, fields).ruleSets.flatMap(_.rules).size} generated rules")
+    }*/
 
     val r = startup(processor)(200,200)
 
