@@ -190,6 +190,8 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
     val allProjections = projectionCodes.map(_._2).mkString("\n")
     val allUpdates = projectionCodes.map(_._3).mkString("\n")
 
+    val processorResult = projectionCodes.last._1.value
+
     // create vars for the interesting results
     val oexprVals = projectionCodes.drop( expressions.length - toSize).map(_._1.copy(code = EmptyBlock))
 
@@ -281,7 +283,8 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
           // projections doing the actual work
           $allProjections
           // copy all the results into MutableRow
-          $allUpdates
+          // allUpdates
+          mutableRow.update(${expressions.size - 1}, $processorResult.copy());
 
           // uncomment to debug the output, extraProjection can introduce extra fields..
           // com.sparkutils.quality.impl.GenerateDecoderOpEncoderVarProjection.debug(mutableRow, $topVarName);
