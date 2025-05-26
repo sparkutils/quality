@@ -108,21 +108,12 @@ object ProcessorThroughputBenchmark extends Bench.OfflineReport with RowTools {
 
       val processor = (rules: Int, cols: Int) => {
         implicit val renc = ShimUtils.rowEncoder(longSchema(cols, LongType))
-        ProcessFunctions.dqFactory[Row](genRules(rules, cols)).instance
+        ProcessFunctions.dqFactory[Row](genRules(rules, cols),
+          forceVarCompilation = true).instance
       }
       using(generator) in evaluate( processor )
     }
 /*
-    measure method "VarCompilationStartup" in {
-      val s = sparkSession
-
-      val processor = (rules: Int, cols: Int) => {
-        implicit val renc = ShimUtils.rowEncoder(longSchema(cols, LongType))
-        ProcessFunctions.dqFactory[Row](genRules(rules, cols)).instance
-      }
-      using(generator) in startup( processor )
-    }
-
     measure method "CompiledProjections" in {
       val s = sparkSession
 
@@ -132,17 +123,6 @@ object ProcessorThroughputBenchmark extends Bench.OfflineReport with RowTools {
           forceVarCompilation = false).instance
       }
       using(generator) in evaluate( processor )
-    }
-
-    measure method "CompiledProjectionsStartup" in {
-      val s = sparkSession
-
-      val processor = (rules: Int, cols: Int) => {
-        implicit val renc = ShimUtils.rowEncoder(longSchema(cols, LongType))
-        ProcessFunctions.dqFactory[Row](genRules(rules, cols),
-          forceVarCompilation = false).instance
-      }
-      using(generator) in startup( processor )
     }
 
     measure method "MutableProjectionsCompiled" in {
@@ -156,17 +136,6 @@ object ProcessorThroughputBenchmark extends Bench.OfflineReport with RowTools {
       using(generator) in evaluate( processor )
     }
 
-    measure method "MutableProjectionsCompiledStartup" in {
-      val s = sparkSession
-
-      val processor = (rules: Int, cols: Int) => {
-        implicit val renc = ShimUtils.rowEncoder(longSchema(cols, LongType))
-        ProcessFunctions.dqFactory[Row](genRules(rules, cols),
-          forceMutable = true).instance
-      }
-      using(generator) in startup( processor )
-    }
-
     measure method "interpreted" in {
       val s = sparkSession
 
@@ -176,17 +145,59 @@ object ProcessorThroughputBenchmark extends Bench.OfflineReport with RowTools {
           compile = false).instance
       }
       using(generator) in evaluate( processor )
-    }
-    measure method "interpretedStartup" in {
-      val s = sparkSession
-
-      val processor = (rules: Int, cols: Int) => {
-        implicit val renc = ShimUtils.rowEncoder(longSchema(cols, LongType))
-        ProcessFunctions.dqFactory[Row](genRules(rules, cols),
-          compile = false).instance
-      }
-      using(generator) in startup( processor )
-    }
-*/
+    }*/
   }
+
+  /*performance of "startupTimeOnly" config (
+    exec.minWarmupRuns -> 2,
+    exec.maxWarmupRuns -> 4,
+    exec.benchRuns -> 4,
+    exec.jvmcmd -> (System.getProperty("java.home")+"/bin/java"),
+    exec.jvmflags -> List("-Xmx24g","-Xms24g")
+    //  verbose -> true
+  ) in {
+      measure method "VarCompilationStartup" in {
+        val s = sparkSession
+
+        val processor = (rules: Int, cols: Int) => {
+          implicit val renc = ShimUtils.rowEncoder(longSchema(cols, LongType))
+          ProcessFunctions.dqFactory[Row](genRules(rules, cols),
+            forceVarCompilation = true).instance
+        }
+        using(generator) in startup( processor )
+      }
+
+      measure method "CompiledProjectionsStartup" in {
+        val s = sparkSession
+
+        val processor = (rules: Int, cols: Int) => {
+          implicit val renc = ShimUtils.rowEncoder(longSchema(cols, LongType))
+          ProcessFunctions.dqFactory[Row](genRules(rules, cols),
+            forceVarCompilation = false).instance
+        }
+        using(generator) in startup( processor )
+      }
+
+      measure method "MutableProjectionsCompiledStartup" in {
+        val s = sparkSession
+
+        val processor = (rules: Int, cols: Int) => {
+          implicit val renc = ShimUtils.rowEncoder(longSchema(cols, LongType))
+          ProcessFunctions.dqFactory[Row](genRules(rules, cols),
+            forceMutable = true).instance
+        }
+        using(generator) in startup( processor )
+      }
+      measure method "interpretedStartup" in {
+        val s = sparkSession
+
+        val processor = (rules: Int, cols: Int) => {
+          implicit val renc = ShimUtils.rowEncoder(longSchema(cols, LongType))
+          ProcessFunctions.dqFactory[Row](genRules(rules, cols),
+            compile = false).instance
+        }
+        using(generator) in startup( processor )
+      }
+  }*/
+
 }

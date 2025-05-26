@@ -10,7 +10,7 @@ import org.apache.spark.sql.catalyst.expressions.BindReferences.bindReferences
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate.NoOp
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
-import org.apache.spark.sql.catalyst.expressions.codegen.{ExprUtils, _}
+import org.apache.spark.sql.catalyst.expressions.codegen.{ExprUtils, JavaCode, _}
 import org.apache.spark.sql.types.{DataType, StructField, StructType}
 
 //import scala.collection.immutable.{Map, Seq}
@@ -116,6 +116,17 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
     evaluate
   }
 
+  protected def functions(ctx: CodegenContext, allExpr: Seq[String], paramsDef: String, paramsCall: String,
+                          prefix: String): String = {
+    val variablesPerFunc: Int = 40
+    val variableFuncGroup: Int = 20 // defaults from rulerunner
+    val grouped = allExpr.grouped(variablesPerFunc).grouped(variableFuncGroup)
+    val funNames: Iterator[String] =
+      RuleRunnerUtils.generateFunctionGroups(ctx, grouped, paramsDef, paramsCall, prefix = prefix)
+
+    funNames.map { f => s"$f($paramsCall);" }.mkString("\n")
+  }
+
   def create[I: Encoder, O: Encoder](
                       expressions: Seq[Expression], toSize: Int): DecoderOpEncoderProjection[I,O] = {
 
@@ -170,8 +181,8 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
 
     val encProjectionCodes = projections(ctx, exprFrom, "encRow", encSubExprStates).toIndexedSeq // streams suck
 
-    val encProjections = encProjectionCodes.map(_._2).mkString("\n")
-    val encUpdates = encProjectionCodes.map(_._3).mkString("\n")
+    val encProjections = functions(ctx, encProjectionCodes.map(_._2), "InternalRow enc", "enc", "encoder")
+    val encUpdates = functions(ctx, encProjectionCodes.map(_._3), "InternalRow enc", "enc", "encoder")
 
     val exprVals = encProjectionCodes.map(_._1.copy(code = EmptyBlock))
 
@@ -188,15 +199,21 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
     // generate the full set
     val projectionCodes = projections(ctx, expressions, "mutableRow", projectionSubExprStates).toIndexedSeq // streams suck
 
-    val allProjections = projectionCodes.map(_._2).mkString("\n")
-    val allUpdates = projectionCodes.map(_._3).mkString("\n")
+    val (projectionParamsDecl, projectionParamsCall) = formatParams( ctx, ctx.currentVars.flatMap(e => Seq(e.value, e.isNull)) :+
+      JavaCode.variable(ctx.INPUT_ROW, classOf[InternalRow])
+    )
+    val (_, topProjectionParamsCall) = formatParams( ctx, ctx.currentVars.flatMap(e => Seq(e.value, e.isNull)) :+
+      JavaCode.variable(ctx.INPUT_ROW, classOf[InternalRow]), callsKeepArrays = true
+    )
+
+    val allProjections = functions(ctx, projectionCodes.map(_._2), projectionParamsDecl, projectionParamsCall, "projection")
+
+    // val allUpdates = projectionCodes.map(_._3).mkString("\n")
 
     val processorResult = projectionCodes.takeRight(toSize).map(_._1.value)
 
     // create vars for the interesting results
     val oexprVals = projectionCodes.drop( expressions.length - toSize).map(_._1.copy(code = EmptyBlock))
-
-    val (projectionParamsDecl, projectionParamsCall) = formatParams( ctx, ctx.currentVars.flatMap(e => Seq(e.value, e.isNull)) )
 
     val decSetupCodes =
       if (toSize == 1 && resTypeIsStruct)
@@ -208,17 +225,21 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
 
     ctx.currentVars = decSetupCodes.map(_.copy(code = EmptyBlock))
 
-    val (decParamsDecl, decParamsCall) = formatParams( ctx, ctx.currentVars.flatMap(e => Seq(e.value, e.isNull)) )
-
     val (decSubExprsCode, decSubExprInputs, decSubExprStates) =
       subElim(Seq(exprTo), ctx)
 
     ///ctx.currentVars = null // it requires the vars to be provided for each input param
     ctx.INPUT_ROW = "dec"
+    val (decParamsDecl, decParamsCall) = formatParams( ctx, ctx.currentVars.flatMap(e => Seq(e.value, e.isNull)) :+
+      JavaCode.variable(ctx.INPUT_ROW, classOf[InternalRow])
+    )
+    val (_, topDecParamsCall) = formatParams( ctx, ctx.currentVars.flatMap(e => Seq(e.value, e.isNull)) :+
+      JavaCode.variable(ctx.INPUT_ROW, classOf[InternalRow]), callsKeepArrays = true
+    )
+
     val decProjectionCodes = projections(ctx, Seq(exprTo), "decRow", decSubExprStates).toIndexedSeq // streams suck
 
-    val decProjections = decProjectionCodes.map(_._2).mkString("\n")
-    val decUpdates = decProjectionCodes.map(_._3).mkString("\n")
+    val decProjections = functions(ctx, decProjectionCodes.map(_._2), decParamsDecl, decParamsCall, "decoding")
 
     val returnValue = decProjectionCodes.last._1.value
 
@@ -268,11 +289,11 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
           $encUpdates
         }
 
-        public void projections(InternalRow i${if (projectionParamsCall.nonEmpty) "," else ""} $projectionParamsDecl){
+        public void projections($projectionParamsDecl){
           $allProjections
         }
 
-        public void decode(InternalRow dec${if (decParamsCall.nonEmpty) "," else ""} $decParamsDecl) {
+        public void decode($decParamsDecl) {
           // dec subexprs setup
           ${evaluateVariables(decSubExprInputs)}
           // the code
@@ -305,7 +326,7 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
           $projectionSubExprsCode
 
           // projections doing the actual work
-          projections(i${if (projectionParamsCall.nonEmpty) "," else ""} $projectionParamsCall);
+          projections($topProjectionParamsCall);
           // copy all the results into MutableRow
           // allUpdates
           ${
@@ -331,7 +352,7 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
           }
 
           InternalRow dec = (InternalRow) interim;
-          decode(dec${if (decParamsCall.nonEmpty) "," else ""} $decParamsCall);
+          decode($topDecParamsCall);
 
           return /*(${implicitly[Encoder[O]].clsTag.runtimeClass.getName})*/ $returnValue;//decRow.get(0, new org.apache.spark.sql.types.ObjectType(Object.class));
         }

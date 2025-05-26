@@ -190,16 +190,17 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
 
   def packTheId(obj: Object) = packId(obj)//: java.lang.Long
 
-  protected[quality] def generateFunctionGroups(ctx: CodegenContext, allExpr: Iterator[Seq[String]]#GroupedIterator[Seq[String]], paramsDef: String, paramsCall: String) = {
+  protected[quality] def generateFunctionGroups(ctx: CodegenContext, allExpr: Iterator[Seq[String]]#GroupedIterator[Seq[String]],
+    paramsDef: String, paramsCall: String, prefix: String = "ruleRunner") = {
     val funNames =
       for (exprGroup <- allExpr) yield {
-        val groupName = ctx.freshName("ruleRunnerEGroup")
+        val groupName = ctx.freshName(prefix+"EGroup")
         ctx.addNewFunction(groupName, {
           val funNames =
             for {
               exprFunc <- exprGroup
             } yield {
-              val exprFuncName = ctx.freshName("ruleRunnerEFuncGroup")
+              val exprFuncName = ctx.freshName(prefix+"EFuncGroup")
               ctx.addNewFunction(exprFuncName,
 s"""
    private void $exprFuncName($paramsDef) {

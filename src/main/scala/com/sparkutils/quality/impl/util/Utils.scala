@@ -511,7 +511,7 @@ object Params {
       (v.variableName.dropRight(v.length - openb), v.variableName.drop(openb))
   }
 
-  def formatParams(ctx: CodegenContext, a: Seq[ExprValue]): (String, String) = {
+  def formatParams(ctx: CodegenContext, a: Seq[ExprValue], callsKeepArrays: Boolean = false): (String, String) = {
     // filter out any top level arrays, the input is a set, so params need the same order
     val ordered = a.flatMap {
       //case a: VariableValue if ExprUtils.isVariableMutableArray(ctx, a) => None
@@ -520,18 +520,23 @@ object Params {
     }
 
     (ordered.map { v =>
-      val (stripped, _) = stripBrackets(v)
+      val (stripped, arrayInName) = stripBrackets(v)
 
       val (typ, array) =
         if (v.javaType.isArray)
           (s"${v.javaType.getComponentType.getName}", "[]")
         else if (v.javaType.isPrimitive)
-          (v.javaType.toString, "")
+          (v.javaType.toString, arrayInName.replaceAll("[^\\[\\]]",""))
         else
-          (v.javaType.getName, "")
+          (v.javaType.getName, arrayInName.replaceAll("[^\\[\\]]",""))
 
       s"$typ$array $stripped"
     }.mkString(", ")
-      , ordered.mkString(", "))
+      , ordered.map(v =>
+        if (v.javaType.isArray && callsKeepArrays)
+          v.variableName
+        else
+          stripBrackets(v)._1
+      ).mkString(", "))
   }
 }
