@@ -44,7 +44,7 @@ object TestSparkless {
       implicit val renc = ShimUtils.rowEncoder(longSchema(cols, LongType))
       ProcessFunctions.dqFactory[Row](genRules(rules, cols)
         //, forceMutable = true
-        //,forceVarCompilation = true
+        ,forceVarCompilation = true
       ).instance
     }
     def startup[T](processor: (Int, Int) => Processor[Row, T])(params: (Int, Int)) = {

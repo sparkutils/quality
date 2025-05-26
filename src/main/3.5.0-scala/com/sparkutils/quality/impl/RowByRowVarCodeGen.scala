@@ -208,6 +208,8 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
 
     ctx.currentVars = decSetupCodes.map(_.copy(code = EmptyBlock))
 
+    val (decParamsDecl, decParamsCall) = formatParams( ctx, ctx.currentVars.flatMap(e => Seq(e.value, e.isNull)) )
+
     val (decSubExprsCode, decSubExprInputs, decSubExprStates) =
       subElim(Seq(exprTo), ctx)
 
@@ -258,8 +260,26 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
           ${ctx.initPartition()}
         }
 
+        public void encode(InternalRow enc) {
+          $encSubExprsCode
+
+          // encoding from object done by subexprs
+          $encProjections
+          $encUpdates
+        }
+
         public void projections(InternalRow i${if (projectionParamsCall.nonEmpty) "," else ""} $projectionParamsDecl){
           $allProjections
+        }
+
+        public void decode(InternalRow dec${if (decParamsCall.nonEmpty) "," else ""} $decParamsDecl) {
+          // dec subexprs setup
+          ${evaluateVariables(decSubExprInputs)}
+          // the code
+          $decSubExprsCode
+
+          // decoding projections
+          $decProjections
         }
 
         //public ${implicitly[Encoder[O]].clsTag.runtimeClass.getName} apply(${implicitly[Encoder[I]].clsTag.runtimeClass.getName} _i) {
@@ -272,11 +292,8 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
           // enc sub setup
           ${evaluateVariables(encSubExprInputs)}
           // enc sub
-          $encSubExprsCode
+          encode(enc);
 
-          // encoding from object done by subexprs
-          $encProjections
-          $encUpdates
 
           // may be in subexprs
           InternalRow i = (InternalRow) encRow;
@@ -314,15 +331,7 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
           }
 
           InternalRow dec = (InternalRow) interim;
-          // dec subexprs setup
-          ${evaluateVariables(decSubExprInputs)}
-          // the code
-          $decSubExprsCode
-
-          // decoding projections
-          $decProjections
-          // decoding updates, should only be for index 0
-          //decUpdates
+          decode(dec${if (decParamsCall.nonEmpty) "," else ""} $decParamsCall);
 
           return /*(${implicitly[Encoder[O]].clsTag.runtimeClass.getName})*/ $returnValue;//decRow.get(0, new org.apache.spark.sql.types.ObjectType(Object.class));
         }
