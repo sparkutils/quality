@@ -71,13 +71,14 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
               |$value = ${ev.value};
             """.stripMargin, FalseLiteral)
         }
+        val expr = ExprCode(isNull, value)
         val update = CodeGenerator.updateColumn(
           mutableRow,
           e.dataType,
           i,
-          ExprCode(isNull, value),
+          expr,
           e.nullable)
-        (ev, code, update)
+        (expr, code, update)
     }
     projectionCodes
   }
@@ -161,13 +162,15 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
 
     ctx.currentVars = topVarRef
 
-    val encProjectionCodes = projections(ctx, exprFrom, "encRow").toIndexedSeq // streams suck
+    val (encSubExprsCode, encSubExprInputs, encSubExprStates) =
+      subElim(exprFrom, ctx)
+
+    ctx.currentVars = encSubExprStates.map(_._2.eval).map(_.copy(code = EmptyBlock)).toIndexedSeq ++ topVarRef
+
+    val encProjectionCodes = projections(ctx, exprFrom, "encRow", encSubExprStates).toIndexedSeq // streams suck
 
     val encProjections = encProjectionCodes.map(_._2).mkString("\n")
     val encUpdates = encProjectionCodes.map(_._3).mkString("\n")
-
-    ctx.currentVars = null
-    val encSubExprs = ctx.subexprFunctionsCode
 
     val exprVals = encProjectionCodes.map(_._1.copy(code = EmptyBlock))
 
@@ -175,21 +178,16 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
 
     ctx.currentVars = exprVals ++ topVarRef
 
-    // Evaluate all the subexpressions.
-    // only for input_row projections val evalSubexpr = ctx.subexprFunctionsCode
-    val (subExprsCode, subExprInputs, subExprStates: Map[ExpressionEquals, SubExprEliminationState]) =
-      {
-        val subExprs = ctx.subexpressionEliminationForWholeStageCodegen(exprsToUse) //  ++ Seq(exprTo)
-        (ctx.evaluateSubExprEliminationState(subExprs.states.values), subExprs.exprCodesNeedEvaluate, subExprs.states)
-      }
+    val (projectionSubExprsCode, projectionSubExprInputs, projectionSubExprStates) =
+      subElim(expressions, ctx)
 
     // we need InputRow to start with, after that we can bind to name
-    ctx.currentVars = exprVals ++ subExprStates.map(_._2.eval).map(_.copy(code = EmptyBlock)) ++ topVarRef
+    ctx.currentVars = exprVals ++ projectionSubExprStates.map(_._2.eval).map(_.copy(code = EmptyBlock)) ++ topVarRef
 
     // generate the full set
-    val projectionCodes = projections(ctx, expressions, "mutableRow", subExprStates).toIndexedSeq // streams suck
+    val projectionCodes = projections(ctx, expressions, "mutableRow", projectionSubExprStates).toIndexedSeq // streams suck
 
-    val allProjections =  projectionCodes.map(_._2).mkString("\n")
+    val allProjections = projectionCodes.map(_._2).mkString("\n")
     val allUpdates = projectionCodes.map(_._3).mkString("\n")
 
     // create vars for the interesting results
@@ -205,15 +203,17 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
 
     ctx.currentVars = decSetupCodes.map(_.copy(code = EmptyBlock))
 
+    val (decSubExprsCode, decSubExprInputs, decSubExprStates) =
+      subElim(Seq(exprTo), ctx)
+
     ///ctx.currentVars = null // it requires the vars to be provided for each input param
     ctx.INPUT_ROW = "dec"
-    val decProjectionCodes = projections(ctx, Seq(exprTo), "decRow").toIndexedSeq // streams suck
+    val decProjectionCodes = projections(ctx, Seq(exprTo), "decRow", decSubExprStates).toIndexedSeq // streams suck
 
-    val decProjections = ctx.splitExpressionsWithCurrentInputs(decProjectionCodes.map(_._2))
-    val decUpdates = ctx.splitExpressionsWithCurrentInputs(decProjectionCodes.map(_._3))
+    val decProjections = decProjectionCodes.map(_._2).mkString("\n")
+    val decUpdates = decProjectionCodes.map(_._3).mkString("\n")
 
-    ctx.currentVars = null
-    val decSubExprs = ctx.subexprFunctionsCode.replace(encSubExprs, "")
+    val returnValue = decProjectionCodes.last._1.value
 
     val codeBody = s"""
       public java.lang.Object generate(Object[] references) {
@@ -260,7 +260,10 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
           // input processing sub exprs need the enc
           InternalRow enc = (InternalRow) inRow;
           // the iterator isn't part of the wholestage so it gets the ctx level subexprs
-          $encSubExprs
+          // enc sub setup
+          ${evaluateVariables(encSubExprInputs)}
+          // enc sub
+          $encSubExprsCode
 
           // encoding from object done by subexprs
           $encProjections
@@ -271,9 +274,9 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
 
           // common sub-expressions
           // setup
-          ${evaluateVariables(subExprInputs)}
+          ${evaluateVariables(projectionSubExprInputs)}
           // the code
-          $subExprsCode
+          $projectionSubExprsCode
 
           // projections doing the actual work
           $allProjections
@@ -297,14 +300,17 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
           }
 
           InternalRow dec = (InternalRow) interim;
-          // dec subexprs
-          $decSubExprs
+          // dec subexprs setup
+          ${evaluateVariables(decSubExprInputs)}
+          // the code
+          $decSubExprsCode
+
           // decoding projections
           $decProjections
           // decoding updates, should only be for index 0
           $decUpdates
 
-          return (${implicitly[Encoder[O]].clsTag.runtimeClass.getName}) decRow.get(0, new org.apache.spark.sql.types.ObjectType(Object.class));
+          return /*(${implicitly[Encoder[O]].clsTag.runtimeClass.getName})*/ $returnValue;//decRow.get(0, new org.apache.spark.sql.types.ObjectType(Object.class));
         }
 
 
@@ -333,5 +339,10 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
     else
       // with no stateful CodegenFallback's the generated newInstance function is correct
       initial
+  }
+
+  private def subElim(exprFrom: Seq[Expression], ctx: CodegenContext) = {
+    val subExprs = ctx.subexpressionEliminationForWholeStageCodegen(exprFrom)
+    (ctx.evaluateSubExprEliminationState(subExprs.states.values), subExprs.exprCodesNeedEvaluate, subExprs.states)
   }
 }

@@ -155,12 +155,12 @@ Note the use of LocalBroadcast, this implementation of Sparks Broadcast can be u
 
 ## Performance
 
-All the information presented below is captured here in [the Processor benchmark](https://sparkutils.github.io/quality/benchmarks/0.1.3.1-RC8-processor-throughput/).  The run is informative but has some outlier behaviours, and should be taken as a guideline only (be warned it takes almost a day to run).  This test evaluates compilation startup time only in the XStartup tests and the time for both startup and running through 100k rows at each fieldCount in a single thread (on a i9-9900K CPU @ 3.60GHz).  The inputs for each row are an array of longs, provided by spark's user land Row,  
+All the information presented below is captured here in [the Processor benchmark](https://sparkutils.github.io/quality/benchmarks/0.1.3.1-RC8-processor-throughput/).  
+The run is informative but has some outlier behaviours and should be taken as a guideline only (be warned it takes almost a day to run).  This test evaluates compilation startup time only in the XStartup tests and the time for both startup and running through 100k rows at each fieldCount in a single thread (on a i9-9900K CPU @ 3.60GHz).  The inputs for each row are an array of longs, provided by spark's user land Row, with the output a RuleSuiteResult object.  
 
 ??? "info" By way of explanation the test combinations are found here
-
-    |rulesetCount|fieldCount|actual number of rules|
-    |-|-|-|
+    | rulesetCount | fieldCount | actual number of rules |
+    | - | - | - |
     | 25 | 10 | 30 |
     | 25 | 20 | 55 |
     | 25 | 30 | 80 |
@@ -206,3 +206,5 @@ below graph shows the performance trend across multiple rule and field complexit
 In the top right case that's 780 rules total (run across 50 fields) with a cost of about 9.7ms per row (100,000 ms / 10,300 rows) or 0.012ms/rule/row. 
 
 The performance of the default configuration is consistently the best accept for far smaller numbers of rules and field combinations, observable by selecting the 10 fieldCount, every other combination has the default CompiledProjections (GenerateDecoderOpEncoderProjection) in the lead by a good enough margin.  
+
+The majority of cost is the serialisation of the results into the RuleSuiteResult's Scala Maps (via Sparks ArrayBasedMapData.toScalaMap). 
