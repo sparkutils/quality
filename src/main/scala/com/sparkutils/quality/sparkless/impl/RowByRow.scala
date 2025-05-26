@@ -9,9 +9,8 @@ import org.apache.spark.sql.{DataFrame, Encoder, QualitySparkUtils, ShimUtils}
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.optimizer.ConstantFolding
-import org.apache.spark.sql.catalyst.util.MapData
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{ArrayType, DataType, MapType, StructType, UserDefinedType}
+import org.apache.spark.sql.types.{ArrayType, DataType, MapType, StructType}
 
 import scala.reflect.ClassTag
 
@@ -91,7 +90,7 @@ object Processors {
         case dt: StructType => dt.fields.map(f => numOfNestedFields(f.dataType)).sum
         case m: MapType => numOfNestedFields(m.keyType) + numOfNestedFields(m.valueType)
         case a: ArrayType => numOfNestedFields(a.elementType)
-        case u: UserDefinedType[_] => numOfNestedFields(u.sqlType)
+        //case u: UserDefinedType[_] => numOfNestedFields(u.sqlType)
         case _ => 1
       }
 
