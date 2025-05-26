@@ -50,14 +50,16 @@ object TestSparkless {
       processor(params._1, params._2)
     }
 
-    /*for{
+    println("|rulesetCount|fieldCount|actual number of rules|")
+    println("|-|-|-|")
+    for{
       rules <- 25 to 150 by 25
       fields <- 10 to 50 by 10
     } {
-      println(s"$rules rules $fields fields config is ${genRules(rules, fields).ruleSets.flatMap(_.rules).size} generated rules")
-    }*/
+      println(s"| $rules | $fields | ${genRules(rules, fields).ruleSets.flatMap(_.rules).size} |")
+    }
 
-    val r = startup(processor)(200,200)
+    //val r = startup(processor)(200,200)
 
 /*
     object implicits extends SQLImplicits with Serializable {
