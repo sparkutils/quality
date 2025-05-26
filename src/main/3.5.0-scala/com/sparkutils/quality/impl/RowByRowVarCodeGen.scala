@@ -174,16 +174,37 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
 
     ctx.currentVars = topVarRef
 
+    val allOrdinals =
+      exprsToUse.flatMap{
+        e => e.collect {
+          case b: BoundReference => b.ordinal
+        }
+      }.distinct.toSet
+
+    val nullLit = Literal(null)
+
+    // only generate the actually used field mappings
+    val fromExprs = exprFrom.zipWithIndex.map{
+      case p if allOrdinals(p._2) => p._1
+      case _ => nullLit // won't be used but needs to be present in the right order
+    }
+
     val (encSubExprsCode, encSubExprInputs, encSubExprStates) =
-      subElim(exprFrom, ctx)
+      subElim(fromExprs, ctx)
 
     ctx.currentVars = encSubExprStates.map(_._2.eval).map(_.copy(code = EmptyBlock)).toIndexedSeq ++ topVarRef
 
     val encProjectionCodes = projections(ctx, exprFrom, "encRow", encSubExprStates).toIndexedSeq // streams suck
 
-    val encProjections = functions(ctx, encProjectionCodes.map(_._2), "InternalRow enc", "enc", "encoder")
-    val encUpdates = functions(ctx, encProjectionCodes.map(_._3), "InternalRow enc", "enc", "encoder")
+    // only generate the actually used field mappings
+    val encProjectionCodesToUse = encProjectionCodes.zipWithIndex.collect{
+      case p if allOrdinals(p._2) => p._1
+    }
 
+    val encProjections = functions(ctx, encProjectionCodesToUse.map(_._2), "InternalRow enc", "enc", "encoder")
+    val encUpdates = functions(ctx, encProjectionCodesToUse.map(_._3), "InternalRow enc", "enc", "encoder")
+
+    // need to keep all that may be used
     val exprVals = encProjectionCodes.map(_._1.copy(code = EmptyBlock))
 
     ctx.INPUT_ROW = "i"
