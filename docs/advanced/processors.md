@@ -158,9 +158,8 @@ Note the use of LocalBroadcast, this implementation of Sparks Broadcast can be u
 All the information presented below is captured here in [the Processor benchmark](https://sparkutils.github.io/quality/benchmarks/0.1.3.1-RC8-processor-throughput/).  The run is informative but has some outlier behaviours, and should be taken as a guideline only (be warned it takes almost a day to run).  This test evaluates compilation startup time only in the XStartup tests and the time for both startup and running through 100k rows at each fieldCount in a single thread (on a i9-9900K CPU @ 3.60GHz).  The inputs for each row are an array of longs, provided by spark's user land Row,  
 
 ??? "info" By way of explanation the test combinations are found here
-
-    |rulesetCount|fieldCount|actual number of rules|
-    |-|-|-|
+    | rulesetCount | fieldCount | actual number of rules |
+    | - | - | - |
     | 25 | 10 | 30 |
     | 25 | 20 | 55 |
     | 25 | 30 | 80 |
