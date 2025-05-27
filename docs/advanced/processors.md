@@ -159,7 +159,7 @@ All the information presented below is captured here in [the Processor benchmark
 The run is informative but has some outlier behaviours and should be taken as a guideline only (be warned it takes almost a day to run).  This test evaluates compilation startup time only in the XStartup tests and the time for both startup and running through 100k rows at each fieldCount in a single thread (on a i9-9900K CPU @ 3.60GHz).  The inputs for each row are an array of longs, provided by spark's user land Row, with the output a RuleSuiteResult object.  
 
 ??? "info" By way of explanation the test combinations are found here
-
+    
     <table><tr><th>rulesetCount</th><th>fieldCount</th><th>actual number of rules</th></tr>
     <tr><td> 25 </td><td> 10 </td><td> 30 </td></tr>
     <tr><td> 25 </td><td> 20 </td><td> 55 </td></tr>
