@@ -1,0 +1,2042 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/sparkutils/quality/impl/ReplaceWithIfMissingAttributesExpr.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality.impl
+</span>2 <span style=''>
+</span>3 <span style=''>import com.sparkutils.quality.impl.RuleLogicUtils.mapRules
+</span>4 <span style=''>import com.sparkutils.quality.impl.util.VariablesLookup.fieldsFromExpression
+</span>5 <span style=''>import com.sparkutils.quality.impl.imports.RuleResultsImports.DisabledRuleExpr
+</span>6 <span style=''>import com.sparkutils.quality.impl.imports.RuleRunnerImports
+</span>7 <span style=''>import com.sparkutils.quality.impl.util.LookupIdFunctions
+</span>8 <span style=''>import com.sparkutils.quality.{ExpressionRule, OutputExpression, Rule, RuleSuite}
+</span>9 <span style=''>import com.sparkutils.shim.expressions.Names.toName
+</span>10 <span style=''>import org.apache.spark.sql.catalyst.analysis.UnresolvedFunction
+</span>11 <span style=''>import org.apache.spark.sql.catalyst.expressions.{Expression, Literal, LambdaFunction =&gt; SparkLambdaFunction}
+</span>12 <span style=''>import org.apache.spark.sql.types.{NullType, StructType}
+</span>13 <span style=''>
+</span>14 <span style=''>
+</span>15 <span style=''>
+</span>16 <span style=''>object ProcessDisableIfMissing extends RuleRunnerImports {
+</span>17 <span style=''>  /**
+</span>18 <span style=''>   * Processes a given RuleSuite to replace any coalesceIfMissingAttributes.  This may be called before validate / docs but
+</span>19 <span style=''>   * *must* be called *before* adding the expression to a dataframe.
+</span>20 <span style=''>   *
+</span>21 <span style=''>   * @param ruleSuite
+</span>22 <span style=''>   * @param schema The names to validate against, if empty no attempt to process coalesceIfAttributeMissing will be made
+</span>23 <span style=''>   * @return
+</span>24 <span style=''>   */
+</span>25 <span style=''>  def processIfAttributeMissing(ruleSuite: RuleSuite, schema: StructType = StructType(Seq())) = {
+</span>26 <span style=''>    val names = </span><span style='background: #AEF1AE'>LookupIdFunctions.namesFromSchema(schema)</span><span style=''>
+</span>27 <span style=''>
+</span>28 <span style=''>    val lambdas = </span><span style='background: #AEF1AE'>ruleSuite.lambdaFunctions.map(lf =&gt; ProcessDisableIfMissing.processIfMissingLambdaCoalesce(lf.parsed, names))</span><span style=''>
+</span>29 <span style=''>
+</span>30 <span style=''>    val wrs = </span><span style='background: #AEF1AE'>ruleSuite.copy(lambdaFunctions = lambdas)</span><span style=''>
+</span>31 <span style=''>
+</span>32 <span style=''>    </span><span style='background: #AEF1AE'>mapRules(wrs) {
+</span>33 <span style=''></span><span style='background: #AEF1AE'>      ProcessDisableIfMissing.processCoalesceIfAttributeMissing(_, names)
+</span>34 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>35 <span style=''>  }
+</span>36 <span style=''>
+</span>37 <span style=''>
+</span>38 <span style=''>  /**
+</span>39 <span style=''>   * For a given schema evaluates all calls to coalesce in a lambda to swap out missing attributes
+</span>40 <span style=''>   *
+</span>41 <span style=''>   * Must be called before any planning - otherwise Spark will already have rejected it.
+</span>42 <span style=''>   *
+</span>43 <span style=''>   * @param rule
+</span>44 <span style=''>   * @return
+</span>45 <span style=''>   */
+</span>46 <span style=''>  def processIfMissingLambdaCoalesce(rule: LambdaFunctionParsed, names: Set[String]): LambdaFunction =
+</span>47 <span style=''>    </span><span style='background: #AEF1AE'>rule.expr</span><span style=''> match {
+</span>48 <span style=''>      case lambdaFunc: SparkLambdaFunction =&gt;
+</span>49 <span style=''>        </span><span style='background: #AEF1AE'>lambdaFunc.function</span><span style=''> match {
+</span>50 <span style=''>          case func: UnresolvedFunction =&gt;
+</span>51 <span style=''>            val rexp = </span><span style='background: #AEF1AE'>processCoalesceIfAttributeMissing(func, names)</span><span style=''>
+</span>52 <span style=''>            </span><span style='background: #AEF1AE'>rule.copy(expr = lambdaFunc.copy(function = rexp))</span><span style=''>
+</span>53 <span style=''>
+</span>54 <span style=''>          case _ =&gt; rule
+</span>55 <span style=''>        }
+</span>56 <span style=''>    }
+</span>57 <span style=''>
+</span>58 <span style=''>  protected def isReplaceCoalesceName(unresolvedFunction: UnresolvedFunction) = {
+</span>59 <span style=''>    val name = </span><span style='background: #AEF1AE'>toName(unresolvedFunction)</span><span style=''>
+</span>60 <span style=''>    </span><span style='background: #AEF1AE'>name == &quot;coalesceIfAttributesMissing&quot; || name == &quot;coalesceIfAttributesMissingDisable&quot;</span><span style=''>
+</span>61 <span style=''>  }
+</span>62 <span style=''>
+</span>63 <span style=''>  protected def isCoalesceDisabled(unresolvedFunction: UnresolvedFunction) = {
+</span>64 <span style=''>    val name = </span><span style='background: #AEF1AE'>toName(unresolvedFunction)</span><span style=''>
+</span>65 <span style=''>    </span><span style='background: #AEF1AE'>name == &quot;coalesceIfAttributesMissingDisable&quot;</span><span style=''>
+</span>66 <span style=''>  }
+</span>67 <span style=''>
+</span>68 <span style=''>  /**
+</span>69 <span style=''>   * Converts expression removing any coalesceIfAttributeMissing placeholding expressions using names to find each
+</span>70 <span style=''>   * first expression with no missing names (or replacing with null should all of them be).
+</span>71 <span style=''>   * @param expression
+</span>72 <span style=''>   * @param names
+</span>73 <span style=''>   * @return
+</span>74 <span style=''>   */
+</span>75 <span style=''>  def processCoalesceIfAttributeMissing(expression: Expression, names: Set[String]): Expression =
+</span>76 <span style=''>    expression match {
+</span>77 <span style=''>      case funcExpr: UnresolvedFunction if </span><span style='background: #AEF1AE'>isReplaceCoalesceName(funcExpr)</span><span style=''> =&gt;
+</span>78 <span style=''>        </span><span style='background: #AEF1AE'>processCoalesceIfAttributeMissing(expression.children, names, isCoalesceDisabled(funcExpr))</span><span style=''>
+</span>79 <span style=''>      case e: Expression =&gt;
+</span>80 <span style=''>        </span><span style='background: #AEF1AE'>e.withNewChildren(e.children.map(processCoalesceIfAttributeMissing(_, names)))</span><span style=''>
+</span>81 <span style=''>    }
+</span>82 <span style=''>
+</span>83 <span style=''>  /**
+</span>84 <span style=''>   * Returns the first expression that has no missing names or null
+</span>85 <span style=''>   * @param expressions
+</span>86 <span style=''>   * @param names
+</span>87 <span style=''>   * @return
+</span>88 <span style=''>   */
+</span>89 <span style=''>  protected def processCoalesceIfAttributeMissing(expressions: Seq[Expression], names: Set[String], isDisabled: Boolean): Expression = {
+</span>90 <span style=''>    val res =
+</span>91 <span style=''>      </span><span style='background: #AEF1AE'>expressions.flatMap{ e =&gt;
+</span>92 <span style=''></span><span style='background: #AEF1AE'>        // make sure no nested children are coalesce's
+</span>93 <span style=''></span><span style='background: #AEF1AE'>        val r = processCoalesceIfAttributeMissing(e, names)
+</span>94 <span style=''></span><span style='background: #AEF1AE'>        // get the names from this expression
+</span>95 <span style=''></span><span style='background: #AEF1AE'>        val explookup = fieldsFromExpression(r)
+</span>96 <span style=''></span><span style='background: #AEF1AE'>        // lookup each of them in the names and if any are not true we can't use this expression
+</span>97 <span style=''></span><span style='background: #AEF1AE'>        if (!explookup.attributesUsed.map(names).forall(identity))
+</span>98 <span style=''></span><span style='background: #AEF1AE'>          None
+</span>99 <span style=''></span><span style='background: #AEF1AE'>        else
+</span>100 <span style=''></span><span style='background: #AEF1AE'>          Some(r)
+</span>101 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>102 <span style=''>
+</span>103 <span style=''>    if (</span><span style='background: #AEF1AE'>res.isEmpty</span><span style=''>) {
+</span>104 <span style=''>      </span><span style='background: #AEF1AE'>if (isDisabled) DisabledRuleExpr // special case as this is probably before the function registry gets called
+</span>105 <span style=''></span><span style='background: #AEF1AE'>      else
+</span>106 <span style=''></span><span style='background: #AEF1AE'>        Literal(null, NullType)</span><span style=''>
+</span>107 <span style=''>    } else
+</span>108 <span style=''>      </span><span style='background: #AEF1AE'>res.head</span><span style=''>
+</span>109 <span style=''>  }
+</span>110 <span style=''>
+</span>111 <span style=''>  /**
+</span>112 <span style=''>   * Converts both rule expressions and any output expressions removing any coalesceIfAttributeMissing placeholding expressions using names to find each
+</span>113 <span style=''>   * first expression with no missing names (or replacing with null should all of them be).
+</span>114 <span style=''>   * @param names
+</span>115 <span style=''>   * @return
+</span>116 <span style=''>   */
+</span>117 <span style=''>  protected[quality] def processCoalesceIfAttributeMissing(rule: Rule, names: Set[String]): Rule =
+</span>118 <span style=''>    rule match {
+</span>119 <span style=''>      // rule and output
+</span>120 <span style=''>      case Rule(id, ExpressionRule(rule: String),
+</span>121 <span style=''>        iorule @ RunOnPassProcessorImpl(_, _, _, OutputExpression(oruleExpr: String))) if </span><span style='background: #AEF1AE'>oruleExpr.nonEmpty</span><span style=''> =&gt;
+</span>122 <span style=''>        </span><span style='background: #AEF1AE'>Rule(id, ExpressionRuleExpr(rule, processCoalesceIfAttributeMissing(RuleLogicUtils.expr(rule), names)),
+</span>123 <span style=''></span><span style='background: #AEF1AE'>          iorule.copy(returnIfPassed = OutputExpressionExpr(oruleExpr,
+</span>124 <span style=''></span><span style='background: #AEF1AE'>            processCoalesceIfAttributeMissing(RuleLogicUtils.expr(oruleExpr), names))))</span><span style=''>
+</span>125 <span style=''>
+</span>126 <span style=''>      // just a rule
+</span>127 <span style=''>      case orule @ Rule(_, ExpressionRule(rule: String), _) =&gt;
+</span>128 <span style=''>        </span><span style='background: #AEF1AE'>orule.copy( expression = ExpressionRuleExpr(rule, processCoalesceIfAttributeMissing(RuleLogicUtils.expr(rule), names)))</span><span style=''>
+</span>129 <span style=''>
+</span>130 <span style=''>      case _ =&gt; rule
+</span>131 <span style=''>    }
+</span>132 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          1266
+        </td>
+        <td>
+          1279
+          -
+          1320
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.LookupIdFunctions.namesFromSchema
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.LookupIdFunctions.namesFromSchema(schema)
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          1267
+        </td>
+        <td>
+          1431
+          -
+          1440
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.LambdaFunction.parsed
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          lf.parsed
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          1270
+        </td>
+        <td>
+          1340
+          -
+          1449
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuite.lambdaFunctions.map[com.sparkutils.quality.impl.LambdaFunction, Seq[com.sparkutils.quality.impl.LambdaFunction]](((lf: com.sparkutils.quality.impl.LambdaFunction) =&gt; ProcessDisableIfMissing.processIfMissingLambdaCoalesce(lf.parsed, names)))(collection.this.Seq.canBuildFrom[com.sparkutils.quality.impl.LambdaFunction])
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          1269
+        </td>
+        <td>
+          1369
+          -
+          1369
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[com.sparkutils.quality.impl.LambdaFunction]
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          1268
+        </td>
+        <td>
+          1376
+          -
+          1448
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.ProcessDisableIfMissing.processIfMissingLambdaCoalesce
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ProcessDisableIfMissing.processIfMissingLambdaCoalesce(lf.parsed, names)
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          1273
+        </td>
+        <td>
+          1475
+          -
+          1475
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuite.copy$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuite.copy$default$4
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          1272
+        </td>
+        <td>
+          1475
+          -
+          1475
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuite.copy$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuite.copy$default$2
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          1271
+        </td>
+        <td>
+          1475
+          -
+          1475
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuite.copy$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuite.copy$default$1
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          1274
+        </td>
+        <td>
+          1465
+          -
+          1506
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuite.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuite.copy(x$2, x$3, x$1, x$4)
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          1276
+        </td>
+        <td>
+          1512
+          -
+          1607
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleLogicUtils.mapRules
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.RuleLogicUtils.mapRules(wrs)(((x$1: com.sparkutils.quality.Rule) =&gt; ProcessDisableIfMissing.processCoalesceIfAttributeMissing(x$1, names)))
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          1275
+        </td>
+        <td>
+          1534
+          -
+          1601
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.ProcessDisableIfMissing.processCoalesceIfAttributeMissing
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ProcessDisableIfMissing.processCoalesceIfAttributeMissing(x$1, names)
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          1277
+        </td>
+        <td>
+          1961
+          -
+          1970
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.LambdaFunctionParsed.expr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          rule.expr
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          1278
+        </td>
+        <td>
+          2033
+          -
+          2052
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.LambdaFunction.function
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          lambdaFunc.function
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          1279
+        </td>
+        <td>
+          2127
+          -
+          2173
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.ProcessDisableIfMissing.processCoalesceIfAttributeMissing
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ProcessDisableIfMissing.this.processCoalesceIfAttributeMissing(func, names)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1282
+        </td>
+        <td>
+          2203
+          -
+          2235
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.LambdaFunction.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          lambdaFunc.copy(rexp, lambdaFunc.copy$default$2, lambdaFunc.copy$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1285
+        </td>
+        <td>
+          2191
+          -
+          2191
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.LambdaFunctionParsed.copy$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          rule.copy$default$3
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1281
+        </td>
+        <td>
+          2214
+          -
+          2214
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.LambdaFunction.copy$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          lambdaFunc.copy$default$3
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1284
+        </td>
+        <td>
+          2191
+          -
+          2191
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.LambdaFunctionParsed.copy$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          rule.copy$default$2
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1283
+        </td>
+        <td>
+          2191
+          -
+          2191
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.LambdaFunctionParsed.copy$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          rule.copy$default$1
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1286
+        </td>
+        <td>
+          2186
+          -
+          2236
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.LambdaFunctionParsed.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          rule.copy(x$2, x$3, x$4, x$1)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1280
+        </td>
+        <td>
+          2214
+          -
+          2214
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.LambdaFunction.copy$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          lambdaFunc.copy$default$2
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          1287
+        </td>
+        <td>
+          2377
+          -
+          2403
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.shim.expressions.Names.toName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.shim.expressions.Names.toName(unresolvedFunction)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          1288
+        </td>
+        <td>
+          2416
+          -
+          2445
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;coalesceIfAttributesMissing&quot;
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          1290
+        </td>
+        <td>
+          2408
+          -
+          2493
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.||
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          name.==(&quot;coalesceIfAttributesMissing&quot;).||(name.==(&quot;coalesceIfAttributesMissingDisable&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          1289
+        </td>
+        <td>
+          2449
+          -
+          2493
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          name.==(&quot;coalesceIfAttributesMissingDisable&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          1291
+        </td>
+        <td>
+          2593
+          -
+          2619
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.shim.expressions.Names.toName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.shim.expressions.Names.toName(unresolvedFunction)
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          1292
+        </td>
+        <td>
+          2624
+          -
+          2668
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          name.==(&quot;coalesceIfAttributesMissingDisable&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          1293
+        </td>
+        <td>
+          3111
+          -
+          3142
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.ProcessDisableIfMissing.isReplaceCoalesceName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ProcessDisableIfMissing.this.isReplaceCoalesceName(funcExpr)
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          1294
+        </td>
+        <td>
+          3188
+          -
+          3207
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.trees.TreeNode.children
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          expression.children
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          1296
+        </td>
+        <td>
+          3154
+          -
+          3245
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.ProcessDisableIfMissing.processCoalesceIfAttributeMissing
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ProcessDisableIfMissing.this.processCoalesceIfAttributeMissing(expression.children, names, ProcessDisableIfMissing.this.isCoalesceDisabled(funcExpr))
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          1295
+        </td>
+        <td>
+          3216
+          -
+          3244
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.ProcessDisableIfMissing.isCoalesceDisabled
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ProcessDisableIfMissing.this.isCoalesceDisabled(funcExpr)
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          1297
+        </td>
+        <td>
+          3315
+          -
+          3358
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.ProcessDisableIfMissing.processCoalesceIfAttributeMissing
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ProcessDisableIfMissing.this.processCoalesceIfAttributeMissing(x$2, names)
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          1300
+        </td>
+        <td>
+          3282
+          -
+          3360
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.trees.TreeNode.withNewChildren
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          e.withNewChildren(e.children.map[org.apache.spark.sql.catalyst.expressions.Expression, Seq[org.apache.spark.sql.catalyst.expressions.Expression]](((x$2: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; ProcessDisableIfMissing.this.processCoalesceIfAttributeMissing(x$2, names)))(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression]))
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          1299
+        </td>
+        <td>
+          3300
+          -
+          3359
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          e.children.map[org.apache.spark.sql.catalyst.expressions.Expression, Seq[org.apache.spark.sql.catalyst.expressions.Expression]](((x$2: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; ProcessDisableIfMissing.this.processCoalesceIfAttributeMissing(x$2, names)))(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression])
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          1298
+        </td>
+        <td>
+          3314
+          -
+          3314
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression]
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          1314
+        </td>
+        <td>
+          3660
+          -
+          4112
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.flatMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          expressions.flatMap[org.apache.spark.sql.catalyst.expressions.Expression, Seq[org.apache.spark.sql.catalyst.expressions.Expression]](((e: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; {
+  val r: org.apache.spark.sql.catalyst.expressions.Expression = ProcessDisableIfMissing.this.processCoalesceIfAttributeMissing(e, names);
+  val explookup: com.sparkutils.quality.impl.util.ExpressionLookup = com.sparkutils.quality.impl.util.VariablesLookup.fieldsFromExpression(r, com.sparkutils.quality.impl.util.VariablesLookup.fieldsFromExpression$default$2);
+  if (explookup.attributesUsed.map[Boolean, scala.collection.immutable.Set[Boolean]](names)(immutable.this.Set.canBuildFrom[Boolean]).forall({
+  ((x: Boolean) =&gt; scala.Predef.identity[Boolean](x))
+}).unary_!)
+    scala.this.Option.option2Iterable[Nothing](scala.None)
+  else
+    scala.this.Option.option2Iterable[org.apache.spark.sql.catalyst.expressions.Expression](scala.Some.apply[org.apache.spark.sql.catalyst.expressions.Expression](r))
+}))(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression])
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          1313
+        </td>
+        <td>
+          3679
+          -
+          3679
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression]
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          1301
+        </td>
+        <td>
+          3757
+          -
+          3800
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.ProcessDisableIfMissing.processCoalesceIfAttributeMissing
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ProcessDisableIfMissing.this.processCoalesceIfAttributeMissing(e, names)
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          1303
+        </td>
+        <td>
+          3871
+          -
+          3894
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.VariablesLookup.fieldsFromExpression
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.VariablesLookup.fieldsFromExpression(r, com.sparkutils.quality.impl.util.VariablesLookup.fieldsFromExpression$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          1302
+        </td>
+        <td>
+          3871
+          -
+          3871
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.VariablesLookup.fieldsFromExpression$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.VariablesLookup.fieldsFromExpression$default$2
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          1306
+        </td>
+        <td>
+          4004
+          -
+          4057
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          explookup.attributesUsed.map[Boolean, scala.collection.immutable.Set[Boolean]](names)(immutable.this.Set.canBuildFrom[Boolean]).forall({
+  ((x: Boolean) =&gt; scala.Predef.identity[Boolean](x))
+}).unary_!
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          1305
+        </td>
+        <td>
+          4048
+          -
+          4056
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.identity
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.identity[Boolean](x)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          1304
+        </td>
+        <td>
+          4033
+          -
+          4033
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Set.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          immutable.this.Set.canBuildFrom[Boolean]
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          1309
+        </td>
+        <td>
+          4069
+          -
+          4073
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Option.option2Iterable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Option.option2Iterable[Nothing](scala.None)
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          1308
+        </td>
+        <td>
+          4069
+          -
+          4073
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.Option.option2Iterable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Option.option2Iterable[Nothing](scala.None)
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          1307
+        </td>
+        <td>
+          4069
+          -
+          4073
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          1312
+        </td>
+        <td>
+          4097
+          -
+          4104
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Option.option2Iterable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Option.option2Iterable[org.apache.spark.sql.catalyst.expressions.Expression](scala.Some.apply[org.apache.spark.sql.catalyst.expressions.Expression](r))
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          1311
+        </td>
+        <td>
+          4097
+          -
+          4104
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.Option.option2Iterable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Option.option2Iterable[org.apache.spark.sql.catalyst.expressions.Expression](scala.Some.apply[org.apache.spark.sql.catalyst.expressions.Expression](r))
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          1310
+        </td>
+        <td>
+          4097
+          -
+          4104
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[org.apache.spark.sql.catalyst.expressions.Expression](r)
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          1315
+        </td>
+        <td>
+          4122
+          -
+          4133
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.SeqLike.isEmpty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.isEmpty
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          1317
+        </td>
+        <td>
+          4159
+          -
+          4175
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.imports.RuleResultsImports.DisabledRuleExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.imports.RuleResultsImports.DisabledRuleExpr
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          1322
+        </td>
+        <td>
+          4143
+          -
+          4295
+        </td>
+        <td>
+          If
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          if (isDisabled)
+  com.sparkutils.quality.impl.imports.RuleResultsImports.DisabledRuleExpr
+else
+  org.apache.spark.sql.catalyst.expressions.Literal.apply(null, org.apache.spark.sql.types.NullType)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          1316
+        </td>
+        <td>
+          4159
+          -
+          4175
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.imports.RuleResultsImports.DisabledRuleExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.imports.RuleResultsImports.DisabledRuleExpr
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          1318
+        </td>
+        <td>
+          4280
+          -
+          4284
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          1321
+        </td>
+        <td>
+          4272
+          -
+          4295
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Literal.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.Literal.apply(null, org.apache.spark.sql.types.NullType)
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          1320
+        </td>
+        <td>
+          4272
+          -
+          4295
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Literal.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.Literal.apply(null, org.apache.spark.sql.types.NullType)
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          1319
+        </td>
+        <td>
+          4286
+          -
+          4294
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.NullType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.NullType
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          1324
+        </td>
+        <td>
+          4313
+          -
+          4321
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.IterableLike.head
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.head
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          1323
+        </td>
+        <td>
+          4313
+          -
+          4321
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IterableLike.head
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.head
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          1325
+        </td>
+        <td>
+          4896
+          -
+          4914
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableOnce.nonEmpty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.augmentString(oruleExpr).nonEmpty
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          1336
+        </td>
+        <td>
+          4926
+          -
+          5188
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.Rule.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.Rule.apply(id, ExpressionRuleExpr.apply(rule, ProcessDisableIfMissing.this.processCoalesceIfAttributeMissing(RuleLogicUtils.expr(rule), names)), {
+  &lt;artifact&gt; val x$1: com.sparkutils.quality.impl.OutputExpressionExpr = OutputExpressionExpr.apply(oruleExpr, ProcessDisableIfMissing.this.processCoalesceIfAttributeMissing(RuleLogicUtils.expr(oruleExpr), names));
+  &lt;artifact&gt; val x$2: Int = iorule.copy$default$1;
+  &lt;artifact&gt; val x$3: com.sparkutils.quality.Id = iorule.copy$default$2;
+  &lt;artifact&gt; val x$4: String = iorule.copy$default$3;
+  iorule.copy(x$2, x$3, x$4, x$1)
+})
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          1327
+        </td>
+        <td>
+          4960
+          -
+          5027
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.ProcessDisableIfMissing.processCoalesceIfAttributeMissing
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ProcessDisableIfMissing.this.processCoalesceIfAttributeMissing(RuleLogicUtils.expr(rule), names)
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          1326
+        </td>
+        <td>
+          4994
+          -
+          5019
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleLogicUtils.expr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleLogicUtils.expr(rule)
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          1328
+        </td>
+        <td>
+          4935
+          -
+          5028
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.ExpressionRuleExpr.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ExpressionRuleExpr.apply(rule, ProcessDisableIfMissing.this.processCoalesceIfAttributeMissing(RuleLogicUtils.expr(rule), names))
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          1333
+        </td>
+        <td>
+          5047
+          -
+          5047
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RunOnPassProcessorImpl.copy$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          iorule.copy$default$2
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          1332
+        </td>
+        <td>
+          5047
+          -
+          5047
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RunOnPassProcessorImpl.copy$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          iorule.copy$default$1
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          1335
+        </td>
+        <td>
+          5040
+          -
+          5187
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RunOnPassProcessorImpl.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          iorule.copy(x$2, x$3, x$4, x$1)
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          1334
+        </td>
+        <td>
+          5047
+          -
+          5047
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RunOnPassProcessorImpl.copy$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          iorule.copy$default$3
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          1331
+        </td>
+        <td>
+          5069
+          -
+          5186
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.OutputExpressionExpr.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          OutputExpressionExpr.apply(oruleExpr, ProcessDisableIfMissing.this.processCoalesceIfAttributeMissing(RuleLogicUtils.expr(oruleExpr), names))
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          1330
+        </td>
+        <td>
+          5113
+          -
+          5185
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.ProcessDisableIfMissing.processCoalesceIfAttributeMissing
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ProcessDisableIfMissing.this.processCoalesceIfAttributeMissing(RuleLogicUtils.expr(oruleExpr), names)
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          1329
+        </td>
+        <td>
+          5147
+          -
+          5177
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleLogicUtils.expr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleLogicUtils.expr(oruleExpr)
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          1342
+        </td>
+        <td>
+          5282
+          -
+          5401
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.Rule.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          orule.copy(x$6, x$5, x$7)
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          1339
+        </td>
+        <td>
+          5307
+          -
+          5400
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.ExpressionRuleExpr.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ExpressionRuleExpr.apply(rule, ProcessDisableIfMissing.this.processCoalesceIfAttributeMissing(RuleLogicUtils.expr(rule), names))
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          1338
+        </td>
+        <td>
+          5332
+          -
+          5399
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.ProcessDisableIfMissing.processCoalesceIfAttributeMissing
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ProcessDisableIfMissing.this.processCoalesceIfAttributeMissing(RuleLogicUtils.expr(rule), names)
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          1341
+        </td>
+        <td>
+          5288
+          -
+          5288
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.Rule.copy$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          orule.copy$default$3
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          1337
+        </td>
+        <td>
+          5366
+          -
+          5391
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleLogicUtils.expr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleLogicUtils.expr(rule)
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          1340
+        </td>
+        <td>
+          5288
+          -
+          5288
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.Rule.copy$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          orule.copy$default$1
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
