@@ -204,7 +204,7 @@ below graph shows the performance trend across multiple rule and field complexit
 
 ![default_processor_combos.png](../img/default_processor_combos.png)
 
-In the top right case that's 780 rules total (run across 50 fields) with a cost of about 9.7ms per row (100,000 ms / 10,300 rows) or 0.012ms/rule/row. 
+In the top right case that's 780 rules total (run across 50 fields) with a cost of about 9.7ms per row (100,000 rows / 10,300 ms) or 0.012ms/rule/row. 
 
 The performance of the default configuration is consistently the best accept for far smaller numbers of rules and field combinations, observable by selecting the 10 fieldCount, every other combination has the default CompiledProjections (GenerateDecoderOpEncoderProjection) in the lead by a good enough margin.  
 
