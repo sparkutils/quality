@@ -155,44 +155,45 @@ Note the use of LocalBroadcast, this implementation of Sparks Broadcast can be u
 
 ## Performance
 
-All the information presented below is captured here in [the Processor benchmark](https://sparkutils.github.io/quality/benchmarks/0.1.3.1-RC8-processor-throughput/).  
+All the information presented below is captured here in [the Processor benchmark](https://sparkutils.github.io/quality/benchmarks/0.1.3.1-RC10-processor-throughput/).  
 The run is informative but has some outlier behaviours and should be taken as a guideline only (be warned it takes almost a day to run).  This test evaluates compilation startup time only in the XStartup tests and the time for both startup and running through 100k rows at each fieldCount in a single thread (on a i9-9900K CPU @ 3.60GHz).  The inputs for each row are an array of longs, provided by spark's user land Row, with the output a RuleSuiteResult object.  
 
 ??? "info" By way of explanation the test combinations are found here
-    | rulesetCount | fieldCount | actual number of rules |
-    | - | - | - |
-    | 25 | 10 | 30 |
-    | 25 | 20 | 55 |
-    | 25 | 30 | 80 |
-    | 25 | 40 | 105 |
-    | 25 | 50 | 130 |
-    | 50 | 10 | 60 |
-    | 50 | 20 | 110 |
-    | 50 | 30 | 160 |
-    | 50 | 40 | 210 |
-    | 50 | 50 | 260 |
-    | 75 | 10 | 90 |
-    | 75 | 20 | 165 |
-    | 75 | 30 | 240 |
-    | 75 | 40 | 315 |
-    | 75 | 50 | 390 |
-    | 100 | 10 | 120 |
-    | 100 | 20 | 220 |
-    | 100 | 30 | 320 |
-    | 100 | 40 | 420 |
-    | 100 | 50 | 520 |
-    | 125 | 10 | 150 |
-    | 125 | 20 | 275 |
-    | 125 | 30 | 400 |
-    | 125 | 40 | 525 |
-    | 125 | 50 | 650 |
-    | 150 | 10 | 180 |
-    | 150 | 20 | 330 |
-    | 150 | 30 | 480 |
-    | 150 | 40 | 630 |
-    | 150 | 50 | 780 |
 
-As noted above the fastest startup time is with 'compile = false' as no compilation takes place, this holds true until about 
+    <table><tr><th>rulesetCount</th><th>fieldCount</th><th>actual number of rules</th></tr>
+    <tr><td> 25 </td><td> 10 </td><td> 30 </td></tr>
+    <tr><td> 25 </td><td> 20 </td><td> 55 </td></tr>
+    <tr><td> 25 </td><td> 30 </td><td> 80 </td></tr>
+    <tr><td> 25 </td><td> 40 </td><td> 105 </td></tr>
+    <tr><td> 25 </td><td> 50 </td><td> 130 </td></tr>
+    <tr><td> 50 </td><td> 10 </td><td> 60 </td></tr>
+    <tr><td> 50 </td><td> 20 </td><td> 110 </td></tr>
+    <tr><td> 50 </td><td> 30 </td><td> 160 </td></tr>
+    <tr><td> 50 </td><td> 40 </td><td> 210 </td></tr>
+    <tr><td> 50 </td><td> 50 </td><td> 260 </td></tr>
+    <tr><td> 75 </td><td> 10 </td><td> 90 </td></tr>
+    <tr><td> 75 </td><td> 20 </td><td> 165 </td></tr>
+    <tr><td> 75 </td><td> 30 </td><td> 240 </td></tr>
+    <tr><td> 75 </td><td> 40 </td><td> 315 </td></tr>
+    <tr><td> 75 </td><td> 50 </td><td> 390 </td></tr>
+    <tr><td> 100 </td><td> 10 </td><td> 120 </td></tr>
+    <tr><td> 100 </td><td> 20 </td><td> 220 </td></tr>
+    <tr><td> 100 </td><td> 30 </td><td> 320 </td></tr>
+    <tr><td> 100 </td><td> 40 </td><td> 420 </td></tr>
+    <tr><td> 100 </td><td> 50 </td><td> 520 </td></tr>
+    <tr><td> 125 </td><td> 10 </td><td> 150 </td></tr>
+    <tr><td> 125 </td><td> 20 </td><td> 275 </td></tr>
+    <tr><td> 125 </td><td> 30 </td><td> 400 </td></tr>
+    <tr><td> 125 </td><td> 40 </td><td> 525 </td></tr>
+    <tr><td> 125 </td><td> 50 </td><td> 650 </td></tr>
+    <tr><td> 150 </td><td> 10 </td><td> 180 </td></tr>
+    <tr><td> 150 </td><td> 20 </td><td> 330 </td></tr>
+    <tr><td> 150 </td><td> 30 </td><td> 480 </td></tr>
+    <tr><td> 150 </td><td> 40 </td><td> 630 </td></tr>
+    <tr><td> 150 </td><td> 50 </td><td> 780 </td></tr>
+    </table>
+
+As noted above the fastest startup time is with `!#scala compile = false` as no compilation takes place, this holds true until about 
 the 780 rule mark where compilation catches up with the traversal and new expression tree copying cost.  Each subsequent instance call
 will however pay the same cost again, moreover the actual runtime is by far the worst option:
 
@@ -208,3 +209,12 @@ In the top right case that's 780 rules total (run across 50 fields) with a cost 
 The performance of the default configuration is consistently the best accept for far smaller numbers of rules and field combinations, observable by selecting the 10 fieldCount, every other combination has the default CompiledProjections (GenerateDecoderOpEncoderProjection) in the lead by a good enough margin.  
 
 The majority of cost is the serialisation of the results into the RuleSuiteResult's Scala Maps (via Sparks ArrayBasedMapData.toScalaMap). 
+
+??? "info" Experimental - VarCompilation
+
+    The default of `!#scala forceVarCompilation = false` uses a light compilation wrapping around Sparks MutableProjection approach, with the Spark team doing the heavy lifting.
+    
+    In contrast the `!#scala forceVarCompilation = true` option triggers the experimental VarCompilation, mimicing WholeStageCodegen (albeit without input size restricitons).  
+    It's additional speed is driven by JIT friendly optimisations and removing all unnecessary work, only encoding from the input data what is needed by the rules.
+    The experimental label is due to the custom code approach, although it can handle thousands of fields actively used in thousands of rules there, and is fully tested it is still custom.
+    This may be changed to the default option in the future.

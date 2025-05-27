@@ -26,6 +26,7 @@ import org.apache.spark.sql.types.{DataType, StructField, StructType}
 object GenerateDecoderOpEncoderVarProjection {
 
   def create[I: Encoder, O: Encoder](
-                      expressions: Seq[Expression], toSize: Int): DecoderOpEncoderProjection[I,O] =
+                      expressions: Seq[Expression], toSize: Int,
+                      allOrdinals: Set[Int]): DecoderOpEncoderProjection[I,O] =
     throw new Exception("Not supported on any Databricks runtime")
 }

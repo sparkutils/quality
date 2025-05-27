@@ -17,7 +17,8 @@ object GenerateDecoderOpEncoderVarProjection {
 
   // $COVERAGE-OFF$
   def create[I: Encoder, O: Encoder](
-                      expressions: Seq[Expression], toSize: Int): DecoderOpEncoderProjection[I,O] =
+                      expressions: Seq[Expression], toSize: Int,
+                      allOrdinals: Set[Int]): DecoderOpEncoderProjection[I,O] =
     throw new Exception("Not supported on the 2.4 runtime")
   // $COVERAGE-ON$
 }

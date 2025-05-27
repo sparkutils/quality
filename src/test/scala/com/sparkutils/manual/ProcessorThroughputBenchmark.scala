@@ -113,7 +113,7 @@ object ProcessorThroughputBenchmark extends Bench.OfflineReport with RowTools {
       }
       using(generator) in evaluate( processor )
     }
-/*
+
     measure method "CompiledProjections" in {
       val s = sparkSession
 
@@ -145,10 +145,10 @@ object ProcessorThroughputBenchmark extends Bench.OfflineReport with RowTools {
           compile = false).instance
       }
       using(generator) in evaluate( processor )
-    }*/
+    }
   }
 
-  /*performance of "startupTimeOnly" config (
+  performance of "startupTimeOnly" config (
     exec.minWarmupRuns -> 2,
     exec.maxWarmupRuns -> 4,
     exec.benchRuns -> 4,
@@ -198,6 +198,6 @@ object ProcessorThroughputBenchmark extends Bench.OfflineReport with RowTools {
         }
         using(generator) in startup( processor )
       }
-  }*/
+  }
 
 }

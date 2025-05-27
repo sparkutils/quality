@@ -51,18 +51,19 @@ object TestSparkless {
       processor(params._1, params._2)
     }
 /*
-    println("|rulesetCount|fieldCount|actual number of rules|")
+    println("<table><tr><th><rulesetCount</th><th>fieldCount</th><th>actual number of rules</th></tr>")
     println("|-|-|-|")
     for{
       rules <- 25 to 150 by 25
       fields <- 10 to 50 by 10
     } {
-      println(s"| $rules | $fields | ${genRules(rules, fields).ruleSets.flatMap(_.rules).size} |")
+      println(s"<tr><td> $rules </td><td> $fields </td><td> ${genRules(rules, fields).ruleSets.flatMap(_.rules).size} </td></tr>")
     }
-*/
-    //val r = startup(processor)(100,90)
+    println("</table>")*/
 
-    ProcessorThroughputBenchmark.evaluate(processor)(100,90)
+    val r = startup(processor)(1800,1800) // > 100 is typically the end of wholestagecodegen, our limit is fields used
+
+   // ProcessorThroughputBenchmark.evaluate(processor)(100,90)
 
 /*
     object implicits extends SQLImplicits with Serializable {

@@ -127,34 +127,32 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
     funNames.map { f => s"$f($paramsCall);" }.mkString("\n")
   }
 
-  def create[I: Encoder, O: Encoder](
-                      expressions: Seq[Expression], toSize: Int): DecoderOpEncoderProjection[I,O] = {
+  def create[I: Encoder, O: Encoder](expressions: Seq[Expression], toSize: Int,
+                                     allOrdinals: Set[Int]): DecoderOpEncoderProjection[I,O] = {
 
     val iEnc = implicitly[Encoder[I]]
-    val oEnc = implicitly[Encoder[O]]
+    //val oEnc = implicitly[Encoder[O]]
     val exprFrom = ShimUtils.expressionEncoder(iEnc).resolveAndBind().serializer
     val exprFromType = ShimUtils.expressionEncoder(iEnc).resolveAndBind().deserializer.dataType
     val exprTo = ShimUtils.expressionEncoder(implicitly[Encoder[O]]).resolveAndBind().deserializer
 
     if (expressions.exists(_.exists{
-      case s: PlanExpression[_] => true
+      case _: PlanExpression[_] => true
       case _ => false
       })) {
       throw new QualityException(NO_QUERY_PLANS)
     }
 
+    val cExpressions = canonicalize(expressions)
+
     val (resTypeIsStruct, resType) =
       if (toSize == 1)
-        (expressions.last.dataType.isInstanceOf[StructType],
-          expressions.last.dataType.asInstanceOf[StructType])
+        (cExpressions.last.dataType.isInstanceOf[StructType],
+          cExpressions.last.dataType.asInstanceOf[StructType])
       else
         (false, null)
 
     val ctx = newCodeGenContext()
-
-    // the code references to the other fields is already present inside of expressions, works for input_row based,
-    // but not wholestage approach, this is performed by all the CodegenSupport execs via attribute lookups
-    val exprsToUse = expressions.drop( expressions.length - toSize)
 
     ctx.INPUT_ROW = "enc"
     val input = ctx.freshName("_i_value")
@@ -173,13 +171,6 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
     val topVarRef = Seq(topVar.copy(code = EmptyBlock))
 
     ctx.currentVars = topVarRef
-
-    val allOrdinals =
-      exprsToUse.flatMap{
-        e => e.collect {
-          case b: BoundReference => b.ordinal
-        }
-      }.distinct.toSet
 
     val nullLit = Literal(null)
 
@@ -212,13 +203,13 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
     ctx.currentVars = exprVals ++ topVarRef
 
     val (projectionSubExprsCode, projectionSubExprInputs, projectionSubExprStates) =
-      subElim(expressions, ctx)
+      subElim(cExpressions, ctx)
 
     // we need InputRow to start with, after that we can bind to name
     ctx.currentVars = exprVals ++ projectionSubExprStates.map(_._2.eval).map(_.copy(code = EmptyBlock)) ++ topVarRef
 
     // generate the full set
-    val projectionCodes = projections(ctx, expressions, "mutableRow", projectionSubExprStates).toIndexedSeq // streams suck
+    val projectionCodes = projections(ctx, cExpressions, "mutableRow", projectionSubExprStates).toIndexedSeq // streams suck
 
     val (projectionParamsDecl, projectionParamsCall) = formatParams( ctx, ctx.currentVars.flatMap(e => Seq(e.value, e.isNull)) :+
       JavaCode.variable(ctx.INPUT_ROW, classOf[InternalRow])
@@ -396,8 +387,8 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
 
         // needs a fresh tree copy for each newInstance, so we need to proxy it
         override def newInstance: DecoderOpEncoderProjection[I, O] =
-          create[I, O] (
-            expressions.map(e => e.transformUp { case t => t.withNewChildren(t.children) }), toSize)
+          create[I, O] ( expressions.map(e => e.transformUp { case t => t.withNewChildren(t.children) }),
+            toSize, allOrdinals)
 
         override def initialize(partitionIndex: Int): Unit = initial.initialize(partitionIndex)
       }

@@ -33,22 +33,9 @@ object QualitySparkUtils {
   def genParams(ctx: CodegenContext, child: Expression): (String, String, String) = {
     val (a, b) = CodeGenerator.getLocalInputVariableValues(ctx, child, ExprUtils.currentSubExprState(ctx))
 
-    // filter out any top level arrays, the input is a set, so params need the same order
-    val ordered = a.toSeq.filterNot(ExprUtils.isVariableMutableArray(ctx, _)).sortBy(_.variableName)
+    val p = formatParams( ctx, a.toSeq )
 
-    (ordered.map { v =>
-      val typ =
-        if (v.javaType.isArray)
-          s"${v.javaType.getComponentType.getName}[]"
-        else
-          if (v.javaType.isPrimitive)
-            v.javaType.toString
-          else
-            v.javaType.getName
-
-      s"$typ ${stripBrackets(v)}"
-    }.mkString(", ")
-      , ordered.map(stripBrackets).mkString(", "), b.map(_.code.code).mkString("\n"))
+    (p._1, p._2, b.map(_.code.code).mkString("\n"))
   }
 
   def funNRewrite(plan: LogicalPlan, expressionToExpression: PartialFunction[Expression, Expression]): LogicalPlan =

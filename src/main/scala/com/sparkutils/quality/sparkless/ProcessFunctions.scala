@@ -10,7 +10,7 @@ import org.apache.spark.sql.{Column, DataFrame, Encoder}
 import scala.reflect.ClassTag
 
 /**
- * A collection of factory functions for all of Quality's runners provided in two flavours for ruleEngine, folder
+ * A collection of OSS Spark factory functions for all of Quality's runners provided in two flavours for ruleEngine, folder
  * and expressionRunner.
  *
  * 1. xFactory (requires encoders for both input and the full output type)
@@ -33,9 +33,10 @@ import scala.reflect.ClassTag
  * if there are issues in actual processing this option is worth trying.
  *
  * EXPERIMENTAL - forceVarCompilation = true uses a wholeStageCodeGen style approach for subexpressions and removes
- * the use of InternalRow wherever possible, use forceVarCompilation = true to instead use InternalRow based processing.
- * The compilation overhead is higher with VarCompilation, albeit typically paid once, however the current (0.1.3.1)
- * implementation is substantially slower than the default of forceVarCompilation = false.
+ * the use of InternalRow wherever possible, the default of forceVarCompilation = true uses InternalRow based processing.
+ * The compilation overhead is higher with VarCompilation, albeit typically paid once, but the runtime performance is
+ * the fastest of the options. The compilation approach however is closer to ruleRunner than WholestageCodegen and is
+ * therefor deemed supported but experimental.  It is only supported on version 3.2.1 and above.
  *
  * The defaults, including runner specific compilation options, are chosen for general larger volumes of data processing.
  *

@@ -1,10 +1,10 @@
 package org.apache.spark.sql
 
 import com.sparkutils.quality.impl.util.DebugTime.debugTime
+import com.sparkutils.quality.impl.util.Params.formatParams
 import com.sparkutils.quality.impl.util.{PassThrough, PassThroughCompileEvals}
 import com.sparkutils.quality.impl.{RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
 import com.sparkutils.shim.expressions.PredicateHelperPlus
-import org.apache.spark.sql.QualitySparkUtils.optimizerBatches
 import org.apache.spark.sql.QualityStructFunctions.UpdateFields
 import org.apache.spark.sql.ShimUtils.{column, toSQLExpr, toSQLType}
 import org.apache.spark.sql.catalyst.InternalRow
@@ -12,7 +12,6 @@ import org.apache.spark.sql.catalyst.analysis.{Analyzer, ResolveCreateNamedStruc
 import org.apache.spark.sql.catalyst.catalog.SessionCatalog
 import org.apache.spark.sql.catalyst.encoders.RowEncoder
 import org.apache.spark.sql.catalyst.errors.TreeNodeException
-import org.apache.spark.sql.catalyst.expressions.codegen.ExprUtils.stripBrackets
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode, ExprUtils, GenerateMutableProjection}
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, BindReferences, CreateNamedStruct, EqualNullSafe, Expression, ExtractValue, GetStructField, If, InterpretedMutableProjection, IsNull, LeafExpression, Literal, Projection, UnaryExpression, Unevaluable}
 import org.apache.spark.sql.catalyst.optimizer.{BooleanSimplification, CollapseProject, CombineConcats, CombineTypedFilters, ConstantFolding, ConstantPropagation, EliminateMapObjects, EliminateSerialization, FoldablePropagation, LikeSimplification, NormalizeFloatingNumbers, NullPropagation, ObjectSerializerPruning, OptimizeIn, ReassignLambdaVariableID, RemoveDispensableExpressions, RemoveNoopOperators, RemoveRedundantAliases, ReorderAssociativeOperator, ReplaceNullWithFalseInPredicate, SimplifyBinaryComparison, SimplifyCaseConversionExpressions, SimplifyCasts, SimplifyConditionals, SimplifyExtractValueOps}
@@ -39,22 +38,9 @@ object QualitySparkUtils {
   def genParams(ctx: CodegenContext, child: Expression): (String, String, String) = {
     val a = CodeGenerator.getLocalInputVariableValues(ctx, child, ExprUtils.currentSubExprState(ctx))
 
-    // filter out any top level arrays, the input is a set, so params need the same order
-    val ordered = a.toSeq.filterNot(ExprUtils.isVariableMutableArray(ctx, _)).sortBy(_.variableName)
+    val p = formatParams( ctx, a.toSeq )
 
-    (ordered.map { v =>
-      val typ =
-        if (v.javaType.isArray)
-          s"${v.javaType.getComponentType.getName}[]"
-        else
-          if (v.javaType.isPrimitive)
-            v.javaType.toString
-          else
-            v.javaType.getName
-
-      s"$typ ${stripBrackets(v)}"
-    }.mkString(", ")
-      , ordered.map(stripBrackets).mkString(", "), "")
+    (p._1, p._2, "")
   }
 
   def funNRewrite(plan: LogicalPlan, expressionToExpression: PartialFunction[Expression, Expression]): LogicalPlan =
