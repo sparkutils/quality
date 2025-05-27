@@ -14,7 +14,7 @@ sealed trait SumExpression {
   protected[quality] def funN(sumType: DataType): Expression
 }
 protected[quality] case class SumWith(lambdaFunctionIn: LambdaFunction, name: String = "sum_with") extends SumExpression {
-  override def funN(sumType: DataType): Expression = FunN(Seq(RefExpression(sumType)), lambdaFunctionIn, Some(name))
+  override def funN(sumType: DataType): Expression = FunN(Seq(RefExpression(sumType)), lambdaFunctionIn, Some(name), usedAsLambda = true)
 }
 protected[quality] case class SumWithMap(id: Column, lambdaFunctionIn: LambdaFunction, zero: DataType => Option[Any]) extends SumExpression {
   override def funN(sumType: DataType): Expression = sumType match {
@@ -29,7 +29,7 @@ sealed trait ResultsExpression {
   def funN(sumType: DataType): Expression
 }
 protected[quality] case class ResultsWith(lambdaFunctionIn: LambdaFunction, name: String = "results_with") extends ResultsExpression {
-  override def funN(sumType: DataType): Expression = FunN(Seq(RefExpression(sumType), RefExpression(LongType)), lambdaFunctionIn, Some(name))
+  override def funN(sumType: DataType): Expression = FunN(Seq(RefExpression(sumType), RefExpression(LongType)), lambdaFunctionIn, Some(name), usedAsLambda = true)
 }
 
 trait AggregateFunctionImports {

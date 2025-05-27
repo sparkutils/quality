@@ -1,18 +1,19 @@
 package org.apache.spark.sql.qualityFunctions
 
 import com.sparkutils.quality.QualityException
-import com.sparkutils.quality.impl.RuleLogicUtils
+import com.sparkutils.quality.impl.{ExpressionCompiler, RuleLogicUtils}
 import com.sparkutils.quality.impl.util.SparkVersions
 import com.sparkutils.shim.expressions.HigherOrderFunctionLike
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{TypeCheckResult, UnresolvedAttribute}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode, GlobalValue, JavaCode}
 import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression, HigherOrderFunction, LambdaFunction, LeafExpression, NamedExpression, NamedLambdaVariable, OuterReference, SubqueryExpression, UnresolvedNamedLambdaVariable}
 import org.apache.spark.sql.qualityFunctions.SubQueryLambda.namedToOuterReference
 import org.apache.spark.sql.types.{AbstractDataType, DataType}
 
 import java.util.concurrent.atomic.AtomicReference
+import scala.collection.mutable
 
 /**
  * Wraps other expressions and stores the result in an RefExpression -
@@ -65,20 +66,45 @@ case class RunAllReturnLast(children: Seq[Expression]) extends Expression
 
 trait RefCodeGen {
   def dataType: DataType
-  protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
-    val idx = ctx.references.length
-    ctx.references += this
-    val javaType = CodeGenerator.javaType(dataType)
-    val boxed = CodeGenerator.boxedType(dataType)
 
-    val clazz = this.getClass.getName
-    ev.copy(code =
-      code"""
+  // never return a different object from this gen code
+  @transient
+  var _generated: mutable.Map[CodegenContext, ExprCode] = _
+
+  protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode =
+    if (ExpressionCompiler.inExpressionCompiler) {
+      // evals are compiled but ruleFolder is eval, so forceInterpreted style scenarios
+      val idx = ctx.references.length
+      ctx.references += this
+      val javaType = CodeGenerator.javaType(dataType)
+      val boxed = CodeGenerator.boxedType(dataType)
+
+      val clazz = this.getClass.getName
+      ev.copy(code =
+        code"""
         $javaType ${ev.value} = ($boxed) (($clazz)references[$idx]).value();
 
         boolean ${ev.isNull} = ${ev.value} == null;
       """)
-  }
+    } else {
+      if (_generated == null){
+        _generated = mutable.Map.empty
+      }
+      val cached = _generated.get(ctx)
+      if (cached.isEmpty) {
+        val javaType = CodeGenerator.javaType(dataType)
+        val theVar = ctx.addMutableState(javaType, ctx.freshName("RefExpr"), useFreshName = false)
+        val theNull = ctx.addMutableState("boolean", ctx.freshName("RefExprNull"), useFreshName = false)
+
+        val toCache = ev.copy(code = code"",
+          isNull = GlobalValue(theNull, CodeGenerator.javaClass(dataType)),
+          value = GlobalValue(theVar, CodeGenerator.javaClass(dataType))
+        )
+        _generated.put(ctx, toCache)
+        toCache
+      } else
+        cached.get
+    }
 }
 
 /**
@@ -100,13 +126,13 @@ case class RefExpression(dataType: DataType,
 
 object RefExpressionLazyType {
   /**
-   * Spark v4 calls checkArguments before the children are resolved
-   * This means a null type is returned causing a match exception
-   * Simply using false means the entire expression won't resolve.
-   * As such the default on v4 is false.
-   * NB Spark > 3.x will use withNewChildren allowing a transform before creating.
+   * withNewChildren on 3.2 and above works correctly for resolution allowing a transform before creating.
    */
-  lazy val defaultResolved: Boolean = SparkVersions.sparkMajorVersion.toInt < 4
+  lazy val defaultResolved: Boolean = {
+    val bits = SparkVersions.sparkVersion.split('.')
+    val ver = s"${bits(0)}${bits(1)}".toInt
+    ver <= 32
+  }
 }
 
 /**
@@ -185,6 +211,12 @@ case class FunForward(children: Seq[Expression])
 case class FunN(arguments: Seq[Expression], function: Expression, name: Option[String] = None,
                 processed: Boolean = false, attemptCodeGen: Boolean = false, usedAsLambda: Boolean = false)
   extends HigherOrderFunctionLike with CodegenFallback with SeqArgs with FunDoGenCode {
+
+  /* #71 - default just checks arguments, but FunNRewrite will take the actual function so it's possible
+      it is nullable. ArrayAggregate for example (hit on Databricks) argument.nullable || finish.nullable
+      only the argument part is covered by default HOF nullable.
+   */
+  override def nullable: Boolean = super.nullable || function.nullable
 
   override def prettyName: String = name.getOrElse(super.prettyName)
 

@@ -8,7 +8,9 @@ import com.sparkutils.quality.impl.RuleRunnerUtils.{genRuleSuiteTerm, packTheId}
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.imports.{RuleEngineRunnerImports, RuleResultsImports}
 import RuleResultsImports.packId
-import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals, PassThroughEvalOnly}
+import com.sparkutils.quality.impl.util.SubQueryWrapper.hasASubQuery
+import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals, PassThroughEvalOnly, SubQueryWrapper}
+import org.apache.spark.sql.QualitySparkUtils.genParams
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode}
@@ -27,18 +29,18 @@ object RuleEngineRunnerImpl {
    * Creates a column that runs the RuleSuite.  This also forces registering the lambda functions used by that RuleSuite
    * @param ruleSuite The ruleSuite with runOnPassProcessors
    * @param resultDataType The type of the results from runOnPassProcessors - must be the same for all result types
-   * @param compileEvals Should the rules be compiled out to interim objects - by default true for eval usage, wholeStageCodeGen will evaluate in place unless forceTriggerEval set to false
+   * @param compileEvals Should the rules be compiled out to interim objects - by default false, allowing optimisations
    * @param debugMode When debugMode is enabled the resultDataType is wrapped in Array of (salience, result) pairs to ease debugging
    * @param resolveWith This experimental parameter can take the DataFrame these rules will be added to and pre-resolve and optimise the sql expressions, see the documentation for details on when to and not to use this.
    * @param variablesPerFunc Defaulting to 40 allows, in combination with variableFuncGroup allows customisation of handling the 64k jvm method size limitation when performing WholeStageCodeGen
    * @param variableFuncGroup Defaulting to 20
    * @param forceRunnerEval Defaulting to false, passing true forces a simplified partially interpreted evaluation (compileEvals must be false to get fully interpreted)
-   * @param forceTriggerEval Defaulting to true, passing true forces each trigger expression to be compiled (compileEvals) and used in place, false instead expands the trigger in-line giving possible performance boosts based on JIT.  Most testing has however shown this not to be the case hence the default, ymmv.
+   * @param forceTriggerEval Defaulting to false, passing true forces each trigger expression to be compiled (compileEvals) and used in place, false instead expands the trigger in-line giving possible performance boosts based on JIT
    * @return A Column representing the QualityRules expression built from this ruleSuite
    */
-  def ruleEngineRunnerImpl(ruleSuite: RuleSuite, resultDataType: DataType, compileEvals: Boolean = true,
+  def ruleEngineRunnerImpl(ruleSuite: RuleSuite, resultDataType: DataType, compileEvals: Boolean = false,
                        debugMode: Boolean = false, resolveWith: Option[DataFrame] = None, variablesPerFunc: Int = 40,
-                       variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = true): Column = {
+                       variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false): Column = {
     com.sparkutils.quality.registerLambdaFunctions( ruleSuite.lambdaFunctions )
     val realType =
       if (debugMode)
@@ -186,25 +188,20 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
   case class CompilerTerms(funNames: _root_.scala.collection.Iterator[_root_.scala.Predef.String],
                            paramsCall: String, utilsName: String, ruleSuitTerm: String, ruleSuiteArrays: String, resArrTerm: String,
                            currentSalience: String, ruleTupleArrTerm: String, currentOutputIndex: String, outArrTerm: String,
-                           salienceArrTerm: String)
+                           salienceArrTerm: String, pushToTop: String)
 
   def genCompilerTerms[T: ClassTag](ctx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext,
                   child: Expression, expressionOffsets: Array[Int], realChildren: Seq[Expression],
                        debugMode: Boolean, variablesPerFunc: Int, variableFuncGroup: Int, forceTriggerEval: Boolean,
                        extraResult: String => String = (_ : String) => "",
-                       extraSetup: String => String = (_ : String) => "",
+                       extraSetup: (String, Int) => String = (_ : String, _: Int) => "",
                        orderOffset: Int => Int = identity,
                        salienceCheck: Boolean = true
                       ):
     CompilerTerms = {
     val i = ctx.INPUT_ROW
 
-    val (paramsDef, paramsCall) =
-      if (i ne null)
-        (s"InternalRow $i", s"$i")
-      else
-        (ctx.currentVars.map(v => s"${if (v.value.javaType.isPrimitive) v.value.javaType else v.value.javaType.getName} ${v.value}, ${v.isNull.javaType} ${v.isNull}").mkString(", "),
-          ctx.currentVars.map(v => s"${v.value}, ${v.isNull}").mkString(", "))
+    val (paramsDef, paramsCall, pushToTop) = genParams(ctx, child)
 
     // bind the rules
     val (ruleSuitTerm, termFun) = genRuleSuiteTerm[T](ctx)
@@ -248,6 +245,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
       // can't use the primitive type as it can't handle nulls
       if (javaType.isPrimitive) CodeGenerator.boxedType(javaType.getSimpleName) else javaType.getName
     }
+
     val outArrTerm = ctx.addMutableState(output+"[]", ctx.freshName("output"),
       v => s"$v = new $output[$offset];")
 
@@ -259,7 +257,12 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
           ("", s"$utilsName.ruleResultToInt($childrenFuncTerm[$idx].eval($i))")
         else {
           val eval = exp.genCode(ctx)
-          (eval.code, s"com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt(${eval.isNull} ? null : ${eval.value})")
+
+          // auto boxing on databricks doesn't work due to old janino see #82
+          val edt = eval.value.javaType
+          val theCast = if (edt.isPrimitive) CodeGenerator.boxedType(edt.getSimpleName) else edt.getName
+
+          (eval.code, s"new Integer( com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt(${eval.isNull} ? null : ($theCast) ${eval.value}) )")
         }
 
       val converted =
@@ -267,9 +270,9 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
             $evalPre
             $currRuleResTerm = $eval;
 
-            $resArrTerm[$idx] = $currRuleResTerm;
+            $resArrTerm[$idx] = (Integer) $currRuleResTerm;
             if ( ( $currRuleResTerm == $PassedInt ) ${if (!debugMode && salienceCheck) s" && ( $currentSalience > $salienceArrTerm[$idx] ) " else "" }) {
-              $funName($paramsCall, $idx);
+              $funName($paramsCall${if (paramsCall.isEmpty) "" else ","} $idx);
             } ${if (!debugMode) "" else s"""
               else {
               $outArrTerm[$idx] = null;
@@ -289,30 +292,38 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
         val exp = realChildren(offset + i)
         val eval = exp.genCode(ctx)
 
+        val body =
+          s"""
+              ${extraSetup(index, i)} \n
+              ${eval.code} \n
+
+              $outArrTerm[$i] = ${eval.isNull} ? null : ($output)${eval.value}; \n
+              ${extraResult(s"$outArrTerm[$i]")}
+        """
+
         ctx.addNewFunction(exprFuncName,
           s"""
-   private void $exprFuncName($paramsDef, int $index) {
-            ${extraSetup(index)} \n
-            ${eval.code} \n
+   private void $exprFuncName($paramsDef${if (paramsDef.isEmpty) "" else ","} int $index) {
+            $body
 
-     ${
+      ${
             if (debugMode)
               s"""
-            $currentOutputIndex += 1; \n
+              $currentOutputIndex += 1; \n
 
-            """
+              """
             else
               s"""
 
-            $currentSalience = $salienceArrTerm[$index]; \n
-            $currentOutputIndex = $index; \n
-            """
+              $currentSalience = $salienceArrTerm[$index]; \n
+              $currentOutputIndex = $index; \n
+              """
           }
-            $outArrTerm[$index] = ${eval.isNull} ? null : ($output)${eval.value}; \n
-            ${extraResult(s"$outArrTerm[$index]")}
-   }
+      }
   """
-        )
+            )
+
+
       }
 
     // ensure ordering and re-use
@@ -332,7 +343,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
     CompilerTerms(RuleRunnerUtils.generateFunctionGroups(ctx, allExpr, paramsDef, paramsCall),
       paramsCall, utilsName, ruleSuitTerm, ruleSuiteArrays, resArrTerm,
       currentSalience, ruleTupleArrTerm, currentOutputIndex, outArrTerm,
-      salienceArrTerm)
+      salienceArrTerm, pushToTop)
 
   }
 
@@ -399,6 +410,7 @@ trait RuleEngineRunnerBase[T] extends UnaryExpression with NonSQLExpression {
     // for debug currentOutputIndex is the count of matches
 
     val pre = s"""
+          $pushToTop
           $currentSalience = java.lang.Integer.MAX_VALUE;
           $currentOutputIndex = -1;
           ${funNames.map{f => s"$f($paramsCall);"}.mkString("\n")}

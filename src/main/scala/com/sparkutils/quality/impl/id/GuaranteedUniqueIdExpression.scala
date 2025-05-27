@@ -1,9 +1,9 @@
 package com.sparkutils.quality.impl.id
 
-import org.apache.spark.sql.Column
+import com.sparkutils.shim.expressions.NondeterministicLike
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
-import org.apache.spark.sql.catalyst.expressions.{LeafExpression, Nondeterministic}
+import org.apache.spark.sql.catalyst.expressions.LeafExpression
 import org.apache.spark.sql.types.DataType
 
 
@@ -15,7 +15,7 @@ import org.apache.spark.sql.types.DataType
  * @param prefix how to name the fields
  */
 case class GuaranteedUniqueIdIDExpression(idBase: GuaranteedUniqueID, prefix: String) extends LeafExpression with CodegenFallback
-  with Nondeterministic {
+  with NondeterministicLike {
 
   @transient var idPartition: GuaranteedUniqueID = _
   @transient var idOps: GuaranteedUniqueIDOps = _

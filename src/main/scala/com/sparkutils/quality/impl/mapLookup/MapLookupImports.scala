@@ -3,8 +3,10 @@ package com.sparkutils.quality.impl.mapLookup
 import com.sparkutils.quality.impl.mapLookup.MapLookupFunctions.MapLookups
 import com.sparkutils.quality.{DataFrameLoader, Id}
 import com.sparkutils.quality.impl.util.ConfigLoader
+import org.apache.spark.broadcast.Broadcast
+import org.apache.spark.sql.catalyst.util.MapData
 import org.apache.spark.sql.functions.lit
-import org.apache.spark.sql.{Column, DataFrame}
+import org.apache.spark.sql.{Column, DataFrame, SparkSession}
 
 trait MapLookupImports {
 
@@ -24,8 +26,9 @@ trait MapLookupImports {
    * @param creators a map of string id to MapCreator
    * @return a map of id to broadcast variables needed for exact lookup and mapping checks
    */
-  def mapLookupsFromDFs(creators: Map[String, MapCreator]): MapLookups =
-    MapLookupFunctions.mapLookupsFromDFs(creators)
+  def mapLookupsFromDFs(creators: Map[String, MapCreator], broadcastFunction: MapData => Broadcast[MapData] =
+  SparkSession.active.sparkContext.broadcast(_)): MapLookups =
+    MapLookupFunctions.mapLookupsFromDFs(creators, broadcastFunction)
 
   import MapLookupFunctions.{factory, mapRowEncoder}
 

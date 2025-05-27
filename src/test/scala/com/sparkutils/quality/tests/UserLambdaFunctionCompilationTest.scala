@@ -9,6 +9,7 @@ import org.apache.spark.sql.qualityFunctions.LambdaCompilationUtils.{LambdaCompi
 import org.apache.spark.sql.qualityFunctions.{DoCodegenFallbackHandler, FunN, NamedLambdaVariableCodeGen}
 import org.junit.{Before, Test}
 import org.scalatest.FunSuite
+import org.scalatest.Matchers.convertToAnyShouldWrapper
 
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -18,7 +19,7 @@ class UserLambdaFunctionCompilationTest extends FunSuite with TestUtils {
 
   @Test
   def defaultHofConfigTests: Unit = {
-    val (simple, simpleimpl, notso, complex) = ("simple","simpleimpl","not.so.simple","complex")
+    val (simple, simpleimpl, notso, complex) = ("simple", "simpleimpl", "not.so.simple", "complex")
     val expected = Map(simple -> simpleimpl, notso -> complex)
     // verify default loading
     val got = envLambdaHandlers(s" $simple = $simpleimpl , $notso=  $complex  ")
@@ -56,7 +57,7 @@ class UserLambdaFunctionCompilationTest extends FunSuite with TestUtils {
 
   @Test
   def loadHandlersViaProperty: Unit = {
-    System.setProperty("quality.lambdaHandlers",s"${classOf[ZipWith].getName}=${classOf[ZipWith].getName}")
+    System.setProperty("quality.lambdaHandlers", s"${classOf[ZipWith].getName}=${classOf[ZipWith].getName}")
     try {
       convertToCompilationHandlers()
       assert(false, "Should have thrown")
@@ -71,8 +72,8 @@ class UserLambdaFunctionCompilationTest extends FunSuite with TestUtils {
      * NOTE this can only exercise the code it can't test it's called DoCodeGen properly
      */
     registerLambdaFunctions(Seq(
-      LambdaFunction("bottom","i -> i + 1",Id(1,3)),
-      LambdaFunction("top","(i, j) -> bottom(i)",Id(1,3))
+      LambdaFunction("bottom", "i -> i + 1", Id(1, 3)),
+      LambdaFunction("top", "(i, j) -> bottom(i)", Id(1, 3))
     ))
     import sparkSession.implicits._
     val df = sparkSession.sql("select top(1,2)")
@@ -80,15 +81,19 @@ class UserLambdaFunctionCompilationTest extends FunSuite with TestUtils {
   }
 
   @Test
-  def runDisabledCompilation: Unit = evalCodeGens { funNRewrites {
-    System.setProperty("quality.lambdaHandlers",s"${classOf[FunN].getName}=${classOf[DoCodegenFallbackHandler].getName}")
-    doSimpleNested
-  } }
+  def runDisabledCompilation: Unit = evalCodeGens {
+    funNRewrites {
+      System.setProperty("quality.lambdaHandlers", s"${classOf[FunN].getName}=${classOf[DoCodegenFallbackHandler].getName}")
+      doSimpleNested
+    }
+  }
 
   @Test
-  def runNestedCompilation: Unit = evalCodeGens { funNRewrites {
-    doSimpleNested
-  } }
+  def runNestedCompilation: Unit = evalCodeGens {
+    funNRewrites {
+      doSimpleNested
+    }
+  }
 
   def doWithFilterHof: Unit = {
     if (SparkTestUtils.skipHofs && !onDatabricks) return
@@ -98,8 +103,8 @@ class UserLambdaFunctionCompilationTest extends FunSuite with TestUtils {
      * NOTE this can only exercise the code it can't test it's called DoCodeGen properly
      */
     registerLambdaFunctions(Seq(
-      LambdaFunction("bottom","filterB -> filter(filterB, i -> i % 2 = 0)",Id(1,3)),
-      LambdaFunction("top","a -> printCode(bottom(a))",Id(1,3))
+      LambdaFunction("bottom", "filterB -> filter(filterB, i -> i % 2 = 0)", Id(1, 3)),
+      LambdaFunction("top", "a -> printCode(bottom(a))", Id(1, 3))
     ))
     import sparkSession.implicits._
     val df = sparkSession.sql("select element_at(top(array(1,2)), 1)")
@@ -107,29 +112,58 @@ class UserLambdaFunctionCompilationTest extends FunSuite with TestUtils {
   }
 
   @Test
-  def withDefaultHoF: Unit = evalCodeGens { funNRewrites {
-    doWithFilterHof
-  } }
-
-  @Test
-  def withSpecifiedHoFHandler: Unit = evalCodeGens { funNRewrites {
-    sparkSession.sparkContext.setLocalProperty("quality.lambdaHandlers",s"${classOf[ArrayFilter].getName}=${classOf[DoCodegenFallbackHandler].getName}")
-    doWithFilterHof
-  } }
-
-  @Test
-  def runDisabledBottom: Unit = forceCodeGen { funNRewrites {
-
-    reinit()
-    System.setProperty("quality.lambdaHandlers",s"bottom=${classOf[TestHandler].getName}")
-    doSimpleNested
-
-    not_Cluster {
-      // we'll functionally test it but these are set on other jvms
-      assert(calledShouldTransform.get, true)
-      assert(calledTransform.get, true)
-    } }
+  def withDefaultHoF: Unit = evalCodeGens {
+    funNRewrites {
+      doWithFilterHof
+    }
   }
+
+  @Test
+  def withSpecifiedHoFHandler: Unit = evalCodeGens {
+    funNRewrites {
+      sparkSession.sparkContext.setLocalProperty("quality.lambdaHandlers", s"${classOf[ArrayFilter].getName}=${classOf[DoCodegenFallbackHandler].getName}")
+      doWithFilterHof
+    }
+  }
+
+  @Test
+  def runDisabledBottom: Unit = forceCodeGen {
+
+    def doIt() = {
+      reinit()
+
+      System.setProperty("quality.lambdaHandlers", s"bottom=${classOf[TestHandler].getName}")
+      doSimpleNested
+    }
+
+    v3_2_and_above {
+      justfunNRewrite {
+
+        doIt()
+
+        not_Cluster {
+          // the lambdas should have been re-written out of existence
+          // no FunN means no lambda to handle
+          calledShouldTransform.get shouldBe false
+          calledTransform.get shouldBe false
+        }
+      }
+    }
+
+
+    {
+
+      doIt()
+
+      not_Cluster {
+        // no re-writes means lambdas are still there so handlers are called
+        // we'll functionally test it but these are set on other jvms
+        calledShouldTransform.get shouldBe true
+        calledTransform.get shouldBe true
+      }
+    }
+  }
+
 
 }
 

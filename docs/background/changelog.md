@@ -1,5 +1,17 @@
 ### 0.1.3.1 <small>3rd December, 2024</small>
 
+This is the last release of 2.4, 3.0 is deprecated as of this release, similarly, Databricks versions 9.1 through to 13.3 are also now deprecated and unsupported functionality (fixes for #84 will be gladly accepted).
+
+#82 - Wholestage codegen support for Correlated Subqueries, improved support for pass-through fields from plans
+
+#81 - Enable Quality row level runners to be used outside a spark runtime (still requires spark to build of course)
+
+#78 - Allow extra plans to be added after a rewrite, ConstantFolding as a default given it gives a slight boost.
+
+#76 - DBR 16.3 support - Databricks introduced a number of API changes not found in Spark 4, extra UnresolvedFunction params. (also includes #75)
+
+#75 - DBR 15.4 support - Databricks introduced nonVolatile, a breaking change affecting all StatefulLike/Nondeterministic (rngs, uuids, unique_id), there is also a regression wrt interpreted Spark encoders (returning Stream and incorrect results) - the test cases have moved to Frameless encoders.
+
 #68 - Test setup improvements for running testShades on Fabric (reduced logging and share Databricks behaviour)
 
 #69 - Use different scopes for OSS testShade builds for Fabric testing (bug in snakeyml usage)
@@ -14,7 +26,9 @@
 > 
 > As part of this optimisation LambdaFunctions are rewritten and expanded as normal expression trees by a plan re-write. If this causes problems a `/* USED_AS_LAMBDA */` comment may be added to the LambdaFunction definition to disable this expansion for the entire sub-tree. 
 > 
-> The entire rewrite plan must be enabled by calling `com.sparkutils.quality.enableFunNRewrites()` within your SparkSession or by default via the Quality extensions. 
+> The entire rewrite plan must be enabled by calling `com.sparkutils.quality.enableFunNRewrites()` within your SparkSession or by default via the Quality extensions.
+> 
+> NB The use of re-writes with 3.2.x has been identified in one test case (testSimpleProductionRules) as problematic for codegen, please use more recent Spark versions.
 
 #73 - Spark 4.0 support (with an upgrade to Shim 0.2.0)
 

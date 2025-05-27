@@ -82,8 +82,8 @@ object AggregateExpressions {
   def correctEvaluate(sumType: DataType, evaluate: Expression, wrapCastOnly: Boolean = false) =
     evaluate match {
       case FunN(Seq(RefExpression(_, nullable, _), cref),
-      LambdaFunction(function, Seq(sparam: NamedLambdaVariable, cparam: NamedLambdaVariable), hidden),
-      name, _, _, _) =>
+        LambdaFunction(function, Seq(sparam: NamedLambdaVariable, cparam: NamedLambdaVariable), hidden),
+        name, _, _, _) =>
 
         val correctedFunction =
           if (wrapCastOnly)
@@ -93,7 +93,7 @@ object AggregateExpressions {
 
         FunN(Seq(RefExpression(sumType, nullable), cref),
           LambdaFunction(correctedFunction,
-            Seq(sparam.copy(dataType = sumType), cparam), hidden), name)
+            Seq(sparam.copy(dataType = sumType), cparam), hidden), name, usedAsLambda = true)
 
       // when we partially apply the lambda is further down
       case FunForward(Seq(RefExpression(_, nullable, paramIndex), cref) :+ (
@@ -112,7 +112,7 @@ object AggregateExpressions {
             sparam.copy(dataType = sumType) +: params.drop(1), hidden),
             arguments = funparams.updated(paramIndex,
               funparams(paramIndex).asInstanceOf[RefExpression].copy(dataType = sumType)
-            )))
+            ), usedAsLambda = true))
 
       case _ => evaluate // shouldn't happen but better from spark than a match error
     }
@@ -123,8 +123,8 @@ object AggregateExpressions {
 
       // for sumWith
       case FunN(Seq(RefExpression(_, nullable, _)),
-      LambdaFunction(fun, Seq(param: NamedLambdaVariable), hidden),
-      name, _, _, _) =>
+        LambdaFunction(fun, Seq(param: NamedLambdaVariable), hidden),
+        name, _, _, _) =>
 
         val correctedFunction =
           if (wrapCastOnly)
@@ -134,7 +134,7 @@ object AggregateExpressions {
 
         FunN(Seq(RefExpression(sumType, nullable)),
           LambdaFunction(cast(correctedFunction, sumType), // see above comment for cast justification
-            Seq(param.copy(dataType = sumType)), hidden), name)
+            Seq(param.copy(dataType = sumType)), hidden), name, usedAsLambda = true)
 
       // for mapWith
       case MapTransform(r: RefExpression, key, LambdaFunction(function, Seq(param: NamedLambdaVariable), hidden), zeroF) =>
@@ -168,7 +168,7 @@ object AggregateExpressions {
             sparam.copy(dataType = sumType) +: params.drop(1), hidden),
             arguments = funparams.updated(paramIndex,
               funparams(paramIndex).asInstanceOf[RefExpression].copy(dataType = sumType)
-            )))
+            ), usedAsLambda = true))
 
       case _ => sum // not expected but better errors will come form Spark
     }
