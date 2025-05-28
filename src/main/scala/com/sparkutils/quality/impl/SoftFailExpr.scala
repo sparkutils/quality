@@ -1,8 +1,9 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality.{DisabledRule, Failed, Passed, SoftFailed, Probability}
+import com.sparkutils.quality.{DisabledRule, Failed, Passed, Probability, SoftFailed}
+import com.sparkutils.shim.expressions.NullIntolerant
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
-import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionDescription, NullIntolerant, UnaryExpression}
+import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionDescription, UnaryExpression}
 import org.apache.spark.sql.types.{DataType, DoubleType}
 
 object SoftFailedUtils {

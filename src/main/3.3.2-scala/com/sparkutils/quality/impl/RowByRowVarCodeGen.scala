@@ -10,7 +10,7 @@ import org.apache.spark.sql.catalyst.expressions.BindReferences.bindReferences
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate.NoOp
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
-import org.apache.spark.sql.catalyst.expressions.codegen.{ExprUtils, JavaCode, _}
+import org.apache.spark.sql.catalyst.expressions.codegen.{QualityExprUtils, JavaCode, _}
 import org.apache.spark.sql.types.{DataType, StructField, StructType}
 
 //import scala.collection.immutable.{Map, Seq}

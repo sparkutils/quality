@@ -8,7 +8,7 @@ import com.sparkutils.shim.expressions.{HigherOrderFunctionLike, PredicateHelper
 import org.apache.spark.sql.ShimUtils.column
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCoercion}
 import org.apache.spark.sql.catalyst.encoders.{ExpressionEncoder, RowEncoder}
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, ExprUtils, GenerateMutableProjection}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, QualityExprUtils, GenerateMutableProjection}
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, EqualNullSafe, Expression, ExpressionSet, HigherOrderFunction, InterpretedMutableProjection, Literal, Projection, UpdateFields}
 import org.apache.spark.sql.catalyst.optimizer._
 import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, LogicalPlan, Project, UnaryNode}
@@ -30,7 +30,7 @@ object QualitySparkUtils {
    * @return (parameters for function decleration, parmaters for calling, code that must be before fungroup)
    */
   def genParams(ctx: CodegenContext, child: Expression): (String, String, String) = {
-    val (a, b) = CodeGenerator.getLocalInputVariableValues(ctx, child, ExprUtils.currentSubExprState(ctx))
+    val (a, b) = CodeGenerator.getLocalInputVariableValues(ctx, child, QualityExprUtils.currentSubExprState(ctx))
 
     val p = formatParams( ctx, a.toSeq )
 
@@ -128,7 +128,8 @@ object QualitySparkUtils {
     ObjectSerializerPruning,
     ReassignLambdaVariableID,
     NormalizeFloatingNumbers,
-    ReplaceUpdateFieldsExpression
+    ReplaceUpdateFieldsExpression,
+    ReplaceExpressions
   )
 
   /**

@@ -1,19 +1,16 @@
 package org.apache.spark.sql
 
-import com.sparkutils.quality.enableOptimizations
-import com.sparkutils.quality.impl.extension.FunNRewrite
-import org.apache.spark.sql.ShimUtils.column
+import org.apache.spark.sql.ShimUtils.{column, expression}
 import com.sparkutils.quality.impl.util.DebugTime.debugTime
+import com.sparkutils.quality.impl.util.Params.formatParams
 import com.sparkutils.quality.impl.util.{PassThrough, PassThroughCompileEvals}
-import com.sparkutils.quality.impl.{GenerateDecoderOpEncoderProjection, RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
-import com.sparkutils.quality.sparkless.{Processor, ProcessorFactory}
-import com.sparkutils.quality.sparkless.impl.MutableProjectionProcessor
+import com.sparkutils.quality.impl.{RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
 import com.sparkutils.shim.expressions.{HigherOrderFunctionLike, PredicateHelperPlus}
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCoercion}
 import org.apache.spark.sql.catalyst.encoders.{ExpressionEncoder, RowEncoder}
-import org.apache.spark.sql.catalyst.expressions.codegen.GenerateMutableProjection
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, QualityExprUtils, GenerateMutableProjection}
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, EqualNullSafe, Expression, ExpressionSet, HigherOrderFunction, InterpretedMutableProjection, Literal, Projection, UpdateFields}
-import org.apache.spark.sql.catalyst.optimizer.{BooleanSimplification, CollapseProject, CombineConcats, CombineTypedFilters, ConstantFolding, ConstantPropagation, EliminateMapObjects, EliminateSerialization, FoldablePropagation, LikeSimplification, NormalizeFloatingNumbers, NullDownPropagation, NullPropagation, ObjectSerializerPruning, OptimizeCsvJsonExprs, OptimizeIn, OptimizeRand, OptimizeUpdateFields, PruneFilters, PushFoldableIntoBranches, ReassignLambdaVariableID, RemoveNoopOperators, RemoveRedundantAggregates, RemoveRedundantAliases, ReorderAssociativeOperator, ReplaceNullWithFalseInPredicate, ReplaceUpdateFieldsExpression, RewriteCorrelatedScalarSubquery, RewriteLateralSubquery, SimplifyBinaryComparison, SimplifyCaseConversionExpressions, SimplifyCasts, SimplifyConditionals, SimplifyExtractValueOps, UnwrapCastInBinaryComparison}
+import org.apache.spark.sql.catalyst.optimizer.{BooleanSimplification, CollapseProject, CombineConcats, CombineTypedFilters, ConstantFolding, ConstantPropagation, EliminateMapObjects, EliminateSerialization, FoldablePropagation, LikeSimplification, NormalizeFloatingNumbers, NullDownPropagation, NullPropagation, ObjectSerializerPruning, OptimizeCsvJsonExprs, OptimizeIn, OptimizeRand, OptimizeUpdateFields, PruneFilters, PushFoldableIntoBranches, ReassignLambdaVariableID, RemoveNoopOperators, RemoveRedundantAggregates, RemoveRedundantAliases, ReorderAssociativeOperator, ReplaceExpressions, ReplaceNullWithFalseInPredicate, ReplaceUpdateFieldsExpression, RewriteCorrelatedScalarSubquery, RewriteLateralSubquery, SimplifyBinaryComparison, SimplifyCaseConversionExpressions, SimplifyCasts, SimplifyConditionals, SimplifyExtractValueOps, UnwrapCastInBinaryComparison}
 import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, LogicalPlan, Project, UnaryNode}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.internal.SQLConf
@@ -33,7 +30,7 @@ object QualitySparkUtils {
    * @return (parameters for function decleration, parmaters for calling, code that must be before fungroup)
    */
   def genParams(ctx: CodegenContext, child: Expression): (String, String, String) = {
-    val (a, b) = CodeGenerator.getLocalInputVariableValues(ctx, child, ExprUtils.currentSubExprState(ctx))
+    val (a, b) = CodeGenerator.getLocalInputVariableValues(ctx, child, QualityExprUtils.currentSubExprState(ctx))
 
     val p = formatParams( ctx, a.toSeq )
 
@@ -78,7 +75,7 @@ object QualitySparkUtils {
 
     val sparkSession = SparkSession.getActiveSession.get
 
-    val plan = dataFrame.select("*").logicalPlan // select * needed for toDF's etc. from dataset to force evaluation of the attributes
+    val plan = ShimUtils.logicalPlan(dataFrame.select("*")) // select * needed for toDF's etc. from dataset to force evaluation of the attributes
     val res = debugTime("tryResolveReferences") {
       tryResolveReferences(sparkSession)(expr, plan)
     }
@@ -130,7 +127,8 @@ object QualitySparkUtils {
     ObjectSerializerPruning,
     ReassignLambdaVariableID,
     NormalizeFloatingNumbers,
-    ReplaceUpdateFieldsExpression
+    ReplaceUpdateFieldsExpression,
+    ReplaceExpressions
   )
 
   /**
@@ -147,7 +145,7 @@ object QualitySparkUtils {
 
     // this constructor stops execute plan being called too early
     val df = dataFrameF(
-      new Dataset[Row](SparkSession.getActiveSession.get.sqlContext, plan, ExpressionEncoder(ag))
+      ShimUtils.mkDataset(SparkSession.getActiveSession.get.sqlContext, plan, ExpressionEncoder(ag))
     )
 
     // force an optimize
@@ -187,7 +185,7 @@ object QualitySparkUtils {
 
     // this constructor stops execute plan being called too early
     val df = dataFrameF(
-      new Dataset[T](SparkSession.getActiveSession.get.sqlContext, plan, enc).toDF()
+      ShimUtils.mkDataset(SparkSession.getActiveSession.get.sqlContext, plan, enc).toDF()
     )
 
     // force an optimize
@@ -283,7 +281,7 @@ object QualitySparkUtils {
 
 
   def resolution(analyzer: Analyzer, sparkSession: SparkSession, plan: LogicalPlan) = {
-    val conf = sparkSession.sqlContext.conf
+    val conf = SQLConf.get
     val fixedPoint = new Strategy(
       conf.analyzerMaxIterations,
       errorOnExceed = true,
@@ -437,8 +435,5 @@ object QualitySparkUtils {
         }
       }
     )
-
-
-  type DatasetBase[F] = org.apache.spark.sql.Dataset[F]
 
 }

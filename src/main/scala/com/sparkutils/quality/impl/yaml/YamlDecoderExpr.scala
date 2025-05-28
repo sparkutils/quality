@@ -1,13 +1,14 @@
 package com.sparkutils.quality.impl.yaml
 
 import com.sparkutils.quality.impl.YamlDecoder
+import com.sparkutils.shim.expressions.NullIntolerant
 
 import java.io.StringReader
 import java.util.Base64
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
-import org.apache.spark.sql.catalyst.expressions.{Expression, NullIntolerant, UnaryExpression}
+import org.apache.spark.sql.catalyst.expressions.{Expression, UnaryExpression}
 import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, ArrayData}
 import org.apache.spark.sql.shim.expressions.InputTypeChecks
 import org.apache.spark.sql.types._

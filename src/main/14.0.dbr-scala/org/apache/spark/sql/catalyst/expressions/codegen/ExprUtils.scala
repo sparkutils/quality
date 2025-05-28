@@ -3,7 +3,7 @@ package org.apache.spark.sql.catalyst.expressions.codegen
 import com.sparkutils.quality.impl.util.Params.stripBrackets
 import org.apache.spark.sql.catalyst.expressions.ExpressionEquals
 
-object ExprUtils {
+object QualityExprUtils {
 
   def currentSubExprState(ctx: CodegenContext): Map[ExpressionEquals, SubExprEliminationState] =
     ctx.subExprEliminationExprs
