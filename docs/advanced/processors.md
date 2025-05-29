@@ -193,7 +193,7 @@ The run is informative but has some outlier behaviours and should be taken as a 
     <tr><td> 150 </td><td> 50 </td><td> 780 </td></tr>
     </table>
 
-As noted above the fastest startup time is with `!#scala compile = false` as no compilation takes place, this holds true until about 
+As noted above the fastest startup time is with `#!scala compile = false` as no compilation takes place, this holds true until about 
 the 780 rule mark where compilation catches up with the traversal and new expression tree copying cost.  Each subsequent instance call
 will however pay the same cost again, moreover the actual runtime is by far the worst option:
 
@@ -212,9 +212,9 @@ The majority of cost is the serialisation of the results into the RuleSuiteResul
 
 ??? info "Experimental - VarCompilation"
 
-    The default of `!#scala forceVarCompilation = false` uses a light compilation wrapping around Sparks MutableProjection approach, with the Spark team doing the heavy lifting.
+    The default of `#!scala forceVarCompilation = false` uses a light compilation wrapping around Sparks MutableProjection approach, with the Spark team doing the heavy lifting.
     
-    In contrast the `!#scala forceVarCompilation = true` option triggers the experimental VarCompilation, mimicing WholeStageCodegen (albeit without severe input size restricitons).  
+    In contrast the `#!scala forceVarCompilation = true` option triggers the experimental VarCompilation, mimicing WholeStageCodegen (albeit without severe input size restricitons).  
     It's additional speed is driven by JIT friendly optimisations and removing all unnecessary work, only encoding from the input data what is needed by the rules.
     The experimental label is due to the custom code approach, although it can handle thousands of fields actively used in thousands of rules there, and is fully tested it is still custom.
     This may be changed to the default option in the future.
