@@ -7,11 +7,10 @@ import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.ShimUtils.{column, expression}
 import org.apache.spark.sql.catalyst.{CatalystTypeConverters, InternalRow}
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
-import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionDescription, IsNotNull, Literal, NullIntolerant, UnaryExpression}
+import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionDescription, UnaryExpression}
 import org.apache.spark.sql.catalyst.util.MapData
-import org.apache.spark.sql.types.{DataType, StringType}
-import org.apache.spark.sql.{Column, SparkSession}
-import org.apache.spark.unsafe.types.UTF8String
+import org.apache.spark.sql.types.DataType
+import org.apache.spark.sql.Column
 
 object MapLookup {
   /**

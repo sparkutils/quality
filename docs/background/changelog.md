@@ -30,7 +30,7 @@ This is the last release of 2.4, 3.0 is deprecated as of this release, similarly
 > 
 > NB The use of re-writes with 3.2.x has been identified in one test case (testSimpleProductionRules) as problematic for codegen, please use more recent Spark versions.
 
-#73 - Spark 4.0 support (with an upgrade to Shim 0.2.0)
+#73 - Spark 4.0 support (with an upgrade to Shim 0.2.0 using sparkutils.frameless 1.0.0)
 
 ### 0.1.3 <small>4th October, 2024</small>
 

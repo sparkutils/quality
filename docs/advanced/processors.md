@@ -210,11 +210,11 @@ The performance of the default configuration is consistently the best accept for
 
 The majority of cost is the serialisation of the results into the RuleSuiteResult's Scala Maps (via Sparks ArrayBasedMapData.toScalaMap). 
 
-??? "info" Experimental - VarCompilation
+??? info "Experimental - VarCompilation"
 
     The default of `!#scala forceVarCompilation = false` uses a light compilation wrapping around Sparks MutableProjection approach, with the Spark team doing the heavy lifting.
     
-    In contrast the `!#scala forceVarCompilation = true` option triggers the experimental VarCompilation, mimicing WholeStageCodegen (albeit without input size restricitons).  
+    In contrast the `!#scala forceVarCompilation = true` option triggers the experimental VarCompilation, mimicing WholeStageCodegen (albeit without severe input size restricitons).  
     It's additional speed is driven by JIT friendly optimisations and removing all unnecessary work, only encoding from the input data what is needed by the rules.
     The experimental label is due to the custom code approach, although it can handle thousands of fields actively used in thousands of rules there, and is fully tested it is still custom.
     This may be changed to the default option in the future.

@@ -5,7 +5,7 @@ import com.sparkutils.quality.impl.RuleLogicUtils
 import com.sparkutils.shim.expressions.{CreateNamedStruct1, GetStructField3}
 import frameless.TypedEncoder
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode, ExprUtils, ExprValue, JavaCode, VariableValue}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode, QualityExprUtils, ExprValue, JavaCode, VariableValue}
 import org.apache.spark.sql.catalyst.expressions.{Alias, BoundReference, Expression, If, IsNull, Literal, NamedExpression, Unevaluable, UnsafeArrayData}
 import org.apache.spark.sql.catalyst.util.ArrayData
 import org.apache.spark.sql.types.{BooleanType, DataType, StructField, StructType}

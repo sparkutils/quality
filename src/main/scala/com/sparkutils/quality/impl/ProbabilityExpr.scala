@@ -1,9 +1,10 @@
 package com.sparkutils.quality.impl
 
-import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionDescription, NullIntolerant, UnaryExpression}
+import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionDescription, UnaryExpression}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
 import org.apache.spark.sql.types.{DataType, DoubleType, IntegerType, LongType}
 import com.sparkutils.quality.PassedInt
+import com.sparkutils.shim.expressions.NullIntolerant
 import org.apache.spark.sql.shim.expressions.InputTypeChecks
 
 @ExpressionDescription(
