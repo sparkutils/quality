@@ -158,8 +158,8 @@ Note the use of LocalBroadcast, this implementation of Sparks Broadcast can be u
 All the information presented below is captured here in [the Processor benchmark](https://sparkutils.github.io/quality/benchmarks/0.1.3.1-RC10-processor-throughput/).  
 The run is informative but has some outlier behaviours and should be taken as a guideline only (be warned it takes almost a day to run).  This test evaluates compilation startup time only in the XStartup tests and the time for both startup and running through 100k rows at each fieldCount in a single thread (on a i9-9900K CPU @ 3.60GHz).  The inputs for each row are an array of longs, provided by spark's user land Row, with the output a RuleSuiteResult object.  
 
-??? "info" By way of explanation the test combinations are found here
-
+??? info "Test combinations to actual rules"
+    
     <table><tr><th>rulesetCount</th><th>fieldCount</th><th>actual number of rules</th></tr>
     <tr><td> 25 </td><td> 10 </td><td> 30 </td></tr>
     <tr><td> 25 </td><td> 20 </td><td> 55 </td></tr>
@@ -210,11 +210,11 @@ The performance of the default configuration is consistently the best accept for
 
 The majority of cost is the serialisation of the results into the RuleSuiteResult's Scala Maps (via Sparks ArrayBasedMapData.toScalaMap). 
 
-??? "info" Experimental - VarCompilation
+??? info "Experimental - VarCompilation"
 
     The default of `!#scala forceVarCompilation = false` uses a light compilation wrapping around Sparks MutableProjection approach, with the Spark team doing the heavy lifting.
     
-    In contrast the `!#scala forceVarCompilation = true` option triggers the experimental VarCompilation, mimicing WholeStageCodegen (albeit without input size restricitons).  
+    In contrast the `!#scala forceVarCompilation = true` option triggers the experimental VarCompilation, mimicing WholeStageCodegen (albeit without severe input size restricitons).  
     It's additional speed is driven by JIT friendly optimisations and removing all unnecessary work, only encoding from the input data what is needed by the rules.
     The experimental label is due to the custom code approach, although it can handle thousands of fields actively used in thousands of rules there, and is fully tested it is still custom.
     This may be changed to the default option in the future.
