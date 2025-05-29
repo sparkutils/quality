@@ -1,6 +1,7 @@
 package org.apache.spark.sql
 
 import com.sparkutils.quality.impl.util.DebugTime.debugTime
+import com.sparkutils.quality.impl.util.Params.formatParams
 import com.sparkutils.quality.impl.util.{PassThrough, PassThroughCompileEvals}
 import com.sparkutils.quality.impl.{RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
 import org.apache.spark.sql.QualityStructFunctions.UpdateFields
@@ -9,7 +10,7 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, ResolveCatalogs, ResolveHigherOrderFunctions, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, Resolver, TimeWindowing, TypeCheckResult, TypeCoercion, UnresolvedAttribute, UnresolvedExtractValue}
 import org.apache.spark.sql.catalyst.catalog.SessionCatalog
 import org.apache.spark.sql.catalyst.errors.TreeNodeException
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode, QualityExprUtils}
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, CreateNamedStruct, EqualNullSafe, Expression, ExpressionSet, ExtractValue, GetStructField, If, IsNull, LeafExpression, Literal, Projection, UnaryExpression, Unevaluable}
 import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, UnaryNode}
 import org.apache.spark.sql.catalyst.rules.Rule
@@ -23,6 +24,22 @@ import scala.collection.mutable.ArrayBuffer
  * Set of utilities to reach in to private functions
  */
 object QualitySparkUtils {
+
+  /**
+   * Spark >3.1 supports the very useful getLocalInputVariableValues, 2.4 needs the previous approach
+   *
+   * @param i
+   * @param ctx
+   * @return (parameters for function decleration, parmaters for calling, code that must be before fungroup)
+   */
+  def genParams(ctx: CodegenContext, child: Expression): (String, String, String) = {
+    val (a, b) = CodeGenerator.getLocalInputVariableValues(ctx, child, QualityExprUtils.currentSubExprState(ctx))
+
+    val p = formatParams( ctx, a.toSeq )
+
+    (p._1, p._2, b.map(_.code.code).mkString("\n"))
+  }
+
   def funNRewrite(plan: LogicalPlan, expressionToExpression: PartialFunction[Expression, Expression]): LogicalPlan =
     plan
 

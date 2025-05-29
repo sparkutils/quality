@@ -180,7 +180,7 @@ trait ExpressionRunnerBase[T] extends UnaryExpression with NonSQLExpression {
       else
         s"$code"
 
-    nonOutputRuleGen(ctx, ev, i, ruleSuitTerm, utilsName, realChildren, variablesPerFunc, variableFuncGroup,
+    nonOutputRuleGen(ctx, this, ev, ruleSuitTerm, utilsName, realChildren, variablesPerFunc, variableFuncGroup,
       yamlOrType(_,_)
     )
   }

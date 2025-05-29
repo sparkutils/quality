@@ -105,27 +105,24 @@ trait RuleFolderRunnerBase[T] extends BinaryExpression with NonSQLExpression {
     val folderV = ctx.addMutableState( "InternalRow",
       ctx.freshName("folderV") )
 
-    val ruleRunnerExpressionIdx = ctx.references.size - 1
-    val ruleRunnerClassName = tClass.getName
-    val funName = classOf[FunN].getName
-    val lazyRefName = classOf[RefExpressionLazyType].getName
-
     // order by salience
     val salience = com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenSalience(ruleSuite)
     val outputs = 0 until (realChildren.size - expressionOffsets.size)
     val reordered = outputs zip salience sortBy(_._2) map(_._1)
 
-    val offsetTerm = ctx.addMutableState("int", ctx.freshName("offset"),
-      v => s"$v = ${expressionOffsets.size};")
+    val lazyRefsGenCode = realChildren.drop(expressionOffsets.length).map(_.asInstanceOf[FunN].arguments.head.genCode(ctx))
 
     val compilerTerms =
       RuleEngineRunnerUtils.genCompilerTerms[T](ctx, right, expressionOffsets, realChildren,
         debugMode, variablesPerFunc, variableFuncGroup, forceTriggerEval,
         // capture the current
         extraResult = (outArrTerm: String) => s"$folderV = $outArrTerm;",
-        extraSetup = (idx: String) =>
-          // set the current
-          s"(($lazyRefName)(($funName)(($ruleRunnerClassName)references[$ruleRunnerExpressionIdx]).realChildren().apply($offsetTerm + $idx)).arguments().apply(0)).value_$$eq($folderV);",
+        extraSetup = (idx: String, i: Int) =>
+          s"""
+          // set the current row for the fold for flattened rule $i
+          ${lazyRefsGenCode(i).value} = $folderV;
+          ${lazyRefsGenCode(i).isNull} = $folderV == null;
+          """,
         orderOffset = (idx: Int) => reordered(idx),
         // we shouldn't check salience as we are already ordered by it
         salienceCheck = false
@@ -139,6 +136,7 @@ trait RuleFolderRunnerBase[T] extends BinaryExpression with NonSQLExpression {
     val pre = s"""
           $currentSalience = java.lang.Integer.MAX_VALUE;
           $currentOutputIndex = -1;
+          $pushToTop
 
           // starting
           ${starterEval.code}
