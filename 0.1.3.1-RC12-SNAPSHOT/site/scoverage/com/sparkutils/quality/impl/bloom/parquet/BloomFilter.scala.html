@@ -1,0 +1,2368 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/sparkutils/quality/impl/bloom/parquet/BloomFilter.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality.impl.bloom.parquet
+</span>2 <span style=''>
+</span>3 <span style=''>import java.io.IOException
+</span>4 <span style=''>import java.io.OutputStream
+</span>5 <span style=''>import java.nio.{ByteBuffer, ByteOrder, IntBuffer}
+</span>6 <span style=''>
+</span>7 <span style=''>import com.sparkutils.quality.impl.rng.RandomLongs
+</span>8 <span style=''>import org.apache.spark.sql.Row
+</span>9 <span style=''>import org.apache.spark.sql.catalyst.expressions.Expression
+</span>10 <span style=''>import org.apache.spark.sql.catalyst.{CatalystTypeConverters, InternalRow}
+</span>11 <span style=''>import org.apache.spark.sql.types.{ArrayType, BinaryType, DoubleType, IntegerType, LongType, StringType}
+</span>12 <span style=''>
+</span>13 <span style=''>import scala.collection.mutable
+</span>14 <span style=''>
+</span>15 <span style=''>/*
+</span>16 <span style=''> * Licensed to the Apache Software Foundation (ASF) under one
+</span>17 <span style=''> * or more contributor license agreements.  See the NOTICE file
+</span>18 <span style=''> * distributed with this work for additional information
+</span>19 <span style=''> * regarding copyright ownership.  The ASF licenses this file
+</span>20 <span style=''> * to you under the Apache License, Version 2.0 (the
+</span>21 <span style=''> * &quot;License&quot;); you may not use this file except in compliance
+</span>22 <span style=''> * with the License.  You may obtain a copy of the License at
+</span>23 <span style=''> *
+</span>24 <span style=''> *   http://www.apache.org/licenses/LICENSE-2.0
+</span>25 <span style=''> *
+</span>26 <span style=''> * Unless required by applicable law or agreed to in writing,
+</span>27 <span style=''> * software distributed under the License is distributed on an
+</span>28 <span style=''> * &quot;AS IS&quot; BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+</span>29 <span style=''> * KIND, either express or implied.  See the License for the
+</span>30 <span style=''> * specific language governing permissions and limitations
+</span>31 <span style=''> * under the License.
+</span>32 <span style=''> */
+</span>33 <span style=''>
+</span>34 <span style=''>
+</span>35 <span style=''>/**
+</span>36 <span style=''> * A Bloom filter is a compact structure to indicate whether an item is not in a set or probably
+</span>37 <span style=''> * in a set. The Bloom filter usually consists of a bit set that represents a elements set,
+</span>38 <span style=''> * a hash strategy and a Bloom filter algorithm.
+</span>39 <span style=''> */
+</span>40 <span style=''>object BloomFilter {
+</span>41 <span style=''>
+</span>42 <span style=''>  type Binary = Array[Byte]
+</span>43 <span style=''>
+</span>44 <span style=''>  /* Bloom filter Hash strategy.
+</span>45 <span style=''>    *
+</span>46 <span style=''>    * xxHash is an extremely fast hash algorithm, running at RAM speed limits. It successfully
+</span>47 <span style=''>    * completes the SMHasher test suite which evaluates collision, dispersion and randomness qualities
+</span>48 <span style=''>    * of hash functions. It shows good performance advantage from its benchmark result.
+</span>49 <span style=''>    * (see https://github.com/Cyan4973/xxHash).
+</span>50 <span style=''>    */
+</span>51 <span style=''>  sealed trait HashStrategy
+</span>52 <span style=''>  case object XXH64 extends HashStrategy {
+</span>53 <span style=''>    override def toString = </span><span style='background: #AEF1AE'>&quot;xxhash&quot;</span><span style=''>
+</span>54 <span style=''>  }
+</span>55 <span style=''>
+</span>56 <span style=''>  // Bloom filter algorithm.
+</span>57 <span style=''>  sealed trait Algorithm
+</span>58 <span style=''>  case object BLOCK extends Algorithm {
+</span>59 <span style=''>    override def toString = </span><span style='background: #AEF1AE'>&quot;block&quot;</span><span style=''>
+</span>60 <span style=''>  }
+</span>61 <span style=''>
+</span>62 <span style=''>  // Bloom filter compression.
+</span>63 <span style=''>  sealed trait Compression
+</span>64 <span style=''>  case object UNCOMPRESSED extends Compression {
+</span>65 <span style=''>    override def toString = </span><span style='background: #AEF1AE'>&quot;uncompressed&quot;</span><span style=''>
+</span>66 <span style=''>  }
+</span>67 <span style=''>
+</span>68 <span style=''>}
+</span>69 <span style=''>
+</span>70 <span style=''>trait Bloom[SerializedType] extends Serializable {
+</span>71 <span style=''>  type BloomType &lt;: Bloom[SerializedType]
+</span>72 <span style=''>
+</span>73 <span style=''>  def += (value: Any): BloomType
+</span>74 <span style=''>
+</span>75 <span style=''>  def serialized: Array[Byte]
+</span>76 <span style=''>
+</span>77 <span style=''>  def |= (that: BloomType): BloomType
+</span>78 <span style=''>
+</span>79 <span style=''>}
+</span>80 <span style=''>
+</span>81 <span style=''>trait BloomFilter[SerializedType] extends Serializable with Bloom[SerializedType] {
+</span>82 <span style=''>  type BloomType &lt;: BloomFilter[SerializedType]
+</span>83 <span style=''>
+</span>84 <span style=''>  /**
+</span>85 <span style=''>   * Insert an element to the Bloom filter, the element content is represented by
+</span>86 <span style=''>   * the hash value of its plain encoding result.
+</span>87 <span style=''>   *
+</span>88 <span style=''>   * @param hash the hash result of element.
+</span>89 <span style=''>   */
+</span>90 <span style=''>  def insertHash(hash: Long): Unit
+</span>91 <span style=''>
+</span>92 <span style=''>  /**
+</span>93 <span style=''>   * Determine whether an element is in set or not.
+</span>94 <span style=''>   *
+</span>95 <span style=''>   * @param hash the hash value of element plain encoding result.
+</span>96 <span style=''>   * @return false if element is must not in set, true if element probably in set.
+</span>97 <span style=''>   */
+</span>98 <span style=''>  def findHash(hash: Long): Boolean
+</span>99 <span style=''>
+</span>100 <span style=''>  /**
+</span>101 <span style=''>   * Get the number of bytes for bitset in this Bloom filter.
+</span>102 <span style=''>   *
+</span>103 <span style=''>   * @return The number of bytes for bitset in this Bloom filter.
+</span>104 <span style=''>   */
+</span>105 <span style=''>  def getBitsetSize: Int
+</span>106 <span style=''>
+</span>107 <span style=''>  /**
+</span>108 <span style=''>   * Compute hash for int value by using its plain encoding result.
+</span>109 <span style=''>   *
+</span>110 <span style=''>   * @param value the value to hash
+</span>111 <span style=''>   * @return hash result
+</span>112 <span style=''>   */
+</span>113 <span style=''>  def hash(value: Int): Long
+</span>114 <span style=''>
+</span>115 <span style=''>  /**
+</span>116 <span style=''>   * Compute hash for long value by using its plain encoding result.
+</span>117 <span style=''>   *
+</span>118 <span style=''>   * @param value the value to hash
+</span>119 <span style=''>   * @return hash result
+</span>120 <span style=''>   */
+</span>121 <span style=''>  def hash(value: Long): Long
+</span>122 <span style=''>
+</span>123 <span style=''>  /**
+</span>124 <span style=''>   * Compute hash for double value by using its plain encoding result.
+</span>125 <span style=''>   *
+</span>126 <span style=''>   * @param value the value to hash
+</span>127 <span style=''>   * @return hash result
+</span>128 <span style=''>   */
+</span>129 <span style=''>  def hash(value: Double): Long
+</span>130 <span style=''>
+</span>131 <span style=''>  /**
+</span>132 <span style=''>   * Compute hash for float value by using its plain encoding result.
+</span>133 <span style=''>   *
+</span>134 <span style=''>   * @param value the value to hash
+</span>135 <span style=''>   * @return hash result
+</span>136 <span style=''>   */
+</span>137 <span style=''>  def hash(value: Float): Long
+</span>138 <span style=''>
+</span>139 <span style=''>  /**
+</span>140 <span style=''>   * Compute hash for Binary value by using its plain encoding result.
+</span>141 <span style=''>   *
+</span>142 <span style=''>   * @param value the value to hash
+</span>143 <span style=''>   * @return hash result
+</span>144 <span style=''>   */
+</span>145 <span style=''>  def hash(value: BloomFilter.Binary): Long
+</span>146 <span style=''>
+</span>147 <span style=''>  /**
+</span>148 <span style=''>   * Compute hash for Object value by using its plain encoding result.
+</span>149 <span style=''>   *
+</span>150 <span style=''>   * @param value the value to hash
+</span>151 <span style=''>   * @return hash result
+</span>152 <span style=''>   */
+</span>153 <span style=''>  def hash(value: Any): Long
+</span>154 <span style=''>
+</span>155 <span style=''>  /**
+</span>156 <span style=''>   * Return the hash strategy that the bloom filter apply.
+</span>157 <span style=''>   *
+</span>158 <span style=''>   * @return hash strategy that the bloom filter apply
+</span>159 <span style=''>   */
+</span>160 <span style=''>  def getHashStrategy: BloomFilter.HashStrategy
+</span>161 <span style=''>
+</span>162 <span style=''>  /**
+</span>163 <span style=''>   * Return the algorithm that the bloom filter apply.
+</span>164 <span style=''>   *
+</span>165 <span style=''>   * @return algorithm that the bloom filter apply
+</span>166 <span style=''>   */
+</span>167 <span style=''>  def getAlgorithm: BloomFilter.Algorithm
+</span>168 <span style=''>
+</span>169 <span style=''>  /**
+</span>170 <span style=''>   * Return the compress algorithm that the bloom filter apply.
+</span>171 <span style=''>   *
+</span>172 <span style=''>   * @return compress algorithm that the bloom filter apply
+</span>173 <span style=''>   */
+</span>174 <span style=''>  def getCompression: BloomFilter.Compression
+</span>175 <span style=''>
+</span>176 <span style=''>  override def += (value: Any): BloomType = {
+</span>177 <span style=''>    val h = </span><span style='background: #AEF1AE'>hash(value)</span><span style=''>
+</span>178 <span style=''>    </span><span style='background: #AEF1AE'>insertHash(h)</span><span style=''>
+</span>179 <span style=''>    </span><span style='background: #AEF1AE'>this.asInstanceOf[BloomType]</span><span style=''>
+</span>180 <span style=''>  }
+</span>181 <span style=''>}
+</span>182 <span style=''>
+</span>183 <span style=''>trait DelegatingBloomHash extends BloomHash {
+</span>184 <span style=''>  def hashImpl: BloomHash
+</span>185 <span style=''>
+</span>186 <span style=''>  override def hashStrategy: BloomFilter.HashStrategy = </span><span style='background: #AEF1AE'>hashImpl.hashStrategy</span><span style=''>
+</span>187 <span style=''>
+</span>188 <span style=''>  override def cacheBuffer: ByteBuffer = </span><span style='background: #AEF1AE'>hashImpl.cacheBuffer</span><span style=''>
+</span>189 <span style=''>
+</span>190 <span style=''>  override def mask: Array[Int] = </span><span style='background: #AEF1AE'>hashImpl.mask</span><span style=''>
+</span>191 <span style=''>}
+</span>192 <span style=''>
+</span>193 <span style=''>object BloomHash {
+</span>194 <span style=''>  val hashTypes = </span><span style='background: #AEF1AE'>Seq(RandomLongs.structType, BinaryType, StringType, LongType, IntegerType, DoubleType, ArrayType(LongType))</span><span style=''>
+</span>195 <span style=''>}
+</span>196 <span style=''>
+</span>197 <span style=''>private[bloom] trait BloomHash extends Serializable {
+</span>198 <span style=''>  def hashStrategy: BloomFilter.HashStrategy
+</span>199 <span style=''>
+</span>200 <span style=''>  val hashFunction =
+</span>201 <span style=''>    </span><span style='background: #AEF1AE'>hashStrategy</span><span style=''> match {
+</span>202 <span style=''>      case BloomFilter.XXH64 =&gt;
+</span>203 <span style=''>        </span><span style='background: #AEF1AE'>new XxHash()</span><span style=''>
+</span>204 <span style=''>      case _ =&gt;
+</span>205 <span style=''>        </span><span style='background: #AEF1AE'>throw new RuntimeException(&quot;Unsupported hash strategy&quot;)</span><span style=''>
+</span>206 <span style=''>    }
+</span>207 <span style=''>
+</span>208 <span style=''>  def cacheBuffer: ByteBuffer
+</span>209 <span style=''>  def mask: Array[Int]
+</span>210 <span style=''>
+</span>211 <span style=''>  def setMask(key: Int) = { // The following three loops are written separately so that they could be
+</span>212 <span style=''>    // optimized for vectorization.
+</span>213 <span style=''>    </span><span style='background: #AEF1AE'>for (i &lt;- 0 until BlockSplitBloomFilterImpl.BITS_SET_PER_BLOCK) {
+</span>214 <span style=''></span><span style='background: #AEF1AE'>      mask(i) = key * BlockSplitBloomFilterImpl.SALT(i)</span><span style=''>
+</span>215 <span style=''>    }
+</span>216 <span style=''>    </span><span style='background: #AEF1AE'>for (i &lt;- 0 until BlockSplitBloomFilterImpl.BITS_SET_PER_BLOCK) {
+</span>217 <span style=''></span><span style='background: #AEF1AE'>      mask(i) = mask(i) &gt;&gt;&gt; 27</span><span style=''>
+</span>218 <span style=''>    }
+</span>219 <span style=''>    </span><span style='background: #AEF1AE'>for (i &lt;- 0 until BlockSplitBloomFilterImpl.BITS_SET_PER_BLOCK) {
+</span>220 <span style=''></span><span style='background: #AEF1AE'>      mask(i) = 0x1 &lt;&lt; mask(i)</span><span style=''>
+</span>221 <span style=''>    }
+</span>222 <span style=''>    </span><span style='background: #AEF1AE'>mask</span><span style=''>
+</span>223 <span style=''>  }
+</span>224 <span style=''>
+</span>225 <span style=''>  def hash(value: Any): Long = {
+</span>226 <span style=''>    value match {
+</span>227 <span style=''>      case b: BloomFilter.Binary =&gt; return </span><span style='background: #F0ADAD'>hashFunction.hashBytes(b)</span><span style=''>
+</span>228 <span style=''>      case wa: mutable.WrappedArray[_] =&gt;
+</span>229 <span style=''>        val ar = </span><span style='background: #F0ADAD'>wa.asInstanceOf[mutable.WrappedArray[Long]]</span><span style=''>
+</span>230 <span style=''>        return </span><span style='background: #AEF1AE'>hashFunction.hashLongs(</span><span style='background: #F0ADAD'>ar.toArray</span><span style='background: #AEF1AE'>)</span><span style=''>
+</span>231 <span style=''>      case la: Array[Long] =&gt; return </span><span style='background: #AEF1AE'>hashFunction.hashLongs(la)</span><span style=''>
+</span>232 <span style=''>      case i: Integer =&gt; </span><span style='background: #AEF1AE'>cacheBuffer.putInt(i)</span><span style=''>
+</span>233 <span style=''>      case l: Long =&gt; </span><span style='background: #AEF1AE'>cacheBuffer.putLong(l)</span><span style=''>
+</span>234 <span style=''>      case f: Float =&gt; </span><span style='background: #AEF1AE'>cacheBuffer.putFloat(f)</span><span style=''>
+</span>235 <span style=''>      case d: Double =&gt; </span><span style='background: #AEF1AE'>cacheBuffer.putDouble(d)</span><span style=''>
+</span>236 <span style=''>      case s: String =&gt; return </span><span style='background: #AEF1AE'>hashFunction.hashChars(s)</span><span style=''>
+</span>237 <span style=''>      case _ =&gt; </span><span style='background: #AEF1AE'>throw new RuntimeException(&quot;Parquet Bloom filter: Not supported type&quot;)</span><span style=''>
+</span>238 <span style=''>    }
+</span>239 <span style=''>    </span><span style='background: #AEF1AE'>doHash</span><span style=''>
+</span>240 <span style=''>  }
+</span>241 <span style=''>
+</span>242 <span style=''>  def doHash = {
+</span>243 <span style=''>    </span><span style='background: #AEF1AE'>cacheBuffer.flip</span><span style=''>
+</span>244 <span style=''>    val hashResult = </span><span style='background: #AEF1AE'>hashFunction.hashByteBuffer(cacheBuffer)</span><span style=''>
+</span>245 <span style=''>    </span><span style='background: #AEF1AE'>cacheBuffer.clear</span><span style=''>
+</span>246 <span style=''>    hashResult
+</span>247 <span style=''>  }
+</span>248 <span style=''>
+</span>249 <span style=''>}
+</span>250 <span style=''>
+</span>251 <span style=''>class BloomHashImpl(val hashStrategy: BloomFilter.HashStrategy) extends BloomHash {
+</span>252 <span style=''>  override val cacheBuffer: ByteBuffer = {
+</span>253 <span style=''>    val res = </span><span style='background: #AEF1AE'>ByteBuffer.allocate(8)</span><span style=''>
+</span>254 <span style=''>    </span><span style='background: #AEF1AE'>res.order(ByteOrder.LITTLE_ENDIAN)</span><span style=''>
+</span>255 <span style=''>    res
+</span>256 <span style=''>  }
+</span>257 <span style=''>
+</span>258 <span style=''>  override val mask: Array[Int] =
+</span>259 <span style=''>    </span><span style='background: #AEF1AE'>new Array[Int](BlockSplitBloomFilterImpl.BITS_SET_PER_BLOCK)</span><span style=''>
+</span>260 <span style=''>}
+</span>261 <span style=''>
+</span>262 <span style=''>private[bloom] trait BloomLookupImpl extends Serializable with com.sparkutils.quality.BloomLookup with BloomHash {
+</span>263 <span style=''>  def intBuffer: IntBuffer
+</span>264 <span style=''>
+</span>265 <span style=''>  def findHash(hash: Long): Boolean = {
+</span>266 <span style=''>    val numBlocks = </span><span style='background: #AEF1AE'>(intBuffer.limit() * 4) / BlockSplitBloomFilterImpl.BYTES_PER_BLOCK</span><span style=''>
+</span>267 <span style=''>    val lowHash = </span><span style='background: #AEF1AE'>hash &gt;&gt;&gt; 32</span><span style=''>
+</span>268 <span style=''>    val blockIndex = (</span><span style='background: #AEF1AE'>(lowHash * numBlocks) &gt;&gt; 32).toInt</span><span style=''>
+</span>269 <span style=''>    val key = </span><span style='background: #AEF1AE'>hash.toInt</span><span style=''>
+</span>270 <span style=''>    // Calculate mask for the tiny Bloom filter.
+</span>271 <span style=''>    val mask = </span><span style='background: #AEF1AE'>setMask(key)</span><span style=''>
+</span>272 <span style=''>    </span><span style='background: #AEF1AE'>for (i &lt;- 0 until BlockSplitBloomFilterImpl.BITS_SET_PER_BLOCK) {
+</span>273 <span style=''></span><span style='background: #AEF1AE'>      if (0 == (intBuffer.get(blockIndex * (BlockSplitBloomFilterImpl.BYTES_PER_BLOCK / 4) + i) &amp; mask(i))) return false</span><span style=''>
+</span>274 <span style=''>    }
+</span>275 <span style=''>    </span><span style='background: #AEF1AE'>true</span><span style=''>
+</span>276 <span style=''>  }
+</span>277 <span style=''>
+</span>278 <span style=''>  def mightContain( value : Any) = {
+</span>279 <span style=''>    val h = </span><span style='background: #AEF1AE'>hash(value)</span><span style=''>
+</span>280 <span style=''>    </span><span style='background: #AEF1AE'>findHash(h)</span><span style=''>
+</span>281 <span style=''>  }
+</span>282 <span style=''>
+</span>283 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          4857
+        </td>
+        <td>
+          2101
+          -
+          2109
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;xxhash&quot;
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          4858
+        </td>
+        <td>
+          2237
+          -
+          2244
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;block&quot;
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          4859
+        </td>
+        <td>
+          2385
+          -
+          2399
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;uncompressed&quot;
+        </td>
+      </tr><tr>
+        <td>
+          177
+        </td>
+        <td>
+          4860
+        </td>
+        <td>
+          5079
+          -
+          5090
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BloomFilter.hash
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomFilter.this.hash(value)
+        </td>
+      </tr><tr>
+        <td>
+          178
+        </td>
+        <td>
+          4861
+        </td>
+        <td>
+          5095
+          -
+          5108
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BloomFilter.insertHash
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomFilter.this.insertHash(h)
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          4862
+        </td>
+        <td>
+          5113
+          -
+          5141
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          this.asInstanceOf[BloomFilter.this.BloomType]
+        </td>
+      </tr><tr>
+        <td>
+          186
+        </td>
+        <td>
+          4863
+        </td>
+        <td>
+          5278
+          -
+          5299
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BloomHash.hashStrategy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          DelegatingBloomHash.this.hashImpl.hashStrategy
+        </td>
+      </tr><tr>
+        <td>
+          188
+        </td>
+        <td>
+          4864
+        </td>
+        <td>
+          5342
+          -
+          5362
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BloomHash.cacheBuffer
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          DelegatingBloomHash.this.hashImpl.cacheBuffer
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          4865
+        </td>
+        <td>
+          5398
+          -
+          5411
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BloomHash.mask
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          DelegatingBloomHash.this.hashImpl.mask
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          4874
+        </td>
+        <td>
+          5452
+          -
+          5559
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.Seq.apply[org.apache.spark.sql.types.DataType with Product with Serializable](com.sparkutils.quality.impl.rng.RandomLongs.structType, org.apache.spark.sql.types.BinaryType, org.apache.spark.sql.types.StringType, org.apache.spark.sql.types.LongType, org.apache.spark.sql.types.IntegerType, org.apache.spark.sql.types.DoubleType, org.apache.spark.sql.types.ArrayType.apply(org.apache.spark.sql.types.LongType))
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          4868
+        </td>
+        <td>
+          5492
+          -
+          5502
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StringType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StringType
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          4871
+        </td>
+        <td>
+          5527
+          -
+          5537
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.DoubleType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.DoubleType
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          4873
+        </td>
+        <td>
+          5539
+          -
+          5558
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.ArrayType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.ArrayType.apply(org.apache.spark.sql.types.LongType)
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          4867
+        </td>
+        <td>
+          5480
+          -
+          5490
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.BinaryType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.BinaryType
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          4870
+        </td>
+        <td>
+          5514
+          -
+          5525
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.IntegerType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.IntegerType
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          4869
+        </td>
+        <td>
+          5504
+          -
+          5512
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.LongType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.LongType
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          4872
+        </td>
+        <td>
+          5549
+          -
+          5557
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.LongType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.LongType
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          4866
+        </td>
+        <td>
+          5456
+          -
+          5478
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.rng.RandomLongs.structType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.rng.RandomLongs.structType
+        </td>
+      </tr><tr>
+        <td>
+          201
+        </td>
+        <td>
+          4875
+        </td>
+        <td>
+          5688
+          -
+          5700
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BloomHash.hashStrategy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomHash.this.hashStrategy
+        </td>
+      </tr><tr>
+        <td>
+          203
+        </td>
+        <td>
+          4876
+        </td>
+        <td>
+          5749
+          -
+          5761
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.XxHash.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new XxHash()
+        </td>
+      </tr><tr>
+        <td>
+          205
+        </td>
+        <td>
+          4877
+        </td>
+        <td>
+          5786
+          -
+          5841
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          throw new scala.`package`.RuntimeException(&quot;Unsupported hash strategy&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          213
+        </td>
+        <td>
+          4883
+        </td>
+        <td>
+          6045
+          -
+          6166
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.Range.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.intWrapper(0).until(BlockSplitBloomFilterImpl.BITS_SET_PER_BLOCK).foreach[Unit](((i: Int) =&gt; BloomHash.this.mask.update(i, key.*(BlockSplitBloomFilterImpl.SALT.apply(i)))))
+        </td>
+      </tr><tr>
+        <td>
+          213
+        </td>
+        <td>
+          4879
+        </td>
+        <td>
+          6063
+          -
+          6107
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.BITS_SET_PER_BLOCK
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BlockSplitBloomFilterImpl.BITS_SET_PER_BLOCK
+        </td>
+      </tr><tr>
+        <td>
+          213
+        </td>
+        <td>
+          4878
+        </td>
+        <td>
+          6055
+          -
+          6056
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          214
+        </td>
+        <td>
+          4880
+        </td>
+        <td>
+          6133
+          -
+          6166
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BlockSplitBloomFilterImpl.SALT.apply(i)
+        </td>
+      </tr><tr>
+        <td>
+          214
+        </td>
+        <td>
+          4882
+        </td>
+        <td>
+          6117
+          -
+          6166
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomHash.this.mask.update(i, key.*(BlockSplitBloomFilterImpl.SALT.apply(i)))
+        </td>
+      </tr><tr>
+        <td>
+          214
+        </td>
+        <td>
+          4881
+        </td>
+        <td>
+          6127
+          -
+          6166
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.*
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          key.*(BlockSplitBloomFilterImpl.SALT.apply(i))
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          4888
+        </td>
+        <td>
+          6177
+          -
+          6273
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.Range.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.intWrapper(0).until(BlockSplitBloomFilterImpl.BITS_SET_PER_BLOCK).foreach[Unit](((i: Int) =&gt; BloomHash.this.mask.update(i, BloomHash.this.mask.apply(i).&gt;&gt;&gt;(27))))
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          4885
+        </td>
+        <td>
+          6195
+          -
+          6239
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.BITS_SET_PER_BLOCK
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BlockSplitBloomFilterImpl.BITS_SET_PER_BLOCK
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          4884
+        </td>
+        <td>
+          6187
+          -
+          6188
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          217
+        </td>
+        <td>
+          4886
+        </td>
+        <td>
+          6259
+          -
+          6273
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&gt;&gt;&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomHash.this.mask.apply(i).&gt;&gt;&gt;(27)
+        </td>
+      </tr><tr>
+        <td>
+          217
+        </td>
+        <td>
+          4887
+        </td>
+        <td>
+          6249
+          -
+          6273
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomHash.this.mask.update(i, BloomHash.this.mask.apply(i).&gt;&gt;&gt;(27))
+        </td>
+      </tr><tr>
+        <td>
+          219
+        </td>
+        <td>
+          4895
+        </td>
+        <td>
+          6284
+          -
+          6380
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.Range.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.intWrapper(0).until(BlockSplitBloomFilterImpl.BITS_SET_PER_BLOCK).foreach[Unit](((i: Int) =&gt; BloomHash.this.mask.update(i, 1.&lt;&lt;(BloomHash.this.mask.apply(i)))))
+        </td>
+      </tr><tr>
+        <td>
+          219
+        </td>
+        <td>
+          4889
+        </td>
+        <td>
+          6294
+          -
+          6295
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          219
+        </td>
+        <td>
+          4890
+        </td>
+        <td>
+          6302
+          -
+          6346
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.BITS_SET_PER_BLOCK
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BlockSplitBloomFilterImpl.BITS_SET_PER_BLOCK
+        </td>
+      </tr><tr>
+        <td>
+          220
+        </td>
+        <td>
+          4892
+        </td>
+        <td>
+          6373
+          -
+          6380
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomHash.this.mask.apply(i)
+        </td>
+      </tr><tr>
+        <td>
+          220
+        </td>
+        <td>
+          4891
+        </td>
+        <td>
+          6366
+          -
+          6369
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          220
+        </td>
+        <td>
+          4894
+        </td>
+        <td>
+          6356
+          -
+          6380
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomHash.this.mask.update(i, 1.&lt;&lt;(BloomHash.this.mask.apply(i)))
+        </td>
+      </tr><tr>
+        <td>
+          220
+        </td>
+        <td>
+          4893
+        </td>
+        <td>
+          6366
+          -
+          6380
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&lt;&lt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          1.&lt;&lt;(BloomHash.this.mask.apply(i))
+        </td>
+      </tr><tr>
+        <td>
+          222
+        </td>
+        <td>
+          4896
+        </td>
+        <td>
+          6391
+          -
+          6395
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BloomHash.mask
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomHash.this.mask
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          4897
+        </td>
+        <td>
+          6495
+          -
+          6520
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.XxHash.hashBytes
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          BloomHash.this.hashFunction.hashBytes(b)
+        </td>
+      </tr><tr>
+        <td>
+          229
+        </td>
+        <td>
+          4898
+        </td>
+        <td>
+          6580
+          -
+          6623
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          wa.asInstanceOf[scala.collection.mutable.WrappedArray[Long]]
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          4900
+        </td>
+        <td>
+          6639
+          -
+          6673
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.XxHash.hashLongs
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomHash.this.hashFunction.hashLongs(ar.toArray[Long]((ClassTag.Long: scala.reflect.ClassTag[Long])))
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          4899
+        </td>
+        <td>
+          6662
+          -
+          6672
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.mutable.WrappedArray.toArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ar.toArray[Long]((ClassTag.Long: scala.reflect.ClassTag[Long]))
+        </td>
+      </tr><tr>
+        <td>
+          231
+        </td>
+        <td>
+          4901
+        </td>
+        <td>
+          6711
+          -
+          6737
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.XxHash.hashLongs
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomHash.this.hashFunction.hashLongs(la)
+        </td>
+      </tr><tr>
+        <td>
+          232
+        </td>
+        <td>
+          4903
+        </td>
+        <td>
+          6763
+          -
+          6784
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.nio.ByteBuffer.putInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomHash.this.cacheBuffer.putInt(scala.Predef.Integer2int(i))
+        </td>
+      </tr><tr>
+        <td>
+          232
+        </td>
+        <td>
+          4902
+        </td>
+        <td>
+          6782
+          -
+          6783
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.Predef.Integer2int
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.Integer2int(i)
+        </td>
+      </tr><tr>
+        <td>
+          233
+        </td>
+        <td>
+          4904
+        </td>
+        <td>
+          6807
+          -
+          6829
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.nio.ByteBuffer.putLong
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomHash.this.cacheBuffer.putLong(l)
+        </td>
+      </tr><tr>
+        <td>
+          234
+        </td>
+        <td>
+          4905
+        </td>
+        <td>
+          6853
+          -
+          6876
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.nio.ByteBuffer.putFloat
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomHash.this.cacheBuffer.putFloat(f)
+        </td>
+      </tr><tr>
+        <td>
+          235
+        </td>
+        <td>
+          4906
+        </td>
+        <td>
+          6901
+          -
+          6925
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.nio.ByteBuffer.putDouble
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomHash.this.cacheBuffer.putDouble(d)
+        </td>
+      </tr><tr>
+        <td>
+          236
+        </td>
+        <td>
+          4907
+        </td>
+        <td>
+          6957
+          -
+          6982
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.XxHash.hashChars
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomHash.this.hashFunction.hashChars(s)
+        </td>
+      </tr><tr>
+        <td>
+          237
+        </td>
+        <td>
+          4908
+        </td>
+        <td>
+          6999
+          -
+          7069
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          throw new scala.`package`.RuntimeException(&quot;Parquet Bloom filter: Not supported type&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          239
+        </td>
+        <td>
+          4909
+        </td>
+        <td>
+          7080
+          -
+          7086
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BloomHash.doHash
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomHash.this.doHash
+        </td>
+      </tr><tr>
+        <td>
+          243
+        </td>
+        <td>
+          4910
+        </td>
+        <td>
+          7113
+          -
+          7129
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.nio.Buffer.flip
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomHash.this.cacheBuffer.flip()
+        </td>
+      </tr><tr>
+        <td>
+          244
+        </td>
+        <td>
+          4912
+        </td>
+        <td>
+          7151
+          -
+          7191
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.XxHash.hashByteBuffer
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomHash.this.hashFunction.hashByteBuffer(BloomHash.this.cacheBuffer)
+        </td>
+      </tr><tr>
+        <td>
+          244
+        </td>
+        <td>
+          4911
+        </td>
+        <td>
+          7179
+          -
+          7190
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BloomHash.cacheBuffer
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomHash.this.cacheBuffer
+        </td>
+      </tr><tr>
+        <td>
+          245
+        </td>
+        <td>
+          4913
+        </td>
+        <td>
+          7196
+          -
+          7213
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.nio.Buffer.clear
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomHash.this.cacheBuffer.clear()
+        </td>
+      </tr><tr>
+        <td>
+          253
+        </td>
+        <td>
+          4914
+        </td>
+        <td>
+          7378
+          -
+          7400
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.nio.ByteBuffer.allocate
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          java.nio.ByteBuffer.allocate(8)
+        </td>
+      </tr><tr>
+        <td>
+          254
+        </td>
+        <td>
+          4916
+        </td>
+        <td>
+          7405
+          -
+          7439
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.nio.ByteBuffer.order
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        </td>
+      </tr><tr>
+        <td>
+          254
+        </td>
+        <td>
+          4915
+        </td>
+        <td>
+          7415
+          -
+          7438
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          java.nio.ByteOrder.LITTLE_ENDIAN
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          java.nio.ByteOrder.LITTLE_ENDIAN
+        </td>
+      </tr><tr>
+        <td>
+          259
+        </td>
+        <td>
+          4918
+        </td>
+        <td>
+          7491
+          -
+          7551
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new Array[Int](BlockSplitBloomFilterImpl.BITS_SET_PER_BLOCK)
+        </td>
+      </tr><tr>
+        <td>
+          259
+        </td>
+        <td>
+          4917
+        </td>
+        <td>
+          7506
+          -
+          7550
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.BITS_SET_PER_BLOCK
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BlockSplitBloomFilterImpl.BITS_SET_PER_BLOCK
+        </td>
+      </tr><tr>
+        <td>
+          266
+        </td>
+        <td>
+          4919
+        </td>
+        <td>
+          7779
+          -
+          7780
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          4
+        </td>
+      </tr><tr>
+        <td>
+          266
+        </td>
+        <td>
+          4921
+        </td>
+        <td>
+          7758
+          -
+          7825
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int./
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomLookupImpl.this.intBuffer.limit().*(4)./(BlockSplitBloomFilterImpl.BYTES_PER_BLOCK)
+        </td>
+      </tr><tr>
+        <td>
+          266
+        </td>
+        <td>
+          4920
+        </td>
+        <td>
+          7784
+          -
+          7825
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.BYTES_PER_BLOCK
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BlockSplitBloomFilterImpl.BYTES_PER_BLOCK
+        </td>
+      </tr><tr>
+        <td>
+          267
+        </td>
+        <td>
+          4922
+        </td>
+        <td>
+          7844
+          -
+          7855
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.&gt;&gt;&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          hash.&gt;&gt;&gt;(32)
+        </td>
+      </tr><tr>
+        <td>
+          268
+        </td>
+        <td>
+          4924
+        </td>
+        <td>
+          7878
+          -
+          7912
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Long.toInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          lowHash.*(numBlocks).&gt;&gt;(32).toInt
+        </td>
+      </tr><tr>
+        <td>
+          268
+        </td>
+        <td>
+          4923
+        </td>
+        <td>
+          7903
+          -
+          7905
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          32
+        </td>
+      </tr><tr>
+        <td>
+          269
+        </td>
+        <td>
+          4925
+        </td>
+        <td>
+          7927
+          -
+          7937
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Long.toInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          hash.toInt
+        </td>
+      </tr><tr>
+        <td>
+          271
+        </td>
+        <td>
+          4926
+        </td>
+        <td>
+          8002
+          -
+          8014
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BloomHash.setMask
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomLookupImpl.this.setMask(key)
+        </td>
+      </tr><tr>
+        <td>
+          272
+        </td>
+        <td>
+          4928
+        </td>
+        <td>
+          8037
+          -
+          8081
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.BITS_SET_PER_BLOCK
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BlockSplitBloomFilterImpl.BITS_SET_PER_BLOCK
+        </td>
+      </tr><tr>
+        <td>
+          272
+        </td>
+        <td>
+          4927
+        </td>
+        <td>
+          8029
+          -
+          8030
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          272
+        </td>
+        <td>
+          4938
+        </td>
+        <td>
+          8019
+          -
+          8205
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.Range.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.intWrapper(0).until(BlockSplitBloomFilterImpl.BITS_SET_PER_BLOCK).foreach[Unit](((i: Int) =&gt; if (0.==(BloomLookupImpl.this.intBuffer.get(blockIndex.*(BlockSplitBloomFilterImpl.BYTES_PER_BLOCK./(4)).+(i)).&amp;(mask.apply(i))))
+  return false
+else
+  ()))
+        </td>
+      </tr><tr>
+        <td>
+          273
+        </td>
+        <td>
+          4937
+        </td>
+        <td>
+          8091
+          -
+          8091
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          273
+        </td>
+        <td>
+          4931
+        </td>
+        <td>
+          8183
+          -
+          8190
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          mask.apply(i)
+        </td>
+      </tr><tr>
+        <td>
+          273
+        </td>
+        <td>
+          4933
+        </td>
+        <td>
+          8095
+          -
+          8191
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0.==(BloomLookupImpl.this.intBuffer.get(blockIndex.*(BlockSplitBloomFilterImpl.BYTES_PER_BLOCK./(4)).+(i)).&amp;(mask.apply(i)))
+        </td>
+      </tr><tr>
+        <td>
+          273
+        </td>
+        <td>
+          4936
+        </td>
+        <td>
+          8091
+          -
+          8091
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          273
+        </td>
+        <td>
+          4930
+        </td>
+        <td>
+          8115
+          -
+          8179
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          blockIndex.*(BlockSplitBloomFilterImpl.BYTES_PER_BLOCK./(4)).+(i)
+        </td>
+      </tr><tr>
+        <td>
+          273
+        </td>
+        <td>
+          4929
+        </td>
+        <td>
+          8095
+          -
+          8096
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          273
+        </td>
+        <td>
+          4932
+        </td>
+        <td>
+          8101
+          -
+          8190
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomLookupImpl.this.intBuffer.get(blockIndex.*(BlockSplitBloomFilterImpl.BYTES_PER_BLOCK./(4)).+(i)).&amp;(mask.apply(i))
+        </td>
+      </tr><tr>
+        <td>
+          273
+        </td>
+        <td>
+          4935
+        </td>
+        <td>
+          8193
+          -
+          8205
+        </td>
+        <td>
+          Return
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BloomLookupImpl.findHash
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          return false
+        </td>
+      </tr><tr>
+        <td>
+          273
+        </td>
+        <td>
+          4934
+        </td>
+        <td>
+          8200
+          -
+          8205
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          275
+        </td>
+        <td>
+          4939
+        </td>
+        <td>
+          8216
+          -
+          8220
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          279
+        </td>
+        <td>
+          4940
+        </td>
+        <td>
+          8275
+          -
+          8286
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BloomHash.hash
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomLookupImpl.this.hash(value)
+        </td>
+      </tr><tr>
+        <td>
+          280
+        </td>
+        <td>
+          4941
+        </td>
+        <td>
+          8291
+          -
+          8302
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BloomLookupImpl.findHash
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BloomLookupImpl.this.findHash(h)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
