@@ -231,4 +231,7 @@ the top two lines are the default and VarCompilation and the bottom two lines th
     
     Although it's possible to use a pre-calculated RuleSuiteResultDetails against all "Passed" results this would not represent any disabled, soft failed or probability results.
     As such it's not provided by default, if you do have a default RuleSuiteResultDetails you would like to use then you can provide it to the dqLazyDetailsFactory function, 
-    using the RuleSuiteResultDetails.ifAllPassed function and the defaultIfPassed parameter. 
+    using the RuleSuiteResultDetails.ifAllPassed function and the defaultIfPassed parameter.   
+    Using the defaultIfPassed parameter stops actual results from being returned if a row is passed and will only return the default you supplied it.
+
+dqLazyDetailsFactory is also useful if you just want to see if the rules passed and aren't interested in the details.
