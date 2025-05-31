@@ -3,17 +3,20 @@ package com.sparkutils.quality.impl
 import com.sparkutils.quality
 import com.sparkutils.quality.impl.ExpressionCompiler.withExpressionCompiler
 import com.sparkutils.quality.impl.util.SubQueryWrapper
-import com.sparkutils.quality.{DisabledRule, DisabledRuleInt, Failed, FailedInt, GeneralExpressionResult, GeneralExpressionsResult, Id, IdTriple, OutputExpression, Passed, PassedInt, Probability, Rule, RuleResult, RuleSetResult, RuleSuite, RuleSuiteResult, SoftFailed, SoftFailedInt}
+import com.sparkutils.quality.{DisabledRule, DisabledRuleInt, Failed, FailedInt, GeneralExpressionResult, GeneralExpressionsResult, Id, IdTriple, LazyRuleSuiteResultDetails, OutputExpression, Passed, PassedInt, Probability, Rule, RuleResult, RuleSetResult, RuleSuite, RuleSuiteResult, RuleSuiteResultDetails, SoftFailed, SoftFailedInt}
+import org.apache.spark.SparkRuntimeException
 import org.apache.spark.sql.ShimUtils.newParser
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedFunction}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext}
-import org.apache.spark.sql.catalyst.expressions.{Expression, ScalarSubquery, SubqueryExpression, UnresolvedNamedLambdaVariable, LambdaFunction => SparkLambdaFunction}
+import org.apache.spark.sql.catalyst.expressions.{Expression, Projection, SafeProjection, ScalarSubquery, SubqueryExpression, UnresolvedNamedLambdaVariable, LambdaFunction => SparkLambdaFunction}
+import org.apache.spark.sql.errors.QueryExecutionErrors
 import org.apache.spark.sql.qualityFunctions.{FunN, RefExpressionLazyType}
 import org.apache.spark.sql.types.{DataType, Decimal, StringType}
-import org.apache.spark.sql.{QualitySparkUtils, SparkSession}
+import org.apache.spark.sql.{QualitySparkUtils, ShimUtils, SparkSession}
 import org.apache.spark.unsafe.types.UTF8String
 
+import java.io.Serializable
 import scala.collection.mutable
 
 /**
@@ -597,4 +600,21 @@ object RuleSuiteFunctions {
 
     GeneralExpressionsResult(id, rawRuleSets.toMap)
   }
+}
+
+object LazyRuleSuiteResultDetailsUtils {
+  lazy val deserializer = ShimUtils.expressionEncoder( Encoders.ruleSuiteResultDetailsExpEnc ).
+    resolveAndBind().deserializer
+}
+
+case class LazyRuleSuiteResultDetailsImpl(row: InternalRow) extends LazyRuleSuiteResultDetails {
+  lazy val _ruleSuiteResultDetails = LazyRuleSuiteResultDetailsUtils.deserializer.eval(row).
+    asInstanceOf[RuleSuiteResultDetails]
+
+  override def ruleSuiteResultDetails: RuleSuiteResultDetails = _ruleSuiteResultDetails
+}
+
+case class LazyRuleSuiteResultDetailsProxyImpl(_ruleSuiteResultDetails: RuleSuiteResultDetails) extends LazyRuleSuiteResultDetails {
+
+  override def ruleSuiteResultDetails: RuleSuiteResultDetails = _ruleSuiteResultDetails
 }

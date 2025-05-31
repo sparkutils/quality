@@ -176,6 +176,45 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
     rc.map(_._2.getRuleSetResults.asScala.toMap) shouldBe rc.map(_._2.ruleSetResults)
   } } } } }
 
+  test("via ProcessFactory rule lazy details") { not2_4 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+    import sparkSession.implicits._
+
+    val rs = RuleSuite(Id(1,1), Seq(
+      RuleSet(Id(50, 1), Seq(
+        Rule(Id(100, 1), ExpressionRule("if(product like '%otc%', account = '4201', subcode = 50)"))
+      ))
+    ))
+
+    val processor = ProcessFunctions.dqLazyDetailsFactory[TestOn](rs, inCodegen, forceMutable = forceMutable,
+      forceVarCompilation = forceVarCompilation).instance
+
+    val rc = map(testData, processor)
+    rc.map(_._1) shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
+    rc.map(_._2.ruleSuiteResultDetails.getRuleSetResults.asScala.toMap) shouldBe rc.map(_._2.ruleSuiteResultDetails.ruleSetResults)
+    rc.map(_._2.ruleSuiteResultDetails.id) shouldBe Seq.fill(6)(Id(1,1))
+  } } } } }
+
+  test("via ProcessFactory rule lazy details defaultIfPassed") { not2_4 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+    import sparkSession.implicits._
+
+    val rs = RuleSuite(Id(1,1), Seq(
+      RuleSet(Id(50, 1), Seq(
+        Rule(Id(100, 1), ExpressionRule("if(product like '%otc%', account = '4201', subcode = 50)"))
+      ))
+    ))
+
+    val default = RuleSuiteResultDetails.ifAllPassed(rs)
+
+    val processor = ProcessFunctions.dqLazyDetailsFactory[TestOn](rs, inCodegen, forceMutable = forceMutable,
+      forceVarCompilation = forceVarCompilation, defaultIfPassed = Some(default)).instance
+
+    val rc = map(testData, processor)
+    rc.map(_._1) shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
+    rc.map(_._2.ruleSuiteResultDetails.id) shouldBe Seq.fill(6)(Id(1,1))
+    (rc.take(3) :+ rc(4) ).map(_._2.ruleSuiteResultDetails) shouldBe Seq.fill(4)(default)
+    Seq(rc(3), rc(5)).map(_._2.ruleSuiteResultDetails) shouldNot be (Seq.fill(2)(default))
+  } } } } }
+
   test("via ProcessFactory rule engine") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     import sparkSession.implicits._
 

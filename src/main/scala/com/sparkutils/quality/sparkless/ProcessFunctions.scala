@@ -1,9 +1,11 @@
 package com.sparkutils.quality.sparkless
 
 import com.sparkutils.quality._
+import com.sparkutils.quality.impl.{Encoders, LazyRuleSuiteResultDetailsImpl, LazyRuleSuiteResultDetailsProxyImpl}
 import com.sparkutils.quality.impl.util.Encoding.fromNormalEncoder
 import com.sparkutils.quality.sparkless.impl.Processors.processFactory
 import frameless.{TypedEncoder, TypedExpressionEncoder}
+import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.types.{DataType, StructType}
 import org.apache.spark.sql.{Column, DataFrame, Encoder}
 
@@ -65,7 +67,7 @@ object ProcessFunctions {
     )
 
   /**
-   * processor for DQ rules
+   * processor for DQ rules returning a pair of overall RuleResult and RuleSuiteResultDetails
    * @param input
    * @tparam I
    * @return
@@ -82,6 +84,54 @@ object ProcessFunctions {
       forceVarCompilation = forceVarCompilation)(
       implicitly[Encoder[I]], tup
     )
+  }
+
+  /**
+   * processor for DQ rules returning a pair of overall RuleResult and a LazyRuleSuiteResultDetails
+   * @param input
+   * @tparam I
+   * @return
+   */
+  def dqLazyDetailsFactory[I: Encoder](ruleSuite: RuleSuite, compile: Boolean = true, compileEvals: Boolean = false,
+                                   forceRunnerEval: Boolean = false, forceMutable: Boolean = false,
+                                   extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
+                                   forceVarCompilation: Boolean = false, defaultIfPassed: Option[RuleSuiteResultDetails] = None):
+          ProcessorFactory[I, (RuleResult, LazyRuleSuiteResultDetails)] = {
+    import com.sparkutils.quality.implicits._
+    implicit val rowEnc = Encoders.lazyRuleSuiteResultDetailsTypedEnc(Encoders.ruleSuiteResultDetailsTypedEnc.catalystRepr)
+
+    val tup = TypedExpressionEncoder[(RuleResult, InternalRow)]
+    val defaultIfPassedProxy = defaultIfPassed.map(LazyRuleSuiteResultDetailsProxyImpl(_))
+
+    val r = processFactory[I, (RuleResult, InternalRow)](addOverallResultsAndDetailsF(ruleSuite,
+      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval), 2, compile, forceMutable = forceMutable,
+      extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
+      forceVarCompilation = forceVarCompilation)(
+      implicitly[Encoder[I]], tup
+    )
+
+    new ProcessorFactory[I, (RuleResult, LazyRuleSuiteResultDetails)] {
+
+      override def instance: Processor[I, (RuleResult, LazyRuleSuiteResultDetails)] =
+        new Processor[I, (RuleResult, LazyRuleSuiteResultDetails)] {
+          val underlying = r.instance
+
+          override def apply(i: I): (RuleResult, LazyRuleSuiteResultDetails) = {
+            val p = underlying.apply(i)
+            (p._1,
+              if (p._1 == Passed)
+                defaultIfPassedProxy.getOrElse[LazyRuleSuiteResultDetails](
+                LazyRuleSuiteResultDetailsImpl(p._2)
+              ) else
+                LazyRuleSuiteResultDetailsImpl(p._2)
+            )
+          }
+
+          override def setPartition(partition: Int): Unit = underlying.setPartition(partition)
+
+          override def close(): Unit = underlying.close()
+        }
+    }
   }
 
   /**

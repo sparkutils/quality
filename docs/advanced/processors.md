@@ -155,8 +155,9 @@ Note the use of LocalBroadcast, this implementation of Sparks Broadcast can be u
 
 ## Performance
 
-All the information presented below is captured here in [the Processor benchmark](https://sparkutils.github.io/quality/benchmarks/0.1.3.1-RC10-processor-throughput/).  
-The run is informative but has some outlier behaviours and should be taken as a guideline only (be warned it takes almost a day to run).  This test evaluates compilation startup time only in the XStartup tests and the time for both startup and running through 100k rows at each fieldCount in a single thread (on a i9-9900K CPU @ 3.60GHz).  The inputs for each row are an array of longs, provided by spark's user land Row, with the output a RuleSuiteResult object.  
+All the information presented below is captured here in [the Processor benchmark](https://sparkutils.github.io/quality/benchmarks/0.1.3.1-RC12-processor-throughput-inc-lazy/).  
+The run is informative but has some outlier behaviours and should be taken as a guideline only (be warned it takes almost a day to run).  
+This test evaluates compilation startup time only in the XStartup tests and the time for both startup and running through 100k rows at each fieldCount in a single thread (on a i9-9900K CPU @ 3.60GHz).  The inputs for each row are an array of longs, provided by spark's user land Row, with the output a RuleSuiteResult object.  
 
 ??? info "Test combinations to actual rules"
     
@@ -204,11 +205,10 @@ below graph shows the performance trend across multiple rule and field complexit
 
 ![default_processor_combos.png](../img/default_processor_combos.png)
 
-In the top right case that's 780 rules total (run across 50 fields) with a cost of about 9.7ms per row (100,000 rows / 10,300 ms) or 0.012ms/rule/row. 
+In the top right case that's 780 rules total (run across 50 fields) with a cost of about 0.103ms per row (10,300 ms / 100,000 rows) or 0.000132ms/rule/row of simple mod checks. 
 
-The performance of the default configuration is consistently the best accept for far smaller numbers of rules and field combinations, observable by selecting the 10 fieldCount, every other combination has the default CompiledProjections (GenerateDecoderOpEncoderProjection) in the lead by a good enough margin.  
-
-The majority of cost is the serialisation of the results into the RuleSuiteResult's Scala Maps (via Sparks ArrayBasedMapData.toScalaMap). 
+The performance of the default configuration, leveraging Spark's MutableProjections, is consistently the second best accept for far smaller numbers of rules and field combinations, observable by selecting the 10 fieldCount, every other combination has the default CompiledProjections (GenerateDecoderOpEncoderProjection) in second place by a good enough margin.
+The first place belongs to the experimental VarCompilation, see the info box below for more details.
 
 ??? info "Experimental - VarCompilation"
 
@@ -218,3 +218,17 @@ The majority of cost is the serialisation of the results into the RuleSuiteResul
     It's additional speed is driven by JIT friendly optimisations and removing all unnecessary work, only encoding from the input data what is needed by the rules.
     The experimental label is due to the custom code approach, although it can handle thousands of fields actively used in thousands of rules there, and is fully tested it is still custom.
     This may be changed to the default option in the future.
+
+The majority of cost is the serialisation of the results into the RuleSuiteResult's Scala Maps (via Sparks ArrayBasedMapData.toScalaMap). 
+
+If you remove the cost of serialisation, by lazily serializing, things look even faster:
+
+![dq_processing_vs_lazy.png](../img/dq_processing_vs_lazy.png)
+
+the top two lines are the default and VarCompilation and the bottom two lines their lazy versions, that's 0.0172453 per row and 0.000022109ms per mod check. The dqLazyDetailsFactory function serialises the overall result directly, but only serialises the results on demand, you can choose if you wish to process the details based on the overall result.
+
+!!! info "Precalculating Passed RuleSuiteResultDetails can be misleading"
+    
+    Although it's possible to use a pre-calculated RuleSuiteResultDetails against all "Passed" results this would not represent any disabled, soft failed or probability results.
+    As such it's not provided by default, if you do have a default RuleSuiteResultDetails you would like to use then you can provide it to the dqLazyDetailsFactory function, 
+    using the RuleSuiteResultDetails.ifAllPassed function and the defaultIfPassed parameter. 

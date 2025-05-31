@@ -3,9 +3,14 @@ package com.sparkutils.quality.impl
 import frameless.{Injection, NotCatalystNullable, TypedColumn, TypedEncoder, TypedExpressionEncoder}
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.util.Serializing
+import com.sparkutils.shim.expressions.GetStructField3
+import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.analysis.GetColumnByOrdinal
+import org.apache.spark.sql.catalyst.expressions.{CreateStruct, Expression, If, IsNull, Literal}
 import org.apache.spark.sql.{Encoder, Row}
 import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, ArrayData, GenericArrayData, MapData}
-import org.apache.spark.sql.types.{DataType, IntegerType, LongType, MapType, StringType, StructField, StructType}
+import org.apache.spark.sql.shim.NewInstance4
+import org.apache.spark.sql.types.{DataType, IntegerType, LongType, MapType, ObjectType, StringType, StructField, StructType}
 import shapeless.ops.hlist.IsHCons
 import shapeless.{HList, LabelledGeneric, Lazy}
 
@@ -68,6 +73,33 @@ trait EncodersImplicits extends Serializable {
 
   implicit val ruleSuiteResultDetailsExpEnc = TypedExpressionEncoder[com.sparkutils.quality.RuleSuiteResultDetails]
 
+  /*
+  implicit val lazyRuleSuiteResultDetailsTypedEnc =
+    new TypedEncoder[LazyRuleSuiteResultDetails]()(ClassTag(classOf[LazyRuleSuiteResultDetailsImpl])) {
+      def nullable: Boolean = true
+
+      def jvmRepr: DataType = ObjectType(classOf[LazyRuleSuiteResultDetailsImpl])
+      def catalystRepr: DataType = ruleSuiteResultDetailsTypedEnc.catalystRepr
+
+      /**
+       * From Catalyst representation to T
+       */
+      def fromCatalyst(path: Expression): Expression = {
+        val field = GetStructField3(path, 1, None)
+
+        val newExpr = NewInstance4(classTag.runtimeClass, scala.Seq(field), jvmRepr, propagateNull = true)
+
+        newExpr
+      }
+
+      /**
+       * T to Catalyst representation
+       */
+      def toCatalyst(path: Expression): Expression = path
+    }
+
+  implicit val lazyRuleSuiteResultDetailsExpEnc = TypedExpressionEncoder[LazyRuleSuiteResultDetails]
+*/
   implicit def generalExpressionsResultTypedEnc[R: TypedEncoder] = TypedEncoder[com.sparkutils.quality.GeneralExpressionsResult[R]]
 
   implicit def generalExpressionsResultExpEnc[R](implicit ev: TypedEncoder[GeneralExpressionsResult[R]]) = TypedExpressionEncoder[com.sparkutils.quality.GeneralExpressionsResult[R]]
@@ -109,6 +141,18 @@ trait EncodersImplicits extends Serializable {
 }
 
 object Encoders extends EncodersImplicits {
+
+  def lazyRuleSuiteResultDetailsTypedEnc(rowType: DataType): TypedEncoder[InternalRow] =
+    new TypedEncoder[InternalRow]()(ClassTag(classOf[InternalRow])) {
+      def nullable: Boolean = true
+
+      def jvmRepr: DataType = rowType
+      def catalystRepr: DataType = rowType
+
+      def fromCatalyst(path: Expression): Expression = path
+
+      def toCatalyst(path: Expression): Expression = path
+    }
 
 }
 

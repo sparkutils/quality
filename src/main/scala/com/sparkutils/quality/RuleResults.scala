@@ -58,6 +58,27 @@ case class RuleSuiteResultDetails(id: VersionedId, ruleSetResults: Map[Versioned
   def getRuleSetResults: java.util.Map[VersionedId, RuleSetResult] = ruleSetResults.asJava
 }
 
+object RuleSuiteResultDetails {
+  /**
+   * Creates a RuleSuiteResultDetails for this ruleSuite as if all rules Passed, it may be applicable for dqLazyDetailsFactory usage.
+   * @param ruleSuite
+   * @return
+   */
+  def ifAllPassed(ruleSuite: RuleSuite): RuleSuiteResultDetails =
+    RuleSuiteResultDetails(ruleSuite.id, ruleSuite.ruleSets.map{
+      ruleSet => (ruleSet.id, RuleSetResult(Passed, ruleSet.rules.map(r => (r.id, Passed)).toMap))
+    }.toMap)
+}
+
+/**
+ * A lazy proxy for
+ * @param id
+ * @param ruleSetResults
+ */
+trait LazyRuleSuiteResultDetails extends Serializable {
+  def ruleSuiteResultDetails: RuleSuiteResultDetails
+}
+
 /**
   * Results for all rules run against a dataframe
   * @param id - the Id of the suite, all other content is mapped
