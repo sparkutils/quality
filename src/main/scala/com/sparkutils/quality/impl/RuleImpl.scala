@@ -604,14 +604,29 @@ object LazyRuleSuiteResultDetailsUtils {
     resolveAndBind().deserializer
 }
 
-case class LazyRuleSuiteResultDetailsImpl(row: InternalRow) extends LazyRuleSuiteResultDetails {
+case class LazyRuleSuiteResultDetailsImpl(row: InternalRow) extends LazyRuleSuiteResultDetails with Serializable {
+  @transient
   lazy val _ruleSuiteResultDetails = LazyRuleSuiteResultDetailsUtils.deserializer.eval(row).
     asInstanceOf[RuleSuiteResultDetails]
 
   override def ruleSuiteResultDetails: RuleSuiteResultDetails = _ruleSuiteResultDetails
 }
 
-case class LazyRuleSuiteResultDetailsProxyImpl(_ruleSuiteResultDetails: RuleSuiteResultDetails) extends LazyRuleSuiteResultDetails {
+case class LazyRuleSuiteResultDetailsProxyImpl(_ruleSuiteResultDetails: RuleSuiteResultDetails)
+  extends LazyRuleSuiteResultDetails with Serializable {
 
   override def ruleSuiteResultDetails: RuleSuiteResultDetails = _ruleSuiteResultDetails
+}
+
+object LazyRuleSuiteResultUtils {
+  lazy val deserializer = ShimUtils.expressionEncoder( Encoders.ruleSuiteResultExpEnc ).
+    resolveAndBind().deserializer
+}
+
+case class LazyRuleSuiteResultImpl(row: InternalRow) extends LazyRuleSuiteResult with Serializable {
+  @transient
+  lazy val _ruleSuiteResult = LazyRuleSuiteResultUtils.deserializer.eval(row).
+    asInstanceOf[RuleSuiteResult]
+
+  override def ruleSuiteResult: RuleSuiteResult = _ruleSuiteResult
 }

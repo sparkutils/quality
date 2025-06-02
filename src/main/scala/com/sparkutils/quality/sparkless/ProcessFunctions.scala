@@ -1,7 +1,7 @@
 package com.sparkutils.quality.sparkless
 
 import com.sparkutils.quality._
-import com.sparkutils.quality.impl.{Encoders, LazyRuleSuiteResultDetailsImpl, LazyRuleSuiteResultDetailsProxyImpl}
+import com.sparkutils.quality.impl.{Encoders, LazyRuleSuiteResultDetailsImpl, LazyRuleSuiteResultDetailsProxyImpl, LazyRuleSuiteResultImpl}
 import com.sparkutils.quality.impl.util.Encoding.fromNormalEncoder
 import com.sparkutils.quality.sparkless.impl.Processors.processFactory
 import frameless.{TypedEncoder, TypedExpressionEncoder}
@@ -98,7 +98,7 @@ object ProcessFunctions {
                                    forceVarCompilation: Boolean = false, defaultIfPassed: Option[RuleSuiteResultDetails] = None):
           ProcessorFactory[I, (RuleResult, LazyRuleSuiteResultDetails)] = {
     import com.sparkutils.quality.implicits._
-    implicit val rowEnc = Encoders.lazyRuleSuiteResultDetailsTypedEnc(Encoders.ruleSuiteResultDetailsTypedEnc.catalystRepr)
+    implicit val rowEnc = Encoders.internalRowTypedEnc(Encoders.ruleSuiteResultDetailsTypedEnc.catalystRepr)
 
     val tup = TypedExpressionEncoder[(RuleResult, InternalRow)]
     val defaultIfPassedProxy = defaultIfPassed.map(LazyRuleSuiteResultDetailsProxyImpl(_))
@@ -110,28 +110,15 @@ object ProcessFunctions {
       implicitly[Encoder[I]], tup
     )
 
-    new ProcessorFactory[I, (RuleResult, LazyRuleSuiteResultDetails)] {
-
-      override def instance: Processor[I, (RuleResult, LazyRuleSuiteResultDetails)] =
-        new Processor[I, (RuleResult, LazyRuleSuiteResultDetails)] {
-          val underlying = r.instance
-
-          override def apply(i: I): (RuleResult, LazyRuleSuiteResultDetails) = {
-            val p = underlying.apply(i)
-            (p._1,
-              if (p._1 == Passed)
-                defaultIfPassedProxy.getOrElse[LazyRuleSuiteResultDetails](
-                LazyRuleSuiteResultDetailsImpl(p._2)
-              ) else
-                LazyRuleSuiteResultDetailsImpl(p._2)
-            )
-          }
-
-          override def setPartition(partition: Int): Unit = underlying.setPartition(partition)
-
-          override def close(): Unit = underlying.close()
-        }
-    }
+    ProcessorFactoryProxy(r, (p: (RuleResult, InternalRow)) => {
+      (p._1,
+        if (p._1 == Passed)
+          defaultIfPassedProxy.getOrElse[LazyRuleSuiteResultDetails](
+            LazyRuleSuiteResultDetailsImpl(p._2)
+          ) else
+          LazyRuleSuiteResultDetailsImpl(p._2)
+      )
+    })
   }
 
   /**
@@ -158,6 +145,37 @@ object ProcessFunctions {
   }
 
   /**
+   * processor for ruleEngine with encoding over the nested T in RuleEngineResult[T] with lazy serialisation of the RuleSuiteResult.
+   * *Note* you must use AgnosticEncoders in 3.4+ in order to be able to support Java collections/generics,
+   * reflection via .bean is not sufficient for java generics.
+   * @param input
+   * @tparam I the input type
+   * @tparam T the result type of the rule engine
+   * @return
+   */
+  def ruleEngineLazyResultFactory[I: Encoder, T: Encoder](ruleSuite: RuleSuite, outputType: DataType, compile: Boolean = true,
+                                                 debugMode: Boolean = false, compileEvals: Boolean = false,
+                                                 forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false, forceMutable: Boolean = false,
+                                                 extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
+                                                 forceVarCompilation: Boolean = false)(implicit oenc: Encoder[Option[T]]): ProcessorFactory[I, LazyRuleEngineResult[T]] = {
+    import com.sparkutils.quality.implicits._
+    implicit val rowEnc = Encoders.internalRowTypedEnc(Encoders.ruleSuiteResultTypedEnc.catalystRepr)
+
+    implicit val ttyped: TypedEncoder[T] = fromNormalEncoder[T](outputType)
+    implicit val enc = TypedExpressionEncoder[(InternalRow, Option[SalientRule], Option[T])]
+
+    val r = processFactory[I, (InternalRow, Option[SalientRule], Option[T])](ruleEngineWithStructF(ruleSuite, outputType, debugMode = debugMode,
+      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval), 1, compile,
+      forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
+      forceVarCompilation = forceVarCompilation)(
+      implicitly[Encoder[I]], enc)
+
+    ProcessorFactoryProxy(r, (p: ((InternalRow, Option[SalientRule], Option[T]))) => {
+      LazyRuleEngineResult(LazyRuleSuiteResultImpl(p._1), p._2, p._3)
+    })
+  }
+
+  /**
    * processor for ruleEngine
    * @param input
    * @tparam I
@@ -175,7 +193,6 @@ object ProcessFunctions {
       forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)(
       implicitly[Encoder[I]], resEnc)
-
 
   /**
    * processor for ruleFolder with encoding over the nested T in RuleFolderResult[T].
@@ -198,6 +215,37 @@ object ProcessFunctions {
       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval,
       forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)
+  }
+
+  /**
+   * processor for ruleFolder with encoding over the nested T in RuleFolderResult[T], lazy serialising RuleSuiteResults.
+   * *Note* you must use AgnosticEncoders in 3.4+ in order to be able to support Java collections/generics,
+   * reflection via .bean is not sufficient for java generics.
+   * @param input
+   * @tparam I the input type
+   * @tparam T the result type of the rule engine
+   * @return
+   */
+  def ruleFolderLazyFactory[I: Encoder, T: Encoder](ruleSuite: RuleSuite, outputType: StructType, compile: Boolean = true,
+                                                 debugMode: Boolean = false, compileEvals: Boolean = false,
+                                                 forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false, forceMutable: Boolean = false,
+                                                 extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
+                                                 forceVarCompilation: Boolean = false): ProcessorFactory[I, LazyRuleFolderResult[T]] = {
+    import com.sparkutils.quality.implicits._
+    implicit val rowEnc = Encoders.internalRowTypedEnc(Encoders.ruleSuiteResultTypedEnc.catalystRepr)
+
+    implicit val ttyped: TypedEncoder[T] = fromNormalEncoder[T](outputType)
+    implicit val enc = TypedExpressionEncoder[(InternalRow, Option[T])]
+
+    val r = processFactory[I, (InternalRow, Option[T])](foldAndReplaceFieldsWithStruct(ruleSuite, outputType, debugMode = debugMode,
+      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval), 1, compile,
+      forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
+      forceVarCompilation = forceVarCompilation)(
+      implicitly[Encoder[I]], enc)
+
+    ProcessorFactoryProxy(r, (p: ((InternalRow, Option[T]))) => {
+      LazyRuleFolderResult(LazyRuleSuiteResultImpl(p._1), p._2)
+    })
   }
 
   /**
@@ -240,6 +288,37 @@ object ProcessFunctions {
       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval,
       forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)
+  }
+
+  /**
+   * processor for ruleFolder with encoding over the nested T in RuleFolderResult[T], lazily serialising the RuleSuiteResults
+   * *Note* you must use AgnosticEncoders in 3.4+ in order to be able to support Java collections/generics,
+   * reflection via .bean is not sufficient for java generics.
+   * @param input
+   * @tparam I the input type
+   * @tparam T the result type of the rule engine
+   * @return
+   */
+  def ruleFolderLazyFactoryWithStructStarter[I: Encoder, T: Encoder](ruleSuite: RuleSuite, fields: Seq[(String, Column)],
+                                                                  outputType: StructType, compile: Boolean = true, debugMode: Boolean = false, compileEvals: Boolean = false,
+                                                                  forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false, forceMutable: Boolean = false,
+                                                                  extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
+                                                                  forceVarCompilation: Boolean = false): ProcessorFactory[I, LazyRuleFolderResult[T]] = {
+    import com.sparkutils.quality.implicits._
+    implicit val rowEnc = Encoders.internalRowTypedEnc(Encoders.ruleSuiteResultTypedEnc.catalystRepr)
+
+    implicit val ttyped: TypedEncoder[T] = fromNormalEncoder[T](outputType)
+    implicit val enc = TypedExpressionEncoder[(InternalRow, Option[T])]
+
+    val r = processFactory[I, (InternalRow, Option[T])](foldAndReplaceFieldPairsWithStruct(ruleSuite, fields, outputType, debugMode = debugMode,
+      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval), 1, compile,
+      forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
+      forceVarCompilation = forceVarCompilation)(
+      implicitly[Encoder[I]], enc)
+
+    ProcessorFactoryProxy(r, (p: ((InternalRow, Option[T]))) => {
+      LazyRuleFolderResult(LazyRuleSuiteResultImpl(p._1), p._2)
+    })
   }
 
   /**

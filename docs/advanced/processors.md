@@ -234,4 +234,6 @@ the top two lines are the default and VarCompilation and the bottom two lines th
     using the RuleSuiteResultDetails.ifAllPassed function and the defaultIfPassed parameter.   
     Using the defaultIfPassed parameter stops actual results from being returned if a row is passed and will only return the default you supplied it.
 
-dqLazyDetailsFactory is also useful if you just want to see if the rules passed and aren't interested in the details.
+dqLazyDetailsFactory is also useful if you just want to see if the rules passed and aren't interested in the details.  
+Similarly the ruleEngineLazyResultFactory and ruleFolderLazyFactory functions are lazy in their RuleSuiteResult serialisation, 
+which may be appropriate when you are only interested should you not get a result.  

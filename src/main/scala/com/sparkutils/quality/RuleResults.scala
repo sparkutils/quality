@@ -71,9 +71,7 @@ object RuleSuiteResultDetails {
 }
 
 /**
- * A lazy proxy for
- * @param id
- * @param ruleSetResults
+ * A lazy proxy for RuleSuiteResultDetails
  */
 trait LazyRuleSuiteResultDetails extends Serializable {
   def ruleSuiteResultDetails: RuleSuiteResultDetails
@@ -88,6 +86,13 @@ trait LazyRuleSuiteResultDetails extends Serializable {
 case class RuleSuiteResult(id: VersionedId, overallResult: RuleResult, ruleSetResults: Map[VersionedId, RuleSetResult]) extends Serializable {
   def details: RuleSuiteResultDetails = RuleSuiteResultDetails(id, ruleSetResults)
   def getRuleSetResults: java.util.Map[VersionedId, RuleSetResult] = ruleSetResults.asJava
+}
+
+/**
+ * A lazy proxy for RuleSuiteResult
+ */
+trait LazyRuleSuiteResult extends Serializable {
+  def ruleSuiteResult: RuleSuiteResult
 }
 
 /**
@@ -139,10 +144,31 @@ case class RuleEngineResult[T](ruleSuiteResults: RuleSuiteResult, salientRule: O
 }
 
 /**
+ * Results for all rules run against a DataFrame, the RuleSuiteResult is lazily evaluated.  Note in debug mode you should provide Array[T] instead
+ * @param lazyRuleSuiteResults Overall results from applying the engine, evealuated lazily
+ * @param salientRule if it's None there is no rule which matched for this row or it's in Debug mode which will return all results.
+ * @param result The result type for this row, if no rule matched this will be None, if a rule matched but the outputexpression returned null this will also be None
+ */
+case class LazyRuleEngineResult[T](lazyRuleSuiteResults: LazyRuleSuiteResult, salientRule: Option[SalientRule], result: Option[T]) extends Serializable {
+  def getSalientRule: java.util.Optional[SalientRule] = Optional.toOptional(salientRule)
+
+  def getResult: java.util.Optional[T] = Optional.toOptional(result)
+}
+
+/**
  * Results for all rules run against a DataFrame.  Note in debug mode you should provide Array[T] instead
  * @param ruleSuiteResults Overall results from applying the engine
  * @param result The result type for this row, if no rule matched this will be None, if a rule matched but the outputexpression returned null this will also be None
  */
 case class RuleFolderResult[T](ruleSuiteResults: RuleSuiteResult, result: Option[T]) extends Serializable {
+  def getResult: java.util.Optional[T] = Optional.toOptional(result)
+}
+
+/**
+ * Results for all rules run against a DataFrame, the RuleSuiteResult is lazily evaluated.  Note in debug mode you should provide Array[T] instead
+ * @param lazyRuleSuiteResults Overall results from applying the engine, evaluated lazily
+ * @param result The result type for this row, if no rule matched this will be None, if a rule matched but the outputexpression returned null this will also be None
+ */
+case class LazyRuleFolderResult[T](lazyRuleSuiteResults: LazyRuleSuiteResult, result: Option[T]) extends Serializable {
   def getResult: java.util.Optional[T] = Optional.toOptional(result)
 }

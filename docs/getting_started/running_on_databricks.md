@@ -102,7 +102,7 @@ val fileLoc = "/dbfs/databricks/quality_test"
 SparkTestUtils.setPath(fileLoc)
 ```
 
-Ideally at the end of your runs you'll see - after 10 minutes or so and some stdout - for example a run on DBR 15.4 provides:
+Ideally at the end of your runs you'll see - after 10 minutes or so and some stdout - for example a run on DBR 16.4 provides:
 
 ```
 ...
@@ -110,9 +110,9 @@ Running: sequenceAsKeysDecimals(com.sparkutils.qualityTests.YamlTests), finished
 
 Time: 633.686
 
-OK (431 tests)
+OK (434 tests)
 
-Finished. Result: Failures: 0. Ignored: 0. Tests run: 430. Time: 633686ms.
+Finished. Result: Failures: 0. Ignored: 0. Tests run: 434. Time: 633686ms.
 import com.sparkutils.quality.tests.TestSuite
 import com.sparkutils.qualityTests.SparkTestUtils
 fileLoc: String = /dbfs/databricks/quality_test

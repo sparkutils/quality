@@ -1,5 +1,8 @@
 package com.sparkutils.quality.sparkless
 
+import com.sparkutils.quality.{LazyRuleSuiteResultDetails, RuleResult}
+import com.sparkutils.quality.impl.LazyRuleSuiteResultDetailsImpl
+
 /**
  * Represents a process from I to O that is, by default, non-thread safe and can be closed, suitable for pools and
  * assigned partitions for non-deterministic or stateful processing.
@@ -36,4 +39,26 @@ trait ProcessorFactory[I, O] {
    * @return
    */
   def instance: Processor[I, O]
+}
+
+/**
+ * Simple proxy from an underlying factory
+ * @param underlyingFactory
+ * @param convert
+ * @tparam I
+ * @tparam T
+ * @tparam O
+ */
+case class ProcessorFactoryProxy[I, T, O](underlyingFactory: ProcessorFactory[I, T], convert: T => O) extends ProcessorFactory[I, O] {
+
+  override def instance: Processor[I, O] =
+    new Processor[I, O] {
+      val underlying = underlyingFactory.instance
+
+      override def apply(i: I): O = convert(underlying.apply(i))
+
+      override def setPartition(partition: Int): Unit = underlying.setPartition(partition)
+
+      override def close(): Unit = underlying.close()
+    }
 }

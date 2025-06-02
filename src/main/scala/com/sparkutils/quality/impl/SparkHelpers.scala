@@ -73,33 +73,6 @@ trait EncodersImplicits extends Serializable {
 
   implicit val ruleSuiteResultDetailsExpEnc = TypedExpressionEncoder[com.sparkutils.quality.RuleSuiteResultDetails]
 
-  /*
-  implicit val lazyRuleSuiteResultDetailsTypedEnc =
-    new TypedEncoder[LazyRuleSuiteResultDetails]()(ClassTag(classOf[LazyRuleSuiteResultDetailsImpl])) {
-      def nullable: Boolean = true
-
-      def jvmRepr: DataType = ObjectType(classOf[LazyRuleSuiteResultDetailsImpl])
-      def catalystRepr: DataType = ruleSuiteResultDetailsTypedEnc.catalystRepr
-
-      /**
-       * From Catalyst representation to T
-       */
-      def fromCatalyst(path: Expression): Expression = {
-        val field = GetStructField3(path, 1, None)
-
-        val newExpr = NewInstance4(classTag.runtimeClass, scala.Seq(field), jvmRepr, propagateNull = true)
-
-        newExpr
-      }
-
-      /**
-       * T to Catalyst representation
-       */
-      def toCatalyst(path: Expression): Expression = path
-    }
-
-  implicit val lazyRuleSuiteResultDetailsExpEnc = TypedExpressionEncoder[LazyRuleSuiteResultDetails]
-*/
   implicit def generalExpressionsResultTypedEnc[R: TypedEncoder] = TypedEncoder[com.sparkutils.quality.GeneralExpressionsResult[R]]
 
   implicit def generalExpressionsResultExpEnc[R](implicit ev: TypedEncoder[GeneralExpressionsResult[R]]) = TypedExpressionEncoder[com.sparkutils.quality.GeneralExpressionsResult[R]]
@@ -142,7 +115,7 @@ trait EncodersImplicits extends Serializable {
 
 object Encoders extends EncodersImplicits {
 
-  def lazyRuleSuiteResultDetailsTypedEnc(rowType: DataType): TypedEncoder[InternalRow] =
+  def internalRowTypedEnc(rowType: DataType): TypedEncoder[InternalRow] =
     new TypedEncoder[InternalRow]()(ClassTag(classOf[InternalRow])) {
       def nullable: Boolean = true
 
