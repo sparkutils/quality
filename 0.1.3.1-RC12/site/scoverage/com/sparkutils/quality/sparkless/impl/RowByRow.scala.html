@@ -1,0 +1,1522 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/sparkutils/quality/sparkless/impl/RowByRow.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality.sparkless.impl
+</span>2 <span style=''>
+</span>3 <span style=''>import com.sparkutils.quality.enableOptimizations
+</span>4 <span style=''>import com.sparkutils.quality.impl.{GenerateDecoderOpEncoderProjection, GenerateDecoderOpEncoderVarProjection}
+</span>5 <span style=''>import com.sparkutils.quality.impl.extension.FunNRewrite
+</span>6 <span style=''>import com.sparkutils.quality.sparkless.{Processor, ProcessorFactory}
+</span>7 <span style=''>import org.apache.spark.broadcast.Broadcast
+</span>8 <span style=''>import org.apache.spark.sql.{DataFrame, Encoder, QualitySparkUtils, ShimUtils}
+</span>9 <span style=''>import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
+</span>10 <span style=''>import org.apache.spark.sql.catalyst.expressions.{BoundReference, Expression}
+</span>11 <span style=''>import org.apache.spark.sql.catalyst.optimizer.ConstantFolding
+</span>12 <span style=''>import org.apache.spark.sql.internal.SQLConf
+</span>13 <span style=''>import org.apache.spark.sql.types.{ArrayType, DataType, MapType, StructType}
+</span>14 <span style=''>
+</span>15 <span style=''>import scala.reflect.ClassTag
+</span>16 <span style=''>
+</span>17 <span style=''>/**
+</span>18 <span style=''> * Represents a row by row process with Input and Output processors with an operation in between
+</span>19 <span style=''> */
+</span>20 <span style=''>abstract class DecoderOpEncoderProjection[I, O] extends (I =&gt; O) {
+</span>21 <span style=''>
+</span>22 <span style=''>  def apply(input: I): O
+</span>23 <span style=''>
+</span>24 <span style=''>  /**
+</span>25 <span style=''>   * For compiled code this is a call to new with the same context references if there is no stateful expressions
+</span>26 <span style=''>   * Where expressions are stateful with CodegenFallback the entire GenerateDecoderOpEncoderProjection.generate code is called again.
+</span>27 <span style=''>   */
+</span>28 <span style=''>  def newInstance: DecoderOpEncoderProjection[I, O]
+</span>29 <span style=''>
+</span>30 <span style=''>  /**
+</span>31 <span style=''>   * Initialize stateless expressions with this partition
+</span>32 <span style=''>   */
+</span>33 <span style=''>  def initialize(partition: Int): Unit
+</span>34 <span style=''>}
+</span>35 <span style=''>
+</span>36 <span style=''>object Processors {
+</span>37 <span style=''>  val NO_QUERY_PLANS = </span><span style='background: #AEF1AE'>&quot;PlanExpressions (e.g. SubQueries) are not allowed in Processors&quot;</span><span style=''>
+</span>38 <span style=''>
+</span>39 <span style=''>  /**
+</span>40 <span style=''>   * Are there any stateful expressions in interpreted mode (or fallback) require fresh copies
+</span>41 <span style=''>   * @param exprs These expressions must be fully resolved, bound and optimised
+</span>42 <span style=''>   * @param compile when false any stateful expression returns true, by default compilation for stateful CodegenFallback is true
+</span>43 <span style=''>   * @return
+</span>44 <span style=''>   */
+</span>45 <span style=''>  def isCopyNeeded(exprs: Seq[Expression], compile: Boolean = true): Boolean =
+</span>46 <span style=''>    </span><span style='background: #AEF1AE'>exprs.collect {
+</span>47 <span style=''></span><span style='background: #AEF1AE'>      case e: CodegenFallback if ShimUtils.isStateful(e)  =&gt; e
+</span>48 <span style=''></span><span style='background: #AEF1AE'>    }.nonEmpty || ( !compile &amp;&amp;
+</span>49 <span style=''></span><span style='background: #AEF1AE'>      exprs.collect {
+</span>50 <span style=''></span><span style='background: #AEF1AE'>        case e: Expression if ShimUtils.isStateful(e)  =&gt; e
+</span>51 <span style=''></span><span style='background: #AEF1AE'>      }.nonEmpty
+</span>52 <span style=''></span><span style='background: #AEF1AE'>    )</span><span style=''>
+</span>53 <span style=''>
+</span>54 <span style=''>  /**
+</span>55 <span style=''>   * Arbitrarily high number assuming 2 java fields per input fields and a couple of functions per field we'll
+</span>56 <span style=''>   * hit the 65k class namespace limit.
+</span>57 <span style=''>   */
+</span>58 <span style=''>  val maxVarCompilationInputFields = </span><span style='background: #AEF1AE'>12000</span><span style=''>
+</span>59 <span style=''>
+</span>60 <span style=''>  /**
+</span>61 <span style=''>   * Creates a ProcessFactory[I,O], when forceMutable || !compile is true it uses chained MutableProjections,
+</span>62 <span style=''>   * otherwise, and by default, GenerateDecoderOpEncoderProjection.
+</span>63 <span style=''>   *
+</span>64 <span style=''>   * GenerateDecoderOpEncoderProjection is likely far faster on larger rules or higher number of threads for throughput.
+</span>65 <span style=''>   * Unlike Spark compilation caching, which evaluates codegen for an expression tree every time, the codegen takes place
+</span>66 <span style=''>   * once, each instance call simply returns a new class instance with fresh state for a thread.  If using forceVarCompilation,
+</span>67 <span style=''>   * once the number of input fields goes beyond [[maxVarCompilationInputFields]] the code will fallback to INPUT_ROW based processing.
+</span>68 <span style=''>   *
+</span>69 <span style=''>   * The chained MutableProjections generate new class code for each instance.  They will also recreate the entire
+</span>70 <span style=''>   * expression tree if a stateful expression is identified when compile = false
+</span>71 <span style=''>   *
+</span>72 <span style=''>   * @param dataFrameFunction
+</span>73 <span style=''>   * @param compile when false reverts to interpreted mode, when true and forceMutable is true it is recommended to cache the instances
+</span>74 <span style=''>   * @param forceMutable when true it forces MutableProjection's to be used, compiled or otherwise, the default of false is likely far faster
+</span>75 <span style=''>   * @param forceVarCompilation defaulting to false it will, when compile is true and forceMutable is false, use variables rather than INPUT_ROW to generate code.
+</span>76 <span style=''>   *                            Although using true is faster past 10 fields, the compilation approach (as of 0.1.3.1) is experimental
+</span>77 <span style=''>   *                            and only supported on version OSS 3.2.1 and above
+</span>78 <span style=''>   * @param toSize specifies the number of fields required to deserialize and create the [[O]]
+</span>79 <span style=''>   * @tparam I
+</span>80 <span style=''>   * @tparam O
+</span>81 <span style=''>   * @return
+</span>82 <span style=''>   */
+</span>83 <span style=''>  def processFactory[I: Encoder, O: Encoder](dataFrameFunction: DataFrame =&gt; DataFrame, toSize: Int, compile: Boolean = true,
+</span>84 <span style=''>      forceMutable: Boolean = false, forceVarCompilation: Boolean = false, extraProjection: DataFrame =&gt; DataFrame = identity,
+</span>85 <span style=''>      enableQualityOptimisations: Boolean = true): ProcessorFactory[I, O] = {
+</span>86 <span style=''>    if (</span><span style='background: #AEF1AE'>forceMutable || !compile</span><span style=''>)
+</span>87 <span style=''>      </span><span style='background: #AEF1AE'>MutableProjectionProcessor.processFactory[I, O](dataFrameFunction, toSize, compile, extraProjection,
+</span>88 <span style=''></span><span style='background: #AEF1AE'>        enableQualityOptimisations = enableQualityOptimisations)</span><span style=''>
+</span>89 <span style=''>    else </span><span style='background: #AEF1AE'>{
+</span>90 <span style=''></span><span style='background: #AEF1AE'>      if (enableQualityOptimisations) {
+</span>91 <span style=''></span><span style='background: #AEF1AE'>        enableOptimizations(Seq(FunNRewrite, ConstantFolding))
+</span>92 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>93 <span style=''></span><span style='background: #AEF1AE'>
+</span>94 <span style=''></span><span style='background: #AEF1AE'>      val iEnc = implicitly[Encoder[I]]
+</span>95 <span style=''></span><span style='background: #AEF1AE'>      val exprs = QualitySparkUtils.resolveExpressions[I](iEnc, df =&gt; {
+</span>96 <span style=''></span><span style='background: #AEF1AE'>        dataFrameFunction(extraProjection(df))
+</span>97 <span style=''></span><span style='background: #AEF1AE'>      })
+</span>98 <span style=''></span><span style='background: #AEF1AE'>
+</span>99 <span style=''></span><span style='background: #AEF1AE'>      // the code references to the other fields is already present inside of expressions, works for input_row based,
+</span>100 <span style=''></span><span style='background: #AEF1AE'>      // but not wholestage approach, this is performed by all the CodegenSupport execs via attribute lookups
+</span>101 <span style=''></span><span style='background: #AEF1AE'>      val exprsToUse = exprs.drop( exprs.length - toSize)
+</span>102 <span style=''></span><span style='background: #AEF1AE'>
+</span>103 <span style=''></span><span style='background: #AEF1AE'>      val allOrdinals =
+</span>104 <span style=''></span><span style='background: #AEF1AE'>        exprsToUse.flatMap{
+</span>105 <span style=''></span><span style='background: #AEF1AE'>          e =&gt; e.collect {
+</span>106 <span style=''></span><span style='background: #AEF1AE'>            case b: BoundReference =&gt; b.ordinal
+</span>107 <span style=''></span><span style='background: #AEF1AE'>          }
+</span>108 <span style=''></span><span style='background: #AEF1AE'>        }.distinct.toSet
+</span>109 <span style=''></span><span style='background: #AEF1AE'>
+</span>110 <span style=''></span><span style='background: #AEF1AE'>      val projector =
+</span>111 <span style=''></span><span style='background: #AEF1AE'>        if (forceVarCompilation &amp;&amp; allOrdinals.size &lt; maxVarCompilationInputFields)
+</span>112 <span style=''></span><span style='background: #AEF1AE'>          GenerateDecoderOpEncoderVarProjection.create[I, O](exprs, toSize, allOrdinals)
+</span>113 <span style=''></span><span style='background: #AEF1AE'>        else
+</span>114 <span style=''></span><span style='background: #AEF1AE'>          GenerateDecoderOpEncoderProjection.generate[I, O](exprs, useSubexprElimination = true, toSize)
+</span>115 <span style=''></span><span style='background: #AEF1AE'>      new ProcessorFactory[I, O] {
+</span>116 <span style=''></span><span style='background: #AEF1AE'>        override def instance: Processor[I, O] = new Processor[I, O] {
+</span>117 <span style=''></span><span style='background: #AEF1AE'>          private val theInstance = projector.newInstance
+</span>118 <span style=''></span><span style='background: #AEF1AE'>          override def apply(i: I): O = theInstance(i)
+</span>119 <span style=''></span><span style='background: #AEF1AE'>          override def setPartition(partition: Int): Unit = theInstance.initialize(partition)
+</span>120 <span style=''></span><span style='background: #AEF1AE'>          override def close(): Unit = {}
+</span>121 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>122 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>123 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>124 <span style=''>  }
+</span>125 <span style=''>
+</span>126 <span style=''>}
+</span>127 <span style=''>
+</span>128 <span style=''>case class LocalBroadcast[T: ClassTag](_value: T, _id: Long = 0) extends Broadcast[T](_id) {
+</span>129 <span style=''>  override protected def getValue(): T = </span><span style='background: #AEF1AE'>_value</span><span style=''>
+</span>130 <span style=''>  override protected def doUnpersist(blocking: Boolean): Unit = </span><span style='background: #AEF1AE'>???</span><span style=''>
+</span>131 <span style=''>  override protected def doDestroy(blocking: Boolean): Unit = </span><span style='background: #AEF1AE'>???</span><span style=''>
+</span>132 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          9251
+        </td>
+        <td>
+          1493
+          -
+          1558
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;PlanExpressions (e.g. SubQueries) are not allowed in Processors&quot;
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          9254
+        </td>
+        <td>
+          1986
+          -
+          1986
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback]
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          9253
+        </td>
+        <td>
+          1986
+          -
+          1986
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.sparkless.impl.Processors.$anonfun.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          9252
+        </td>
+        <td>
+          2021
+          -
+          2044
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.ShimUtils.isStateful
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.ShimUtils.isStateful(e)
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          9260
+        </td>
+        <td>
+          1972
+          -
+          2187
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.||
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          exprs.collect[org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback, Seq[org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback]](({
+  @SerialVersionUID(value = 0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: org.apache.spark.sql.catalyst.expressions.Expression =&gt; org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: org.apache.spark.sql.catalyst.expressions.Expression, B1 &gt;: org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (e @ (_: org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback)) if org.apache.spark.sql.ShimUtils.isStateful(e) =&gt; e
+      case (defaultCase$ @ _) =&gt; default.apply(x1)
+    };
+    final def isDefinedAt(x1: org.apache.spark.sql.catalyst.expressions.Expression): Boolean = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (e @ (_: org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback)) if org.apache.spark.sql.ShimUtils.isStateful(e) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback]))(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback]).nonEmpty.||(compile.unary_!.&amp;&amp;(exprs.collect[org.apache.spark.sql.catalyst.expressions.Expression, Seq[org.apache.spark.sql.catalyst.expressions.Expression]](({
+  @SerialVersionUID(value = 0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: org.apache.spark.sql.catalyst.expressions.Expression =&gt; org.apache.spark.sql.catalyst.expressions.Expression&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: org.apache.spark.sql.catalyst.expressions.Expression, B1 &gt;: org.apache.spark.sql.catalyst.expressions.Expression](x2: A1, default: A1 =&gt; B1): B1 = ((x2.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (e @ (_: org.apache.spark.sql.catalyst.expressions.Expression)) if org.apache.spark.sql.ShimUtils.isStateful(e) =&gt; e
+      case (defaultCase$ @ _) =&gt; default.apply(x2)
+    };
+    final def isDefinedAt(x2: org.apache.spark.sql.catalyst.expressions.Expression): Boolean = ((x2.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (e @ (_: org.apache.spark.sql.catalyst.expressions.Expression)) if org.apache.spark.sql.ShimUtils.isStateful(e) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression]))(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression]).nonEmpty))
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          9259
+        </td>
+        <td>
+          2071
+          -
+          2181
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          compile.unary_!.&amp;&amp;(exprs.collect[org.apache.spark.sql.catalyst.expressions.Expression, Seq[org.apache.spark.sql.catalyst.expressions.Expression]](({
+  @SerialVersionUID(value = 0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: org.apache.spark.sql.catalyst.expressions.Expression =&gt; org.apache.spark.sql.catalyst.expressions.Expression&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: org.apache.spark.sql.catalyst.expressions.Expression, B1 &gt;: org.apache.spark.sql.catalyst.expressions.Expression](x2: A1, default: A1 =&gt; B1): B1 = ((x2.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (e @ (_: org.apache.spark.sql.catalyst.expressions.Expression)) if org.apache.spark.sql.ShimUtils.isStateful(e) =&gt; e
+      case (defaultCase$ @ _) =&gt; default.apply(x2)
+    };
+    final def isDefinedAt(x2: org.apache.spark.sql.catalyst.expressions.Expression): Boolean = ((x2.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (e @ (_: org.apache.spark.sql.catalyst.expressions.Expression)) if org.apache.spark.sql.ShimUtils.isStateful(e) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression]))(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression]).nonEmpty)
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          9257
+        </td>
+        <td>
+          2103
+          -
+          2103
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression]
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          9256
+        </td>
+        <td>
+          2103
+          -
+          2103
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.sparkless.impl.Processors.$anonfun.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          9255
+        </td>
+        <td>
+          2135
+          -
+          2158
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.ShimUtils.isStateful
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.ShimUtils.isStateful(e)
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          9258
+        </td>
+        <td>
+          2089
+          -
+          2181
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableOnce.nonEmpty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          exprs.collect[org.apache.spark.sql.catalyst.expressions.Expression, Seq[org.apache.spark.sql.catalyst.expressions.Expression]](({
+  @SerialVersionUID(value = 0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: org.apache.spark.sql.catalyst.expressions.Expression =&gt; org.apache.spark.sql.catalyst.expressions.Expression&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: org.apache.spark.sql.catalyst.expressions.Expression, B1 &gt;: org.apache.spark.sql.catalyst.expressions.Expression](x2: A1, default: A1 =&gt; B1): B1 = ((x2.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (e @ (_: org.apache.spark.sql.catalyst.expressions.Expression)) if org.apache.spark.sql.ShimUtils.isStateful(e) =&gt; e
+      case (defaultCase$ @ _) =&gt; default.apply(x2)
+    };
+    final def isDefinedAt(x2: org.apache.spark.sql.catalyst.expressions.Expression): Boolean = ((x2.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (e @ (_: org.apache.spark.sql.catalyst.expressions.Expression)) if org.apache.spark.sql.ShimUtils.isStateful(e) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression]))(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression]).nonEmpty
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          9261
+        </td>
+        <td>
+          2389
+          -
+          2394
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          12000
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          9263
+        </td>
+        <td>
+          4469
+          -
+          4493
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.||
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          forceMutable.||(compile.unary_!)
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          9262
+        </td>
+        <td>
+          4485
+          -
+          4493
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          compile.unary_!
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          9264
+        </td>
+        <td>
+          4501
+          -
+          4666
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.sparkless.impl.MutableProjectionProcessor.processFactory
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MutableProjectionProcessor.processFactory[I, O](dataFrameFunction, toSize, compile, extraProjection, enableQualityOptimisations)(evidence$1, evidence$2)
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          9265
+        </td>
+        <td>
+          4501
+          -
+          4666
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.sparkless.impl.MutableProjectionProcessor.processFactory
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MutableProjectionProcessor.processFactory[I, O](dataFrameFunction, toSize, compile, extraProjection, enableQualityOptimisations)(evidence$1, evidence$2)
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          9297
+        </td>
+        <td>
+          4676
+          -
+          6102
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  if (enableQualityOptimisations)
+    com.sparkutils.quality.`package`.enableOptimizations(scala.collection.Seq.apply[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](com.sparkutils.quality.impl.extension.FunNRewrite, org.apache.spark.sql.catalyst.optimizer.ConstantFolding))
+  else
+    ();
+  val iEnc: org.apache.spark.sql.Encoder[I] = scala.Predef.implicitly[org.apache.spark.sql.Encoder[I]](evidence$1);
+  val exprs: Seq[org.apache.spark.sql.catalyst.expressions.Expression] = org.apache.spark.sql.QualitySparkUtils.resolveExpressions[I](iEnc, ((df: org.apache.spark.sql.DataFrame) =&gt; dataFrameFunction.apply(extraProjection.apply(df))));
+  val exprsToUse: Seq[org.apache.spark.sql.catalyst.expressions.Expression] = exprs.drop(exprs.length.-(toSize));
+  val allOrdinals: scala.collection.immutable.Set[Int] = exprsToUse.flatMap[Int, Seq[Int]](((e: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; e.collect[Int](({
+  @SerialVersionUID(value = 0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,Int] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: org.apache.spark.sql.catalyst.expressions.Expression =&gt; Int&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: org.apache.spark.sql.catalyst.expressions.Expression, B1 &gt;: Int](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (b @ (_: org.apache.spark.sql.catalyst.expressions.BoundReference)) =&gt; b.ordinal
+      case (defaultCase$ @ _) =&gt; default.apply(x1)
+    };
+    final def isDefinedAt(x1: org.apache.spark.sql.catalyst.expressions.Expression): Boolean = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (b @ (_: org.apache.spark.sql.catalyst.expressions.BoundReference)) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,Int]))))(collection.this.Seq.canBuildFrom[Int]).distinct.toSet[Int];
+  val projector: com.sparkutils.quality.sparkless.impl.DecoderOpEncoderProjection[I,O] = if (forceVarCompilation.&amp;&amp;(allOrdinals.size.&lt;(Processors.this.maxVarCompilationInputFields)))
+    com.sparkutils.quality.impl.GenerateDecoderOpEncoderVarProjection.create[I, O](exprs, toSize, allOrdinals)(evidence$1, evidence$2)
+  else
+    com.sparkutils.quality.impl.GenerateDecoderOpEncoderProjection.generate[I, O](exprs, true, toSize)(evidence$1, evidence$2);
+  {
+    final class $anon extends AnyRef with com.sparkutils.quality.sparkless.ProcessorFactory[I,O] {
+      def &lt;init&gt;(): &lt;$anon: com.sparkutils.quality.sparkless.ProcessorFactory[I,O]&gt; = {
+        $anon.super.&lt;init&gt;();
+        ()
+      };
+      override def instance: com.sparkutils.quality.sparkless.Processor[I,O] = {
+        final class $anon extends AnyRef with com.sparkutils.quality.sparkless.Processor[I,O] {
+          def &lt;init&gt;(): &lt;$anon: I =&gt; O&gt; = {
+            $anon.super.&lt;init&gt;();
+            ()
+          };
+          private[this] val theInstance: com.sparkutils.quality.sparkless.impl.DecoderOpEncoderProjection[I,O] = projector.newInstance;
+          &lt;stable&gt; &lt;accessor&gt; private def theInstance: com.sparkutils.quality.sparkless.impl.DecoderOpEncoderProjection[I,O] = $anon.this.theInstance;
+          override def apply(i: I): O = $anon.this.theInstance.apply(i);
+          override def setPartition(partition: Int): Unit = $anon.this.theInstance.initialize(partition);
+          override def close(): Unit = ()
+        };
+        new $anon()
+      }
+    };
+    new $anon()
+  }
+}
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          9272
+        </td>
+        <td>
+          4684
+          -
+          4684
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          9271
+        </td>
+        <td>
+          4684
+          -
+          4684
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          9267
+        </td>
+        <td>
+          4763
+          -
+          4778
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.optimizer.ConstantFolding
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.optimizer.ConstantFolding
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          9270
+        </td>
+        <td>
+          4726
+          -
+          4780
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.imports.RuleRunnerFunctionsImport.enableOptimizations
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.`package`.enableOptimizations(scala.collection.Seq.apply[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](com.sparkutils.quality.impl.extension.FunNRewrite, org.apache.spark.sql.catalyst.optimizer.ConstantFolding))
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          9266
+        </td>
+        <td>
+          4750
+          -
+          4761
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.extension.FunNRewrite
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.extension.FunNRewrite
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          9269
+        </td>
+        <td>
+          4726
+          -
+          4780
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.imports.RuleRunnerFunctionsImport.enableOptimizations
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.`package`.enableOptimizations(scala.collection.Seq.apply[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](com.sparkutils.quality.impl.extension.FunNRewrite, org.apache.spark.sql.catalyst.optimizer.ConstantFolding))
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          9268
+        </td>
+        <td>
+          4746
+          -
+          4779
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.Seq.apply[org.apache.spark.sql.catalyst.rules.Rule[org.apache.spark.sql.catalyst.plans.logical.LogicalPlan]](com.sparkutils.quality.impl.extension.FunNRewrite, org.apache.spark.sql.catalyst.optimizer.ConstantFolding)
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          9273
+        </td>
+        <td>
+          4807
+          -
+          4829
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Predef.implicitly
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.implicitly[org.apache.spark.sql.Encoder[I]](evidence$1)
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          9276
+        </td>
+        <td>
+          4848
+          -
+          4957
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.QualitySparkUtils.resolveExpressions
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.QualitySparkUtils.resolveExpressions[I](iEnc, ((df: org.apache.spark.sql.DataFrame) =&gt; dataFrameFunction.apply(extraProjection.apply(df))))
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          9275
+        </td>
+        <td>
+          4910
+          -
+          4948
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          dataFrameFunction.apply(extraProjection.apply(df))
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          9274
+        </td>
+        <td>
+          4928
+          -
+          4947
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          extraProjection.apply(df)
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          9278
+        </td>
+        <td>
+          5210
+          -
+          5244
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.drop
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          exprs.drop(exprs.length.-(toSize))
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          9277
+        </td>
+        <td>
+          5222
+          -
+          5243
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.-
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          exprs.length.-(toSize)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          9282
+        </td>
+        <td>
+          5296
+          -
+          5296
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[Int]
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          9281
+        </td>
+        <td>
+          5313
+          -
+          5384
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.trees.TreeNode.collect
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          e.collect[Int](({
+  @SerialVersionUID(value = 0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,Int] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: org.apache.spark.sql.catalyst.expressions.Expression =&gt; Int&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: org.apache.spark.sql.catalyst.expressions.Expression, B1 &gt;: Int](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (b @ (_: org.apache.spark.sql.catalyst.expressions.BoundReference)) =&gt; b.ordinal
+      case (defaultCase$ @ _) =&gt; default.apply(x1)
+    };
+    final def isDefinedAt(x1: org.apache.spark.sql.catalyst.expressions.Expression): Boolean = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (b @ (_: org.apache.spark.sql.catalyst.expressions.BoundReference)) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,Int]))
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          9280
+        </td>
+        <td>
+          5323
+          -
+          5323
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.sparkless.impl.Processors.$anonfun.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          9279
+        </td>
+        <td>
+          5363
+          -
+          5372
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.BoundReference.ordinal
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          b.ordinal
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          9283
+        </td>
+        <td>
+          5278
+          -
+          5409
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toSet
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          exprsToUse.flatMap[Int, Seq[Int]](((e: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; e.collect[Int](({
+  @SerialVersionUID(value = 0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,Int] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: org.apache.spark.sql.catalyst.expressions.Expression =&gt; Int&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: org.apache.spark.sql.catalyst.expressions.Expression, B1 &gt;: Int](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (b @ (_: org.apache.spark.sql.catalyst.expressions.BoundReference)) =&gt; b.ordinal
+      case (defaultCase$ @ _) =&gt; default.apply(x1)
+    };
+    final def isDefinedAt(x1: org.apache.spark.sql.catalyst.expressions.Expression): Boolean = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (b @ (_: org.apache.spark.sql.catalyst.expressions.BoundReference)) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,Int]))))(collection.this.Seq.canBuildFrom[Int]).distinct.toSet[Int]
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          9285
+        </td>
+        <td>
+          5468
+          -
+          5515
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&lt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          allOrdinals.size.&lt;(Processors.this.maxVarCompilationInputFields)
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          9284
+        </td>
+        <td>
+          5487
+          -
+          5515
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.sparkless.impl.Processors.maxVarCompilationInputFields
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          Processors.this.maxVarCompilationInputFields
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          9286
+        </td>
+        <td>
+          5445
+          -
+          5515
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          forceVarCompilation.&amp;&amp;(allOrdinals.size.&lt;(Processors.this.maxVarCompilationInputFields))
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          9288
+        </td>
+        <td>
+          5527
+          -
+          5605
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.GenerateDecoderOpEncoderVarProjection.create
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.GenerateDecoderOpEncoderVarProjection.create[I, O](exprs, toSize, allOrdinals)(evidence$1, evidence$2)
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          9287
+        </td>
+        <td>
+          5527
+          -
+          5605
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.GenerateDecoderOpEncoderVarProjection.create
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.GenerateDecoderOpEncoderVarProjection.create[I, O](exprs, toSize, allOrdinals)(evidence$1, evidence$2)
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          9290
+        </td>
+        <td>
+          5629
+          -
+          5723
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.GenerateDecoderOpEncoderProjection.generate
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.GenerateDecoderOpEncoderProjection.generate[I, O](exprs, true, toSize)(evidence$1, evidence$2)
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          9289
+        </td>
+        <td>
+          5629
+          -
+          5723
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.GenerateDecoderOpEncoderProjection.generate
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.GenerateDecoderOpEncoderProjection.generate[I, O](exprs, true, toSize)(evidence$1, evidence$2)
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          9296
+        </td>
+        <td>
+          5730
+          -
+          5733
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.sparkless.impl.Processors.$anon.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new $anon()
+        </td>
+      </tr><tr>
+        <td>
+          116
+        </td>
+        <td>
+          9295
+        </td>
+        <td>
+          5808
+          -
+          5811
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.sparkless.impl.Processors.$anon.$anon.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new $anon()
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          9291
+        </td>
+        <td>
+          5866
+          -
+          5887
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.sparkless.impl.DecoderOpEncoderProjection.newInstance
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          projector.newInstance
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          9292
+        </td>
+        <td>
+          5928
+          -
+          5942
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.sparkless.impl.DecoderOpEncoderProjection.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          $anon.this.theInstance.apply(i)
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          9293
+        </td>
+        <td>
+          6003
+          -
+          6036
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.sparkless.impl.DecoderOpEncoderProjection.initialize
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          $anon.this.theInstance.initialize(partition)
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          9294
+        </td>
+        <td>
+          6076
+          -
+          6078
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          129
+        </td>
+        <td>
+          9298
+        </td>
+        <td>
+          6245
+          -
+          6251
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.sparkless.impl.LocalBroadcast._value
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          LocalBroadcast.this._value
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          9299
+        </td>
+        <td>
+          6316
+          -
+          6319
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Predef.???
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.???
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          9300
+        </td>
+        <td>
+          6382
+          -
+          6385
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Predef.???
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.???
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
