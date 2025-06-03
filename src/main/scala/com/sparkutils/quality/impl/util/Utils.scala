@@ -5,8 +5,8 @@ import com.sparkutils.quality.impl.RuleLogicUtils
 import com.sparkutils.shim.expressions.{CreateNamedStruct1, GetStructField3}
 import frameless.TypedEncoder
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode, JavaCode}
-import org.apache.spark.sql.catalyst.expressions.{Alias, BoundReference, Expression, If, IsNull, Literal, NamedExpression, UnaryExpression, Unevaluable, UnsafeArrayData}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode, QualityExprUtils, ExprValue, JavaCode, VariableValue}
+import org.apache.spark.sql.catalyst.expressions.{Alias, BoundReference, Expression, If, IsNull, Literal, NamedExpression, Unevaluable, UnsafeArrayData}
 import org.apache.spark.sql.catalyst.util.ArrayData
 import org.apache.spark.sql.types.{BooleanType, DataType, StructField, StructType}
 
@@ -472,4 +472,71 @@ object Encoding {
 
   }
 
+}
+
+/**
+ * wrap subexprs so we can correctly identify the subquery post bindreferences
+ * @param children
+ */
+case class SubQueryWrapper(children: Seq[Expression]) extends Expression {
+
+  override def nullable: Boolean = children.head.nullable
+  override def foldable: Boolean = false
+  override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
+    val expr = children.head.genCode(ctx)
+    expr
+  }
+
+  override def eval(input: InternalRow): Any = children.head.eval(input)
+
+  override def dataType: DataType = children.head.dataType
+
+  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
+}
+
+object SubQueryWrapper {
+  def hasASubQuery(expr: Expression): Boolean =
+    (expr.collectFirst {
+      case s: SubQueryWrapper => s
+    }.isDefined)
+}
+
+object Params {
+
+  def stripBrackets(v: VariableValue): (String, String) = {
+    val openb = v.toString().indexOf("[")
+    if (openb == -1)
+      (v.variableName, "")
+    else
+      (v.variableName.dropRight(v.length - openb), v.variableName.drop(openb))
+  }
+
+  def formatParams(ctx: CodegenContext, a: Seq[ExprValue], callsKeepArrays: Boolean = false): (String, String) = {
+    // filter out any top level arrays, the input is a set, so params need the same order
+    val ordered = a.flatMap {
+      //case a: VariableValue if ExprUtils.isVariableMutableArray(ctx, a) => None
+      case a: VariableValue => Some(a)
+      case _ => None
+    }
+
+    (ordered.map { v =>
+      val (stripped, arrayInName) = stripBrackets(v)
+
+      val (typ, array) =
+        if (v.javaType.isArray)
+          (s"${v.javaType.getComponentType.getName}", "[]")
+        else if (v.javaType.isPrimitive)
+          (v.javaType.toString, arrayInName.replaceAll("[^\\[\\]]",""))
+        else
+          (v.javaType.getName, arrayInName.replaceAll("[^\\[\\]]",""))
+
+      s"$typ$array $stripped"
+    }.mkString(", ")
+      , ordered.map(v =>
+        if (v.javaType.isArray && callsKeepArrays)
+          v.variableName
+        else
+          stripBrackets(v)._1
+      ).mkString(", "))
+  }
 }

@@ -1,15 +1,17 @@
 package com.sparkutils.quality.impl
 
 import com.sparkutils.quality
-import com.sparkutils.quality.{DisabledRule, DisabledRuleInt, Failed, FailedInt, GeneralExpressionResult, GeneralExpressionsResult, Id, IdTriple, OutputExpression, Passed, PassedInt, Probability, Rule, RuleResult, RuleSetResult, RuleSuite, RuleSuiteResult, SoftFailed, SoftFailedInt}
+import com.sparkutils.quality.impl.ExpressionCompiler.withExpressionCompiler
+import com.sparkutils.quality.impl.util.SubQueryWrapper
+import com.sparkutils.quality._
 import org.apache.spark.sql.ShimUtils.newParser
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedFunction}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext}
 import org.apache.spark.sql.catalyst.expressions.{Expression, ScalarSubquery, SubqueryExpression, UnresolvedNamedLambdaVariable, LambdaFunction => SparkLambdaFunction}
 import org.apache.spark.sql.qualityFunctions.{FunN, RefExpressionLazyType}
-import org.apache.spark.sql.types.{DataType, Decimal, StringType}
-import org.apache.spark.sql.{QualitySparkUtils, SparkSession}
+import org.apache.spark.sql.types.{DataType, Decimal}
+import org.apache.spark.sql.{ShimUtils, SparkSession}
 import org.apache.spark.unsafe.types.UTF8String
 
 import scala.collection.mutable
@@ -95,19 +97,23 @@ object RuleLogicUtils {
         case l: SparkLambdaFunction if hasSubQuery(l) =>
           // The lambda's will be parsed as UnresolvedAttributes and not the needed lambdas
           val names = l.arguments.map(a => a.name -> a).toMap
-          l.transform {
-            case s: SubqueryExpression => s.withNewPlan( s.plan.transform{
+          l.transformUp {
+            case s: SubqueryExpression =>
+              s.withNewPlan( s.plan.transform{
               case snippet =>
                 snippet.transformAllExpressions {
                   case a: UnresolvedAttribute =>
                     names.get(a.name).map(lamVar => lamVar).getOrElse(a)
                 }
-            })
+              }
+            )
           }
         case _ => rawExpr
       }
 
-    res
+    res.transformUp {
+      case s: SubqueryExpression => SubQueryWrapper(Seq(s))
+    }
   }
 
   def hasSubQuery(expression: Expression): Boolean = ( expression collect {
@@ -227,8 +233,25 @@ case class ExpressionRuleExpr( rule: String, override val expr: Expression ) ext
   override def reset(): Unit = super[HasRuleText].reset()
 }
 
+object ExpressionCompiler {
+  private val tlsForReferences = new ThreadLocal[Boolean] {
+    override def initialValue(): Boolean = false
+  }
+
+  def inExpressionCompiler: Boolean = tlsForReferences.get()
+
+  def withExpressionCompiler[T](thunk: => T): T = {
+    try {
+      tlsForReferences.set(true)
+      thunk
+    } finally {
+      tlsForReferences.set(false)
+    }
+  }
+}
+
 trait ExpressionCompiler extends HasExpr {
-  lazy val codegen = {
+  lazy val codegen = withExpressionCompiler {
     val ctx = new CodegenContext()
     val eval = expr.genCode(ctx)
     val javaType = CodeGenerator.javaType(expr.dataType)
@@ -526,6 +549,10 @@ object RuleSuiteFunctions {
         inputRow
       ).asInstanceOf[InternalRow]
 
+      if (row == null || inputRow == null) {
+        println()
+      }
+
       seq :+ (salience, if (debugMode)
         row.copy
       else
@@ -570,4 +597,36 @@ object RuleSuiteFunctions {
 
     GeneralExpressionsResult(id, rawRuleSets.toMap)
   }
+}
+
+object LazyRuleSuiteResultDetailsUtils {
+  lazy val deserializer = ShimUtils.expressionEncoder( Encoders.ruleSuiteResultDetailsExpEnc ).
+    resolveAndBind().deserializer
+}
+
+case class LazyRuleSuiteResultDetailsImpl(row: InternalRow) extends LazyRuleSuiteResultDetails with Serializable {
+  @transient
+  lazy val _ruleSuiteResultDetails = LazyRuleSuiteResultDetailsUtils.deserializer.eval(row).
+    asInstanceOf[RuleSuiteResultDetails]
+
+  override def ruleSuiteResultDetails: RuleSuiteResultDetails = _ruleSuiteResultDetails
+}
+
+case class LazyRuleSuiteResultDetailsProxyImpl(_ruleSuiteResultDetails: RuleSuiteResultDetails)
+  extends LazyRuleSuiteResultDetails with Serializable {
+
+  override def ruleSuiteResultDetails: RuleSuiteResultDetails = _ruleSuiteResultDetails
+}
+
+object LazyRuleSuiteResultUtils {
+  lazy val deserializer = ShimUtils.expressionEncoder( Encoders.ruleSuiteResultExpEnc ).
+    resolveAndBind().deserializer
+}
+
+case class LazyRuleSuiteResultImpl(row: InternalRow) extends LazyRuleSuiteResult with Serializable {
+  @transient
+  lazy val _ruleSuiteResult = LazyRuleSuiteResultUtils.deserializer.eval(row).
+    asInstanceOf[RuleSuiteResult]
+
+  override def ruleSuiteResult: RuleSuiteResult = _ruleSuiteResult
 }

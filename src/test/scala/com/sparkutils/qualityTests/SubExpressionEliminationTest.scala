@@ -1,14 +1,14 @@
 package com.sparkutils.qualityTests
 
 import org.apache.spark.sql.{Column, ShimUtils, SparkSession}
-import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression, NullIntolerant}
+import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
 import org.junit.{Before, Test}
 import org.scalatest.FunSuite
 import com.sparkutils.quality.{LambdaFunction, _}
 import com.sparkutils.quality.impl.ExpressionRunner
 import com.sparkutils.quality.impl.RuleLogicUtils.mapRules
-import com.sparkutils.quality.impl.extension.FunNRewrite
+import com.sparkutils.shim.expressions.NullIntolerant
 import org.apache.spark.sql
 import org.apache.spark.sql.catalyst.util.TypeUtils
 import org.apache.spark.sql.types.{BooleanType, DataType, IntegerType}

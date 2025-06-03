@@ -1,19 +1,16 @@
 package org.apache.spark.sql
 
-import com.sparkutils.quality.enableOptimizations
-import com.sparkutils.quality.impl.extension.FunNRewrite
-import org.apache.spark.sql.ShimUtils.column
+import org.apache.spark.sql.ShimUtils.{column, expression}
 import com.sparkutils.quality.impl.util.DebugTime.debugTime
+import com.sparkutils.quality.impl.util.Params.formatParams
 import com.sparkutils.quality.impl.util.{PassThrough, PassThroughCompileEvals}
-import com.sparkutils.quality.impl.{GenerateDecoderOpEncoderProjection, RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
-import com.sparkutils.quality.sparkless.{Processor, ProcessorFactory}
-import com.sparkutils.quality.sparkless.impl.MutableProjectionProcessor
+import com.sparkutils.quality.impl.{RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
 import com.sparkutils.shim.expressions.{HigherOrderFunctionLike, PredicateHelperPlus}
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCoercion}
 import org.apache.spark.sql.catalyst.encoders.{ExpressionEncoder, RowEncoder}
-import org.apache.spark.sql.catalyst.expressions.codegen.GenerateMutableProjection
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, QualityExprUtils, GenerateMutableProjection}
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, EqualNullSafe, Expression, ExpressionSet, HigherOrderFunction, InterpretedMutableProjection, Literal, Projection, UpdateFields}
-import org.apache.spark.sql.catalyst.optimizer.{BooleanSimplification, CollapseProject, CombineConcats, CombineTypedFilters, ConstantFolding, ConstantPropagation, EliminateMapObjects, EliminateSerialization, FoldablePropagation, LikeSimplification, NormalizeFloatingNumbers, NullDownPropagation, NullPropagation, ObjectSerializerPruning, OptimizeCsvJsonExprs, OptimizeIn, OptimizeRand, OptimizeUpdateFields, PruneFilters, PushFoldableIntoBranches, ReassignLambdaVariableID, RemoveNoopOperators, RemoveRedundantAggregates, RemoveRedundantAliases, ReorderAssociativeOperator, ReplaceNullWithFalseInPredicate, ReplaceUpdateFieldsExpression, RewriteCorrelatedScalarSubquery, RewriteLateralSubquery, SimplifyBinaryComparison, SimplifyCaseConversionExpressions, SimplifyCasts, SimplifyConditionals, SimplifyExtractValueOps, UnwrapCastInBinaryComparison}
+import org.apache.spark.sql.catalyst.optimizer.{BooleanSimplification, CollapseProject, CombineConcats, CombineTypedFilters, ConstantFolding, ConstantPropagation, EliminateMapObjects, EliminateSerialization, FoldablePropagation, LikeSimplification, NormalizeFloatingNumbers, NullDownPropagation, NullPropagation, ObjectSerializerPruning, OptimizeCsvJsonExprs, OptimizeIn, OptimizeRand, OptimizeUpdateFields, PruneFilters, PushFoldableIntoBranches, ReassignLambdaVariableID, RemoveNoopOperators, RemoveRedundantAggregates, RemoveRedundantAliases, ReorderAssociativeOperator, ReplaceExpressions, ReplaceNullWithFalseInPredicate, ReplaceUpdateFieldsExpression, RewriteCorrelatedScalarSubquery, RewriteLateralSubquery, SimplifyBinaryComparison, SimplifyCaseConversionExpressions, SimplifyCasts, SimplifyConditionals, SimplifyExtractValueOps, UnwrapCastInBinaryComparison}
 import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, LogicalPlan, Project, UnaryNode}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.internal.SQLConf
@@ -25,6 +22,20 @@ import org.apache.spark.util.Utils
  * Set of utilities to reach in to private functions
  */
 object QualitySparkUtils {
+  /**
+   * Spark >3.1 supports the very useful getLocalInputVariableValues, 2.4 needs the previous approach
+   *
+   * @param i
+   * @param ctx
+   * @return (parameters for function decleration, parmaters for calling, code that must be before fungroup)
+   */
+  def genParams(ctx: CodegenContext, child: Expression): (String, String, String) = {
+    val (a, b) = CodeGenerator.getLocalInputVariableValues(ctx, child, QualityExprUtils.currentSubExprState(ctx))
+
+    val p = formatParams( ctx, a.toSeq )
+
+    (p._1, p._2, b.map(_.code.code).mkString("\n"))
+  }
 
   def funNRewrite(plan: LogicalPlan, expressionToExpression: PartialFunction[Expression, Expression]): LogicalPlan =
     plan.transformExpressionsDownWithPruning {
@@ -41,6 +52,40 @@ object QualitySparkUtils {
       case _: HigherOrderFunctionLike => false
       case _ => true
     }(expressionToExpression)
+
+  type DatasetBase[F] = org.apache.spark.sql.Dataset[F]
+
+  /**
+   * Where resolveWith is not possible (e.g. 10.x DBRs) it is disabled here.
+   * This is, in the 10.x DBR case, due to the class files for UnaryNode (FakePlan) being radically different and causing an IncompatibleClassChangeError: Implementing class
+   * @param orig
+   * @return
+   */
+  def resolveWithOverride(orig: Option[DataFrame]): Option[DataFrame] =
+    orig
+
+  /**
+   * Resolves expressions against a dataframe, this allows them to be swapped out after name checking - spark cannot then
+   * simply optimise the tree so certain things like constant folding etc. won't show up.
+   *
+   * @param dataFrame resolve's must be against a given dataframe to keep names matching
+   * @param expr      the expression to resolve
+   */
+  def resolveExpression(dataFrame: DataFrame, expr: Expression): Expression = {
+
+    val sparkSession = SparkSession.getActiveSession.get
+
+    val plan = ShimUtils.logicalPlan(dataFrame.select("*")) // select * needed for toDF's etc. from dataset to force evaluation of the attributes
+    val res = debugTime("tryResolveReferences") {
+      tryResolveReferences(sparkSession)(expr, plan)
+    }
+
+    val fres = debugTime("bindReferences") {
+      BindReferences.bindReference(res, plan.allAttributes)
+    }
+
+    fres
+  }
 
   case class EvaluableExpressions(plan: LogicalPlan) extends PredicateHelperPlus {
     def expressions: Seq[Expression] = plan match {
@@ -82,7 +127,8 @@ object QualitySparkUtils {
     ObjectSerializerPruning,
     ReassignLambdaVariableID,
     NormalizeFloatingNumbers,
-    ReplaceUpdateFieldsExpression
+    ReplaceUpdateFieldsExpression,
+    ReplaceExpressions
   )
 
   /**
@@ -99,7 +145,7 @@ object QualitySparkUtils {
 
     // this constructor stops execute plan being called too early
     val df = dataFrameF(
-      new Dataset[Row](SparkSession.getActiveSession.get.sqlContext, plan, ExpressionEncoder(ag))
+      ShimUtils.mkDataset(SparkSession.getActiveSession.get.sqlContext, plan, ExpressionEncoder(ag))
     )
 
     // force an optimize
@@ -139,7 +185,7 @@ object QualitySparkUtils {
 
     // this constructor stops execute plan being called too early
     val df = dataFrameF(
-      new Dataset[T](SparkSession.getActiveSession.get.sqlContext, plan, enc).toDF()
+      ShimUtils.mkDataset(SparkSession.getActiveSession.get.sqlContext, plan, enc).toDF()
     )
 
     // force an optimize
@@ -176,45 +222,6 @@ object QualitySparkUtils {
       GenerateMutableProjection.generate(exprs, SQLConf.get.subexpressionEliminationEnabled)
     else
       InterpretedMutableProjection.createProjection(exprs)
-  }
-
-  /**
-   * Creates a ProcessFactory[I,O], when forceMutable || !compile is true it uses chained MutableProjections,
-   * otherwise, and by default, GenerateDecoderOpEncoderProjection.
-   *
-   * GenerateDecoderOpEncoderProjection is likely far faster on larger rules or higher number of threads for throughput.
-   * Unlike Spark compilation caching, which evaluates codegen for an expression tree every time, the codegen takes place
-   * once, each instance call simply returns a new class instance with fresh state for a thread.
-   *
-   * The chained MutableProjections generate new class code for each instance.  They will also recreate the entire
-   * expression tree if a stateful expression is identified when compile = false
-   *
-   * @param dataFrameFunction
-   * @param compile when false reverts to interpreted mode, when true and forceMutable is true it is recommended to cache the instances
-   * @param forceMutable when true it forces MutableProjection's to be used, compiled or otherwise, the default of false is likely far faster
-   * @tparam I
-   * @tparam O
-   * @return
-   */
-  def processFactory[I: Encoder, O: Encoder](dataFrameFunction: DataFrame => DataFrame, compile: Boolean = true, forceMutable: Boolean = false): ProcessorFactory[I, O] = {
-    if (forceMutable || !compile)
-      MutableProjectionProcessor.processFactory[I, O](dataFrameFunction, compile)
-    else {
-      enableOptimizations(Seq(FunNRewrite, ConstantFolding))
-
-      val iEnc = implicitly[Encoder[I]]
-      val exprs = QualitySparkUtils.resolveExpressions[I](iEnc, dataFrameFunction)
-
-      val projector = GenerateDecoderOpEncoderProjection.generate[I, O](exprs, true)
-      new ProcessorFactory[I, O] {
-        override def instance: Processor[I, O] = new Processor[I, O] {
-          private val theInstance = projector.newInstance
-          override def apply(i: I): O = theInstance(i)
-          override def setPartition(partition: Int): Unit = theInstance.initialize(partition)
-          override def close(): Unit = {}
-        }
-      }
-    }
   }
 
   def execute(logicalPlan: LogicalPlan, batch: Batch) = {
@@ -274,7 +281,7 @@ object QualitySparkUtils {
 
 
   def resolution(analyzer: Analyzer, sparkSession: SparkSession, plan: LogicalPlan) = {
-    val conf = sparkSession.sqlContext.conf
+    val conf = SQLConf.get
     val fixedPoint = new Strategy(
       conf.analyzerMaxIterations,
       errorOnExceed = true,
@@ -428,8 +435,5 @@ object QualitySparkUtils {
         }
       }
     )
-
-
-  type DatasetBase[F] = org.apache.spark.sql.Dataset[F]
 
 }

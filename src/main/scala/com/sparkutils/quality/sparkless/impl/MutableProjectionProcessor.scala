@@ -22,9 +22,10 @@ object MutableProjectionProcessor {
    * @tparam O
    * @return
    */
-  def processFactory[I: Encoder, O: Encoder](dataFrameFunction: DataFrame => DataFrame, toSize: Int, compile: Boolean = true, extraProjection: DataFrame => DataFrame = identity): ProcessorFactory[I, O] = {
-    registerQualityFunctions()
-    enableOptimizations(Seq(FunNRewrite, ConstantFolding))
+  def processFactory[I: Encoder, O: Encoder](dataFrameFunction: DataFrame => DataFrame, toSize: Int, compile: Boolean = true, extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true): ProcessorFactory[I, O] = {
+    if (enableQualityOptimisations) {
+      enableOptimizations(Seq(FunNRewrite, ConstantFolding))
+    }
 
     val iEnc = implicitly[Encoder[I]]
     val exprFrom = ShimUtils.expressionEncoder(iEnc).resolveAndBind().serializer

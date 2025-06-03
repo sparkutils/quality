@@ -1,18 +1,19 @@
 package org.apache.spark.sql.qualityFunctions
 
 import com.sparkutils.quality.QualityException
-import com.sparkutils.quality.impl.RuleLogicUtils
+import com.sparkutils.quality.impl.{ExpressionCompiler, RuleLogicUtils}
 import com.sparkutils.quality.impl.util.SparkVersions
 import com.sparkutils.shim.expressions.HigherOrderFunctionLike
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{TypeCheckResult, UnresolvedAttribute}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode, GlobalValue, JavaCode}
 import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression, HigherOrderFunction, LambdaFunction, LeafExpression, NamedExpression, NamedLambdaVariable, OuterReference, SubqueryExpression, UnresolvedNamedLambdaVariable}
 import org.apache.spark.sql.qualityFunctions.SubQueryLambda.namedToOuterReference
 import org.apache.spark.sql.types.{AbstractDataType, DataType}
 
 import java.util.concurrent.atomic.AtomicReference
+import scala.collection.mutable
 
 /**
  * Wraps other expressions and stores the result in an RefExpression -
@@ -65,20 +66,45 @@ case class RunAllReturnLast(children: Seq[Expression]) extends Expression
 
 trait RefCodeGen {
   def dataType: DataType
-  protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
-    val idx = ctx.references.length
-    ctx.references += this
-    val javaType = CodeGenerator.javaType(dataType)
-    val boxed = CodeGenerator.boxedType(dataType)
 
-    val clazz = this.getClass.getName
-    ev.copy(code =
-      code"""
+  // never return a different object from this gen code
+  @transient
+  var _generated: mutable.Map[CodegenContext, ExprCode] = _
+
+  protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode =
+    if (ExpressionCompiler.inExpressionCompiler) {
+      // evals are compiled but ruleFolder is eval, so forceInterpreted style scenarios
+      val idx = ctx.references.length
+      ctx.references += this
+      val javaType = CodeGenerator.javaType(dataType)
+      val boxed = CodeGenerator.boxedType(dataType)
+
+      val clazz = this.getClass.getName
+      ev.copy(code =
+        code"""
         $javaType ${ev.value} = ($boxed) (($clazz)references[$idx]).value();
 
         boolean ${ev.isNull} = ${ev.value} == null;
       """)
-  }
+    } else {
+      if (_generated == null){
+        _generated = mutable.Map.empty
+      }
+      val cached = _generated.get(ctx)
+      if (cached.isEmpty) {
+        val javaType = CodeGenerator.javaType(dataType)
+        val theVar = ctx.addMutableState(javaType, ctx.freshName("RefExpr"), useFreshName = false)
+        val theNull = ctx.addMutableState("boolean", ctx.freshName("RefExprNull"), useFreshName = false)
+
+        val toCache = ev.copy(code = code"",
+          isNull = GlobalValue(theNull, CodeGenerator.javaClass(dataType)),
+          value = GlobalValue(theVar, CodeGenerator.javaClass(dataType))
+        )
+        _generated.put(ctx, toCache)
+        toCache
+      } else
+        cached.get
+    }
 }
 
 /**

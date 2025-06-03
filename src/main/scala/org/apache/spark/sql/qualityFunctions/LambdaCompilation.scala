@@ -239,7 +239,6 @@ object LambdaCompilationUtils {
     newTree
   }
 
-
   implicit class NamedLambdaVariableOps(nvl: NamedLambdaVariable) {
     def toCodeGenPair(ctx: CodegenContext): (ExprId, NamedLambdaVariableCodeGen) =
       nvl.exprId -> NamedLambdaVariableCodeGen(nvl.name, nvl.dataType, nvl.nullable, nvl.exprId,

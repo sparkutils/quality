@@ -3,11 +3,12 @@ package com.sparkutils.quality.impl
 import com.sparkutils.quality._
 import types._
 import com.sparkutils.quality.impl.util.Serializing
+import com.sparkutils.shim.expressions.NullIntolerant
 import org.apache.spark.sql.ShimUtils
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
-import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionDescription, NullIntolerant, UnaryExpression}
+import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionDescription, UnaryExpression}
 import org.apache.spark.sql.catalyst.util.GenericArrayData
 import org.apache.spark.sql.shim.expressions.InputTypeChecks
 import org.apache.spark.sql.types._

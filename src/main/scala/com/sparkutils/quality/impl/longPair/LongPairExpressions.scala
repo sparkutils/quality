@@ -1,9 +1,10 @@
 package com.sparkutils.quality.impl.longPair
 
 import com.sparkutils.quality.impl.id.{GenericLongBasedID, model}
+import com.sparkutils.shim.expressions.NullIntolerant
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
-import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression, NullIntolerant, UnaryExpression}
+import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression, UnaryExpression}
 import org.apache.spark.sql.shim.expressions.InputTypeChecks
 import org.apache.spark.sql.types.{DataType, LongType, StructField, StructType}
 
