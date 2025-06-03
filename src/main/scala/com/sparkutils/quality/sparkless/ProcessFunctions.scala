@@ -92,10 +92,10 @@ object ProcessFunctions {
    * @tparam I
    * @return
    */
-  def dqLazyDetailsFactory[I: Encoder](ruleSuite: RuleSuite, compile: Boolean = true, compileEvals: Boolean = false,
-                                   forceRunnerEval: Boolean = false, forceMutable: Boolean = false,
-                                   extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
-                                   forceVarCompilation: Boolean = false, defaultIfPassed: Option[RuleSuiteResultDetails] = None):
+  def lazyDQDetailsFactory[I: Encoder](ruleSuite: RuleSuite, compile: Boolean = true, compileEvals: Boolean = false,
+                                       forceRunnerEval: Boolean = false, forceMutable: Boolean = false,
+                                       extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
+                                       forceVarCompilation: Boolean = false, defaultIfPassed: Option[RuleSuiteResultDetails] = None):
           ProcessorFactory[I, (RuleResult, LazyRuleSuiteResultDetails)] = {
     import com.sparkutils.quality.implicits._
     implicit val rowEnc = Encoders.internalRowTypedEnc(Encoders.ruleSuiteResultDetailsTypedEnc.catalystRepr)
@@ -153,11 +153,11 @@ object ProcessFunctions {
    * @tparam T the result type of the rule engine
    * @return
    */
-  def ruleEngineLazyResultFactory[I: Encoder, T: Encoder](ruleSuite: RuleSuite, outputType: DataType, compile: Boolean = true,
-                                                 debugMode: Boolean = false, compileEvals: Boolean = false,
-                                                 forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false, forceMutable: Boolean = false,
-                                                 extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
-                                                 forceVarCompilation: Boolean = false)(implicit oenc: Encoder[Option[T]]): ProcessorFactory[I, LazyRuleEngineResult[T]] = {
+  def layzRuleEngineFactory[I: Encoder, T: Encoder](ruleSuite: RuleSuite, outputType: DataType, compile: Boolean = true,
+                                                    debugMode: Boolean = false, compileEvals: Boolean = false,
+                                                    forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false, forceMutable: Boolean = false,
+                                                    extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
+                                                    forceVarCompilation: Boolean = false)(implicit oenc: Encoder[Option[T]]): ProcessorFactory[I, LazyRuleEngineResult[T]] = {
     import com.sparkutils.quality.implicits._
     implicit val rowEnc = Encoders.internalRowTypedEnc(Encoders.ruleSuiteResultTypedEnc.catalystRepr)
 
@@ -226,11 +226,11 @@ object ProcessFunctions {
    * @tparam T the result type of the rule engine
    * @return
    */
-  def ruleFolderLazyFactory[I: Encoder, T: Encoder](ruleSuite: RuleSuite, outputType: StructType, compile: Boolean = true,
-                                                 debugMode: Boolean = false, compileEvals: Boolean = false,
-                                                 forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false, forceMutable: Boolean = false,
-                                                 extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
-                                                 forceVarCompilation: Boolean = false): ProcessorFactory[I, LazyRuleFolderResult[T]] = {
+  def lazyRuleFolderFactory[I: Encoder, T: Encoder](ruleSuite: RuleSuite, outputType: StructType, compile: Boolean = true,
+                                                    debugMode: Boolean = false, compileEvals: Boolean = false,
+                                                    forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false, forceMutable: Boolean = false,
+                                                    extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
+                                                    forceVarCompilation: Boolean = false): ProcessorFactory[I, LazyRuleFolderResult[T]] = {
     import com.sparkutils.quality.implicits._
     implicit val rowEnc = Encoders.internalRowTypedEnc(Encoders.ruleSuiteResultTypedEnc.catalystRepr)
 

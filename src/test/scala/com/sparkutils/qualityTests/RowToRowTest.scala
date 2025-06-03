@@ -185,7 +185,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
       ))
     ))
 
-    val processor = ProcessFunctions.dqLazyDetailsFactory[TestOn](rs, inCodegen, forceMutable = forceMutable,
+    val processor = ProcessFunctions.lazyDQDetailsFactory[TestOn](rs, inCodegen, forceMutable = forceMutable,
       forceVarCompilation = forceVarCompilation).instance
 
     val rc = map(testData, processor)
@@ -205,7 +205,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
 
     val default = RuleSuiteResultDetails.ifAllPassed(rs)
 
-    val processor = ProcessFunctions.dqLazyDetailsFactory[TestOn](rs, inCodegen, forceMutable = forceMutable,
+    val processor = ProcessFunctions.lazyDQDetailsFactory[TestOn](rs, inCodegen, forceMutable = forceMutable,
       forceVarCompilation = forceVarCompilation, defaultIfPassed = Some(default)).instance
 
     val rc = map(testData, processor)
@@ -299,7 +299,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
       RuleSet(Id(50, 1), rules
       )))
 
-    val processor = ProcessFunctions.ruleEngineLazyResultFactory[TestOn, Seq[NewPosting]](ruleSuite, DataType.fromDDL(DDL),
+    val processor = ProcessFunctions.layzRuleEngineFactory[TestOn, Seq[NewPosting]](ruleSuite, DataType.fromDDL(DDL),
       compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation).instance
 
     val res = map(testData, processor)
@@ -733,7 +733,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
       RuleSet(Id(50, 1), rules
       )))
 
-    val processor = ProcessFunctions.ruleFolderLazyFactory[TestOn, TestOn](ruleSuite, DataType.fromDDL(DDL).asInstanceOf[StructType],
+    val processor = ProcessFunctions.lazyRuleFolderFactory[TestOn, TestOn](ruleSuite, DataType.fromDDL(DDL).asInstanceOf[StructType],
       compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation).instance
 
     val res = map(testData, processor)
