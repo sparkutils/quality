@@ -75,6 +75,8 @@ abstract class RandBytes extends LeafExpression with StatefulLike
   }
 
   def seedExpression: Expression = Literal(definedSeed, LongType)
+
+  protected def withNewChildren(newChildren: IndexedSeq[Expression]): Expression = freshCopy()
 }
 
 object RandomLongs {
@@ -147,4 +149,6 @@ abstract class RandLongs extends LeafExpression with StatefulLike
   def numBytes: Int = 0
 
   def seedExpression: Expression = Literal(definedSeed, LongType)
+  
+  protected def withNewChildren(newChildren: IndexedSeq[Expression]): Expression = freshCopy()
 }
