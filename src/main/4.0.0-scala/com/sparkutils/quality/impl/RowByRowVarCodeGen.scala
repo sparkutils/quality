@@ -388,7 +388,7 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
 
         // needs a fresh tree copy for each newInstance, so we need to proxy it
         override def newInstance: DecoderOpEncoderProjection[I, O] =
-          create[I, O] (ShimUtils.copyStateful(expressions), toSize, allOrdinals)
+          create[I, O](ShimUtils.copyStateful(expressions), toSize, allOrdinals)
 
         override def initialize(partitionIndex: Int): Unit = initial.initialize(partitionIndex)
       }
