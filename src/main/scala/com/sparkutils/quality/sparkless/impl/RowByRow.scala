@@ -43,13 +43,15 @@ object Processors {
    * @return
    */
   def isCopyNeeded(exprs: Seq[Expression], compile: Boolean = true): Boolean =
-    exprs.collect {
-      case e: CodegenFallback if ShimUtils.isStateful(e)  => e
-    }.nonEmpty || ( !compile &&
-      exprs.collect {
-        case e: Expression if ShimUtils.isStateful(e)  => e
+    exprs.exists(_.collect {
+      case e: CodegenFallback if ShimUtils.isStateful(e) =>
+        e
+    }.nonEmpty ) || ( !compile &&
+      exprs.exists(_.collect {
+        case e: Expression if ShimUtils.isStateful(e)  =>
+          e
       }.nonEmpty
-    )
+    ))
 
   /**
    * Arbitrarily high number assuming 2 java fields per input fields and a couple of functions per field we'll

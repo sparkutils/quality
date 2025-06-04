@@ -59,7 +59,7 @@ object MutableProjectionProcessor {
 
           val exprsToUse =
             if (copyNeeded)
-              exprs.map(e => e.transformUp{ case t => t.withNewChildren(t.children) })
+              ShimUtils.copyStateful(exprs)
             else
               exprs
 

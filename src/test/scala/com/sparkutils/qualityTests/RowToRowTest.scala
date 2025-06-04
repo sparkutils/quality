@@ -5,12 +5,15 @@ import com.sparkutils.quality.impl.FlattenStruct.ruleSuiteDeserializer
 import com.sparkutils.quality.sparkless.impl.LocalBroadcast
 import com.sparkutils.quality.sparkless.impl.Processors.NO_QUERY_PLANS
 import com.sparkutils.quality.sparkless.{ProcessFunctions, Processor}
+import com.sparkutils.shim.expressions.StatefulLike
 import org.apache.avro.SchemaBuilder
 import org.apache.avro.generic.{GenericData, GenericDatumWriter, GenericRecord}
 import org.apache.avro.io.EncoderFactory
-import org.apache.spark.sql.{Encoders, QualitySparkUtils}
+import org.apache.spark.sql.{Encoders, QualitySparkUtils, ShimUtils, SparkSession}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{MutableProjection, Projection}
+import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
+import org.apache.spark.sql.catalyst.expressions.{Expression, LeafExpression, MutableProjection, Projection, UnaryExpression}
+import org.apache.spark.sql.catalyst.trees.TreeNode
 import org.apache.spark.sql.functions.{col, column, lit}
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.UTF8String
@@ -21,6 +24,36 @@ import org.scalatestplus.junit.JUnitRunner
 import java.io.ByteArrayOutputStream
 import scala.beans.BeanProperty
 import scala.collection.JavaConverters._
+
+object StatefulTest {
+  var initCount = 0
+  var partitionCount = 0
+}
+
+case class StatefulTestFallback() extends Expression with CodegenFallback with StatefulLike {
+
+  {
+    StatefulTest.initCount += 1
+  }
+
+  override def fastEquals(other: TreeNode[_]): Boolean = this eq other
+
+  override def nullable: Boolean = false
+
+  override def dataType: DataType = IntegerType
+
+  override def freshCopy(): StatefulLike = new StatefulTestFallback()
+
+  override protected def initializeInternal(partitionIndex: Int): Unit = {
+    StatefulTest.partitionCount += partitionIndex
+  }
+
+  override protected def evalInternal(input: InternalRow): Any = StatefulTest.partitionCount
+
+  val children: Seq[Expression] = Nil
+  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = freshCopy()
+
+}
 
 class NewPostingBean(){
   @BeanProperty
@@ -49,11 +82,11 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
     var r = thunk
     // only do in compile
     if (inCodegen) {
-      // use mutable projection approach
+      // use mutable projection compilation approach
       forceMutable = false
       forceVarCompilation = false
       r = thunk
-      // the default setup and current vars
+      // use current vars
       forceMutable = false
       forceVarCompilation = true
       r = thunk
@@ -914,6 +947,54 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
         Id(31, 3) -> false,
         Id(32, 3) -> false
       )
+    )
+  } } } } }
+
+  test(" codegenfallback stateful handling on instance/setpartition ") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+    import sparkSession.implicits._
+
+    val funReg = ShimUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
+    funReg("stateful_test", _ => StatefulTestFallback())
+
+    val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+      Rule(Id(30, 3), ExpressionRule("stateful_test()")),
+    ))))
+
+    implicit val bool = Encoders.INT
+    StatefulTest.initCount = 0
+    StatefulTest.partitionCount = 0
+
+    val processorF = ProcessFunctions.expressionRunnerFactoryT[TestOn, Int](rs, IntegerType,
+      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation)
+
+    def testProcessor(processor: Processor[TestOn, GeneralExpressionsResult[Int]], expectedPartition: Int) {
+      val res = map(testData, processor)
+      res.map(_.getRuleSetResults.asScala) shouldBe res.map(_.ruleSetResults)
+      res.map(_.ruleSetResults(Id(20,1))) shouldBe Seq.fill(6)(Map(
+        Id(30, 3) -> expectedPartition
+      ))
+    }
+    val processora = processorF.instance
+    processora.setPartition(1)
+    testProcessor(processora, 1)
+    StatefulTest.initCount shouldBe (
+      (inCodegen, forceMutable, forceVarCompilation) match {
+        case (_, false, false) => 3
+        case (_, true, _) => 2
+        case (true, false, true) => 2
+      }
+    )
+
+    val processorb = processorF.instance
+    processorb.setPartition(2)
+    testProcessor(processorb, 3)
+
+    StatefulTest.initCount shouldBe (
+      (inCodegen, forceMutable, forceVarCompilation) match {
+        case (_, false, false) => 4
+        case (_, true, _) => 3
+        case (true, false, true) => 3
+      }
     )
   } } } } }
 
