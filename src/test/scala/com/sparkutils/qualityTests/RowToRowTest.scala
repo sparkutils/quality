@@ -957,7 +957,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
     funReg("stateful_test", _ => StatefulTestFallback())
 
     val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
-      Rule(Id(30, 3), ExpressionRule("stateful_test()")),
+      Rule(Id(30, 3), ExpressionRule("stateful_test()"))
     ))))
 
     implicit val bool = Encoders.INT
