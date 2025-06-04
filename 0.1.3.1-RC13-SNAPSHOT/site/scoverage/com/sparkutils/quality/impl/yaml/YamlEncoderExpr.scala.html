@@ -1,0 +1,3994 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/sparkutils/quality/impl/yaml/YamlEncoderExpr.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality.impl.yaml
+</span>2 <span style=''>
+</span>3 <span style=''>import java.io.{IOException, StringWriter}
+</span>4 <span style=''>import java.util.Base64
+</span>5 <span style=''>
+</span>6 <span style=''>import com.sparkutils.quality.impl.MapUtils
+</span>7 <span style=''>import com.sparkutils.quality.impl.util.Arrays
+</span>8 <span style=''>import org.apache.spark.sql.QualityYamlExt.{makeConverterExt, makeStructFieldConverterExt}
+</span>9 <span style=''>import org.apache.spark.sql.catalyst.InternalRow
+</span>10 <span style=''>import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
+</span>11 <span style=''>import org.apache.spark.sql.catalyst.expressions.{Expression, UnaryExpression}
+</span>12 <span style=''>import org.apache.spark.sql.catalyst.util.{ArrayData, MapData}
+</span>13 <span style=''>import org.apache.spark.sql.types._
+</span>14 <span style=''>import org.apache.spark.unsafe.types.UTF8String
+</span>15 <span style=''>import org.yaml.snakeyaml.emitter.Emitter
+</span>16 <span style=''>import org.yaml.snakeyaml.error.YAMLException
+</span>17 <span style=''>import org.yaml.snakeyaml.nodes._
+</span>18 <span style=''>import org.yaml.snakeyaml.resolver.Resolver
+</span>19 <span style=''>import org.yaml.snakeyaml.serializer.Serializer
+</span>20 <span style=''>import org.yaml.snakeyaml.DumperOptions
+</span>21 <span style=''>
+</span>22 <span style=''>import scala.collection.JavaConverters._
+</span>23 <span style=''>
+</span>24 <span style=''>object QualityYamlEncoding {
+</span>25 <span style=''>
+</span>26 <span style=''>  type Converter = (Any) =&gt; Node
+</span>27 <span style=''>  type ValueConverter = PartialFunction[DataType, Converter]
+</span>28 <span style=''>
+</span>29 <span style=''>  type StructValueConverter = PartialFunction[DataType, (InternalRow, Int) =&gt; Node]
+</span>30 <span style=''>
+</span>31 <span style=''>  val dummyMark = </span><span style='background: #AEF1AE'>null</span><span style=''>
+</span>32 <span style=''>
+</span>33 <span style=''>  def createNullNode(implicit renderOptions: Map[String, String]): ScalarNode = </span><span style='background: #AEF1AE'>createScalarNode(Tag.NULL, null)</span><span style=''>
+</span>34 <span style=''>
+</span>35 <span style=''>  val DecimalClass = </span><span style='background: #AEF1AE'>classOf[Decimal]</span><span style=''>
+</span>36 <span style=''>  val UTF8Class = </span><span style='background: #AEF1AE'>classOf[UTF8String]</span><span style=''>
+</span>37 <span style=''>
+</span>38 <span style=''>  def createScalarNode(tag: Tag, a: Any)(implicit renderOptions: Map[String, String]): ScalarNode =
+</span>39 <span style=''>    if (</span><span style='background: #AEF1AE'>a == null</span><span style=''>)
+</span>40 <span style=''>      </span><span style='background: #AEF1AE'>new ScalarNode(Tag.NULL, &quot;null&quot;, dummyMark, dummyMark, DumperOptions.ScalarStyle.PLAIN)</span><span style=''>
+</span>41 <span style=''>    else
+</span>42 <span style=''>      </span><span style='background: #AEF1AE'>new ScalarNode(
+</span>43 <span style=''></span><span style='background: #AEF1AE'>        if (renderOptions.get(&quot;useFullScalarType&quot;).exists(_.toBoolean))
+</span>44 <span style=''></span><span style='background: #AEF1AE'>          new Tag(a.getClass match {
+</span>45 <span style=''></span><span style='background: #AEF1AE'>            case DecimalClass =&gt; classOf[java.math.BigDecimal]
+</span>46 <span style=''></span><span style='background: #AEF1AE'>            case UTF8Class =&gt; classOf[java.lang.String]
+</span>47 <span style=''></span><span style='background: #AEF1AE'>            case e =&gt; e
+</span>48 <span style=''></span><span style='background: #AEF1AE'>          })
+</span>49 <span style=''></span><span style='background: #AEF1AE'>            else
+</span>50 <span style=''></span><span style='background: #AEF1AE'>          tag
+</span>51 <span style=''></span><span style='background: #AEF1AE'>        , a.toString, dummyMark, dummyMark, DumperOptions.ScalarStyle.PLAIN)</span><span style=''>
+</span>52 <span style=''>
+</span>53 <span style=''>  def makeStructFieldConverter(implicit renderOptions: Map[String, String]): StructValueConverter = {
+</span>54 <span style=''>    case BooleanType =&gt;
+</span>55 <span style=''>      (i: InternalRow, p: Int) =&gt;
+</span>56 <span style=''>        </span><span style='background: #AEF1AE'>createScalarNode( Tag.BOOL, i.getBoolean(p) )</span><span style=''>
+</span>57 <span style=''>
+</span>58 <span style=''>    case ByteType =&gt;
+</span>59 <span style=''>      (i: InternalRow, p: Int) =&gt;
+</span>60 <span style=''>        </span><span style='background: #AEF1AE'>createScalarNode( Tag.INT, i.getByte(p).toInt )</span><span style=''>
+</span>61 <span style=''>
+</span>62 <span style=''>    case ShortType =&gt;
+</span>63 <span style=''>      (i: InternalRow, p: Int) =&gt;
+</span>64 <span style=''>        </span><span style='background: #F0ADAD'>createScalarNode( Tag.INT, i.getShort(p).toInt )</span><span style=''>
+</span>65 <span style=''>
+</span>66 <span style=''>    case IntegerType =&gt;
+</span>67 <span style=''>      (i: InternalRow, p: Int) =&gt;
+</span>68 <span style=''>        </span><span style='background: #AEF1AE'>createScalarNode( Tag.INT, i.getInt(p) )</span><span style=''>
+</span>69 <span style=''>
+</span>70 <span style=''>    case LongType =&gt;
+</span>71 <span style=''>      (i: InternalRow, p: Int) =&gt;
+</span>72 <span style=''>        </span><span style='background: #F0ADAD'>createScalarNode( Tag.INT, i.getLong(p) )</span><span style=''>
+</span>73 <span style=''>
+</span>74 <span style=''>    case FloatType =&gt;
+</span>75 <span style=''>      (i: InternalRow, p: Int) =&gt;
+</span>76 <span style=''>        </span><span style='background: #AEF1AE'>createScalarNode( Tag.FLOAT, i.getFloat(p) )</span><span style=''>
+</span>77 <span style=''>
+</span>78 <span style=''>    case DoubleType =&gt;
+</span>79 <span style=''>      (i: InternalRow, p: Int) =&gt;
+</span>80 <span style=''>        </span><span style='background: #AEF1AE'>createScalarNode( Tag.FLOAT, i.getDouble(p) )</span><span style=''>
+</span>81 <span style=''>
+</span>82 <span style=''>    case StringType =&gt;
+</span>83 <span style=''>      (i: InternalRow, p: Int) =&gt;
+</span>84 <span style=''>        </span><span style='background: #AEF1AE'>createScalarNode( Tag.STR, i.getUTF8String(p) )</span><span style=''>
+</span>85 <span style=''>
+</span>86 <span style=''>    case TimestampType =&gt;
+</span>87 <span style=''>      (i: InternalRow, p: Int) =&gt;
+</span>88 <span style=''>        </span><span style='background: #AEF1AE'>createScalarNode( Tag.INT, i.getLong(p) )</span><span style=''>
+</span>89 <span style=''>
+</span>90 <span style=''>    case DateType =&gt;
+</span>91 <span style=''>      (i: InternalRow, p: Int) =&gt;
+</span>92 <span style=''>        </span><span style='background: #AEF1AE'>createScalarNode( Tag.INT, i.getInt(p) )</span><span style=''>
+</span>93 <span style=''>
+</span>94 <span style=''>    case BinaryType =&gt;
+</span>95 <span style=''>      (i: InternalRow, p: Int) =&gt;
+</span>96 <span style=''>        </span><span style='background: #AEF1AE'>createScalarNode( Tag.BINARY, Base64.getEncoder.encodeToString(i.getBinary(p)) )</span><span style=''>
+</span>97 <span style=''>
+</span>98 <span style=''>    case dt: DecimalType =&gt;
+</span>99 <span style=''>      (i: InternalRow, p: Int) =&gt;
+</span>100 <span style=''>        </span><span style='background: #F0ADAD'>createScalarNode( Tag.FLOAT, i.getDecimal(p, dt.precision, dt.scale).toJavaBigDecimal )</span><span style=''>
+</span>101 <span style=''>
+</span>102 <span style=''>    case st: StructType =&gt;
+</span>103 <span style=''>      val sf = </span><span style='background: #F0ADAD'>createStructNode(st)</span><span style=''>
+</span>104 <span style=''>      (i: InternalRow, p: Int) =&gt; {
+</span>105 <span style=''>        val row = </span><span style='background: #F0ADAD'>i.getStruct(p, st.size)</span><span style=''>
+</span>106 <span style=''>        </span><span style='background: #F0ADAD'>sf(row)</span><span style=''>
+</span>107 <span style=''>      }
+</span>108 <span style=''>
+</span>109 <span style=''>    case at: ArrayType =&gt;
+</span>110 <span style=''>      val af = </span><span style='background: #F0ADAD'>createSequenceNode(at)</span><span style=''>
+</span>111 <span style=''>      (i: InternalRow, p: Int) =&gt; {
+</span>112 <span style=''>        val ar = </span><span style='background: #F0ADAD'>i.getArray(p)</span><span style=''>
+</span>113 <span style=''>        </span><span style='background: #AEF1AE'>af(ar)</span><span style=''>
+</span>114 <span style=''>      }
+</span>115 <span style=''>
+</span>116 <span style=''>    case mt: MapType =&gt;
+</span>117 <span style=''>      val keyType = </span><span style='background: #AEF1AE'>makeValueConverter.applyOrElse(mt.keyType, makeConverterExt)</span><span style=''>
+</span>118 <span style=''>      val valueType = </span><span style='background: #AEF1AE'>makeValueConverter.applyOrElse(mt.valueType, makeConverterExt)</span><span style=''>
+</span>119 <span style=''>      (i: InternalRow, p: Int) =&gt; {
+</span>120 <span style=''>        val map = </span><span style='background: #AEF1AE'>i.getMap(p)</span><span style=''>
+</span>121 <span style=''>
+</span>122 <span style=''>        </span><span style='background: #AEF1AE'>createMapNode(mt, map, keyType, valueType)</span><span style=''>
+</span>123 <span style=''>      }
+</span>124 <span style=''>
+</span>125 <span style=''>    case _: NullType =&gt;
+</span>126 <span style=''>      (i: InternalRow, p: Int) =&gt;
+</span>127 <span style=''>        </span><span style='background: #AEF1AE'>createNullNode</span><span style=''>
+</span>128 <span style=''>  }
+</span>129 <span style=''>
+</span>130 <span style=''>  private def createSequenceNode(at: ArrayType)(implicit renderOptions: Map[String, String]) = {
+</span>131 <span style=''>    val elementConverter = </span><span style='background: #AEF1AE'>makeValueConverter.applyOrElse(at.elementType, makeConverterExt)</span><span style=''>
+</span>132 <span style=''>    (ar: ArrayData) =&gt; {
+</span>133 <span style=''>      if (</span><span style='background: #AEF1AE'>ar == null</span><span style=''>)
+</span>134 <span style=''>        </span><span style='background: #AEF1AE'>createNullNode</span><span style=''>
+</span>135 <span style=''>      else </span><span style='background: #AEF1AE'>{
+</span>136 <span style=''></span><span style='background: #AEF1AE'>        val vals = Arrays.mapArray[Node](ar, at.elementType, elementConverter(_))
+</span>137 <span style=''></span><span style='background: #AEF1AE'>        new SequenceNode(Tag.SEQ, vals.toSeq.asJava, DumperOptions.FlowStyle.FLOW)
+</span>138 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>139 <span style=''>    }
+</span>140 <span style=''>  }
+</span>141 <span style=''>
+</span>142 <span style=''>  private def createMapNode(mt: MapType, map: MapData, keyType: Any =&gt; Node, valueType: Any =&gt; Node)(implicit renderOptions: Map[String, String]) =
+</span>143 <span style=''>    if (</span><span style='background: #AEF1AE'>map == null</span><span style=''>)
+</span>144 <span style=''>      </span><span style='background: #AEF1AE'>createNullNode</span><span style=''>
+</span>145 <span style=''>    else </span><span style='background: #AEF1AE'>{
+</span>146 <span style=''></span><span style='background: #AEF1AE'>      val smap = MapUtils.toScalaMap(map, mt.keyType, mt.valueType)
+</span>147 <span style=''></span><span style='background: #AEF1AE'>      val tuples =
+</span>148 <span style=''></span><span style='background: #AEF1AE'>        smap.map { case (k, v) =&gt;
+</span>149 <span style=''></span><span style='background: #AEF1AE'>          new NodeTuple(
+</span>150 <span style=''></span><span style='background: #AEF1AE'>            keyType(k),
+</span>151 <span style=''></span><span style='background: #AEF1AE'>            valueType(v)
+</span>152 <span style=''></span><span style='background: #AEF1AE'>          )
+</span>153 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>154 <span style=''></span><span style='background: #AEF1AE'>      new MappingNode(Tag.MAP, tuples.toSeq.asJava, DumperOptions.FlowStyle.FLOW)
+</span>155 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>156 <span style=''>
+</span>157 <span style=''>  private def createStructNode(st: StructType)(implicit renderOptions: Map[String, String]) = {
+</span>158 <span style=''>    val converters = </span><span style='background: #AEF1AE'>st.fields.map(f =&gt;
+</span>159 <span style=''></span><span style='background: #AEF1AE'>      makeStructFieldConverter.applyOrElse(f.dataType, makeStructFieldConverterExt))</span><span style=''>
+</span>160 <span style=''>
+</span>161 <span style=''>    (row: InternalRow) =&gt; {
+</span>162 <span style=''>      if (</span><span style='background: #AEF1AE'>row == null</span><span style=''>)
+</span>163 <span style=''>        </span><span style='background: #AEF1AE'>createNullNode</span><span style=''>
+</span>164 <span style=''>      else </span><span style='background: #AEF1AE'>{
+</span>165 <span style=''></span><span style='background: #AEF1AE'>        val tuples = st.fields.zipWithIndex.map {
+</span>166 <span style=''></span><span style='background: #AEF1AE'>          case (field, index) =&gt;
+</span>167 <span style=''></span><span style='background: #AEF1AE'>            new NodeTuple(
+</span>168 <span style=''></span><span style='background: #AEF1AE'>              createScalarNode(Tag.STR, field.name),
+</span>169 <span style=''></span><span style='background: #AEF1AE'>              converters(index)(row, index)
+</span>170 <span style=''></span><span style='background: #AEF1AE'>            )
+</span>171 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>172 <span style=''></span><span style='background: #AEF1AE'>        new MappingNode(Tag.MAP, tuples.toSeq.asJava, DumperOptions.FlowStyle.FLOW)
+</span>173 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>174 <span style=''>    }
+</span>175 <span style=''>  }
+</span>176 <span style=''>
+</span>177 <span style=''>  def makeValueConverter(implicit renderOptions: Map[String, String]): ValueConverter = {
+</span>178 <span style=''>    case ByteType | ShortType | IntegerType | LongType | TimestampType | DateType =&gt;
+</span>179 <span style=''>      (a: Any) =&gt;
+</span>180 <span style=''>        </span><span style='background: #AEF1AE'>createScalarNode( Tag.INT, a )</span><span style=''>
+</span>181 <span style=''>
+</span>182 <span style=''>    case FloatType | DoubleType | _: DecimalType =&gt;
+</span>183 <span style=''>      (a: Any) =&gt;
+</span>184 <span style=''>        </span><span style='background: #AEF1AE'>createScalarNode( Tag.FLOAT, a )</span><span style=''>
+</span>185 <span style=''>
+</span>186 <span style=''>    case StringType =&gt;
+</span>187 <span style=''>      (a: Any) =&gt;
+</span>188 <span style=''>        </span><span style='background: #AEF1AE'>createScalarNode( Tag.STR, a )</span><span style=''>
+</span>189 <span style=''>
+</span>190 <span style=''>    case BooleanType =&gt;
+</span>191 <span style=''>      (a: Any) =&gt;
+</span>192 <span style=''>        </span><span style='background: #AEF1AE'>createScalarNode( Tag.BOOL, a )</span><span style=''>
+</span>193 <span style=''>
+</span>194 <span style=''>    case BinaryType =&gt;
+</span>195 <span style=''>      (a: Any) =&gt;
+</span>196 <span style=''>        </span><span style='background: #AEF1AE'>createScalarNode( Tag.BINARY, Base64.getEncoder.encodeToString(a.asInstanceOf[Array[Byte]]))</span><span style=''>
+</span>197 <span style=''>
+</span>198 <span style=''>    case st: StructType =&gt;
+</span>199 <span style=''>      val sf = </span><span style='background: #AEF1AE'>createStructNode(st)</span><span style=''>
+</span>200 <span style=''>      (a: Any) =&gt;
+</span>201 <span style=''>        </span><span style='background: #AEF1AE'>sf(a.asInstanceOf[InternalRow])</span><span style=''>
+</span>202 <span style=''>
+</span>203 <span style=''>    case at: ArrayType =&gt;
+</span>204 <span style=''>      val af = </span><span style='background: #AEF1AE'>createSequenceNode(at)</span><span style=''>
+</span>205 <span style=''>      (a: Any) =&gt;
+</span>206 <span style=''>        </span><span style='background: #AEF1AE'>af(a.asInstanceOf[ArrayData])</span><span style=''>
+</span>207 <span style=''>
+</span>208 <span style=''>    case mt: MapType =&gt;
+</span>209 <span style=''>      val keyType = </span><span style='background: #AEF1AE'>makeValueConverter.applyOrElse(mt.keyType, makeConverterExt)</span><span style=''>
+</span>210 <span style=''>      val valueType = </span><span style='background: #AEF1AE'>makeValueConverter.applyOrElse(mt.valueType, makeConverterExt)</span><span style=''>
+</span>211 <span style=''>      (a: Any) =&gt; {
+</span>212 <span style=''>        val map = </span><span style='background: #AEF1AE'>a.asInstanceOf[MapData]</span><span style=''>
+</span>213 <span style=''>        </span><span style='background: #AEF1AE'>createMapNode(mt, map, keyType, valueType)</span><span style=''>
+</span>214 <span style=''>      }
+</span>215 <span style=''>
+</span>216 <span style=''>    case _: NullType =&gt;
+</span>217 <span style=''>      (a: Any) =&gt;
+</span>218 <span style=''>        </span><span style='background: #AEF1AE'>createNullNode</span><span style=''>
+</span>219 <span style=''>  }
+</span>220 <span style=''>
+</span>221 <span style=''>}
+</span>222 <span style=''>
+</span>223 <span style=''>case class YamlEncoderExpr(child: Expression, implicit val renderOptions: Map[String, String]) extends UnaryExpression with CodegenFallback {
+</span>224 <span style=''>  import QualityYamlEncoding._
+</span>225 <span style=''>  import org.apache.spark.sql.QualityYamlExt._
+</span>226 <span style=''>
+</span>227 <span style=''>  protected def withNewChildInternal(newChild: Expression): Expression = </span><span style='background: #AEF1AE'>copy(child = newChild)</span><span style=''>
+</span>228 <span style=''>
+</span>229 <span style=''>  lazy val valueConverter: Converter =
+</span>230 <span style=''>    makeValueConverter.applyOrElse(child.dataType, makeConverterExt)
+</span>231 <span style=''>
+</span>232 <span style=''>  override def eval(inputRow: InternalRow): Any = {
+</span>233 <span style=''>    val input = </span><span style='background: #AEF1AE'>child.eval(inputRow)</span><span style=''>
+</span>234 <span style=''>
+</span>235 <span style=''>    val writer = </span><span style='background: #AEF1AE'>new StringWriter()</span><span style=''>
+</span>236 <span style=''>    val options = </span><span style='background: #AEF1AE'>new DumperOptions()</span><span style=''>
+</span>237 <span style=''>    import org.yaml.snakeyaml.DumperOptions
+</span>238 <span style=''>    </span><span style='background: #AEF1AE'>options.setDefaultFlowStyle(DumperOptions.FlowStyle.FLOW)</span><span style=''>
+</span>239 <span style=''>
+</span>240 <span style=''>    val resolver = </span><span style='background: #AEF1AE'>new Resolver</span><span style=''>
+</span>241 <span style=''>    val node = </span><span style='background: #AEF1AE'>valueConverter(input)</span><span style=''>
+</span>242 <span style=''>
+</span>243 <span style=''>    // 1.24 and 1.33 aren't compatible interface for serialize so Yaml.serialize(node, output) isn't an option
+</span>244 <span style=''>    val serializer = </span><span style='background: #AEF1AE'>new Serializer(new Emitter(writer, options), resolver, options, null)</span><span style=''>
+</span>245 <span style=''>    try {
+</span>246 <span style=''>      </span><span style='background: #AEF1AE'>serializer.open()
+</span>247 <span style=''></span><span style='background: #AEF1AE'>      serializer.serialize(node)
+</span>248 <span style=''></span><span style='background: #AEF1AE'>      serializer.close()</span><span style=''>
+</span>249 <span style=''>    } catch {
+</span>250 <span style=''>      case e: IOException =&gt;
+</span>251 <span style=''>        </span><span style='background: #AEF1AE'>throw new YAMLException(e)</span><span style=''>
+</span>252 <span style=''>    }
+</span>253 <span style=''>
+</span>254 <span style=''>    val str = </span><span style='background: #AEF1AE'>writer.getBuffer.toString</span><span style=''>
+</span>255 <span style=''>    </span><span style='background: #AEF1AE'>writer.close()</span><span style=''>
+</span>256 <span style=''>    </span><span style='background: #AEF1AE'>UTF8String.fromString(str)</span><span style=''>
+</span>257 <span style=''>  }
+</span>258 <span style=''>
+</span>259 <span style=''>  override def dataType: DataType = </span><span style='background: #AEF1AE'>StringType</span><span style=''>
+</span>260 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          8702
+        </td>
+        <td>
+          1165
+          -
+          1169
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          8703
+        </td>
+        <td>
+          1251
+          -
+          1283
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.createScalarNode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualityYamlEncoding.this.createScalarNode(org.yaml.snakeyaml.nodes.Tag.NULL, null)(renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          8704
+        </td>
+        <td>
+          1306
+          -
+          1322
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          classOf[org.apache.spark.sql.types.Decimal]
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          8705
+        </td>
+        <td>
+          1341
+          -
+          1360
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          classOf[org.apache.spark.unsafe.types.UTF8String]
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          8706
+        </td>
+        <td>
+          1470
+          -
+          1479
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Any.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          a.==(null)
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          8708
+        </td>
+        <td>
+          1512
+          -
+          1518
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;null&quot;
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          8711
+        </td>
+        <td>
+          1542
+          -
+          1573
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          PLAIN
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          8710
+        </td>
+        <td>
+          1531
+          -
+          1540
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.dummyMark
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualityYamlEncoding.this.dummyMark
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          8713
+        </td>
+        <td>
+          1487
+          -
+          1574
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.yaml.snakeyaml.nodes.ScalarNode.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new org.yaml.snakeyaml.nodes.ScalarNode(org.yaml.snakeyaml.nodes.Tag.NULL, &quot;null&quot;, QualityYamlEncoding.this.dummyMark, QualityYamlEncoding.this.dummyMark, PLAIN)
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          8707
+        </td>
+        <td>
+          1502
+          -
+          1510
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.yaml.snakeyaml.nodes.Tag.NULL
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.yaml.snakeyaml.nodes.Tag.NULL
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          8709
+        </td>
+        <td>
+          1520
+          -
+          1529
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.dummyMark
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualityYamlEncoding.this.dummyMark
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          8712
+        </td>
+        <td>
+          1487
+          -
+          1574
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.yaml.snakeyaml.nodes.ScalarNode.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new org.yaml.snakeyaml.nodes.ScalarNode(org.yaml.snakeyaml.nodes.Tag.NULL, &quot;null&quot;, QualityYamlEncoding.this.dummyMark, QualityYamlEncoding.this.dummyMark, PLAIN)
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          8728
+        </td>
+        <td>
+          1590
+          -
+          1978
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.yaml.snakeyaml.nodes.ScalarNode.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new org.yaml.snakeyaml.nodes.ScalarNode(if (renderOptions.get(&quot;useFullScalarType&quot;).exists(((x$1: String) =&gt; scala.Predef.augmentString(x$1).toBoolean)))
+  new org.yaml.snakeyaml.nodes.Tag(a.getClass() match {
+    case QualityYamlEncoding.this.DecimalClass =&gt; classOf[java.math.BigDecimal]
+    case QualityYamlEncoding.this.UTF8Class =&gt; classOf[java.lang.String]
+    case (e @ _) =&gt; e
+  })
+else
+  tag, a.toString(), QualityYamlEncoding.this.dummyMark, QualityYamlEncoding.this.dummyMark, PLAIN)
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          8727
+        </td>
+        <td>
+          1590
+          -
+          1978
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.yaml.snakeyaml.nodes.ScalarNode.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new org.yaml.snakeyaml.nodes.ScalarNode(if (renderOptions.get(&quot;useFullScalarType&quot;).exists(((x$1: String) =&gt; scala.Predef.augmentString(x$1).toBoolean)))
+  new org.yaml.snakeyaml.nodes.Tag(a.getClass() match {
+    case QualityYamlEncoding.this.DecimalClass =&gt; classOf[java.math.BigDecimal]
+    case QualityYamlEncoding.this.UTF8Class =&gt; classOf[java.lang.String]
+    case (e @ _) =&gt; e
+  })
+else
+  tag, a.toString(), QualityYamlEncoding.this.dummyMark, QualityYamlEncoding.this.dummyMark, PLAIN)
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          8714
+        </td>
+        <td>
+          1636
+          -
+          1655
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;useFullScalarType&quot;
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          8716
+        </td>
+        <td>
+          1618
+          -
+          1676
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.exists
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          renderOptions.get(&quot;useFullScalarType&quot;).exists(((x$1: String) =&gt; scala.Predef.augmentString(x$1).toBoolean))
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          8715
+        </td>
+        <td>
+          1664
+          -
+          1675
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.toBoolean
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.augmentString(x$1).toBoolean
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          8717
+        </td>
+        <td>
+          1696
+          -
+          1706
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Any.getClass
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          a.getClass()
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          8720
+        </td>
+        <td>
+          1688
+          -
+          1870
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.yaml.snakeyaml.nodes.Tag.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new org.yaml.snakeyaml.nodes.Tag(a.getClass() match {
+  case QualityYamlEncoding.this.DecimalClass =&gt; classOf[java.math.BigDecimal]
+  case QualityYamlEncoding.this.UTF8Class =&gt; classOf[java.lang.String]
+  case (e @ _) =&gt; e
+})
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          8721
+        </td>
+        <td>
+          1688
+          -
+          1870
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.yaml.snakeyaml.nodes.Tag.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new org.yaml.snakeyaml.nodes.Tag(a.getClass() match {
+  case QualityYamlEncoding.this.DecimalClass =&gt; classOf[java.math.BigDecimal]
+  case QualityYamlEncoding.this.UTF8Class =&gt; classOf[java.lang.String]
+  case (e @ _) =&gt; e
+})
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          8718
+        </td>
+        <td>
+          1748
+          -
+          1777
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          classOf[java.math.BigDecimal]
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          8719
+        </td>
+        <td>
+          1808
+          -
+          1833
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          classOf[java.lang.String]
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          8722
+        </td>
+        <td>
+          1898
+          -
+          1901
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.tag
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          tag
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          8723
+        </td>
+        <td>
+          1912
+          -
+          1922
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Any.toString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          a.toString()
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          8726
+        </td>
+        <td>
+          1946
+          -
+          1977
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          PLAIN
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          8725
+        </td>
+        <td>
+          1935
+          -
+          1944
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.dummyMark
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualityYamlEncoding.this.dummyMark
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          8724
+        </td>
+        <td>
+          1924
+          -
+          1933
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.dummyMark
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualityYamlEncoding.this.dummyMark
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          8757
+        </td>
+        <td>
+          2080
+          -
+          2080
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.$anonfun.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          8729
+        </td>
+        <td>
+          2148
+          -
+          2193
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.createScalarNode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualityYamlEncoding.this.createScalarNode(org.yaml.snakeyaml.nodes.Tag.BOOL, i.getBoolean(p))(renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          8730
+        </td>
+        <td>
+          2258
+          -
+          2305
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.createScalarNode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualityYamlEncoding.this.createScalarNode(org.yaml.snakeyaml.nodes.Tag.INT, i.getByte(p).toInt)(renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          8731
+        </td>
+        <td>
+          2371
+          -
+          2419
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.createScalarNode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          QualityYamlEncoding.this.createScalarNode(org.yaml.snakeyaml.nodes.Tag.INT, i.getShort(p).toInt)(renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          8732
+        </td>
+        <td>
+          2487
+          -
+          2527
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.createScalarNode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualityYamlEncoding.this.createScalarNode(org.yaml.snakeyaml.nodes.Tag.INT, i.getInt(p))(renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          8733
+        </td>
+        <td>
+          2592
+          -
+          2633
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.createScalarNode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          QualityYamlEncoding.this.createScalarNode(org.yaml.snakeyaml.nodes.Tag.INT, i.getLong(p))(renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          8734
+        </td>
+        <td>
+          2699
+          -
+          2743
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.createScalarNode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualityYamlEncoding.this.createScalarNode(org.yaml.snakeyaml.nodes.Tag.FLOAT, i.getFloat(p))(renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          8735
+        </td>
+        <td>
+          2810
+          -
+          2855
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.createScalarNode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualityYamlEncoding.this.createScalarNode(org.yaml.snakeyaml.nodes.Tag.FLOAT, i.getDouble(p))(renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          8736
+        </td>
+        <td>
+          2922
+          -
+          2969
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.createScalarNode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualityYamlEncoding.this.createScalarNode(org.yaml.snakeyaml.nodes.Tag.STR, i.getUTF8String(p))(renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          8737
+        </td>
+        <td>
+          3039
+          -
+          3080
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.createScalarNode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualityYamlEncoding.this.createScalarNode(org.yaml.snakeyaml.nodes.Tag.INT, i.getLong(p))(renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          8738
+        </td>
+        <td>
+          3145
+          -
+          3185
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.createScalarNode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualityYamlEncoding.this.createScalarNode(org.yaml.snakeyaml.nodes.Tag.INT, i.getInt(p))(renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          8739
+        </td>
+        <td>
+          3252
+          -
+          3332
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.createScalarNode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualityYamlEncoding.this.createScalarNode(org.yaml.snakeyaml.nodes.Tag.BINARY, java.util.Base64.getEncoder().encodeToString(i.getBinary(p)))(renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          8740
+        </td>
+        <td>
+          3404
+          -
+          3491
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.createScalarNode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          QualityYamlEncoding.this.createScalarNode(org.yaml.snakeyaml.nodes.Tag.FLOAT, i.getDecimal(p, dt.precision, dt.scale).toJavaBigDecimal)(renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          8741
+        </td>
+        <td>
+          3535
+          -
+          3555
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.createStructNode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          QualityYamlEncoding.this.createStructNode(st)(renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          8743
+        </td>
+        <td>
+          3610
+          -
+          3633
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.SpecializedGetters.getStruct
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          i.getStruct(p, st.size)
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          8742
+        </td>
+        <td>
+          3625
+          -
+          3632
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.SeqLike.size
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          st.size
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          8744
+        </td>
+        <td>
+          3642
+          -
+          3649
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          sf.apply(row)
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          8745
+        </td>
+        <td>
+          3700
+          -
+          3722
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.createSequenceNode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          QualityYamlEncoding.this.createSequenceNode(at)(renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          8746
+        </td>
+        <td>
+          3776
+          -
+          3789
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.SpecializedGetters.getArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          i.getArray(p)
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          8747
+        </td>
+        <td>
+          3798
+          -
+          3804
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          af.apply(ar)
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          8750
+        </td>
+        <td>
+          3858
+          -
+          3918
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.PartialFunction.applyOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualityYamlEncoding.this.makeValueConverter(renderOptions).applyOrElse[org.apache.spark.sql.types.DataType, com.sparkutils.quality.impl.yaml.QualityYamlEncoding.Converter](mt.keyType, org.apache.spark.sql.QualityYamlExt.makeConverterExt(renderOptions))
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          8749
+        </td>
+        <td>
+          3901
+          -
+          3917
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          org.apache.spark.sql.QualityYamlExt.makeConverterExt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.QualityYamlExt.makeConverterExt(renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          8748
+        </td>
+        <td>
+          3889
+          -
+          3899
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.MapType.keyType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          mt.keyType
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          8753
+        </td>
+        <td>
+          3941
+          -
+          4003
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.PartialFunction.applyOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualityYamlEncoding.this.makeValueConverter(renderOptions).applyOrElse[org.apache.spark.sql.types.DataType, com.sparkutils.quality.impl.yaml.QualityYamlEncoding.Converter](mt.valueType, org.apache.spark.sql.QualityYamlExt.makeConverterExt(renderOptions))
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          8752
+        </td>
+        <td>
+          3986
+          -
+          4002
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          org.apache.spark.sql.QualityYamlExt.makeConverterExt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.QualityYamlExt.makeConverterExt(renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          8751
+        </td>
+        <td>
+          3972
+          -
+          3984
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.MapType.valueType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          mt.valueType
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          8754
+        </td>
+        <td>
+          4058
+          -
+          4069
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.SpecializedGetters.getMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          i.getMap(p)
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          8755
+        </td>
+        <td>
+          4079
+          -
+          4121
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.createMapNode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualityYamlEncoding.this.createMapNode(mt, map, keyType, valueType)(renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          8756
+        </td>
+        <td>
+          4197
+          -
+          4211
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.createNullNode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualityYamlEncoding.this.createNullNode(renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          8759
+        </td>
+        <td>
+          4388
+          -
+          4404
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          org.apache.spark.sql.QualityYamlExt.makeConverterExt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.QualityYamlExt.makeConverterExt(renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          8758
+        </td>
+        <td>
+          4372
+          -
+          4386
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.ArrayType.elementType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          at.elementType
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          8760
+        </td>
+        <td>
+          4341
+          -
+          4405
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.PartialFunction.applyOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualityYamlEncoding.this.makeValueConverter(renderOptions).applyOrElse[org.apache.spark.sql.types.DataType, com.sparkutils.quality.impl.yaml.QualityYamlEncoding.Converter](at.elementType, org.apache.spark.sql.QualityYamlExt.makeConverterExt(renderOptions))
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          8761
+        </td>
+        <td>
+          4441
+          -
+          4451
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ar.==(null)
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          8762
+        </td>
+        <td>
+          4461
+          -
+          4475
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.createNullNode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualityYamlEncoding.this.createNullNode(renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          8763
+        </td>
+        <td>
+          4461
+          -
+          4475
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.createNullNode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualityYamlEncoding.this.createNullNode(renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          135
+        </td>
+        <td>
+          8772
+        </td>
+        <td>
+          4487
+          -
+          4661
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val vals: Array[org.yaml.snakeyaml.nodes.Node] = com.sparkutils.quality.impl.util.Arrays.mapArray[org.yaml.snakeyaml.nodes.Node](ar, at.elementType, ((x$2: Any) =&gt; elementConverter.apply(x$2)))((ClassTag.apply[org.yaml.snakeyaml.nodes.Node](classOf[org.yaml.snakeyaml.nodes.Node]): scala.reflect.ClassTag[org.yaml.snakeyaml.nodes.Node]));
+  new org.yaml.snakeyaml.nodes.SequenceNode(org.yaml.snakeyaml.nodes.Tag.SEQ, scala.collection.JavaConverters.seqAsJavaListConverter[org.yaml.snakeyaml.nodes.Node](scala.Predef.refArrayOps[org.yaml.snakeyaml.nodes.Node](vals).toSeq).asJava, FLOW)
+}
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          8764
+        </td>
+        <td>
+          4534
+          -
+          4548
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.ArrayType.elementType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          at.elementType
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          8766
+        </td>
+        <td>
+          4508
+          -
+          4570
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.Arrays.mapArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.Arrays.mapArray[org.yaml.snakeyaml.nodes.Node](ar, at.elementType, ((x$2: Any) =&gt; elementConverter.apply(x$2)))((ClassTag.apply[org.yaml.snakeyaml.nodes.Node](classOf[org.yaml.snakeyaml.nodes.Node]): scala.reflect.ClassTag[org.yaml.snakeyaml.nodes.Node]))
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          8765
+        </td>
+        <td>
+          4550
+          -
+          4569
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          elementConverter.apply(x$2)
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          8768
+        </td>
+        <td>
+          4605
+          -
+          4615
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.SeqLike.toSeq
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.refArrayOps[org.yaml.snakeyaml.nodes.Node](vals).toSeq
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          8771
+        </td>
+        <td>
+          4579
+          -
+          4653
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.yaml.snakeyaml.nodes.SequenceNode.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new org.yaml.snakeyaml.nodes.SequenceNode(org.yaml.snakeyaml.nodes.Tag.SEQ, scala.collection.JavaConverters.seqAsJavaListConverter[org.yaml.snakeyaml.nodes.Node](scala.Predef.refArrayOps[org.yaml.snakeyaml.nodes.Node](vals).toSeq).asJava, FLOW)
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          8770
+        </td>
+        <td>
+          4624
+          -
+          4652
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          FLOW
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          8767
+        </td>
+        <td>
+          4596
+          -
+          4603
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.yaml.snakeyaml.nodes.Tag.SEQ
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.yaml.snakeyaml.nodes.Tag.SEQ
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          8769
+        </td>
+        <td>
+          4605
+          -
+          4622
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.convert.Decorators.AsJava.asJava
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.JavaConverters.seqAsJavaListConverter[org.yaml.snakeyaml.nodes.Node](scala.Predef.refArrayOps[org.yaml.snakeyaml.nodes.Node](vals).toSeq).asJava
+        </td>
+      </tr><tr>
+        <td>
+          143
+        </td>
+        <td>
+          8773
+        </td>
+        <td>
+          4829
+          -
+          4840
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          map.==(null)
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          8775
+        </td>
+        <td>
+          4848
+          -
+          4862
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.createNullNode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualityYamlEncoding.this.createNullNode(renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          8774
+        </td>
+        <td>
+          4848
+          -
+          4862
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.createNullNode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualityYamlEncoding.this.createNullNode(renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          8789
+        </td>
+        <td>
+          4872
+          -
+          5178
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val smap: Map[Any,Any] = com.sparkutils.quality.impl.MapUtils.toScalaMap(map, mt.keyType, mt.valueType);
+  val tuples: scala.collection.immutable.Iterable[org.yaml.snakeyaml.nodes.NodeTuple] = smap.map[org.yaml.snakeyaml.nodes.NodeTuple, scala.collection.immutable.Iterable[org.yaml.snakeyaml.nodes.NodeTuple]](((x0$1: (Any, Any)) =&gt; x0$1 match {
+    case (_1: Any, _2: Any)(Any, Any)((k @ _), (v @ _)) =&gt; new org.yaml.snakeyaml.nodes.NodeTuple(keyType.apply(k), valueType.apply(v))
+  }))(immutable.this.Iterable.canBuildFrom[org.yaml.snakeyaml.nodes.NodeTuple]);
+  new org.yaml.snakeyaml.nodes.MappingNode(org.yaml.snakeyaml.nodes.Tag.MAP, scala.collection.JavaConverters.seqAsJavaListConverter[org.yaml.snakeyaml.nodes.NodeTuple](tuples.toSeq).asJava, FLOW)
+}
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          8777
+        </td>
+        <td>
+          4928
+          -
+          4940
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.MapType.valueType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          mt.valueType
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          8776
+        </td>
+        <td>
+          4916
+          -
+          4926
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.MapType.keyType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          mt.keyType
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          8778
+        </td>
+        <td>
+          4891
+          -
+          4941
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.MapUtils.toScalaMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.MapUtils.toScalaMap(map, mt.keyType, mt.valueType)
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          8782
+        </td>
+        <td>
+          4978
+          -
+          4978
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Iterable.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          immutable.this.Iterable.canBuildFrom[org.yaml.snakeyaml.nodes.NodeTuple]
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          8783
+        </td>
+        <td>
+          4969
+          -
+          5090
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          smap.map[org.yaml.snakeyaml.nodes.NodeTuple, scala.collection.immutable.Iterable[org.yaml.snakeyaml.nodes.NodeTuple]](((x0$1: (Any, Any)) =&gt; x0$1 match {
+  case (_1: Any, _2: Any)(Any, Any)((k @ _), (v @ _)) =&gt; new org.yaml.snakeyaml.nodes.NodeTuple(keyType.apply(k), valueType.apply(v))
+}))(immutable.this.Iterable.canBuildFrom[org.yaml.snakeyaml.nodes.NodeTuple])
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          8781
+        </td>
+        <td>
+          5005
+          -
+          5080
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.yaml.snakeyaml.nodes.NodeTuple.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new org.yaml.snakeyaml.nodes.NodeTuple(keyType.apply(k), valueType.apply(v))
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          8779
+        </td>
+        <td>
+          5032
+          -
+          5042
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          keyType.apply(k)
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          8780
+        </td>
+        <td>
+          5056
+          -
+          5068
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          valueType.apply(v)
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          8786
+        </td>
+        <td>
+          5122
+          -
+          5141
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.convert.Decorators.AsJava.asJava
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.JavaConverters.seqAsJavaListConverter[org.yaml.snakeyaml.nodes.NodeTuple](tuples.toSeq).asJava
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          8788
+        </td>
+        <td>
+          5097
+          -
+          5172
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.yaml.snakeyaml.nodes.MappingNode.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new org.yaml.snakeyaml.nodes.MappingNode(org.yaml.snakeyaml.nodes.Tag.MAP, scala.collection.JavaConverters.seqAsJavaListConverter[org.yaml.snakeyaml.nodes.NodeTuple](tuples.toSeq).asJava, FLOW)
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          8785
+        </td>
+        <td>
+          5122
+          -
+          5134
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toSeq
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          tuples.toSeq
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          8784
+        </td>
+        <td>
+          5113
+          -
+          5120
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.yaml.snakeyaml.nodes.Tag.MAP
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.yaml.snakeyaml.nodes.Tag.MAP
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          8787
+        </td>
+        <td>
+          5143
+          -
+          5171
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          FLOW
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          8795
+        </td>
+        <td>
+          5297
+          -
+          5400
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](st.fields).map[(org.apache.spark.sql.catalyst.InternalRow, Int) =&gt; org.yaml.snakeyaml.nodes.Node, Array[(org.apache.spark.sql.catalyst.InternalRow, Int) =&gt; org.yaml.snakeyaml.nodes.Node]](((f: org.apache.spark.sql.types.StructField) =&gt; QualityYamlEncoding.this.makeStructFieldConverter(renderOptions).applyOrElse[org.apache.spark.sql.types.DataType, (org.apache.spark.sql.catalyst.InternalRow, Int) =&gt; org.yaml.snakeyaml.nodes.Node](f.dataType, org.apache.spark.sql.QualityYamlExt.makeStructFieldConverterExt(renderOptions))))(scala.this.Array.canBuildFrom[(org.apache.spark.sql.catalyst.InternalRow, Int) =&gt; org.yaml.snakeyaml.nodes.Node]((ClassTag.apply[(org.apache.spark.sql.catalyst.InternalRow, Int) =&gt; org.yaml.snakeyaml.nodes.Node](classOf[scala.Function2]): scala.reflect.ClassTag[(org.apache.spark.sql.catalyst.InternalRow, Int) =&gt; org.yaml.snakeyaml.nodes.Node])))
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          8794
+        </td>
+        <td>
+          5310
+          -
+          5310
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Array.canBuildFrom[(org.apache.spark.sql.catalyst.InternalRow, Int) =&gt; org.yaml.snakeyaml.nodes.Node]((ClassTag.apply[(org.apache.spark.sql.catalyst.InternalRow, Int) =&gt; org.yaml.snakeyaml.nodes.Node](classOf[scala.Function2]): scala.reflect.ClassTag[(org.apache.spark.sql.catalyst.InternalRow, Int) =&gt; org.yaml.snakeyaml.nodes.Node]))
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          8790
+        </td>
+        <td>
+          5297
+          -
+          5306
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.fields
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          st.fields
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          8791
+        </td>
+        <td>
+          5359
+          -
+          5369
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          f.dataType
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          8793
+        </td>
+        <td>
+          5322
+          -
+          5399
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.PartialFunction.applyOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualityYamlEncoding.this.makeStructFieldConverter(renderOptions).applyOrElse[org.apache.spark.sql.types.DataType, (org.apache.spark.sql.catalyst.InternalRow, Int) =&gt; org.yaml.snakeyaml.nodes.Node](f.dataType, org.apache.spark.sql.QualityYamlExt.makeStructFieldConverterExt(renderOptions))
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          8792
+        </td>
+        <td>
+          5371
+          -
+          5398
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          org.apache.spark.sql.QualityYamlExt.makeStructFieldConverterExt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.QualityYamlExt.makeStructFieldConverterExt(renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          162
+        </td>
+        <td>
+          8796
+        </td>
+        <td>
+          5440
+          -
+          5451
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          row.==(null)
+        </td>
+      </tr><tr>
+        <td>
+          163
+        </td>
+        <td>
+          8798
+        </td>
+        <td>
+          5461
+          -
+          5475
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.createNullNode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualityYamlEncoding.this.createNullNode(renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          163
+        </td>
+        <td>
+          8797
+        </td>
+        <td>
+          5461
+          -
+          5475
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.createNullNode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualityYamlEncoding.this.createNullNode(renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          164
+        </td>
+        <td>
+          8812
+        </td>
+        <td>
+          5487
+          -
+          5811
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val tuples: Array[org.yaml.snakeyaml.nodes.NodeTuple] = scala.Predef.refArrayOps[(org.apache.spark.sql.types.StructField, Int)](scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](st.fields).zipWithIndex[org.apache.spark.sql.types.StructField, Array[(org.apache.spark.sql.types.StructField, Int)]](scala.this.Array.canBuildFrom[(org.apache.spark.sql.types.StructField, Int)]((ClassTag.apply[(org.apache.spark.sql.types.StructField, Int)](classOf[scala.Tuple2]): scala.reflect.ClassTag[(org.apache.spark.sql.types.StructField, Int)])))).map[org.yaml.snakeyaml.nodes.NodeTuple, Array[org.yaml.snakeyaml.nodes.NodeTuple]](((x0$1: (org.apache.spark.sql.types.StructField, Int)) =&gt; x0$1 match {
+    case (_1: org.apache.spark.sql.types.StructField, _2: Int)(org.apache.spark.sql.types.StructField, Int)((field @ _), (index @ _)) =&gt; new org.yaml.snakeyaml.nodes.NodeTuple(QualityYamlEncoding.this.createScalarNode(org.yaml.snakeyaml.nodes.Tag.STR, field.name)(renderOptions), converters.apply(index).apply(row, index))
+  }))(scala.this.Array.canBuildFrom[org.yaml.snakeyaml.nodes.NodeTuple]((ClassTag.apply[org.yaml.snakeyaml.nodes.NodeTuple](classOf[org.yaml.snakeyaml.nodes.NodeTuple]): scala.reflect.ClassTag[org.yaml.snakeyaml.nodes.NodeTuple])));
+  new org.yaml.snakeyaml.nodes.MappingNode(org.yaml.snakeyaml.nodes.Tag.MAP, scala.collection.JavaConverters.seqAsJavaListConverter[org.yaml.snakeyaml.nodes.NodeTuple](scala.Predef.refArrayOps[org.yaml.snakeyaml.nodes.NodeTuple](tuples).toSeq).asJava, FLOW)
+}
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          8806
+        </td>
+        <td>
+          5510
+          -
+          5719
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.refArrayOps[(org.apache.spark.sql.types.StructField, Int)](scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](st.fields).zipWithIndex[org.apache.spark.sql.types.StructField, Array[(org.apache.spark.sql.types.StructField, Int)]](scala.this.Array.canBuildFrom[(org.apache.spark.sql.types.StructField, Int)]((ClassTag.apply[(org.apache.spark.sql.types.StructField, Int)](classOf[scala.Tuple2]): scala.reflect.ClassTag[(org.apache.spark.sql.types.StructField, Int)])))).map[org.yaml.snakeyaml.nodes.NodeTuple, Array[org.yaml.snakeyaml.nodes.NodeTuple]](((x0$1: (org.apache.spark.sql.types.StructField, Int)) =&gt; x0$1 match {
+  case (_1: org.apache.spark.sql.types.StructField, _2: Int)(org.apache.spark.sql.types.StructField, Int)((field @ _), (index @ _)) =&gt; new org.yaml.snakeyaml.nodes.NodeTuple(QualityYamlEncoding.this.createScalarNode(org.yaml.snakeyaml.nodes.Tag.STR, field.name)(renderOptions), converters.apply(index).apply(row, index))
+}))(scala.this.Array.canBuildFrom[org.yaml.snakeyaml.nodes.NodeTuple]((ClassTag.apply[org.yaml.snakeyaml.nodes.NodeTuple](classOf[org.yaml.snakeyaml.nodes.NodeTuple]): scala.reflect.ClassTag[org.yaml.snakeyaml.nodes.NodeTuple])))
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          8800
+        </td>
+        <td>
+          5520
+          -
+          5520
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Array.canBuildFrom[(org.apache.spark.sql.types.StructField, Int)]((ClassTag.apply[(org.apache.spark.sql.types.StructField, Int)](classOf[scala.Tuple2]): scala.reflect.ClassTag[(org.apache.spark.sql.types.StructField, Int)]))
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          8805
+        </td>
+        <td>
+          5537
+          -
+          5537
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Array.canBuildFrom[org.yaml.snakeyaml.nodes.NodeTuple]((ClassTag.apply[org.yaml.snakeyaml.nodes.NodeTuple](classOf[org.yaml.snakeyaml.nodes.NodeTuple]): scala.reflect.ClassTag[org.yaml.snakeyaml.nodes.NodeTuple]))
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          8799
+        </td>
+        <td>
+          5510
+          -
+          5519
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.fields
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          st.fields
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          8801
+        </td>
+        <td>
+          5510
+          -
+          5532
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.IndexedSeqOptimized.zipWithIndex
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](st.fields).zipWithIndex[org.apache.spark.sql.types.StructField, Array[(org.apache.spark.sql.types.StructField, Int)]](scala.this.Array.canBuildFrom[(org.apache.spark.sql.types.StructField, Int)]((ClassTag.apply[(org.apache.spark.sql.types.StructField, Int)](classOf[scala.Tuple2]): scala.reflect.ClassTag[(org.apache.spark.sql.types.StructField, Int)])))
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          8804
+        </td>
+        <td>
+          5584
+          -
+          5709
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.yaml.snakeyaml.nodes.NodeTuple.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new org.yaml.snakeyaml.nodes.NodeTuple(QualityYamlEncoding.this.createScalarNode(org.yaml.snakeyaml.nodes.Tag.STR, field.name)(renderOptions), converters.apply(index).apply(row, index))
+        </td>
+      </tr><tr>
+        <td>
+          168
+        </td>
+        <td>
+          8802
+        </td>
+        <td>
+          5613
+          -
+          5650
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.createScalarNode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualityYamlEncoding.this.createScalarNode(org.yaml.snakeyaml.nodes.Tag.STR, field.name)(renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          169
+        </td>
+        <td>
+          8803
+        </td>
+        <td>
+          5666
+          -
+          5695
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          converters.apply(index).apply(row, index)
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          8809
+        </td>
+        <td>
+          5753
+          -
+          5772
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.convert.Decorators.AsJava.asJava
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.JavaConverters.seqAsJavaListConverter[org.yaml.snakeyaml.nodes.NodeTuple](scala.Predef.refArrayOps[org.yaml.snakeyaml.nodes.NodeTuple](tuples).toSeq).asJava
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          8811
+        </td>
+        <td>
+          5728
+          -
+          5803
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.yaml.snakeyaml.nodes.MappingNode.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new org.yaml.snakeyaml.nodes.MappingNode(org.yaml.snakeyaml.nodes.Tag.MAP, scala.collection.JavaConverters.seqAsJavaListConverter[org.yaml.snakeyaml.nodes.NodeTuple](scala.Predef.refArrayOps[org.yaml.snakeyaml.nodes.NodeTuple](tuples).toSeq).asJava, FLOW)
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          8808
+        </td>
+        <td>
+          5753
+          -
+          5765
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.SeqLike.toSeq
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.refArrayOps[org.yaml.snakeyaml.nodes.NodeTuple](tuples).toSeq
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          8807
+        </td>
+        <td>
+          5744
+          -
+          5751
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.yaml.snakeyaml.nodes.Tag.MAP
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.yaml.snakeyaml.nodes.Tag.MAP
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          8810
+        </td>
+        <td>
+          5774
+          -
+          5802
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          FLOW
+        </td>
+      </tr><tr>
+        <td>
+          177
+        </td>
+        <td>
+          8833
+        </td>
+        <td>
+          5911
+          -
+          5911
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.$anonfun.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          180
+        </td>
+        <td>
+          8813
+        </td>
+        <td>
+          6024
+          -
+          6054
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.createScalarNode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualityYamlEncoding.this.createScalarNode(org.yaml.snakeyaml.nodes.Tag.INT, a)(renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          184
+        </td>
+        <td>
+          8814
+        </td>
+        <td>
+          6134
+          -
+          6166
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.createScalarNode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualityYamlEncoding.this.createScalarNode(org.yaml.snakeyaml.nodes.Tag.FLOAT, a)(renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          188
+        </td>
+        <td>
+          8815
+        </td>
+        <td>
+          6217
+          -
+          6247
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.createScalarNode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualityYamlEncoding.this.createScalarNode(org.yaml.snakeyaml.nodes.Tag.STR, a)(renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          192
+        </td>
+        <td>
+          8816
+        </td>
+        <td>
+          6299
+          -
+          6330
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.createScalarNode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualityYamlEncoding.this.createScalarNode(org.yaml.snakeyaml.nodes.Tag.BOOL, a)(renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          196
+        </td>
+        <td>
+          8817
+        </td>
+        <td>
+          6381
+          -
+          6473
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.createScalarNode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualityYamlEncoding.this.createScalarNode(org.yaml.snakeyaml.nodes.Tag.BINARY, java.util.Base64.getEncoder().encodeToString(a.asInstanceOf[Array[Byte]]))(renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          199
+        </td>
+        <td>
+          8818
+        </td>
+        <td>
+          6517
+          -
+          6537
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.createStructNode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualityYamlEncoding.this.createStructNode(st)(renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          201
+        </td>
+        <td>
+          8820
+        </td>
+        <td>
+          6564
+          -
+          6595
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          sf.apply(a.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow])
+        </td>
+      </tr><tr>
+        <td>
+          201
+        </td>
+        <td>
+          8819
+        </td>
+        <td>
+          6567
+          -
+          6594
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          a.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow]
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          8821
+        </td>
+        <td>
+          6638
+          -
+          6660
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.createSequenceNode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualityYamlEncoding.this.createSequenceNode(at)(renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          206
+        </td>
+        <td>
+          8822
+        </td>
+        <td>
+          6690
+          -
+          6715
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          a.asInstanceOf[org.apache.spark.sql.catalyst.util.ArrayData]
+        </td>
+      </tr><tr>
+        <td>
+          206
+        </td>
+        <td>
+          8823
+        </td>
+        <td>
+          6687
+          -
+          6716
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          af.apply(a.asInstanceOf[org.apache.spark.sql.catalyst.util.ArrayData])
+        </td>
+      </tr><tr>
+        <td>
+          209
+        </td>
+        <td>
+          8824
+        </td>
+        <td>
+          6793
+          -
+          6803
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.MapType.keyType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          mt.keyType
+        </td>
+      </tr><tr>
+        <td>
+          209
+        </td>
+        <td>
+          8826
+        </td>
+        <td>
+          6762
+          -
+          6822
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.PartialFunction.applyOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualityYamlEncoding.this.makeValueConverter(renderOptions).applyOrElse[org.apache.spark.sql.types.DataType, com.sparkutils.quality.impl.yaml.QualityYamlEncoding.Converter](mt.keyType, org.apache.spark.sql.QualityYamlExt.makeConverterExt(renderOptions))
+        </td>
+      </tr><tr>
+        <td>
+          209
+        </td>
+        <td>
+          8825
+        </td>
+        <td>
+          6805
+          -
+          6821
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          org.apache.spark.sql.QualityYamlExt.makeConverterExt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.QualityYamlExt.makeConverterExt(renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          210
+        </td>
+        <td>
+          8827
+        </td>
+        <td>
+          6876
+          -
+          6888
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.MapType.valueType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          mt.valueType
+        </td>
+      </tr><tr>
+        <td>
+          210
+        </td>
+        <td>
+          8829
+        </td>
+        <td>
+          6845
+          -
+          6907
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.PartialFunction.applyOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualityYamlEncoding.this.makeValueConverter(renderOptions).applyOrElse[org.apache.spark.sql.types.DataType, com.sparkutils.quality.impl.yaml.QualityYamlEncoding.Converter](mt.valueType, org.apache.spark.sql.QualityYamlExt.makeConverterExt(renderOptions))
+        </td>
+      </tr><tr>
+        <td>
+          210
+        </td>
+        <td>
+          8828
+        </td>
+        <td>
+          6890
+          -
+          6906
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          org.apache.spark.sql.QualityYamlExt.makeConverterExt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.QualityYamlExt.makeConverterExt(renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          212
+        </td>
+        <td>
+          8830
+        </td>
+        <td>
+          6946
+          -
+          6969
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          a.asInstanceOf[org.apache.spark.sql.catalyst.util.MapData]
+        </td>
+      </tr><tr>
+        <td>
+          213
+        </td>
+        <td>
+          8831
+        </td>
+        <td>
+          6978
+          -
+          7020
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.createMapNode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualityYamlEncoding.this.createMapNode(mt, map, keyType, valueType)(renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          218
+        </td>
+        <td>
+          8832
+        </td>
+        <td>
+          7080
+          -
+          7094
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.QualityYamlEncoding.createNullNode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          QualityYamlEncoding.this.createNullNode(renderOptions)
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          8835
+        </td>
+        <td>
+          7397
+          -
+          7419
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.YamlEncoderExpr.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          YamlEncoderExpr.this.copy(newChild, YamlEncoderExpr.this.copy$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          8834
+        </td>
+        <td>
+          7397
+          -
+          7397
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.yaml.YamlEncoderExpr.copy$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          YamlEncoderExpr.this.copy$default$2
+        </td>
+      </tr><tr>
+        <td>
+          233
+        </td>
+        <td>
+          8836
+        </td>
+        <td>
+          7598
+          -
+          7618
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.eval
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          YamlEncoderExpr.this.child.eval(inputRow)
+        </td>
+      </tr><tr>
+        <td>
+          235
+        </td>
+        <td>
+          8837
+        </td>
+        <td>
+          7637
+          -
+          7655
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.StringWriter.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new java.io.StringWriter()
+        </td>
+      </tr><tr>
+        <td>
+          236
+        </td>
+        <td>
+          8838
+        </td>
+        <td>
+          7674
+          -
+          7693
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.yaml.snakeyaml.DumperOptions.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new org.yaml.snakeyaml.DumperOptions()
+        </td>
+      </tr><tr>
+        <td>
+          238
+        </td>
+        <td>
+          8839
+        </td>
+        <td>
+          7742
+          -
+          7799
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.yaml.snakeyaml.DumperOptions.setDefaultFlowStyle
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          options.setDefaultFlowStyle(FLOW)
+        </td>
+      </tr><tr>
+        <td>
+          240
+        </td>
+        <td>
+          8840
+        </td>
+        <td>
+          7820
+          -
+          7832
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.yaml.snakeyaml.resolver.Resolver.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new org.yaml.snakeyaml.resolver.Resolver()
+        </td>
+      </tr><tr>
+        <td>
+          241
+        </td>
+        <td>
+          8841
+        </td>
+        <td>
+          7848
+          -
+          7869
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          YamlEncoderExpr.this.valueConverter.apply(input)
+        </td>
+      </tr><tr>
+        <td>
+          244
+        </td>
+        <td>
+          8842
+        </td>
+        <td>
+          8018
+          -
+          8046
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.yaml.snakeyaml.emitter.Emitter.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new org.yaml.snakeyaml.emitter.Emitter(writer, options)
+        </td>
+      </tr><tr>
+        <td>
+          244
+        </td>
+        <td>
+          8844
+        </td>
+        <td>
+          8003
+          -
+          8072
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.yaml.snakeyaml.serializer.Serializer.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new org.yaml.snakeyaml.serializer.Serializer(new org.yaml.snakeyaml.emitter.Emitter(writer, options), resolver, options, null)
+        </td>
+      </tr><tr>
+        <td>
+          244
+        </td>
+        <td>
+          8843
+        </td>
+        <td>
+          8067
+          -
+          8071
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          245
+        </td>
+        <td>
+          8848
+        </td>
+        <td>
+          8089
+          -
+          8164
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  serializer.open();
+  serializer.serialize(node);
+  serializer.close()
+}
+        </td>
+      </tr><tr>
+        <td>
+          246
+        </td>
+        <td>
+          8845
+        </td>
+        <td>
+          8089
+          -
+          8106
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.yaml.snakeyaml.serializer.Serializer.open
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          serializer.open()
+        </td>
+      </tr><tr>
+        <td>
+          247
+        </td>
+        <td>
+          8846
+        </td>
+        <td>
+          8113
+          -
+          8139
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.yaml.snakeyaml.serializer.Serializer.serialize
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          serializer.serialize(node)
+        </td>
+      </tr><tr>
+        <td>
+          248
+        </td>
+        <td>
+          8847
+        </td>
+        <td>
+          8146
+          -
+          8164
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.yaml.snakeyaml.serializer.Serializer.close
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          serializer.close()
+        </td>
+      </tr><tr>
+        <td>
+          251
+        </td>
+        <td>
+          8849
+        </td>
+        <td>
+          8216
+          -
+          8242
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          throw new org.yaml.snakeyaml.error.YAMLException(e)
+        </td>
+      </tr><tr>
+        <td>
+          254
+        </td>
+        <td>
+          8850
+        </td>
+        <td>
+          8264
+          -
+          8289
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.StringBuffer.toString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          writer.getBuffer().toString()
+        </td>
+      </tr><tr>
+        <td>
+          255
+        </td>
+        <td>
+          8851
+        </td>
+        <td>
+          8294
+          -
+          8308
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.StringWriter.close
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          writer.close()
+        </td>
+      </tr><tr>
+        <td>
+          256
+        </td>
+        <td>
+          8852
+        </td>
+        <td>
+          8313
+          -
+          8339
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.unsafe.types.UTF8String.fromString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.unsafe.types.UTF8String.fromString(str)
+        </td>
+      </tr><tr>
+        <td>
+          259
+        </td>
+        <td>
+          8853
+        </td>
+        <td>
+          8381
+          -
+          8391
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StringType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StringType
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
