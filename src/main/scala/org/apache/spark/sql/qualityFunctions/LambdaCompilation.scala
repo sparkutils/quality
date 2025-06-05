@@ -223,7 +223,7 @@ object LambdaCompilationUtils {
 
     // correctness with map lookup, ref eq should be fine
     val newTree =
-      expr.transformDown {
+      expr.transformUp {
         case e: HigherOrderFunction if compilationHandlers.contains(e.getClass.getName) =>
           replaceWithHandler(e, e.getClass.getName)
         case e @ FunN(_, _, Some(name), _, _, _) if compilationHandlers.contains(name) =>
