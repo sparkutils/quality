@@ -11,6 +11,7 @@ import org.apache.avro.generic.{GenericData, GenericDatumWriter, GenericRecord}
 import org.apache.avro.io.EncoderFactory
 import org.apache.spark.sql.{DataFrame, Encoders, QualitySparkUtils, ShimUtils, SparkSession}
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode}
 import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression, LeafExpression, MutableProjection, Projection, UnaryExpression}
 import org.apache.spark.sql.catalyst.trees.TreeNode
@@ -28,12 +29,25 @@ import scala.collection.JavaConverters._
 object StatefulTest {
   var initCount = 0
   var partitionCount = 0
+  var compiled = 0
+
+  def pumpInit(): Unit = {
+    initCount += 1
+  }
+
+  def raisePartitionCount(partitionIndex: Int): Unit = {
+    StatefulTest.partitionCount += partitionIndex
+  }
 }
 
-case class StatefulTestFallback() extends Expression with CodegenFallback with StatefulLike {
+case class StatefulTestFallback() extends StatefulTestBase with CodegenFallback with StatefulLike {
+  override def freshCopy(): StatefulLike = new StatefulTestFallback()
+}
+
+trait StatefulTestBase extends Expression with StatefulLike {
 
   {
-    StatefulTest.initCount += 1
+    StatefulTest.pumpInit()
   }
 
   override def fastEquals(other: TreeNode[_]): Boolean = this eq other
@@ -42,10 +56,8 @@ case class StatefulTestFallback() extends Expression with CodegenFallback with S
 
   override def dataType: DataType = IntegerType
 
-  override def freshCopy(): StatefulLike = new StatefulTestFallback()
-
   override protected def initializeInternal(partitionIndex: Int): Unit = {
-    StatefulTest.partitionCount += partitionIndex
+    StatefulTest.raisePartitionCount(partitionIndex)
   }
 
   override protected def evalInternal(input: InternalRow): Any = StatefulTest.partitionCount
@@ -53,6 +65,21 @@ case class StatefulTestFallback() extends Expression with CodegenFallback with S
   val children: Seq[Expression] = Nil
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = freshCopy()
 
+}
+
+case class StatefulTestCodeGen() extends StatefulTestBase with StatefulLike {
+  override def freshCopy(): StatefulLike = new StatefulTestCodeGen()
+
+  override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
+    ctx.addPartitionInitializationStatement(
+      s"""
+         com.sparkutils.qualityTests.StatefulTest.raisePartitionCount(partitionIndex);
+         """)
+    ev.copy(code = code"""
+      int ${ev.value} = com.sparkutils.qualityTests.StatefulTest.partitionCount();
+      boolean ${ev.isNull} = false;
+      """.stripMargin)
+  }
 }
 
 class NewPostingBean(){
@@ -1060,6 +1087,53 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
     testProcessor(processorb, 3)
 
     StatefulTest.initCount should be >= 3
+  } } } } }
+
+
+  test("codegenfallback stateful handling on instance/setpartition codegen") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+    import sparkSession.implicits._
+
+    val funReg = ShimUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
+    funReg("stateful_test", _ => StatefulTestCodeGen())
+
+    val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+      Rule(Id(30, 3), ExpressionRule("stateful_test()"))
+    ))))
+
+    implicit val bool = Encoders.INT
+    StatefulTest.initCount = 0
+    StatefulTest.partitionCount = 0
+
+    val processorF = ProcessFunctions.expressionRunnerFactoryT[TestOn, Int](rs, IntegerType,
+      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation)
+
+    def testProcessor(processor: Processor[TestOn, GeneralExpressionsResult[Int]], expectedPartition: Int) {
+      val res = map(testData, processor)
+      res.map(_.getRuleSetResults.asScala) shouldBe res.map(_.ruleSetResults)
+      res.map(_.ruleSetResults(Id(20,1))) shouldBe Seq.fill(6)(Map(
+        Id(30, 3) -> expectedPartition
+      ))
+    }
+
+    // when compiling the stateful test code should be rolled into the compilation
+    val processora = processorF.instance
+    processora.setPartition(1)
+    testProcessor(processora, 1)
+    (inCodegen, forceMutable) match {
+      case (true, false) => StatefulTest.initCount should be <= 2
+      case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 2
+      case _ => StatefulTest.initCount should be >= 2
+    }
+
+    val processorb = processorF.instance
+    processorb.setPartition(2)
+    testProcessor(processorb, 3)
+
+    (inCodegen, forceMutable) match {
+      case (true, false) => StatefulTest.initCount should be <= 2
+      case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 2
+      case _ => StatefulTest.initCount should be >= 2
+    }
   } } } } }
 
   test("codegenfallback stateful handling on instance/setpartition lazy") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {

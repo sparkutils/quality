@@ -553,7 +553,7 @@ case class InputWrapper(left: Expression, right: Expression) extends BinaryExpre
 
   override def nullable: Boolean = right.nullable
 
-  override def eval(input: InternalRow) = right.eval(input)
+  override def eval(input: InternalRow): Any = right.eval(input)
 
   protected def withNewChildrenInternal(newLeft: Expression, newRight: Expression): Expression = InputWrapper(newLeft, newRight)
 

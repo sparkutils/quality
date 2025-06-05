@@ -7,9 +7,11 @@ import com.sparkutils.quality.sparkless.{Processor, ProcessorFactory}
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.{DataFrame, Encoder, QualitySparkUtils, ShimUtils}
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
-import org.apache.spark.sql.catalyst.expressions.{BoundReference, Expression}
+import org.apache.spark.sql.catalyst.expressions.{BoundReference, Expression, HigherOrderFunction}
 import org.apache.spark.sql.catalyst.optimizer.ConstantFolding
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.qualityFunctions.FunN
+import org.apache.spark.sql.qualityFunctions.LambdaCompilationUtils.{LambdaCompilationHandler, compilationHandlers}
 import org.apache.spark.sql.types.{ArrayType, DataType, MapType, StructType}
 
 import scala.reflect.ClassTag
@@ -37,7 +39,9 @@ object Processors {
   val NO_QUERY_PLANS = "PlanExpressions (e.g. SubQueries) are not allowed in Processors"
 
   /**
-   * Are there any stateful expressions in interpreted mode (or fallback) require fresh copies
+   * Are there any stateful expressions in interpreted mode (or fallback) require fresh copies.
+   * Similarly if a hof isn't FunN and doesn't have a rewrite for it we cannot let it through as LambdaVariables are
+   * always stateful.
    * @param exprs These expressions must be fully resolved, bound and optimised
    * @param compile when false any stateful expression returns true, by default compilation for stateful CodegenFallback is true
    * @return
@@ -46,10 +50,12 @@ object Processors {
     exprs.exists(_.collect {
       case e: CodegenFallback if ShimUtils.isStateful(e) =>
         e
+      case e: HigherOrderFunction if !compilationHandlers.contains(e.getClass.getName) && !e.isInstanceOf[FunN] => e
     }.nonEmpty ) || ( !compile &&
       exprs.exists(_.collect {
         case e: Expression if ShimUtils.isStateful(e)  =>
           e
+        case e: HigherOrderFunction if !compilationHandlers.contains(e.getClass.getName) && !e.isInstanceOf[FunN] => e
       }.nonEmpty
     ))
 
