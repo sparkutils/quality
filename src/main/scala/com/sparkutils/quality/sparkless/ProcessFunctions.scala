@@ -51,7 +51,6 @@ object ProcessFunctions {
 
   /**
    * processor for DQ rules
-   * @param input
    * @tparam I
    * @return
    */
@@ -68,7 +67,6 @@ object ProcessFunctions {
 
   /**
    * processor for DQ rules returning a pair of overall RuleResult and RuleSuiteResultDetails
-   * @param input
    * @tparam I
    * @return
    */
@@ -78,7 +76,7 @@ object ProcessFunctions {
       forceVarCompilation: Boolean = false): ProcessorFactory[I, (RuleResult, RuleSuiteResultDetails)] = {
     import com.sparkutils.quality.implicits._
     val tup = TypedExpressionEncoder[(RuleResult, RuleSuiteResultDetails)]
-    processFactory[I, (RuleResult, RuleSuiteResultDetails)](addOverallResultsAndDetailsF(ruleSuite,
+    processFactory[I, (RuleResult, RuleSuiteResultDetails)](addOverallResultsAndDetailsWrapperF(ruleSuite,
       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval), 2, compile, forceMutable = forceMutable,
       extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)(
@@ -86,9 +84,23 @@ object ProcessFunctions {
     )
   }
 
+  private def addOverallResultsAndDetailsWrapper(dataFrame: DataFrame, rules: RuleSuite, overallResult: String = "DQ_overallResult",
+                                  resultDetails: String = "DQ_Details", compileEvals: Boolean = false,
+                                  forceRunnerEval: Boolean = false): DataFrame = {
+    val temporaryDQname: String = "DQ_TEMP_Quality"
+    addDataQuality(dataFrame, rules, temporaryDQname, compileEvals = compileEvals,
+      forceRunnerEval = forceRunnerEval).
+      selectExpr("*",s"processor_input_wrapper(account, $temporaryDQname.overallResult) as $overallResult",
+        s"ruleSuiteResultDetails(processor_input_wrapper(account, $temporaryDQname)) as $resultDetails").drop(temporaryDQname)
+  }
+
+  private def addOverallResultsAndDetailsWrapperF(rules: RuleSuite, compileEvals: Boolean = false,
+                                   forceRunnerEval: Boolean = false): DataFrame=> DataFrame =
+    addOverallResultsAndDetailsWrapper(_, rules, compileEvals = compileEvals,
+      forceRunnerEval = forceRunnerEval)
+
   /**
    * processor for DQ rules returning a pair of overall RuleResult and a LazyRuleSuiteResultDetails
-   * @param input
    * @tparam I
    * @return
    */
@@ -103,7 +115,9 @@ object ProcessFunctions {
     val tup = TypedExpressionEncoder[(RuleResult, InternalRow)]
     val defaultIfPassedProxy = defaultIfPassed.map(LazyRuleSuiteResultDetailsProxyImpl(_))
 
-    val r = processFactory[I, (RuleResult, InternalRow)](addOverallResultsAndDetailsF(ruleSuite,
+    val iEnc = implicitly[Encoder[I]]
+
+    val r = processFactory[I, (RuleResult, InternalRow)](addOverallResultsAndDetailsWrapperF(ruleSuite,
       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval), 2, compile, forceMutable = forceMutable,
       extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)(
@@ -125,20 +139,41 @@ object ProcessFunctions {
    * processor for ruleEngine with encoding over the nested T in RuleEngineResult[T].
    * *Note* you must use AgnosticEncoders in 3.4+ in order to be able to support Java collections/generics,
    * reflection via .bean is not sufficient for java generics.
-   * @param input
    * @tparam I the input type
    * @tparam T the result type of the rule engine
    * @return
    */
   def ruleEngineFactoryT[I: Encoder, T: Encoder](ruleSuite: RuleSuite, outputType: DataType, compile: Boolean = true,
-      debugMode: Boolean = false, compileEvals: Boolean = false,
+      compileEvals: Boolean = false,
       forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false, forceMutable: Boolean = false,
       extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
       forceVarCompilation: Boolean = false): ProcessorFactory[I, RuleEngineResult[T]] = {
     import com.sparkutils.quality.implicits._
     implicit val ttyped: TypedEncoder[T] = fromNormalEncoder[T](outputType)
     implicit val enc = TypedExpressionEncoder[RuleEngineResult[T]]
-    ruleEngineFactory[I, T](ruleSuite, outputType, compile = compile, debugMode = debugMode,
+    ruleEngineFactory[I, T](ruleSuite, outputType, compile = compile,
+      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval,
+      forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
+      forceVarCompilation = forceVarCompilation)
+  }
+
+  /**
+   * processor for ruleEngine with encoding over the nested T in RuleEngineResult[T].
+   * *Note* you must use AgnosticEncoders in 3.4+ in order to be able to support Java collections/generics,
+   * reflection via .bean is not sufficient for java generics.
+   * @tparam I the input type
+   * @tparam T the result type of the rule engine
+   * @return
+   */
+  def ruleEngineFactoryDebugT[I: Encoder, T: Encoder](ruleSuite: RuleSuite, outputType: DataType, compile: Boolean = true,
+                                                 compileEvals: Boolean = false,
+                                                 forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false, forceMutable: Boolean = false,
+                                                 extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
+                                                 forceVarCompilation: Boolean = false): ProcessorFactory[I, RuleEngineResult[Seq[(Int, T)]]] = {
+    import com.sparkutils.quality.implicits._
+    implicit val ttyped: TypedEncoder[T] = fromNormalEncoder[T](outputType)
+    implicit val enc = TypedExpressionEncoder[RuleEngineResult[Seq[(Int, T)]]]
+    iRuleEngineFactory[I, Seq[(Int, T)]](ruleSuite, outputType, compile = compile, debugMode = true,
       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval,
       forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)
@@ -148,13 +183,12 @@ object ProcessFunctions {
    * processor for ruleEngine with encoding over the nested T in RuleEngineResult[T] with lazy serialisation of the RuleSuiteResult.
    * *Note* you must use AgnosticEncoders in 3.4+ in order to be able to support Java collections/generics,
    * reflection via .bean is not sufficient for java generics.
-   * @param input
    * @tparam I the input type
    * @tparam T the result type of the rule engine
    * @return
    */
-  def layzRuleEngineFactory[I: Encoder, T: Encoder](ruleSuite: RuleSuite, outputType: DataType, compile: Boolean = true,
-                                                    debugMode: Boolean = false, compileEvals: Boolean = false,
+  def lazyRuleEngineFactory[I: Encoder, T: Encoder](ruleSuite: RuleSuite, outputType: DataType, compile: Boolean = true,
+                                                    compileEvals: Boolean = false,
                                                     forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false, forceMutable: Boolean = false,
                                                     extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
                                                     forceVarCompilation: Boolean = false)(implicit oenc: Encoder[Option[T]]): ProcessorFactory[I, LazyRuleEngineResult[T]] = {
@@ -164,7 +198,7 @@ object ProcessFunctions {
     implicit val ttyped: TypedEncoder[T] = fromNormalEncoder[T](outputType)
     implicit val enc = TypedExpressionEncoder[(InternalRow, Option[SalientRule], Option[T])]
 
-    val r = processFactory[I, (InternalRow, Option[SalientRule], Option[T])](ruleEngineWithStructF(ruleSuite, outputType, debugMode = debugMode,
+    val r = processFactory[I, (InternalRow, Option[SalientRule], Option[T])](ruleEngineWithStructF(ruleSuite, outputType,
       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval), 1, compile,
       forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)(
@@ -177,17 +211,27 @@ object ProcessFunctions {
 
   /**
    * processor for ruleEngine
-   * @param input
    * @tparam I
    * @tparam T result type
    * @return
    */
   def ruleEngineFactory[I: Encoder, T](ruleSuite: RuleSuite, outputType: DataType, compile: Boolean = true,
-      debugMode: Boolean = false, compileEvals: Boolean = false,
+      compileEvals: Boolean = false,
       forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false, forceMutable: Boolean = false,
       extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
       forceVarCompilation: Boolean = false)(implicit resEnc: Encoder[RuleEngineResult[T]]):
         ProcessorFactory[I, RuleEngineResult[T]] =
+    iRuleEngineFactory[I, T](ruleSuite, outputType, compile = compile,
+      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval,
+      forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
+      forceVarCompilation = forceVarCompilation)
+
+  private def iRuleEngineFactory[I: Encoder, T](ruleSuite: RuleSuite, outputType: DataType, compile: Boolean = true,
+                                       debugMode: Boolean = false, compileEvals: Boolean = false,
+                                       forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false, forceMutable: Boolean = false,
+                                       extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
+                                       forceVarCompilation: Boolean = false)(implicit resEnc: Encoder[RuleEngineResult[T]]):
+    ProcessorFactory[I, RuleEngineResult[T]] =
     processFactory[I, RuleEngineResult[T]](ruleEngineWithStructF(ruleSuite, outputType, debugMode = debugMode,
       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval), 1, compile,
       forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
@@ -198,20 +242,19 @@ object ProcessFunctions {
    * processor for ruleFolder with encoding over the nested T in RuleFolderResult[T].
    * *Note* you must use AgnosticEncoders in 3.4+ in order to be able to support Java collections/generics,
    * reflection via .bean is not sufficient for java generics.
-   * @param input
    * @tparam I the input type
    * @tparam T the result type of the rule engine
    * @return
    */
   def ruleFolderFactoryT[I: Encoder, T: Encoder](ruleSuite: RuleSuite, outputType: StructType, compile: Boolean = true,
-      debugMode: Boolean = false, compileEvals: Boolean = false,
+      compileEvals: Boolean = false,
       forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false, forceMutable: Boolean = false,
       extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
       forceVarCompilation: Boolean = false): ProcessorFactory[I, RuleFolderResult[T]] = {
     import com.sparkutils.quality.implicits._
     implicit val ttyped: TypedEncoder[T] = fromNormalEncoder[T](outputType)
     implicit val enc = TypedExpressionEncoder[RuleFolderResult[T]]
-    ruleFolderFactory[I, T](ruleSuite, outputType, compile = compile, debugMode = debugMode,
+    ruleFolderFactory[I, T](ruleSuite, outputType, compile = compile,
       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval,
       forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)
@@ -221,13 +264,12 @@ object ProcessFunctions {
    * processor for ruleFolder with encoding over the nested T in RuleFolderResult[T], lazy serialising RuleSuiteResults.
    * *Note* you must use AgnosticEncoders in 3.4+ in order to be able to support Java collections/generics,
    * reflection via .bean is not sufficient for java generics.
-   * @param input
    * @tparam I the input type
    * @tparam T the result type of the rule engine
    * @return
    */
   def lazyRuleFolderFactory[I: Encoder, T: Encoder](ruleSuite: RuleSuite, outputType: StructType, compile: Boolean = true,
-                                                    debugMode: Boolean = false, compileEvals: Boolean = false,
+                                                    compileEvals: Boolean = false,
                                                     forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false, forceMutable: Boolean = false,
                                                     extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
                                                     forceVarCompilation: Boolean = false): ProcessorFactory[I, LazyRuleFolderResult[T]] = {
@@ -237,7 +279,7 @@ object ProcessFunctions {
     implicit val ttyped: TypedEncoder[T] = fromNormalEncoder[T](outputType)
     implicit val enc = TypedExpressionEncoder[(InternalRow, Option[T])]
 
-    val r = processFactory[I, (InternalRow, Option[T])](foldAndReplaceFieldsWithStruct(ruleSuite, outputType, debugMode = debugMode,
+    val r = processFactory[I, (InternalRow, Option[T])](foldAndReplaceFieldsWithStruct(ruleSuite, outputType,
       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval), 1, compile,
       forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)(
@@ -250,18 +292,16 @@ object ProcessFunctions {
 
   /**
    * processor for ruleFolder
-   * @param input
    * @tparam I
    * @tparam T result type
    * @return
    */
-  def ruleFolderFactory[I: Encoder, T](ruleSuite: RuleSuite, outputType: StructType, compile: Boolean = true,
-      debugMode: Boolean = false, compileEvals: Boolean = false,
+  def ruleFolderFactory[I: Encoder, T](ruleSuite: RuleSuite, outputType: StructType, compile: Boolean = true, compileEvals: Boolean = false,
       forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false, forceMutable: Boolean = false,
       extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
       forceVarCompilation: Boolean = false)(implicit resEnc: Encoder[RuleFolderResult[T]]):
       ProcessorFactory[I, RuleFolderResult[T]] =
-    processFactory[I, RuleFolderResult[T]](foldAndReplaceFieldsWithStruct(ruleSuite, outputType, debugMode = debugMode,
+    processFactory[I, RuleFolderResult[T]](foldAndReplaceFieldsWithStruct(ruleSuite, outputType,
       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval), 1, compile,
       forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)(
@@ -271,20 +311,45 @@ object ProcessFunctions {
    * processor for ruleFolder with encoding over the nested T in RuleFolderResult[T].
    * *Note* you must use AgnosticEncoders in 3.4+ in order to be able to support Java collections/generics,
    * reflection via .bean is not sufficient for java generics.
-   * @param input
    * @tparam I the input type
    * @tparam T the result type of the rule engine
    * @return
    */
   def ruleFolderFactoryWithStructStarterT[I: Encoder, T: Encoder](ruleSuite: RuleSuite, fields: Seq[(String, Column)],
-      outputType: StructType, compile: Boolean = true, debugMode: Boolean = false, compileEvals: Boolean = false,
+      outputType: StructType, compile: Boolean = true, compileEvals: Boolean = false,
       forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false, forceMutable: Boolean = false,
       extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
       forceVarCompilation: Boolean = false): ProcessorFactory[I, RuleFolderResult[T]] = {
     import com.sparkutils.quality.implicits._
+
     implicit val ttyped: TypedEncoder[T] = fromNormalEncoder[T](outputType)
     implicit val enc = TypedExpressionEncoder[RuleFolderResult[T]]
-    ruleFolderFactoryWithStructStarter[I, T](ruleSuite, fields, outputType, compile = compile, debugMode = debugMode,
+
+    ruleFolderFactoryWithStructStarter[I, T](ruleSuite, fields, outputType, compile = compile,
+      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval,
+      forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
+      forceVarCompilation = forceVarCompilation)
+  }
+
+  /**
+   * processor for ruleFolder with encoding over the nested T in RuleFolderResult[T].
+   * *Note* you must use AgnosticEncoders in 3.4+ in order to be able to support Java collections/generics,
+   * reflection via .bean is not sufficient for java generics.
+   * @tparam I the input type
+   * @tparam T the result type of the rule engine
+   * @param fields must contain at least one input reference or the the expressions cannot be resolved
+   * @return
+   */
+  def ruleFolderFactoryWithStructStarterDebugT[I: Encoder, T: Encoder](ruleSuite: RuleSuite, fields: Seq[(String, Column)],
+                                                                  outputType: StructType, compile: Boolean = true, compileEvals: Boolean = false,
+                                                                  forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false, forceMutable: Boolean = false,
+                                                                  extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
+                                                                  forceVarCompilation: Boolean = false): ProcessorFactory[I, RuleFolderResult[Seq[(Int, T)]]] = {
+    import com.sparkutils.quality.implicits._
+    implicit val ttyped: TypedEncoder[T] = fromNormalEncoder[T](outputType)
+    implicit val enc = TypedExpressionEncoder[RuleFolderResult[Seq[(Int, T)]]]
+
+    iRuleFolderFactoryWithStructStarter[I, Seq[(Int, T)]](ruleSuite, fields, outputType, compile = compile, debugMode = true,
       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval,
       forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)
@@ -294,23 +359,22 @@ object ProcessFunctions {
    * processor for ruleFolder with encoding over the nested T in RuleFolderResult[T], lazily serialising the RuleSuiteResults
    * *Note* you must use AgnosticEncoders in 3.4+ in order to be able to support Java collections/generics,
    * reflection via .bean is not sufficient for java generics.
-   * @param input
    * @tparam I the input type
    * @tparam T the result type of the rule engine
    * @return
    */
-  def ruleFolderLazyFactoryWithStructStarter[I: Encoder, T: Encoder](ruleSuite: RuleSuite, fields: Seq[(String, Column)],
-                                                                  outputType: StructType, compile: Boolean = true, debugMode: Boolean = false, compileEvals: Boolean = false,
-                                                                  forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false, forceMutable: Boolean = false,
-                                                                  extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
-                                                                  forceVarCompilation: Boolean = false): ProcessorFactory[I, LazyRuleFolderResult[T]] = {
+  def lazyRuleFolderFactoryWithStructStarter[I: Encoder, T: Encoder](ruleSuite: RuleSuite, fields: Seq[(String, Column)],
+                                                                     outputType: StructType, compile: Boolean = true, compileEvals: Boolean = false,
+                                                                     forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false, forceMutable: Boolean = false,
+                                                                     extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
+                                                                     forceVarCompilation: Boolean = false): ProcessorFactory[I, LazyRuleFolderResult[T]] = {
     import com.sparkutils.quality.implicits._
     implicit val rowEnc = Encoders.internalRowTypedEnc(Encoders.ruleSuiteResultTypedEnc.catalystRepr)
 
     implicit val ttyped: TypedEncoder[T] = fromNormalEncoder[T](outputType)
     implicit val enc = TypedExpressionEncoder[(InternalRow, Option[T])]
 
-    val r = processFactory[I, (InternalRow, Option[T])](foldAndReplaceFieldPairsWithStruct(ruleSuite, fields, outputType, debugMode = debugMode,
+    val r = processFactory[I, (InternalRow, Option[T])](foldAndReplaceFieldPairsWithStruct(ruleSuite, fields, outputType,
       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval), 1, compile,
       forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)(
@@ -323,30 +387,44 @@ object ProcessFunctions {
 
   /**
    * processor for ruleFolder
-   * @param input
    * @tparam I
    * @tparam T result type
    * @return
    */
   def ruleFolderFactoryWithStructStarter[I: Encoder, T](ruleSuite: RuleSuite, fields: Seq[(String, Column)],
-      outputType: StructType, compile: Boolean = true, debugMode: Boolean = false, compileEvals: Boolean = false,
+      outputType: StructType, compile: Boolean = true, compileEvals: Boolean = false,
       forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false, forceMutable: Boolean = false,
       extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
       forceVarCompilation: Boolean = false)(implicit resEnc: Encoder[RuleFolderResult[T]]):
       ProcessorFactory[I, RuleFolderResult[T]] =
+    iRuleFolderFactoryWithStructStarter[I, T](ruleSuite, fields, outputType, compile = compile,
+      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval,
+      forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
+      forceVarCompilation = forceVarCompilation)
+
+  /**
+   * processor for ruleFolder
+   * @tparam I
+   * @tparam T result type
+   * @return
+   */
+  private def iRuleFolderFactoryWithStructStarter[I: Encoder, T](ruleSuite: RuleSuite, fields: Seq[(String, Column)],
+                                                        outputType: StructType, compile: Boolean = true, debugMode: Boolean = false, compileEvals: Boolean = false,
+                                                        forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false, forceMutable: Boolean = false,
+                                                        extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
+                                                        forceVarCompilation: Boolean = false)(implicit resEnc: Encoder[RuleFolderResult[T]]):
+  ProcessorFactory[I, RuleFolderResult[T]] =
     processFactory[I, RuleFolderResult[T]](foldAndReplaceFieldPairsWithStruct(ruleSuite, fields, outputType, debugMode = debugMode,
       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval), 1, compile,
       forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)(
       implicitly[Encoder[I]], resEnc)
 
-
   /**
    * processor for expressionRunner with encoding over the nested T in GeneralExpressionsResult[T].  You must supply
    * the outputType for T
    * *Note* you must use AgnosticEncoders in 3.4+ in order to be able to support Java collections/generics,
    * reflection via .bean is not sufficient for java generics.
-   * @param input
    * @tparam I the input type
    * @tparam T the result type of the rule engine
    * @return
@@ -387,7 +465,6 @@ object ProcessFunctions {
 
   /**
    * processor for expressionRunner producing Yaml, resulting in GeneralExpressionsResultNoDDL
-   * @param input
    * @tparam I
    * @return
    */
@@ -407,7 +484,6 @@ object ProcessFunctions {
 
   /**
    * processor for expressionRunner producing Yaml, resulting in GeneralExpressionsResultNoDDL
-   * @param input
    * @tparam I
    * @return
    */

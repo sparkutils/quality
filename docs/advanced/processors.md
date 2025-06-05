@@ -33,7 +33,7 @@ try {
 
 ### Stateful expressions ruin the fun
 
-Given the comment about "no Spark execution" why is a sparkSession present?  The Spark infrastructure is used to compile code, this requires a running spark task or session to obtain configuration and access to the implicits for encoder derivation.  **IF** the rules do not include stateful expressions (why would they?) and you use the default compilation this is also possible:
+Given the comment about "no Spark execution" why is a sparkSession present?  The Spark infrastructure is used to compile code, this requires a running spark task or session to obtain configuration and access to the implicits for encoder derivation.  **IF** the rules do not include stateful expressions (why would they?) and you use the default compilation, without Spark's higher order functions, this is also possible:
 
 ```scala
 import com.sparkutils.quality.sparkless.ProcessFunctions._
@@ -61,6 +61,8 @@ try {
 ```
 
 The above bold IF is ominous, why the caveat?  Stateful expressions using compilation are fine, the state handling is moved to the compiled code.  If, however, the expressions are "CodegenFallback" and run in interpreted mode then each thread needs its own state.  The same is true for using compile = false as a parameter, as such it's recommended to stick with defaults and avoid stateful expressions such as monotonically_incrementing_id, rand or unique_id.
+
+Similarly, Spark's Higher Order Functions such as [transform](https://spark.apache.org/docs/latest/api/sql/index.html#transform) always require re-compilation.  Later [Spark versions](https://issues.apache.org/jira/browse/SPARK-37019) or a [custom compilation handlers](https://sparkutils.github.io/quality/0.1.3.1-RC12/advanced/userFunctions/#controlling-compilation-tweaking-the-quality-optimisations) can remedy this.  Using Quality managed user functions is fine as long as they too don't use Spark's Higher Order Functions.
 
 If the rules are free of such stateful expressions then the .instance function is nothing more than a call to a constructor on pre-compiled code.
 

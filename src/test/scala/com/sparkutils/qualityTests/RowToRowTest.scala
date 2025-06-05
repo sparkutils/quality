@@ -9,10 +9,10 @@ import com.sparkutils.shim.expressions.StatefulLike
 import org.apache.avro.SchemaBuilder
 import org.apache.avro.generic.{GenericData, GenericDatumWriter, GenericRecord}
 import org.apache.avro.io.EncoderFactory
-import org.apache.spark.sql.{Encoders, QualitySparkUtils, ShimUtils, SparkSession}
+import org.apache.spark.sql.{DataFrame, Encoders, QualitySparkUtils, ShimUtils, SparkSession}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
-import org.apache.spark.sql.catalyst.expressions.{Expression, LeafExpression, MutableProjection, Projection, UnaryExpression}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode}
+import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression, LeafExpression, MutableProjection, Projection, UnaryExpression}
 import org.apache.spark.sql.catalyst.trees.TreeNode
 import org.apache.spark.sql.functions.{col, column, lit}
 import org.apache.spark.sql.types._
@@ -332,7 +332,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
       RuleSet(Id(50, 1), rules
       )))
 
-    val processor = ProcessFunctions.layzRuleEngineFactory[TestOn, Seq[NewPosting]](ruleSuite, DataType.fromDDL(DDL),
+    val processor = ProcessFunctions.lazyRuleEngineFactory[TestOn, Seq[NewPosting]](ruleSuite, DataType.fromDDL(DDL),
       compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation).instance
 
     val res = map(testData, processor)
@@ -630,6 +630,53 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
     res(5).salientRule shouldBe Some(SalientRule(Id(1,1),Id(50,1),Id(200,1)))
   } } } } }
 
+  test("via ProcessFactory rule engine T string debug") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+    import sparkSession.implicits._
+
+    val DDL = "STRING"
+
+    val expressionRules = Seq((ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040,1),
+      OutputExpression("'other_account1'"))),
+      (ExpressionRule("product like '%fx%'"), RunOnPassProcessor(1000, Id(1042,1),
+        OutputExpression("'from'"))),
+      (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1000, Id(1043,1),
+        OutputExpression("'fromWithField'")))
+    )
+
+    val rules =
+      for { ((exp, processor), idOffset) <- expressionRules.zipWithIndex }
+        yield Rule(Id(100 * idOffset, 1), exp, processor)
+
+    val rsId = Id(1, 1)
+    val ruleSuite = RuleSuite(rsId, Seq(
+      RuleSet(Id(50, 1), rules
+      )))
+
+    val processor = ProcessFunctions.ruleEngineFactoryDebugT[TestOn, String](ruleSuite, DataType.fromDDL(DDL),
+      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation).instance
+
+    val res = map(testData, processor)
+
+    // first three all failed
+    for(i <- 0 until 3) {
+      res(i).result.isEmpty shouldBe true
+      res(i).salientRule.isEmpty shouldBe true
+      res(i).ruleSuiteResults.overallResult shouldBe Failed
+    }
+    for(i <- 3 until 6) {
+      res(i).result.isDefined shouldBe true
+      res(i).salientRule.isDefined shouldBe false
+      res(i).ruleSuiteResults.overallResult shouldBe Failed
+    }
+
+    res(3).result shouldBe Some(Seq((1000, "from")))
+
+    res(4).result shouldBe Some(Seq((1000, "from")))
+
+    res(5).result shouldBe Some(Seq((1000, "fromWithField")))
+
+  } } } } }
+
   test("via ProcessFactory rule engine T map") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     import sparkSession.implicits._
 
@@ -733,6 +780,35 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
     res(4).result shouldBe Some(TestOn("to", "4201", 40))
 
     res(5).result shouldBe Some(TestOn("from", "4200_fruit", 60))
+  } } } } }
+
+
+  test("via ProcessFactory folder engine T struct product debug no fields in outputs or filters") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+    import sparkSession.implicits._
+
+    val DDL = "STRUCT<`account`: STRING, `product`: STRING, `subcode`: INTEGER >"
+
+    val expressionRules = Seq((ExpressionRule("true"), RunOnPassProcessor(1000, Id(1040, 1),
+      OutputExpression("thecurrent -> update_field(thecurrent, 'account', 'acc')")))
+    )
+
+    val rules =
+      for { ((exp, processor), idOffset) <- expressionRules.zipWithIndex }
+        yield Rule(Id(100 * idOffset, 1), exp, processor)
+
+    val rsId = Id(1, 1)
+    val ruleSuite = RuleSuite(rsId, Seq(
+      RuleSet(Id(50, 1), rules
+      )))
+
+    val processor = ProcessFunctions.ruleFolderFactoryWithStructStarterDebugT[TestOn, TestOn](ruleSuite,
+      Seq(("account", col("account")), ("product", lit("prod")), ("subcode", lit(1))), DataType.fromDDL(DDL).asInstanceOf[StructType],
+      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation).instance
+
+    val res = map(testData, processor)
+
+    res.map(t => Option(t.getResult.orElse(null))) shouldBe res.map(_.result)
+    res.map(_.result) shouldBe Seq.fill(6)(Some(Seq((1000, TestOn("prod", "acc", 1)))))
   } } } } }
 
 
@@ -879,7 +955,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
 
     implicit val beany = Encoders.bean(classOf[NewPostingBean])
 
-    val processor = ProcessFunctions.ruleFolderLazyFactoryWithStructStarter[TestOn, NewPostingBean](ruleSuite,
+    val processor = ProcessFunctions.lazyRuleFolderFactoryWithStructStarter[TestOn, NewPostingBean](ruleSuite,
       Seq(("transfer_type", lit("dummy")), ("account", col("account")), ("product", col("product")), ("subcode", col("subcode"))),
       DataType.fromDDL(DDL).asInstanceOf[StructType],
       compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation).instance
@@ -950,7 +1026,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
     )
   } } } } }
 
-  test(" codegenfallback stateful handling on instance/setpartition ") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+  test("codegenfallback stateful handling on instance/setpartition") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     import sparkSession.implicits._
 
     val funReg = ShimUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
@@ -984,6 +1060,50 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
     testProcessor(processorb, 3)
 
     StatefulTest.initCount should be >= 3
+  } } } } }
+
+  test("codegenfallback stateful handling on instance/setpartition lazy") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+    import sparkSession.implicits._
+
+    val funReg = ShimUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
+    funReg("stateful_test", _ => StatefulTestFallback())
+
+    val rs = RuleSuite(Id(10, 2), Seq(
+      RuleSet(Id(20, 1), Seq(
+        Rule(Id(30, 3), ExpressionRule("stateful_test() > 0"))
+        // commenting below triggers a resolution issue as the only expression has nothing to do with the inputs
+        // so the PredicateHelperPlus logic can't find a root expression, there isn't one
+        //, Rule(Id(31, 3), ExpressionRule("subcode == 0 or subcode != 0"))
+      ))
+    ))
+
+    StatefulTest.initCount = 0
+    StatefulTest.partitionCount = 0
+
+    val allGood = RuleSuiteResultDetails.ifAllPassed(rs)
+
+    val processorF = ProcessFunctions.lazyDQDetailsFactory[TestOn](rs,
+      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation,
+      defaultIfPassed = Some(allGood)
+    )
+
+    def testProcessor(processor: Processor[TestOn, (RuleResult, LazyRuleSuiteResultDetails)]) {
+      val res = map(testData, processor)
+      res.map(_._1) shouldBe Seq.fill(6)(Passed)
+      res.map(_._2.ruleSuiteResultDetails) shouldBe Seq.fill(6)(allGood)
+    }
+    val processora = processorF.instance
+    processora.setPartition(1)
+    testProcessor(processora)
+    StatefulTest.partitionCount shouldBe 2
+    StatefulTest.initCount should be >= 3
+
+    val processorb = processorF.instance
+    processorb.setPartition(2)
+    testProcessor(processorb)
+    StatefulTest.partitionCount shouldBe 6
+
+    StatefulTest.initCount should be >= 4
   } } } } }
 
   test("via ProcessFactory expression yaml") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
@@ -1077,6 +1197,29 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
         Id(32, 3) -> "60\n"
       )
     )
+  } } } } }
+
+  test("via ProcessFactory expression yaml noddl no fields") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+    import sparkSession.implicits._
+
+    val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+      Rule(Id(30, 3), ExpressionRule("42")),
+      Rule(Id(31, 3), ExpressionRule("'product'")),
+      Rule(Id(32, 3), ExpressionRule("false"))
+    ))))
+
+    val processor = ProcessFunctions.expressionYamlNoDDLRunnerFactory[TestOn](rs, compile = inCodegen, forceMutable = forceMutable,
+      forceVarCompilation = forceVarCompilation).instance
+
+    val res = map(testData, processor)
+
+    res.map(_.getRuleSetResults.asScala) shouldBe res.map(_.ruleSetResults)
+    res.map(_.ruleSetResults(Id(20,1))) shouldBe Seq.fill(6)(
+      Map(
+        Id(30, 3) -> "42\n",
+        Id(31, 3) -> "product\n",
+        Id(32, 3) -> "false\n"
+      ))
   } } } } }
 
 

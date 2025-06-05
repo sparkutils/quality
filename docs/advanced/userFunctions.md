@@ -213,7 +213,7 @@ The default org.apache.spark.sql.qualityFunctions.DoCodegenFallbackHandler allow
 Alternatively if you have a hotspot with any inbuilt HoF such as array_transform, filter or transform_values you could replace the implementation for compilation with your own transformation. e.g.:
 
 ```
--Dquality.lambdaHandlers=org.apache.spark.sql.catalyst)essions.TransformValues=org.mine.SuperfastTransformValues
+-Dquality.lambdaHandlers=org.apache.spark.sql.catalyst.expressions.TransformValues=org.mine.SuperfastTransformValues
 ```
 
 ### Why do all this?

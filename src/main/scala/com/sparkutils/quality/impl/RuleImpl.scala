@@ -585,7 +585,11 @@ object RuleSuiteFunctions {
             if (dataType == quality.types.expressionResultTypeYaml) {
               // it's a cast to string
               val resultType = r.expression match {
-                case expr: HasExpr => expr.expr.children.head.dataType.sql
+                case expr: HasExpr =>
+                  expr.expr match {
+                    case e if e.children.nonEmpty => e.children.head.dataType.sql
+                    case e => e.dataType.sql
+                  }
               }
               GeneralExpressionResult(ruleResult.toString, resultType)
             } else
