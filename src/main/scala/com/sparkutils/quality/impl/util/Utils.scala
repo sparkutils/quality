@@ -199,7 +199,7 @@ object Testing {
   /**
    * Should not be used by users but currently (0.0.2) only forces re-evaluation of the quality.lambdaHandlers configuration rather than caching once.
    */
-  protected[quality] def setTesting() = {
+  protected[sparkutils] def setTesting() = {
     testingFlag.set(true)
   }
 

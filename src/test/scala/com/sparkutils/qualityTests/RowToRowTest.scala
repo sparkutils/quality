@@ -10,15 +10,15 @@ import com.sparkutils.shim.expressions.StatefulLike
 import org.apache.avro.SchemaBuilder
 import org.apache.avro.generic.{GenericData, GenericDatumWriter, GenericRecord}
 import org.apache.avro.io.EncoderFactory
-import org.apache.spark.sql.{DataFrame, Encoders, QualitySparkUtils, ShimUtils, SparkSession}
+import org.apache.spark.sql.{Encoders, QualitySparkUtils, ShimUtils, SparkSession}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode}
-import org.apache.spark.sql.catalyst.expressions.{ArrayTransform, BinaryExpression, ExprId, Expression, HigherOrderFunction, LambdaFunction => SLambdaFunction, LeafExpression, MutableProjection, NamedLambdaVariable, Projection, UnaryExpression}
+import org.apache.spark.sql.catalyst.expressions.{ArrayTransform, ExprId, Expression, HigherOrderFunction, LambdaFunction => SLambdaFunction, MutableProjection, NamedLambdaVariable, Projection}
 import org.apache.spark.sql.catalyst.trees.TreeNode
 import org.apache.spark.sql.functions.{col, column, lit}
 import org.apache.spark.sql.qualityFunctions.LambdaCompilationUtils.LambdaCompilationHandler
-import org.apache.spark.sql.qualityFunctions.{DoCodegenFallbackHandler, FunN, NamedLambdaVariableCodeGen}
+import org.apache.spark.sql.qualityFunctions.NamedLambdaVariableCodeGen
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.UTF8String
 import org.junit.runner.RunWith
@@ -1355,7 +1355,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
     StatefulTest.partitionCount = 0
     StatefulTest.compiled_handled_hof = 0
 
-    Testing.test {
+    try {
       System.setProperty("quality.lambdaHandlers", s"${classOf[ArrayTransform].getName}=${classOf[ArrayTransformHandler].getName}")
 
       val processorF = ProcessFunctions.expressionRunnerFactoryT[TestOn, Int](rs, IntegerType,
@@ -1394,6 +1394,8 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
       if (inCodegen) {
         StatefulTest.compiled_handled_hof should be > 0
       }
+    } finally {
+      System.clearProperty("quality.lambdaHandlers")
     }
   } } } } }
 

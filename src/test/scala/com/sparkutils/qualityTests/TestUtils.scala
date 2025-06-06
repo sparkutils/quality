@@ -3,7 +3,7 @@ package com.sparkutils.qualityTests
 import com.globalmentor.apache.hadoop.fs.BareLocalFileSystem
 import com.sparkutils.quality
 import com.sparkutils.quality.impl.extension.FunNRewrite
-import com.sparkutils.quality.impl.util.SparkVersions
+import com.sparkutils.quality.impl.util.{SparkVersions, Testing}
 import com.sparkutils.quality.{RuleSuite, ruleRunner}
 import com.sparkutils.qualityTests.SparkTestUtils.getCorrectPlan
 import org.apache.spark.sql.QualitySparkUtils.DatasetBase
@@ -18,6 +18,10 @@ import org.junit.Before
 import java.io.File
 
 trait TestUtils extends Serializable {
+
+  // always set
+  Testing.setTesting()
+
   val hostMode = {
     val tmp = System.getenv("QUALITY_SPARK_HOSTS")
     if (tmp eq null)
