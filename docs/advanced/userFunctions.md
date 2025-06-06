@@ -216,6 +216,13 @@ Alternatively if you have a hotspot with any inbuilt HoF such as array_transform
 -Dquality.lambdaHandlers=org.apache.spark.sql.catalyst.expressions.TransformValues=org.mine.SuperfastTransformValues
 ```
 
+!!! note "Handlers disable FunNRewrite"
+    The FunNRewrite optimisation lifts lambdas out to higher level expressions, enabling sub expression elimination.
+    This behaviour can be disabled by using /* USED_AS_LAMBDA */ as a comment within your user function definition, the
+    same occurs when a Spark Higher Order Function, such as transform/ArrayTransform, is used with a handler.
+    This allows the handlers to be run, compiling out the HOF, as a trade-off to possible gains from sub expression elimination.
+    Future versions of Spark may compile out the HigherOrderFunctions removing this limitation.
+
 ### Why do all this?
 
 Speed, it's up to 40% faster. LambdaRowPerfTest, in the test suite, generates an increasing number of lambdas and only runs over 10k rows but still sees clear benefits e.g. (orange is compiled lambdas):

@@ -2,7 +2,6 @@ package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.FlattenStruct.ruleSuiteDeserializer
-import com.sparkutils.quality.impl.util.Testing
 import com.sparkutils.quality.sparkless.impl.LocalBroadcast
 import com.sparkutils.quality.sparkless.impl.Processors.NO_QUERY_PLANS
 import com.sparkutils.quality.sparkless.{ProcessFunctions, Processor}
@@ -1338,7 +1337,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
     StatefulTest.initCount should be >= 3
   } } } } }
 
-  test("codegenfallback stateful handling on instance/setpartition codegen spark hof with compilation handler") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+  def handlerTest(lambda: String): Unit = {
     import sparkSession.implicits._
 
     val funReg = ShimUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
@@ -1346,7 +1345,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
 
     val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
       Rule(Id(30, 3), ExpressionRule("bump(stateful_test())"))
-    ))), lambdaFunctions = Seq(LambdaFunction("bump", "/* USED_AS_LAMBDA */ in -> transform(array(in), i -> i + 1)[0]", Id(100,1))))
+    ))), lambdaFunctions = Seq(LambdaFunction("bump", s"$lambda in -> transform(array(in), i -> i + 1)[0]", Id(100,1))))
 
     // /* USED_AS_LAMBDA */ to force it to be used as a lambda so we can optimise the transform away via the below handler config
 
@@ -1397,8 +1396,15 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
     } finally {
       System.clearProperty("quality.lambdaHandlers")
     }
-  } } } } }
 
+  }
+
+  test("codegenfallback stateful handling on instance/setpartition codegen spark hof with compilation handler") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+    // trigger FunNRewrite to ignore via use as lambda
+    handlerTest("/* USED_AS_LAMBDA */")
+    // should still work because it's got a handler
+    handlerTest("")
+  } } } } }
 
   test("codegenfallback stateful handling on instance/setpartition lazy") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     import sparkSession.implicits._

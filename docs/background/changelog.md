@@ -2,6 +2,8 @@
 
 This is the last release of 2.4, 3.0 is deprecated as of this release, similarly, Databricks versions 9.1 through to 13.3 are also now deprecated and unsupported functionality (fixes for #84 will be gladly accepted).
 
+#83 - Processor optimisations for stateless and Higher Order Functions
+
 #82 - Wholestage codegen support for Correlated Subqueries, improved support for pass-through fields from plans
 
 #81 - Enable Quality row level runners to be used outside a spark runtime (still requires spark to build of course)

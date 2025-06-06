@@ -302,20 +302,10 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
       doTestPrint(PrintCode(expression(lit(""))).msg, "my message is", "my message is", "private int FunN_0(InternalRow i)", "printCode")
     }
 
-    // the lambda should disappear and the expression 1 + 1 generated.  Folding happens before experimental.extraOptimizations it seems (this could change)
-    not_4_0_and_above {
-      forceCodeGen {
-        justfunNRewrite {
-          doTestPrint(PrintCode(expression(lit(""))).msg, "my message is", "my message is", "1 + 1", "printCode") // addExact(1, 1
-        }
-      }
-    }
-    // the lambda should disappear and the expression 1 + 1 generated.  Folding happens before experimental.extraOptimizations it seems (this could change)
-    v4_0_and_above {
-      forceCodeGen {
-        justfunNRewrite {
-          doTestPrint(PrintCode(expression(lit(""))).msg, "my message is", "my message is", "addExact(1, 1", "printCode")
-        }
+    // irrespective of version we are outputting the lambda variables
+    forceCodeGen {
+      justfunNRewrite {
+        doTestPrint(PrintCode(expression(lit(""))).msg, "my message is", "my message is", "LambdaVariable - b", "printCode")
       }
     }
   }}
