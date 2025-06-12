@@ -239,3 +239,9 @@ the top two lines are the default and VarCompilation and the bottom two lines th
 lazyDQDetailsFactory is also useful if you just want to see if the rules passed and aren't interested in the details.  
 Similarly the lazyRuleEngineFactory and lazyRuleFolderFactory functions are lazy in their RuleSuiteResult serialisation, 
 which may be appropriate when you are only interested should you not get a result.  
+
+!!! info "You can force expression trees to be copied"
+
+    quality.forceCopyInProcessorsOverride can be set to override copying of the expression tree, either to force it or stop it from happening.
+    Use this if there are custom expressions that do not behave well in the face of compilation and maintain state but don't use Stateful.
+
