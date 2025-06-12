@@ -2,16 +2,22 @@ package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.FlattenStruct.ruleSuiteDeserializer
-import com.sparkutils.quality.sparkless.impl.LocalBroadcast
+import com.sparkutils.quality.sparkless.impl.{LocalBroadcast, Processors}
 import com.sparkutils.quality.sparkless.impl.Processors.NO_QUERY_PLANS
 import com.sparkutils.quality.sparkless.{ProcessFunctions, Processor}
+import com.sparkutils.shim.expressions.StatefulLike
 import org.apache.avro.SchemaBuilder
 import org.apache.avro.generic.{GenericData, GenericDatumWriter, GenericRecord}
 import org.apache.avro.io.EncoderFactory
-import org.apache.spark.sql.{Encoders, QualitySparkUtils}
+import org.apache.spark.sql.{Encoders, QualitySparkUtils, ShimUtils, SparkSession}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{MutableProjection, Projection}
+import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode}
+import org.apache.spark.sql.catalyst.expressions.{ArrayTransform, ExprId, Expression, HigherOrderFunction, MutableProjection, NamedLambdaVariable, Projection, LambdaFunction => SLambdaFunction}
+import org.apache.spark.sql.catalyst.trees.TreeNode
 import org.apache.spark.sql.functions.{col, column, lit}
+import org.apache.spark.sql.qualityFunctions.LambdaCompilationUtils.LambdaCompilationHandler
+import org.apache.spark.sql.qualityFunctions.NamedLambdaVariableCodeGen
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.UTF8String
 import org.junit.runner.RunWith
@@ -21,6 +27,140 @@ import org.scalatestplus.junit.JUnitRunner
 import java.io.ByteArrayOutputStream
 import scala.beans.BeanProperty
 import scala.collection.JavaConverters._
+import scala.collection.immutable
+
+object StatefulTest {
+  var initCount = 0
+  var partitionCount = 0
+  var compiled_handled_hof = 0
+
+  def pumpInit(): Unit = {
+    initCount += 1
+  }
+
+  def raisePartitionCount(partitionIndex: Int): Unit = {
+    StatefulTest.partitionCount += partitionIndex
+  }
+}
+
+case class StatefulTestFallback() extends StatefulTestBase with CodegenFallback with StatefulLike {
+  override def freshCopy(): StatefulLike = new StatefulTestFallback()
+}
+
+trait StatefulTestBase extends Expression with StatefulLike {
+
+  {
+    StatefulTest.pumpInit()
+  }
+
+  override def fastEquals(other: TreeNode[_]): Boolean = this eq other
+
+  override def nullable: Boolean = false
+
+  override def dataType: DataType = IntegerType
+
+  override protected def initializeInternal(partitionIndex: Int): Unit = {
+    StatefulTest.raisePartitionCount(partitionIndex)
+  }
+
+  override protected def evalInternal(input: InternalRow): Any = StatefulTest.partitionCount
+
+  val children: Seq[Expression] = Nil
+  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = freshCopy()
+
+}
+
+case class StatefulTestCodeGen() extends StatefulTestBase with StatefulLike {
+  override def freshCopy(): StatefulLike = new StatefulTestCodeGen()
+
+  override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
+    ctx.addPartitionInitializationStatement(
+      s"""
+         com.sparkutils.qualityTests.StatefulTest.raisePartitionCount(partitionIndex);
+         """)
+    ev.copy(code = code"""
+      int ${ev.value} = com.sparkutils.qualityTests.StatefulTest.partitionCount();
+      boolean ${ev.isNull} = false;
+      """.stripMargin)
+  }
+}
+
+case class ArrayTransformHandler() extends LambdaCompilationHandler {
+
+  /**
+   *
+   * @param expr
+   * @return empty if the expression should be transformed (i.e. there is a custom solution for it).  Otherwise return the full set of NamedLambdaVariables found
+   */
+  override def shouldTransform(expr: Expression): immutable.Seq[NamedLambdaVariable] =
+    expr match {
+      case a: ArrayTransform => Seq().toIndexedSeq
+      case h: HigherOrderFunction => h.collect{
+        case nlv: NamedLambdaVariable => nlv
+      }.toIndexedSeq
+    }
+
+  /**
+   * Transform the expression using the scope of replaceable named lambda variable expression
+   *
+   * @param expr
+   * @param scope
+   * @return
+   */
+  override def transform(expr: Expression, scope: Map[ExprId, NamedLambdaVariableCodeGen]): Expression =
+    MyArrayTransform(expr.asInstanceOf[ArrayTransform], scope)
+}
+
+// already resolved, already bound
+case class MyArrayTransform(expr: ArrayTransform, scope: Map[ExprId, NamedLambdaVariableCodeGen]) extends Expression {
+
+  override def nullable: Boolean = expr.nullable
+
+  override def eval(input: InternalRow): Any = expr.eval(input)
+
+  override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
+    StatefulTest.compiled_handled_hof += 1
+
+    val SLambdaFunction(lambdaFunction, elementNamedVariables, _) = expr.function
+    val elementVars = elementNamedVariables.map(_.asInstanceOf[NamedLambdaVariableCodeGen])
+    val args = expr.arguments.map(_.genCode(ctx))
+    val fun = lambdaFunction.genCode(ctx)
+    val javaType = CodeGenerator.javaType(lambdaFunction.dataType)
+    val boxed = CodeGenerator.boxedType(lambdaFunction.dataType)
+
+    val varCode = elementVars.head.genCode(ctx)
+
+    val i = ctx.freshName("i")
+    val ar = ctx.freshName("tempAr")
+
+    ev.copy(code =
+      code"""
+        ${args.head.code}
+        boolean ${ev.isNull} = ${args.head.isNull};
+        $javaType[] $ar = new $javaType[${args.head.value}.numElements()];
+
+        for( int $i = 0; $i < ${args.head.value}.numElements(); $i++){
+          ${elementVars.head.valueRef} = ${CodeGenerator.getValue(args.head.value, elementVars.head.dataType, i)};
+
+          // probably not needed
+          ${varCode.code}
+
+          ${fun.code}
+
+          $ar[$i] = ${fun.value};
+        }
+        org.apache.spark.sql.catalyst.util.GenericArrayData ${ev.value} =
+          new org.apache.spark.sql.catalyst.util.GenericArrayData($ar);
+          """)
+  }
+
+  override def dataType: DataType = expr.dataType
+
+  override def children: Seq[Expression] = Seq(expr)
+
+  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
+    MyArrayTransform(newChildren.head.asInstanceOf[ArrayTransform], scope)
+}
 
 class NewPostingBean(){
   @BeanProperty
@@ -49,11 +189,11 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
     var r = thunk
     // only do in compile
     if (inCodegen) {
-      // use mutable projection approach
+      // use mutable projection compilation approach
       forceMutable = false
       forceVarCompilation = false
       r = thunk
-      // the default setup and current vars
+      // use current vars
       forceMutable = false
       forceVarCompilation = true
       r = thunk
@@ -185,7 +325,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
       ))
     ))
 
-    val processor = ProcessFunctions.dqLazyDetailsFactory[TestOn](rs, inCodegen, forceMutable = forceMutable,
+    val processor = ProcessFunctions.lazyDQDetailsFactory[TestOn](rs, inCodegen, forceMutable = forceMutable,
       forceVarCompilation = forceVarCompilation).instance
 
     val rc = map(testData, processor)
@@ -205,7 +345,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
 
     val default = RuleSuiteResultDetails.ifAllPassed(rs)
 
-    val processor = ProcessFunctions.dqLazyDetailsFactory[TestOn](rs, inCodegen, forceMutable = forceMutable,
+    val processor = ProcessFunctions.lazyDQDetailsFactory[TestOn](rs, inCodegen, forceMutable = forceMutable,
       forceVarCompilation = forceVarCompilation, defaultIfPassed = Some(default)).instance
 
     val rc = map(testData, processor)
@@ -299,7 +439,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
       RuleSet(Id(50, 1), rules
       )))
 
-    val processor = ProcessFunctions.ruleEngineLazyResultFactory[TestOn, Seq[NewPosting]](ruleSuite, DataType.fromDDL(DDL),
+    val processor = ProcessFunctions.lazyRuleEngineFactory[TestOn, Seq[NewPosting]](ruleSuite, DataType.fromDDL(DDL),
       compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation).instance
 
     val res = map(testData, processor)
@@ -597,6 +737,53 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
     res(5).salientRule shouldBe Some(SalientRule(Id(1,1),Id(50,1),Id(200,1)))
   } } } } }
 
+  test("via ProcessFactory rule engine T string debug") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+    import sparkSession.implicits._
+
+    val DDL = "STRING"
+
+    val expressionRules = Seq((ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040,1),
+      OutputExpression("'other_account1'"))),
+      (ExpressionRule("product like '%fx%'"), RunOnPassProcessor(1000, Id(1042,1),
+        OutputExpression("'from'"))),
+      (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1000, Id(1043,1),
+        OutputExpression("'fromWithField'")))
+    )
+
+    val rules =
+      for { ((exp, processor), idOffset) <- expressionRules.zipWithIndex }
+        yield Rule(Id(100 * idOffset, 1), exp, processor)
+
+    val rsId = Id(1, 1)
+    val ruleSuite = RuleSuite(rsId, Seq(
+      RuleSet(Id(50, 1), rules
+      )))
+
+    val processor = ProcessFunctions.ruleEngineFactoryDebugT[TestOn, String](ruleSuite, DataType.fromDDL(DDL),
+      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation).instance
+
+    val res = map(testData, processor)
+
+    // first three all failed
+    for(i <- 0 until 3) {
+      res(i).result.isEmpty shouldBe true
+      res(i).salientRule.isEmpty shouldBe true
+      res(i).ruleSuiteResults.overallResult shouldBe Failed
+    }
+    for(i <- 3 until 6) {
+      res(i).result.isDefined shouldBe true
+      res(i).salientRule.isDefined shouldBe false
+      res(i).ruleSuiteResults.overallResult shouldBe Failed
+    }
+
+    res(3).result shouldBe Some(Seq((1000, "from")))
+
+    res(4).result shouldBe Some(Seq((1000, "from")))
+
+    res(5).result shouldBe Some(Seq((1000, "fromWithField")))
+
+  } } } } }
+
   test("via ProcessFactory rule engine T map") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     import sparkSession.implicits._
 
@@ -703,6 +890,35 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
   } } } } }
 
 
+  test("via ProcessFactory folder engine T struct product debug no fields in outputs or filters") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+    import sparkSession.implicits._
+
+    val DDL = "STRUCT<`account`: STRING, `product`: STRING, `subcode`: INTEGER >"
+
+    val expressionRules = Seq((ExpressionRule("true"), RunOnPassProcessor(1000, Id(1040, 1),
+      OutputExpression("thecurrent -> update_field(thecurrent, 'account', 'acc')")))
+    )
+
+    val rules =
+      for { ((exp, processor), idOffset) <- expressionRules.zipWithIndex }
+        yield Rule(Id(100 * idOffset, 1), exp, processor)
+
+    val rsId = Id(1, 1)
+    val ruleSuite = RuleSuite(rsId, Seq(
+      RuleSet(Id(50, 1), rules
+      )))
+
+    val processor = ProcessFunctions.ruleFolderFactoryWithStructStarterDebugT[TestOn, TestOn](ruleSuite,
+      Seq(("account", col("account")), ("product", lit("prod")), ("subcode", lit(1))), DataType.fromDDL(DDL).asInstanceOf[StructType],
+      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation).instance
+
+    val res = map(testData, processor)
+
+    res.map(t => Option(t.getResult.orElse(null))) shouldBe res.map(_.result)
+    res.map(_.result) shouldBe Seq.fill(6)(Some(Seq((1000, TestOn("prod", "acc", 1)))))
+  } } } } }
+
+
   test("via ProcessFactory folder engine product lazy") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     import sparkSession.implicits._
 
@@ -733,7 +949,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
       RuleSet(Id(50, 1), rules
       )))
 
-    val processor = ProcessFunctions.ruleFolderLazyFactory[TestOn, TestOn](ruleSuite, DataType.fromDDL(DDL).asInstanceOf[StructType],
+    val processor = ProcessFunctions.lazyRuleFolderFactory[TestOn, TestOn](ruleSuite, DataType.fromDDL(DDL).asInstanceOf[StructType],
       compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation).instance
 
     val res = map(testData, processor)
@@ -846,7 +1062,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
 
     implicit val beany = Encoders.bean(classOf[NewPostingBean])
 
-    val processor = ProcessFunctions.ruleFolderLazyFactoryWithStructStarter[TestOn, NewPostingBean](ruleSuite,
+    val processor = ProcessFunctions.lazyRuleFolderFactoryWithStructStarter[TestOn, NewPostingBean](ruleSuite,
       Seq(("transfer_type", lit("dummy")), ("account", col("account")), ("product", col("product")), ("subcode", col("subcode"))),
       DataType.fromDDL(DDL).asInstanceOf[StructType],
       compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation).instance
@@ -915,6 +1131,427 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
         Id(32, 3) -> false
       )
     )
+  } } } } }
+
+  test("codegenfallback stateful handling on instance/setpartition") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+    import sparkSession.implicits._
+
+    val funReg = ShimUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
+    funReg("stateful_test", _ => StatefulTestFallback())
+
+    val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+      Rule(Id(30, 3), ExpressionRule("stateful_test()"))
+    ))))
+
+    implicit val bool = Encoders.INT
+    StatefulTest.initCount = 0
+    StatefulTest.partitionCount = 0
+
+    val processorF = ProcessFunctions.expressionRunnerFactoryT[TestOn, Int](rs, IntegerType,
+      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation)
+
+    def testProcessor(processor: Processor[TestOn, GeneralExpressionsResult[Int]], expectedPartition: Int) {
+      val res = map(testData, processor)
+      res.map(_.getRuleSetResults.asScala) shouldBe res.map(_.ruleSetResults)
+      res.map(_.ruleSetResults(Id(20,1))) shouldBe Seq.fill(6)(Map(
+        Id(30, 3) -> expectedPartition
+      ))
+    }
+    val processora = processorF.instance
+    processora.setPartition(1)
+    testProcessor(processora, 1)
+    StatefulTest.initCount should be >= 2
+
+    val processorb = processorF.instance
+    processorb.setPartition(2)
+    testProcessor(processorb, 3)
+
+    StatefulTest.initCount should be >= 3
+  } } } } }
+
+  test("codegenfallback stateful handling on instance/setpartition funn") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+    import sparkSession.implicits._
+
+    val funReg = ShimUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
+    funReg("stateful_test", _ => StatefulTestFallback())
+
+    val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+      Rule(Id(30, 3), ExpressionRule("bump(stateful_test())"))
+    ))), lambdaFunctions = Seq(LambdaFunction("bump", "in -> in + 1", Id(100,1))))
+
+    implicit val bool = Encoders.INT
+    StatefulTest.initCount = 0
+    StatefulTest.partitionCount = 0
+
+    val processorF = ProcessFunctions.expressionRunnerFactoryT[TestOn, Int](rs, IntegerType,
+      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation)
+
+    def testProcessor(processor: Processor[TestOn, GeneralExpressionsResult[Int]], expectedPartition: Int) {
+      val res = map(testData, processor)
+      res.map(_.getRuleSetResults.asScala) shouldBe res.map(_.ruleSetResults)
+      res.map(_.ruleSetResults(Id(20,1))) shouldBe Seq.fill(6)(Map(
+        Id(30, 3) -> {expectedPartition + 1}
+      ))
+    }
+    // the stateful needs new copys , funn shouldn't change this
+    val processora = processorF.instance
+    processora.setPartition(1)
+    testProcessor(processora, 1)
+    StatefulTest.initCount should be >= 2
+
+    val processorb = processorF.instance
+    processorb.setPartition(2)
+    testProcessor(processorb, 3)
+
+    StatefulTest.initCount should be >= 3
+  } } } } }
+
+  test("codegenfallback stateful handling on instance/setpartition codegen") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+    import sparkSession.implicits._
+
+    val funReg = ShimUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
+    funReg("stateful_test", _ => StatefulTestCodeGen())
+
+    val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+      Rule(Id(30, 3), ExpressionRule("stateful_test()"))
+    ))))
+
+    implicit val bool = Encoders.INT
+    StatefulTest.initCount = 0
+    StatefulTest.partitionCount = 0
+
+    val processorF = ProcessFunctions.expressionRunnerFactoryT[TestOn, Int](rs, IntegerType,
+      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation)
+
+    def testProcessor(processor: Processor[TestOn, GeneralExpressionsResult[Int]], expectedPartition: Int) {
+      val res = map(testData, processor)
+      res.map(_.getRuleSetResults.asScala) shouldBe res.map(_.ruleSetResults)
+      res.map(_.ruleSetResults(Id(20,1))) shouldBe Seq.fill(6)(Map(
+        Id(30, 3) -> expectedPartition
+      ))
+    }
+
+    // when compiling the stateful test code should be rolled into the compilation
+    val processora = processorF.instance
+    processora.setPartition(1)
+    testProcessor(processora, 1)
+    (inCodegen, forceMutable) match {
+      case (true, false) => StatefulTest.initCount should be <= 2
+      case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 2
+      case _ => StatefulTest.initCount should be >= 2
+    }
+
+    val processorb = processorF.instance
+    processorb.setPartition(2)
+    testProcessor(processorb, 3)
+
+    (inCodegen, forceMutable) match {
+      case (true, false) => StatefulTest.initCount should be <= 2
+      case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 2
+      case _ => StatefulTest.initCount should be >= 2
+    }
+  } } } } }
+
+
+  test("codegenfallback stateful handling on instance/setpartition codegen - forced copy") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+    import sparkSession.implicits._
+
+    val funReg = ShimUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
+    funReg("stateful_test", _ => StatefulTestCodeGen())
+
+    val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+      Rule(Id(30, 3), ExpressionRule("stateful_test()"))
+    ))))
+
+    implicit val bool = Encoders.INT
+    StatefulTest.initCount = 0
+    StatefulTest.partitionCount = 0
+    try {
+      System.setProperty(Processors.forceCopyOverrideENV, "true")
+
+      val processorF = ProcessFunctions.expressionRunnerFactoryT[TestOn, Int](rs, IntegerType,
+        compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation)
+
+      def testProcessor(processor: Processor[TestOn, GeneralExpressionsResult[Int]], expectedPartition: Int) {
+        val res = map(testData, processor)
+        res.map(_.getRuleSetResults.asScala) shouldBe res.map(_.ruleSetResults)
+        res.map(_.ruleSetResults(Id(20, 1))) shouldBe Seq.fill(6)(Map(
+          Id(30, 3) -> expectedPartition
+        ))
+      }
+
+      // Unlike "codegenfallback stateful handling on instance/setpartition codegen" we are forcing the copy
+      // so the results should be the same as "codegenfallback stateful handling on instance/setpartition funn"
+      val processora = processorF.instance
+      processora.setPartition(1)
+      testProcessor(processora, 1)
+      StatefulTest.initCount should be >= 2
+
+      val processorb = processorF.instance
+      processorb.setPartition(2)
+      testProcessor(processorb, 3)
+
+      StatefulTest.initCount should be >= 3
+    } finally {
+      System.clearProperty(Processors.forceCopyOverrideENV)
+    }
+  } } } } }
+
+  test("codegenfallback stateful handling on instance/setpartition codegen funn") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+    import sparkSession.implicits._
+
+    val funReg = ShimUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
+    funReg("stateful_test", _ => StatefulTestCodeGen())
+
+    val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+      Rule(Id(30, 3), ExpressionRule("bump(stateful_test())"))
+    ))), lambdaFunctions = Seq(LambdaFunction("bump", "in -> in + 1", Id(100,1))))
+
+    implicit val bool = Encoders.INT
+    StatefulTest.initCount = 0
+    StatefulTest.partitionCount = 0
+
+    val processorF = ProcessFunctions.expressionRunnerFactoryT[TestOn, Int](rs, IntegerType,
+      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation)
+
+    def testProcessor(processor: Processor[TestOn, GeneralExpressionsResult[Int]], expectedPartition: Int) {
+      val res = map(testData, processor)
+      res.map(_.getRuleSetResults.asScala) shouldBe res.map(_.ruleSetResults)
+      res.map(_.ruleSetResults(Id(20,1))) shouldBe Seq.fill(6)(Map(
+        Id(30, 3) -> {expectedPartition + 1}
+      ))
+    }
+
+    // when compiling the stateful test code should be rolled into the compilation as should funn
+    val processora = processorF.instance
+    processora.setPartition(1)
+    testProcessor(processora, 1)
+    (inCodegen, forceMutable) match {
+      case (true, false) => StatefulTest.initCount should be <= 2
+      case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 2
+      case _ => StatefulTest.initCount should be >= 2
+    }
+
+    val processorb = processorF.instance
+    processorb.setPartition(2)
+    testProcessor(processorb, 3)
+
+    (inCodegen, forceMutable) match {
+      case (true, false) => StatefulTest.initCount should be <= 2
+      case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 2
+      case _ => StatefulTest.initCount should be >= 2
+    }
+  } } } } }
+
+
+  test("codegenfallback stateful handling on instance/setpartition codegen spark hof") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+    import sparkSession.implicits._
+
+    val funReg = ShimUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
+    funReg("stateful_test", _ => StatefulTestCodeGen())
+
+    val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+      Rule(Id(30, 3), ExpressionRule("bump(stateful_test())"))
+    ))), lambdaFunctions = Seq(LambdaFunction("bump", "in -> transform(array(in), i -> i + 1)[0]", Id(100,1))))
+
+    implicit val bool = Encoders.INT
+    StatefulTest.initCount = 0
+    StatefulTest.partitionCount = 0
+
+    val processorF = ProcessFunctions.expressionRunnerFactoryT[TestOn, Int](rs, IntegerType,
+      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation)
+
+    def testProcessor(processor: Processor[TestOn, GeneralExpressionsResult[Int]], expectedPartition: Int) {
+      val res = map(testData, processor)
+      res.map(_.getRuleSetResults.asScala) shouldBe res.map(_.ruleSetResults)
+      res.map(_.ruleSetResults(Id(20,1))) shouldBe Seq.fill(6)(Map(
+        Id(30, 3) -> {expectedPartition + 1}
+      ))
+    }
+
+    // when compiling the stateful test code should be rolled into the compilation but the hof should break it
+    val processora = processorF.instance
+    processora.setPartition(1)
+    testProcessor(processora, 1)
+    StatefulTest.initCount should be >= 2
+
+    val processorb = processorF.instance
+    processorb.setPartition(2)
+    testProcessor(processorb, 3)
+
+    StatefulTest.initCount should be >= 3
+  } } } } }
+
+
+  test("codegenfallback stateful handling on instance/setpartition codegen spark hof - forced no copy") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+    import sparkSession.implicits._
+
+    val funReg = ShimUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
+    funReg("stateful_test", _ => StatefulTestCodeGen())
+
+    val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+      Rule(Id(30, 3), ExpressionRule("bump(stateful_test())"))
+    ))), lambdaFunctions = Seq(LambdaFunction("bump", "in -> transform(array(in), i -> i + 1)[0]", Id(100,1))))
+
+    implicit val bool = Encoders.INT
+    StatefulTest.initCount = 0
+    StatefulTest.partitionCount = 0
+
+    try {
+      System.setProperty(Processors.forceCopyOverrideENV, "false")
+
+      val processorF = ProcessFunctions.expressionRunnerFactoryT[TestOn, Int](rs, IntegerType,
+        compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation)
+
+      def testProcessor(processor: Processor[TestOn, GeneralExpressionsResult[Int]], expectedPartition: Int) {
+        val res = map(testData, processor)
+        res.map(_.getRuleSetResults.asScala) shouldBe res.map(_.ruleSetResults)
+        res.map(_.ruleSetResults(Id(20, 1))) shouldBe Seq.fill(6)(Map(
+          Id(30, 3) -> {
+            expectedPartition + 1
+          }
+        ))
+      }
+
+      // although the results are good for "codegenfallback stateful handling on instance/setpartition codegen spark hof"
+      // we are forcing it to not copy, so the results should be the same as
+      // "codegenfallback stateful handling on instance/setpartition codegen funn"
+      val processora = processorF.instance
+      processora.setPartition(1)
+      testProcessor(processora, 1)
+      (inCodegen, forceMutable) match {
+        case (true, false) => StatefulTest.initCount should be <= 2
+        case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 2
+        case _ => StatefulTest.initCount should be >= 2
+      }
+
+      val processorb = processorF.instance
+      processorb.setPartition(2)
+      testProcessor(processorb, 3)
+
+      (inCodegen, forceMutable) match {
+        case (true, false) => StatefulTest.initCount should be <= 2
+        case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 2
+        case _ => StatefulTest.initCount should be >= 2
+      }
+    } finally {
+      System.clearProperty(Processors.forceCopyOverrideENV)
+    }
+
+  } } } } }
+
+
+  def handlerTest(lambda: String): Unit = {
+    import sparkSession.implicits._
+
+    val funReg = ShimUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
+    funReg("stateful_test", _ => StatefulTestCodeGen())
+
+    val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+      Rule(Id(30, 3), ExpressionRule("bump(stateful_test())"))
+    ))), lambdaFunctions = Seq(LambdaFunction("bump", s"$lambda in -> transform(array(in), i -> i + 1)[0]", Id(100,1))))
+
+    // /* USED_AS_LAMBDA */ to force it to be used as a lambda so we can optimise the transform away via the below handler config
+
+    implicit val bool = Encoders.INT
+    StatefulTest.initCount = 0
+    StatefulTest.partitionCount = 0
+    StatefulTest.compiled_handled_hof = 0
+
+    try {
+      System.setProperty("quality.lambdaHandlers", s"${classOf[ArrayTransform].getName}=${classOf[ArrayTransformHandler].getName}")
+
+      val processorF = ProcessFunctions.expressionRunnerFactoryT[TestOn, Int](rs, IntegerType,
+        compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation)
+
+      def testProcessor(processor: Processor[TestOn, GeneralExpressionsResult[Int]], expectedPartition: Int) {
+        val res = map(testData, processor)
+        res.map(_.getRuleSetResults.asScala) shouldBe res.map(_.ruleSetResults)
+        res.map(_.ruleSetResults(Id(20, 1))) shouldBe Seq.fill(6)(Map(
+          Id(30, 3) -> {
+            expectedPartition + 1
+          }
+        ))
+      }
+
+      // when compiling the stateful test code should be rolled into the compilation but although it's a hof we've implemented its code gen
+      val processora = processorF.instance
+      processora.setPartition(1)
+      testProcessor(processora, 1)
+      (inCodegen, forceMutable) match {
+        case (true, false) => StatefulTest.initCount should be <= 2
+        case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 2
+        case _ => StatefulTest.initCount should be >= 2
+      }
+
+      val processorb = processorF.instance
+      processorb.setPartition(2)
+      testProcessor(processorb, 3)
+
+      (inCodegen, forceMutable) match {
+        case (true, false) => StatefulTest.initCount should be <= 2
+        case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 2
+        case _ => StatefulTest.initCount should be >= 2
+      }
+
+      if (inCodegen) {
+        StatefulTest.compiled_handled_hof should be > 0
+      }
+    } finally {
+      System.clearProperty("quality.lambdaHandlers")
+    }
+
+  }
+
+  test("codegenfallback stateful handling on instance/setpartition codegen spark hof with compilation handler") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+    // trigger FunNRewrite to ignore via use as lambda
+    handlerTest("/* USED_AS_LAMBDA */")
+    // should still work because it's got a handler
+    handlerTest("")
+  } } } } }
+
+  test("codegenfallback stateful handling on instance/setpartition lazy") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+    import sparkSession.implicits._
+
+    val funReg = ShimUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
+    funReg("stateful_test", _ => StatefulTestFallback())
+
+    val rs = RuleSuite(Id(10, 2), Seq(
+      RuleSet(Id(20, 1), Seq(
+        Rule(Id(30, 3), ExpressionRule("stateful_test() > 0"))
+        // commenting below triggers a resolution issue as the only expression has nothing to do with the inputs
+        // so the PredicateHelperPlus logic can't find a root expression, there isn't one
+        //, Rule(Id(31, 3), ExpressionRule("subcode == 0 or subcode != 0"))
+      ))
+    ))
+
+    StatefulTest.initCount = 0
+    StatefulTest.partitionCount = 0
+
+    val allGood = RuleSuiteResultDetails.ifAllPassed(rs)
+
+    val processorF = ProcessFunctions.lazyDQDetailsFactory[TestOn](rs,
+      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation,
+      defaultIfPassed = Some(allGood)
+    )
+
+    def testProcessor(processor: Processor[TestOn, (RuleResult, LazyRuleSuiteResultDetails)]) {
+      val res = map(testData, processor)
+      res.map(_._1) shouldBe Seq.fill(6)(Passed)
+      res.map(_._2.ruleSuiteResultDetails) shouldBe Seq.fill(6)(allGood)
+    }
+    val processora = processorF.instance
+    processora.setPartition(1)
+    testProcessor(processora)
+    StatefulTest.partitionCount shouldBe 2
+    StatefulTest.initCount should be >= 3
+
+    val processorb = processorF.instance
+    processorb.setPartition(2)
+    testProcessor(processorb)
+    StatefulTest.partitionCount shouldBe 6
+
+    StatefulTest.initCount should be >= 4
   } } } } }
 
   test("via ProcessFactory expression yaml") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
@@ -1008,6 +1645,29 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
         Id(32, 3) -> "60\n"
       )
     )
+  } } } } }
+
+  test("via ProcessFactory expression yaml noddl no fields") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+    import sparkSession.implicits._
+
+    val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+      Rule(Id(30, 3), ExpressionRule("42")),
+      Rule(Id(31, 3), ExpressionRule("'product'")),
+      Rule(Id(32, 3), ExpressionRule("false"))
+    ))))
+
+    val processor = ProcessFunctions.expressionYamlNoDDLRunnerFactory[TestOn](rs, compile = inCodegen, forceMutable = forceMutable,
+      forceVarCompilation = forceVarCompilation).instance
+
+    val res = map(testData, processor)
+
+    res.map(_.getRuleSetResults.asScala) shouldBe res.map(_.ruleSetResults)
+    res.map(_.ruleSetResults(Id(20,1))) shouldBe Seq.fill(6)(
+      Map(
+        Id(30, 3) -> "42\n",
+        Id(31, 3) -> "product\n",
+        Id(32, 3) -> "false\n"
+      ))
   } } } } }
 
 

@@ -164,7 +164,7 @@ object ProcessorThroughputBenchmark extends Bench.OfflineReport with RowTools {
 
       val processor = (rules: Int, cols: Int) => {
         implicit val renc = ShimUtils.rowEncoder(longSchema(cols, LongType))
-        ProcessFunctions.dqLazyDetailsFactory[Row](genRules(rules, cols),
+        ProcessFunctions.lazyDQDetailsFactory[Row](genRules(rules, cols),
           forceVarCompilation = true).instance
       }
       using(generator) in evaluate( processor )
@@ -176,7 +176,7 @@ object ProcessorThroughputBenchmark extends Bench.OfflineReport with RowTools {
 
       val processor = (rules: Int, cols: Int) => {
         implicit val renc = ShimUtils.rowEncoder(longSchema(cols, LongType))
-        ProcessFunctions.dqLazyDetailsFactory[Row](genRules(rules, cols),
+        ProcessFunctions.lazyDQDetailsFactory[Row](genRules(rules, cols),
           forceVarCompilation = false).instance
       }
       using(generator) in evaluate( processor )
@@ -188,7 +188,7 @@ object ProcessorThroughputBenchmark extends Bench.OfflineReport with RowTools {
 
       val processor = (rules: Int, cols: Int) => {
         implicit val renc = ShimUtils.rowEncoder(longSchema(cols, LongType))
-        ProcessFunctions.dqLazyDetailsFactory[Row](genRules(rules, cols),
+        ProcessFunctions.lazyDQDetailsFactory[Row](genRules(rules, cols),
           forceMutable = true).instance
       }
       using(generator) in evaluate( processor )
@@ -200,7 +200,7 @@ object ProcessorThroughputBenchmark extends Bench.OfflineReport with RowTools {
 
       val processor = (rules: Int, cols: Int) => {
         implicit val renc = ShimUtils.rowEncoder(longSchema(cols, LongType))
-        ProcessFunctions.dqLazyDetailsFactory[Row](genRules(rules, cols),
+        ProcessFunctions.lazyDQDetailsFactory[Row](genRules(rules, cols),
           compile = false).instance
       }
       using(generator) in evaluate( processor )

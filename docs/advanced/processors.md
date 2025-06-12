@@ -33,7 +33,7 @@ try {
 
 ### Stateful expressions ruin the fun
 
-Given the comment about "no Spark execution" why is a sparkSession present?  The Spark infrastructure is used to compile code, this requires a running spark task or session to obtain configuration and access to the implicits for encoder derivation.  **IF** the rules do not include stateful expressions (why would they?) and you use the default compilation this is also possible:
+Given the comment about "no Spark execution" why is a sparkSession present?  The Spark infrastructure is used to compile code, this requires a running spark task or session to obtain configuration and access to the implicits for encoder derivation.  **IF** the rules do not include stateful expressions (why would they?) and you use the default compilation, without Spark's higher order functions, this is also possible:
 
 ```scala
 import com.sparkutils.quality.sparkless.ProcessFunctions._
@@ -61,6 +61,8 @@ try {
 ```
 
 The above bold IF is ominous, why the caveat?  Stateful expressions using compilation are fine, the state handling is moved to the compiled code.  If, however, the expressions are "CodegenFallback" and run in interpreted mode then each thread needs its own state.  The same is true for using compile = false as a parameter, as such it's recommended to stick with defaults and avoid stateful expressions such as monotonically_incrementing_id, rand or unique_id.
+
+Similarly, Spark's Higher Order Functions such as [transform](https://spark.apache.org/docs/latest/api/sql/index.html#transform) always require re-compilation.  Later [Spark versions](https://issues.apache.org/jira/browse/SPARK-37019) or a [custom compilation handlers](https://sparkutils.github.io/quality/0.1.3.1-RC12/advanced/userFunctions/#controlling-compilation-tweaking-the-quality-optimisations) can remedy this.  Using Quality managed user functions is fine as long as they too don't use Spark's Higher Order Functions.
 
 If the rules are free of such stateful expressions then the .instance function is nothing more than a call to a constructor on pre-compiled code.
 
@@ -234,6 +236,12 @@ the top two lines are the default and VarCompilation and the bottom two lines th
     using the RuleSuiteResultDetails.ifAllPassed function and the defaultIfPassed parameter.   
     Using the defaultIfPassed parameter stops actual results from being returned if a row is passed and will only return the default you supplied it.
 
-dqLazyDetailsFactory is also useful if you just want to see if the rules passed and aren't interested in the details.  
-Similarly the ruleEngineLazyResultFactory and ruleFolderLazyFactory functions are lazy in their RuleSuiteResult serialisation, 
+lazyDQDetailsFactory is also useful if you just want to see if the rules passed and aren't interested in the details.  
+Similarly the lazyRuleEngineFactory and lazyRuleFolderFactory functions are lazy in their RuleSuiteResult serialisation, 
 which may be appropriate when you are only interested should you not get a result.  
+
+!!! info "You can force expression trees to be copied"
+
+    quality.forceCopyInProcessorsOverride can be set to override copying of the expression tree, either to force it or stop it from happening.
+    Use this if there are custom expressions that do not behave well in the face of compilation and maintain state but don't use Stateful.
+

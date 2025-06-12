@@ -47,7 +47,7 @@ case class RandBytesNonJump(definedSeed: Long, numBytes: Int, source: RandomSour
 /**
  * Base implementation for random number byte generation with pluggable implementations
  */
-abstract class RandBytes extends LeafExpression with StatefulLike
+abstract class RandBytes extends Expression with StatefulLike
   with ExpressionWithRandomSeed with CodegenFallback with RngImpl {
 
   type ThisType <: RandBytes
@@ -75,6 +75,11 @@ abstract class RandBytes extends LeafExpression with StatefulLike
   }
 
   def seedExpression: Expression = Literal(definedSeed, LongType)
+
+  val children: Seq[Expression] = Nil
+
+  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = freshCopy()
+
 }
 
 object RandomLongs {
@@ -118,7 +123,7 @@ case class RandLongsNonJump(definedSeed: Long, source: RandomSource) extends Ran
 /**
  * Base implementation for random number two long (128 bit) generation with pluggable implementations
  */
-abstract class RandLongs extends LeafExpression with StatefulLike
+abstract class RandLongs extends Expression with StatefulLike
   with ExpressionWithRandomSeed with CodegenFallback with RngImpl {
 
   type ThisType <: RandLongs
@@ -147,4 +152,8 @@ abstract class RandLongs extends LeafExpression with StatefulLike
   def numBytes: Int = 0
 
   def seedExpression: Expression = Literal(definedSeed, LongType)
+
+  val children: Seq[Expression] = Nil
+  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = freshCopy()
+
 }

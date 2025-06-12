@@ -44,9 +44,9 @@ object RuleEngineRunnerImpl {
     com.sparkutils.quality.registerLambdaFunctions( ruleSuite.lambdaFunctions )
     val realType =
       if (debugMode)
-      // wrap it in an array with the priority result
-      ArrayType(StructType(Seq(StructField("salience", IntegerType), StructField("result", resultDataType))))
-        else
+        // wrap it in an array with the priority result
+        ArrayType(StructType(Seq(StructField("salience", IntegerType), StructField("result", resultDataType))))
+      else
         resultDataType
 
     val (expressions, indexes) = flattenExpressions(ruleSuite)
