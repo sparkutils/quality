@@ -1,4 +1,4 @@
-### 0.1.3.1 <small>3rd December, 2024</small>
+### 0.1.3.1 <small>30th June, 2025</small>
 
 This is the last release of 2.4, 3.0 is deprecated as of this release, similarly, Databricks versions 9.1 through to 13.3 are also now deprecated and unsupported functionality (fixes for #84 will be gladly accepted).
 
