@@ -194,6 +194,7 @@ trait AddDataFunctionsImports {
    * @param renderOptions provides rendering options to the underlying snake yaml implementation
    * @param ddlType optional DDL string, when present yaml output is disabled and the output expressions must all have the same type
    * @param name the default column name "expressionResults"
+   * @param stripDDL the default of false leaves the DDL present, true strips ddl from the output using strip_result_ddl
    */
   def addExpressionRunner(dataFrame: DataFrame, ruleSuite: RuleSuite, name: String = "expressionResults",
                        renderOptions: Map[String, String] = Map.empty, ddlType: String = "",
@@ -218,6 +219,7 @@ trait AddDataFunctionsImports {
    * @param renderOptions provides rendering options to the underlying snake yaml implementation
    * @param ddlType optional DDL string, when present yaml output is disabled and the output expressions must all have the same type
    * @param name the default column name "expressionResults"
+   * @param stripDDL the default of false leaves the DDL present, true strips ddl from the output using strip_result_ddl
    */
   def addExpressionRunnerF[P[R] >: DatasetBase[R]](ruleSuite: RuleSuite, name: String = "expressionResults",
                        renderOptions: Map[String, String] = Map.empty, ddlType: String = "",

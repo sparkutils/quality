@@ -2,13 +2,13 @@ package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.RuleLogicUtils
-import com.sparkutils.shim.expressions.{CreateNamedStruct1, GetStructField3}
+import com.sparkutils.shim.expressions.{CreateNamedStruct1, GetStructField3, MapObjects5}
 import frameless.TypedEncoder
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode, QualityExprUtils, ExprValue, JavaCode, VariableValue}
-import org.apache.spark.sql.catalyst.expressions.{Alias, BoundReference, Expression, If, IsNull, Literal, NamedExpression, Unevaluable, UnsafeArrayData}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode, ExprValue, JavaCode, QualityExprUtils, VariableValue}
+import org.apache.spark.sql.catalyst.expressions.{Alias, BinaryExpression, BoundReference, Expression, If, IsNull, Literal, NamedExpression, Unevaluable, UnsafeArrayData}
 import org.apache.spark.sql.catalyst.util.ArrayData
-import org.apache.spark.sql.types.{BooleanType, DataType, StructField, StructType}
+import org.apache.spark.sql.types.{ArrayType, BooleanType, DataType, StructField, StructType}
 
 import java.util.concurrent.atomic.AtomicBoolean
 import org.apache.spark.internal.Logging
@@ -199,7 +199,7 @@ object Testing {
   /**
    * Should not be used by users but currently (0.0.2) only forces re-evaluation of the quality.lambdaHandlers configuration rather than caching once.
    */
-  protected[quality] def setTesting() = {
+  protected[sparkutils] def setTesting() = {
     testingFlag.set(true)
   }
 
@@ -539,4 +539,26 @@ object Params {
           stripBrackets(v)._1
       ).mkString(", "))
   }
+}
+
+
+/**
+ * Wraps an expression on the right, using an input field on the left, forcing resolution of processor expressions
+ * not using input fields.
+ *
+ * @param left completely ignored and only present to force correct resolution via predicate helper
+ * @param right actual code to use, typically a processor
+ */
+case class InputWrapper(left: Expression, right: Expression) extends BinaryExpression {
+
+  override def nullable: Boolean = right.nullable
+
+  override def eval(input: InternalRow): Any = right.eval(input)
+
+  protected def withNewChildrenInternal(newLeft: Expression, newRight: Expression): Expression = InputWrapper(newLeft, newRight)
+
+  override def dataType: DataType = right.dataType
+
+  override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode =
+    right.genCode(ctx)
 }

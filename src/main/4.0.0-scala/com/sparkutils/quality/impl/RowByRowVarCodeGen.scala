@@ -4,6 +4,7 @@ import com.sparkutils.quality.QualityException
 import com.sparkutils.quality.impl.util.Params.formatParams
 import com.sparkutils.quality.sparkless.impl.DecoderOpEncoderProjection
 import com.sparkutils.quality.sparkless.impl.Processors.{NO_QUERY_PLANS, isCopyNeeded}
+import com.sparkutils.shim.expressions.StatefulLike
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.{Encoder, QualitySparkUtils, ShimUtils}
 import org.apache.spark.sql.catalyst.expressions.BindReferences.bindReferences
@@ -387,8 +388,7 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
 
         // needs a fresh tree copy for each newInstance, so we need to proxy it
         override def newInstance: DecoderOpEncoderProjection[I, O] =
-          create[I, O] ( expressions.map(e => e.transformUp { case t => t.withNewChildren(t.children) }),
-            toSize, allOrdinals)
+          create[I, O](ShimUtils.copyStateful(expressions), toSize, allOrdinals)
 
         override def initialize(partitionIndex: Int): Unit = initial.initialize(partitionIndex)
       }

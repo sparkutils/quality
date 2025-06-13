@@ -33,7 +33,7 @@ try {
 
 ### Stateful expressions ruin the fun
 
-Given the comment about "no Spark execution" why is a sparkSession present?  The Spark infrastructure is used to compile code, this requires a running spark task or session to obtain configuration and access to the implicits for encoder derivation.  **IF** the rules do not include stateful expressions (why would they?) and you use the default compilation this is also possible:
+Given the comment about "no Spark execution" why is a sparkSession present?  The Spark infrastructure is used to compile code, this requires a running spark task or session to obtain configuration and access to the implicits for encoder derivation.  **IF** the rules do not include stateful expressions (why would they?) and you use the default compilation, without Spark's higher order functions, this is also possible:
 
 ```scala
 import com.sparkutils.quality.sparkless.ProcessFunctions._
@@ -61,6 +61,8 @@ try {
 ```
 
 The above bold IF is ominous, why the caveat?  Stateful expressions using compilation are fine, the state handling is moved to the compiled code.  If, however, the expressions are "CodegenFallback" and run in interpreted mode then each thread needs its own state.  The same is true for using compile = false as a parameter, as such it's recommended to stick with defaults and avoid stateful expressions such as monotonically_incrementing_id, rand or unique_id.
+
+Similarly, Spark's Higher Order Functions such as [transform](https://spark.apache.org/docs/latest/api/sql/index.html#transform) always require re-compilation.  Later [Spark versions](https://issues.apache.org/jira/browse/SPARK-37019) or a [custom compilation handlers](https://sparkutils.github.io/quality/0.1.3.1-RC12/advanced/userFunctions/#controlling-compilation-tweaking-the-quality-optimisations) can remedy this.  Using Quality managed user functions is fine as long as they too don't use Spark's Higher Order Functions.
 
 If the rules are free of such stateful expressions then the .instance function is nothing more than a call to a constructor on pre-compiled code.
 
@@ -155,8 +157,9 @@ Note the use of LocalBroadcast, this implementation of Sparks Broadcast can be u
 
 ## Performance
 
-All the information presented below is captured here in [the Processor benchmark](https://sparkutils.github.io/quality/benchmarks/0.1.3.1-RC10-processor-throughput/).  
-The run is informative but has some outlier behaviours and should be taken as a guideline only (be warned it takes almost a day to run).  This test evaluates compilation startup time only in the XStartup tests and the time for both startup and running through 100k rows at each fieldCount in a single thread (on a i9-9900K CPU @ 3.60GHz).  The inputs for each row are an array of longs, provided by spark's user land Row, with the output a RuleSuiteResult object.  
+All the information presented below is captured here in [the Processor benchmark](https://sparkutils.github.io/quality/benchmarks/0.1.3.1-RC12-processor-throughput-inc-lazy/).  
+The run is informative but has some outlier behaviours and should be taken as a guideline only (be warned it takes almost a day to run).  
+This test evaluates compilation startup time only in the XStartup tests and the time for both startup and running through 100k rows at each fieldCount in a single thread (on a i9-9900K CPU @ 3.60GHz).  The inputs for each row are an array of longs, provided by spark's user land Row, with the output a RuleSuiteResult object.  
 
 ??? info "Test combinations to actual rules"
     
@@ -204,11 +207,10 @@ below graph shows the performance trend across multiple rule and field complexit
 
 ![default_processor_combos.png](../img/default_processor_combos.png)
 
-In the top right case that's 780 rules total (run across 50 fields) with a cost of about 9.7ms per row (100,000 rows / 10,300 ms) or 0.012ms/rule/row. 
+In the top right case that's 780 rules total (run across 50 fields) with a cost of about 0.103ms per row (10,300 ms / 100,000 rows) or 0.000132ms/rule/row of simple mod checks. 
 
-The performance of the default configuration is consistently the best accept for far smaller numbers of rules and field combinations, observable by selecting the 10 fieldCount, every other combination has the default CompiledProjections (GenerateDecoderOpEncoderProjection) in the lead by a good enough margin.  
-
-The majority of cost is the serialisation of the results into the RuleSuiteResult's Scala Maps (via Sparks ArrayBasedMapData.toScalaMap). 
+The performance of the default configuration, leveraging Spark's MutableProjections, is consistently the second best accept for far smaller numbers of rules and field combinations, observable by selecting the 10 fieldCount, every other combination has the default CompiledProjections (GenerateDecoderOpEncoderProjection) in second place by a good enough margin.
+The first place belongs to the experimental VarCompilation, see the info box below for more details.
 
 ??? info "Experimental - VarCompilation"
 
@@ -218,3 +220,28 @@ The majority of cost is the serialisation of the results into the RuleSuiteResul
     It's additional speed is driven by JIT friendly optimisations and removing all unnecessary work, only encoding from the input data what is needed by the rules.
     The experimental label is due to the custom code approach, although it can handle thousands of fields actively used in thousands of rules there, and is fully tested it is still custom.
     This may be changed to the default option in the future.
+
+The majority of cost is the serialisation of the results into the RuleSuiteResult's Scala Maps (via Sparks ArrayBasedMapData.toScalaMap). 
+
+If you remove the cost of serialisation, by lazily serializing, things look even faster:
+
+![dq_processing_vs_lazy.png](../img/dq_processing_vs_lazy.png)
+
+the top two lines are the default and VarCompilation and the bottom two lines their lazy versions, that's 0.0172453 per row and 0.000022109ms per mod check. The dqLazyDetailsFactory function serialises the overall result directly, but only serialises the results on demand, you can choose if you wish to process the details based on the overall result.
+
+!!! info "Precalculating Passed RuleSuiteResultDetails can be misleading"
+    
+    Although it's possible to use a pre-calculated RuleSuiteResultDetails against all "Passed" results this would not represent any disabled, soft failed or probability results.
+    As such it's not provided by default, if you do have a default RuleSuiteResultDetails you would like to use then you can provide it to the dqLazyDetailsFactory function, 
+    using the RuleSuiteResultDetails.ifAllPassed function and the defaultIfPassed parameter.   
+    Using the defaultIfPassed parameter stops actual results from being returned if a row is passed and will only return the default you supplied it.
+
+lazyDQDetailsFactory is also useful if you just want to see if the rules passed and aren't interested in the details.  
+Similarly the lazyRuleEngineFactory and lazyRuleFolderFactory functions are lazy in their RuleSuiteResult serialisation, 
+which may be appropriate when you are only interested should you not get a result.  
+
+!!! info "You can force expression trees to be copied"
+
+    quality.forceCopyInProcessorsOverride can be set to override copying of the expression tree, either to force it or stop it from happening.
+    Use this if there are custom expressions that do not behave well in the face of compilation and maintain state but don't use Stateful.
+

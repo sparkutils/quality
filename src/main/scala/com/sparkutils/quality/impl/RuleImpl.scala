@@ -3,15 +3,15 @@ package com.sparkutils.quality.impl
 import com.sparkutils.quality
 import com.sparkutils.quality.impl.ExpressionCompiler.withExpressionCompiler
 import com.sparkutils.quality.impl.util.SubQueryWrapper
-import com.sparkutils.quality.{DisabledRule, DisabledRuleInt, Failed, FailedInt, GeneralExpressionResult, GeneralExpressionsResult, Id, IdTriple, OutputExpression, Passed, PassedInt, Probability, Rule, RuleResult, RuleSetResult, RuleSuite, RuleSuiteResult, SoftFailed, SoftFailedInt}
+import com.sparkutils.quality._
 import org.apache.spark.sql.ShimUtils.newParser
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedFunction}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext}
 import org.apache.spark.sql.catalyst.expressions.{Expression, ScalarSubquery, SubqueryExpression, UnresolvedNamedLambdaVariable, LambdaFunction => SparkLambdaFunction}
 import org.apache.spark.sql.qualityFunctions.{FunN, RefExpressionLazyType}
-import org.apache.spark.sql.types.{DataType, Decimal, StringType}
-import org.apache.spark.sql.{QualitySparkUtils, SparkSession}
+import org.apache.spark.sql.types.{DataType, Decimal}
+import org.apache.spark.sql.{ShimUtils, SparkSession}
 import org.apache.spark.unsafe.types.UTF8String
 
 import scala.collection.mutable
@@ -585,7 +585,11 @@ object RuleSuiteFunctions {
             if (dataType == quality.types.expressionResultTypeYaml) {
               // it's a cast to string
               val resultType = r.expression match {
-                case expr: HasExpr => expr.expr.children.head.dataType.sql
+                case expr: HasExpr =>
+                  expr.expr match {
+                    case e if e.children.nonEmpty => e.children.head.dataType.sql
+                    case e => e.dataType.sql
+                  }
               }
               GeneralExpressionResult(ruleResult.toString, resultType)
             } else
@@ -597,4 +601,36 @@ object RuleSuiteFunctions {
 
     GeneralExpressionsResult(id, rawRuleSets.toMap)
   }
+}
+
+object LazyRuleSuiteResultDetailsUtils {
+  lazy val deserializer = ShimUtils.expressionEncoder( Encoders.ruleSuiteResultDetailsExpEnc ).
+    resolveAndBind().deserializer
+}
+
+case class LazyRuleSuiteResultDetailsImpl(row: InternalRow) extends LazyRuleSuiteResultDetails with Serializable {
+  @transient
+  lazy val _ruleSuiteResultDetails = LazyRuleSuiteResultDetailsUtils.deserializer.eval(row).
+    asInstanceOf[RuleSuiteResultDetails]
+
+  override def ruleSuiteResultDetails: RuleSuiteResultDetails = _ruleSuiteResultDetails
+}
+
+case class LazyRuleSuiteResultDetailsProxyImpl(_ruleSuiteResultDetails: RuleSuiteResultDetails)
+  extends LazyRuleSuiteResultDetails with Serializable {
+
+  override def ruleSuiteResultDetails: RuleSuiteResultDetails = _ruleSuiteResultDetails
+}
+
+object LazyRuleSuiteResultUtils {
+  lazy val deserializer = ShimUtils.expressionEncoder( Encoders.ruleSuiteResultExpEnc ).
+    resolveAndBind().deserializer
+}
+
+case class LazyRuleSuiteResultImpl(row: InternalRow) extends LazyRuleSuiteResult with Serializable {
+  @transient
+  lazy val _ruleSuiteResult = LazyRuleSuiteResultUtils.deserializer.eval(row).
+    asInstanceOf[RuleSuiteResult]
+
+  override def ruleSuiteResult: RuleSuiteResult = _ruleSuiteResult
 }

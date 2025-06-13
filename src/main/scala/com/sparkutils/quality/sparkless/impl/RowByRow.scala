@@ -3,16 +3,20 @@ package com.sparkutils.quality.sparkless.impl
 import com.sparkutils.quality.enableOptimizations
 import com.sparkutils.quality.impl.{GenerateDecoderOpEncoderProjection, GenerateDecoderOpEncoderVarProjection}
 import com.sparkutils.quality.impl.extension.FunNRewrite
+import com.sparkutils.quality.impl.util.Testing
 import com.sparkutils.quality.sparkless.{Processor, ProcessorFactory}
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.{DataFrame, Encoder, QualitySparkUtils, ShimUtils}
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
-import org.apache.spark.sql.catalyst.expressions.{BoundReference, Expression}
+import org.apache.spark.sql.catalyst.expressions.{BoundReference, Expression, HigherOrderFunction}
 import org.apache.spark.sql.catalyst.optimizer.ConstantFolding
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.qualityFunctions.FunN
+import org.apache.spark.sql.qualityFunctions.LambdaCompilationUtils.{LambdaCompilationHandler, compilationHandlers}
 import org.apache.spark.sql.types.{ArrayType, DataType, MapType, StructType}
 
 import scala.reflect.ClassTag
+import scala.util.Try
 
 /**
  * Represents a row by row process with Input and Output processors with an operation in between
@@ -37,19 +41,63 @@ object Processors {
   val NO_QUERY_PLANS = "PlanExpressions (e.g. SubQueries) are not allowed in Processors"
 
   /**
-   * Are there any stateful expressions in interpreted mode (or fallback) require fresh copies
+   * If set it's value will override existing logic
+   */
+  val forceCopyOverrideENV = "quality.forceCopyInProcessorsOverride"
+
+  def shouldForceCopyOverrideEnv: Boolean = Try(java.lang.Boolean.parseBoolean(
+    com.sparkutils.quality.getConfig(forceCopyOverrideENV))
+  ).getOrElse(false)
+
+  private lazy val testing = {
+    Testing.testing
+  }
+
+  def isOverrideSet: Boolean = {
+    val t = com.sparkutils.quality.getConfig(forceCopyOverrideENV)
+
+    t != null && t.nonEmpty
+  }
+
+  private lazy val cachedOverrideIsSet = isOverrideSet
+
+  def forceCopyOverridden: Boolean =
+    if (testing)
+      isOverrideSet // re-evaluate
+    else
+      cachedOverrideIsSet
+
+  private lazy val cachedOverride = shouldForceCopyOverrideEnv
+
+  def shouldForceCopy: Boolean =
+    if (testing)
+      shouldForceCopyOverrideEnv // re-evaluate
+    else
+      cachedOverride
+
+  /**
+   * Are there any stateful expressions in interpreted mode (or fallback) require fresh copies.
+   * Similarly if a hof isn't FunN and doesn't have a rewrite for it we cannot let it through as LambdaVariables are
+   * always stateful.
    * @param exprs These expressions must be fully resolved, bound and optimised
    * @param compile when false any stateful expression returns true, by default compilation for stateful CodegenFallback is true
    * @return
    */
   def isCopyNeeded(exprs: Seq[Expression], compile: Boolean = true): Boolean =
-    exprs.collect {
-      case e: CodegenFallback if ShimUtils.isStateful(e)  => e
-    }.nonEmpty || ( !compile &&
-      exprs.collect {
-        case e: Expression if ShimUtils.isStateful(e)  => e
-      }.nonEmpty
-    )
+    if (forceCopyOverridden)
+      shouldForceCopy
+    else
+      exprs.exists(_.collect {
+        case e: CodegenFallback if ShimUtils.isStateful(e) =>
+          e
+        case e: HigherOrderFunction if !compilationHandlers.contains(e.getClass.getName) && !e.isInstanceOf[FunN] => e
+      }.nonEmpty ) || ( !compile &&
+        exprs.exists(_.collect {
+          case e: Expression if ShimUtils.isStateful(e)  =>
+            e
+          case e: HigherOrderFunction if !compilationHandlers.contains(e.getClass.getName) && !e.isInstanceOf[FunN] => e
+        }.nonEmpty
+      ))
 
   /**
    * Arbitrarily high number assuming 2 java fields per input fields and a couple of functions per field we'll

@@ -34,15 +34,15 @@ jobs:
             mvn $MAVEN_CLI_TESTSHADES_OPTS clean install -P ${{ matrix.profile }}
           gpgKey: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
         env:
-          OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
-          OSSRH_TOKEN: ${{ secrets.OSSRH_TOKEN }}
+          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+          CENTRAL_TOKEN: ${{ secrets.CENTRAL_TOKEN }}
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
 
   # all versions that can be built with tests - typically oss only.  Fail fast so we can see all compilation or test errors at once
   testBuilds_21:
     uses: sparkutils/building/.github/workflows/run_build.yml@main
     with:
-      testString: test
+      testString: -DskipTests # use tests for verifying only the delta tests have issues testString: test
       theMatrix: |
         {
           "profile": [ "Spark4" ],
@@ -73,8 +73,8 @@ jobs:
             mvn $MAVEN_CLI_TESTSHADES_OPTS clean install -P ${{ matrix.profile }}
           gpgKey: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
         env:
-          OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
-          OSSRH_TOKEN: ${{ secrets.OSSRH_TOKEN }}
+          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+          CENTRAL_TOKEN: ${{ secrets.CENTRAL_TOKEN }}
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
 
   # prove tests run with single thread, ensures compilation issues aren't hidden by being run on multiple threads instead of re-used in the same thread (e.g. state resetting etc.)
@@ -119,8 +119,8 @@ jobs:
             grep -A 3 'Branch coverage:' target/site/scoverage/overview.html | tail -1 | sed 's/[[:space:]]\+//g' >> target/coverage.txt
           gpgKey: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
         env:
-          OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
-          OSSRH_TOKEN: ${{ secrets.OSSRH_TOKEN }}
+          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+          CENTRAL_TOKEN: ${{ secrets.CENTRAL_TOKEN }}
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
       - id: version
         run: echo version=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout -P Spark350) >> "$GITHUB_OUTPUT"
@@ -142,7 +142,7 @@ jobs:
     strategy:
       matrix:
         profile: [Spark3, Spark2, Spark32, Spark321, Spark313, Spark332, Spark341, Spark350, Spark4, "10.4.dbr", "9.1.dbr", "11.3.dbr", "12.2.dbr", "13.1.dbr", "13.3.dbr", "14.0.dbr", "14.3.dbr", "15.4.dbr", "16.4.dbr"]
-    needs: [testBuilds, mvn_site, noTestBuilds] # if the builds don't work don't attempt to publish
+    needs: [ testBuilds_21, testBuilds, mvn_site, noTestBuilds ] # if the builds don't work don't attempt to publish
     # needs always per https://github.com/actions/runner/issues/491 very annoying
     # only do snapshots on main by default, releases/snapshots forced with ~cut-release
     if: |
@@ -164,14 +164,21 @@ jobs:
             mvn $MAVEN_CLI_TESTSHADES_OPTS clean deploy -P ${{ matrix.profile }}
           gpgKey: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
         env:
-          OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
-          OSSRH_TOKEN: ${{ secrets.OSSRH_TOKEN }}
+          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+          CENTRAL_TOKEN: ${{ secrets.CENTRAL_TOKEN }}
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
 
   # all versions that can be built with tests - typically oss only.  Fail fast so we can see all compilation or test errors at once
   publishBuilds_21:
-    needs: [ testBuilds_21 ]
+    needs: [ testBuilds_21, testBuilds, mvn_site, noTestBuilds ]
     uses: sparkutils/building/.github/workflows/publish_build.yml@main
+    if: |
+      always() &&
+          !contains(needs.*.result, 'failure') &&
+          !contains(needs.*.result, 'cancelled') &&
+      (contains(github.event.head_commit.message, '~docsOnly') != true) &&
+        ( (endsWith(needs.site.outputs.version, '-SNAPSHOT') && github.ref == 'refs/heads/main') ||
+          contains(github.event.head_commit.message, '~cut-release') )
     with:
       theMatrix: |
         {
@@ -187,6 +194,7 @@ jobs:
   publishShadeBuilds_21:
     needs: [ publishBuilds_21 ]
     uses: sparkutils/building/.github/workflows/publish_build.yml@main
+    if: false
     with:
       theMatrix: |
         {

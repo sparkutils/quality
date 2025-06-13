@@ -1,5 +1,6 @@
 package com.sparkutils.manual
 
+import com.sparkutils.quality.registerQualityFunctions
 import com.sparkutils.quality.sparkless.{ProcessFunctions, Processor}
 import com.sparkutils.qualityTests.ResultHelper.longSchema
 import com.sparkutils.qualityTests.RowTools
@@ -142,6 +143,64 @@ object ProcessorThroughputBenchmark extends Bench.OfflineReport with RowTools {
       val processor = (rules: Int, cols: Int) => {
         implicit val renc = ShimUtils.rowEncoder(longSchema(cols, LongType))
         ProcessFunctions.dqFactory[Row](genRules(rules, cols),
+          compile = false).instance
+      }
+      using(generator) in evaluate( processor )
+    }
+  }
+
+  performance of "processingDQLazyDetails" config (
+    exec.minWarmupRuns -> 2,
+    exec.maxWarmupRuns -> 4,
+    exec.benchRuns -> 4,
+    exec.jvmcmd -> (System.getProperty("java.home")+"/bin/java"),
+    exec.jvmflags -> List("-Xmx24g","-Xms24g")
+    //  verbose -> true
+  ) in {
+
+    measure method "VarCompilation" in {
+      val s = sparkSession
+      registerQualityFunctions()
+
+      val processor = (rules: Int, cols: Int) => {
+        implicit val renc = ShimUtils.rowEncoder(longSchema(cols, LongType))
+        ProcessFunctions.lazyDQDetailsFactory[Row](genRules(rules, cols),
+          forceVarCompilation = true).instance
+      }
+      using(generator) in evaluate( processor )
+    }
+
+    measure method "CompiledProjections" in {
+      val s = sparkSession
+      registerQualityFunctions()
+
+      val processor = (rules: Int, cols: Int) => {
+        implicit val renc = ShimUtils.rowEncoder(longSchema(cols, LongType))
+        ProcessFunctions.lazyDQDetailsFactory[Row](genRules(rules, cols),
+          forceVarCompilation = false).instance
+      }
+      using(generator) in evaluate( processor )
+    }
+
+    measure method "MutableProjectionsCompiled" in {
+      val s = sparkSession
+      registerQualityFunctions()
+
+      val processor = (rules: Int, cols: Int) => {
+        implicit val renc = ShimUtils.rowEncoder(longSchema(cols, LongType))
+        ProcessFunctions.lazyDQDetailsFactory[Row](genRules(rules, cols),
+          forceMutable = true).instance
+      }
+      using(generator) in evaluate( processor )
+    }
+
+    measure method "interpreted" in {
+      val s = sparkSession
+      registerQualityFunctions()
+
+      val processor = (rules: Int, cols: Int) => {
+        implicit val renc = ShimUtils.rowEncoder(longSchema(cols, LongType))
+        ProcessFunctions.lazyDQDetailsFactory[Row](genRules(rules, cols),
           compile = false).instance
       }
       using(generator) in evaluate( processor )

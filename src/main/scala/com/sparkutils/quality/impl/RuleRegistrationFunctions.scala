@@ -8,7 +8,7 @@ import com.sparkutils.quality.impl.hash.{HashFunctionFactory, HashFunctionsExpre
 import com.sparkutils.quality.impl.id.{GenericLongBasedIDExpression, model}
 import com.sparkutils.quality.impl.longPair.{AsUUID, LongPairExpression}
 import com.sparkutils.quality.impl.rng.{RandomBytes, RandomLongs}
-import com.sparkutils.quality.impl.util.{ComparableMapConverter, ComparableMapReverser, PrintCode}
+import com.sparkutils.quality.impl.util.{ComparableMapConverter, ComparableMapReverser, InputWrapper, PrintCode}
 import com.sparkutils.quality.impl.yaml.{YamlDecoderExpr, YamlEncoderExpr}
 import com.sparkutils.quality.{QualityException, impl}
 import com.sparkutils.shim
@@ -179,6 +179,8 @@ object RuleRegistrationFunctions {
         }.toMap
       case _ => throw QualityException(s"Could not process a literal map with expression $exp")
     }
+
+    register("processor_input_wrapper", exps => InputWrapper(exps.head, exps.last), minimum = 2)
 
     register("to_yaml", exps => YamlEncoderExpr(exps.head, if (exps.size == 1) Map.empty else getMap(exps.last)), Set(1, 2))
     register("from_yaml", exps => YamlDecoderExpr(exps.head, parse(exps.last)), Set(2))

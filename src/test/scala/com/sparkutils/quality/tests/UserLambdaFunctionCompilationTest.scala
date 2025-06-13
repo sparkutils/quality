@@ -129,10 +129,14 @@ class UserLambdaFunctionCompilationTest extends FunSuite with TestUtils {
   @Test
   def runDisabledBottom: Unit = forceCodeGen {
 
-    def doIt() = {
+    def doIt(clearIt: Boolean = false) = {
       reinit()
 
-      System.setProperty("quality.lambdaHandlers", s"bottom=${classOf[TestHandler].getName}")
+      if (clearIt)
+        System.clearProperty("quality.lambdaHandlers")
+      else
+        System.setProperty("quality.lambdaHandlers", s"bottom=${classOf[TestHandler].getName}")
+
       doSimpleNested
     }
 
@@ -142,14 +146,26 @@ class UserLambdaFunctionCompilationTest extends FunSuite with TestUtils {
         doIt()
 
         not_Cluster {
-          // the lambdas should have been re-written out of existence
+          // the lambdas will not have been re-written due to the handler
+          calledShouldTransform.get shouldBe true
+          calledTransform.get shouldBe true
+        }
+      }
+    }
+
+    v3_2_and_above {
+      justfunNRewrite {
+
+        doIt(clearIt = true)
+
+        not_Cluster {
+          // the lambdas should have been re-written out of existence as we've specified a handler
           // no FunN means no lambda to handle
           calledShouldTransform.get shouldBe false
           calledTransform.get shouldBe false
         }
       }
     }
-
 
     {
 
