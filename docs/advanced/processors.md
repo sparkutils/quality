@@ -89,6 +89,8 @@ For simple beans it's enough to use the Spark Encoders.bean(Class[_]) to derive 
 
     In Spark 3.4 and above you can use AgnosticEncoders instead and specify the types.
 
+Using user Row's with RowEncoders also works, giving you a completely generic ability to push rows through to the processors.
+
 What about something more interesting like an Avro message? 
 
 ```scala
