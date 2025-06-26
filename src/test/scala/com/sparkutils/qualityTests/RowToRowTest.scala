@@ -44,7 +44,7 @@ object StatefulTest {
 }
 
 case class StatefulTestFallback() extends StatefulTestBase with CodegenFallback with StatefulLike {
-  override def freshCopy(): StatefulLike = new StatefulTestFallback()
+  override def freshCopy(): StatefulLike = StatefulTestFallback()
 }
 
 trait StatefulTestBase extends Expression with StatefulLike {
