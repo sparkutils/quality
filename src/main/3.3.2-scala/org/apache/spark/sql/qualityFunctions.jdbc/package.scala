@@ -6,7 +6,7 @@ import org.apache.spark.sql.catalyst.util.DateTimeUtils.{instantToMicros, localD
 import org.apache.spark.sql.catalyst.util.{CharVarcharUtils, DateTimeUtils, GenericArrayData}
 import org.apache.spark.sql.errors.QueryExecutionErrors
 import org.apache.spark.sql.execution.datasources.jdbc.JdbcUtils
-import org.apache.spark.sql.execution.datasources.jdbc.JdbcUtils.{conf, getJdbcType}
+import org.apache.spark.sql.execution.datasources.jdbc.JdbcUtils.{JDBCValueGetter, conf, getJdbcType}
 import org.apache.spark.sql.jdbc.{JdbcDialect, JdbcDialects}
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.UTF8String
@@ -27,32 +27,25 @@ package object jdbc {
                  alwaysNullable: Boolean = false,
                  isTimestampNTZ: Boolean = false): JdbcHelper =  {
     val dialect = JdbcDialects.get(jdbcURL)
-    val schema: StructType = JdbcUtils.getSchema(resultSet, dialect, alwaysNullable, isTimestampNTZ)
+    val schema: StructType = JdbcUtils.getSchema(resultSet, dialect, alwaysNullable)
     jdbcHelper(dialect, schema)
   }
 
   def jdbcHelper(dialect: JdbcDialect,
                  schema: StructType): JdbcHelper =
-    new JdbcHelper(schema, makeGetters(dialect, schema))
+    new JdbcHelper(schema, makeGetters(schema))
 
   /**
    * Creates `JDBCValueGetter`s according to [[StructType]], which can set
    * each value from `ResultSet` to each field of [[InternalRow]] correctly.
    *
-   * This is a copy from spark repository
-   * https://github.com/apache/spark/blob/b59db1eb0795c70d86ce00cfb183a5d021a2af27/sql/core/src/main/scala/org/apache/spark/sql/execution/datasources/jdbc/JdbcUtils.scala#L566
+   * This is a copy from the spark repository
+   * https://github.com/apache/spark/blob/e5ba617111ce0d0fc1ff7a069081d2d9009d862f/sql/core/src/main/scala/org/apache/spark/sql/execution/datasources/jdbc/JdbcUtils.scala#L370
    */
-  private def makeGetters(
-                           dialect: JdbcDialect,
-                           schema: StructType): Seq[(DataType, JDBCValueGetter)] = {
-    val replaced = CharVarcharUtils.replaceCharVarcharWithStringInSchema(schema)
-    replaced.fields.map(sf => sf.dataType -> makeGetter(sf.dataType, dialect, sf.metadata)).toIndexedSeq
-  }
+  private def makeGetters(schema: StructType): Seq[(DataType ,JDBCValueGetter)] =
+    schema.fields.map(sf => sf.dataType -> makeGetter(sf.dataType, sf.metadata)).toSeq
 
-  private def makeGetter(
-                          dt: DataType,
-                          dialect: JdbcDialect,
-                          metadata: Metadata): JDBCValueGetter = dt match {
+  private def makeGetter(dt: DataType, metadata: Metadata): JDBCValueGetter = dt match {
     case BooleanType =>
       (rs: ResultSet, row: InternalRow, pos: Int) =>
         row.setBoolean(pos, rs.getBoolean(pos + 1))
@@ -118,12 +111,7 @@ package object jdbc {
 
     case StringType if metadata.contains("rowid") =>
       (rs: ResultSet, row: InternalRow, pos: Int) =>
-        val rawRowId = rs.getRowId(pos + 1)
-        if (rawRowId == null) {
-          row.update(pos, null)
-        } else {
-          row.update(pos, UTF8String.fromString(rawRowId.toString))
-        }
+        row.update(pos, UTF8String.fromString(rs.getRowId(pos + 1).toString))
 
     case StringType =>
       (rs: ResultSet, row: InternalRow, pos: Int) =>
@@ -153,18 +141,7 @@ package object jdbc {
       (rs: ResultSet, row: InternalRow, pos: Int) =>
         val t = rs.getTimestamp(pos + 1)
         if (t != null) {
-          row.setLong(pos, DateTimeUtils.
-            fromJavaTimestamp(dialect.convertJavaTimestampToTimestamp(t)))
-        } else {
-          row.update(pos, null)
-        }
-
-    case TimestampNTZType =>
-      (rs: ResultSet, row: InternalRow, pos: Int) =>
-        val t = rs.getTimestamp(pos + 1)
-        if (t != null) {
-          row.setLong(pos,
-            DateTimeUtils.localDateTimeToMicros(dialect.convertJavaTimestampToTimestampNTZ(t)))
+          row.setLong(pos, DateTimeUtils.fromJavaTimestamp(t))
         } else {
           row.update(pos, null)
         }

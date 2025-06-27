@@ -1,19 +1,14 @@
 package org.apache.spark.sql.qualityFunctions
 
-import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.util.DateTimeUtils.{instantToMicros, localDateToDays, toJavaDate, toJavaTimestamp}
-import org.apache.spark.sql.catalyst.util.{CharVarcharUtils, DateTimeUtils, GenericArrayData}
-import org.apache.spark.sql.errors.QueryExecutionErrors
+import org.apache.spark.sql.catalyst.util.{DateTimeUtils, GenericArrayData}
 import org.apache.spark.sql.execution.datasources.jdbc.JdbcUtils
-import org.apache.spark.sql.execution.datasources.jdbc.JdbcUtils.{conf, getJdbcType}
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.jdbc.{JdbcDialect, JdbcDialects}
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.UTF8String
 
-import java.sql.{Connection, PreparedStatement, ResultSet}
-import java.time.{Instant, LocalDate}
-import java.util.Locale
+import java.sql.{Connection, ResultSet}
 import java.util.concurrent.TimeUnit
 
 package object jdbc {
@@ -27,32 +22,26 @@ package object jdbc {
                  alwaysNullable: Boolean = false,
                  isTimestampNTZ: Boolean = false): JdbcHelper =  {
     val dialect = JdbcDialects.get(jdbcURL)
-    val schema: StructType = JdbcUtils.getSchema(resultSet, dialect, alwaysNullable, isTimestampNTZ)
+    val schema: StructType = JdbcUtils.getSchema(resultSet, dialect, alwaysNullable)
     jdbcHelper(dialect, schema)
   }
 
   def jdbcHelper(dialect: JdbcDialect,
                  schema: StructType): JdbcHelper =
-    new JdbcHelper(schema, makeGetters(dialect, schema))
+    new JdbcHelper(schema, makeGetters(schema))
+
+
 
   /**
    * Creates `JDBCValueGetter`s according to [[StructType]], which can set
    * each value from `ResultSet` to each field of [[InternalRow]] correctly.
-   *
-   * This is a copy from spark repository
-   * https://github.com/apache/spark/blob/b59db1eb0795c70d86ce00cfb183a5d021a2af27/sql/core/src/main/scala/org/apache/spark/sql/execution/datasources/jdbc/JdbcUtils.scala#L566
+   * This is a copy from the spark repository
+   * https://github.com/apache/spark/blob/v3.1.3/sql/core/src/main/scala/org/apache/spark/sql/execution/datasources/jdbc/JdbcUtils.scala#L374
    */
-  private def makeGetters(
-                           dialect: JdbcDialect,
-                           schema: StructType): Seq[(DataType, JDBCValueGetter)] = {
-    val replaced = CharVarcharUtils.replaceCharVarcharWithStringInSchema(schema)
-    replaced.fields.map(sf => sf.dataType -> makeGetter(sf.dataType, dialect, sf.metadata)).toIndexedSeq
-  }
+  private def makeGetters(schema: StructType) =
+    schema.fields.map(sf => sf.dataType -> makeGetter(sf.dataType, sf.metadata)).toIndexedSeq
 
-  private def makeGetter(
-                          dt: DataType,
-                          dialect: JdbcDialect,
-                          metadata: Metadata): JDBCValueGetter = dt match {
+  private def makeGetter(dt: DataType, metadata: Metadata): JDBCValueGetter = dt match {
     case BooleanType =>
       (rs: ResultSet, row: InternalRow, pos: Int) =>
         row.setBoolean(pos, rs.getBoolean(pos + 1))
@@ -116,55 +105,16 @@ package object jdbc {
       (rs: ResultSet, row: InternalRow, pos: Int) =>
         row.setByte(pos, rs.getByte(pos + 1))
 
-    case StringType if metadata.contains("rowid") =>
-      (rs: ResultSet, row: InternalRow, pos: Int) =>
-        val rawRowId = rs.getRowId(pos + 1)
-        if (rawRowId == null) {
-          row.update(pos, null)
-        } else {
-          row.update(pos, UTF8String.fromString(rawRowId.toString))
-        }
-
     case StringType =>
       (rs: ResultSet, row: InternalRow, pos: Int) =>
         // TODO(davies): use getBytes for better performance, if the encoding is UTF-8
         row.update(pos, UTF8String.fromString(rs.getString(pos + 1)))
 
-    // SPARK-34357 - sql TIME type represents as zero epoch timestamp.
-    // It is mapped as Spark TimestampType but fixed at 1970-01-01 for day,
-    // time portion is time of day, with no reference to a particular calendar,
-    // time zone or date, with a precision till microseconds.
-    // It stores the number of milliseconds after midnight, 00:00:00.000000
-    case TimestampType if metadata.contains("logical_time_type") =>
-      (rs: ResultSet, row: InternalRow, pos: Int) => {
-        val rawTime = rs.getTime(pos + 1)
-        if (rawTime != null) {
-          val localTimeMicro = TimeUnit.NANOSECONDS.toMicros(
-            rawTime.toLocalTime().toNanoOfDay())
-          val utcTimeMicro = DateTimeUtils.toUTCTime(
-            localTimeMicro, conf.sessionLocalTimeZone)
-          row.setLong(pos, utcTimeMicro)
-        } else {
-          row.update(pos, null)
-        }
-      }
-
     case TimestampType =>
       (rs: ResultSet, row: InternalRow, pos: Int) =>
         val t = rs.getTimestamp(pos + 1)
         if (t != null) {
-          row.setLong(pos, DateTimeUtils.
-            fromJavaTimestamp(dialect.convertJavaTimestampToTimestamp(t)))
-        } else {
-          row.update(pos, null)
-        }
-
-    case TimestampNTZType =>
-      (rs: ResultSet, row: InternalRow, pos: Int) =>
-        val t = rs.getTimestamp(pos + 1)
-        if (t != null) {
-          row.setLong(pos,
-            DateTimeUtils.localDateTimeToMicros(dialect.convertJavaTimestampToTimestampNTZ(t)))
+          row.setLong(pos, DateTimeUtils.fromJavaTimestamp(t))
         } else {
           row.update(pos, null)
         }
@@ -201,10 +151,11 @@ package object jdbc {
             }
 
         case LongType if metadata.contains("binarylong") =>
-          throw QueryExecutionErrors.unsupportedArrayElementTypeBasedOnBinaryError(dt)
+          throw new IllegalArgumentException(s"Unsupported array element " +
+            s"type ${dt.catalogString} based on binary")
 
         case ArrayType(_, _) =>
-          throw QueryExecutionErrors.nestedArraysUnsupportedError()
+          throw new IllegalArgumentException("Nested arrays unsupported")
 
         case _ => (array: Object) => array.asInstanceOf[Array[Any]]
       }
@@ -215,7 +166,7 @@ package object jdbc {
           array => new GenericArrayData(elementConversion.apply(array.getArray)))
         row.update(pos, array)
 
-    case _ => throw QueryExecutionErrors.unsupportedJdbcTypeError(dt.catalogString)
+    case _ => throw new IllegalArgumentException(s"Unsupported type ${dt.catalogString}")
   }
 
   private def nullSafeConvert[T](input: T, f: T => Any): Any = {

@@ -2,11 +2,9 @@ package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
 import com.sparkutils.quality.sparkless.{ProcessFunctions, Processor}
-import org.apache.spark.sql.catalyst.encoders.AgnosticEncoder
-import org.apache.spark.sql.execution.datasources.jdbc.JdbcUtils
 import org.apache.spark.sql.jdbc.JdbcDialects
 import org.apache.spark.sql.qualityFunctions.jdbc.jdbcHelper
-import org.apache.spark.sql.types.{DataType, IntegerType, StringType, StructField, StructType}
+import org.apache.spark.sql.types._
 import org.apache.spark.sql.{Row, ShimUtils}
 import org.junit.runner.RunWith
 import org.scalatest.{BeforeAndAfterAll, FunSuite, Matchers}
@@ -92,7 +90,7 @@ class JDBCToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with T
 
           val helper = jdbcHelper(dialect = dialect, schema = schema)
 
-          implicit val renc: AgnosticEncoder[Row] = ShimUtils.rowEncoder(schema)
+          implicit val renc = ShimUtils.rowEncoder(schema)
 
           val dqFactory = ProcessFunctions.dqFactory[Row](theRuleSuite)
 
@@ -106,7 +104,7 @@ class JDBCToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with T
   }
 
   test("test with jdbc ruleEngineFactoryT in h2") {
-    not2_4 {
+    not2_4_or_3_0_or_3_1 {
       not_Cluster {
         evalCodeGensNoResolve {
           val resultSet = connection.prepareStatement(s"select * from test.test_on;").executeQuery()
@@ -115,7 +113,7 @@ class JDBCToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with T
 
           val helper = jdbcHelper(dialect = dialect, schema = schema)
 
-          implicit val renc: AgnosticEncoder[Row] = ShimUtils.rowEncoder(schema)
+          implicit val renc = ShimUtils.rowEncoder(schema)
 
           val DDL = "ARRAY<STRUCT<`transfer_type`: STRING, `account`: STRING, `product`: STRING, `subcode`: INTEGER >>"
 
