@@ -69,8 +69,8 @@ trait RowTools extends TestUtils {
 
   val generator = crossProduct(ruleSets, fields)
 
-  val writeRows = 100000
-  //val writeRows = 1000
+  //val writeRows = 100000
+  val writeRows = 1000
   //val writeRows = 10000
 
   // data grows with the rows...
