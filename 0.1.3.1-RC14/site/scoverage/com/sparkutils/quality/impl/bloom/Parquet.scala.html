@@ -1,0 +1,2445 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/sparkutils/quality/impl/bloom/Parquet.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality.impl.bloom
+</span>2 <span style=''>
+</span>3 <span style=''>import java.io.{ByteArrayInputStream, File, ObjectInputStream}
+</span>4 <span style=''>import com.sparkutils.quality.BloomModel
+</span>5 <span style=''>import com.sparkutils.quality.QualityException.qualityException
+</span>6 <span style=''>import com.sparkutils.quality.impl.bloom.parquet.{BlockSplitBloomFilterImpl, Bloom, BloomFilter, BloomHash, BucketedCreator, BucketedFilesRoot, FileRoot}
+</span>7 <span style=''>import org.apache.spark.sql.catalyst.InternalRow
+</span>8 <span style=''>import org.apache.spark.sql.catalyst.expressions.Expression
+</span>9 <span style=''>import org.apache.spark.sql.catalyst.expressions.aggregate.{ImperativeAggregate, TypedImperativeAggregate}
+</span>10 <span style=''>import org.apache.spark.sql.shim.expressions.InputTypeChecks
+</span>11 <span style=''>import org.apache.spark.sql.types._
+</span>12 <span style=''>
+</span>13 <span style=''>trait ParquetBloomAggregator[T &lt;: Bloom[_]] extends InputTypeChecks {
+</span>14 <span style=''>  val child, expectedSizeE, expectedFPPE: Expression
+</span>15 <span style=''>  val mutableAggBufferOffset, inputAggBufferOffset: Int = </span><span style='background: #AEF1AE'>0</span><span style=''>
+</span>16 <span style=''>
+</span>17 <span style=''>  // doesn't work with aggregators?
+</span>18 <span style=''>  override def inputDataTypes: Seq[Seq[DataType]] = </span><span style='background: #AEF1AE'>Seq(BloomHash.hashTypes,
+</span>19 <span style=''></span><span style='background: #AEF1AE'>    Seq(LongType, IntegerType, ShortType), Seq(DoubleType))</span><span style=''>
+</span>20 <span style=''>
+</span>21 <span style=''>  protected lazy val expectedSize: Int =
+</span>22 <span style=''>    com.sparkutils.quality.optimalNumOfBits(
+</span>23 <span style=''>      { val eSize = expectedSizeE.eval()
+</span>24 <span style=''>        eSize match {
+</span>25 <span style=''>          case e: Long =&gt; e.toInt
+</span>26 <span style=''>          case e: Int =&gt; e
+</span>27 <span style=''>          case e: Short =&gt; e.toInt
+</span>28 <span style=''>          case _ =&gt; qualityException(s&quot;Should have been Short, Long or Integer but was: $eSize ${eSize.getClass.getSimpleName}&quot;)
+</span>29 <span style=''>        }},
+</span>30 <span style=''>      {
+</span>31 <span style=''>        val fpp = expectedFPPE.eval()
+</span>32 <span style=''>        fpp match {
+</span>33 <span style=''>          case f: org.apache.spark.sql.types.Decimal =&gt; f.toDouble
+</span>34 <span style=''>          case d: Double =&gt; d
+</span>35 <span style=''>          case _ =&gt; qualityException(s&quot;Should have been Double or Decimal but was: $fpp ${fpp.getClass.getSimpleName}&quot;)
+</span>36 <span style=''>        }
+</span>37 <span style=''>      } / 8 )
+</span>38 <span style=''>
+</span>39 <span style=''>  lazy val converter = BloomExpressionLookup.bloomLookupValueConverter(child)
+</span>40 <span style=''>
+</span>41 <span style=''>  def nullable: Boolean = </span><span style='background: #AEF1AE'>false</span><span style=''>
+</span>42 <span style=''>
+</span>43 <span style=''>  def dataType: DataType = </span><span style='background: #AEF1AE'>BinaryType</span><span style=''> // closest, worse case we lose the input numBuckets, numHashFunctions
+</span>44 <span style=''>
+</span>45 <span style=''>  def children: Seq[Expression] = </span><span style='background: #AEF1AE'>Seq(child, expectedSizeE, expectedFPPE)</span><span style=''>
+</span>46 <span style=''>
+</span>47 <span style=''>}
+</span>48 <span style=''>
+</span>49 <span style=''>trait ParquetBloomFPP {
+</span>50 <span style=''>  val expectedSizeE, expectedFPPE: Expression
+</span>51 <span style=''>  protected lazy val fpp = {
+</span>52 <span style=''>    val ef = expectedFPPE.eval()
+</span>53 <span style=''>    ef match {
+</span>54 <span style=''>      case d: Double =&gt; d
+</span>55 <span style=''>      case d: org.apache.spark.sql.types.Decimal =&gt; d.toDouble
+</span>56 <span style=''>    }
+</span>57 <span style=''>  }
+</span>58 <span style=''>}
+</span>59 <span style=''>
+</span>60 <span style=''>trait TypedParquetBloomAggregator[T &lt;: Bloom[_]] extends
+</span>61 <span style=''>  TypedImperativeAggregate[T] with ParquetBloomAggregator[T] {
+</span>62 <span style=''>
+</span>63 <span style=''>  implicit def bloomDes: BloomDeserializer[T]
+</span>64 <span style=''>
+</span>65 <span style=''>  override def update(buffer: T, input: InternalRow): T = {
+</span>66 <span style=''>    val r = </span><span style='background: #AEF1AE'>child.eval(input)</span><span style=''>
+</span>67 <span style=''>    val ar = </span><span style='background: #AEF1AE'>converter(r)</span><span style=''>
+</span>68 <span style=''>    </span><span style='background: #AEF1AE'>buffer += ar</span><span style=''>
+</span>69 <span style=''>    buffer
+</span>70 <span style=''>  }
+</span>71 <span style=''>
+</span>72 <span style=''>  override def merge(buffer: T, input: T): T= {
+</span>73 <span style=''>    (</span><span style='background: #AEF1AE'>buffer |= input.asInstanceOf[buffer.BloomType]).asInstanceOf[T]</span><span style=''>
+</span>74 <span style=''>  }
+</span>75 <span style=''>
+</span>76 <span style=''>  override def eval(buffer: T): Any = </span><span style='background: #AEF1AE'>serialize(buffer)</span><span style=''>
+</span>77 <span style=''>
+</span>78 <span style=''>  override def serialize(buffer: T): Array[Byte] = </span><span style='background: #AEF1AE'>buffer.serialized</span><span style=''>
+</span>79 <span style=''>
+</span>80 <span style=''>  override def deserialize(storageFormat: Array[Byte]): T = </span><span style='background: #AEF1AE'>Parquet.deserialize[T](storageFormat)</span><span style=''>
+</span>81 <span style=''>
+</span>82 <span style=''>}
+</span>83 <span style=''>
+</span>84 <span style=''>case class ParquetAggregator(child: Expression, expectedSizeE: Expression, expectedFPPE: Expression,
+</span>85 <span style=''>                             override val mutableAggBufferOffset: Int = 0,
+</span>86 <span style=''>                             override val inputAggBufferOffset: Int = 0) extends TypedParquetBloomAggregator[BlockSplitBloomFilterImpl] {
+</span>87 <span style=''>  override def withNewMutableAggBufferOffset(newMutableAggBufferOffset: Int): ImperativeAggregate =
+</span>88 <span style=''>  </span><span style='background: #AEF1AE'>copy(mutableAggBufferOffset = newMutableAggBufferOffset)</span><span style=''>
+</span>89 <span style=''>
+</span>90 <span style=''>  override def withNewInputAggBufferOffset(newInputAggBufferOffset: Int): ImperativeAggregate =
+</span>91 <span style=''>  </span><span style='background: #AEF1AE'>copy(inputAggBufferOffset = newInputAggBufferOffset)</span><span style=''>
+</span>92 <span style=''>
+</span>93 <span style=''>  override def createAggregationBuffer(): BlockSplitBloomFilterImpl = </span><span style='background: #AEF1AE'>new BlockSplitBloomFilterImpl(expectedSize)</span><span style=''>
+</span>94 <span style=''>
+</span>95 <span style=''>  implicit def bloomDes: BloomDeserializer[BlockSplitBloomFilterImpl] = </span><span style='background: #AEF1AE'>Parquet.blockDes</span><span style=''>
+</span>96 <span style=''>
+</span>97 <span style=''>  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = </span><span style='background: #AEF1AE'>copy(child = newChildren(0), expectedSizeE = newChildren(1), expectedFPPE = newChildren(2))</span><span style=''>
+</span>98 <span style=''>}
+</span>99 <span style=''>
+</span>100 <span style=''>case class BucketedArrayParquetAggregator(child: Expression, expectedSizeE: Expression, expectedFPPE: Expression, id: Expression,
+</span>101 <span style=''>                                     override val mutableAggBufferOffset: Int = 0,
+</span>102 <span style=''>                                     override val inputAggBufferOffset: Int = 0,
+</span>103 <span style=''>                                     bucketedFilesRoot: BucketedFilesRoot = BucketedFilesRoot(FileRoot(com.sparkutils.quality.bloomFileLocation)))
+</span>104 <span style=''>  extends TypedParquetBloomAggregator[ BucketedCreator[BucketedFilesRoot, Array[Array[Byte]]] ]
+</span>105 <span style=''>  with ParquetBloomFPP {
+</span>106 <span style=''>
+</span>107 <span style=''>  protected lazy val numBuckets: Int = {
+</span>108 <span style=''>    val longRes = com.sparkutils.quality.optimalNumberOfBuckets(
+</span>109 <span style=''>      expectedSizeE.dataType match {
+</span>110 <span style=''>        case LongType =&gt; expectedSizeE.eval().asInstanceOf[Long]
+</span>111 <span style=''>        case IntegerType =&gt; expectedSizeE.eval().asInstanceOf[Int]
+</span>112 <span style=''>        case ShortType =&gt; expectedSizeE.eval().asInstanceOf[Short]
+</span>113 <span style=''>      },
+</span>114 <span style=''>      fpp)
+</span>115 <span style=''>    longRes.toByte
+</span>116 <span style=''>  }
+</span>117 <span style=''>
+</span>118 <span style=''>  protected lazy val root = bucketedFilesRoot.copy(bloomId = id.eval().toString)
+</span>119 <span style=''>
+</span>120 <span style=''>  override def withNewMutableAggBufferOffset(newMutableAggBufferOffset: Int): ImperativeAggregate =
+</span>121 <span style=''>    </span><span style='background: #AEF1AE'>copy(mutableAggBufferOffset = newMutableAggBufferOffset)</span><span style=''>
+</span>122 <span style=''>
+</span>123 <span style=''>  override def withNewInputAggBufferOffset(newInputAggBufferOffset: Int): ImperativeAggregate =
+</span>124 <span style=''>    </span><span style='background: #AEF1AE'>copy(inputAggBufferOffset = newInputAggBufferOffset)</span><span style=''>
+</span>125 <span style=''>
+</span>126 <span style=''>  import BucketedCreator.toLocalFiles
+</span>127 <span style=''>  override def createAggregationBuffer(): BucketedCreator[BucketedFilesRoot, Array[Array[Byte]]] = </span><span style='background: #AEF1AE'>BucketedCreator(expectedSize, numBuckets, fpp, root)</span><span style=''>
+</span>128 <span style=''>
+</span>129 <span style=''>  implicit def bloomDes: BloomDeserializer[BucketedCreator[BucketedFilesRoot, Array[Array[Byte]]]] = </span><span style='background: #AEF1AE'>Parquet.largeBucketFileDes</span><span style=''>
+</span>130 <span style=''>
+</span>131 <span style=''>  override def eval(buffer: BucketedCreator[BucketedFilesRoot, Array[Array[Byte]]]): Any = </span><span style='background: #AEF1AE'>serialize(buffer)</span><span style=''>
+</span>132 <span style=''>  override def dataType: DataType = </span><span style='background: #AEF1AE'>BinaryType</span><span style=''> // passes the BroadcastFiles
+</span>133 <span style=''>
+</span>134 <span style=''>  override def children: Seq[Expression] = </span><span style='background: #AEF1AE'>super.children :+ id</span><span style=''>
+</span>135 <span style=''>
+</span>136 <span style=''>  override def inputDataTypes: Seq[Seq[DataType]] = </span><span style='background: #AEF1AE'>super.inputDataTypes :+ Seq(StringType)</span><span style=''>
+</span>137 <span style=''>  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = </span><span style='background: #AEF1AE'>copy(child = newChildren(0), expectedSizeE = newChildren(1), expectedFPPE = newChildren(2), id = newChildren(3))</span><span style=''>
+</span>138 <span style=''>}
+</span>139 <span style=''>
+</span>140 <span style=''>
+</span>141 <span style=''>trait BloomDeserializer[T] {
+</span>142 <span style=''>  def deserialize(storageFormat: Array[Byte]): T
+</span>143 <span style=''>}
+</span>144 <span style=''>
+</span>145 <span style=''>// TODO bring this to top level imports
+</span>146 <span style=''>object Parquet {
+</span>147 <span style=''>
+</span>148 <span style=''>  implicit val blockDes = </span><span style='background: #AEF1AE'>new</span><span style=''> BloomDeserializer[BlockSplitBloomFilterImpl] {
+</span>149 <span style=''>    override def deserialize(storageFormat: Array[Byte]) = </span><span style='background: #AEF1AE'>BlockSplitBloomFilterImpl(storageFormat)</span><span style=''>
+</span>150 <span style=''>  }
+</span>151 <span style=''>
+</span>152 <span style=''>  implicit val largeBucketFileDes = </span><span style='background: #AEF1AE'>new</span><span style=''> BloomDeserializer[BucketedCreator[BucketedFilesRoot, Array[Array[Byte]]]] {
+</span>153 <span style=''>    override def deserialize(storageFormat: Array[Byte]) = {
+</span>154 <span style=''>      val ios = </span><span style='background: #AEF1AE'>new ByteArrayInputStream(storageFormat)</span><span style=''>
+</span>155 <span style=''>      val oos = </span><span style='background: #AEF1AE'>new ObjectInputStream(ios)</span><span style=''>
+</span>156 <span style=''>      val bucketedFiles = </span><span style='background: #AEF1AE'>oos.readObject().asInstanceOf[BloomModel]</span><span style=''>
+</span>157 <span style=''>      </span><span style='background: #AEF1AE'>oos.close()</span><span style=''>
+</span>158 <span style=''>      </span><span style='background: #AEF1AE'>ios.close()</span><span style=''>
+</span>159 <span style=''>      val ar = </span><span style='background: #AEF1AE'>bucketedFiles.read</span><span style=''>
+</span>160 <span style=''>
+</span>161 <span style=''>      val bucket = </span><span style='background: #AEF1AE'>BucketedCreator(ar, bucketedFiles.fpp,
+</span>162 <span style=''></span><span style='background: #AEF1AE'>        BucketedFilesRoot(FileRoot(bucketedFiles.rootDir), new File(bucketedFiles.rootDir).getParentFile.getName))</span><span style=''>
+</span>163 <span style=''>      bucket
+</span>164 <span style=''>    }
+</span>165 <span style=''>  }
+</span>166 <span style=''>
+</span>167 <span style=''>  // nb scary looking type lambda is really just turning a two typed into a one typed by fixing the SerializedType
+</span>168 <span style=''>  def deserialize[T: BloomDeserializer](storageFormat: Array[Byte]): T = {
+</span>169 <span style=''>    </span><span style='background: #AEF1AE'>implicitly[BloomDeserializer[T]].deserialize(storageFormat)</span><span style=''>
+</span>170 <span style=''>  }
+</span>171 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          15
+        </td>
+        <td>
+          4475
+        </td>
+        <td>
+          860
+          -
+          861
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          15
+        </td>
+        <td>
+          4474
+        </td>
+        <td>
+          860
+          -
+          860
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          18
+        </td>
+        <td>
+          4476
+        </td>
+        <td>
+          955
+          -
+          974
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BloomHash.hashTypes
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.bloom.parquet.BloomHash.hashTypes
+        </td>
+      </tr><tr>
+        <td>
+          18
+        </td>
+        <td>
+          4483
+        </td>
+        <td>
+          951
+          -
+          1035
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.Seq.apply[Seq[org.apache.spark.sql.types.DataType with Product with Serializable]](com.sparkutils.quality.impl.bloom.parquet.BloomHash.hashTypes, scala.collection.Seq.apply[org.apache.spark.sql.types.IntegralType with Product with Serializable](org.apache.spark.sql.types.LongType, org.apache.spark.sql.types.IntegerType, org.apache.spark.sql.types.ShortType), scala.collection.Seq.apply[org.apache.spark.sql.types.DoubleType.type](org.apache.spark.sql.types.DoubleType))
+        </td>
+      </tr><tr>
+        <td>
+          19
+        </td>
+        <td>
+          4482
+        </td>
+        <td>
+          1019
+          -
+          1034
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.Seq.apply[org.apache.spark.sql.types.DoubleType.type](org.apache.spark.sql.types.DoubleType)
+        </td>
+      </tr><tr>
+        <td>
+          19
+        </td>
+        <td>
+          4479
+        </td>
+        <td>
+          1007
+          -
+          1016
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.ShortType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.ShortType
+        </td>
+      </tr><tr>
+        <td>
+          19
+        </td>
+        <td>
+          4481
+        </td>
+        <td>
+          1023
+          -
+          1033
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.DoubleType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.DoubleType
+        </td>
+      </tr><tr>
+        <td>
+          19
+        </td>
+        <td>
+          4478
+        </td>
+        <td>
+          994
+          -
+          1005
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.IntegerType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.IntegerType
+        </td>
+      </tr><tr>
+        <td>
+          19
+        </td>
+        <td>
+          4477
+        </td>
+        <td>
+          984
+          -
+          992
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.LongType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.LongType
+        </td>
+      </tr><tr>
+        <td>
+          19
+        </td>
+        <td>
+          4480
+        </td>
+        <td>
+          980
+          -
+          1017
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.Seq.apply[org.apache.spark.sql.types.IntegralType with Product with Serializable](org.apache.spark.sql.types.LongType, org.apache.spark.sql.types.IntegerType, org.apache.spark.sql.types.ShortType)
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          4484
+        </td>
+        <td>
+          1836
+          -
+          1841
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          4485
+        </td>
+        <td>
+          1870
+          -
+          1880
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.BinaryType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.BinaryType
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          4488
+        </td>
+        <td>
+          2012
+          -
+          2024
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.ParquetBloomAggregator.expectedFPPE
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ParquetBloomAggregator.this.expectedFPPE
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          4487
+        </td>
+        <td>
+          1997
+          -
+          2010
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.ParquetBloomAggregator.expectedSizeE
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ParquetBloomAggregator.this.expectedSizeE
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          4486
+        </td>
+        <td>
+          1990
+          -
+          1995
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.ParquetBloomAggregator.child
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ParquetBloomAggregator.this.child
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          4489
+        </td>
+        <td>
+          1986
+          -
+          2025
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.Seq.apply[org.apache.spark.sql.catalyst.expressions.Expression](ParquetBloomAggregator.this.child, ParquetBloomAggregator.this.expectedSizeE, ParquetBloomAggregator.this.expectedFPPE)
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          4490
+        </td>
+        <td>
+          2519
+          -
+          2536
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.eval
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          TypedParquetBloomAggregator.this.child.eval(input)
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          4491
+        </td>
+        <td>
+          2550
+          -
+          2562
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          TypedParquetBloomAggregator.this.converter.apply(r)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          4492
+        </td>
+        <td>
+          2567
+          -
+          2579
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.Bloom.+=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          buffer.+=(ar)
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          4494
+        </td>
+        <td>
+          2649
+          -
+          2712
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          buffer.|=(input.asInstanceOf[buffer.BloomType]).asInstanceOf[T]
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          4493
+        </td>
+        <td>
+          2659
+          -
+          2695
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          input.asInstanceOf[buffer.BloomType]
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          4495
+        </td>
+        <td>
+          2756
+          -
+          2773
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.TypedParquetBloomAggregator.serialize
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          TypedParquetBloomAggregator.this.serialize(buffer)
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          4496
+        </td>
+        <td>
+          2826
+          -
+          2843
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.Bloom.serialized
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          buffer.serialized
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          4497
+        </td>
+        <td>
+          2927
+          -
+          2927
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.TypedParquetBloomAggregator.bloomDes
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          TypedParquetBloomAggregator.this.bloomDes
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          4498
+        </td>
+        <td>
+          2905
+          -
+          2942
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.Parquet.deserialize
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          Parquet.deserialize[T](storageFormat)(TypedParquetBloomAggregator.this.bloomDes)
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          4500
+        </td>
+        <td>
+          3363
+          -
+          3363
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.ParquetAggregator.copy$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ParquetAggregator.this.copy$default$2
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          4503
+        </td>
+        <td>
+          3363
+          -
+          3419
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.ParquetAggregator.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ParquetAggregator.this.copy(x$2, x$3, x$4, x$1, x$5)
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          4499
+        </td>
+        <td>
+          3363
+          -
+          3363
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.ParquetAggregator.copy$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ParquetAggregator.this.copy$default$1
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          4502
+        </td>
+        <td>
+          3363
+          -
+          3363
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.ParquetAggregator.copy$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ParquetAggregator.this.copy$default$5
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          4501
+        </td>
+        <td>
+          3363
+          -
+          3363
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.ParquetAggregator.copy$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ParquetAggregator.this.copy$default$3
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          4506
+        </td>
+        <td>
+          3519
+          -
+          3519
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.ParquetAggregator.copy$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ParquetAggregator.this.copy$default$3
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          4505
+        </td>
+        <td>
+          3519
+          -
+          3519
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.ParquetAggregator.copy$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ParquetAggregator.this.copy$default$2
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          4508
+        </td>
+        <td>
+          3519
+          -
+          3571
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.ParquetAggregator.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ParquetAggregator.this.copy(x$2, x$3, x$4, x$5, x$1)
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          4504
+        </td>
+        <td>
+          3519
+          -
+          3519
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.ParquetAggregator.copy$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ParquetAggregator.this.copy$default$1
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          4507
+        </td>
+        <td>
+          3519
+          -
+          3519
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.ParquetAggregator.copy$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ParquetAggregator.this.copy$default$4
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          4509
+        </td>
+        <td>
+          3643
+          -
+          3686
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl(ParquetAggregator.this.expectedSize)
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          4510
+        </td>
+        <td>
+          3760
+          -
+          3776
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.Parquet.blockDes
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          Parquet.blockDes
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          4512
+        </td>
+        <td>
+          3914
+          -
+          3928
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqLike.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          newChildren.apply(1)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          4515
+        </td>
+        <td>
+          3869
+          -
+          3869
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.ParquetAggregator.copy$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ParquetAggregator.this.copy$default$5
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          4514
+        </td>
+        <td>
+          3869
+          -
+          3869
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.ParquetAggregator.copy$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ParquetAggregator.this.copy$default$4
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          4511
+        </td>
+        <td>
+          3882
+          -
+          3896
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqLike.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          newChildren.apply(0)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          4513
+        </td>
+        <td>
+          3945
+          -
+          3959
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqLike.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          newChildren.apply(2)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          4516
+        </td>
+        <td>
+          3869
+          -
+          3960
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.ParquetAggregator.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ParquetAggregator.this.copy(newChildren.apply(0), newChildren.apply(1), newChildren.apply(2), ParquetAggregator.this.copy$default$4, ParquetAggregator.this.copy$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          4518
+        </td>
+        <td>
+          5099
+          -
+          5099
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.BucketedArrayParquetAggregator.copy$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BucketedArrayParquetAggregator.this.copy$default$2
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          4521
+        </td>
+        <td>
+          5099
+          -
+          5099
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.BucketedArrayParquetAggregator.copy$default$6
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BucketedArrayParquetAggregator.this.copy$default$6
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          4523
+        </td>
+        <td>
+          5099
+          -
+          5155
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.BucketedArrayParquetAggregator.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BucketedArrayParquetAggregator.this.copy(x$2, x$3, x$4, x$5, x$1, x$6, x$7)
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          4517
+        </td>
+        <td>
+          5099
+          -
+          5099
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.BucketedArrayParquetAggregator.copy$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BucketedArrayParquetAggregator.this.copy$default$1
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          4520
+        </td>
+        <td>
+          5099
+          -
+          5099
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.BucketedArrayParquetAggregator.copy$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BucketedArrayParquetAggregator.this.copy$default$4
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          4522
+        </td>
+        <td>
+          5099
+          -
+          5099
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.BucketedArrayParquetAggregator.copy$default$7
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BucketedArrayParquetAggregator.this.copy$default$7
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          4519
+        </td>
+        <td>
+          5099
+          -
+          5099
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.BucketedArrayParquetAggregator.copy$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BucketedArrayParquetAggregator.this.copy$default$3
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          4527
+        </td>
+        <td>
+          5257
+          -
+          5257
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.BucketedArrayParquetAggregator.copy$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BucketedArrayParquetAggregator.this.copy$default$4
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          4530
+        </td>
+        <td>
+          5257
+          -
+          5309
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.BucketedArrayParquetAggregator.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BucketedArrayParquetAggregator.this.copy(x$2, x$3, x$4, x$5, x$6, x$1, x$7)
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          4524
+        </td>
+        <td>
+          5257
+          -
+          5257
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.BucketedArrayParquetAggregator.copy$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BucketedArrayParquetAggregator.this.copy$default$1
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          4526
+        </td>
+        <td>
+          5257
+          -
+          5257
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.BucketedArrayParquetAggregator.copy$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BucketedArrayParquetAggregator.this.copy$default$3
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          4529
+        </td>
+        <td>
+          5257
+          -
+          5257
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.BucketedArrayParquetAggregator.copy$default$7
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BucketedArrayParquetAggregator.this.copy$default$7
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          4528
+        </td>
+        <td>
+          5257
+          -
+          5257
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.BucketedArrayParquetAggregator.copy$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BucketedArrayParquetAggregator.this.copy$default$5
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          4525
+        </td>
+        <td>
+          5257
+          -
+          5257
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.BucketedArrayParquetAggregator.copy$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BucketedArrayParquetAggregator.this.copy$default$2
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          4532
+        </td>
+        <td>
+          5448
+          -
+          5500
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BucketedCreator.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.bloom.parquet.BucketedCreator.apply[com.sparkutils.quality.impl.bloom.parquet.BucketedFilesRoot, Array[Array[Byte]]](BucketedArrayParquetAggregator.this.expectedSize, BucketedArrayParquetAggregator.this.numBuckets, BucketedArrayParquetAggregator.this.fpp, BucketedArrayParquetAggregator.this.root)(com.sparkutils.quality.impl.bloom.parquet.BucketedCreator.toLocalFiles)
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          4531
+        </td>
+        <td>
+          5463
+          -
+          5463
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BucketedCreator.toLocalFiles
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.bloom.parquet.BucketedCreator.toLocalFiles
+        </td>
+      </tr><tr>
+        <td>
+          129
+        </td>
+        <td>
+          4533
+        </td>
+        <td>
+          5603
+          -
+          5629
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.Parquet.largeBucketFileDes
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          Parquet.largeBucketFileDes
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          4534
+        </td>
+        <td>
+          5722
+          -
+          5739
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.TypedParquetBloomAggregator.serialize
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BucketedArrayParquetAggregator.this.serialize(buffer)
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          4535
+        </td>
+        <td>
+          5776
+          -
+          5786
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.BinaryType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.BinaryType
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          4536
+        </td>
+        <td>
+          5878
+          -
+          5880
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.BucketedArrayParquetAggregator.id
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BucketedArrayParquetAggregator.this.id
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          4538
+        </td>
+        <td>
+          5860
+          -
+          5880
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.SeqLike.:+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BucketedArrayParquetAggregator.super.children.:+[org.apache.spark.sql.catalyst.expressions.Expression, Seq[org.apache.spark.sql.catalyst.expressions.Expression]](BucketedArrayParquetAggregator.this.id)(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression])
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          4537
+        </td>
+        <td>
+          5875
+          -
+          5875
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression]
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          4542
+        </td>
+        <td>
+          5934
+          -
+          5973
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.SeqLike.:+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BucketedArrayParquetAggregator.super.inputDataTypes.:+[Seq[org.apache.spark.sql.types.DataType], Seq[Seq[org.apache.spark.sql.types.DataType]]](scala.collection.Seq.apply[org.apache.spark.sql.types.StringType.type](org.apache.spark.sql.types.StringType))(collection.this.Seq.canBuildFrom[Seq[org.apache.spark.sql.types.DataType]])
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          4539
+        </td>
+        <td>
+          5962
+          -
+          5972
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StringType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StringType
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          4541
+        </td>
+        <td>
+          5955
+          -
+          5955
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[Seq[org.apache.spark.sql.types.DataType]]
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          4540
+        </td>
+        <td>
+          5958
+          -
+          5973
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.Seq.apply[org.apache.spark.sql.types.StringType.type](org.apache.spark.sql.types.StringType)
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          4545
+        </td>
+        <td>
+          6141
+          -
+          6155
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqLike.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          newChildren.apply(2)
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          4548
+        </td>
+        <td>
+          6065
+          -
+          6065
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.BucketedArrayParquetAggregator.copy$default$6
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BucketedArrayParquetAggregator.this.copy$default$6
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          4550
+        </td>
+        <td>
+          6065
+          -
+          6177
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.BucketedArrayParquetAggregator.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BucketedArrayParquetAggregator.this.copy(newChildren.apply(0), newChildren.apply(1), newChildren.apply(2), newChildren.apply(3), BucketedArrayParquetAggregator.this.copy$default$5, BucketedArrayParquetAggregator.this.copy$default$6, BucketedArrayParquetAggregator.this.copy$default$7)
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          4544
+        </td>
+        <td>
+          6110
+          -
+          6124
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqLike.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          newChildren.apply(1)
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          4547
+        </td>
+        <td>
+          6065
+          -
+          6065
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.BucketedArrayParquetAggregator.copy$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BucketedArrayParquetAggregator.this.copy$default$5
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          4546
+        </td>
+        <td>
+          6162
+          -
+          6176
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqLike.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          newChildren.apply(3)
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          4549
+        </td>
+        <td>
+          6065
+          -
+          6065
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.BucketedArrayParquetAggregator.copy$default$7
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          BucketedArrayParquetAggregator.this.copy$default$7
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          4543
+        </td>
+        <td>
+          6078
+          -
+          6092
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqLike.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          newChildren.apply(0)
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          4552
+        </td>
+        <td>
+          6347
+          -
+          6350
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.Parquet.$anon.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new $anon()
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          4551
+        </td>
+        <td>
+          6457
+          -
+          6497
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.bloom.parquet.BlockSplitBloomFilterImpl.apply(storageFormat)
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          4565
+        </td>
+        <td>
+          6539
+          -
+          6542
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.Parquet.$anon.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new $anon()
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          4553
+        </td>
+        <td>
+          6696
+          -
+          6735
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.ByteArrayInputStream.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new java.io.ByteArrayInputStream(storageFormat)
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          4554
+        </td>
+        <td>
+          6752
+          -
+          6778
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.ObjectInputStream.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new java.io.ObjectInputStream(ios)
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          4555
+        </td>
+        <td>
+          6805
+          -
+          6846
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          oos.readObject().asInstanceOf[com.sparkutils.quality.BloomModel]
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          4556
+        </td>
+        <td>
+          6853
+          -
+          6864
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.ObjectInputStream.close
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          oos.close()
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          4557
+        </td>
+        <td>
+          6871
+          -
+          6882
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.ByteArrayInputStream.close
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ios.close()
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          4558
+        </td>
+        <td>
+          6898
+          -
+          6916
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.BloomModel.read
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          bucketedFiles.read
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          4559
+        </td>
+        <td>
+          6957
+          -
+          6974
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.BloomModel.fpp
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          bucketedFiles.fpp
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          4564
+        </td>
+        <td>
+          6937
+          -
+          7090
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BucketedCreator.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.bloom.parquet.BucketedCreator.apply(ar, bucketedFiles.fpp, com.sparkutils.quality.impl.bloom.parquet.BucketedFilesRoot.apply(com.sparkutils.quality.impl.bloom.parquet.FileRoot.apply(bucketedFiles.rootDir), new java.io.File(bucketedFiles.rootDir).getParentFile().getName()))
+        </td>
+      </tr><tr>
+        <td>
+          162
+        </td>
+        <td>
+          4560
+        </td>
+        <td>
+          7011
+          -
+          7032
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.BloomModel.rootDir
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          bucketedFiles.rootDir
+        </td>
+      </tr><tr>
+        <td>
+          162
+        </td>
+        <td>
+          4563
+        </td>
+        <td>
+          6984
+          -
+          7089
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.BucketedFilesRoot.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.bloom.parquet.BucketedFilesRoot.apply(com.sparkutils.quality.impl.bloom.parquet.FileRoot.apply(bucketedFiles.rootDir), new java.io.File(bucketedFiles.rootDir).getParentFile().getName())
+        </td>
+      </tr><tr>
+        <td>
+          162
+        </td>
+        <td>
+          4562
+        </td>
+        <td>
+          7035
+          -
+          7088
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.File.getName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new java.io.File(bucketedFiles.rootDir).getParentFile().getName()
+        </td>
+      </tr><tr>
+        <td>
+          162
+        </td>
+        <td>
+          4561
+        </td>
+        <td>
+          7002
+          -
+          7033
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.parquet.FileRoot.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.bloom.parquet.FileRoot.apply(bucketedFiles.rootDir)
+        </td>
+      </tr><tr>
+        <td>
+          169
+        </td>
+        <td>
+          4566
+        </td>
+        <td>
+          7309
+          -
+          7368
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.bloom.BloomDeserializer.deserialize
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.implicitly[com.sparkutils.quality.impl.bloom.BloomDeserializer[T]](evidence$1).deserialize(storageFormat)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
