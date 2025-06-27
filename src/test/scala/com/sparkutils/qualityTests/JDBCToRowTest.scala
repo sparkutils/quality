@@ -6,7 +6,7 @@ import org.apache.spark.sql.catalyst.encoders.AgnosticEncoder
 import org.apache.spark.sql.execution.datasources.jdbc.JdbcUtils
 import org.apache.spark.sql.jdbc.JdbcDialects
 import org.apache.spark.sql.qualityFunctions.jdbc.jdbcHelper
-import org.apache.spark.sql.types.{DataType, StructType}
+import org.apache.spark.sql.types.{DataType, IntegerType, StringType, StructField, StructType}
 import org.apache.spark.sql.{Row, ShimUtils}
 import org.junit.runner.RunWith
 import org.scalatest.{BeforeAndAfterAll, FunSuite, Matchers}
@@ -15,6 +15,7 @@ import org.scalatestplus.junit.JUnitRunner
 import java.sql.{DriverManager, ResultSet}
 import java.util.Properties
 import scala.annotation.tailrec
+import scala.collection.Seq
 
 
 @RunWith(classOf[JUnitRunner])
@@ -73,6 +74,12 @@ class JDBCToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with T
     data shouldBe testData
   }
 
+  val schema = StructType(Seq(
+    StructField("product", StringType, nullable = false),
+    StructField("account", StringType, nullable = false),
+    StructField("subcode", IntegerType, nullable = false)
+  ))
+
 
   test("test with jdbc dqFactory in h2") {
     not2_4 {
@@ -83,8 +90,6 @@ class JDBCToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with T
 
           val dialect = JdbcDialects.get(urlString)
 
-          val schema: StructType = JdbcUtils.getSchema(connection, resultSet, dialect)
-
           val helper = jdbcHelper(dialect = dialect, schema = schema)
 
           implicit val renc: AgnosticEncoder[Row] = ShimUtils.rowEncoder(schema)
@@ -93,7 +98,7 @@ class JDBCToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with T
 
           val jdbcDqProcessor: Processor[ResultSet, RuleSuiteResult] = helper.wrapResultSet(dqFactory).instance
 
-          val ruleResults = mapToLazyList(resultSet = resultSet, jdbcProcessor = jdbcDqProcessor)
+          val ruleResults = mapToList(resultSet = resultSet, jdbcProcessor = jdbcDqProcessor)
           ruleResults.map(_.overallResult) shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
         }
       }
@@ -107,8 +112,6 @@ class JDBCToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with T
           val resultSet = connection.prepareStatement(s"select * from test.test_on;").executeQuery()
 
           val dialect = JdbcDialects.get(urlString)
-
-          val schema: StructType = JdbcUtils.getSchema(connection, resultSet, dialect)
 
           val helper = jdbcHelper(dialect = dialect, schema = schema)
 
@@ -147,7 +150,7 @@ class JDBCToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with T
 
           val jdbcDqProcessor: Processor[ResultSet, RuleEngineResult[Seq[NewPosting]]] = helper.wrapResultSet(ruleEngineFactoryT).instance
 
-          val res = mapToLazyList(resultSet = resultSet, jdbcProcessor = jdbcDqProcessor)
+          val res = mapToList(resultSet = resultSet, jdbcProcessor = jdbcDqProcessor)
           //ruleResults.map(_.overallResult) shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
           for(i <- 0 until 3) {
             res(i).result.isEmpty shouldBe true
@@ -185,13 +188,6 @@ class JDBCToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with T
     }
 
     mapInner(listAcc = Nil)
-  }
-
-  private def mapToLazyList[T](resultSet: ResultSet, jdbcProcessor: ResultSet => T): LazyList[T] = {
-    val hasNext = resultSet.next()
-
-    if (hasNext) jdbcProcessor(resultSet) #:: mapToLazyList(resultSet, jdbcProcessor)
-    else LazyList.empty
   }
 
 
