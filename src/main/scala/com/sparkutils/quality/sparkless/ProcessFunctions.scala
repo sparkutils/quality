@@ -88,10 +88,11 @@ object ProcessFunctions {
                                   resultDetails: String = "DQ_Details", compileEvals: Boolean = false,
                                   forceRunnerEval: Boolean = false): DataFrame = {
     val temporaryDQname: String = "DQ_TEMP_Quality"
+    val topName = dataFrame.columns.head
     addDataQuality(dataFrame, rules, temporaryDQname, compileEvals = compileEvals,
       forceRunnerEval = forceRunnerEval).
-      selectExpr("*",s"processor_input_wrapper(account, $temporaryDQname.overallResult) as $overallResult",
-        s"ruleSuiteResultDetails(processor_input_wrapper(account, $temporaryDQname)) as $resultDetails").drop(temporaryDQname)
+      selectExpr("*",s"processor_input_wrapper($topName, $temporaryDQname.overallResult) as $overallResult",
+        s"ruleSuiteResultDetails(processor_input_wrapper($topName, $temporaryDQname)) as $resultDetails").drop(temporaryDQname)
   }
 
   private def addOverallResultsAndDetailsWrapperF(rules: RuleSuite, compileEvals: Boolean = false,
