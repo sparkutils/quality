@@ -191,6 +191,7 @@ class JDBCToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with T
 
   override protected def beforeAll(): Unit = {
     val s = sparkSession // force it
+    Class.forName("org.h2.Driver")
     registerQualityFunctions()
 
     val properties = new Properties()
