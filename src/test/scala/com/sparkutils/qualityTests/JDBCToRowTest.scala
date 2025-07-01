@@ -13,7 +13,6 @@ import org.scalatestplus.junit.JUnitRunner
 import java.sql.{DriverManager, ResultSet}
 import java.util.Properties
 import scala.annotation.tailrec
-import scala.collection.Seq
 
 
 @RunWith(classOf[JUnitRunner])
@@ -52,8 +51,8 @@ class JDBCToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with T
     TestOn("eqotc", "4200", 60)
   )
 
-  private val theRuleSuite = RuleSuite(Id(1, 1), Seq(
-    RuleSet(Id(50, 1), Seq(
+  private val theRuleSuite = RuleSuite(Id(1, 1), List(
+    RuleSet(Id(50, 1), List(
       Rule(Id(100, 1), ExpressionRule("if(product like '%otc%', account = '4201', subcode = 50)"))
     ))
   ))
@@ -72,7 +71,7 @@ class JDBCToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with T
     data shouldBe testData
   }
 
-  val schema = StructType(Seq(
+  val schema = StructType(List(
     StructField("product", StringType, nullable = false),
     StructField("account", StringType, nullable = false),
     StructField("subcode", IntegerType, nullable = false)
@@ -117,7 +116,7 @@ class JDBCToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with T
 
           val DDL = "ARRAY<STRUCT<`transfer_type`: STRING, `account`: STRING, `product`: STRING, `subcode`: INTEGER >>"
 
-          registerLambdaFunctions(Seq(
+          registerLambdaFunctions(List(
             LambdaFunction("account_row", "(transfer_type, account) -> named_struct('transfer_type', transfer_type, 'account', account, 'product', product, 'subcode', subcode)", Id(123, 23)),
             LambdaFunction("account_row", "transfer_type -> account_row(transfer_type, account)", Id(123, 24)),
             LambdaFunction("subcode", "(transfer_type, sub) -> updateField(account_row(transfer_type, account), 'subcode', sub)", Id(123, 25))
@@ -126,7 +125,7 @@ class JDBCToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with T
 
           import sparkSession.implicits._
 
-          val expressionRules = Seq((ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040,1),
+          val expressionRules = List((ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040,1),
             OutputExpression("array(account_row('from'), account_row('to', 'other_account1'))"))),
             (ExpressionRule("product like '%fx%'"), RunOnPassProcessor(1000, Id(1042,1),
               OutputExpression("array(named_struct('transfer_type', 'from', 'account', 'another_account', 'product', product, 'subcode', subcode), named_struct('transfer_type', 'to', 'account', account, 'product', product, 'subcode', subcode))"))),
@@ -139,17 +138,17 @@ class JDBCToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with T
               yield Rule(Id(100 * idOffset, 1), exp, processor)
 
           val rsId = Id(1, 1)
-          val theRuleSuiteEngine = RuleSuite(rsId, Seq(
+          val theRuleSuiteEngine = RuleSuite(rsId, List(
             RuleSet(Id(50, 1), rules
             )))
 
-          val ruleEngineFactoryT = ProcessFunctions.ruleEngineFactoryT[Row, Seq[NewPosting]](theRuleSuiteEngine, DataType.fromDDL(DDL),
+          val ruleEngineFactoryT = ProcessFunctions.ruleEngineFactoryT[Row, List[NewPosting]](theRuleSuiteEngine, DataType.fromDDL(DDL),
             compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation)
 
-          val jdbcDqProcessor: Processor[ResultSet, RuleEngineResult[Seq[NewPosting]]] = helper.wrapResultSet(ruleEngineFactoryT).instance
+          val jdbcDqProcessor: Processor[ResultSet, RuleEngineResult[List[NewPosting]]] = helper.wrapResultSet(ruleEngineFactoryT).instance
 
           val res = mapToList(resultSet = resultSet, jdbcProcessor = jdbcDqProcessor)
-          //ruleResults.map(_.overallResult) shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
+
           for(i <- 0 until 3) {
             res(i).result.isEmpty shouldBe true
             res(i).salientRule.isEmpty shouldBe true
