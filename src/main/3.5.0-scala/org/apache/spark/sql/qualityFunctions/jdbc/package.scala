@@ -1,19 +1,15 @@
 package org.apache.spark.sql.qualityFunctions
 
-import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.util.DateTimeUtils.{instantToMicros, localDateToDays, toJavaDate, toJavaTimestamp}
 import org.apache.spark.sql.catalyst.util.{CharVarcharUtils, DateTimeUtils, GenericArrayData}
 import org.apache.spark.sql.errors.QueryExecutionErrors
 import org.apache.spark.sql.execution.datasources.jdbc.JdbcUtils
-import org.apache.spark.sql.execution.datasources.jdbc.JdbcUtils.{conf, getJdbcType}
+import org.apache.spark.sql.execution.datasources.jdbc.JdbcUtils.conf
 import org.apache.spark.sql.jdbc.{JdbcDialect, JdbcDialects}
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.UTF8String
 
-import java.sql.{Connection, PreparedStatement, ResultSet}
-import java.time.{Instant, LocalDate}
-import java.util.Locale
+import java.sql.{Connection, ResultSet}
 import java.util.concurrent.TimeUnit
 
 package object jdbc {
