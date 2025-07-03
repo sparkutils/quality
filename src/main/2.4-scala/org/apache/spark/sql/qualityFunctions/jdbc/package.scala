@@ -1,19 +1,22 @@
 package org.apache.spark.sql.qualityFunctions
 
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder
 import org.apache.spark.sql.catalyst.util.{DateTimeUtils, GenericArrayData}
 import org.apache.spark.sql.execution.datasources.jdbc.JdbcUtils
-import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.jdbc.{JdbcDialect, JdbcDialects}
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.UTF8String
 
 import java.sql.{Connection, ResultSet}
-import java.util.concurrent.TimeUnit
 
 package object jdbc {
 
   type JDBCValueGetter = (ResultSet, InternalRow, Int) => Unit
+
+  implicit class ExpressionEncoderOps[T](expressionEncoder: ExpressionEncoder[T]) {
+    def createDeserializer(): InternalRow => T = expressionEncoder.fromRow
+  }
 
 
   def jdbcHelper(jdbcURL: String,
