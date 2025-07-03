@@ -2,8 +2,8 @@ package org.apache.spark.sql.qualityFunctions.jdbc
 
 import com.sparkutils.quality.sparkless.{ProcessorFactory, ProcessorFactoryInputProxyWithState}
 import org.apache.spark.sql.Row
+import org.apache.spark.sql.ShimUtils.{expressionEncoder, rowEncoder}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.encoders.{ExpressionEncoder, RowEncoder}
 import org.apache.spark.sql.catalyst.expressions.SpecificInternalRow
 import org.apache.spark.sql.types.{DataType, StructType}
 
@@ -11,11 +11,14 @@ import java.sql.ResultSet
 
 class JdbcHelper private[jdbc](schema: StructType, getters: Seq[(DataType, JDBCValueGetter)]) {
 
-  def wrapResultSet[O](processorFactory: ProcessorFactory[Row, O]): ProcessorFactory[ResultSet, O] =
+  private def fromRow = expressionEncoder(rowEncoder(schema)).resolveAndBind().fromRow(_)
+
+  def wrapResultSet[O](processorFactory: ProcessorFactory[Row, O]): ProcessorFactory[ResultSet, O] = {
     new ProcessorFactoryInputProxyWithState(
       underlyingFactory = processorFactory,
-      stateConstructor = () => new SpecificInternalRow(getters.map(_._1)),
+      stateConstructor = () => (new SpecificInternalRow(getters.map(_._1)), fromRow),
       convert = convertResultSetToRow)
+  }
 
 
   /**
@@ -31,12 +34,8 @@ class JdbcHelper private[jdbc](schema: StructType, getters: Seq[(DataType, JDBCV
     }
   }
 
-  private def convertResultSetToRow(internalRow: InternalRow, resultSet: ResultSet): Row = {
-    process(internalRow, resultSet)
-    import org.apache.spark.sql.ShimUtils._
-
-    val fromRow = expressionEncoder(rowEncoder(schema)).resolveAndBind()//.createDeserializer()
-
-    fromRow.fromRow(internalRow)
+  private def convertResultSetToRow(internalRow: (InternalRow, InternalRow => Row), resultSet: ResultSet): Row = {
+    process(internalRow._1, resultSet)
+    internalRow._2.apply(internalRow._1)
   }
 }
