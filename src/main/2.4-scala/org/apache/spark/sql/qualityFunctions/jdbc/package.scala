@@ -14,7 +14,7 @@ package object jdbc {
 
   type JDBCValueGetter = (ResultSet, InternalRow, Int) => Unit
 
-  implicit class ExpressionEncoderOps[T](expressionEncoder: ExpressionEncoder[T]) {
+  private[jdbc] implicit class ExpressionEncoderOps[T](expressionEncoder: ExpressionEncoder[T]) {
     def createDeserializer(): InternalRow => T = expressionEncoder.fromRow
   }
 
