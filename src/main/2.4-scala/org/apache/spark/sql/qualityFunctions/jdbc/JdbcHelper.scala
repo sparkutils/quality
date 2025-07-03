@@ -33,7 +33,10 @@ class JdbcHelper private[jdbc](schema: StructType, getters: Seq[(DataType, JDBCV
 
   private def convertResultSetToRow(internalRow: InternalRow, resultSet: ResultSet): Row = {
     process(internalRow, resultSet)
-    val fromRow: ExpressionEncoder[Row] = RowEncoder.apply(schema).resolveAndBind()
+    import org.apache.spark.sql.ShimUtils._
+
+    val fromRow = expressionEncoder(rowEncoder(schema)).resolveAndBind()//.createDeserializer()
+
     fromRow.fromRow(internalRow)
   }
 }
