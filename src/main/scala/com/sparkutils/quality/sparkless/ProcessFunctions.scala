@@ -125,7 +125,7 @@ object ProcessFunctions {
       implicitly[Encoder[I]], tup
     )
 
-    ProcessorFactoryProxy(r, (p: (RuleResult, InternalRow)) => {
+    new ProcessorFactoryProxy(r, (p: (RuleResult, InternalRow)) => {
       (p._1,
         if (p._1 == Passed)
           defaultIfPassedProxy.getOrElse[LazyRuleSuiteResultDetails](
@@ -205,7 +205,7 @@ object ProcessFunctions {
       forceVarCompilation = forceVarCompilation)(
       implicitly[Encoder[I]], enc)
 
-    ProcessorFactoryProxy(r, (p: ((InternalRow, Option[SalientRule], Option[T]))) => {
+    new ProcessorFactoryProxy(r, (p: ((InternalRow, Option[SalientRule], Option[T]))) => {
       LazyRuleEngineResult(LazyRuleSuiteResultImpl(p._1), p._2, p._3)
     })
   }
@@ -286,7 +286,7 @@ object ProcessFunctions {
       forceVarCompilation = forceVarCompilation)(
       implicitly[Encoder[I]], enc)
 
-    ProcessorFactoryProxy(r, (p: ((InternalRow, Option[T]))) => {
+    new ProcessorFactoryProxy(r, (p: ((InternalRow, Option[T]))) => {
       LazyRuleFolderResult(LazyRuleSuiteResultImpl(p._1), p._2)
     })
   }
@@ -381,7 +381,7 @@ object ProcessFunctions {
       forceVarCompilation = forceVarCompilation)(
       implicitly[Encoder[I]], enc)
 
-    ProcessorFactoryProxy(r, (p: ((InternalRow, Option[T]))) => {
+    new ProcessorFactoryProxy(r, (p: ((InternalRow, Option[T]))) => {
       LazyRuleFolderResult(LazyRuleSuiteResultImpl(p._1), p._2)
     })
   }
