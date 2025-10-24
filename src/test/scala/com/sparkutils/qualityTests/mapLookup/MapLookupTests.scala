@@ -59,7 +59,7 @@ object MapLookupTest {
       expr("mapLookup('countryCode', country)").as("countrystuff"),
       expr("mapLookup('countryCode', country).ccy").as("countrystuffccy")
     )
-    res.show()
+    TestUtilsEnvironment.debug(res.show())
 
     val countryLookup = countryCodeCCY.map(t => t._1 -> new GenericRowWithSchema(Array(t._2, t._3), structType)).toMap
     import scala.collection.JavaConverters._
@@ -99,11 +99,11 @@ class MapLookupTests extends FunSuite with TestUtils {
     mapLookupsFromDFs(Map(
       "countryCode" -> ( () => {
         val df = countryCodeCCY.toDF("country", "funnycheck", "ccy")
-        (df, new Column("country"), functions.expr("struct(funnycheck, ccy)"))
+        (df, column("country"), functions.expr("struct(funnycheck, ccy)"))
       } ),
       "ccyRate" -> ( () => {
         val df = ccyRate.toDF("ccy", "rate")
-        (df, new Column("ccy"), new Column("rate"))
+        (df, column("ccy"), column("rate"))
       })
     ))
   }
@@ -132,7 +132,7 @@ class MapLookupTests extends FunSuite with TestUtils {
     val lookups = mapLookupsFromDFs(Map(
       "empty" -> ( () => {
         val df = sparkSession.emptyDataset[(String, Int, String)].toDF("country", "funnycheck", "ccy")
-        (df, new Column("country"), functions.expr("struct(funnycheck, ccy)"))
+        (df, column("country"), functions.expr("struct(funnycheck, ccy)"))
       } )
     ))
 
@@ -168,7 +168,7 @@ class MapLookupTests extends FunSuite with TestUtils {
   }
 
   @Test
-  def taxonomyLookup: Unit = forceInterpreted {
+  def taxonomyLookup: Unit = forceInterpreted { funNRewrites {
     val orchid = Seq("open","difficult","prized")
 
     // 1) if a hierarchy is not given whole term is null and default to input (null, null) key
@@ -211,7 +211,7 @@ class MapLookupTests extends FunSuite with TestUtils {
     assert(testLookup("flowers", null) == Seq(), "Rule 4")
 
     // NB this only works as there is a struct (tuple) wrapping the fields so the lookup itself is non-null, although the values are null
-  }
+  } }
 }
 
 case class Item(hierarchy: String, item: String, attributes: scala.collection.immutable.Seq[String])

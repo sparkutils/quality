@@ -1,10 +1,10 @@
 package com.sparkutils.qualityTests
 import com.sparkutils.quality.{DataFrameLoader, Id, loadViewConfigs, loadViews}
-import com.sparkutils.quality.impl.views.{MissingViewAnalysisException, ViewConfig, ViewLoader, ViewLoaderAnalysisException}
+import com.sparkutils.quality.impl.views.{MissingViewAnalysisException, ViewConfig, ViewLoaderAnalysisException}
 import org.apache.spark.sql.functions.{col, expr}
-import org.apache.spark.sql.{DataFrame, QualitySparkUtils, ShimUtils, AnalysisException => SAE}
-import org.junit.Assert.fail
-import org.junit.Test
+import org.apache.spark.sql.{DataFrame, ShimUtils}
+import org.junit.Assert.{fail}
+import org.junit.{After, Test}
 
 class ViewLoaderTest extends TestUtils {
 
@@ -183,7 +183,7 @@ class ViewLoaderTest extends TestUtils {
     )
     try {
       loadViews(viewConfigs)
-      fail("should have thrown an AnalysisException as `le-21` is not present")
+      fail("should have thrown an AnalysisException as 'probably wont ever equal' is not valid sql")
     } catch {
       case ViewLoaderAnalysisException(cause, message, viewName, sql) =>
         val r = ShimUtils.tableOrViewNotFound(cause).getOrElse(throw cause)
@@ -194,6 +194,12 @@ class ViewLoaderTest extends TestUtils {
     }
   }
 
+  @After
+  def cleanupViews(): Unit = {
+    Set("joined", "names", "nameLess", "ages", "bad", "names2", "ages2").foreach{
+      sparkSession.catalog.dropTempView(_)
+    }
+  }
 }
 
 case class X2[A,B](a: A, b: B)

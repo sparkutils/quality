@@ -3,7 +3,7 @@ package com.sparkutils.qualityTests
 import com.sparkutils.quality.functions.{long_pair, long_pair_from_uuid, rng_bytes, rng_uuid}
 import com.sparkutils.quality.impl.bloom.parquet.{BlockSplitBloomFilterImpl, ThreadSafeBloomLookupImpl}
 import com.sparkutils.quality.impl.rng.RandomLongs
-import org.apache.spark.sql.Row
+import org.apache.spark.sql.{Row, SaveMode}
 import org.apache.spark.sql.functions.{col, expr}
 import org.apache.spark.sql.types.{BinaryType, LongType, StringType}
 import org.junit.Test
@@ -81,6 +81,7 @@ class RngAndRowIdTest extends FunSuite with TestUtils {
     assert(unique.count() == numRows)
   }
 
+  // DBR 15.4 introduced nonVolatile, stopping this code from working as expected (StateFulLike)
   @Test
   def rowIDTest: Unit = evalCodeGensNoResolve {
     val numRows = 10000
@@ -93,6 +94,20 @@ class RngAndRowIdTest extends FunSuite with TestUtils {
       .distinct()
 
     assert(unique.schema.fields.head.dataType == RandomLongs.structType)
+    assert(unique.count() == numRows)
+  }
+
+  // DBR 15.4 introduced nonVolatile, stopping this code from working as expected (NondeterministicLike)
+  @Test
+  def uniqueIDTest: Unit = evalCodeGensNoResolve {
+    val numRows = 10000
+    // obviously can't actually test the values
+    val ids = sparkSession.range(numRows)
+    val unique = ids.selectExpr("*", s"unique_id('pre') as uuid")
+      .select(expr("uuid u1"), expr("uuid u2"))
+      .filter("u1 = u2")
+      .distinct()
+
     assert(unique.count() == numRows)
   }
 

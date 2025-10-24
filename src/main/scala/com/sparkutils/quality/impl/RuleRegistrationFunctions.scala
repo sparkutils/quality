@@ -8,12 +8,12 @@ import com.sparkutils.quality.impl.hash.{HashFunctionFactory, HashFunctionsExpre
 import com.sparkutils.quality.impl.id.{GenericLongBasedIDExpression, model}
 import com.sparkutils.quality.impl.longPair.{AsUUID, LongPairExpression}
 import com.sparkutils.quality.impl.rng.{RandomBytes, RandomLongs}
-import com.sparkutils.quality.impl.util.{ComparableMapConverter, ComparableMapReverser, PrintCode}
+import com.sparkutils.quality.impl.util.{ComparableMapConverter, ComparableMapReverser, InputWrapper, PrintCode}
 import com.sparkutils.quality.impl.yaml.{YamlDecoderExpr, YamlEncoderExpr}
 import com.sparkutils.quality.{QualityException, impl}
 import com.sparkutils.shim
 import org.apache.commons.rng.simple.RandomSource
-import org.apache.spark.sql.ShimUtils.add
+import org.apache.spark.sql.ShimUtils.{add, column, expression}
 import org.apache.spark.sql.catalyst.expressions.{Add, AttributeReference, CreateMap, Expression, Literal, UnresolvedNamedLambdaVariable, LambdaFunction => SLambdaFunction}
 import org.apache.spark.sql.qualityFunctions.LambdaFunctions.processTopCallFun
 import org.apache.spark.sql.qualityFunctions._
@@ -180,6 +180,8 @@ object RuleRegistrationFunctions {
       case _ => throw QualityException(s"Could not process a literal map with expression $exp")
     }
 
+    register("processor_input_wrapper", exps => InputWrapper(exps.head, exps.last), minimum = 2)
+
     register("to_yaml", exps => YamlEncoderExpr(exps.head, if (exps.size == 1) Map.empty else getMap(exps.last)), Set(1, 2))
     register("from_yaml", exps => YamlDecoderExpr(exps.head, parse(exps.last)), Set(2))
 
@@ -236,7 +238,7 @@ object RuleRegistrationFunctions {
     }, Set(1))
 
     register(LambdaFunctions.CallFun, {
-      case (fun@ FunN(_, l@ SLambdaFunction(ff : FunForward, _, _), _, _, _)) +: args =>
+      case (fun@ FunN(_, l@ SLambdaFunction(ff : FunForward, _, _), _, _, _, _)) +: args =>
         processTopCallFun(fun, l, ff, args)
       case t => qualityException(s"${LambdaFunctions.CallFun} should only be used to process partially applied functions returned by a user lambda, got $t instead")
     }, minimum = 1)
@@ -248,7 +250,7 @@ object RuleRegistrationFunctions {
             // attempt to take a look at exps1 to identify if it's a FunN or mapWith
             val typ =
               exps(1) match {
-                case FunN(Seq(RefExpression(dataType, _, _)), _, _, _, _) => dataType // would default to long anyway
+                case FunN(Seq(RefExpression(dataType, _, _)), _, _, _, _, _) => dataType // would default to long anyway
                 case MapTransform(RefExpression(t: MapType, _, _), _, _, _) => t
                 case _ => LongType
               }
@@ -296,12 +298,12 @@ object RuleRegistrationFunctions {
     }
     register("map_With", mapFX, Set(2, 3))
 
-    def aggFWith(fun: String) = (what: String) => (exps: Seq[Expression]) => (
+    def aggFWith(fun: String) = (what: String) => (exps: Seq[Expression]) => expression(
       if (exps.size == 0)
         functions.expr(s"$fun( $what )")
       else
         functions.expr(s"$fun('${strType(exps(0))}', $what )")
-      ).expr
+      )
 
     val retWith = aggFWith("results_With")
 
@@ -323,13 +325,13 @@ object RuleRegistrationFunctions {
       case Seq(Literal(str: UTF8String, StringType), y) =>
         qualityException(INC_REWRITE_GENEXP_ERR_MSG)
       case Seq( y ) =>
-        val SLambdaFunction(a: Add, Seq(sum: UnresolvedNamedLambdaVariable), hidden ) = functions.expr("sumWith(sum -> sum + 1)").expr.children(0)
+        val SLambdaFunction(a: Add, Seq(sum: UnresolvedNamedLambdaVariable), hidden ) = expression(functions.expr("sumWith(sum -> sum + 1)")).children(0)
         import ShimUtils.{add => addf}
         // could be a cast around x or three attributes plusing each other or....
         FunN(Seq(RefExpression(LongType)),
           SLambdaFunction(addf(a.left, y, LongType), Seq(sum), hidden )
           , Some("inc")) // keep the type
-      case Seq() => functions.expr(s"sumWith(sum -> sum + 1)").expr
+      case Seq() => expression(functions.expr(s"sumWith(sum -> sum + 1)"))
     }
     register("inc", incX, Set(1, 0, 2))
 
@@ -372,7 +374,9 @@ object RuleRegistrationFunctions {
     }
     register("rng", lrf, Set(0,1,2))
 
-    register("rng_UUID", exps => RngUUIDExpression(exps.head), Set(1))
+    register("rng_UUID", exps =>
+      RngUUIDExpression(exps.head),
+      Set(1))
 
     register("long_Pair", exps => LongPairExpression(exps(0), exps(1)), Set(2))
     register("long_Pair_From_UUID", exps => UUIDToLongsExpression(exps.head), Set(1))
@@ -389,13 +393,13 @@ object RuleRegistrationFunctions {
 
     val longPairEqual = (exps: Seq[Expression]) => {
       val Seq(Literal(a, StringType), Literal(b, StringType)) = exps
-      long_pair_equal(a.toString, b.toString).expr
+      expression(long_pair_equal(a.toString, b.toString))
     }
     register("long_Pair_Equal", longPairEqual, Set(2))
 
     val idEqual = (exps: Seq[Expression]) => {
       val Seq(Literal(a, StringType), Literal(b, StringType)) = exps
-      id_equal(a.toString, b.toString).expr
+      expression(id_equal(a.toString, b.toString))
     }
     register("idEqual", idEqual, Set(2))
 
@@ -403,15 +407,15 @@ object RuleRegistrationFunctions {
 
     register("rule_Suite_Result_Details", exps => impl.RuleSuiteResultDetailsExpr(exps(0)), Set(1))
 
-    register("digest_To_Longs_Struct",  exps => digest_to_longs_struct(getString(exps.head, 0), exps.tail.map(new Column(_)): _*).expr, minimum = 2)
-    register("digest_To_Longs", exps => digest_to_longs(getString(exps.head, 0), exps.tail.map(new Column(_)): _*).expr, minimum = 2)
+    register("digest_To_Longs_Struct",  exps => expression(digest_to_longs_struct(getString(exps.head, 0), exps.tail.map(column(_)): _*)), minimum = 2)
+    register("digest_To_Longs", exps => expression(digest_to_longs(getString(exps.head, 0), exps.tail.map(column(_)): _*)), minimum = 2)
 
     def fieldBasedID(func: (String, String, Seq[Column]) => Column) = (exps: Seq[Expression]) =>
       exps.size match {
         case a if a > 3 =>
           val digestImpl = getString(exps(1), 1)
           val prefix = getString(exps.head, 0)
-          func(prefix, digestImpl, exps.drop(2).map(new Column(_)) ).expr
+          expression(func(prefix, digestImpl, exps.drop(2).map(column(_)) ))
 
         case _ => literalsNeeded
       }
@@ -435,7 +439,7 @@ object RuleRegistrationFunctions {
     val prefixedToLongPair = (exps: Seq[Expression]) =>
       exps.size match {
         case 2 =>
-          prefixed_to_long_pair(new Column(exps(1)), getString(exps.head, 0)).expr
+          expression(prefixed_to_long_pair(column(exps(1)), getString(exps.head, 0)))
 
         case _ => literalsNeeded
       }
@@ -450,7 +454,7 @@ object RuleRegistrationFunctions {
           case _ => literalsNeeded
         }
 
-      rng_id(prefix, randomSource, seed).expr
+      expression(rng_id(prefix, randomSource, seed))
     }
     register("rng_ID", rngID, Set(1,2,3))
 
@@ -461,17 +465,17 @@ object RuleRegistrationFunctions {
           case _ => literalsNeeded
         }
 
-      unique_id(prefix).expr
+      expression(unique_id(prefix))
     }
     register("unique_ID", uniqueID, Set(1))
 
-    register("id_size", exps => id_size(new Column(exps.head)).expr, Set(1))
-    register("id_base64", exps => id_base64(exps.map(new Column(_)): _*).expr, minimum = 1)
+    register("id_size", exps => expression(id_size(column(exps.head))), Set(1))
+    register("id_base64", exps => expression(id_base64(exps.map(column(_)): _*)), minimum = 1)
     register("id_from_base64", {
-      case Seq(e) => id_from_base64(new Column(e)).expr
-      case Seq(e, s) => id_from_base64(new Column(e), getInteger(s)).expr
+      case Seq(e) => expression(id_from_base64(column(e)))
+      case Seq(e, s) => expression(id_from_base64(column(e), getInteger(s)))
     }, Set(1,2))
-    register("id_raw_type", exps => id_raw_type(new Column(exps.head)).expr, Set(1))
+    register("id_raw_type", exps => expression(id_raw_type(column(exps.head))), Set(1))
 
     val Murmur3_128_64 = (exps: Seq[Expression]) => {
       val (prefix) =
@@ -484,14 +488,14 @@ object RuleRegistrationFunctions {
     }
     register("murmur3_ID", Murmur3_128_64, minimum = 2)
 
-    register("hash_With", exps => hash_with(getString(exps.head, 0), exps.tail.map(new Column(_)) :_*).expr, minimum = 2)
-    register("hash_With_Struct", exps => hash_with_struct(getString(exps.head, 0), exps.tail.map(new Column(_)) :_*).expr, minimum = 2)
+    register("hash_With", exps => expression(hash_with(getString(exps.head, 0), exps.tail.map(column(_)) :_*)), minimum = 2)
+    register("hash_With_Struct", exps => expression(hash_with_struct(getString(exps.head, 0), exps.tail.map(column(_)) :_*)), minimum = 2)
 
-    register("za_Hash_With", exps => za_hash_with(getString(exps.head, 0), exps.tail.map(new Column(_)) :_*).expr, minimum = 2) // 64bit only, not a great id choice
-    register("za_Hash_With_Struct", exps => za_hash_with_struct(getString(exps.head,0 ), exps.tail.map(new Column(_)) :_*).expr, minimum = 2) // 64bit only, not a great id choice
+    register("za_Hash_With", exps => expression(za_hash_with(getString(exps.head, 0), exps.tail.map(column(_)) :_*)), minimum = 2) // 64bit only, not a great id choice
+    register("za_Hash_With_Struct", exps => expression(za_hash_with_struct(getString(exps.head,0 ), exps.tail.map(column(_)) :_*)), minimum = 2) // 64bit only, not a great id choice
 
-    register("za_Hash_Longs_With", exps => za_hash_longs_with(getString(exps.head, 0), exps.tail.map(new Column(_)) :_*).expr, minimum = 2)
-    register("za_Hash_Longs_With_Struct", exps => za_hash_longs_with_struct(getString(exps.head, 0), exps.tail.map(new Column(_)) :_*).expr, minimum = 2)
+    register("za_Hash_Longs_With", exps => expression(za_hash_longs_with(getString(exps.head, 0), exps.tail.map(column(_)) :_*)), minimum = 2)
+    register("za_Hash_Longs_With_Struct", exps => expression(za_hash_longs_with_struct(getString(exps.head, 0), exps.tail.map(column(_)) :_*)), minimum = 2)
 
     // here to stop these functions being used and allow validation
     register("coalesce_If_Attributes_Missing", _ => qualityException("coalesceIf functions cannot be created") )
@@ -499,10 +503,10 @@ object RuleRegistrationFunctions {
 
     // 3.0.1 adds this #37 drops 3.0.0 and we can remove the c+p from 3.4.1 needed due to #36
     register("update_field", exps => {
-      update_field(new Column(exps.head), ( exps.tail.grouped(2).map(p => getString(p.head, 0) -> new Column(p.last)).toSeq): _*).expr
+      expression(update_field(column(exps.head), ( exps.tail.grouped(2).map(p => getString(p.head, 0) -> column(p.last)).toSeq): _*))
     }, minimum = 3)
     register("drop_field", exps => {
-      drop_field(new Column(exps.head), exps.tail.zipWithIndex.map{case (p, i) => getString(p, i+1)} : _*).expr
+      expression(drop_field(column(exps.head), exps.tail.zipWithIndex.map{case (p, i) => getString(p, i+1)} : _*))
     }, minimum = 2)
 
     def msgAndExpr(msgDefault: String, exps: Seq[Expression]) = exps match {

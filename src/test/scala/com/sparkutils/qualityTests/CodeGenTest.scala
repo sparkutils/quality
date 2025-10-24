@@ -1,10 +1,11 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
-import types._
 import org.apache.spark.sql.DataFrame
+import types._
 import org.apache.spark.sql.functions.expr
 import org.apache.spark.sql.types.{DataType, LongType}
+import org.junit.Ignore
 // 3.4 drops this import org.codehaus.janino.InternalCompilerException
 import org.junit.Assert.fail
 import org.junit.Test
@@ -49,7 +50,7 @@ class CodeGenTest extends RowTools with TestUtils {
           ndf.select(expr("*"), rr.as(temporaryDQname)).
             selectExpr("*", s"$temporaryDQname.overallResult as DQ_overallResult",
               s"ruleSuiteResultDetails($temporaryDQname) as DQ_Details").drop(temporaryDQname)
-        }
+        }.asInstanceOf[DataFrame]
       }, ruleSuiteResultType, null)
     //res foreach println
   }
@@ -75,13 +76,13 @@ class CodeGenTest extends RowTools with TestUtils {
     }
   }
 
-  // GC's on 3.4, taking 2m locally
+  /* GC's on 3.4, taking 2m locally, after 0.1.3.1-RC5 no longer happens with new compilation approach
   @Test
-  def ruleRunnerTooMuchPerFunc: Unit = not3_4_or_above{ not_Databricks{ not2_4{ forceCodeGen {
+  def ruleRunnerTooMuchPerFunc: Unit = not3_4_or_above{ not_Cluster{ not2_4{ forceCodeGen {
     shouldAssert64kb{
       doRunnerGen(variablesPerFunc= 30000, variableFuncGroup = 12)
     }
-  }}}}
+  }}}}*/
 
   @Test
   def ruleRunnerDefault: Unit = not2_4{ forceCodeGen {
@@ -130,8 +131,8 @@ class CodeGenTest extends RowTools with TestUtils {
     //res
   }
 
-  @Test
-  def ruleEngineRunnerTooMuchPerFunc: Unit = not_Databricks{ not2_4{ forceCodeGen {
+  @Ignore // as of e149d590 (#71) no longer triggered on Spark4
+  def ruleEngineRunnerTooMuchPerFunc: Unit = not_Cluster{ not2_4{ forceCodeGen {
     // as of eec8842 does not hit 64k on the server at 900
     shouldAssert64kb{
       doEngineRunnerGen(variablesPerFunc= 3000, variableFuncGroup = 12)

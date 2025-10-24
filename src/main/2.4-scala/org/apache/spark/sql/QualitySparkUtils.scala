@@ -1,16 +1,16 @@
 package org.apache.spark.sql
 
 import com.sparkutils.quality.impl.util.DebugTime.debugTime
-import com.sparkutils.quality.impl.util.PassThrough
-import com.sparkutils.quality.impl.{RuleEngineRunner, RuleFolderRunner, RuleRunner}
+import com.sparkutils.quality.impl.util.{PassThrough, PassThroughCompileEvals}
+import com.sparkutils.quality.impl.{RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
 import org.apache.spark.sql.QualityStructFunctions.UpdateFields
-import org.apache.spark.sql.ShimUtils.{toSQLExpr, toSQLType}
+import org.apache.spark.sql.ShimUtils.{column, toSQLExpr, toSQLType}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, ResolveHigherOrderFunctions, ResolveInlineTables, ResolveLambdaVariables, ResolveTimeZone, Resolver, TypeCheckResult, TypeCoercion, UnresolvedAttribute, UnresolvedExtractValue}
 import org.apache.spark.sql.catalyst.catalog.SessionCatalog
 import org.apache.spark.sql.catalyst.errors.TreeNodeException
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode}
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, CreateNamedStruct, EqualNullSafe, Expression, ExtractValue, GetStructField, If, IsNull, LeafExpression, Literal, UnaryExpression, Unevaluable}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode}
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, CreateNamedStruct, EqualNullSafe, Expression, ExtractValue, GetStructField, If, IsNull, LeafExpression, Literal, Projection, UnaryExpression, Unevaluable}
 import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, UnaryNode}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.internal.{BaseSessionStateBuilder, SQLConf, SessionState}
@@ -23,6 +23,56 @@ import scala.collection.mutable.ArrayBuffer
  * Set of utilities to reach in to private functions
  */
 object QualitySparkUtils {
+
+  /**
+   * Spark >3.1 supports the very useful getLocalInputVariableValues, 2.4 needs the previous approach
+   *
+   * @param i
+   * @param ctx
+   * @return (parameters for function decleration, parmaters for calling, code that must be before fungroup)
+   */
+  def genParams(ctx: CodegenContext, child: Expression): (String, String, String) = {
+    val i = ctx.INPUT_ROW
+    if (i ne null)
+      (s"InternalRow $i", s"$i", "")
+    else
+      (ctx.currentVars.map(v => s"${if (v.value.javaType.isPrimitive) v.value.javaType else v.value.javaType.getName} ${v.value}, " +
+        s"${v.isNull.javaType} ${v.isNull}").mkString(", "), ctx.currentVars.map(v => s"${v.value}, ${v.isNull}").mkString(", "),"")
+  }
+
+  def funNRewrite(plan: LogicalPlan, expressionToExpression: PartialFunction[Expression, Expression]): LogicalPlan =
+    plan // no-op on <3.2
+
+  type DatasetBase[F] = org.apache.spark.sql.Dataset[F]
+
+  /**
+   * Provides a starting plan for a dataframe, resolves the
+   *
+   * @param fields input types
+   * @param dataFrameF
+   * @return
+   */
+  def resolveExpressions(fields: StructType, dataFrameF: DataFrame => DataFrame): Seq[Expression] =
+    throw new Exception("Not supported on any 2.4 runtime")
+
+  /**
+   * Provides a starting plan for a dataframe, resolves the
+   *
+   * @param encFrom starting data type to encode from
+   * @param dataFrameF
+   * @return
+   */
+  def resolveExpressions[T](encFrom: Encoder[T], dataFrameF: DataFrame => DataFrame): Seq[Expression] =
+    throw new Exception("Not supported on any 2.4 runtime")
+
+  /**
+   * Creates a projection from InputRow to InputRow.
+   * @param exprs expressions from resolveExpressions, already resolved without
+   * @param compile
+   * @return typically a mutable projection, callers must ensure partition is set and the target row is provided
+   */
+  def rowProcessor(exprs: Seq[Expression], compile: Boolean = true): Projection =
+    throw new Exception("Not supported on any 2.4 runtime")
 
   /**
    * Where resolveWith is not possible (e.g. 10.x DBRs) it is disabled here.
@@ -180,17 +230,15 @@ object QualitySparkUtils {
     }
     // special case as it's faster to do individual items it seems, 36816ms vs 48974ms
     expr match {
-      case r @ RuleEngineRunner(ruleSuite, PassThrough( expressions ), realType, compileEvals, debugMode, func, group, forceRunnerEval, expressionOffsets, forceTriggerEval) =>
-        val nexprs = expressions.map(forExpr)
-        RuleEngineRunner(ruleSuite, PassThrough( nexprs ), realType, compileEvals, debugMode, func, group, forceRunnerEval, expressionOffsets, forceTriggerEval)
-      case r @ RuleFolderRunner(ruleSuite, left, PassThrough( expressions ), resultDataType, compileEvals, debugMode, variablesPerFunc,
-        variableFuncGroup, forceRunnerEval, expressionOffsets, dataRef, forceTriggerEval) =>
-        val nexprs = expressions.map(forExpr)
-        RuleFolderRunner(ruleSuite, left, PassThrough( nexprs ), resultDataType, compileEvals, debugMode, variablesPerFunc,
-          variableFuncGroup, forceRunnerEval, expressionOffsets, dataRef, forceTriggerEval)
-      case r @ RuleRunner(ruleSuite, PassThrough( expressions ), compileEvals, func, group, forceRunnerEval) =>
-        val nexprs = expressions.map(forExpr)
-        RuleRunner(ruleSuite, PassThrough( nexprs ), compileEvals, func, group, forceRunnerEval)
+      case r: RuleEngineRunnerBase[_] if r.child.isInstanceOf[PassThrough] =>
+        val nexprs = r.child.children.map(forExpr)
+        r.withNewChildren(Seq(r.child.withNewChildren(nexprs)))
+      case r: RuleFolderRunnerBase[_] if r.right.isInstanceOf[PassThrough]  =>
+        val nexprs = r.right.children.map(forExpr)
+        r.withNewChildren(Seq(r.left, r.right.withNewChildren(nexprs)))
+      case r: RuleRunnerBase[_] if r.child.isInstanceOf[PassThrough] =>
+        val nexprs = r.child.children.map(forExpr)
+        r.withNewChildren(Seq(PassThroughCompileEvals(nexprs)))
       case _ => forExpr(expr)
     }
   }
@@ -232,7 +280,7 @@ object QualitySparkUtils {
    * @return a new copy of update with the changes applied
    */
   def update_field(update: Column, transformations: (String, Column)*): Column =
-    new Column(
+    column(
       transformFields{
         transformations.foldRight(update.expr) {
           case ((path, col), origin) =>
@@ -254,7 +302,7 @@ object QualitySparkUtils {
    * @return
    */
   def drop_field(update: Column, fieldNames: String*): Column =
-    new Column(
+    column(
       transformFields{
         fieldNames.foldRight(update.expr) {
           case (fieldName, origin) =>

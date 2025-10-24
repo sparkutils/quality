@@ -10,7 +10,8 @@ import com.sparkutils.quality.impl.mapLookup.MapLookupFunctionImports
 import com.sparkutils.quality.impl.rng.RngFunctionImports
 import com.sparkutils.quality.impl.util.{ComparableMapsImports, StructFunctionsImport}
 import com.sparkutils.quality.impl.yaml.YamlFunctionImports
-import org.apache.spark.sql.Column
+import org.apache.spark.sql.ShimUtils.column
+import org.apache.spark.sql.{Column, ShimUtils}
 import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
 import org.apache.spark.sql.catalyst.expressions.{And, EqualTo}
 
@@ -35,7 +36,7 @@ package object functions extends ComparableMapsImports with GuaranteedUniqueIDIm
 
     def higher(a: Any) = UnresolvedAttribute(s"${a}_higher")
 
-    new Column(And(EqualTo(lower(aPrefix), lower(bPrefix)), EqualTo(higher(aPrefix), higher(bPrefix))))
+    column(And(EqualTo(lower(aPrefix), lower(bPrefix)), EqualTo(higher(aPrefix), higher(bPrefix))))
   }
 
   /**
@@ -49,7 +50,7 @@ package object functions extends ComparableMapsImports with GuaranteedUniqueIDIm
     val a = aPrefix
     val b = bPrefix
 
-    new Column(
+    column(
       And(And(EqualTo(attr(a, "base"), attr(b, "base")),
         EqualTo(attr(a, "i0"), attr(b, "i0"))),
         EqualTo(attr(a, "i1"), attr(b, "i1")))

@@ -2,10 +2,14 @@ package com.sparkutils.qualityTests
 
 import com.globalmentor.apache.hadoop.fs.BareLocalFileSystem
 import com.sparkutils.quality
+import com.sparkutils.quality.impl.extension.FunNRewrite
+import com.sparkutils.quality.impl.util.{SparkVersions, Testing}
 import com.sparkutils.quality.{RuleSuite, ruleRunner}
 import com.sparkutils.qualityTests.SparkTestUtils.getCorrectPlan
+import org.apache.spark.sql.QualitySparkUtils.DatasetBase
 import org.apache.spark.sql.{Dataset, Row, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.{CodegenObjectFactoryMode, Expression}
+import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.execution.{FileSourceScanExec, SparkPlan}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.sources.Filter
@@ -13,7 +17,11 @@ import org.junit.Before
 
 import java.io.File
 
-trait TestUtils {
+trait TestUtils extends Serializable {
+
+  // always set
+  Testing.setTesting()
+
   val hostMode = {
     val tmp = System.getenv("QUALITY_SPARK_HOSTS")
     if (tmp eq null)
@@ -66,10 +74,10 @@ trait TestUtils {
     else
       sparkSessionBuilder
 
-  val sparkSession = sparkSessionF
-  val sqlContext = sqlContextF
+  lazy val sparkSession = sparkSessionF
+  lazy val sqlContext = sqlContextF
 
-  val outputDir = SparkTestUtils.ouputDir
+  lazy val outputDir = SparkTestUtils.ouputDir
 
   def stop(start: Long) = {
     val stop = System.currentTimeMillis()
@@ -94,6 +102,8 @@ trait TestUtils {
 
   @Before
   def setup(): Unit = {
+    // no-op to force it to be created
+    sparkSession.conf
     cleanupOutput()
     quality.registerQualityFunctions()
   }
@@ -113,6 +123,13 @@ trait TestUtils {
     withSQLConf(SQLConf.CODEGEN_FACTORY_MODE.key -> codegenMode) {
       f
     }
+  }
+
+  def inCodegen: Boolean = {
+    val r = SQLConf.get.getConfString(SQLConf.CODEGEN_FACTORY_MODE.key)
+
+    r == CodegenObjectFactoryMode.CODEGEN_ONLY.toString ||
+      r == CodegenObjectFactoryMode.FALLBACK.toString
   }
 
   /**
@@ -186,7 +203,7 @@ trait TestUtils {
   def taddDataQuality(dataFrame: Dataset[Row], rules: RuleSuite, name: String = "DataQuality", compileEvals: Boolean = true): Dataset[Row] = {
     import org.apache.spark.sql.functions.expr
     val tdf = dataFrame.drop(name) // some gen tests add this
-    val rr = ruleRunner(rules, compileEvals, resolveWith = if (doResolve.get()) Some(tdf) else None)
+    val rr = ruleRunner(rules, compileEvals, resolveWith = if (doResolve.get()) Some(tdf) else None, forceRunnerEval = false)
     tdf.select(expr("*"), rr.as(name))
   }
 
@@ -196,8 +213,8 @@ trait TestUtils {
    * @param name
    * @return
    */
-  def taddDataQualityF(rules: RuleSuite, name: String = "DataQuality"): Dataset[Row] => Dataset[Row] =
-    taddDataQuality(_, rules, name)
+  def taddDataQualityF[P[R] >: DatasetBase[R]](rules: RuleSuite, name: String = "DataQuality"): P[Row] => P[Row] =
+    (p: P[Row]) => taddDataQuality(p.asInstanceOf[Dataset[Row]], rules, name)
 
   /**
    * Adds two columns, one for overallResult and the other the details, allowing 30-50% performance gains for simple filters
@@ -222,9 +239,9 @@ trait TestUtils {
    * @param resultDetails
    * @return
    */
-  def taddOverallResultsAndDetailsF(rules: RuleSuite, overallResult: String = "DQ_overallResult",
-                                   resultDetails: String = "DQ_Details"): Dataset[Row] => Dataset[Row] =
-    taddOverallResultsAndDetails(_, rules, overallResult, resultDetails)
+  def taddOverallResultsAndDetailsF[P[R] >: DatasetBase[R]](rules: RuleSuite, overallResult: String = "DQ_overallResult",
+                                   resultDetails: String = "DQ_Details"): P[Row] => P[Row] =
+    (p: P[Row]) => taddOverallResultsAndDetails(p.asInstanceOf[Dataset[Row]], rules, overallResult, resultDetails)
 
   def loadsOf(thunk: => Unit, runs: Int = 3000): Unit = {
     var passed = 0
@@ -240,17 +257,9 @@ trait TestUtils {
     assert(passed == runs, "Should have passed all of them, nothing has changed in between runs")
   }
 
-  lazy val sparkFullVersion = {
-    val pos = classOf[Expression].getPackage.getSpecificationVersion
-    if (pos eq null) // DBR is always null
-      SparkSession.active.version
-    else
-      pos
-  }
+  def sparkFullVersion = SparkVersions.sparkFullVersion
 
-  lazy val sparkVersion = {
-    sparkFullVersion.split('.').take(2).mkString(".")
-  }
+  def sparkVersion = SparkVersions.sparkVersion
 
   /**
    * Don't run this test on 2.4 - typically due to not being able to control code gen properly
@@ -264,7 +273,7 @@ trait TestUtils {
   def not3_4(thunk: => Unit) =
     if (sparkVersion != "3.4") thunk
 
-  val sparkVersionNumericMajor = sparkVersion.replace(".","").toInt
+  lazy val sparkVersionNumericMajor = sparkVersion.replace(".","").toInt
 
   /**
    * Don't run this test on 3.4 or greater - gc's on code gen
@@ -287,6 +296,20 @@ trait TestUtils {
     if (sparkVersionNumericMajor >= 32) thunk
 
   /**
+   * introduced for the printCode, Add(1,1) now is addExact
+   * @param thunk
+   */
+  def not_4_0_and_above(thunk: => Unit) =
+    if (sparkVersionNumericMajor < 40) thunk
+
+  /**
+   * introduced for the printCode, Add(1,1) now is addExact
+   * @param thunk
+   */
+  def v4_0_and_above(thunk: => Unit) =
+    if (sparkVersionNumericMajor >= 40) thunk
+
+  /**
    * Only run this on 2.4
    * @param thunk
    */
@@ -300,17 +323,25 @@ trait TestUtils {
   def not2_4_or_3_0_or_3_1(thunk: => Unit) =
     if (!Set("2.4", "3.0", "3.1").contains(sparkVersion)) thunk
 
-  lazy val onDatabricks = {
-    val dbfs = new File("/dbfs")
-    dbfs.exists
-  }
+  /**
+   * Assumes /dbfs existance proves running on Databricks
+   * Prefer not_Cluster for pure cluster tests.
+   * @return
+   */
+  def onDatabricks: Boolean = TestUtilsEnvironment.onDatabricksFS
 
   /**
+   * Should prefer not_Cluster as it works for fabric as well
+   *
    * Don't run this test on Databricks - due to either running in a cluster or, in the case of trying for force soe's etc
    * because Databricks defaults and Codegen are different
    */
+  @deprecated
   def not_Databricks(thunk: => Unit) =
     if (!onDatabricks) thunk
+
+  def not_Cluster(thunk: => Unit) =
+    if (TestUtilsEnvironment.shouldRunClusterTests) thunk
 
   /**
    * Only run when the extension is enabled
@@ -363,4 +394,102 @@ trait TestUtils {
         res
     }.flatten
 
+  def debug(thunk: => Unit): Unit =
+    TestUtilsEnvironment.debug(thunk)
+
+  def testPlan(logicalPlanRule: org.apache.spark.sql.catalyst.rules.Rule[LogicalPlan], secondRunWithoutPlan: Boolean = true, disable: Int => Boolean = _ => false)(thunk: => Unit): Unit = {
+    val cur = SparkSession.getActiveSession.get.experimental.extraOptimizations
+    try{
+      if (!disable(sparkVersionNumericMajor)) {
+        SparkSession.getActiveSession.get.experimental.extraOptimizations = SparkSession.getActiveSession.get.experimental.extraOptimizations :+ logicalPlanRule
+      }
+      thunk
+    } finally {
+      SparkSession.getActiveSession.get.experimental.extraOptimizations = cur
+      if (secondRunWithoutPlan) {
+        thunk // re-run it
+      }
+    }
+  }
+
+  /**
+   * enable funN rewrites, runs the test twice, once under the optimisation, once without
+   */
+  lazy val funNRewrites = testPlan(FunNRewrite) _
+  /**
+   * enable funN rewrites for one test run only
+   */
+  lazy val justfunNRewrite = testPlan(FunNRewrite, secondRunWithoutPlan = false) _
+
+}
+
+object TestUtilsEnvironment {
+
+  /**
+   * Checks if the master is local, if so it's likely tests, if spark.master is not defined it's false
+   */
+  def isLocal(sparkSession: SparkSession): Boolean =
+    sparkSession.conf.getOption("spark.master").fold(false)(_.toLowerCase().startsWith("local"))
+
+  lazy val onDatabricksFS = {
+    val dbfs = new File("/dbfs")
+    dbfs.exists
+  }
+
+  /**
+   * Databricks config is found on all delta running platforms, synapse/fabric _so far_ is not.  If any config
+   * starts with spark.synapse it is assumed to be running on synapse/fabric
+   * @param sparkSession
+   * @return
+   */
+  def onFabricOrSynapse(sparkSession: SparkSession): Boolean =
+    sparkSession.conf.getAll.exists(p => p._1.startsWith("spark.synapse"))
+
+  private var shouldRunClusterTestsWasSet = false
+  private var shouldRunClusterTestsV = true
+
+  /** allow test usage on non-build environments */
+  def setshouldRunClusterTests(shouldClose: Boolean): Unit = {
+    this.shouldRunClusterTestsV = shouldClose
+    shouldRunClusterTestsWasSet = true
+  }
+
+  lazy val shouldRunClusterTests = shouldRunClusterTestsV
+
+  private var shouldDebugLogWasSet = false
+  private var shouldDebugLogv = false
+
+  /** allow test usage on non-build environments */
+  def setShouldDebugLog(shouldDebugLog: Boolean): Unit = {
+    shouldDebugLogv = shouldDebugLog
+    shouldDebugLogWasSet = true
+  }
+
+  lazy val shouldDebugLog = shouldDebugLogv
+
+  /**
+   * Only called from with in the test suite assume if the original values are not per default then they have been
+   * set that way.
+   * If shouldCloseSession is false and debug logging was not explicitly enabled then debug logging is disabled (protecting against any accidental defaulting of true).
+   * @param sparkSession if null it's assumed to be running locally, defaults win
+   */
+  def setupDefaults(sparkSession: SparkSession): Unit =
+    if (sparkSession ne null) {
+      if (!shouldRunClusterTestsWasSet) {
+        setshouldRunClusterTests( isLocal(sparkSession) && !(onDatabricksFS || onFabricOrSynapse(sparkSession)) )
+      }
+      if (!shouldDebugLogWasSet) {
+        if (!shouldRunClusterTestsV) {
+          setShouldDebugLog(false)
+        }
+      }
+    }
+
+  def setupDefaultsViaCurrentSession(): Unit =
+    SparkSession.getActiveSession.foreach(setupDefaults(_))
+
+  def debug(thunk: => Unit): Unit =
+    if (shouldDebugLog) {
+      thunk
+    }
 }

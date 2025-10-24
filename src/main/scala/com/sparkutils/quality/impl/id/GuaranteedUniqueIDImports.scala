@@ -1,6 +1,7 @@
 package com.sparkutils.quality.impl.id
 
 import org.apache.spark.sql.Column
+import org.apache.spark.sql.ShimUtils.{column, expression}
 
 trait GuaranteedUniqueIDImports {
   /**
@@ -8,7 +9,7 @@ trait GuaranteedUniqueIDImports {
    */
   @deprecated(since="0.1.0", message="migrate to unique_id")
   def uniqueID(prefix: String): Column =
-    new Column(GuaranteedUniqueIdIDExpression(
+    column(GuaranteedUniqueIdIDExpression(
       GuaranteedUniqueID() // defaults are all fine, ms just relates to definition instead of action
       , prefix
     ))
@@ -17,7 +18,7 @@ trait GuaranteedUniqueIDImports {
    * Creates a uniqueID backed by the GuaranteedUniqueID Spark Snowflake ID approach
    */
   def unique_id(prefix: String): Column =
-    new Column(GuaranteedUniqueIdIDExpression(
+    column(GuaranteedUniqueIdIDExpression(
       GuaranteedUniqueID() // defaults are all fine, ms just relates to definition instead of action
       , prefix
     ))
@@ -27,16 +28,16 @@ trait GuaranteedUniqueIDImports {
    * @param id
    * @return
    */
-  def id_size(id: Column): Column = new Column( SizeOfIDString(id.expr) )
+  def id_size(id: Column): Column = column( SizeOfIDString(expression(id)) )
 
   /**
    * Converts either a single ID or individual field parts into base64.  The parts must be provided in the correct order, base, i0, i1.. iN
    * @param idFields
    * @return
    */
-  def id_base64(idFields: Column *): Column = new Column( idFields match {
-    case Seq(e) => AsBase64Struct(e.expr)
-    case _ => AsBase64Fields(idFields.map(_.expr))
+  def id_base64(idFields: Column *): Column = column( idFields match {
+    case Seq(e) => AsBase64Struct(expression(e))
+    case _ => AsBase64Fields(idFields.map(expression(_)))
   } )
 
   /**
@@ -45,12 +46,12 @@ trait GuaranteedUniqueIDImports {
    * @param size defaults to 2 (160bit ID)
    * @return
    */
-  def id_from_base64(base64: Column, size: Int = 2): Column = new Column( IDFromBase64(base64.expr, size) )
+  def id_from_base64(base64: Column, size: Int = 2): Column = column( IDFromBase64(expression(base64), size) )
 
   /**
    * Returns the underlying raw type of an id (base, i0, i1 etc.) without prefixes
    * @param id
    * @return
    */
-  def id_raw_type(id: Column): Column = new Column( IDToRawIDDataType(id.expr) )
+  def id_raw_type(id: Column): Column = column( IDToRawIDDataType(expression(id)) )
 }

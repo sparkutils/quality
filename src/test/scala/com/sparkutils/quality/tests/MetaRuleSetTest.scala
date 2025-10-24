@@ -5,6 +5,7 @@ import com.sparkutils.quality.impl.util.RuleModel.RuleSuiteMap
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.util.MetaRuleSetRow
 import com.sparkutils.qualityTests.{RowTools, TestUtils}
+import org.apache.spark.sql.ShimUtils.{column, expression}
 import org.apache.spark.sql.catalyst.expressions.objects.AssertNotNull
 import org.apache.spark.sql.{Column, DataFrame}
 import org.junit.Test
@@ -41,7 +42,7 @@ class MetaRuleSetTest extends FunSuite with TestUtils {
     import sparkSession.implicits._
     import org.apache.spark.sql.functions.col
     // force the name field to be non-nullable
-    val df = sparkSession.createDataset(persons).toDF.withColumn("name", new Column(AssertNotNull(col("name").expr)))
+    val df = sparkSession.createDataset(persons).toDF.withColumn("name", column(AssertNotNull(expression(col("name")))))
 
     val rs = Seq(
       (ruleFilter("name = 'name'"), df, Set("name") ),
@@ -56,7 +57,7 @@ class MetaRuleSetTest extends FunSuite with TestUtils {
     import sparkSession.implicits._
     import org.apache.spark.sql.functions.col
     // force the name field to be non-nullable
-    val df = sparkSession.createDataset(persons).toDF.withColumn("name", new Column(AssertNotNull(col("name").expr)))
+    val df = sparkSession.createDataset(persons).toDF.withColumn("name", column(AssertNotNull(expression(col("name")))))
 
     val msr = MetaRuleSetRow(1,2,3,4, columnFilter, "col -> isNull(col)")
 

@@ -16,6 +16,8 @@ import org.scalatest.FunSuite
 
 import java.util.UUID
 import com.sparkutils.quality.impl.yaml.{YamlDecoderExpr, YamlEncoderExpr}
+import frameless.TypedExpressionEncoder
+import org.apache.spark.sql.ShimUtils.expression
 
 import scala.language.postfixOps
 
@@ -283,20 +285,28 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
   }
 
   @Test
-  def testPrintExpr(): Unit =
+  def testPrintExpr(): Unit = funNRewrites {
     doTestPrint("Expression toStr is ->", "my message is", "my message is", "plus(1, 1, lambda", "printExpr")
+  }
 
   // 2.4 doesn't support forceInterpreted so we can't test that it _doesn't_ compile, databricks is cluster based so we'll not be able to capture it without dumping to files
   @Test
-  def testPrintCode(): Unit = not_Databricks{ not2_4 {
+  def testPrintCode(): Unit = not_Cluster{ v3_2_and_above {
     // using eval we shouldn't get output
-    forceInterpreted {
+    forceInterpreted {  {
       doTestPrint(null, "my message is", null, null, "printCode")
-    }
+    } }
 
     // should generate output for code gen
     forceCodeGen {
-      doTestPrint(PrintCode(lit("").expr).msg, "my message is", "my message is", "private int FunN_0(InternalRow i)", "printCode")
+      doTestPrint(PrintCode(expression(lit(""))).msg, "my message is", "my message is", "private int FunN_0(InternalRow i)", "printCode")
+    }
+
+    // irrespective of version we are outputting the lambda variables
+    forceCodeGen {
+      justfunNRewrite {
+        doTestPrint(PrintCode(expression(lit(""))).msg, "my message is", "my message is", "LambdaVariable - b", "printCode")
+      }
     }
   }}
 
@@ -305,6 +315,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     import sparkSession.implicits._
     val plus = LambdaFunction("plus", "(a, b) -> a + b", Id(3,2)) // force compile with codegen
     registerLambdaFunctions(Seq(plus))
+    Holder.res = ""
     registerQualityFunctions(writer = {Holder.res = _})
 
     import Holder.res
@@ -342,7 +353,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
     // should fail
     try {
-      (df union df2 distinct).show
+      (df union df2 distinct).head//show
       fail("Is assumed to fail as spark doesn't order maps")
     } catch {
       case t: Throwable =>
@@ -356,7 +367,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     //comparable.show
     val unioned = comparable union comparable2 distinct
 
-    unioned.show
+    unioned.head
     assert(unioned.count == df.count)
   }
 
@@ -370,7 +381,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
       // should fail
       try {
-        (df union df2 distinct).show
+        (df union df2 distinct).head
         fail("Is assumed to fail as spark doesn't order maps")
       } catch {
         case t: Throwable =>
@@ -384,13 +395,13 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
       //comparable.show
       val unioned = comparable union comparable2 distinct
 
-      unioned.show
+      unioned.head
       if (thereCanBeOnlyOne)
         assert(unioned.count == 1)
       else
         assert(unioned.count == df.count)
 
-      unioned.sort("v").show
+      debug(unioned.sort("v").show)
     }
 
     // arrays
@@ -431,7 +442,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
     // should fail
     try {
-      (ds1 union ds2 distinct).show
+      (ds1 union ds2 distinct).head
       fail("Is assumed to fail as spark doesn't order maps")
     } catch {
       case t: Throwable =>
@@ -445,7 +456,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     //comparable.show
     val unioned = comparable union comparable2 distinct
 
-    unioned.show
+    unioned.head
     assert(unioned.count == 1) // because all 4 are identical
   }
 
@@ -458,11 +469,11 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
     import sparkSession.implicits._
     val ds = maps.reverse.map(m => MapArray(Seq(m.toMap))).toDS()
-    ds.show
+    ds.head
 
     // should fail
     try {
-      ds.sort("seq").show
+      ds.sort("seq").head
       fail("Is assumed to fail as spark doesn't order maps")
     } catch {
       case t: Throwable =>
@@ -473,7 +484,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     val comparable = ds.toDF.selectExpr("comparableMaps(seq) seq")
 
     val sorted = comparable.sort("seq").selectExpr("reverseComparableMaps(seq) seq").as[MapArray]
-    sorted.show
+    sorted.head
     sorted.collect().zipWithIndex.foreach{
       case (map,index) =>
         assert(map.seq(0) == maps(index).toMap) // because all 4 are identical
@@ -494,11 +505,11 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
     import sparkSession.implicits._
     val ds = maps.reverse.map(m => NestedMapStruct(NestedStruct(m.head._1, Map( m.head._1 -> MapArray(Seq(m.toMap)))))).toDS()
-    ds.show
+    ds.head
 
     // should fail
     try {
-      ds.sort("nested").show
+      ds.sort("nested").head
       fail("Is assumed to fail as spark doesn't order maps")
     } catch {
       case t: Throwable =>
@@ -509,7 +520,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     val comparable = ds.toDF.selectExpr("comparableMaps(nested) seq")
 
     val sorted = comparable.sort("seq").selectExpr("reverseComparableMaps(seq) nested").as[NestedMapStruct]
-    sorted.show
+    sorted.head
     sorted.collect().zipWithIndex.foreach {
       case (struct, index) =>
         assert(struct.nested.nested.head._2.seq(0) == maps(index).toMap) // because all 4 are identical
@@ -573,7 +584,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
   }
 
   @Test
-  def testRuleResult(): Unit = evalCodeGensNoResolve {
+  def testRuleResult(): Unit = evalCodeGensNoResolve { funNRewrites {
     val rules = genRules(27, 27)
 
     val toWrite = 1400 // writeRows
@@ -581,10 +592,10 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     val df = taddDataQuality(dataFrameLong(toWrite, 27, ruleSuiteResultType, null), rules)
 
     doTheRuleResultTest(df, toWrite)
-  }
+  } }
 
   @Test
-  def testRuleResultDetails(): Unit = evalCodeGensNoResolve {
+  def testRuleResultDetails(): Unit = evalCodeGensNoResolve { funNRewrites {
     val rules = genRules(27, 27)
 
     val toWrite = 1400 // writeRows
@@ -593,7 +604,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
     doTheRuleResultTest(df.selectExpr("rule_Suite_Result_Details(DataQuality) DataQuality"), toWrite)
     doTheRuleResultTest(df.select(rule_suite_result_details(col("DataQuality")) as "DataQuality"), toWrite)
-  }
+  } }
 
   def doTheRuleResultTest(df: DataFrame, toWrite: Int): Unit = {
     import sparkSession.implicits._
@@ -622,7 +633,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
   }
 
   @Test
-  def testExpressionsWithAggregate(): Unit = evalCodeGensNoResolve {
+  def testExpressionsWithAggregate(): Unit = evalCodeGensNoResolve { funNRewrites {
     val rowrs = RuleSuite(Id(11, 2), Seq(RuleSet(Id(21, 1), Seq(
       Rule(Id(40, 3), ExpressionRule("iseven(id)"))
     ))), lambdaFunctions = Seq(LambdaFunction("iseven", "p -> p % 2 = 0", Id(1020, 2))))
@@ -636,11 +647,16 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
     val processed = taddDataQuality(sparkSession.range(1000).toDF, rowrs).select(expressionRunner(rs, renderOptions = Map("useFullScalarType" -> "true")))
 
+    val firstId = Id(30,3)
+    val firstRes = "!!java.lang.Long '499500'\n"
     val res = processed.selectExpr("expressionResults.*").as[GeneralExpressionsResult[GeneralExpressionResult]].head()
     assert(res == GeneralExpressionsResult[GeneralExpressionResult](Id(10, 2), Map(Id(20, 1) -> Map(
-      Id(30, 3) -> GeneralExpressionResult("!!java.lang.Long '499500'\n", "BIGINT"),
+      firstId -> GeneralExpressionResult(firstRes, "BIGINT"),
       Id(31, 3) -> GeneralExpressionResult("!!java.lang.Long '500'\n", "BIGINT")
     ))))
+
+    // just to test the forwarder for code compat
+    assert(res.ruleSetResults.head._2(firstId).ruleResult == firstRes)
 
     val gres =
       processed.selectExpr("rule_result(expressionResults, pack_ints(10,2), pack_ints(20,1), pack_ints(31,3)) rr")
@@ -671,7 +687,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
     val obj = yaml.load[Long](res.ruleSetResults(Id(20,1))(Id(30,3)).ruleResult);
     assert(obj == 499500L)
-  }
+  } }
 
 
   @Test
@@ -733,7 +749,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
   @Test
   def checkMinimumLengthWorks(): Unit =
     try {
-      sparkSession.range(1).selectExpr("hash_with()").show
+      sparkSession.range(1).selectExpr("hash_with()").head
       fail("should have thrown")
     } catch {
       case t: Throwable if t.getMessage.contains("A minimum of 2 parameters is required") =>

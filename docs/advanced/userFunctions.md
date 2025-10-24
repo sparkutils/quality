@@ -30,6 +30,13 @@ Single argument lambdas should not use brackets around the parameters and zero a
 ??? warning "Don't use 'current'... as a lambda variable name on 2.4"
     Bizarrely this causes the parser to fail on 2.4 only, no more recent version suffers this.  Same goes for left or right as names.
 
+!!! info "0.1.3.1 optimisations can be enabled"
+    0.1.3.1 introduces the expansion of Qualitylambda functions, allowing sub expression elimination to take place.  The entire rewrite plan must be enabled by calling `com.sparkutils.quality.enableFunNRewrites()` within your SparkSession or by default via the Quality extensions.
+
+    You can put the comment `/* USED_AS_LAMBDA */` in an individual rule definition to disable expansion for the entire user function subtree.  This is unlikely to be needed, but is provided to allow overriding should issues arise.
+
+    The use of re-writes with 3.2.x has been identified in one test case (testSimpleProductionRules) as problematic for codegen, please use more recent Spark versions.    
+
 ## What about default parameter or different length parameter length Lambdas?  
 
 To define multiple parameter length lambdas just define new lambdas with the same name but different argument lengths.  You can freely call the same lambda name with different parameters e.g.:
@@ -208,6 +215,13 @@ Alternatively if you have a hotspot with any inbuilt HoF such as array_transform
 ```
 -Dquality.lambdaHandlers=org.apache.spark.sql.catalyst.expressions.TransformValues=org.mine.SuperfastTransformValues
 ```
+
+!!! note "Handlers disable FunNRewrite"
+    The FunNRewrite optimisation lifts lambdas out to higher level expressions, enabling sub expression elimination.
+    This behaviour can be disabled by using /* USED_AS_LAMBDA */ as a comment within your user function definition, the
+    same occurs when a Spark Higher Order Function, such as transform/ArrayTransform, is used with a handler.
+    This allows the handlers to be run, compiling out the HOF, as a trade-off to possible gains from sub expression elimination.
+    Future versions of Spark may compile out the HigherOrderFunctions removing this limitation.
 
 ### Why do all this?
 

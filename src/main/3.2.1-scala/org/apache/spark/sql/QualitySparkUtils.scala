@@ -1,19 +1,200 @@
 package org.apache.spark.sql
 
+import org.apache.spark.sql.ShimUtils.column
 import com.sparkutils.quality.impl.util.DebugTime.debugTime
-import com.sparkutils.quality.impl.util.PassThrough
-import com.sparkutils.quality.impl.{RuleEngineRunner, RuleFolderRunner, RuleRunner}
+import com.sparkutils.quality.impl.util.Params.formatParams
+import com.sparkutils.quality.impl.util.{PassThrough, PassThroughCompileEvals}
+import com.sparkutils.quality.impl.{RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
+import com.sparkutils.shim.expressions.{HigherOrderFunctionLike, PredicateHelperPlus}
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveHigherOrderFunctions, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCoercion}
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, EqualNullSafe, Expression, ExpressionSet, Literal, UpdateFields}
-import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, UnaryNode}
+import org.apache.spark.sql.catalyst.encoders.RowEncoder
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, QualityExprUtils, GenerateMutableProjection}
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, BindReferences, EqualNullSafe, Expression, ExpressionSet, HigherOrderFunction, InterpretedMutableProjection, Literal, Projection, UpdateFields}
+import org.apache.spark.sql.catalyst.optimizer.{BooleanSimplification, CollapseProject, CombineConcats, CombineTypedFilters, ConstantFolding, ConstantPropagation, EliminateMapObjects, EliminateSerialization, FoldablePropagation, LikeSimplification, NormalizeFloatingNumbers, NullPropagation, ObjectSerializerPruning, OptimizeCsvJsonExprs, OptimizeIn, OptimizeUpdateFields, PushFoldableIntoBranches, ReassignLambdaVariableID, RemoveDispensableExpressions, RemoveNoopOperators, RemoveRedundantAliases, ReorderAssociativeOperator, ReplaceExpressions, ReplaceNullWithFalseInPredicate, ReplaceUpdateFieldsExpression, SimplifyBinaryComparison, SimplifyCaseConversionExpressions, SimplifyCasts, SimplifyConditionals, SimplifyExtractValueOps, UnwrapCastInBinaryComparison}
+import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, LogicalPlan, Project, UnaryNode}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.qualityFunctions.FunN
+import org.apache.spark.sql.types.StructType
 import org.apache.spark.util.Utils
 
 /**
  * Set of utilities to reach in to private functions
  */
 object QualitySparkUtils {
+
+  /**
+   * Spark >3.1 supports the very useful getLocalInputVariableValues, 2.4 needs the previous approach
+   *
+   * @param i
+   * @param ctx
+   * @return (parameters for function decleration, parmaters for calling, code that must be before fungroup)
+   */
+  def genParams(ctx: CodegenContext, child: Expression): (String, String, String) = {
+    val (a, b) = CodeGenerator.getLocalInputVariableValues(ctx, child, QualityExprUtils.currentSubExprState(ctx))
+
+    val p = formatParams( ctx, a.toSeq )
+
+    (p._1, p._2, b.map(_.code.code).mkString("\n"))
+  }
+
+  def funNRewrite(plan: LogicalPlan, expressionToExpression: PartialFunction[Expression, Expression]): LogicalPlan =
+    plan.transformExpressionsDownWithPruning {
+      // if it's an actual lambda (e.g. folder) we should not expand it for now
+      case f: FunN if f.usedAsLambda || f.children.exists { // immediate children check
+        case f: FunN =>
+          f.usedAsLambda // false is fine
+        case _: HigherOrderFunction => true
+        case _: HigherOrderFunctionLike => true
+        case _ => false
+      } => false // if it's an actual lambda (e.g. folder) we should not expand it for now
+      case f: FunN if !f.usedAsLambda => true // otherwise assume it's fine
+      case _: HigherOrderFunction => false
+      case _: HigherOrderFunctionLike => false
+      case _ => true
+    }(expressionToExpression)
+
+  type DatasetBase[F] = org.apache.spark.sql.Dataset[F]
+
+  case class EvaluableExpressions(plan: LogicalPlan) extends PredicateHelperPlus {
+    def expressions: Seq[Expression] = plan match {
+      case p: Project => p.expressions.map{
+        e => findRootExpression(e, plan).getOrElse(e)
+      }
+      case _ => plan.expressions
+    }
+  }
+
+  lazy val optimizerBatches = Seq(
+    CollapseProject,
+    NullPropagation,
+    ConstantPropagation,
+    FoldablePropagation,
+    OptimizeIn,
+    ConstantFolding,
+    ReorderAssociativeOperator,
+    LikeSimplification,
+    BooleanSimplification,
+    SimplifyConditionals,
+    PushFoldableIntoBranches,
+    RemoveDispensableExpressions,
+    SimplifyBinaryComparison,
+    ReplaceNullWithFalseInPredicate,
+    SimplifyCasts,
+    SimplifyCaseConversionExpressions,
+    EliminateSerialization,
+    RemoveRedundantAliases,
+    UnwrapCastInBinaryComparison,
+    RemoveNoopOperators,
+    OptimizeUpdateFields,
+    SimplifyExtractValueOps,
+    OptimizeCsvJsonExprs,
+    CombineConcats,
+    EliminateMapObjects,
+    CombineTypedFilters,
+    ObjectSerializerPruning,
+    ReassignLambdaVariableID,
+    NormalizeFloatingNumbers,
+    ReplaceUpdateFieldsExpression,
+    ReplaceExpressions
+  )
+
+  /**
+   * Provides a starting plan for a dataframe, resolves the
+   *
+   * @param fields input types
+   * @param dataFrameF
+   * @return
+   */
+  def resolveExpressions(fields: StructType, dataFrameF: DataFrame => DataFrame): Seq[Expression] = {
+
+    val plan = LocalRelation(fields.fields.map{ field =>
+      AttributeReference(field.name, field.dataType, field.nullable, field.metadata)()
+    })
+    val ag = RowEncoder.apply(fields)
+
+    // this constructor stops execute plan being called too early
+    val df = dataFrameF(
+      new Dataset[Row](SparkSession.getActiveSession.get.sqlContext, plan, ag)
+    )
+
+    // force an optimize
+    val aplan =
+      (optimizerBatches ++ SparkSession.getActiveSession.get.experimental.extraOptimizations).
+        foldLeft(df.queryExecution.analyzed){
+          (p, b) =>
+            b.apply(p)
+        }
+
+    // lookup the actual expressions
+    val res = debugTime("find underlying expressions") {
+      EvaluableExpressions(aplan).expressions
+    }
+
+    // folder introduces multiple projections, these are the ones we explicitly use
+    val fres = debugTime("bindReferences") {
+      res.map(BindReferences.bindReference(_, df.queryExecution.analyzed.allAttributes, allowFailures = true)).
+        map(BindReferences.bindReference(_, aplan.allAttributes, allowFailures = true)).
+        map(BindReferences.bindReference(_, plan.output, allowFailures = true))
+    }
+
+    fres
+  }
+
+  /**
+   * Provides a starting plan for a dataframe, resolves the
+   *
+   * @param encFrom starting data type to encode from
+   * @param dataFrameF
+   * @return
+   */
+  def resolveExpressions[T](encFrom: Encoder[T], dataFrameF: DataFrame => DataFrame): Seq[Expression] = {
+    val enc = ShimUtils.expressionEncoder(encFrom)
+
+    val plan = LocalRelation(enc.schema.fields.map{ field =>
+      AttributeReference(field.name, field.dataType, field.nullable, field.metadata)()
+    })
+    // this constructor stops execute plan being called too early
+    val df = dataFrameF(
+      new Dataset[T](SparkSession.getActiveSession.get.sqlContext, plan, enc).toDF()
+    )
+
+    // force an optimize
+    val aplan =
+      (optimizerBatches ++ SparkSession.getActiveSession.get.experimental.extraOptimizations).
+        foldLeft(df.queryExecution.analyzed){
+          (p, b) =>
+            b.apply(p)
+        }
+
+    // lookup the actual expressions
+    val res = debugTime("find underlying expressions") {
+      EvaluableExpressions(aplan).expressions
+    }
+
+    // folder introduces multiple projections, these are the ones we explicitly use
+    val fres = debugTime("bindReferences") {
+      res.map(BindReferences.bindReference(_, df.queryExecution.analyzed.allAttributes, allowFailures = true)).
+        map(BindReferences.bindReference(_, aplan.allAttributes, allowFailures = true)).
+        map(BindReferences.bindReference(_, plan.output, allowFailures = true))
+    }
+
+    fres
+  }
+
+  /**
+   * Creates a projection from InputRow to InputRow.
+   * @param exprs expressions from resolveExpressions, already resolved without
+   * @param compile
+   * @return typically a mutable projection, callers must ensure partition is set and the target row is provided
+   */
+  def rowProcessor(exprs: Seq[Expression], compile: Boolean = true): Projection  = {
+    if (compile)
+      GenerateMutableProjection.generate(exprs, SQLConf.get.subexpressionEliminationEnabled)
+    else
+      InterpretedMutableProjection.createProjection(exprs)
+  }
+
   /**
    * Where resolveWith is not possible (e.g. 10.x DBRs) it is disabled here.
    * This is, in the 10.x DBR case, due to the class files for UnaryNode (FakePlan) being radically different and causing an IncompatibleClassChangeError: Implementing class
@@ -181,17 +362,15 @@ object QualitySparkUtils {
     }
     // special case as it's faster to do individual items it seems, 36816ms vs 48974ms
     expr match {
-      case r @ RuleEngineRunner(ruleSuite, PassThrough( expressions ), realType, compileEvals, debugMode, func, group, forceRunnerEval, expressionOffsets, forceTriggerEval) =>
-        val nexprs = expressions.map(forExpr)
-        RuleEngineRunner(ruleSuite, PassThrough( nexprs ), realType, compileEvals, debugMode, func, group, forceRunnerEval, expressionOffsets, forceTriggerEval)
-      case r @ RuleFolderRunner(ruleSuite, left, PassThrough( expressions ), resultDataType, compileEvals, debugMode, variablesPerFunc,
-        variableFuncGroup, forceRunnerEval, expressionOffsets, dataRef, forceTriggerEval) =>
-        val nexprs = expressions.map(forExpr)
-        RuleFolderRunner(ruleSuite, left, PassThrough( nexprs ), resultDataType, compileEvals, debugMode, variablesPerFunc,
-          variableFuncGroup, forceRunnerEval, expressionOffsets, dataRef, forceTriggerEval)
-      case r @ RuleRunner(ruleSuite, PassThrough( expressions ), compileEvals, func, group, forceRunnerEval) =>
-        val nexprs = expressions.map(forExpr)
-        RuleRunner(ruleSuite, PassThrough( nexprs ), compileEvals, func, group, forceRunnerEval)
+      case r: RuleEngineRunnerBase[_] if r.child.isInstanceOf[PassThrough] =>
+        val nexprs = r.child.children.map(forExpr)
+        r.withNewChildren(Seq(r.child.withNewChildren(nexprs)))
+      case r: RuleFolderRunnerBase[_] if r.right.isInstanceOf[PassThrough]  =>
+        val nexprs = r.right.children.map(forExpr)
+        r.withNewChildren(Seq(r.left, r.right.withNewChildren(nexprs)))
+      case r: RuleRunnerBase[_] if r.child.isInstanceOf[PassThrough] =>
+        val nexprs = r.child.children.map(forExpr)
+        r.withNewChildren(Seq(PassThroughCompileEvals(nexprs)))
       case _ => forExpr(expr)
     }
   }
@@ -234,7 +413,7 @@ object QualitySparkUtils {
    * @return a new copy of update with the changes applied
    */
   def update_field(update: Column, transformations: (String, Column)*): Column =
-    new Column(
+    column(
       transformFields{
         transformations.foldRight(update.expr) {
           case ((path, col), origin) =>
@@ -256,7 +435,7 @@ object QualitySparkUtils {
    * @return
    */
   def drop_field(update: Column, fieldNames: String*): Column =
-    new Column(
+    column(
       transformFields{
         fieldNames.foldRight(update.expr) {
           case (fieldName, origin) =>

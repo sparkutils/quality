@@ -2,8 +2,10 @@ package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
 import com.sparkutils.quality.functions.{flatten_rule_results, unpack_id_triple}
+import com.sparkutils.quality.impl.extension.FunNRewrite
 import com.sparkutils.quality.impl.{RuleEngineRunner, RunOnPassProcessor}
 import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.ShimUtils.expression
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.{BooleanType, DataType, IntegerType, StructField, StructType}
 import org.junit.Test
@@ -57,7 +59,7 @@ class RuleEngineTest extends FunSuite with TestUtils {
   }
 
   @Test
-  def testSimpleProductionRules(): Unit = evalCodeGensNoResolve {
+  def testSimpleProductionRules(): Unit = evalCodeGensNoResolve { testPlan(FunNRewrite, disable = _ == 32) {
     val rer = irules(
       Seq((ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040,1),
         OutputExpression("array(account_row('from'), account_row('to', 'other_account1'))"))),
@@ -77,7 +79,7 @@ class RuleEngineTest extends FunSuite with TestUtils {
 
     val outdf = testDataDF.withColumn("together", rer(testDataDF))
     //outdf.show
-    outdf.select("together.*").show
+    debug(outdf.select("together.*").show)
     val res = outdf.select("together.*").as[RuleEngineResult[Seq[NewPosting]]].collect()
 
     // this row will fail as the 0.6 doesn't class as a pass for the output expression - regardless of overall status
@@ -94,7 +96,7 @@ class RuleEngineTest extends FunSuite with TestUtils {
     assert(res(5).result.contains(Seq(NewPosting("fromWithField", "4201", "eqotc", 6000), NewPosting("to", "other_account1", "eqotc", 60))))
 
 
-  }
+  } }
 
   @Test
   def testProbabilityRuleFail = doTestProbabilityRules(OverallResult(currentResult = Failed))
@@ -102,7 +104,7 @@ class RuleEngineTest extends FunSuite with TestUtils {
   @Test
   def testProbabilityRulePass = doTestProbabilityRules(OverallResult(probablePass = 0.6, currentResult = Passed))
 
-  def doTestProbabilityRules(overallResult: OverallResult): Unit = evalCodeGens {
+  def doTestProbabilityRules(overallResult: OverallResult): Unit = evalCodeGens { funNRewrites {
     val rer = irules(
       Seq((ExpressionRule("0.6"), RunOnPassProcessor(1000, Id(1040,1),
         OutputExpression("array(account_row('from'), account_row('to', 'other_account1'))"))))
@@ -121,10 +123,10 @@ class RuleEngineTest extends FunSuite with TestUtils {
     assert(res(0).result.isEmpty)
     assert(res(0).salientRule.isEmpty)
     assert(res(0).ruleSuiteResults.overallResult == overallResult.currentResult)
-  }
+  } }
 
   @Test
-  def testFlattenResults(): Unit = evalCodeGensNoResolve {
+  def testFlattenResults(): Unit = evalCodeGensNoResolve { funNRewrites {
     val rer = rules(
       (ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040,1),
         OutputExpression("array(account_row('from', account), account_row('to', 'other_account1'))"))),
@@ -141,23 +143,27 @@ class RuleEngineTest extends FunSuite with TestUtils {
     val outdfi2 = interimT.select(explode(flatten_rule_results(col("together"))) as "expl")
     assert(outdfi.union(outdfi2).distinct().count == outdfi.distinct().count)
 
-    println("outdfi show")
+    debug {
+      println("outdfi show")
 
-    outdfi.show
-    outdfi.printSchema
+      outdfi.show
+      outdfi.printSchema
+    }
 
     val interim = outdfi.selectExpr("expl.result")
-    interim.printSchema
+    debug {
+      interim.printSchema
+      interim.show
+    }
 
-    interim.show
     val res = interim.as[Seq[Posting]].collect()
     assert(res(0) == Seq(Posting("from", "4201"), Posting("to","other_account1")))
     assert(res(6) == Seq(Posting("from", "another_account"), Posting("to","4206")))
     assert(res(8) == Seq(Posting("from", "another_account"), Posting("to","4201")))
-  }
+  } }
 
   @Test
-  def testSalience(): Unit = evalCodeGensNoResolve {
+  def testSalience(): Unit = evalCodeGensNoResolve { funNRewrites {
     val rer = rules(
       (ExpressionRule("product = 'eqotc' and account = '4201'"), RunOnPassProcessor(100, Id(1040,1),
         OutputExpression("array(updateField(account_row('fr', account), 'transfer_type', 'from'), account_row('to', 'other_account1'))"))),
@@ -165,13 +171,18 @@ class RuleEngineTest extends FunSuite with TestUtils {
         OutputExpression("array(named_struct('transfer_type', 'from', 'account', 'another_account', 'product', product, 'subcode', subcode), named_struct('transfer_type', 'to', 'account', account, 'product', product, 'subcode', subcode))")))
     )
 
-    import sparkSession.implicits._
-    val testDataDF = testData.toDF()
+    val testDataDF = {
+      import sparkSession.implicits._
+      testData.toDF()
+    }
+
+    // # 75 has issues with encoding on interpreted with dbr 15.4
+    import frameless._
 
     val outdf = testDataDF.withColumn("together", rer(testDataDF)).selectExpr("*", "together.result")
-    outdf.show
+    debug( outdf.show )
 
-    val res = outdf.select("result").as[Seq[Posting]].collect()
+    val res = outdf.select("result").as[Seq[Posting]](TypedExpressionEncoder[Seq[Posting]]).collect()
     val just4201 = Seq(Posting("from", "another_account"), Posting("to","4201"))
     assert(res(0) == just4201)
     assert(res(4) == just4201)
@@ -184,17 +195,18 @@ class RuleEngineTest extends FunSuite with TestUtils {
 
     // need Option for the int's because they may be null.
     val sruleres = srule.select("ruleSuiteId","ruleSuiteVersion","ruleSetId","ruleSetVersion","ruleId","ruleVersion").
-      as[(Option[Int],Option[Int],Option[Int],Option[Int],Option[Int],Option[Int])].collect
+      as[(Option[Int],Option[Int],Option[Int],Option[Int],Option[Int],Option[Int])](
+        TypedExpressionEncoder[(Option[Int],Option[Int],Option[Int],Option[Int],Option[Int],Option[Int])]).collect
     assert(sruleres(0) == (Some(1),Some(1),Some(50),Some(1),Some(100),Some(1)))
     // prove it's all nulls here i.e. salientRule is null if no rule matched
     val nulls = (None,None,None,None,None,None)
     assert(sruleres(1) == nulls)
     assert(sruleres(2) == nulls)
     assert(sruleres(3) == nulls)
-  }
+  } }
 
   @Test
-  def testDebug(): Unit = evalCodeGens {
+  def testDebug(): Unit = evalCodeGens { funNRewrites {
     val rer = debugRules(
       (ExpressionRule("product = 'eqotc' and account = '4201'"), RunOnPassProcessor(100, Id(1040,1),
         OutputExpression("array(account_row('from', account), account_row('to', 'other_account1'))"))),
@@ -202,31 +214,35 @@ class RuleEngineTest extends FunSuite with TestUtils {
         OutputExpression("array(named_struct('transfer_type', 'from', 'account', 'another_account', 'product', product, 'subcode', subcode), named_struct('transfer_type', 'to', 'account', account, 'product', product, 'subcode', subcode))")))
     )
 
-    import sparkSession.implicits._
-
-    val testDataDF = testData.toDF()
+    val testDataDF = {
+      import sparkSession.implicits._
+      testData.toDF()
+    }
+    import frameless._
 
     val outdf = testDataDF.withColumn("together", rer(testDataDF)).selectExpr("*", "together.result")
-    outdf.show
-    outdf.printSchema
+    debug {
+      outdf.show
+      outdf.printSchema
+    }
 
-    val res = outdf.select("result").as[Seq[(Int, Seq[Posting])]].collect()
+    val res = outdf.select("result").as[Seq[(Int, Seq[Posting])]](TypedExpressionEncoder[Seq[(Int, Seq[Posting])]]).collect()
     val just4201 = Seq(Posting("from", "another_account"), Posting("to","4201"))
     val justSeq = (1000, just4201)
     assert(res(0) == Seq(justSeq))
     assert(res(4) == Seq(justSeq))
     assert(res(5) == Seq((100, Seq(Posting("from", "4201"), Posting("to","other_account1"))), justSeq))
-  }
+  } }
 
   @Test
-  def testHugeAmountOfRulesSOE(): Unit = evalCodeGensNoResolve {
+  def testHugeAmountOfRulesSOE(): Unit = evalCodeGensNoResolve { funNRewrites {
     val rer = irules(
       Seq.fill(4000)(ExpressionRule(1 to 50 map ((i: Int) => s"(product = 'edt' and subcode = ${40 + i})") mkString " or "),
         RunOnPassProcessor(1000, Id(3010, 1),
         OutputExpression("array(account_row('from', account), account_row('to', 'other_account1'))"))), compileEvals = false
     )(null.asInstanceOf[DataFrame]) // the df is irrelevant as we are NoResolving
 
-    val rs = rer.expr.asInstanceOf[RuleEngineRunner].ruleSuite
+    val rs = expression(rer).asInstanceOf[RuleEngineRunner].ruleSuite
     val ds = toDS(rs)
 
     val so = toOutputExpressionDS(rs)
@@ -259,9 +275,9 @@ class RuleEngineTest extends FunSuite with TestUtils {
 
     val bos = new ByteArrayOutputStream()
     val os = new ObjectOutputStream(bos)
-    os.writeObject(rerer.expr)
+    os.writeObject(expression(rerer))
     val bytes = bos.toByteArray()
-  }
+  } }
 
 
   @Test
@@ -367,8 +383,8 @@ class RuleEngineTest extends FunSuite with TestUtils {
       }
 
       // test no alias paths as well
-      testRes(testDF.transform(ruleEngineWithStructF(rs, IntegerType, alias = null)))
-      testRes(testDF.transform(ruleEngineWithStructF(rs, IntegerType, alias = "")))
+      testRes(testDF.transform(ruleEngineWithStructF(rs, IntegerType, alias = null)).asInstanceOf[DataFrame])
+      testRes(testDF.transform(ruleEngineWithStructF(rs, IntegerType, alias = "")).asInstanceOf[DataFrame])
     }
   }
 

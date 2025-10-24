@@ -45,14 +45,14 @@ class DocMarkdownTest extends TestUtils { // test utils to force spark session b
     docsf.getParentFile.mkdirs
     IOUtils.write(md, new FileOutputStream(docsf))
 
-    println(md)
+    debug(println(md))
 
     val samplesf = new java.io.File(SparkTestUtils.docpath("sampleDocsValidation.md"))
     samplesf.getParentFile.mkdirs
     val emd = RuleSuiteDocs.createErrorAndWarningMarkdown(docs, rs, relative.copy( relativePath = "../sampleDocsOutput/"))
     IOUtils.write(emd, new FileOutputStream(samplesf))
 
-    println(emd)
+    debug(println(emd))
 
   }
 }

@@ -2,8 +2,9 @@ package com.sparkutils.quality.impl.imports
 
 import com.sparkutils.quality.RuleSuite
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenExpressions
-import com.sparkutils.quality.impl.{RuleFolderRunner, RuleLogicUtils}
-import com.sparkutils.quality.impl.util.{NonPassThrough, PassThrough}
+import com.sparkutils.quality.impl.{RuleFolderRunner, RuleFolderRunnerEval, RuleLogicUtils}
+import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals, PassThroughEvalOnly}
+import org.apache.spark.sql.ShimUtils.{column, expression}
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.qualityFunctions.{FunN, RefExpressionLazyType}
 import org.apache.spark.sql.types._
@@ -21,20 +22,20 @@ trait RuleFolderRunnerImports {
    *
    * @param ruleSuite The ruleSuite with runOnPassProcessors
    * @param startingStruct This struct is passed to the first matching rule, ideally you would use the spark dsl struct function to refer to existing columns
-   * @param compileEvals Should the rules be compiled out to interim objects - by default true
+   * @param compileEvals Should the rules be compiled out to interim objects - by default false, allowing optimisations
    * @param debugMode When debugMode is enabled the resultDataType is wrapped in Array of (salience, result) pairs to ease debugging
    * @param resolveWith This experimental parameter can take the DataFrame these rules will be added to and pre-resolve and optimise the sql expressions, see the documentation for details on when to and not to use this.
    * @param variablesPerFunc Defaulting to 40 allows, in combination with variableFuncGroup allows customisation of handling the 64k jvm method size limitation when performing WholeStageCodeGen
    * @param variableFuncGroup Defaulting to 20
    * @param forceRunnerEval Defaulting to false, passing true forces a simplified partially interpreted evaluation (compileEvals must be false to get fully interpreted)
-   * @param forceTriggerEval Defaulting to true, passing true forces each trigger expression to be compiled (compileEvals) and used in place, false instead expands the trigger in-line giving possible performance boosts based on JIT.  Most testing has however shown this not to be the case hence the default, ymmv.
+   * @param forceTriggerEval Defaulting to false, passing true forces each trigger expression to be compiled (compileEvals) and used in place, false instead expands the trigger in-line giving possible performance boosts based on JIT
    * @param useType In the case you must use select and can't use withColumn you may provide a type directly to stop the NPE
    * @return A Column representing the QualityRules expression built from this ruleSuite
    */
-  def ruleFolderRunner(ruleSuite: RuleSuite, startingStruct: Column, compileEvals: Boolean = true,
+  def ruleFolderRunner(ruleSuite: RuleSuite, startingStruct: Column, compileEvals: Boolean = false,
                        debugMode: Boolean = false, resolveWith: Option[DataFrame] = None, variablesPerFunc: Int = 40,
                        variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false, useType: Option[StructType] = None,
-                       forceTriggerEval: Boolean = true): Column = {
+                       forceTriggerEval: Boolean = false): Column = {
     com.sparkutils.quality.registerLambdaFunctions( ruleSuite.lambdaFunctions )
 
     // needed to resolve variables
@@ -50,21 +51,42 @@ trait RuleFolderRunnerImports {
         starter
     }
 
-    val liftLambda = (e: Expression) => FunN(Seq(RefExpressionLazyType(() => dataRef.get(), true)), e)
+    val lazyRef = RefExpressionLazyType(dataRef, true)
+
+    val liftLambda = (e: Expression) => FunN(Seq(lazyRef), e, usedAsLambda = true)
 
     val (expressions, indexes) = flattenExpressions(ruleSuite, liftLambda)
 
-    val runner = new RuleFolderRunner(RuleLogicUtils.cleanExprs(ruleSuite), startingStruct.expr, PassThrough( expressions ), realType, compileEvals = compileEvals,
-      debugMode = debugMode, variablesPerFunc, variableFuncGroup, forceRunnerEval = forceRunnerEval, expressionOffsets = indexes, dataRef, forceTriggerEval)
+    val cleaed = RuleLogicUtils.cleanExprs(ruleSuite)
+    val starter = expression(startingStruct)
+    val exprs =
+      // ExpressionProxy and SubExprEvaluationRuntime cannot be used with compileEvals
+      if (compileEvals)
+        PassThroughCompileEvals(expressions)
+      else
+        PassThroughEvalOnly(expressions)
 
-    new Column(
+    val runner =
+      if (forceRunnerEval || resolveWith.isDefined)
+        new RuleFolderRunnerEval(cleaed, starter, exprs,
+          realType, compileEvals = compileEvals,
+          debugMode = debugMode, variablesPerFunc, variableFuncGroup,
+          expressionOffsets = indexes, dataRef, forceTriggerEval)
+      else
+        new RuleFolderRunner(cleaed, starter, exprs,
+          realType, compileEvals = compileEvals,
+          debugMode = debugMode, variablesPerFunc, variableFuncGroup,
+          expressionOffsets = indexes, dataRef, forceTriggerEval)
+
+    column(
       QualitySparkUtils.resolveWithOverride(resolveWith).map { df =>
         val resolved = QualitySparkUtils.resolveExpression(df, runner)
 
-        resolved.asInstanceOf[RuleFolderRunner].copy(right = resolved.children(1) match {
+        resolved.withNewChildren(Seq(runner.left, resolved.children.head match {
           // replace the expr
-          case PassThrough(children) => NonPassThrough(children)
-        })
+          case PassThroughCompileEvals(children) => NonPassThrough(children)
+          case PassThroughEvalOnly(children) => NonPassThrough(children)
+        }))
       } getOrElse runner
     )
   }

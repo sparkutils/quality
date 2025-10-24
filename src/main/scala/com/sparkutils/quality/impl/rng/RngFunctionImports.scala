@@ -2,7 +2,8 @@ package com.sparkutils.quality.impl.rng
 
 import com.sparkutils.quality.impl.RngUUIDExpression
 import org.apache.commons.rng.simple.RandomSource
-import org.apache.spark.sql.Column
+import org.apache.spark.sql.{Column, ShimUtils}
+import org.apache.spark.sql.ShimUtils.expression
 
 trait RngFunctionImports {
   /**
@@ -21,5 +22,5 @@ trait RngFunctionImports {
    *
    * @param child the expression to produce a BinaryType
    */
-  def rng_uuid(column: Column): Column = new Column(RngUUIDExpression(column.expr))
+  def rng_uuid(column: Column): Column = ShimUtils.column(RngUUIDExpression(expression(column)))
 }

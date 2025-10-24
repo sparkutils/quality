@@ -3,6 +3,7 @@ package com.sparkutils.quality.impl.rng
 import com.sparkutils.shim.expressions.StatefulLike
 import org.apache.commons.rng.simple.RandomSource
 import org.apache.spark.sql.Column
+import org.apache.spark.sql.ShimUtils.column
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionWithRandomSeed, LeafExpression, Literal, Rand}
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
@@ -18,7 +19,7 @@ object RandomBytes {
    * @return a column with the appropriate rng defined
    */
   def apply(randomSource: RandomSource, numBytes: Int = 16, seed: Long = 0): Column =
-    new Column( apply(numBytes, randomSource, seed) )
+    column( apply(numBytes, randomSource, seed) )
 
   def apply(numBytes: Int, randomSource: RandomSource, seed: Long): Expression =
     if (randomSource.isJumpable)
@@ -46,7 +47,7 @@ case class RandBytesNonJump(definedSeed: Long, numBytes: Int, source: RandomSour
 /**
  * Base implementation for random number byte generation with pluggable implementations
  */
-abstract class RandBytes extends LeafExpression with StatefulLike
+abstract class RandBytes extends Expression with StatefulLike
   with ExpressionWithRandomSeed with CodegenFallback with RngImpl {
 
   type ThisType <: RandBytes
@@ -74,11 +75,18 @@ abstract class RandBytes extends LeafExpression with StatefulLike
   }
 
   def seedExpression: Expression = Literal(definedSeed, LongType)
+
+  val children: Seq[Expression] = Nil
+
+  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = freshCopy()
+
 }
 
 object RandomLongs {
 
   val structType = com.sparkutils.quality.impl.longPair.LongPair.structType
+  // #60 - preview2 defaults to nullable when no schema is specified
+  val structTypeNullable = structType.copy(fields = structType.fields.map(_.copy(nullable = true)))
 
   /**
    * Creates a random number generator using a given commons-rng source
@@ -88,7 +96,7 @@ object RandomLongs {
    * @return a column with the appropriate rng defined
    */
   def apply(randomSource: RandomSource, seed: Long = 0): Column =
-    new Column( create(randomSource, seed) )
+    column( create(randomSource, seed) )
 
   def create(randomSource: RandomSource, seed: Long = 0): Expression =
     if (randomSource.isJumpable)
@@ -115,7 +123,7 @@ case class RandLongsNonJump(definedSeed: Long, source: RandomSource) extends Ran
 /**
  * Base implementation for random number two long (128 bit) generation with pluggable implementations
  */
-abstract class RandLongs extends LeafExpression with StatefulLike
+abstract class RandLongs extends Expression with StatefulLike
   with ExpressionWithRandomSeed with CodegenFallback with RngImpl {
 
   type ThisType <: RandLongs
@@ -144,4 +152,8 @@ abstract class RandLongs extends LeafExpression with StatefulLike
   def numBytes: Int = 0
 
   def seedExpression: Expression = Literal(definedSeed, LongType)
+
+  val children: Seq[Expression] = Nil
+  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = freshCopy()
+
 }

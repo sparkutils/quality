@@ -1,6 +1,7 @@
 package com.sparkutils.quality.impl.util
 
 import org.apache.spark.sql.Column
+import org.apache.spark.sql.ShimUtils.{column, expression}
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
 import org.apache.spark.sql.catalyst.expressions.{BoundReference, Expression, UnaryExpression}
 import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, ArrayData, MapData}
@@ -16,7 +17,7 @@ import org.apache.spark.sql.types._
 object ComparableMapConverter {
 
   def apply(child: Column, compareF: DataType => Option[(Any, Any) => Int] = (dataType: DataType) => utils.defaultMapCompare(dataType)): Column =
-    new Column(ComparableMapConverter(child.expr, compareF))
+    column(ComparableMapConverter(expression(child), compareF))
 
   def deMapStruct(key: (DataType, Any => Any), value: (DataType, Any => Any), compareLookup: DataType => Option[(Any, Any) => Int]): (DataType, Any => Any) =
     (keyValueType(key._1, value._1), {

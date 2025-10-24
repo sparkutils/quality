@@ -1,5 +1,6 @@
 package org.apache.spark.sql
 
+import org.apache.spark.sql.ShimUtils.column
 import com.sparkutils.quality.QualityException
 import com.sparkutils.quality.impl.yaml.QualityYamlDecoding._
 import org.apache.spark.sql.catalyst.InternalRow
@@ -137,7 +138,7 @@ object QualityYamlExt {
    * @return a new copy of update with the changes applied
    */
   def update_field(update: Column, transformations: (String, Column)*): Column =
-    new Column(
+    column(
       transformFields{
         transformations.foldRight(update.expr) {
           case ((path, col), origin) =>
@@ -159,7 +160,7 @@ object QualityYamlExt {
    * @return
    */
   def drop_field(update: Column, fieldNames: String*): Column =
-    new Column(
+    column(
       transformFields{
         fieldNames.foldRight(update.expr) {
           case (fieldName, origin) =>

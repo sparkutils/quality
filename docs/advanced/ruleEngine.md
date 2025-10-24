@@ -12,7 +12,7 @@ RuleSuites are built per the normal DQ rules however a RuleResultProcessor is su
 
 ```scala
   val ruleResultProcessor = 
-    RunOnPassProcessor(salience, Id(outputId, outputVersion), RuleLogicUtils.expr("array(account_row('from', account), account_row('to', 'other_account1'))")))
+    RunOnPassProcessor(salience, Id(outputId, outputVersion), RuleLogicUtils)("array(account_row('from', account), account_row('to', 'other_account1'))")))
   val rule = Rule(Id(id, version), expressionRule, ruleResultProcessor)
   val ruleSuite = RuleSuite(Id(ruleSuiteId, ruleSuiteVersion), Seq(
       RuleSet(Id(ruleSetId, ruleSetVersion), Seq(rule)

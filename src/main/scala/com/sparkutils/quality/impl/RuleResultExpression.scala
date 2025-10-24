@@ -3,6 +3,7 @@ package com.sparkutils.quality.impl
 import com.sparkutils.quality.impl.MapUtils.getMapEntry
 import com.sparkutils.quality.types._
 import org.apache.spark.sql.Column
+import org.apache.spark.sql.ShimUtils.{column, expression}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult.TypeCheckSuccess
@@ -21,7 +22,7 @@ object RuleResultExpression {
     }
 
   def apply(ruleSuiteResultsColumn: Column, ruleSuiteId: Column, ruleSetId: Column, ruleId: Column): Column =
-    new Column(new RuleResultExpression(Seq(ruleSuiteResultsColumn.expr, ruleSuiteId.expr, ruleSetId.expr, ruleId.expr)))
+    column(new RuleResultExpression(Seq(expression(ruleSuiteResultsColumn), expression(ruleSuiteId), expression(ruleSetId), expression(ruleId))))
 
 }
 

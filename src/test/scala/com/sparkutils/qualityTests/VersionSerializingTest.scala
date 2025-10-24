@@ -108,17 +108,17 @@ class VersionSerializingTest extends FunSuite with TestUtils {
     val outputExpressionsDF = getOuputExpressions(rulesA1) union
       getOuputExpressions(rulesA2) union
       getOuputExpressions(rulesA3)
-    outputExpressionsDF.show()
+    debug(outputExpressionsDF.show())
 
     val lambdaDF = toLambdaDS(rulesA1) union
       toLambdaDS(rulesA2) union
       toLambdaDS(rulesA3)
-    lambdaDF.show()
+    debug(lambdaDF.show())
 
     val df = toDS(rulesA1) union
       toDS(rulesA2) union
       toDS(rulesA3)
-    df.show()
+    debug(df.show())
 
     val rereadWithoutLambdas = readVersionedRulesFromDF(df.toDF(),
       col("ruleSuiteId"),

@@ -1,15 +1,17 @@
 package com.sparkutils.quality.impl
 
 import com.sparkutils.quality
-import com.sparkutils.quality.{DisabledRule, DisabledRuleInt, Failed, FailedInt, GeneralExpressionResult, GeneralExpressionsResult, Id, IdTriple, OutputExpression, Passed, PassedInt, Probability, Rule, RuleResult, RuleSetResult, RuleSuite, RuleSuiteResult, SoftFailed, SoftFailedInt}
+import com.sparkutils.quality.impl.ExpressionCompiler.withExpressionCompiler
+import com.sparkutils.quality.impl.util.SubQueryWrapper
+import com.sparkutils.quality._
 import org.apache.spark.sql.ShimUtils.newParser
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedFunction}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext}
 import org.apache.spark.sql.catalyst.expressions.{Expression, ScalarSubquery, SubqueryExpression, UnresolvedNamedLambdaVariable, LambdaFunction => SparkLambdaFunction}
 import org.apache.spark.sql.qualityFunctions.{FunN, RefExpressionLazyType}
-import org.apache.spark.sql.types.{DataType, Decimal, StringType}
-import org.apache.spark.sql.{QualitySparkUtils, SparkSession}
+import org.apache.spark.sql.types.{DataType, Decimal}
+import org.apache.spark.sql.{ShimUtils, SparkSession}
 import org.apache.spark.unsafe.types.UTF8String
 
 import scala.collection.mutable
@@ -52,7 +54,7 @@ object RuleLogicUtils {
   }
 
   /**
-   * Same as functions.expr without the wrapping Column
+   * Same as functions)without the wrapping Column
    * @param rule
    * @return
    */
@@ -95,19 +97,23 @@ object RuleLogicUtils {
         case l: SparkLambdaFunction if hasSubQuery(l) =>
           // The lambda's will be parsed as UnresolvedAttributes and not the needed lambdas
           val names = l.arguments.map(a => a.name -> a).toMap
-          l.transform {
-            case s: SubqueryExpression => s.withNewPlan( s.plan.transform{
+          l.transformUp {
+            case s: SubqueryExpression =>
+              s.withNewPlan( s.plan.transform{
               case snippet =>
                 snippet.transformAllExpressions {
                   case a: UnresolvedAttribute =>
                     names.get(a.name).map(lamVar => lamVar).getOrElse(a)
                 }
-            })
+              }
+            )
           }
         case _ => rawExpr
       }
 
-    res
+    res.transformUp {
+      case s: SubqueryExpression => SubQueryWrapper(Seq(s))
+    }
   }
 
   def hasSubQuery(expression: Expression): Boolean = ( expression collect {
@@ -125,11 +131,12 @@ object RuleLogicUtils {
   def anyToRuleResult(any: Any): RuleResult =
     any match {
       case b: Boolean => if (b) Passed else Failed
-      case 0 | 0.0 => Failed
-      case 1 | 1.0 => Passed
-      case -1 | -1.0 | UTF8Str("softfail" | "maybe") => SoftFailed
-      case -2  | -2.0 | UTF8Str("disabledrule" | "disabled") => DisabledRule
+      case 0 | 0.0 | 0L => Failed
+      case 1 | 1.0 | 1L => Passed
+      case -1 | -1.0 | -1L | UTF8Str("softfail" | "maybe") => SoftFailed
+      case -2  | -2.0 | -2L | UTF8Str("disabledrule" | "disabled") => DisabledRule
       case d: Double => Probability(d) // only spark 2 unless configured to behave like spark 2
+      case d: Float => Probability(d) // only spark 2 unless configured to behave like spark 2
       case d: Decimal => Probability(d.toDouble)
       case UTF8Str("true" | "passed" | "pass" | "yes" | "1" | "1.0") => Passed
       case UTF8Str("false" | "failed" | "fail" | "no" | "0" | "0.0") => Failed
@@ -140,11 +147,12 @@ object RuleLogicUtils {
   def anyToRuleResultInt(any: Any): Int =
     any match {
       case b: Boolean => if (b) PassedInt else FailedInt
-      case 0 | 0.0 => FailedInt
-      case 1 | 1.0 => PassedInt
-      case -1 | -1.0 | UTF8Str("softfail" | "maybe") => SoftFailedInt
-      case -2  | -2.0 | UTF8Str("disabledrule" | "disabled") => DisabledRuleInt
+      case 0 | 0.0 | 0L => FailedInt
+      case 1 | 1.0 | 1L => PassedInt
+      case -1 | -1.0 | -1L | UTF8Str("softfail" | "maybe") => SoftFailedInt
+      case -2  | -2.0 | -2L | UTF8Str("disabledrule" | "disabled") => DisabledRuleInt
       case d: Double => (d * PassedInt).toInt
+      case d: Float => (d * PassedInt).toInt
       case d: Decimal => (d.toDouble * PassedInt).toInt
       case UTF8Str("true" | "passed" | "pass" | "yes" | "1" | "1.0") => PassedInt
       case UTF8Str("false" | "failed" | "fail" | "no" | "0" | "0.0") => FailedInt
@@ -225,8 +233,25 @@ case class ExpressionRuleExpr( rule: String, override val expr: Expression ) ext
   override def reset(): Unit = super[HasRuleText].reset()
 }
 
+object ExpressionCompiler {
+  private val tlsForReferences = new ThreadLocal[Boolean] {
+    override def initialValue(): Boolean = false
+  }
+
+  def inExpressionCompiler: Boolean = tlsForReferences.get()
+
+  def withExpressionCompiler[T](thunk: => T): T = {
+    try {
+      tlsForReferences.set(true)
+      thunk
+    } finally {
+      tlsForReferences.set(false)
+    }
+  }
+}
+
 trait ExpressionCompiler extends HasExpr {
-  lazy val codegen = {
+  lazy val codegen = withExpressionCompiler {
     val ctx = new CodegenContext()
     val eval = expr.genCode(ctx)
     val javaType = CodeGenerator.javaType(expr.dataType)
@@ -517,12 +542,16 @@ object RuleSuiteFunctions {
     val res = sorted.foldLeft(Seq.empty[(Int, InternalRow)]){ case (seq, (triple, salience, rule)) =>
       // only accept row - should probably throw something specific when it's not
       // get the lambda's variable to set the current struct
-      val FunN(Seq(arg: RefExpressionLazyType), _, _, _, _) = rule.expr
+      val FunN(Seq(arg: RefExpressionLazyType), _, _, _, _, _) = rule.expr
 
       arg.value = row
       row =  rule.eval(
         inputRow
       ).asInstanceOf[InternalRow]
+
+      if (row == null || inputRow == null) {
+        println()
+      }
 
       seq :+ (salience, if (debugMode)
         row.copy
@@ -556,7 +585,11 @@ object RuleSuiteFunctions {
             if (dataType == quality.types.expressionResultTypeYaml) {
               // it's a cast to string
               val resultType = r.expression match {
-                case expr: HasExpr => expr.expr.children.head.dataType.sql
+                case expr: HasExpr =>
+                  expr.expr match {
+                    case e if e.children.nonEmpty => e.children.head.dataType.sql
+                    case e => e.dataType.sql
+                  }
               }
               GeneralExpressionResult(ruleResult.toString, resultType)
             } else
@@ -568,4 +601,36 @@ object RuleSuiteFunctions {
 
     GeneralExpressionsResult(id, rawRuleSets.toMap)
   }
+}
+
+object LazyRuleSuiteResultDetailsUtils {
+  lazy val deserializer = ShimUtils.expressionEncoder( Encoders.ruleSuiteResultDetailsExpEnc ).
+    resolveAndBind().deserializer
+}
+
+case class LazyRuleSuiteResultDetailsImpl(row: InternalRow) extends LazyRuleSuiteResultDetails with Serializable {
+  @transient
+  lazy val _ruleSuiteResultDetails = LazyRuleSuiteResultDetailsUtils.deserializer.eval(row).
+    asInstanceOf[RuleSuiteResultDetails]
+
+  override def ruleSuiteResultDetails: RuleSuiteResultDetails = _ruleSuiteResultDetails
+}
+
+case class LazyRuleSuiteResultDetailsProxyImpl(_ruleSuiteResultDetails: RuleSuiteResultDetails)
+  extends LazyRuleSuiteResultDetails with Serializable {
+
+  override def ruleSuiteResultDetails: RuleSuiteResultDetails = _ruleSuiteResultDetails
+}
+
+object LazyRuleSuiteResultUtils {
+  lazy val deserializer = ShimUtils.expressionEncoder( Encoders.ruleSuiteResultExpEnc ).
+    resolveAndBind().deserializer
+}
+
+case class LazyRuleSuiteResultImpl(row: InternalRow) extends LazyRuleSuiteResult with Serializable {
+  @transient
+  lazy val _ruleSuiteResult = LazyRuleSuiteResultUtils.deserializer.eval(row).
+    asInstanceOf[RuleSuiteResult]
+
+  override def ruleSuiteResult: RuleSuiteResult = _ruleSuiteResult
 }

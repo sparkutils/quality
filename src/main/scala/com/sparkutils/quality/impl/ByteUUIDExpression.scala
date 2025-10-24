@@ -56,7 +56,7 @@ case class RngUUIDExpression(child: Expression) extends UnaryExpression with Inp
 
   lazy val evalF = child.dataType match {
     case BinaryType => RngUUIDExpression.binary _
-    case RandomLongs.structType => RngUUIDExpression.struct _
+    case RandomLongs.structType | RandomLongs.structTypeNullable => RngUUIDExpression.struct _
   }
 
   override def nullSafeEval(input: Any): Any = {
@@ -70,7 +70,7 @@ case class RngUUIDExpression(child: Expression) extends UnaryExpression with Inp
       s"com.sparkutils.quality.impl.RngUUIDExpression.${
         child.dataType match {
           case BinaryType => "binary"
-          case RandomLongs.structType => "struct"
+          case RandomLongs.structType | RandomLongs.structTypeNullable => "struct"
         }
       }($c)")
 

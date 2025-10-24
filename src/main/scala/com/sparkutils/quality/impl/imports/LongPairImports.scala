@@ -3,6 +3,7 @@ package com.sparkutils.quality.impl.imports
 import com.sparkutils.quality.impl.UUIDToLongsExpression
 import com.sparkutils.quality.impl.longPair.{LongPairExpression, PrefixedToLongPair}
 import org.apache.spark.sql.Column
+import org.apache.spark.sql.ShimUtils.{column, expression}
 
 trait LongPairImports {
 
@@ -13,7 +14,7 @@ trait LongPairImports {
    * @return
    */
   def long_pair(lower: Column, higher: Column): Column =
-    new Column( LongPairExpression(lower.expr, higher.expr) )
+    column( LongPairExpression(expression(lower), expression(higher)) )
 
   /**
    * creates a (lower, higher) struct from a uuid's least and most significant bits
@@ -21,7 +22,7 @@ trait LongPairImports {
    * @return
    */
   def long_pair_from_uuid(uuid: Column): Column =
-    new Column ( UUIDToLongsExpression(uuid.expr) )
+    column ( UUIDToLongsExpression(expression(uuid)) )
 
   /**
    * Converts a prefixed long pair to lower, higher
@@ -30,5 +31,5 @@ trait LongPairImports {
    * @return
    */
   def prefixed_to_long_pair(source: Column, prefix: String): Column =
-    new Column( PrefixedToLongPair(source.expr, prefix) )
+    column( PrefixedToLongPair(expression(source), prefix) )
 }
