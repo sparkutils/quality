@@ -65,19 +65,21 @@ As of 6th June 2023 0.0.2 run against the 12.2.dbr LTS build also works on 13.0.
 
 ## Running on Databricks Runtime 15.4 LTS
 
-0.1.3.1 support introduced.
+Supported as of 0.1.3.1.
 
 15.4 LTS now requires its own runtime if you are using rng functions as Databricks introduced a breaking change in optimisation of Nondeterministic functions (which relies on a newly introduced Expression.nonVolatile field not present in OSS Spark)
 
-As of 0.1.3.1-RC5 there is a regression wrt interpreted mode and "Spark" encoding, if you are receiving Stream results you may also get incorrect reults.  This is being tracked under #77, use Frameless encoder derivation to guarantee results if this occurs.
+## Running on Databricks Runtime 16.4 LTS
 
-## Running on Databricks Runtime 16.3
-
-0.1.3.1 support introduced.
+Supported as of 0.1.3.1.
 
 16.3 Introduced a number of API changes, Stream is returned in some unexpected forceInterpreted cases,  and UnresolvedFunction gets a new param.  
 
-As of 0.1.3.1-RC5 there is a regression wrt interpreted mode and "Spark" encoding, if you are receiving Stream results you may also get incorrect reults.  This is being tracked under #77, use Frameless encoder derivation to guarantee results if this occurs.
+## Running on Databricks Runtime 17.3 LTS
+
+Supported as of 0.1.3.1.
+
+17.3, in addition to Spark 4 usage, introduced a binary incompatible change to NamedExpressions not present in the OSS codebase. 
 
 ## Testing out Quality via Notebooks
 
@@ -102,17 +104,16 @@ val fileLoc = "/dbfs/databricks/quality_test"
 SparkTestUtils.setPath(fileLoc)
 ```
 
-Ideally at the end of your runs you'll see - after 10 minutes or so and some stdout - for example a run on DBR 16.4 provides:
+Ideally at the end of your runs you'll see - after 10 minutes or so and some stdout - for example a run on DBR 17.3 provides:
 
 ```
-...
-Running: sequenceAsKeysDecimals(com.sparkutils.qualityTests.YamlTests), finished in: 1s
+Running: ruleEngineSuiteVersionedRoundTripsDF(com.sparkutils.qualityTests.VersionSerializingTest), finished in: 5s
 
-Time: 633.686
+Time: 765.281
 
-OK (434 tests)
+OK (431 tests)
 
-Finished. Result: Failures: 0. Ignored: 0. Tests run: 434. Time: 633686ms.
+Finished. Result: Failures: 0. Ignored: 0. Tests run: 431. Time: 765281ms.
 import com.sparkutils.quality.tests.TestSuite
 import com.sparkutils.qualityTests.SparkTestUtils
 fileLoc: String = /dbfs/databricks/quality_test

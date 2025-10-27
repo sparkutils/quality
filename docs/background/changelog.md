@@ -1,6 +1,10 @@
-### 0.1.3.1 <small>30th June, 2025</small>
+### [0.1.3.1](https://github.com/sparkutils/quality/milestone/10?closed=1) <small>24th October, 2025</small>
 
 This is the last release of 2.4, 3.0 is deprecated as of this release, similarly, Databricks versions 9.1 through to 11.3 are also now deprecated and unsupported functionality (fixes for #84 will be gladly accepted), 12.2 support will continue.
+
+#95 - DBR 17.3 Support - Databricks introduced a binary change to NamedExpression 
+
+#85 - Processor optimisation to provide a passed result
 
 #83 - Processor optimisations for stateless and Higher Order Functions
 
@@ -34,7 +38,7 @@ This is the last release of 2.4, 3.0 is deprecated as of this release, similarly
 
 #73 - Spark 4.0 support (with an upgrade to Shim 0.2.0 using sparkutils.frameless 1.0.0)
 
-### 0.1.3 <small>4th October, 2024</small>
+### [0.1.3](https://github.com/sparkutils/quality/milestone/8?closed=1) <small>4th October, 2024</small>
 
 #53 - Docs parser is now more forgiving, empty descriptions are tolerated and normal scaladoc syntax is allowed
 

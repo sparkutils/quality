@@ -18,8 +18,6 @@ import implicits._
 
 The functions package aims to have an equivalent column dsl function for each bit of sql based functionality.  The notable exception to this is the lambda, callFun and _() functions, for which you are better off using your languages normal support for abstraction.  A number of the functions have been, due to naming choice, deprecated they will be removed in 0.2.0.   
 
-Spark 2.4 support is, as of this release, deprecated but not removed, future 0.1.x versions will continue to support but 0.2.0 will remove it entirely. 
-
 ## Building The Library
 
 * fork, 
@@ -87,7 +85,7 @@ quality_RUNTIME_SPARKCOMPATVERSION_SCALACOMPATVERSION-VERSION.jar
 e.g.
 
 ```
-quality_3.4.1.oss_3.4_2.12-0.1.3.jar
+quality_4.0.0.oss_4.0_2.13-0.1.3.1.jar
 ```
 
 The build poms generate those variables via maven profiles, but you are advised to use properties to configure e.g. for Maven:
@@ -121,13 +119,14 @@ The full list of supported runtimes is below:
 | 3.5.0         | 3.5               | 3.5.0.oss_     | 2.12               |
 | 3.5.0         | 3.5               | 14.0.dbr_      | 2.12               |
 | 3.5.0         | 3.5               | 14.3.dbr_      | 2.12               |
+| 3.5.0         | 3.5               | 15.4.dbr_      | 2.12               |
+| 3.5.0         | 3.5               | 16.4.dbr_      | 2.12               |
 | 4.0.0         | 4.0               | 4.0.0.oss_     | 2.13               |
-| 4.0.0         | 4.0               | 17.0.dbr_      | 2.13               |
+| 4.0.0         | 4.0               | 17.3.dbr_      | 2.13               |
 
+Fabric 1.3 uses the 3.5.0.oss_ runtime, other Fabric runtimes may run on their equivalent OSS version.
 
-Fabric 1.3 uses the 3.5.0.oss_ runtime, other Fabric runtimes may run on their equivalent OSS version.  Databricks 15.4 LTS is compatible with the 14.3.dbr_ runtime.
-
-2.4 support is deprecated and will be removed in a future version.  3.1.2 support is replaced by 3.1.3 due to interpreted encoder issues. 
+2.4, 9.1.dbr, 10.4.dbr and 11.3.dbr support is deprecated and will be removed in 0.1.4 version.  3.1.2 support is replaced by 3.1.3 due to interpreted encoder issues. 
 
 !!! note "Databricks 13.x support"
     13.0 also works on the 12.2.dbr_ build as of 10th May 2023, despite the Spark version difference.
@@ -156,11 +155,11 @@ As there are many compatibility issues that Quality works around between the var
 
 ```xml
 <properties>
-    <qualityVersion>0.1.3</qualityVersion>
-    <qualityTestPrefix>3.4.1.oss_</qualityTestPrefix>
-    <qualityDatabricksPrefix>13.1.dbr_</qualityDatabricksPrefix>
-    <sparkShortVersion>3.4</sparkShortVersion>
-    <scalaCompatVersion>2.12</scalaCompatVersion>    
+    <qualityVersion>0.1.3.1</qualityVersion>
+    <qualityTestPrefix>4.0.0.oss_</qualityTestPrefix>
+    <qualityDatabricksPrefix>17.3.dbr_</qualityDatabricksPrefix>
+    <sparkShortVersion>4.0</sparkShortVersion>
+    <scalaCompatVersion>2.13</scalaCompatVersion>    
 </properties>
 
 <dependencies>
@@ -186,13 +185,16 @@ It's safe to assume better build tools like gradle / sbt do not need such hacker
 The known combinations requiring this approach is below:
 
 | Spark Version | sparkShortVersion | qualityTestPrefix | qualityDatabricksPrefix | scalaCompatVersion |
-|---------------|-------------------|-------------------|-------------------------| - |
-| 3.2.1         | 3.2               | 3.2.1.oss_        | 10.4.dbr_               | 2.12 | 
-| 3.3.0         | 3.3               | 3.3.0.oss_        | 11.3.dbr_               | 2.12 | 
-| 3.3.2         | 3.3               | 3.3.2.oss_        | 12.2.dbr_               | 2.12 | 
-| 3.4.1         | 3.4               | 3.4.1.oss_        | 13.1.dbr_               | 2.12 | 
-| 3.5.0         | 3.5               | 3.5.0.oss_        | 14.0.dbr_               | 2.12 | 
-| 3.5.0         | 3.5               | 3.5.0.oss_        | 14.3.dbr_               | 2.12 | 
+|---------------|-------------------|-------------------|-------------------------|--------------------|
+| 3.2.1         | 3.2               | 3.2.1.oss_        | 10.4.dbr_               | 2.12               | 
+| 3.3.0         | 3.3               | 3.3.0.oss_        | 11.3.dbr_               | 2.12               | 
+| 3.3.2         | 3.3               | 3.3.2.oss_        | 12.2.dbr_               | 2.12               | 
+| 3.4.1         | 3.4               | 3.4.1.oss_        | 13.1.dbr_               | 2.12               | 
+| 3.5.0         | 3.5               | 3.5.0.oss_        | 14.0.dbr_               | 2.12               | 
+| 3.5.0         | 3.5               | 3.5.0.oss_        | 14.3.dbr_               | 2.12               | 
+| 3.5.0         | 3.5               | 3.5.0.oss_        | 15.4.dbr_               | 2.12               |
+| 3.5.0         | 3.5               | 3.5.0.oss_        | 16.4.dbr_               | 2.12               |
+| 4.0.0         | 4.0               | 4.0.0.oss_        | 17.3.dbr_               | 2.13               |
 
 ## Using the SQL functions on Spark Thrift (Hive) servers
 
