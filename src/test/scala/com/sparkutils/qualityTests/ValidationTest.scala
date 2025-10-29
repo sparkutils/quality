@@ -318,7 +318,7 @@ class ValidationTest extends FunSuite with TestUtils {
 
     val df = sparkSession.range(1).selectExpr("(id + 2) as a", "(id + 1) as b")
 
-    val (errs, warns, shown, docs, expr) = validate(df, rs, runnerFunction = df => ruleEngineRunner(rs, resultDataType = StringType, debugMode = true),
+    val (errs, warns, shown, docs, expr) = validate(df, rs, runnerFunction = df => ruleEngineRunner(rs, debugMode = true),
       transformBeforeShow = df => {df.selectExpr("Quality.salientRule")})
     // for debug
     errs.size
@@ -347,7 +347,7 @@ class ValidationTest extends FunSuite with TestUtils {
     val rs = RuleSuite(Id(0, 1), Seq(RuleSet(Id(1, 1), Seq(Rule(Id(2, 1), ExpressionRule("fielda > fieldb"),
       runOnPassProcessor = RunOnPassProcessor(0, Id(1001,1), OutputExpression("fakeConcat(fielda, fieldb)"))
     )))))
-    doTestUnknownFunction(rs, df => ruleEngineRunner(rs, resultDataType = StringType))
+    doTestUnknownFunction(rs, df => ruleEngineRunner(rs))
   }
 
   @Test

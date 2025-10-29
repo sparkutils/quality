@@ -94,15 +94,15 @@ class SubExpressionEliminationTest extends FunSuite with TestUtils {
   val expectedOutputRules = rows // one for each row is extra called
 
   @Test
-  def controlEngine(): Unit = evalCodeGensNoResolve{ doOutput(expectedTriggerRules + expectedOutputRules, ruleEngineRunner(_, IntegerType), outputExpr) }  // defaults may change later
+  def controlEngine(): Unit = evalCodeGensNoResolve{ doOutput(expectedTriggerRules + expectedOutputRules, ruleEngineRunner(_), outputExpr) }  // defaults may change later
 
   // forceRunnerEval disables codegen elimination as CodeGenFallback is also ignored for interpreted
   @Test
-  def engineShouldNotEliminateWithRunnerEval(): Unit = evalCodeGensNoResolve { doOutput(expectedTriggerRules + expectedOutputRules, ruleEngineRunner(_, IntegerType, compileEvals = false, forceRunnerEval = true), outputExpr) }
+  def engineShouldNotEliminateWithRunnerEval(): Unit = evalCodeGensNoResolve { doOutput(expectedTriggerRules + expectedOutputRules, ruleEngineRunner(_, compileEvals = false, forceRunnerEval = true), outputExpr) }
 
   // note there should be no more calls as the outputexpr is already eliminated
   @Test
-  def engineShouldEliminate(): Unit = v3_2_and_above { evalCodeGensNoResolve{ doOutput(expectedEliminatedTriggerRules, ruleEngineRunner(_, IntegerType, forceTriggerEval = false, compileEvals = false), outputExpr) } }
+  def engineShouldEliminate(): Unit = v3_2_and_above { evalCodeGensNoResolve{ doOutput(expectedEliminatedTriggerRules, ruleEngineRunner(_, forceTriggerEval = false, compileEvals = false), outputExpr) } }
 
   @Test
   def controlExpression(): Unit = evalCodeGensNoResolve{ doRunner(expectedTriggerRules, ExpressionRunner(_, ddlType = "boolean", forceRunnerEval = true)) }  // defaults may change later

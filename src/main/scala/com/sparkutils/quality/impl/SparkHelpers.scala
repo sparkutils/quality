@@ -1,22 +1,12 @@
 package com.sparkutils.quality.impl
 
-import frameless.{Injection, NotCatalystNullable, TypedColumn, TypedEncoder, TypedExpressionEncoder}
+import frameless.{Injection, NotCatalystNullable}
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.util.Serializing
-import com.sparkutils.shim.expressions.GetStructField3
-import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.analysis.GetColumnByOrdinal
-import org.apache.spark.sql.catalyst.expressions.{CreateStruct, Expression, If, IsNull, Literal}
-import org.apache.spark.sql.{Encoder, Row}
-import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, ArrayData, GenericArrayData, MapData}
-import org.apache.spark.sql.shim.NewInstance4
-import org.apache.spark.sql.types.{DataType, IntegerType, LongType, MapType, ObjectType, StringType, StructField, StructType}
-import shapeless.ops.hlist.IsHCons
-import shapeless.{HList, LabelledGeneric, Lazy}
+import org.apache.spark.sql.catalyst.util.{ArrayData, MapData}
+import org.apache.spark.sql.types.DataType
 
 import scala.reflect.ClassTag
-
-
 
 trait IntEncodersImplicits extends Serializable {
 
@@ -57,75 +47,6 @@ trait IdEncodersImplicits extends Serializable {
 }
 
 object IdEncoders extends IdEncodersImplicits {
-
-}
-
-trait EncodersImplicits extends Serializable {
-  import frameless._
-  import IntEncoders._
-  import IdEncoders._
-
-  implicit val ruleSuiteResultTypedEnc = TypedEncoder[RuleSuiteResult]
-
-  implicit val ruleSuiteResultExpEnc = TypedExpressionEncoder[RuleSuiteResult]
-
-  implicit val ruleSuiteResultDetailsTypedEnc = TypedEncoder[com.sparkutils.quality.RuleSuiteResultDetails]
-
-  implicit val ruleSuiteResultDetailsExpEnc = TypedExpressionEncoder[com.sparkutils.quality.RuleSuiteResultDetails]
-
-  implicit def generalExpressionsResultTypedEnc[R: TypedEncoder] = TypedEncoder[com.sparkutils.quality.GeneralExpressionsResult[R]]
-
-  implicit def generalExpressionsResultExpEnc[R](implicit ev: TypedEncoder[GeneralExpressionsResult[R]]) = TypedExpressionEncoder[com.sparkutils.quality.GeneralExpressionsResult[R]]
-
-  implicit val generalExpressionResultTypedEnc = TypedEncoder[com.sparkutils.quality.GeneralExpressionResult]
-
-  implicit val generalExpressionResultExpEnc = TypedExpressionEncoder[com.sparkutils.quality.GeneralExpressionResult]
-
-  implicit val generalExpressionsResultNoDDLTypedEnc = TypedEncoder[com.sparkutils.quality.GeneralExpressionsResultNoDDL]
-
-  implicit val generalExpressionsResultNoDDLExpEnc = TypedExpressionEncoder[com.sparkutils.quality.GeneralExpressionsResultNoDDL]
-
-  implicit def ruleEngineResultTypedEnc[T: TypedEncoder, G <: HList, H <: HList](implicit
-                                                                                  i0: LabelledGeneric.Aux[RuleEngineResult[T], G],
-                                                                                  i1: DropUnitValues.Aux[G, H],
-                                                                                  i2: IsHCons[H],
-                                                                                  i3: Lazy[RecordEncoderFields[H]],
-                                                                                  i4: Lazy[NewInstanceExprs[G]],
-                                                                                  i5: ClassTag[RuleEngineResult[T]]
-  ): TypedEncoder[RuleEngineResult[T]] = {
-    TypedEncoder.usingDerivation[RuleEngineResult[T], G, H]
-  }
-
-  implicit def ruleEngineResultExpEnc[T: TypedEncoder]: Encoder[RuleEngineResult[T]] = TypedExpressionEncoder[RuleEngineResult[T]]
-
-  implicit def ruleFolderResultTypedEnc[T: TypedEncoder, G <: HList, H <: HList](implicit
-                                                                                 i0: LabelledGeneric.Aux[RuleFolderResult[T], G],
-                                                                                 i1: DropUnitValues.Aux[G, H],
-                                                                                 i2: IsHCons[H],
-                                                                                 i3: Lazy[RecordEncoderFields[H]],
-                                                                                 i4: Lazy[NewInstanceExprs[G]],
-                                                                                 i5: ClassTag[RuleFolderResult[T]]
-                                                                                ): TypedEncoder[RuleFolderResult[T]] = {
-    TypedEncoder.usingDerivation[RuleFolderResult[T], G, H]
-  }
-
-  implicit def ruleFolderResultExpEnc[T: TypedEncoder]: Encoder[RuleFolderResult[T]] = TypedExpressionEncoder[RuleFolderResult[T]]
-
-}
-
-object Encoders extends EncodersImplicits {
-
-  def internalRowTypedEnc(rowType: DataType): TypedEncoder[InternalRow] =
-    new TypedEncoder[InternalRow]()(ClassTag(classOf[InternalRow])) {
-      def nullable: Boolean = true
-
-      def jvmRepr: DataType = rowType
-      def catalystRepr: DataType = rowType
-
-      def fromCatalyst(path: Expression): Expression = path
-
-      def toCatalyst(path: Expression): Expression = path
-    }
 
 }
 

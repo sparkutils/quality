@@ -54,7 +54,7 @@ class RuleEngineTest extends FunSuite with TestUtils {
       )))
 
     (dataFrame: DataFrame) =>
-      ruleEngineRunner(transformRuleSuite(ruleSuite), DataType.fromDDL(DDL), debugMode = debugMode,
+      ruleEngineRunner(transformRuleSuite(ruleSuite), debugMode = debugMode,
         resolveWith = if (doResolve.get()) Some(dataFrame) else None, compileEvals = compileEvals)
   }
 
@@ -182,11 +182,11 @@ class RuleEngineTest extends FunSuite with TestUtils {
     val outdf = testDataDF.withColumn("together", rer(testDataDF)).selectExpr("*", "together.result")
     debug( outdf.show )
 
-    val res = outdf.select("result").as[Seq[Posting]](TypedExpressionEncoder[Seq[Posting]]).collect()
+    val res = outdf.select("result").as[Option[Seq[Posting]]](TypedExpressionEncoder[Option[Seq[Posting]]]).collect()
     val just4201 = Seq(Posting("from", "another_account"), Posting("to","4201"))
-    assert(res(0) == just4201)
-    assert(res(4) == just4201)
-    assert(res(5) == Seq(Posting("from", "4201"), Posting("to","other_account1")))
+    assert(res(0).contains(just4201))
+    assert(res(4).contains(just4201))
+    assert(res(5).contains(Seq(Posting("from", "4201"), Posting("to", "other_account1"))))
 
     // prove unpackIdTriple works
     val srulec = outdf.select(unpack_id_triple(col("together.salientRule")) as "salientRule").selectExpr("salientRule.*")
@@ -226,12 +226,12 @@ class RuleEngineTest extends FunSuite with TestUtils {
       outdf.printSchema
     }
 
-    val res = outdf.select("result").as[Seq[(Int, Seq[Posting])]](TypedExpressionEncoder[Seq[(Int, Seq[Posting])]]).collect()
+    val res = outdf.select("result").as[Option[Seq[(Int, Seq[Posting])]]](TypedExpressionEncoder[Option[Seq[(Int, Seq[Posting])]]]).collect()
     val just4201 = Seq(Posting("from", "another_account"), Posting("to","4201"))
     val justSeq = (1000, just4201)
-    assert(res(0) == Seq(justSeq))
-    assert(res(4) == Seq(justSeq))
-    assert(res(5) == Seq((100, Seq(Posting("from", "4201"), Posting("to","other_account1"))), justSeq))
+    assert(res(0).contains(Seq(justSeq)))
+    assert(res(4).contains(Seq(justSeq)))
+    assert(res(5).contains(Seq((100, Seq(Posting("from", "4201"), Posting("to", "other_account1"))), justSeq)))
   } }
 
   @Test
@@ -270,8 +270,7 @@ class RuleEngineTest extends FunSuite with TestUtils {
     val (ruleMap, missing) = integrateOutputExpressions(ruleMapWithoutOE, outputExpressions, Some(Id(-1,-1))) // non-existent but shouldn't throw key not found exception
 
     // attempt to serialise, it if works that's enough to pass as throwing an SOE is the problem
-    val rerer = ruleEngineRunner(ruleMap.head._2,
-      DataType.fromDDL(DDL))
+    val rerer = ruleEngineRunner(ruleMap.head._2)
 
     val bos = new ByteArrayOutputStream()
     val os = new ObjectOutputStream(bos)
@@ -303,7 +302,7 @@ class RuleEngineTest extends FunSuite with TestUtils {
       ))
       val testDF = seq.toDF("i").as("main")
       testDF.collect()
-      val resdf = testDF.transform(ruleEngineWithStructF(rs, StructType(Seq(StructField("col1",IntegerType)))))
+      val resdf = testDF.transform(ruleEngineWithStructF(rs))
       try {
         val res = resdf.selectExpr("ruleEngine.result.col1").as[Option[Int]].collect()
         assert(res.count(_.isEmpty) == 1)
@@ -336,7 +335,7 @@ class RuleEngineTest extends FunSuite with TestUtils {
       ))
       val testDF = seq.toDF("i")
       testDF.collect()
-      val resdf = testDF.transform(ruleEngineWithStructF(rs, IntegerType))
+      val resdf = testDF.transform(ruleEngineWithStructF(rs))
       try {
         val res = resdf.selectExpr("ruleEngine.result").as[Option[Int]].collect()
         assert(res.count(_.isEmpty) == 1)
@@ -383,8 +382,8 @@ class RuleEngineTest extends FunSuite with TestUtils {
       }
 
       // test no alias paths as well
-      testRes(testDF.transform(ruleEngineWithStructF(rs, IntegerType, alias = null)).asInstanceOf[DataFrame])
-      testRes(testDF.transform(ruleEngineWithStructF(rs, IntegerType, alias = "")).asInstanceOf[DataFrame])
+      testRes(testDF.transform(ruleEngineWithStructF(rs, alias = null)).asInstanceOf[DataFrame])
+      testRes(testDF.transform(ruleEngineWithStructF(rs, alias = "")).asInstanceOf[DataFrame])
     }
   }
 
@@ -410,7 +409,7 @@ class RuleEngineTest extends FunSuite with TestUtils {
       ), Seq(LambdaFunction("genMax", sub(), Id(2404,1))))
       val testDF = seq.toDF("i").as("main")
       testDF.collect()
-      val resdf = testDF.transform(ruleEngineWithStructF(rs, IntegerType))
+      val resdf = testDF.transform(ruleEngineWithStructF(rs))
       try {
         val res = resdf.selectExpr("ruleEngine.result").as[Option[Int]].collect()
         // the o.g. '4' value should return null
@@ -446,7 +445,7 @@ class RuleEngineTest extends FunSuite with TestUtils {
       ), Seq(LambdaFunction("genMax", sub(), Id(2404,1))))
       val testDF = seq.toDF("i")
       testDF.collect()
-      val resdf = testDF.transform(ruleEngineWithStructF(rs, IntegerType)) // uses main default
+      val resdf = testDF.transform(ruleEngineWithStructF(rs)) // uses main default
       try {
         val res = resdf.selectExpr("ruleEngine.result").as[Option[Int]].collect()
         // the o.g. '4' value should return null

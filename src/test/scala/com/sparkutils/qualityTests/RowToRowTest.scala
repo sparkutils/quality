@@ -384,7 +384,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
 
     import com.sparkutils.quality.implicits._
 
-    val processor = ProcessFunctions.ruleEngineFactory[TestOn, Seq[NewPosting]](ruleSuite, DataType.fromDDL(DDL),
+    val processor = ProcessFunctions.ruleEngineFactory[TestOn, Seq[NewPosting]](ruleSuite,
       compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation).instance
 
     val res = map(testData, processor)
@@ -439,7 +439,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
       RuleSet(Id(50, 1), rules
       )))
 
-    val processor = ProcessFunctions.lazyRuleEngineFactory[TestOn, Seq[NewPosting]](ruleSuite, DataType.fromDDL(DDL),
+    val processor = ProcessFunctions.lazyRuleEngineFactory[TestOn, Seq[NewPosting]](ruleSuite,
       compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation).instance
 
     val res = map(testData, processor)
@@ -493,7 +493,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
       RuleSet(Id(50, 1), rules
       )))
 
-    val processor = ProcessFunctions.ruleEngineFactoryT[TestOn, Seq[NewPosting]](ruleSuite, DataType.fromDDL(DDL),
+    val processor = ProcessFunctions.ruleEngineFactoryT[TestOn, Seq[NewPosting]](ruleSuite,
       compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation).instance
 
     val res = map(testData, processor)
@@ -547,7 +547,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
       RuleSet(Id(50, 1), rules
       )))
 
-    val processor = ProcessFunctions.ruleEngineFactoryT[TestOn, NewPosting](ruleSuite, DataType.fromDDL(DDL),
+    val processor = ProcessFunctions.ruleEngineFactoryT[TestOn, NewPosting](ruleSuite,
       compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation).instance
 
     val res = map(testData, processor)
@@ -604,7 +604,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
 
     import com.sparkutils.quality.implicits._
 
-    val processor = ProcessFunctions.ruleEngineFactory[TestOn, NewPosting](ruleSuite, DataType.fromDDL(DDL),
+    val processor = ProcessFunctions.ruleEngineFactory[TestOn, NewPosting](ruleSuite,
       compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation).instance
 
     val res = map(testData, processor)
@@ -660,7 +660,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
 
     implicit val beany = Encoders.bean(classOf[NewPostingBean])
 
-    val processor = ProcessFunctions.ruleEngineFactoryT[TestOn, NewPostingBean](ruleSuite, DataType.fromDDL(DDL),
+    val processor = ProcessFunctions.ruleEngineFactoryT[TestOn, NewPostingBean](ruleSuite,
       compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation).instance
 
     val res = map(testData, processor)
@@ -710,7 +710,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
       RuleSet(Id(50, 1), rules
       )))
 
-    val processor = ProcessFunctions.ruleEngineFactoryT[TestOn, String](ruleSuite, DataType.fromDDL(DDL),
+    val processor = ProcessFunctions.ruleEngineFactoryT[TestOn, String](ruleSuite,
       compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation).instance
 
     val res = map(testData, processor)
@@ -759,7 +759,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
       RuleSet(Id(50, 1), rules
       )))
 
-    val processor = ProcessFunctions.ruleEngineFactoryDebugT[TestOn, String](ruleSuite, DataType.fromDDL(DDL),
+    val processor = ProcessFunctions.ruleEngineFactoryDebugT[TestOn, String](ruleSuite,
       compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation).instance
 
     val res = map(testData, processor)
@@ -806,7 +806,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
       RuleSet(Id(50, 1), rules
       )))
 
-    val processor = ProcessFunctions.ruleEngineFactoryT[TestOn, Map[String,String]](ruleSuite, DataType.fromDDL(DDL),
+    val processor = ProcessFunctions.ruleEngineFactoryT[TestOn, Map[String,String]](ruleSuite,
       compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation).instance
 
     val res = map(testData, processor)

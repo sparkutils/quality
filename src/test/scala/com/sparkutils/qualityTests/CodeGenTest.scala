@@ -109,7 +109,6 @@ class CodeGenTest extends RowTools with TestUtils {
 
       df.transform { ndf =>
         val rr = ruleEngineRunner(genEngineRules(rules, cols),
-          resultDataType = LongType,
           compileEvals = false,
           variablesPerFunc = variablesPerFunc, variableFuncGroup = variableFuncGroup,
           resolveWith = Some(df)) // also needed to force code gen

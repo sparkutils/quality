@@ -157,19 +157,18 @@ trait AddDataFunctionsImports {
    *
    * @param rules
    * @param dataFrame the input dataframe
-   * @param outputType The fields, and types, are used to call the foldRunner.  These types must match in the input fields
    * @param ruleEngineFieldName The field name the results will be stored in, by default ruleEngine
    * @param alias sets the alias to use for dataFrame when using subqueries to resolve ambiguities, setting to an empty string (or null) will not assign an alias
    * @return
    */
-  def ruleEngineWithStruct(dataFrame: DataFrame, rules: RuleSuite, outputType: DataType,
+  def ruleEngineWithStruct(dataFrame: DataFrame, rules: RuleSuite,
       ruleEngineFieldName: String = "ruleEngine", alias: String = "main", debugMode: Boolean = false,
       compileEvals: Boolean = false, forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false): DataFrame = {
     import org.apache.spark.sql.functions.expr
     (if ( (alias eq null) || alias.isEmpty )
       dataFrame
     else
-      dataFrame.as(alias)).select(expr("*"), RuleEngineRunnerImpl.ruleEngineRunnerImpl(rules, outputType, debugMode = debugMode,
+      dataFrame.as(alias)).select(expr("*"), RuleEngineRunnerImpl.ruleEngineRunnerImpl(rules, debugMode = debugMode,
       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval).as(ruleEngineFieldName))
   }
 
@@ -179,13 +178,12 @@ trait AddDataFunctionsImports {
    * This version should only be used when you require select(*, ruleRunner) to be used, it requires you fully specify types.
    *
    * @param rules
-   * @param outputType The fields, and types, are used to call the foldRunner.  These types must match in the input fields
    * @return
    */
-  def ruleEngineWithStructF[P[R] >: DatasetBase[R]](rules: RuleSuite, outputType: DataType,
+  def ruleEngineWithStructF[P[R] >: DatasetBase[R]](rules: RuleSuite,
       ruleEngineFieldName: String = "ruleEngine", alias: String = "main", debugMode: Boolean = false,
       compileEvals: Boolean = false, forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false): P[SRow] => P[SRow] =
-    (p: P[SRow]) => ruleEngineWithStruct(p.asInstanceOf[DataFrame], rules, outputType, ruleEngineFieldName, alias, debugMode,
+    (p: P[SRow]) => ruleEngineWithStruct(p.asInstanceOf[DataFrame], rules, ruleEngineFieldName, alias, debugMode,
       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval).asInstanceOf[P[SRow]]
 
   /**

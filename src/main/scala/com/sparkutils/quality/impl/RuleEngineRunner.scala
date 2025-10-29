@@ -28,7 +28,6 @@ object RuleEngineRunnerImpl {
   /**
    * Creates a column that runs the RuleSuite.  This also forces registering the lambda functions used by that RuleSuite
    * @param ruleSuite The ruleSuite with runOnPassProcessors
-   * @param resultDataType The type of the results from runOnPassProcessors - must be the same for all result types
    * @param compileEvals Should the rules be compiled out to interim objects - by default false, allowing optimisations
    * @param debugMode When debugMode is enabled the resultDataType is wrapped in Array of (salience, result) pairs to ease debugging
    * @param resolveWith This experimental parameter can take the DataFrame these rules will be added to and pre-resolve and optimise the sql expressions, see the documentation for details on when to and not to use this.
@@ -38,16 +37,10 @@ object RuleEngineRunnerImpl {
    * @param forceTriggerEval Defaulting to false, passing true forces each trigger expression to be compiled (compileEvals) and used in place, false instead expands the trigger in-line giving possible performance boosts based on JIT
    * @return A Column representing the QualityRules expression built from this ruleSuite
    */
-  def ruleEngineRunnerImpl(ruleSuite: RuleSuite, resultDataType: DataType, compileEvals: Boolean = false,
+  def ruleEngineRunnerImpl(ruleSuite: RuleSuite, compileEvals: Boolean = false,
                        debugMode: Boolean = false, resolveWith: Option[DataFrame] = None, variablesPerFunc: Int = 40,
                        variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false): Column = {
     com.sparkutils.quality.registerLambdaFunctions( ruleSuite.lambdaFunctions )
-    val realType =
-      if (debugMode)
-        // wrap it in an array with the priority result
-        ArrayType(StructType(Seq(StructField("salience", IntegerType), StructField("result", resultDataType))))
-      else
-        resultDataType
 
     val (expressions, indexes) = flattenExpressions(ruleSuite)
 
@@ -62,10 +55,10 @@ object RuleEngineRunnerImpl {
     // clean out expressions, UnresolvedRelations etc. from subquery usage forceRunnerEval,
     val runner =
       if (forceRunnerEval || resolveWith.isDefined)
-        new RuleEngineRunnerEval(cleaned, exprs, realType, compileEvals,
+        new RuleEngineRunnerEval(cleaned, exprs, compileEvals,
           debugMode, variablesPerFunc, variableFuncGroup, expressionOffsets = indexes, forceTriggerEval)
       else
-        new RuleEngineRunner(cleaned, exprs, realType, compileEvals,
+        new RuleEngineRunner(cleaned, exprs, compileEvals,
           debugMode, variablesPerFunc, variableFuncGroup, expressionOffsets = indexes, forceTriggerEval)
 
     ShimUtils.column(
@@ -356,7 +349,6 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
 trait RuleEngineRunnerBase[T] extends UnaryExpression with NonSQLExpression {
   val ruleSuite: RuleSuite
   val child: Expression
-  val resultDataType: DataType
   val compileEvals: Boolean
   val debugMode: Boolean
   val variablesPerFunc: Int
@@ -365,6 +357,16 @@ trait RuleEngineRunnerBase[T] extends UnaryExpression with NonSQLExpression {
   val expressionOffsets: Array[Int]
 
   implicit val classTagT: ClassTag[T]
+
+  lazy val resultDataType = {
+    val resultDataType = realChildren(realChildren.length / 2).dataType
+// TODO verify all result types and throw an error if they aren't the same
+    if (debugMode)
+      // wrap it in an array with the priority result
+      ArrayType(StructType(Seq(StructField("salience", IntegerType), StructField("result", resultDataType))))
+    else
+      resultDataType
+  }
 
   import RuleEngineRunnerUtils._
 
@@ -451,7 +453,7 @@ trait RuleEngineRunnerBase[T] extends UnaryExpression with NonSQLExpression {
   }
 }
 
-case class RuleEngineRunnerEval(ruleSuite: RuleSuite, child: Expression, resultDataType: DataType,
+case class RuleEngineRunnerEval(ruleSuite: RuleSuite, child: Expression,
                             compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
                             variableFuncGroup: Int, expressionOffsets: Array[Int],
                             forceTriggerEval: Boolean) extends RuleEngineRunnerBase[RuleEngineRunnerEval] with CodegenFallback {
@@ -462,7 +464,7 @@ case class RuleEngineRunnerEval(ruleSuite: RuleSuite, child: Expression, resultD
 }
 
 
-case class RuleEngineRunner(ruleSuite: RuleSuite, child: Expression, resultDataType: DataType,
+case class RuleEngineRunner(ruleSuite: RuleSuite, child: Expression,
                                 compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
                                 variableFuncGroup: Int, expressionOffsets: Array[Int],
                                 forceTriggerEval: Boolean) extends RuleEngineRunnerBase[RuleEngineRunner] {
