@@ -205,7 +205,7 @@ trait AddDataFunctionsImports {
 
     dataFrame.select(expr("*"),
       if (stripDDL)
-        strip_result_ddl(runner)
+        strip_result_ddl(runner).as(name)
       else
         runner
     )

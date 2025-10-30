@@ -531,7 +531,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
     ))
 
     val expressionRules = Seq((ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040,1),
-      OutputExpression("account_row('from'), account_row('to', 'other_account1')"))),
+      OutputExpression("account_row('to', 'other_account1')"))),
       (ExpressionRule("product like '%fx%'"), RunOnPassProcessor(1000, Id(1042,1),
         OutputExpression("named_struct('transfer_type', 'from', 'account', 'another_account', 'product', product, 'subcode', subcode)"))),
       (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1000, Id(1043,1),
@@ -586,7 +586,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
     ))
 
     val expressionRules = Seq((ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040,1),
-      OutputExpression("account_row('from'), account_row('to', 'other_account1')"))),
+      OutputExpression("account_row('to', 'other_account1')"))),
       (ExpressionRule("product like '%fx%'"), RunOnPassProcessor(1000, Id(1042,1),
         OutputExpression("named_struct('transfer_type', 'from', 'account', 'another_account', 'product', product, 'subcode', subcode)"))),
       (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1000, Id(1043,1),
@@ -642,7 +642,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
     ))
 
     val expressionRules = Seq((ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040,1),
-      OutputExpression("account_row('from'), account_row('to', 'other_account1')"))),
+      OutputExpression("account_row('to', 'other_account1')"))),
       (ExpressionRule("product like '%fx%'"), RunOnPassProcessor(1000, Id(1042,1),
         OutputExpression("named_struct('transfer_type', 'from', 'account', 'another_account', 'product', product, 'subcode', subcode)"))),
       (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1000, Id(1043,1),
@@ -838,6 +838,11 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
 
   test("via ProcessFactory folder engine T product") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     import sparkSession.implicits._
+
+    val df = sparkSession.sql("select named_struct('account', 'acc124', 'product', 'ppp', 'subcode', 123) s").
+      selectExpr("s.*").as[TestOn]
+    df.show
+    df.head() shouldBe TestOn("ppp","acc124", 123)
 
     val DDL = "STRUCT<`account`: STRING, `product`: STRING, `subcode`: INTEGER >"
     registerLambdaFunctions(Seq(

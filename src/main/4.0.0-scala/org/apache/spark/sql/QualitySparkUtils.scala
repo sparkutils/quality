@@ -6,12 +6,12 @@ import com.sparkutils.quality.impl.util.Params.formatParams
 import com.sparkutils.quality.impl.util.{PassThrough, PassThroughCompileEvals}
 import com.sparkutils.quality.impl.{RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
 import com.sparkutils.shim.expressions.{HigherOrderFunctionLike, PredicateHelperPlus}
-import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCoercion}
+import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, SimpleAnalyzer, TimeWindowing, TypeCoercion}
 import org.apache.spark.sql.catalyst.encoders.{ExpressionEncoder, RowEncoder}
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, QualityExprUtils, GenerateMutableProjection}
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, EqualNullSafe, Expression, ExpressionSet, HigherOrderFunction, InterpretedMutableProjection, Literal, Projection, UpdateFields}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, GenerateMutableProjection, QualityExprUtils}
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, EqualNullSafe, Expression, ExpressionSet, HigherOrderFunction, InterpretedMutableProjection, Literal, NamedExpression, Projection, UpdateFields}
 import org.apache.spark.sql.catalyst.optimizer.{BooleanSimplification, CollapseProject, CombineConcats, CombineTypedFilters, ConstantFolding, ConstantPropagation, EliminateMapObjects, EliminateSerialization, FoldablePropagation, LikeSimplification, NormalizeFloatingNumbers, NullDownPropagation, NullPropagation, ObjectSerializerPruning, OptimizeCsvJsonExprs, OptimizeIn, OptimizeRand, OptimizeUpdateFields, PruneFilters, PushFoldableIntoBranches, ReassignLambdaVariableID, RemoveNoopOperators, RemoveRedundantAggregates, RemoveRedundantAliases, ReorderAssociativeOperator, ReplaceExpressions, ReplaceNullWithFalseInPredicate, ReplaceUpdateFieldsExpression, RewriteCorrelatedScalarSubquery, RewriteLateralSubquery, SimplifyBinaryComparison, SimplifyCaseConversionExpressions, SimplifyCasts, SimplifyConditionals, SimplifyExtractValueOps, UnwrapCastInBinaryComparison}
-import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, LogicalPlan, Project, UnaryNode}
+import org.apache.spark.sql.catalyst.plans.logical.{CatalystSerde, DeserializeToObject, LocalRelation, LogicalPlan, Project, UnaryNode}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.qualityFunctions.FunN
@@ -170,6 +170,53 @@ object QualitySparkUtils {
 
     fres
   }
+
+
+  /**
+   * Provides a starting plan for a dataframe, resolves the
+   *
+   * @param encFrom starting data type to encode from
+   * @param dataFrameF
+   * @return
+   */
+  def resolveExpressionsR[T, R: Encoder](encFrom: Encoder[T], dataFrameF: DataFrame => DataFrame): (Seq[Expression], Expression) = {
+    val enc = ShimUtils.expressionEncoder[T](encFrom)
+
+    val plan = LocalRelation(enc.schema)
+
+    // this constructor stops execute plan being called too early
+    val df = dataFrameF(
+      ShimUtils.mkDataset(SparkSession.getActiveSession.get.sqlContext, plan, enc).toDF()
+    )
+
+    // force an optimize
+    val aplan =
+      (optimizerBatches ++ SparkSession.getActiveSession.get.experimental.extraOptimizations).
+        foldLeft(df.queryExecution.analyzed){
+          (p, b) =>
+            b.apply(p)
+        }
+
+    // lookup the actual expressions
+    val res =
+      debugTime("find underlying expressions") {
+        EvaluableExpressions(aplan).expressions
+      }
+
+    val oEnc = implicitly[Encoder[R]]
+    val dec = ShimUtils.expressionEncoder(oEnc).resolveAndBind(
+      aplan.output, df.sparkSession.sessionState.analyzer)
+
+    // folder introduces multiple projections, these are the ones we explicitly use
+    val fres = debugTime("bindReferences") {
+      res.map(BindReferences.bindReference(_, df.queryExecution.analyzed.allAttributes, allowFailures = true)).
+        map(BindReferences.bindReference(_, aplan.allAttributes, allowFailures = true)).
+        map(BindReferences.bindReference(_, plan.output, allowFailures = true))
+    }
+
+    (fres, dec.deserializer)
+  }
+
 
   /**
    * Provides a starting plan for a dataframe, resolves the

@@ -117,24 +117,25 @@ object Processors {
    * The chained MutableProjections generate new class code for each instance.  They will also recreate the entire
    * expression tree if a stateful expression is identified when compile = false
    *
+   * The caller is responsible for ensuring the [[O]] output encoder can be applied to the resulting 'DataFrame'.
+   *
    * @param dataFrameFunction
    * @param compile when false reverts to interpreted mode, when true and forceMutable is true it is recommended to cache the instances
    * @param forceMutable when true it forces MutableProjection's to be used, compiled or otherwise, the default of false is likely far faster
    * @param forceVarCompilation defaulting to false it will, when compile is true and forceMutable is false, use variables rather than INPUT_ROW to generate code.
    *                            Although using true is faster past 10 fields, the compilation approach (as of 0.1.3.1) is experimental
    *                            and only supported on version OSS 3.2.1 and above
-   * @param toSize specifies the number of fields required to deserialize and create the [[O]]
    * @tparam I
    * @tparam O
    * @return
    */
-  def processFactory[I: Encoder, O: Encoder](dataFrameFunction: DataFrame => DataFrame, toSize: Int, compile: Boolean = true,
+  def processFactory[I: Encoder, O: Encoder](dataFrameFunction: DataFrame => DataFrame, compile: Boolean = true,
       forceMutable: Boolean = false, forceVarCompilation: Boolean = false, extraProjection: DataFrame => DataFrame = identity,
       enableQualityOptimisations: Boolean = true): ProcessorFactory[I, O] = {
-    if (forceMutable || !compile)
-      MutableProjectionProcessor.processFactory[I, O](dataFrameFunction, toSize, compile, extraProjection,
+    //if (forceMutable || !compile)
+      MutableProjectionProcessor.processFactory[I, O](dataFrameFunction, compile, extraProjection,
         enableQualityOptimisations = enableQualityOptimisations)
-    else {
+    /*else {
       if (enableQualityOptimisations) {
         enableOptimizations(Seq(FunNRewrite, ConstantFolding))
       }
@@ -168,7 +169,7 @@ object Processors {
           override def close(): Unit = {}
         }
       }
-    }
+    }*/
   }
 
 }

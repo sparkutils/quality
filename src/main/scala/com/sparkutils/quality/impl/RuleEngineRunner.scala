@@ -17,7 +17,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, Codegen
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression, UnaryExpression}
 import org.apache.spark.sql.catalyst.util.GenericArrayData
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.{Column, DataFrame, QualitySparkUtils, ShimUtils}
+import org.apache.spark.sql.{AnalysisException, Column, DataFrame, QualitySparkUtils, ShimUtils}
 
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
@@ -358,9 +358,28 @@ trait RuleEngineRunnerBase[T] extends UnaryExpression with NonSQLExpression {
 
   implicit val classTagT: ClassTag[T]
 
+
+  def structToNullable(struct: StructType): StructType = {
+    StructType(
+      struct.fields.map(f =>
+        f.copy(nullable = true, metadata = Metadata.empty, dataType = nonNullableDataType(f.dataType))
+      )
+    ) // Spark 4 puts metadata in _2 in schema test
+  }
+
+  def nonNullableDataType(dataType: DataType): DataType =
+    dataType match {
+      case s: StructType => structToNullable(s)
+      case _ => dataType
+    }
+
   lazy val resultDataType = {
-    val resultDataType = realChildren(realChildren.length / 2).dataType
-// TODO verify all result types and throw an error if they aren't the same
+    val resultDataType = nonNullableDataType(realChildren(realChildren.length / 2).dataType)
+
+/*    realChildren.drop(realChildren.length / 2).find(e => nonNullableDataType(e.dataType) != resultDataType).foreach{ e =>
+      throw new QualityException(s"RuleEngine DataType ${e.dataType.sql} does not match the first OutputExpression type ${resultDataType.sql}")
+    }*/
+
     if (debugMode)
       // wrap it in an array with the priority result
       ArrayType(StructType(Seq(StructField("salience", IntegerType), StructField("result", resultDataType))))

@@ -17,20 +17,19 @@ object MutableProjectionProcessor {
    * Generic processor for encoders over a dataframe transformation
    * @param dataFrameFunction
    * @param compile
-   * @param toSize the number of input fields required for the deserializing of O
    * @tparam I
    * @tparam O
    * @return
    */
-  def processFactory[I: Encoder, O: Encoder](dataFrameFunction: DataFrame => DataFrame, toSize: Int, compile: Boolean = true, extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true): ProcessorFactory[I, O] = {
+  def processFactory[I: Encoder, O: Encoder](dataFrameFunction: DataFrame => DataFrame, compile: Boolean = true, extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true): ProcessorFactory[I, O] = {
     if (enableQualityOptimisations) {
       enableOptimizations(Seq(FunNRewrite, ConstantFolding))
     }
 
     val iEnc = implicitly[Encoder[I]]
     val exprFrom = ShimUtils.expressionEncoder(iEnc).resolveAndBind().serializer
-    val exprTo = ShimUtils.expressionEncoder(implicitly[Encoder[O]]).resolveAndBind().deserializer
-    val exprs = QualitySparkUtils.resolveExpressions[I](iEnc, df => {
+
+    val (exprs, exprTo) = QualitySparkUtils.resolveExpressionsR[I, O](iEnc, df => {
       dataFrameFunction(extraProjection(df))
     })
 
@@ -63,31 +62,12 @@ object MutableProjectionProcessor {
             else
               exprs
 
-          val (resTypeIsStruct, resType) =
-            if (toSize == 1)
-              (exprsToUse.last.dataType.isInstanceOf[StructType],
-                exprsToUse.last.dataType.asInstanceOf[StructType])
-            else
-              (false, null)
-
-          val processor = QualitySparkUtils.rowProcessor(exprsToUse, compile).asInstanceOf[MutableProjection]
-
-          // to feed the resulting enc
-          val interim = new GenericInternalRow(Array.ofDim[Any](toSize))
+          val processor = QualitySparkUtils.rowProcessor(exprsToUse, false /*compile*/).asInstanceOf[MutableProjection]
 
           override def apply(i: I): O = {
             val ti = enc(InternalRow(i))
             val r = processor(ti)
-            val ri =
-              if (toSize == 1 && resTypeIsStruct)
-                r.getStruct(exprs.length - 1, resType.length)
-              else {
-                for(i <- 0 until toSize) {
-                  interim.update(i, r.get((exprsToUse.length - toSize) + i, exprsToUse((exprsToUse.length - toSize) + i).dataType))
-                }
-                interim
-              }
-            dec(ri).get(0, ObjectType(classOf[Any])).asInstanceOf[O]
+            dec(r).get(0, ObjectType(classOf[Any])).asInstanceOf[O]
           }
 
           /**

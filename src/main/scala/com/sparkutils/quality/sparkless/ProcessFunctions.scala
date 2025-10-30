@@ -2,6 +2,7 @@ package com.sparkutils.quality.sparkless
 
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.util.Encoding.fromNormalEncoder
+import com.sparkutils.quality.sparkless.StarUtil.star
 import com.sparkutils.quality.sparkless.impl.Processors.processFactory
 import frameless.{TypedEncoder, TypedExpressionEncoder}
 import org.apache.spark.sql.types.{DataType, StructType}
@@ -47,6 +48,15 @@ import scala.reflect.ClassTag
  */
 object ProcessFunctions extends NonLazyProcessFunctions with LazyProcessFunctions
 
+protected[sparkless] object StarUtil {
+
+  def star(fieldName: String)(dataFrame: DataFrame => DataFrame): DataFrame => DataFrame =
+    df => {
+      dataFrame(df).selectExpr(s"$fieldName.*")
+    }
+
+}
+
 /**
  * These functions do not require knowledge of encoder type
  */
@@ -61,8 +71,8 @@ trait NonLazyProcessFunctions {
                             forceRunnerEval: Boolean = false, forceMutable: Boolean = false,
                             extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
                             forceVarCompilation: Boolean = false): ProcessorFactory[I, RuleSuiteResult] =
-    processFactory[I, RuleSuiteResult](addDataQualityF(ruleSuite, compileEvals = compileEvals,
-      forceRunnerEval = forceRunnerEval), 1, compile, forceMutable = forceMutable,
+    processFactory[I, RuleSuiteResult]( star("DataQuality")(addDataQualityF(ruleSuite, compileEvals = compileEvals,
+      forceRunnerEval = forceRunnerEval)), compile, forceMutable = forceMutable,
       extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)(
       implicitly[Encoder[I]], com.sparkutils.quality.impl.Encoders.ruleSuiteResultExpEnc
@@ -80,7 +90,7 @@ trait NonLazyProcessFunctions {
     import com.sparkutils.quality.implicits._
     val tup = TypedExpressionEncoder[(RuleResult, RuleSuiteResultDetails)]
     processFactory[I, (RuleResult, RuleSuiteResultDetails)](addOverallResultsAndDetailsWrapperF(ruleSuite,
-      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval), 2, compile, forceMutable = forceMutable,
+      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval), compile, forceMutable = forceMutable,
       extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)(
       implicitly[Encoder[I]], tup
@@ -94,8 +104,8 @@ trait NonLazyProcessFunctions {
     val topName = dataFrame.columns.head
     addDataQuality(dataFrame, rules, temporaryDQname, compileEvals = compileEvals,
       forceRunnerEval = forceRunnerEval).
-      selectExpr("*",s"processor_input_wrapper($topName, $temporaryDQname.overallResult) as $overallResult",
-        s"ruleSuiteResultDetails(processor_input_wrapper($topName, $temporaryDQname)) as $resultDetails").drop(temporaryDQname)
+      selectExpr(s"processor_input_wrapper($topName, $temporaryDQname.overallResult) as $overallResult",
+        s"ruleSuiteResultDetails(processor_input_wrapper($topName, $temporaryDQname)) as $resultDetails")
   }
 
   protected[sparkless] def addOverallResultsAndDetailsWrapperF(rules: RuleSuite, compileEvals: Boolean = false,
@@ -172,8 +182,8 @@ trait NonLazyProcessFunctions {
                                                 extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
                                                 forceVarCompilation: Boolean = false)(implicit resEnc: Encoder[RuleEngineResult[T]]):
   ProcessorFactory[I, RuleEngineResult[T]] =
-    processFactory[I, RuleEngineResult[T]](ruleEngineWithStructF(ruleSuite, debugMode = debugMode,
-      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval), 1, compile,
+    processFactory[I, RuleEngineResult[T]]( star("ruleEngine")(ruleEngineWithStructF(ruleSuite, debugMode = debugMode,
+        compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval)), compile,
       forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)(
       implicitly[Encoder[I]], resEnc)
@@ -212,8 +222,8 @@ trait NonLazyProcessFunctions {
                                        extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
                                        forceVarCompilation: Boolean = false)(implicit resEnc: Encoder[RuleFolderResult[T]]):
   ProcessorFactory[I, RuleFolderResult[T]] =
-    processFactory[I, RuleFolderResult[T]](foldAndReplaceFieldsWithStruct(ruleSuite, outputType,
-      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval), 1, compile,
+    processFactory[I, RuleFolderResult[T]]( star("foldedFields")(foldAndReplaceFieldsWithStruct(ruleSuite, outputType,
+      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval)), compile,
       forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)(
       implicitly[Encoder[I]], resEnc)
@@ -290,8 +300,8 @@ trait NonLazyProcessFunctions {
                                                                  extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
                                                                  forceVarCompilation: Boolean = false)(implicit resEnc: Encoder[RuleFolderResult[T]]):
   ProcessorFactory[I, RuleFolderResult[T]] =
-    processFactory[I, RuleFolderResult[T]](foldAndReplaceFieldPairsWithStruct(ruleSuite, fields, outputType, debugMode = debugMode,
-      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval), 1, compile,
+    processFactory[I, RuleFolderResult[T]](star("foldedFields")(foldAndReplaceFieldPairsWithStruct(ruleSuite, fields, outputType, debugMode = debugMode,
+      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval)), compile,
       forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)(
       implicitly[Encoder[I]], resEnc)
@@ -332,8 +342,8 @@ trait NonLazyProcessFunctions {
                                              forceVarCompilation: Boolean = false)
                                             (implicit resEnc: Encoder[GeneralExpressionsResult[T]]):
   ProcessorFactory[I, GeneralExpressionsResult[T]] =
-    processFactory[I, GeneralExpressionsResult[T]](addExpressionRunnerF(ruleSuite, ddlType = outputType.sql,
-      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval), 1, compile, forceMutable = forceMutable,
+    processFactory[I, GeneralExpressionsResult[T]](star("expressionResults")(addExpressionRunnerF(ruleSuite, ddlType = outputType.sql,
+      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval)), compile, forceMutable = forceMutable,
       extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)(
       implicitly[Encoder[I]], resEnc)
@@ -350,8 +360,8 @@ trait NonLazyProcessFunctions {
                                               forceVarCompilation: Boolean = false):
   ProcessorFactory[I, GeneralExpressionsResult[GeneralExpressionResult]] = {
     import com.sparkutils.quality.implicits._
-    processFactory[I, GeneralExpressionsResult[GeneralExpressionResult]](addExpressionRunnerF(ruleSuite, renderOptions = renderOptions,
-      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval), 1, compile, forceMutable = forceMutable,
+    processFactory[I, GeneralExpressionsResult[GeneralExpressionResult]](star("expressionResults")(addExpressionRunnerF(ruleSuite, renderOptions = renderOptions,
+      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval)), compile, forceMutable = forceMutable,
       extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)(
       implicitly[Encoder[I]], TypedExpressionEncoder[GeneralExpressionsResult[GeneralExpressionResult]])
@@ -369,8 +379,8 @@ trait NonLazyProcessFunctions {
                                                    forceVarCompilation: Boolean = false):
   ProcessorFactory[I, GeneralExpressionsResultNoDDL] = {
     import com.sparkutils.quality.implicits._
-    processFactory[I, GeneralExpressionsResultNoDDL](addExpressionRunnerF(ruleSuite, renderOptions = renderOptions,
-      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, stripDDL = true), 1, compile, forceMutable = forceMutable,
+    processFactory[I, GeneralExpressionsResultNoDDL](star("expressionResults")(addExpressionRunnerF(ruleSuite, renderOptions = renderOptions,
+      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, stripDDL = true)), compile, forceMutable = forceMutable,
       extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)(
       implicitly[Encoder[I]], generalExpressionsResultNoDDLExpEnc)

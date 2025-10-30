@@ -16,23 +16,21 @@ object RowDeserializing {
   /**
    * Creates a processor which deserialises a Row into T, the Row **MUST** represent a T
    * @param rowEnc
-   * @param toSize specifies the number of fields required to deserialize and create the [[T]]
    * @tparam T the output type
    * @return
    */
-  protected[sparkutils] def rowDeserializerF[T: Encoder](rowEnc: Encoder[Row], toSize: Int): Row => T =
-    rowDeserializer(rowEnc, toSize).instance // we know this is re-entrant safe
+  protected[sparkutils] def rowDeserializerF[T: Encoder](rowEnc: Encoder[Row]): Row => T =
+    rowDeserializer(rowEnc).instance // we know this is re-entrant safe
 
   /**
    * Creates a processor which deserialises a Row into T, the Row **MUST** represent a T
    * @param rowEnc
-   * @param toSize specifies the number of fields required to deserialize and create the [[T]]
    * @tparam T the output type
    * @return
    */
-  def rowDeserializer[T: Encoder](rowEnc: Encoder[Row], toSize: Int): ProcessorFactory[Row, T] = {
+  def rowDeserializer[T: Encoder](rowEnc: Encoder[Row]): ProcessorFactory[Row, T] = {
     implicit val i: Encoder[Row] = rowEnc
-    processFactory[Row, T](identity, toSize)//( _ => implicitly[Encoder[T]])
+    processFactory[Row, T](identity)//( _ => implicitly[Encoder[T]])
   }
 }
 
@@ -40,7 +38,7 @@ object LazyRuleSuiteResultDetailsUtils {
 
   lazy val deserializer = {
     RowDeserializing.rowDeserializerF(
-      ShimUtils.rowEncoder(Encoders.ruleSuiteResultDetailsTypedEnc.catalystRepr.asInstanceOf[StructType]), 2)(
+      ShimUtils.rowEncoder(Encoders.ruleSuiteResultDetailsTypedEnc.catalystRepr.asInstanceOf[StructType]))(
       Encoders.ruleSuiteResultDetailsExpEnc
     )
   }
@@ -58,7 +56,7 @@ object LazyRuleSuiteResultUtils {
 
   lazy val deserializer = {
     RowDeserializing.rowDeserializerF(
-      ShimUtils.rowEncoder(Encoders.ruleSuiteResultTypedEnc.catalystRepr.asInstanceOf[StructType]), 3)(
+      ShimUtils.rowEncoder(Encoders.ruleSuiteResultTypedEnc.catalystRepr.asInstanceOf[StructType]))(
       Encoders.ruleSuiteResultExpEnc
     )
   }
