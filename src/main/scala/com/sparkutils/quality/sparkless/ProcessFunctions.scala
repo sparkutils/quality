@@ -342,8 +342,13 @@ trait NonLazyProcessFunctions {
                                              forceVarCompilation: Boolean = false)
                                             (implicit resEnc: Encoder[GeneralExpressionsResult[T]]):
   ProcessorFactory[I, GeneralExpressionsResult[T]] =
-    processFactory[I, GeneralExpressionsResult[T]](star("expressionResults")(addExpressionRunnerF(ruleSuite, ddlType = outputType.sql,
-      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval)), compile, forceMutable = forceMutable,
+    processFactory[I, GeneralExpressionsResult[T]](df => {
+      val topName = df.columns.head
+
+      star("expressionResults")(addExpressionRunnerF(ruleSuite, ddlType = outputType.sql,
+          compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, postProcess =
+          _.selectExpr(s"processor_input_wrapper($topName, expressionResults) as expressionResults")))(df)
+      }, compile, forceMutable = forceMutable,
       extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)(
       implicitly[Encoder[I]], resEnc)
@@ -360,8 +365,8 @@ trait NonLazyProcessFunctions {
                                               forceVarCompilation: Boolean = false):
   ProcessorFactory[I, GeneralExpressionsResult[GeneralExpressionResult]] = {
     import com.sparkutils.quality.implicits._
-    processFactory[I, GeneralExpressionsResult[GeneralExpressionResult]](star("expressionResults")(addExpressionRunnerF(ruleSuite, renderOptions = renderOptions,
-      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval)), compile, forceMutable = forceMutable,
+    processFactory[I, GeneralExpressionsResult[GeneralExpressionResult]](
+      expressionRunnerF(ruleSuite, false, renderOptions, compileEvals, forceRunnerEval), compile, forceMutable = forceMutable,
       extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)(
       implicitly[Encoder[I]], TypedExpressionEncoder[GeneralExpressionsResult[GeneralExpressionResult]])
@@ -379,11 +384,20 @@ trait NonLazyProcessFunctions {
                                                    forceVarCompilation: Boolean = false):
   ProcessorFactory[I, GeneralExpressionsResultNoDDL] = {
     import com.sparkutils.quality.implicits._
-    processFactory[I, GeneralExpressionsResultNoDDL](star("expressionResults")(addExpressionRunnerF(ruleSuite, renderOptions = renderOptions,
-      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, stripDDL = true)), compile, forceMutable = forceMutable,
+    processFactory[I, GeneralExpressionsResultNoDDL](
+      expressionRunnerF(ruleSuite, true, renderOptions, compileEvals, forceRunnerEval), compile, forceMutable = forceMutable,
       extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)(
       implicitly[Encoder[I]], generalExpressionsResultNoDDLExpEnc)
   }
 
+  protected[sparkutils] def expressionRunnerF(ruleSuite: RuleSuite, stripDDL: Boolean, renderOptions: Map[String, String] = Map.empty,
+                                              compileEvals: Boolean = false, forceRunnerEval: Boolean = false):
+      DataFrame => DataFrame = df => {
+    val topName = df.columns.head
+    star("expressionResults")(
+      addExpressionRunnerF(ruleSuite, renderOptions = renderOptions,
+        compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, stripDDL = stripDDL, postProcess =
+          _.selectExpr(s"processor_input_wrapper($topName, expressionResults) as expressionResults")))(df)
+  }
 }

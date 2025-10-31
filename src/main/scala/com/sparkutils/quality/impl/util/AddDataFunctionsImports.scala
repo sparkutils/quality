@@ -196,18 +196,21 @@ trait AddDataFunctionsImports {
    */
   def addExpressionRunner(dataFrame: DataFrame, ruleSuite: RuleSuite, name: String = "expressionResults",
                        renderOptions: Map[String, String] = Map.empty, ddlType: String = "",
-                       forceRunnerEval: Boolean = false, compileEvals: Boolean = false, stripDDL: Boolean = false): DataFrame = {
+                       forceRunnerEval: Boolean = false, compileEvals: Boolean = false,
+                       stripDDL: Boolean = false, postProcess: DataFrame => DataFrame = identity): DataFrame = {
     import org.apache.spark.sql.functions.expr
     val runner =
       ExpressionRunner(ruleSuite, name = name, renderOptions = renderOptions,
       ddlType = ddlType,
       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval)
 
-    dataFrame.select(expr("*"),
-      if (stripDDL)
-        strip_result_ddl(runner).as(name)
-      else
-        runner
+    postProcess(
+      dataFrame.select(expr("*"),
+        if (stripDDL)
+          strip_result_ddl(runner).as(name)
+        else
+          runner
+      )
     )
   }
 
@@ -221,11 +224,13 @@ trait AddDataFunctionsImports {
    */
   def addExpressionRunnerF[P[R] >: DatasetBase[R]](ruleSuite: RuleSuite, name: String = "expressionResults",
                        renderOptions: Map[String, String] = Map.empty, ddlType: String = "",
-                       forceRunnerEval: Boolean = false, compileEvals: Boolean = false, stripDDL: Boolean = false): P[SRow] => P[SRow] =
+                       forceRunnerEval: Boolean = false, compileEvals: Boolean = false,
+                       stripDDL: Boolean = false, postProcess: DataFrame => DataFrame = identity): P[SRow] => P[SRow] =
     (p: P[SRow]) => {
       import org.apache.spark.sql.functions.expr
       addExpressionRunner(p.asInstanceOf[DataFrame], ruleSuite, name = name, renderOptions = renderOptions,
         ddlType = ddlType,
-        compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, stripDDL = stripDDL).asInstanceOf[P[SRow]]
+        compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, stripDDL = stripDDL,
+        postProcess = postProcess).asInstanceOf[P[SRow]]
     }
 }
