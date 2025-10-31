@@ -4,6 +4,7 @@ import com.sparkutils.quality.sparkless.{ProcessorFactory, ProcessorFactoryInput
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.ShimUtils._
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder
 import org.apache.spark.sql.catalyst.expressions.SpecificInternalRow
 import org.apache.spark.sql.types.{DataType, StructType}
 
@@ -11,12 +12,13 @@ import java.sql.ResultSet
 
 class JdbcHelper private[jdbc](schema: StructType, getters: Seq[(DataType, JDBCValueGetter)]) {
 
-  private def fromRow = expressionEncoder(rowEncoder(schema)).resolveAndBind().createDeserializer()
+  private def deserializeToRow: ExpressionEncoder.Deserializer[Row] =
+    expressionEncoder(rowEncoder(schema)).resolveAndBind().createDeserializer()
 
   def wrapResultSet[O](processorFactory: ProcessorFactory[Row, O]): ProcessorFactory[ResultSet, O] = {
     new ProcessorFactoryInputProxyWithState(
       underlyingFactory = processorFactory,
-      stateConstructor = () => (new SpecificInternalRow(getters.map(_._1)), fromRow),
+      stateConstructor = () => (new SpecificInternalRow(getters.map(_._1)), deserializeToRow),
       convert = convertResultSetToRow)
   }
 
