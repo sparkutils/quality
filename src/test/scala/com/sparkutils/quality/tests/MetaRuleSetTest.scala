@@ -4,14 +4,12 @@ import com.sparkutils.quality.Rule
 import com.sparkutils.quality.impl.util.RuleModel.RuleSuiteMap
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.util.MetaRuleSetRow
-import com.sparkutils.qualityTests.{RowTools, SharedTests}
+import com.sparkutils.qualityTests.SharedTests
 import org.apache.spark.sql.ShimUtils.{column, expression}
 import org.apache.spark.sql.catalyst.expressions.objects.AssertNotNull
 import org.apache.spark.sql.{Column, DataFrame}
-import org.junit.Test
-import org.scalatest.FunSuite
 
-class MetaRuleSetTest extends FunSuite with SharedTests {
+class MetaRuleSetTest extends SharedTests {
 
   def ruleSet(id: Int, arg: String, exp: String) = MetaRuleSetRow(1,1,id,id*2,"",
     s"$arg -> $exp")
@@ -24,8 +22,7 @@ class MetaRuleSetTest extends FunSuite with SharedTests {
   def evalFilter(tup: (MetaRuleSetRow, DataFrame, Set[String])) =
     assert(tup._1.filterColumns(tup._2) == tup._3)
 
-  @Test
-  def regExpTest: Unit = evalCodeGens {
+  test("regExpTest") { evalCodeGens {
     val rs = Seq(
       (ruleSet(1, "arg", "exp(arg)"), "col1", 1, Rule(Id(2, 2), ExpressionRule("exp(col1)") )),
       (ruleSet(2, "arg", "exp(argument, arg)"), "col1", 2, Rule(Id(4, 4), ExpressionRule("exp(argument, col1)") )),
@@ -33,12 +30,11 @@ class MetaRuleSetTest extends FunSuite with SharedTests {
       (ruleSet(4, "arg", "exp(1+arg*othercol, argument, arg)"), "col1", 20, Rule(Id(24, 8), ExpressionRule("exp(1+col1*othercol, argument, col1)") ))
     )
     rs.foreach(evalMeta)
-  }
+  } }
 
   val persons = Seq(Person("Amy", 21, None))
 
-  @Test
-  def filterExpTest: Unit = evalCodeGens {
+  test("filterExpTest") { evalCodeGens {
     val s = sparkSession
     import s.implicits._
     import org.apache.spark.sql.functions.col
@@ -52,7 +48,7 @@ class MetaRuleSetTest extends FunSuite with SharedTests {
       (ruleFilter("datatype = 'BIGINT' "), df, Set("age") )
     )
     rs.foreach(evalFilter)
-  }
+  } }
 
   def doFullLoadTest(transform: DataFrame => DataFrame, columnFilter: String): Unit = evalCodeGens {
     val s = sparkSession
@@ -83,12 +79,10 @@ class MetaRuleSetTest extends FunSuite with SharedTests {
     assert(newRuleSuiteMap == expected)
   }
 
-  @Test
-  def fullLoadTest: Unit = doFullLoadTest(identity, "nullable = true")
+  test("fullLoadTest") { doFullLoadTest(identity, "nullable = true") }
 
   import org.apache.spark.sql.functions.expr
-  @Test
-  def transformLoadTest: Unit = doFullLoadTest(_.withColumn("newfield", expr("IF(name='fren', 1, 120)")), "newfield = 1")
+  test("transformLoadTest") { doFullLoadTest(_.withColumn("newfield", expr("IF(name='fren', 1, 120)")), "newfield = 1") }
 
 }
 

@@ -51,8 +51,7 @@ class JoinValidationTest extends FunSuite with SharedTests {
 
   val expected = Seq.fill(3)(Seq(Failed, Passed)).flatten
 
-  @Test
-  def testViaRelation(): Unit = evalCodeGensNoResolve {
+  test("testViaRelation") { evalCodeGensNoResolve {
     val rer = irules(
       Seq(ExpressionRule("testSource.account = testLookups.account")
       )
@@ -79,10 +78,9 @@ class JoinValidationTest extends FunSuite with SharedTests {
     // res.foreach(println)
 
     assert(expected == res.map(_.overallResult).toSeq)
-  }
+  }}
 
-  @Test
-  def testWithRenames(): Unit = evalCodeGensNoResolve {
+  test("testWithRenames") { evalCodeGensNoResolve {
     val rer = irules(
       Seq(ExpressionRule("account = testLookupsAccount")
       )
@@ -109,6 +107,6 @@ class JoinValidationTest extends FunSuite with SharedTests {
     //res.foreach(println)
 
     assert(expected == res.map(_.overallResult).toSeq)
-  }
+  }}
 
 }

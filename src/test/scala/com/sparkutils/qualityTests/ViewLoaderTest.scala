@@ -42,8 +42,7 @@ class ViewLoaderTest extends SharedTests {
     assert(sorted(0).source.left.get.filter("b = 12").isEmpty)
   }
 
-  @Test
-  def testConfigLoading(): Unit = {
+  test("testConfigLoading") {
     val s = sparkSession
     import s.implicits._
 
@@ -54,8 +53,7 @@ class ViewLoaderTest extends SharedTests {
     doViewLoadingTest(res)
   }
 
-  @Test
-  def testConfigLoadingWithoutIds(): Unit = {
+  test("testConfigLoadingWithoutIds") {
     val s = sparkSession
     import s.implicits._
 
@@ -66,8 +64,7 @@ class ViewLoaderTest extends SharedTests {
     doViewLoadingTest(res)
   }
 
-  @Test
-  def testViewLoads(): Unit = {
+  test("testViewLoads") {
     val s = sparkSession
     import s.implicits._
 
@@ -86,8 +83,7 @@ class ViewLoaderTest extends SharedTests {
     assert(results2.replaced == Set("names","ages","joined"))
   }
 
-  @Test
-  def testViewLoadsFailedAsJoinsNotPresent(): Unit = {
+  test("testViewLoadsFailedAsJoinsNotPresent") {
     val s = sparkSession
     import s.implicits._
 
@@ -124,8 +120,7 @@ class ViewLoaderTest extends SharedTests {
     }
   }
 
-  @Test
-  def testViewLoadsFailedAsInfinite(): Unit = {
+  test("testViewLoadsFailedAsInfinite") {
     val s = sparkSession
     import s.implicits._
 
@@ -144,8 +139,7 @@ class ViewLoaderTest extends SharedTests {
     assert(res.notLoadedViews == Set("le1","le2"))
   }
 
-  @Test
-  def testViewLoadsThatNeedQuoting(): Unit = {
+  test("testViewLoadsThatNeedQuoting") {
     val s = sparkSession
     import s.implicits._
 
@@ -175,8 +169,7 @@ class ViewLoaderTest extends SharedTests {
   }
 
 
-  @Test
-  def testViewLoadsThatDontParse(): Unit = {
+  test("testViewLoadsThatDontParse") {
     val s = sparkSession
     import s.implicits._
 

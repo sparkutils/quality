@@ -43,8 +43,7 @@ class ValidationTest extends FunSuite with SharedTests {
   val ossLT330SingleParam = "mismatched input '->'"
   val ossGT320SingleParam = "Syntax error at or near '->"
 
-  @Test
-  def testLambdaSyntaxError: Unit = {
+  test("testLambdaSyntaxError") {
     val rs = RuleSuite(Id(0,1), Seq(), Seq(LambdaFunction("test", "(variable) -> thelambda", Id(1,1))))
     val errors = ordered( validate(struct, rs) )
 
@@ -57,8 +56,7 @@ class ValidationTest extends FunSuite with SharedTests {
     } )
   }
 
-  @Test
-  def testLambdaNameError: Unit = {
+  test("testLambdaNameError") {
     val rs = RuleSuite(Id(0,1), Seq(), Seq(LambdaFunction("test", "variable -> thelambda", Id(1,1))))
     val errors = ordered( validate(struct, rs) )
 
@@ -68,8 +66,7 @@ class ValidationTest extends FunSuite with SharedTests {
     } )
   }
 
-  @Test
-  def testLambdaStackError: Unit = {
+  test("testLambdaStackError") {
     val rs = RuleSuite(Id(0,1), Seq(), Seq(LambdaFunction("test", "variable -> test(outervariable)", Id(1,1))))
     val (errors, warns, shown, docs, expr) = validate(Left(struct), rs)
 
@@ -84,8 +81,7 @@ class ValidationTest extends FunSuite with SharedTests {
 
   }
 
-  @Test
-  def testLambdaActualStackError: Unit = {
+  test("testLambdaActualStackError") {
     val rs = RuleSuite(Id(0,1), Seq(), Seq(
       LambdaFunction("thetest", "variable -> test(variable - 112)", Id(3,1)),
       LambdaFunction("retest", "variable -> thetest(variable - 112)", Id(2,1)),
@@ -102,8 +98,7 @@ class ValidationTest extends FunSuite with SharedTests {
 
   }
 
-  @Test
-  def testLambdaActualStackErrorSuppressed: Unit = {
+  test("testLambdaActualStackErrorSuppressed") {
     val rs = RuleSuite(Id(0,1), Seq(), Seq(
       LambdaFunction("thetest", "variable -> test(variable - 112)", Id(3,1)),
       LambdaFunction("retest", "variable -> thetest(variable - 112)", Id(2,1)),
@@ -124,8 +119,7 @@ class ValidationTest extends FunSuite with SharedTests {
 
   }
 
-  @Test
-  def testLambdaSparkUnknownNameError: Unit = {
+  test("testLambdaSparkUnknownNameError") {
     val rs = RuleSuite(Id(0,1), Seq(), Seq(
       LambdaFunction("testCaller", "outervariable -> funky(outervariable)", Id(2,2))
     ))
@@ -137,8 +131,7 @@ class ValidationTest extends FunSuite with SharedTests {
     } )
   }
 
-  @Test
-  def testNestedFieldDoesntError: Unit = {
+  test("testNestedFieldDoesntError") {
     val rs = RuleSuite(Id(0,1), Seq(), Seq(
       LambdaFunction("testCaller", "nesty.morenesty.nesteda > nesty.nestedb", Id(2,2))
     ))
@@ -147,8 +140,7 @@ class ValidationTest extends FunSuite with SharedTests {
     assert(errors.isEmpty)
   }
 
-  @Test
-  def testNestedFieldLambdaError: Unit = {
+  test("testNestedFieldLambdaError") {
     val rs = RuleSuite(Id(0,1), Seq(), Seq(
       LambdaFunction("testCaller", "nesty.morenesty.nestedb > nesty.nestedb", Id(2,2))
     ))
@@ -160,8 +152,7 @@ class ValidationTest extends FunSuite with SharedTests {
     } )
   }
 
-  @Test
-  def testLambdaNestedNameError: Unit = {
+  test("testLambdaNestedNameError") {
     val rs = RuleSuite(Id(0,1), Seq(), Seq(LambdaFunction("test", "variable -> outervariable", Id(1,1)),
       LambdaFunction("testCaller", "outervariable -> test(outervariable)", Id(1,2))
     ))
@@ -173,8 +164,7 @@ class ValidationTest extends FunSuite with SharedTests {
     } )
   }
 
-  @Test
-  def testLambdaNestedOverloadedNameError: Unit = {
+  test("testLambdaNestedOverloadedNameError") {
     val rs = RuleSuite(Id(0,1), Seq(), Seq(LambdaFunction("test", "variable -> outervariable", Id(1,1)),
       LambdaFunction("test", "(outervariable, param) -> test(outervariable)", Id(1,2))
     ))
@@ -186,8 +176,7 @@ class ValidationTest extends FunSuite with SharedTests {
     } )
   }
 
-  @Test
-  def testLambdaWithDuplicateArityError: Unit = {
+  test("testLambdaWithDuplicateArityError") {
     val rs = RuleSuite(Id(0,1), Seq(), Seq(LambdaFunction("testfun", "(variable, a, b) -> variable", Id(1,1)),
       LambdaFunction("testfun", "(outervariable, param, c) -> test(outervariable)", Id(2,1)),
       LambdaFunction("test", "outervariable -> outervariable", Id(3,2))
@@ -201,8 +190,7 @@ class ValidationTest extends FunSuite with SharedTests {
     } )
   }
 
-  @Test
-  def testLambdaNestedOverloadedNameWithInterimError: Unit = {
+  test("testLambdaNestedOverloadedNameWithInterimError") {
     val rs = RuleSuite(Id(0,1), Seq(), Seq(LambdaFunction("test", "variable -> funtest(outervariable)", Id(1,1)),
       LambdaFunction("funtest", "variable -> outervariable", Id(3,1)),
       LambdaFunction("test", "(outervariable, param) -> test(outervariable)", Id(1,2))
@@ -215,8 +203,7 @@ class ValidationTest extends FunSuite with SharedTests {
     } )
   }
 
-  @Test
-  def testFunctionSyntaxError: Unit = { // Spark 4 adds >> in SPARK-48168
+  test("testFunctionSyntaxError") { // Spark 4 adds >> in SPARK-48168
     val rs = RuleSuite(Id(0,1), Seq(RuleSet(Id(1,1), Seq(Rule(Id(2,1), ExpressionRule("fielda >>>> fieldb"))))))
     val errors = ordered( validate(struct, rs) )
 
@@ -227,8 +214,7 @@ class ValidationTest extends FunSuite with SharedTests {
     } )
   }
 
-  @Test
-  def testNestedFieldError: Unit = {
+  test("testNestedFieldError") {
     val rs = RuleSuite(Id(0,1), Seq(RuleSet(Id(1,1), Seq(Rule(Id(2,1), ExpressionRule("nesty.morenesty.nestedb > nesty.nestedb"))))))
     val errors = ordered( validate(struct, rs) )
 
@@ -238,8 +224,7 @@ class ValidationTest extends FunSuite with SharedTests {
     } )
   }
 
-  @Test
-  def testFunctionNameError: Unit = {
+  test("testFunctionNameError") {
     val rs = RuleSuite(Id(0,1), Seq(RuleSet(Id(1,1), Seq(Rule(Id(2,1), ExpressionRule("fielda > b"))))))
     val errors = ordered( validate(struct, rs) )
 
@@ -249,8 +234,7 @@ class ValidationTest extends FunSuite with SharedTests {
     } )
   }
 
-  @Test
-  def testOutputFunctionSyntaxError: Unit = {  // Spark 4 adds >> in SPARK-48168
+  test("testOutputFunctionSyntaxError") {  // Spark 4 adds >> in SPARK-48168
     val rs = RuleSuite(Id(0,1), Seq(RuleSet(Id(1,1), Seq(Rule(Id(2,1), ExpressionRule("fielda > fieldb"),
       RunOnPassProcessor(0, Id(1001,1), OutputExpression("fielda >>>> fieldb"))
     )))))
@@ -263,8 +247,7 @@ class ValidationTest extends FunSuite with SharedTests {
     } )
   }
 
-  @Test
-  def testOutputFunctionNameError: Unit = {
+  test("testOutputFunctionNameError") {
     val rs = RuleSuite(Id(0,1), Seq(RuleSet(Id(1,1), Seq(Rule(Id(2,1), ExpressionRule("fielda > fieldb"),
       RunOnPassProcessor(0, Id(1001,1), OutputExpression("fielda > b"))
     )))))
@@ -276,8 +259,7 @@ class ValidationTest extends FunSuite with SharedTests {
     } )
   }
 
-  @Test
-  def testAllTheThingsExceptLambdaSOE: Unit = { // Spark 4 adds >> in SPARK-48168
+  test("testAllTheThingsExceptLambdaSOE") { // Spark 4 adds >> in SPARK-48168
     val rs = RuleSuite(Id(0,1), Seq(RuleSet(Id(1,1), Seq(
       Rule(Id(2,1), ExpressionRule("fielda > fieldb"), RunOnPassProcessor(0, Id(1001,1), OutputExpression("fielda > b"))),
       Rule(Id(3,1), ExpressionRule("fielda > fieldb"), RunOnPassProcessor(0, Id(1002,1), OutputExpression("fielda >>>> fieldb"))),
@@ -305,14 +287,12 @@ class ValidationTest extends FunSuite with SharedTests {
     } )
   }
 
-  @Test
-  def testUnknownFunctionRuleRunnerError: Unit = {
+  test("testUnknownFunctionRuleRunnerError") {
     val rs = RuleSuite(Id(0, 1), Seq(RuleSet(Id(1, 1), Seq(Rule(Id(2, 1), ExpressionRule("fakeConcat(fielda, fieldb)"))))))
     doTestUnknownFunction(rs, df => ruleRunner(rs))
   }
 
-  @Test
-  def testTransformOutput: Unit = {
+  test("testTransformOutput") {
     val rs = RuleSuite(Id(0, 1), Seq(RuleSet(Id(1, 1), Seq(Rule(Id(2, 1), ExpressionRule("a > b"),
       runOnPassProcessor = RunOnPassProcessor(0, Id(1001,1), OutputExpression("concat(a, b)"))
     )))))
@@ -343,16 +323,14 @@ class ValidationTest extends FunSuite with SharedTests {
     } )
   }
 
-  @Test
-  def testUnknownFunctionRuleEngineRunnerError: Unit = {
+  test("testUnknownFunctionRuleEngineRunnerError") {
     val rs = RuleSuite(Id(0, 1), Seq(RuleSet(Id(1, 1), Seq(Rule(Id(2, 1), ExpressionRule("fielda > fieldb"),
       runOnPassProcessor = RunOnPassProcessor(0, Id(1001,1), OutputExpression("fakeConcat(fielda, fieldb)"))
     )))))
     doTestUnknownFunction(rs, df => ruleEngineRunner(rs))
   }
 
-  @Test
-  def testShowFunction: Unit = {
+  test("testShowFunction") {
     val rs = RuleSuite(Id(0, 1), Seq(RuleSet(Id(1, 1), Seq(Rule(Id(2, 1), ExpressionRule("id > fieldc")
     )))))
 
@@ -367,8 +345,7 @@ class ValidationTest extends FunSuite with SharedTests {
   }
 
 
-  @Test
-  def testAllTheDocsWarnings: Unit = {
+  test("testAllTheDocsWarnings") {
     val output2 = RunOnPassProcessor(0, Id(1001,1), OutputExpression("fielda > fieldb"))
     val rule1 = Rule(Id(2,1), ExpressionRule("/** description @param fielda desc */ fielda > fieldb"), output2)
     val output1 = RunOnPassProcessor(0, Id(1002,1), OutputExpression("/** description 2 @param fielda desc 2 */ fielda > fieldb"))
@@ -415,8 +392,7 @@ class ValidationTest extends FunSuite with SharedTests {
     )))
   }
 
-  @Test
-  def testExpressionLookups: Unit = {
+  test("testExpressionLookups") {
     com.sparkutils.quality.registerMapLookupsAndFunction(Map.empty)
     // test output, lambda and rule for lookups
     // Id(6,1) is on a rule, outputexpression and a lambda to force correct called by resolution
@@ -452,8 +428,7 @@ class ValidationTest extends FunSuite with SharedTests {
 
   }
 
-  @Test
-  def testMissingViews: Unit = { // v3_4_and_above not necessary as it's not getting to analysis
+  test("testMissingViews") { // v3_4_and_above not necessary as it's not getting to analysis
     val output1 = RunOnPassProcessor(0, Id(6,1), OutputExpression("test(fielda)"))
     val rule1 = Rule(Id(2,1), ExpressionRule("concat(fielda, fieldb)"), output1)
     val lambda1 = LambdaFunction("test", "variable -> select max(i) from theview where i.variable = variable", Id(16,1))

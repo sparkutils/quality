@@ -28,8 +28,7 @@ class BloomLoaderTest extends SharedTests {
       BloomRow(Id(1,1),"twenties", Some("twenties"), None, None, true, "id", 10, 0.01 )
     )
 
-  @Test
-  def testConfigLoading(): Unit = {
+  test("testConfigLoading") { {
     val s = sparkSession
     import s.implicits._
 
@@ -39,10 +38,9 @@ class BloomLoaderTest extends SharedTests {
     )
 
     doConfigTest(bloomConfigs)
-  }
+  } }
 
-  @Test
-  def testConfigLoadingWithoutIds(): Unit = {
+  test("testConfigLoadingWithoutIds") { {
     val s = sparkSession
     import s.implicits._
 
@@ -52,7 +50,7 @@ class BloomLoaderTest extends SharedTests {
     )
 
     doConfigTest(bloomConfigs)
-  }
+  } }
 
   private def doConfigTest(bloomConfigs: Seq[BloomConfig]) = {
     assert(bloomConfigs.size == 2)
@@ -62,8 +60,7 @@ class BloomLoaderTest extends SharedTests {
     assert(bloomConfigs.forall(_.expectedFPP == 0.01d))
   }
 
-  @Test
-  def testBloomLoading(): Unit = {
+  test("testBloomLoading") { {
     val s = sparkSession
     import s.implicits._
     val (bloomConfigs, _) = loadBloomConfigs(loader, config.toDF(), expr("id.id"), expr("id.version"), Id(1,1),
@@ -72,11 +69,10 @@ class BloomLoaderTest extends SharedTests {
     )
 
     doBloomTest(bloomConfigs)
-  }
+  } }
 
 
-  @Test
-  def testMapSQLLoading(): Unit = {
+  test("testMapSQLLoading") { {
     val s = sparkSession
     import s.implicits._
 
@@ -90,7 +86,7 @@ class BloomLoaderTest extends SharedTests {
     )
 
     doBloomTest(bloomConfigs)
-  }
+  } }
 
   private def doBloomTest(bloomConfigs: Seq[BloomConfig]) = {
     val blooms = loadBlooms(bloomConfigs)

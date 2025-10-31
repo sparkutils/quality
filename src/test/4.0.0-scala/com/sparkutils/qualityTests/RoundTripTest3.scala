@@ -6,33 +6,32 @@ import org.scalatest.FunSuite
 
 class RoundTripTest3 extends FunSuite with RowTools with SharedTests {
 
-  @Test
-  def testULEquals: Unit = evalCodeGensNoResolve {
+  test("testULEquals") { evalCodeGensNoResolve {
     val s = sparkSession
 
     import s.implicits._
     val leftRaw =
-      for{ i <- 1 to 20 } yield TestIdLeft(i, i)
+      for {i <- 1 to 20} yield TestIdLeft(i, i)
     val lefts = leftRaw.toDS()
 
     val rightRaw =
-      for{ i <- 1 to 20 by 2 } yield TestIdRight(i, i)
+      for {i <- 1 to 20 by 2} yield TestIdRight(i, i)
     val rights = rightRaw.toDS()
 
     import scala.collection.JavaConverters._
     val joined = lefts.join(rights, expr("longPairEqual('left', 'right')"))
-    val ids = joined.select("left_higher","left_lower").as[TestIdLeft].toLocalIterator().asScala.map(_.left_lower).toSet
+    val ids = joined.select("left_higher", "left_lower").as[TestIdLeft].toLocalIterator().asScala.map(_.left_lower).toSet
     assert((1 to 20 by 2).toSet == ids)
 
     // test filesystem and pushed filters
-    lefts.write.mode("overwrite").parquet(outputDir+"/lefts")
-    rights.write.mode("overwrite").parquet(outputDir+"/rights")
+    lefts.write.mode("overwrite").parquet(outputDir + "/lefts")
+    rights.write.mode("overwrite").parquet(outputDir + "/rights")
 
-    val flefts = sparkSession.read.parquet(outputDir+"/lefts")
-    val frights = sparkSession.read.parquet(outputDir+"/rights")
+    val flefts = sparkSession.read.parquet(outputDir + "/lefts")
+    val frights = sparkSession.read.parquet(outputDir + "/rights")
 
     val fjoined = flefts.join(frights, expr("longPairEqual('left', 'right')"))
-    fjoined.queryExecution.executedPlan.children.foreach{
+    fjoined.queryExecution.executedPlan.children.foreach {
       p =>
         p.children.foreach { f =>
           val fstring = f.verboseString(1)
@@ -42,5 +41,5 @@ class RoundTripTest3 extends FunSuite with RowTools with SharedTests {
           }
         }
     }
-  }
+  }}
 }

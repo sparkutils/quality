@@ -2,12 +2,11 @@ package com.sparkutils.qualityTests
 
 import com.sparkutils.quality.impl.util.{Docs, DocsParser}
 import org.junit.Test
-import org.scalatest.Matchers
+import org.scalatest.{FunSuite, Matchers}
 
-class DocsParserTest extends Matchers {
+class DocsParserTest extends FunSuite with Matchers {
 
-  @Test
-  def simpleParsingTest: Unit = {
+  test("simpleParsingTest") {
     val test = "/** My Description @param name name desc @param othername othername desc @return return val*/ "
 
     val res = DocsParser.parse(test)
@@ -17,8 +16,7 @@ class DocsParserTest extends Matchers {
     ))
   }
 
-  @Test
-  def leadingWhiteSpacesTest: Unit = {
+  test("leadingWhiteSpacesTest") {
     val test = " \n\r\n\t  /** My Description @param name name desc @param othername othername desc @return return val*/ "
 
     val res = DocsParser.parse(test)
@@ -28,8 +26,7 @@ class DocsParserTest extends Matchers {
     ))
   }
 
-  @Test
-  def trailingWhiteSpacesWithAnnotationsTest: Unit = {
+  test("trailingWhiteSpacesWithAnnotationsTest") {
     val test = "/** My Description @param name name desc @param othername othername desc @return return val*/  \n\r\n\t  @location"
 
     val res = DocsParser.parse(test)
@@ -39,8 +36,7 @@ class DocsParserTest extends Matchers {
     ))
   }
 
-  @Test
-  def multilineStarsOnLinesTest: Unit = {
+  test("multilineStarsOnLinesTest") {
     val test =
       """
          /**
@@ -57,8 +53,7 @@ class DocsParserTest extends Matchers {
     )
   }
 
-  @Test
-  def emptyDescReturnStarsOnLinesTest: Unit = {
+  test("emptyDescReturnStarsOnLinesTest") {
     val test =
       """
        /**
@@ -75,8 +70,7 @@ class DocsParserTest extends Matchers {
     )
   }
 
-  @Test
-  def emptyDescParamStarsOnLinesTest: Unit = {
+  test("emptyDescParamStarsOnLinesTest") {
     val test =
       """
      /**
@@ -93,8 +87,7 @@ class DocsParserTest extends Matchers {
     )
   }
 
-  @Test
-  def simpleNoParamsTest: Unit = {
+  test("simpleNoParamsTest") {
     val test = "/** My Description @return return val*/ "
 
     val res = DocsParser.parse(test)
@@ -104,8 +97,7 @@ class DocsParserTest extends Matchers {
     ))
   }
 
-  @Test
-  def simpleNoReturnTest: Unit = {
+  test("simpleNoReturnTest") {
     val test = "/** My Description @param name name desc @param othername othername desc */ "
 
     val res = DocsParser.parse(test)
@@ -115,8 +107,7 @@ class DocsParserTest extends Matchers {
     ))
   }
 
-  @Test
-  def simpleDescOnlyTest: Unit = {
+  test("simpleDescOnlyTest") {
     val test = "/** My Description */ "
 
     val res = DocsParser.parse(test)
@@ -126,8 +117,7 @@ class DocsParserTest extends Matchers {
     ))
   }
 
-  @Test
-  def descOnlyButWithExprTest: Unit = {
+  test("descOnlyButWithExprTest") {
     val test = "/** My Description */ var -> var + 1"
 
     val res = DocsParser.parse(test)
@@ -137,8 +127,7 @@ class DocsParserTest extends Matchers {
     ))
   }
 
-  @Test
-  def noDocsTest: Unit = {
+  test("noDocsTest") {
     val test = "var -> var + 1"
 
     val res = DocsParser.parse(test)
@@ -146,8 +135,7 @@ class DocsParserTest extends Matchers {
     assert(res.isEmpty)
   }
 
-  @Test
-  def simpleParamsOnlyTest: Unit = {
+  test("simpleParamsOnlyTest") {
     val test = "/** @param name name desc @param othername othername desc */ "
 
     val res = DocsParser.parse(test)
@@ -156,8 +144,7 @@ class DocsParserTest extends Matchers {
     assert(res.filter(_.description.isEmpty).isDefined)
   }
 
-  @Test
-  def markdownParsingTest: Unit = {
+  test("markdownParsingTest") {
     val desc = """My Description:
 
 * Bullet Point

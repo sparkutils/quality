@@ -11,7 +11,6 @@ import org.apache.spark.sql.catalyst.util.ArrayData
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.{DataType, IntegerType, StructType}
 import org.apache.spark.sql.{Column, DataFrame, Encoder, SaveMode}
-import org.junit.Test
 import org.scalatest.FunSuite
 
 import java.util.UUID
@@ -22,10 +21,9 @@ import org.apache.spark.sql.ShimUtils.expression
 
 import scala.language.postfixOps
 
-class BaseFunctionalityTest extends FunSuite with RowTools with SharedTests {
+class BaseFunctionalityTest extends SharedTests with RowTools {
 
-  @Test
-  def flattenResultsTest: Unit = evalCodeGensNoResolve {
+  test("flattenResultsTest") { evalCodeGensNoResolve {
     val rules = genRules(27, 27)
     val rulecount = rules.ruleSets.map( s => s.rules.size).sum
 
@@ -42,10 +40,9 @@ class BaseFunctionalityTest extends FunSuite with RowTools with SharedTests {
 
     // it's sufficient to run the results for this test, if it can't be encoded it will throw on count
     assert(rulecount * (toWrite + 1) == exploded.count(), "exploded count size was unexpected")
-  }
+  } }
 
-  @Test
-  def flattenResultsWithMissingTest: Unit = evalCodeGensNoResolve {
+  test("flattenResultsWithMissingTest") { evalCodeGensNoResolve {
     val rules = genRules(27, 27)
     val rulecount = rules.ruleSets.map( s => s.rules.size).sum
 
@@ -72,7 +69,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with SharedTests {
 
     // it's sufficient to run the results for this test, if it can't be encoded it will throw on count
     assert(rulecount * (toWrite + 1) == exploded.count(), "exploded count size was unexpected")
-  }
+  } }
 /*
   @Test // 3.2 is random when the deserializer is not pushed through the planner / query execution phases - which is nice
   def loadsOfFlattens: Unit = loadsOf(flattenResultsTest)
@@ -94,8 +91,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with SharedTests {
   @Test // 3.2 is random - which is nice
   def loadsOfFlattensReduced: Unit = loadsOf(flattenResultsTestReduced, 30) // 300 takes too long
 
-  @Test
-  def flattenResultsTestReduced: Unit = evalCodeGensNoResolve {
+  test("flattenResultsTestReduced") { evalCodeGensNoResolve {
     val rules = genRules(27, 27)
     val rulecount = rules.ruleSets.map( s => s.rules.size).sum
 
@@ -114,15 +110,13 @@ class BaseFunctionalityTest extends FunSuite with RowTools with SharedTests {
     assert(rulecount * (writeRows + 1) == res, "exploded count size was unexpected")
   }
 */
-  @Test
-  def verifyResultExprDSL: Unit = evalCodeGens {
+  test("verifyResultExprDSL") {  evalCodeGens {
     assert(sparkSession.range(1).selectExpr("passed() p", "soft_failed() s", "disabled_rule() d", "failed() f")
       .select(expr("*"), passed as "p1", soft_failed as "s1", disabled_rule as "d1", failed as "f1")
       .filter("p1 = p and s1 = s and d1 = d and f1 = f").count == 1)
-  }
+  }}
 
-  @Test
-  def longPairEqual: Unit = evalCodeGens {
+  test("longPairEqual") { evalCodeGens {
     val s = sparkSession
     import s.implicits._
     val (seq, ceq) = sparkSession.range(1).selectExpr("120 a_lower", "304 a_higher", "120 b_lower", "304 b_higher").
@@ -130,10 +124,10 @@ class BaseFunctionalityTest extends FunSuite with RowTools with SharedTests {
 
     assert(ceq)
     assert(seq)
-  }
+  }}
 
-  @Test // probabilityIn is covered by bloomtests, flatten by explodeResultsTest
-  def verifySimpleExprs: Unit = evalCodeGens {
+  // probabilityIn is covered by bloomtests, flatten by explodeResultsTest
+  test("verifySimpleExprs") { evalCodeGens {
 
 //    val log = LogManager.getLogger("Dummy")
 //    log.error("OIOIOIO")
@@ -170,27 +164,24 @@ class BaseFunctionalityTest extends FunSuite with RowTools with SharedTests {
       case SimpleRes(_, _, _, -1, _, 1, _, _, _, _, _, _, _, _) => true
       case _ => false
     })
-  }
+  }}
 
-  @Test
-  def typeCheckFlatten: Unit = evalCodeGens {
+  test("typeCheckFlatten") { evalCodeGens {
     doTypeCheck("flattenResults(1)", Seq("cannot resolve", "overallResult","however, 1 is of int type"))
-  }
+  }}
 
-  @Test
-  def typeCheckPackInts: Unit = evalCodeGens {
+  test("typeCheckPackInts") { evalCodeGens {
     val tests = Seq("cannot resolve", "requires int type","however, a is of string type")
     doTypeCheck("packInts(1, 'a')", tests :+ "parameter 2") // argument for <3.4
     doTypeCheck("packInts('a', 1)", tests :+ "parameter 1")
-  }
+  }}
 
-  @Test
-  def typeCheckProbability: Unit = evalCodeGens {
+  test("typeCheckProbability") { evalCodeGens {
     val tests = Seq("cannot resolve", "requires (int or bigint) type")
     doTypeCheck("probability('a')", tests :+ "however, a is of string type")
     doTypeCheck("probability(1.02)", tests :+ "however, 1.02 is of decimal(3,2) type") // NB will be double in Spark 3.0
     doTypeCheck(probability(lit(1.02)), tests :+ "however, 1.02 is of double type") // double as the lit input is a double
-  }
+  }}
 
   def doTypeCheck(eval: String, containsTests: Seq[String]) : Unit =
     doTypeCheck(expr(eval), containsTests)
@@ -232,17 +223,13 @@ class BaseFunctionalityTest extends FunSuite with RowTools with SharedTests {
     }
   }
 
-  @Test
-  def positiveProbResults: Unit = doSimpleOverallEval(simplePassedProbabilityRule, Passed)
+  test("positiveProbResults") { doSimpleOverallEval(simplePassedProbabilityRule, Passed) }
 
-  @Test
-  def negativeProbResults: Unit = doSimpleOverallEval(simpleFailedProbabilityRule, Failed)
+  test("negativeProbResults") { doSimpleOverallEval(simpleFailedProbabilityRule, Failed) }
 
-  @Test
-  def positiveProbResultsOverridden: Unit = doSimpleOverallEval(simplePassedProbabilityRule.withProbablePass(0.95), Failed)
+  test("positiveProbResultsOverridden") { doSimpleOverallEval(simplePassedProbabilityRule.withProbablePass(0.95), Failed) }
 
-  @Test
-  def negativeProbResultsOverridden: Unit = doSimpleOverallEval(simpleFailedProbabilityRule.withProbablePass(0.5), Passed)
+  test("negativeProbResultsOverridden") { doSimpleOverallEval(simpleFailedProbabilityRule.withProbablePass(0.5), Passed) }
 
   val simpleDisabledRule = RuleSuite(Id(1,1), Seq(
     RuleSet(Id(50, 1), Seq(
@@ -250,8 +237,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with SharedTests {
     ))
   ))
 
-  @Test
-  def disabledOverallShouldBePassed: Unit = doSimpleOverallEval(simpleDisabledRule, Passed)
+  test("disabledOverallShouldBePassed") { doSimpleOverallEval(simpleDisabledRule, Passed) }
 
   val simplePrimitiveButNotLiteralRule = RuleSuite(Id(1,1), Seq(
     RuleSet(Id(50, 1), Seq(
@@ -265,8 +251,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with SharedTests {
     ))
   ))
 
-  @Test
-  def oddBoxingIssueShouldRun: Unit = doSimpleOverallEval(simplePrimitiveButNotLiteralRule, null) // we don't care about the result
+  test("oddBoxingIssueShouldRun") { doSimpleOverallEval(simplePrimitiveButNotLiteralRule, null) } // we don't care about the result
 
   def doSimpleOverallEval(ruleSuite: RuleSuite, expected: RuleResult): Unit =  evalCodeGens {
     import com.sparkutils.quality.implicits._
@@ -289,14 +274,12 @@ class BaseFunctionalityTest extends FunSuite with RowTools with SharedTests {
     assert(res2.head._2 == res.head.details)
   }
 
-  @Test
-  def testPrintExpr(): Unit = funNRewrites {
+  test("testPrintExpr") { funNRewrites {
     doTestPrint("Expression toStr is ->", "my message is", "my message is", "plus(1, 1, lambda", "printExpr")
-  }
+  }}
 
   // 2.4 doesn't support forceInterpreted so we can't test that it _doesn't_ compile, databricks is cluster based so we'll not be able to capture it without dumping to files
-  @Test
-  def testPrintCode(): Unit = not_Cluster{ v3_2_and_above {
+  test("testPrintCode") { not_Cluster{ v3_2_and_above {
     // using eval we shouldn't get output
     forceInterpreted {  {
       doTestPrint(null, "my message is", null, null, "printCode")
@@ -313,7 +296,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with SharedTests {
         doTestPrint(PrintCode(expression(lit(""))).msg, "my message is", "my message is", "LambdaVariable - b", "printCode")
       }
     }
-  }}
+  }}}
 
   def doTestPrint(default: String, custom: String, customTest: String, addTest: String, expr: String): Unit = {
     import com.sparkutils.quality._
@@ -347,8 +330,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with SharedTests {
     assertAdd()
   }
 
-  @Test
-  def testComparableResults: Unit = evalCodeGensNoResolve {
+  test("testComparableResults") { evalCodeGensNoResolve {
     val rules = genRules(27, 27)
     val rulecount = rules.ruleSets.map( s => s.rules.size).sum
 
@@ -375,10 +357,9 @@ class BaseFunctionalityTest extends FunSuite with RowTools with SharedTests {
 
     unioned.head
     assert(unioned.count == df.count)
-  }
+  }}
 
-  @Test
-  def testComparableResultsDifferentKeysAndMapValue: Unit = evalCodeGensNoResolve {
+  test("testComparableResultsDifferentKeysAndMapValue") { evalCodeGensNoResolve {
     val s = sparkSession
     import s.implicits._
 
@@ -432,10 +413,9 @@ class BaseFunctionalityTest extends FunSuite with RowTools with SharedTests {
 
     doCheck(Seq(Holder(NestedStruct(1, Map(12 -> MapArray(Seq(map))))), Holder(NestedStruct(1, Map(1 -> MapArray(Seq(map)))))))
     doCheck(Seq(Holder(NestedStruct(1, Map(1 -> MapArray(Seq(map))))), Holder(NestedStruct(1, Map(1 -> MapArray(Seq(map)))))), true)
-  }
+  }}
 
-  @Test
-  def testCompareWithArrays: Unit = evalCodeGensNoResolve {
+  test("testCompareWithArrays") { evalCodeGensNoResolve {
     // testComparableResult does a test against the DQ results so hits nested maps and structs,
     // but there aren't arrays there so that code isn't tested
 
@@ -466,10 +446,9 @@ class BaseFunctionalityTest extends FunSuite with RowTools with SharedTests {
 
     unioned.head
     assert(unioned.count == 1) // because all 4 are identical
-  }
+  }}
 
-  @Test
-  def testCompareWithArraysOrderingAndReverse: Unit = evalCodeGensNoResolve {
+  test("testCompareWithArraysOrderingAndReverse") { evalCodeGensNoResolve {
     // verifies it works in a sort
 
     val map = Map(1 -> 1, 2 -> 2, 3 -> 3, 4 -> 4)
@@ -504,10 +483,9 @@ class BaseFunctionalityTest extends FunSuite with RowTools with SharedTests {
       case (map,index) =>
         assert(map.seq(0) == maps(index).toMap) // because all 4 are identical
     }
-  }
+  }}
 
-  @Test
-  def testCompareWithStructsReverseAndNested: Unit = evalCodeGensNoResolve {
+  test("testCompareWithStructsReverseAndNested") { evalCodeGensNoResolve {
 
     val map = Map(1 -> 1, 2 -> 2, 3 -> 3, 4 -> 4)
     val maps = (0 to 4).map(i => map.mapValues(_ * i))
@@ -537,10 +515,9 @@ class BaseFunctionalityTest extends FunSuite with RowTools with SharedTests {
 
     }
 
-  }
+  }}
 
-  @Test
-  def mapArrays(): Unit = {
+  test("mapArrays") {
     val ar = ArrayData.toArrayData(Seq(0,1,2,3,4)) // Force GenericArrayData instead of UnsafeArrayData
     val nar = Arrays.mapArray(ar, IntegerType, _.asInstanceOf[Integer] + 1)
     assert((0 until 5).forall(i => nar(i) == i + 1))
@@ -550,8 +527,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with SharedTests {
     assert((0 until 5).forall(i => nar2(i) == i))
   }
 
-  @Test
-  def scalarSubqueryAsTrigger(): Unit = evalCodeGensNoResolve {
+  test("scalarSubqueryAsTrigger") { evalCodeGensNoResolve {
     v3_4_and_above {
       // assert that using a join to test with is fine even when nested
       val s = sparkSession
@@ -584,18 +560,16 @@ class BaseFunctionalityTest extends FunSuite with RowTools with SharedTests {
           throw t
       }
     }
-  }
+  }}
 
-  @Test
-  def functionParameterSizes(): Unit = try {
+  test("functionParameterSizes") { try {
     sparkSession.sql("select inc(1,34,3243,666)")
     fail("Should have thrown")
   } catch {
     case QualityException(m,_) if m.contains("counts are 1, 0, 2") => ()
-  }
+  }}
 
-  @Test
-  def testRuleResult(): Unit = evalCodeGensNoResolve { funNRewrites {
+  test("testRuleResult") {  evalCodeGensNoResolve { funNRewrites {
     val rules = genRules(27, 27)
 
     val toWrite = 1400 // writeRows
@@ -603,10 +577,9 @@ class BaseFunctionalityTest extends FunSuite with RowTools with SharedTests {
     val df = taddDataQuality(dataFrameLong(toWrite, 27, ruleSuiteResultType, null), rules)
 
     doTheRuleResultTest(df, toWrite)
-  } }
+  } }}
 
-  @Test
-  def testRuleResultDetails(): Unit = evalCodeGensNoResolve { funNRewrites {
+  test("testRuleResultDetails") { evalCodeGensNoResolve { funNRewrites {
     val rules = genRules(27, 27)
 
     val toWrite = 1400 // writeRows
@@ -615,7 +588,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with SharedTests {
 
     doTheRuleResultTest(df.selectExpr("rule_Suite_Result_Details(DataQuality) DataQuality"), toWrite)
     doTheRuleResultTest(df.select(rule_suite_result_details(col("DataQuality")) as "DataQuality"), toWrite)
-  } }
+  } } }
 
   def doTheRuleResultTest(df: DataFrame, toWrite: Int): Unit = {
     val s = sparkSession
@@ -644,8 +617,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with SharedTests {
     assert(hasNulls == 0)
   }
 
-  @Test
-  def testExpressionsWithAggregate(): Unit = evalCodeGensNoResolve { funNRewrites {
+  test("testExpressionsWithAggregate") { evalCodeGensNoResolve { funNRewrites {
     val rowrs = RuleSuite(Id(11, 2), Seq(RuleSet(Id(21, 1), Seq(
       Rule(Id(40, 3), ExpressionRule("iseven(id)"))
     ))), lambdaFunctions = Seq(LambdaFunction("iseven", "p -> p % 2 = 0", Id(1020, 2))))
@@ -700,11 +672,9 @@ class BaseFunctionalityTest extends FunSuite with RowTools with SharedTests {
 
     val obj = yaml.load[Long](res.ruleSetResults(Id(20,1))(Id(30,3)).ruleResult);
     assert(obj == 499500L)
-  } }
+  } }}
 
-
-  @Test
-  def testExpressionsWithFields(): Unit = evalCodeGensNoResolve {
+  test("testExpressionsWithFields") { evalCodeGensNoResolve {
     val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
       Rule(Id(30, 3), ExpressionRule("a")),
       Rule(Id(31, 3), ExpressionRule("b")),
@@ -729,10 +699,9 @@ class BaseFunctionalityTest extends FunSuite with RowTools with SharedTests {
       processed.selectExpr("rule_result(expressionResults, pack_ints(10,2), pack_ints(20,1), pack_ints(31,3)) rr")
         .as[String].head
     assert(gres == "b")
-  }
+  }}
 
-  @Test
-  def updateFields(): Unit = evalCodeGens {
+  test("updateFields") { evalCodeGens {
     val s = sparkSession
     import s.implicits._
 
@@ -759,57 +728,59 @@ class BaseFunctionalityTest extends FunSuite with RowTools with SharedTests {
     assert(b2.apply(0).name == "c")
 
     assert(schema2.fields(0).dataType.asInstanceOf[StructType].fields.length == 2)
-  }
+  }}
 
-  @Test
-  def checkMinimumLengthWorks(): Unit =
+  test("checkMinimumLengthWorks") {
     try {
       sparkSession.range(1).selectExpr("hash_with()").head
       fail("should have thrown")
     } catch {
       case t: Throwable if t.getMessage.contains("A minimum of 2 parameters is required") =>
         ()
-    }
+    }}
 
-  @Test
-  def softFail: Unit = resultChecker(
+  test("softFail") { resultChecker(
     rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
       Rule(Id(30, 3), ExpressionRule("softFail(id > 5)")),
       Rule(Id(31, 3), ExpressionRule("softFail(id > 5)")),
       Rule(Id(32, 3), ExpressionRule("softFail(id > 5)"))
     )))), (Passed,Passed), _.forall(_ == SoftFailed))
+  }
 
-  @Test
-  def failedOnOne: Unit = resultChecker(
-    rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
-      Rule(Id(30, 3), ExpressionRule("id > 5")),
-      Rule(Id(31, 3), ExpressionRule("softFail(id > 5)")),
-      Rule(Id(32, 3), ExpressionRule("softFail(id > 5)"))
-    )))), (Failed, Failed), _.toSeq == Seq(Failed, SoftFailed, SoftFailed))
+  test("failedOnOne") {
+    resultChecker(
+      rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+        Rule(Id(30, 3), ExpressionRule("id > 5")),
+        Rule(Id(31, 3), ExpressionRule("softFail(id > 5)")),
+        Rule(Id(32, 3), ExpressionRule("softFail(id > 5)"))
+      )))), (Failed, Failed), _.toSeq == Seq(Failed, SoftFailed, SoftFailed))
+  }
 
-  @Test
-  def probabilityOnThree: Unit = resultChecker(
+  test("probabilityOnThree") { resultChecker(
     rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
       Rule(Id(30, 3), ExpressionRule("softFail(id > 5)")),
       Rule(Id(31, 3), ExpressionRule("softFail(id > 5)")),
       Rule(Id(32, 3), ExpressionRule("85.0"))
     )))), (Passed, Passed), _.toSeq == Seq(SoftFailed, SoftFailed, Probability(85)))
+  }
 
-  @Test
-  def disabled: Unit = resultChecker(
-    rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
-      Rule(Id(30, 3), ExpressionRule("'disabled'")),
-      Rule(Id(31, 3), ExpressionRule("'disabled'")),
-      Rule(Id(32, 3), ExpressionRule("'disabled'"))
-    )))), (Passed, Passed), _.toSeq == Seq(DisabledRule, DisabledRule, DisabledRule))
+  test("disabled") {
+    resultChecker(
+      rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+        Rule(Id(30, 3), ExpressionRule("'disabled'")),
+        Rule(Id(31, 3), ExpressionRule("'disabled'")),
+        Rule(Id(32, 3), ExpressionRule("'disabled'"))
+      )))), (Passed, Passed), _.toSeq == Seq(DisabledRule, DisabledRule, DisabledRule))
+  }
 
-  @Test
-  def mixedIgnore: Unit = resultChecker(
-    rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
-      Rule(Id(30, 3), ExpressionRule("softFail(id > 6)")),
-      Rule(Id(31, 3), ExpressionRule("'Passed'")),
-      Rule(Id(32, 3), ExpressionRule("'disabled'"))
-    )))), (Passed, Passed), _.toSeq == Seq(SoftFailed, Passed, DisabledRule))
+  test("mixedIgnore") {
+    resultChecker(
+      rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+        Rule(Id(30, 3), ExpressionRule("softFail(id > 6)")),
+        Rule(Id(31, 3), ExpressionRule("'Passed'")),
+        Rule(Id(32, 3), ExpressionRule("'disabled'"))
+      )))), (Passed, Passed), _.toSeq == Seq(SoftFailed, Passed, DisabledRule))
+  }
 
   def resultChecker(rs: RuleSuite, overalls: (RuleResult, RuleResult), comparison: Iterable[RuleResult] => Boolean): Unit = evalCodeGens {
     import quality.implicits._
@@ -824,8 +795,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with SharedTests {
     assert(comparison(rsres.ruleResults.values))
   }
 
-  @Test
-  def softShouldShowPassed(): Unit = not2_4{ evalCodeGens {
+  test("softShouldShowPassed") { not2_4{ evalCodeGens {
     val rs =
       RuleSuite(Id(101, 1), List(RuleSet(Id(101, 1), List(
         Rule(Id(202, 2), ExpressionRule(s"""softFail(
@@ -901,7 +871,7 @@ class BaseFunctionalityTest extends FunSuite with RowTools with SharedTests {
       Map(Passed -> 6, SoftFailed -> 2),
       Map(Passed -> 6, SoftFailed -> 2)
     ))
-  } }
+  } } }
 }
 
 object Holder {

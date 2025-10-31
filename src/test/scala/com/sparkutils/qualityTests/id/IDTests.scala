@@ -27,12 +27,9 @@ import scala.jdk.CollectionConverters._
 
 class IDTests extends SharedTests {
 
-  @Test
-  def rountTripRandom: Unit = doRoundTripGenericLongBasedID(model.RandomID)
-  @Test
-  def rountTripProvided: Unit = doRoundTripGenericLongBasedID(model.ProvidedID)
-  @Test
-  def rountTripFields: Unit = doRoundTripGenericLongBasedID(model.FieldBasedID)
+  test("rountTripRandom") { doRoundTripGenericLongBasedID(model.RandomID) }
+  test("rountTripProvided") { doRoundTripGenericLongBasedID(model.ProvidedID) }
+  test("rountTripFields") { doRoundTripGenericLongBasedID(model.FieldBasedID) }
 
   def doRoundTripGenericLongBasedID(idType: IDType): Unit =  {
 
@@ -58,8 +55,7 @@ class IDTests extends SharedTests {
     assert(serder.base64 == base64ID)
   }
 
-  @Test
-  def assertsOnGuaranteedUniqueID: Unit = {
+  test("assertsOnGuaranteedUniqueID") {
 
     var passed = false
     try {
@@ -109,8 +105,7 @@ class IDTests extends SharedTests {
     assert(passed == false, "Should have thrown given larger than 41bit timestamp")
   }
 
-  @Test
-  def roundTripGuaranteedUniqueIDLocalMac: Unit = {
+  test("roundTripGuaranteedUniqueIDLocalMac") {
     doRoundTripGuaranteedUniqueID(model.localMAC)
   }
 
@@ -135,14 +130,12 @@ class IDTests extends SharedTests {
   /***
    * 66-16-a-ffffffa5-fffffff8-fffffff3 being created on gitlab but not serialized properly
    */
-  @Test
-  def guaranteedUniqueIDMACAddressOverflowTest: Unit = {
+  test("guaranteedUniqueIDMACAddressOverflowTest") {
     val hardwareAddress = Array[Byte](0xffffffff, 0x0, 0xa, 0xffffffa5, 0xfffffff8, 0xfffffff3)
     doRoundTripGuaranteedUniqueID(hardwareAddress)
   }
 
-  @Test
-  def testGuaranteedUniqueIDOps: Unit = {
+  test("testGuaranteedUniqueIDOps") {
     import java.net._
 
     val nonNulls = SparkTestUtils.enumToScala(NetworkInterface.getNetworkInterfaces) map (_.getHardwareAddress) filter (_ != null)
@@ -176,8 +169,7 @@ class IDTests extends SharedTests {
     assert(ops.ms == serder.ms, "Serialised after ms re-evaluation should be same as original")
   }
 
-  @Test
-  def testRNGIDGen: Unit = evalCodeGensNoResolve {
+  test("testRNGIDGen") { evalCodeGensNoResolve {
     import com.sparkutils.quality._
     registerQualityFunctions()
 
@@ -194,10 +186,9 @@ class IDTests extends SharedTests {
 
     val rngExplodedSQL = df.selectExpr("*", "rngid('rng_id') as rng_id").selectExpr("id","rng_id.*")
     testRes(rngExplodedSQL)
-  }
+  } }
 
-  @Test
-  def testRNGIDGenNonJump: Unit = evalCodeGensNoResolve {
+  test("testRNGIDGenNonJump") { evalCodeGensNoResolve {
     import com.sparkutils.quality._
     registerQualityFunctions()
 
@@ -214,53 +205,44 @@ class IDTests extends SharedTests {
     val df = sparkSession.range(0, 6000)
     val rngExploded = df.withColumn("rng_id", nonJump("rng_id")).selectExpr("id","rng_id.*")
     testRes(rngExploded)
-  }
+  } }
 
-  @Test
-  def testSHA256IDGen: Unit = evalCodeGensNoResolve  {
+  test("testSHA256IDGen") { evalCodeGensNoResolve  {
     doFieldGenTest("SHA-256", "digestToLongsStruct", longCount = 4)
-  }
+  } }
 
-  @Test
-  def testMD5IDGen: Unit = evalCodeGensNoResolve  {
+  test("testMD5IDGen") { evalCodeGensNoResolve  {
     doFieldGenTest("MD5", "digestToLongsStruct")
-  }
+  } }
 
-  @Test
-  def testSHA256IDGenHashFun: Unit = evalCodeGensNoResolve  {
+  test("testSHA256IDGenHashFun") { evalCodeGensNoResolve  {
     doFieldGenTest("SHA-256", "hashWithStruct", longCount = 4)
-  }
+  } }
 
-  @Test
-  def testMD5IDGenHashFun: Unit = evalCodeGensNoResolve  {
+  test("testMD5IDGenHashFun") { evalCodeGensNoResolve  {
     doFieldGenTest("MD5", "hashWithStruct")
-  }
+  } }
 
-  @Test
-  def testMURMUR3_128IDGenHashFun: Unit = evalCodeGensNoResolve  {
+  test("testMURMUR3_128IDGenHashFun") { evalCodeGensNoResolve  {
     doFieldGenTest("MURMUR3_128", "hashWithStruct", "hashFieldBasedID", HashFunctionFactory(_))
-  }
+  } }
 
-  @Test
-  def testXXH3IDGenZAHashFun: Unit = evalCodeGensNoResolve  {
+  test("testXXH3IDGenZAHashFun") { evalCodeGensNoResolve  {
     doFieldGenTest("XXH3", "zaHashLongsWithStruct", "zaLongsFieldBasedID", ZALongTupleHashFunctionFactory)
-  }
+  } }
 
-  @Test
-  def testMURMUR3_128IDZAGenHashFun: Unit = evalCodeGensNoResolve  {
+  test("testMURMUR3_128IDZAGenHashFun") { evalCodeGensNoResolve  {
     doFieldGenTest("MURMUR3_128", "zaHashLongsWithStruct", "zaLongsFieldBasedID", ZALongTupleHashFunctionFactory)
-  }
+  } }
 
-  @Test
-  def testMURMUR3IDZAGenHashFun: Unit = evalCodeGensNoResolve  {
+  test("testMURMUR3IDZAGenHashFun") { evalCodeGensNoResolve  {
     doFieldGenTest("MURMUR3", "zaHashWithStruct", "zaFieldBasedID", ZALongHashFunctionFactory, 1)
-  }
+  } }
 
   /**
    * should generate a 32bit which is padded to 64, fake digest to trigger this
    */
-  @Test
-  def testFakeIDGenDigestFun: Unit = not_Cluster {
+  test("testFakeIDGenDigestFun") { not_Cluster {
     class TwoByteProvider extends Provider("TwoByte", 0.1, "fake digest") {
       put("MessageDigest.TwoByte", classOf[TwoByteDigest].getName)
     }
@@ -268,15 +250,14 @@ class IDTests extends SharedTests {
     evalCodeGensNoResolve  {
       doFieldGenTest("TwoByte", "digestToLongsStruct", digestFactory = MessageDigestFactory, longCount = 1)
     }
-  }
+  } }
 
   /**
    * should generate a 32bit which is padded to 64
    */
-  @Test
-  def testAdlerIDGenHashFun: Unit = evalCodeGensNoResolve  {
+  test("testAdlerIDGenHashFun") { evalCodeGensNoResolve  {
     doFieldGenTest("ADLER32", "hashWithStruct", "hashFieldBasedID", HashFunctionFactory(_), 1)
-  }
+  } }
 
   def doFieldGenTest(digestImpl: String, digestFun: String, fieldBasedId: String = "fieldBasedID", digestFactory: String => DigestFactory = MessageDigestFactory, longCount: Int = 2 ): Unit = {
     import com.sparkutils.quality._
@@ -314,8 +295,7 @@ class IDTests extends SharedTests {
 
   }
 
-  @Test
-  def testMurmur3: Unit = evalCodeGensNoResolve {
+  test("testMurmur3") { evalCodeGensNoResolve {
     import com.sparkutils.quality._
     registerQualityFunctions()
     val s = sparkSession
@@ -337,10 +317,9 @@ class IDTests extends SharedTests {
     // same with text version
     val md5Res = df.selectExpr("*", s"murmur3ID('md5_id', f1, f2, f3) as md5_id" ).selectExpr("id","md5_id.*")
     testRes(md5Res)
-  }
+  } }
 
-  @Test
-  def testUniqueIDGen: Unit = evalCodeGensNoResolve {
+  test("testUniqueIDGen") { evalCodeGensNoResolve {
     import com.sparkutils.quality._
     registerQualityFunctions()
 
@@ -373,10 +352,9 @@ class IDTests extends SharedTests {
     val sqlID = model.parseID(sqlHead).asInstanceOf[GuaranteedUniqueID]
     assert(sqlID.mac.zip( gen.mac ).forall(p => p._1 == p._2), "Should have had the same mac if the right algo was used")
     assert(sqlID.base == gen.base, "Should have had the same base if the right algo was used")
-  }
+  } }
 
-  @Test
-  def testIDEqual: Unit = evalCodeGensNoResolve {
+  test("testIDEqual") { evalCodeGensNoResolve {
     import com.sparkutils.quality._
     registerQualityFunctions()
 
@@ -389,10 +367,9 @@ class IDTests extends SharedTests {
     val renamed = cached.selectExpr("unique_id_base as unid_base", "unique_id_i0 as unid_i0", "unique_id_i1 as unid_i1")
     val after = renamed.join(cached, expr("idEqual('unique_id', 'unid')")).count
     assert(after == count, "idEqual should have joined them fully")
-  }
+  } }
 
-  @Test
-  def testIDBase64: Unit = evalCodeGensNoResolve {
+  test("testIDBase64") { evalCodeGensNoResolve {
     import com.sparkutils.quality._
     registerQualityFunctions()
 
@@ -446,10 +423,9 @@ class IDTests extends SharedTests {
     assert(tester.nullString.isEmpty)
     assert(tester.wrongSize.isEmpty)
     assert(tester.junkString.isEmpty)
-  }
+  } }
 
-  @Test
-  def testUUIDRoundTripping: Unit = evalCodeGensNoResolve {
+  test("testUUIDRoundTripping") { evalCodeGensNoResolve {
     import com.sparkutils.quality._
     registerQualityFunctions()
 
@@ -461,10 +437,9 @@ class IDTests extends SharedTests {
       row =>
         assert(row.getString(1) == row.getString(2))//uuid should be rere
     }
-  }
+  } }
 
-  @Test
-  def equalsTest: Unit = {
+  test("equalsTest") {
     val a1 = Array.ofDim[Long](1)
     val a2 = Array(0L, 1L)
     val a3 = Array(1L, 1L)

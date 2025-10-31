@@ -16,8 +16,7 @@ class RNGTest extends FunSuite with RowTools with TestUtils {
 
   type Bytes = Array[Byte]
 
-  @Test
-  def rowidBytesParquetTest: Unit = { // evalCodeGens for the big rows we need to let it do it's thing
+  test("rowidBytesParquetTest") { // evalCodeGens for the big rows we need to let it do it's thing
     val numRows = 10000//00000
     import com.sparkutils.quality.spark.bloom.parquet._
 
@@ -116,8 +115,7 @@ class RNGTest extends FunSuite with RowTools with TestUtils {
     assert( 0 == countFalsePositive, s"Should have had 0 original false positives instead had ${countFalsePositive} per ${numRows * 11} collisions")
   }
 
-  @Test
-  def rowidLongParquetTest: Unit = forceInterpreted { // evalCodeGens for the big rows we need to let it do it's thing
+  test("rowidLongParquetTest") { forceInterpreted { // evalCodeGens for the big rows we need to let it do it's thing
     val numRows = 10000//00000
     import com.sparkutils.quality.spark.bloom.parquet._
 
@@ -225,8 +223,7 @@ class RNGTest extends FunSuite with RowTools with TestUtils {
       bf
     }
 
-  @Test
-  def blockParquetTest: Unit = {
+  test("blockParquetTest") {
     val numRows = 10000000//00
     doParquetTest(numRows, bloomAggr = "parquetBloom", fromBytes( ThreadSafeBloomLookupImpl(_)) )
   }
@@ -235,14 +232,12 @@ class RNGTest extends FunSuite with RowTools with TestUtils {
   // took 3 m 0.01 - for 1728 non false rows out of 110000000 total
   // generated bloom map of 1000000000 entries in 10 m
   //before actual count 0    525754959 (525754959) false positives took 10 m
-  @Test
-  def blockParquetBucketedTest: Unit = { //  -Dspark.driver.maxResultSize=4g and 25gb needed for a single host, 4g either way needed probably
+  test("blockParquetBucketedTest") { //  -Dspark.driver.maxResultSize=4g and 25gb needed for a single host, 4g either way needed probably
     val numRows = 1000000000
     doParquetTest(numRows, bloomAggr = "bucketedParquetBloom", fromBytes(ThreadSafeBucketedByteArrayBloomLookupImpl(_)))
   }
 
-  @Test
-  def blockParquetBucketedArrayTest: Unit = { //  -Dspark.driver.maxResultSize=4g -Xmx25g 25gb needed for a single host, 4g either way needed probably
+  test("blockParquetBucketedArrayTest") { //  -Dspark.driver.maxResultSize=4g -Xmx25g 25gb needed for a single host, 4g either way needed probably
     val numRows = 1000000000
     import BloomStruct._
 

@@ -27,26 +27,22 @@ class ReplaceWithMissingAttributesTest extends FunSuite with SharedTests {
     assert(empty(errors))
   }
 
-  @Test
-  def testNoReplace: Unit = {
+  test("testNoReplace") {
     val ruleText = "fieldb > 1"
     doExpressionReplaceWith(ruleText, ruleText, _.nonEmpty)
   }
 
-  @Test
-  def testRuleDisableCoalesce: Unit = {
+  test("testRuleDisableCoalesce") {
     val ruleText = "fieldb > 1"
     doExpressionReplaceWith(s"coalesceIfAttributesMissingDisable($ruleText)", "-2", _.nonEmpty)
   }
 
-  @Test
-  def testRuleReplaceCoalesce: Unit = {
+  test("testRuleReplaceCoalesce") {
     val ruleText = "fieldb > 1"
     doExpressionReplaceWith(s"coalesceIfAttributesMissing($ruleText, 42)", "42", _.nonEmpty)
   }
 
-  @Test
-  def testRuleNoReplaceCoalesce: Unit = {
+  test("testRuleNoReplaceCoalesce") {
     val ruleText = "fielda > 1"
     doExpressionReplaceWith(s"coalesceIfAttributesMissing($ruleText, 42)", ruleText, _.isEmpty)
   }
@@ -73,10 +69,9 @@ class ReplaceWithMissingAttributesTest extends FunSuite with SharedTests {
     doTestCalledLambdaReplace(s"coalesceIfAttributesMissing(theLambda(fielda), 42)", "42")
   }
 
-  @Test
-  def testCalledWithLambdaReplaceCoalesce: Unit = funNRewrites {
+  test("testCalledWithLambdaReplaceCoalesce") { funNRewrites {
     doTestCalledWithLambdaReplace("variable -> coalesceIfAttributesMissing(fieldb > 1, true)", "variable -> true", _.nonEmpty)
-  }
+  }}
 
   def doTestCalledWithLambdaReplace(lambdaText: String, expected: String, empty: Set[RuleError] => Boolean): Unit = {
     val orule = Rule(Id(2,1), ExpressionRule(s"theLambda(fielda)"))
@@ -93,26 +88,22 @@ class ReplaceWithMissingAttributesTest extends FunSuite with SharedTests {
     assert(empty(errors))
   }
 
-  @Test
-  def testCalledWithLambdaNoReplaceCoalesce: Unit = funNRewrites {
+  test("testCalledWithLambdaNoReplaceCoalesce") { funNRewrites {
     doTestCalledWithLambdaReplace("variable -> coalesceIfAttributesMissing(fielda > 1, true)", "variable -> fielda > 1", _.isEmpty)
-  }
+  }}
 
-  @Test
-  def testRuleReplaceWithOutputCoalesce: Unit = {
+  test("testRuleReplaceWithOutputCoalesce") {
     val ruleText = "fieldb > 1"
     val oruleText = "fielda"
     doTestWithOutputReplace(s"coalesceIfAttributesMissing($ruleText, 42)", "42", oruleText, oruleText, _.nonEmpty)
   }
 
-  @Test
-  def testRuleReplaceWithOutputReplaceCoalesce: Unit = {
+  test("testRuleReplaceWithOutputReplaceCoalesce") {
     val ruleText = "fieldb > 1"
     doTestWithOutputReplace(s"coalesceIfAttributesMissing($ruleText, 42)", "42", s"coalesceIfAttributesMissingDisable($ruleText)", "-2", _.nonEmpty)
   }
 
-  @Test
-  def testRuleReplaceWithOutputNoReplaceCoalesce: Unit = {
+  test("testRuleReplaceWithOutputNoReplaceCoalesce") {
     val ruleText = "fieldb > 1"
     val oruleText = "fielda > 1"
     doTestWithOutputReplace(s"coalesceIfAttributesMissing($ruleText, 42)", "42", s"coalesceIfAttributesMissingDisable($oruleText)", oruleText, _.nonEmpty)
@@ -135,20 +126,17 @@ class ReplaceWithMissingAttributesTest extends FunSuite with SharedTests {
     assert(empty(errors))
   }
 
-  @Test
-  def testWithOutputReplaceCoalesce: Unit = {
+  test("testWithOutputReplaceCoalesce") {
     val ruleText = "fielda > 1"
     doTestWithOutputReplace(ruleText, ruleText,"coalesceIfAttributesMissingDisable(fieldb > 1)", "-2", _.nonEmpty)
   }
 
-  @Test
-  def testWithOutputNoReplaceCoalesce: Unit = {
+  test("testWithOutputNoReplaceCoalesce") {
     val ruleText = "fielda > 1"
     doTestWithOutputReplace(ruleText, ruleText,s"coalesceIfAttributesMissingDisable($ruleText)", ruleText, _.isEmpty)
   }
 
-  @Test
-  def testCoalesceNested: Unit = {
+  test("testCoalesceNested") {
     val exprText = "isNull(coalesceIfAttributesMissing( fieldb > 0, coalesceIfAttributesMissing(fieldb < 3, coalesceIfAttributesMissing( twentyfieldsDeep,  fielda <> 19 ) )))"
 
     val expr = processCoalesceIfAttributeMissing( RuleLogicUtils.expr(exprText), names )
@@ -156,8 +144,7 @@ class ReplaceWithMissingAttributesTest extends FunSuite with SharedTests {
     assert(expr == expected)
   }
 
-  @Test
-  def testCoalesceNestedNull: Unit = {
+  test("testCoalesceNestedNull") {
     val exprText = "isNull(coalesceIfAttributesMissing( fieldb > 0, coalesceIfAttributesMissing(fieldb < 3, coalesceIfAttributesMissing( twentyfieldsDeep,  fieldb <> 19 ) )))"
 
     val expr = processCoalesceIfAttributeMissing( RuleLogicUtils.expr(exprText), names )

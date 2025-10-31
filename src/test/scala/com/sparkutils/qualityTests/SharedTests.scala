@@ -6,12 +6,19 @@ import com.sparkutils.testing.{ClassicOnly, ConnectionType}
 import com.sparkutils.testing.sessionStrategies.{GlobalSession, SharedSessions}
 import org.apache.spark.sql.QualitySparkUtils.DatasetBase
 import org.apache.spark.sql.{Dataset, Row}
-import org.scalatest.FunSuite
+import org.scalatest.{BeforeAndAfterAll, FunSuite}
 
-trait SharedTests extends FunSuite with TestUtilsBase with SharedSessions {
+trait SharedTests extends FunSuite with TestUtilsBase with SharedSessions with BeforeAndAfterAll {
 
   override val currentSessionsHolder = GlobalSession
 
+  override def beforeAll(): Unit = {
+    super.beforeAll()
+    // no-op to force it to be created
+    sparkSession.conf
+    cleanupOutput()
+    com.sparkutils.quality.registerQualityFunctions()
+  }
 }
 
 trait TestUtilsBase extends com.sparkutils.testing.TestUtils {

@@ -39,9 +39,9 @@ class AggregatesTest extends SharedTests {
 
 
   // doesn't ever see the number in the map
-  @Test
-  def mapTest: Unit =
+  test("mapTest") {
     doMapTest(identity, mapTestSql)
+  }
 
   val phoneData = Seq(
     PhoneStuff(1, 1, "iphone4", "ios", "celluer1"),
@@ -58,8 +58,7 @@ class AggregatesTest extends SharedTests {
     PhoneStuff(1, 1, "iphone4", "ios", "celluer1")
   )
 
-  @Test
-  def multiGroups(): Unit = evalCodeGens {
+  test("multiGroups") { evalCodeGens {
     val s = sparkSession
     import s.implicits._
 
@@ -107,13 +106,12 @@ class AggregatesTest extends SharedTests {
 
     joined.count() shouldBe expected.count()
     joined.union(expected).distinct().count() shouldBe expected.distinct().count()
-  }
+  } }
 
   /**
    * mapWith nested under a groupBy fails before 0.1.3.1
    */
-  @Test
-  def groupByNestedMapWith(): Unit = evalCodeGens {
+  test("groupByNestedMapWith") { evalCodeGens {
     val s = sparkSession
     import s.implicits._
 
@@ -172,25 +170,24 @@ class AggregatesTest extends SharedTests {
 
     reformattedSUM.count shouldBe pureSQL.count
     reformattedSUM.union(pureSQL).distinct().count shouldBe pureSQL.count
+  } }
+
+  // should see lots of the number in the map, was untested under 0.4's
+  test("mapTestSort") {
+    doMapTest(_.sort("id"), mapTestSql)
+  }
+
+  // doesn't ever see the number in the map
+  test("mapDeprecatedTest") {
+    doMapTest(identity, mapDeprecatedTestSql)
   }
 
   // should see lots of the number in the map, was untested under 0.4's
-  @Test
-  def mapTestSort: Unit =
-    doMapTest(_.sort("id"), mapTestSql)
-
-  // doesn't ever see the number in the map
-  @Test
-  def mapDeprecatedTest: Unit =
-    doMapTest(identity, mapDeprecatedTestSql)
-
-  // should see lots of the number in the map, was untested under 0.4's
-  @Test
-  def mapDeprecatedTestSort: Unit =
+  test("mapDeprecatedTestSort") {
     doMapTest(_.sort("id"), mapDeprecatedTestSql)
+  }
 
-  @Test
-  def sumTestDSL: Unit = evalCodeGensNoResolve {
+  test("sumTestDSL") { evalCodeGensNoResolve {
     val s = sparkSession
     import s.implicits._
     val df = sparkSession.range(1, 20).union(sparkSession.range(1,2).map(_ => null.asInstanceOf[Long]))
@@ -214,10 +211,9 @@ class AggregatesTest extends SharedTests {
     debug(summedNameFParam.show(1))
 
     assert(summedNameFParam.head().getAs[Double]("aggExpr") ==  (set.sum / set.size), "aggExpr did not have the correct math from NameFParam")
-  }
+  } }
 
-  @Test
-  def evalSumTest: Unit = evalCodeGensNoResolve {
+  test("evalSumTest") { evalCodeGensNoResolve {
     val s = sparkSession
     import s.implicits._
     val df = sparkSession.range(1, 20).union(sparkSession.range(1,2).map(_ => null.asInstanceOf[Long]))
@@ -241,7 +237,7 @@ class AggregatesTest extends SharedTests {
     debug(summedNameFParam.show(1))
 
     assert(summedNameFParam.head().getAs[Double]("aggExpr") ==  (set.sum / set.size), "aggExpr did not have the correct math from NameFParam")
-  }
+  } }
 
   lazy val mapCountExpr = expr("aggExpr('MAP<STRING, LONG>', 1 > 0, mapWith(date || ', ' || product, entry -> entry + 1 ), resultsWith((sum, count) -> sum ) )").as("mapCountExpr")
   lazy val mapDeprecatedCountExpr = expr("aggExpr(1 > 0, mapWith('MAP<STRING, LONG>', date || ', ' || product, entry -> entry + 1 ), resultsWith('MAP<STRING, LONG>', (sum, count) -> sum ) )").as("mapCountExpr")
@@ -255,14 +251,11 @@ class AggregatesTest extends SharedTests {
     doMapCountAggr[String](summed)(t => t._1 + ", "+ t._2)
   }
 
-  @Test
-  def mapAggrCountDSLTest: Unit = doMapStructKeyAggrCountTest(mapStructKeyCountDSL)
+  test("mapAggrCountDSLTest") { doMapStructKeyAggrCountTest(mapStructKeyCountDSL) }
 
-  @Test
-  def mapAggrCountTest: Unit = doMapAggrCountTest(mapCountExpr)
+  test("mapAggrCountTest") { doMapAggrCountTest(mapCountExpr) }
 
-  @Test
-  def mapAggrCountDeprecatedTest: Unit = doMapAggrCountTest(mapDeprecatedCountExpr)
+  test("mapAggrCountDeprecatedTest") { doMapAggrCountTest(mapDeprecatedCountExpr) }
 
   lazy val mapStructKeyCountDSL = agg_expr(MapType(StructType(Seq(StructField("date", StringType), StructField("product", StringType))), LongType), lit(1) > 0,
     map_with(struct(col("date"), col("product")), entry => entry + 1L), return_sum).as("mapCountExpr")
@@ -283,11 +276,9 @@ class AggregatesTest extends SharedTests {
     doMapCountAggr[GenericRowWithSchema](summed)(t => new GenericRowWithSchema(Array(t._1, t._2), structType))
   }
 
-  @Test
-  def mapStructKeyAggrCountTest: Unit = doMapStructKeyAggrCountTest(mapStructKeyCountExpr)
+  test("mapStructKeyAggrCountTest") { doMapStructKeyAggrCountTest(mapStructKeyCountExpr) }
 
-  @Test
-  def mapStructKeyAggrCountDeprecatedTest: Unit = doMapStructKeyAggrCountTest(mapStructKeyCountDeprecatedExpr)
+  test("mapStructKeyAggrCountDeprecatedTest") { doMapStructKeyAggrCountTest(mapStructKeyCountDeprecatedExpr) }
 
   def doMapCountAggr[T](summed: DataFrame)(group : Trade => T): Unit = {
     val res = summed.head().getAs[Map[T, Long]]("mapCountExpr")
@@ -322,11 +313,9 @@ class AggregatesTest extends SharedTests {
     doMapSumAggr[T](summed)
   }
 
-  @Test
-  def mapAggrSumTest: Unit = doMapAggrSumTest[Double](mapSumExpr)
+  test("mapAggrSumTest") { doMapAggrSumTest[Double](mapSumExpr) }
 
-  @Test
-  def mapAggrSumDeprecatedTest: Unit = doMapAggrSumTest[Double](mapSumDeprecatedExpr)
+  test("mapAggrSumDeprecatedTest") { doMapAggrSumTest[Double](mapSumDeprecatedExpr) }
 
   def doMapSumAggr[T: ToDouble](summed: DataFrame): Unit = {
     val i = implicitly[ToDouble[T]]
@@ -355,17 +344,13 @@ class AggregatesTest extends SharedTests {
   lazy val mapDecimalExpr = // if also works but it's not present in the dsl - expr("aggExpr('MAP<STRING, DECIMAL(38,18)>', 1 > 0, mapWith(date || ', ' || product, entry -> entry + IF(ccy='CHF', value, value * ccyrate) ), returnSum() )").as("mapSumExpr")
     expr("aggExpr('MAP<STRING, DECIMAL(38,18)>', 1 > 0, mapWith(date || ', ' || product, entry -> entry + case when ccy='CHF' then value else value * ccyrate end ), returnSum() )").as("mapSumExpr")
 
-  @Test
-  def mapAggrDecimalTest: Unit = doMapAggrSumTest[java.math.BigDecimal](mapDecimalExpr)
+  test("mapAggrDecimalTest") { doMapAggrSumTest[java.math.BigDecimal](mapDecimalExpr) }
 
-  @Test
-  def mapAggrDecimalDSLTest: Unit = doMapAggrSumTest[java.math.BigDecimal](mapDecimalDSL)
+  test("mapAggrDecimalDSLTest") { doMapAggrSumTest[java.math.BigDecimal](mapDecimalDSL) }
 
-  @Test
-  def mapAggrOnePassTest: Unit = doMapAggrOnePassTest(mapSumExpr, mapCountExpr)
+  test("mapAggrOnePassTest") { doMapAggrOnePassTest(mapSumExpr, mapCountExpr) }
 
-  @Test
-  def mapAggrOnePassDeprecatedTest: Unit = doMapAggrOnePassTest(mapSumDeprecatedExpr, mapDeprecatedCountExpr)
+  test("mapAggrOnePassDeprecatedTest") { doMapAggrOnePassTest(mapSumDeprecatedExpr, mapDeprecatedCountExpr) }
 
   /**
    * DecimalPrecision means the type specified in sumWith (that of entry and expected return) is analysed
@@ -386,26 +371,20 @@ class AggregatesTest extends SharedTests {
     assert(expected == rows(0))
   }
 
-  @Test
-  def decimalPrecisionTest = doDecimalPrecisionTest(  expr("aggExpr('DECIMAL(38,18)', dec IS NOT NULL, sumWith(entry -> dec + entry ), returnSum()) as agg" ))
+  test("decimalPrecisionTest") { doDecimalPrecisionTest(  expr("aggExpr('DECIMAL(38,18)', dec IS NOT NULL, sumWith(entry -> dec + entry ), returnSum()) as agg" )) }
 
-  @Test
-  def decimalPrecisionExprDSLTest = doDecimalPrecisionTestF( df => agg_expr(DecimalType(38,18), df("dec").isNotNull, sum_with(entry => df("dec") + entry ), return_sum) as "agg")
+  test("decimalPrecisionExprDSLTest") { doDecimalPrecisionTestF( df => agg_expr(DecimalType(38,18), df("dec").isNotNull, sum_with(entry => df("dec") + entry ), return_sum) as "agg") }
 
-  @Test
-  def decimalPrecisionNO_REWRITETest = doDecimalPrecisionTest(  expr("aggExpr('NO_REWRITE', dec IS NOT NULL, sumWith('DECIMAL(38,18)', entry -> cast( (dec + entry) as DECIMAL(38,18)) ), returnSum('DECIMAL(38,18)')) as agg" ))
+  test("decimalPrecisionNO_REWRITETest") { doDecimalPrecisionTest(  expr("aggExpr('NO_REWRITE', dec IS NOT NULL, sumWith('DECIMAL(38,18)', entry -> cast( (dec + entry) as DECIMAL(38,18)) ), returnSum('DECIMAL(38,18)')) as agg" )) }
 
   //@Test
   //def decimalPrecisionDeprecatedTest = doDecimalPrecisionTest(  "aggExpr(dec IS NOT NULL, sumWith('DECIMAL(38,18)', entry -> cast((dec + entry) as DECIMAL(38,18)) ), returnSum()) as agg" )
 
-  @Test
-  def decimalPrecisionIncTest = doDecimalPrecisionTest(  expr("aggExpr('DECIMAL(38,18)', dec IS NOT NULL, inc(dec), returnSum()) as agg" ))
+  test("decimalPrecisionIncTest") { doDecimalPrecisionTest(  expr("aggExpr('DECIMAL(38,18)', dec IS NOT NULL, inc(dec), returnSum()) as agg" )) }
 
-  @Test
-  def decimalPrecisionIncDSLTest = doDecimalPrecisionTestF( df => agg_expr(DecimalType(38,18), df("dec").isNotNull, inc(df("dec")), return_sum) as "agg" )
+  test("decimalPrecisionIncDSLTest") { doDecimalPrecisionTestF( df => agg_expr(DecimalType(38,18), df("dec").isNotNull, inc(df("dec")), return_sum) as "agg" ) }
 
-  @Test
-  def decimalPrecisionHofTest = funNRewrites {
+  test("decimalPrecisionHofTest") { funNRewrites {
     val sf = LambdaFunction("myinc", "entry -> entry + dec", Id(0,3))
     val sf2 = LambdaFunction("myinc", "(entry, f) -> entry + dec + f", Id(0,3))
     val rf = LambdaFunction("myretsum", "(sum, count) -> sum", Id(0,3))
@@ -426,16 +405,13 @@ class AggregatesTest extends SharedTests {
     doDecimalPrecisionTest( expr("aggExpr('DECIMAL(38,18)', dec IS NOT NULL, myinc(_()), myretsum(_(), _())) as agg" ) )
     // (3) test with partial on sum
     doDecimalPrecisionTest( expr( s"${pre}aggExpr('DECIMAL(38,18)', dec IS NOT NULL, myinc(_(), cast(0.0 as DECIMAL(38,18))), myretsum(_(), _())) ${post}" ) )
-  }
+  } }
 
-  @Test
-  def decimalPrecisionIncExprTest = funNRewrites { doDecimalPrecisionTest( expr(  "aggExpr('DECIMAL(38,18)', dec IS NOT NULL, inc(dec + 0), returnSum()) as agg" ) ) }
+  test("decimalPrecisionIncExprTest") { funNRewrites { doDecimalPrecisionTest( expr(  "aggExpr('DECIMAL(38,18)', dec IS NOT NULL, inc(dec + 0), returnSum()) as agg" ) ) } }
 
-  @Test
-  def decimalPrecisionIncExprDSLTest = funNRewrites { doDecimalPrecisionTestF( df => agg_expr(DecimalType(38,18), df("dec").isNotNull, inc(df("dec") + 0 ), return_sum) as "agg") }
+  test("decimalPrecisionIncExprDSLTest") { funNRewrites { doDecimalPrecisionTestF( df => agg_expr(DecimalType(38,18), df("dec").isNotNull, inc(df("dec") + 0 ), return_sum) as "agg") } }
 
-  @Test
-  def decimalPrecisionNO_REWRITEIncTest = funNRewrites { try {
+  test("decimalPrecisionNO_REWRITEIncTest") { funNRewrites { try {
     doDecimalPrecisionTest( expr( "aggExpr('NO_REWRITE', dec IS NOT NULL, inc('DECIMAL(38,18)', cast( dec as DECIMAL(38,18))), returnSum('DECIMAL(38,18)')) as agg" ) )
     fail("Should have thrown " + INC_REWRITE_GENEXP_ERR_MSG)
   } catch {
@@ -443,10 +419,9 @@ class AggregatesTest extends SharedTests {
       // passed
     case t: Throwable =>
       fail("Should have thrown " + INC_REWRITE_GENEXP_ERR_MSG +" but threw ", t)
-  } }
+  } } }
 
-  @Test
-  def decimalPrecisionDeprecatedIncTest = funNRewrites { doDecimalPrecisionTest(  expr("aggExpr(dec IS NOT NULL, inc('DECIMAL(38,18)', dec ), returnSum('DECIMAL(38,18)')) as agg" ) ) }
+  test("decimalPrecisionDeprecatedIncTest") { funNRewrites { doDecimalPrecisionTest(  expr("aggExpr(dec IS NOT NULL, inc('DECIMAL(38,18)', dec ), returnSum('DECIMAL(38,18)')) as agg" ) ) } }
 
 }
 

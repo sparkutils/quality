@@ -17,8 +17,7 @@ class UserLambdaFunctionCompilationTest extends SharedTests with BeforeAndAfterA
   // le horrible hack for testing
   Testing.setTesting()
 
-  @Test
-  def defaultHofConfigTests: Unit = {
+  test("defaultHofConfigTests") {
     val (simple, simpleimpl, notso, complex) = ("simple", "simpleimpl", "not.so.simple", "complex")
     val expected = Map(simple -> simpleimpl, notso -> complex)
     // verify default loading
@@ -26,8 +25,7 @@ class UserLambdaFunctionCompilationTest extends SharedTests with BeforeAndAfterA
     assert(got == expected)
   }
 
-  @Test
-  def loadHandlers: Unit = {
+  test("loadHandlers") {
     val handlers = Map(classOf[ZipWith].getName -> classOf[DoCodegenFallbackHandler].getName)
     val res1 = loadLambdaCompilationHandlers(handlers)
     assert(res1.head._2.isInstanceOf[DoCodegenFallbackHandler])
@@ -39,8 +37,7 @@ class UserLambdaFunctionCompilationTest extends SharedTests with BeforeAndAfterA
     }
   }
 
-  @Test
-  def convertHandlers: Unit = {
+  test("convertHandlers") {
     try {
       convertToCompilationHandlers(loadLambdaCompilationHandlers(Map(classOf[ZipWith].getName -> classOf[TestMe].getName)))
       assert(false, "Should have thrown")
@@ -54,8 +51,7 @@ class UserLambdaFunctionCompilationTest extends SharedTests with BeforeAndAfterA
     System.clearProperty("quality.lambdaHandlers")
   }
 
-  @Test
-  def loadHandlersViaProperty: Unit = {
+  test("loadHandlersViaProperty") {
     System.setProperty("quality.lambdaHandlers", s"${classOf[ZipWith].getName}=${classOf[ZipWith].getName}")
     try {
       convertToCompilationHandlers()
@@ -80,20 +76,18 @@ class UserLambdaFunctionCompilationTest extends SharedTests with BeforeAndAfterA
     assert(df.as[Integer].collect.head == 2)
   }
 
-  @Test
-  def runDisabledCompilation: Unit = evalCodeGens {
+  test("runDisabledCompilation") { evalCodeGens {
     funNRewrites {
       System.setProperty("quality.lambdaHandlers", s"${classOf[FunN].getName}=${classOf[DoCodegenFallbackHandler].getName}")
       doSimpleNested
     }
-  }
+  } }
 
-  @Test
-  def runNestedCompilation: Unit = evalCodeGens {
+  test("runNestedCompilation") { evalCodeGens {
     funNRewrites {
       doSimpleNested
     }
-  }
+  } }
 
   def doWithFilterHof: Unit = {
     if (SparkTestUtils.skipHofs && !onDatabricks) return
@@ -112,23 +106,20 @@ class UserLambdaFunctionCompilationTest extends SharedTests with BeforeAndAfterA
     assert(df.as[Integer].collect.head == 2)
   }
 
-  @Test
-  def withDefaultHoF: Unit = evalCodeGens {
+  test("withDefaultHoF") { evalCodeGens {
     funNRewrites {
       doWithFilterHof
     }
-  }
+  } }
 
-  @Test
-  def withSpecifiedHoFHandler: Unit = evalCodeGens {
+  test("withSpecifiedHoFHandler") { evalCodeGens {
     funNRewrites {
       sparkSession.sparkContext.setLocalProperty("quality.lambdaHandlers", s"${classOf[ArrayFilter].getName}=${classOf[DoCodegenFallbackHandler].getName}")
       doWithFilterHof
     }
-  }
+  } }
 
-  @Test
-  def runDisabledBottom: Unit = forceCodeGen {
+  test("runDisabledBottom") { forceCodeGen {
 
     def doIt(clearIt: Boolean = false) = {
       reinit()
@@ -179,7 +170,7 @@ class UserLambdaFunctionCompilationTest extends SharedTests with BeforeAndAfterA
         calledTransform.get shouldBe true
       }
     }
-  }
+  } }
 
 
 }

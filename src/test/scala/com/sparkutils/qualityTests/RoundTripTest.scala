@@ -13,8 +13,7 @@ import org.scalatest.FunSuite
 
 class RoundTripTest extends SharedTests with RowTools {
 
-  @Test
-  def verifyPacking(): Unit = {
+  test("verifyPacking") {
     import implicits._
     val ruleId = Id(123,50483)
     val ruleTo = versionedIdTo(ruleId)
@@ -22,8 +21,7 @@ class RoundTripTest extends SharedTests with RowTools {
     assert(ruleId == ruleFrom, "RuleId did not round trip" )
   }
 
-  @Test
-  def ruleEvalToStructAndEncodeBack: Unit = evalCodeGens {
+  test("ruleEvalToStructAndEncodeBack") { evalCodeGens {
     val rules = genRules(27, 27)
     val df = taddDataQuality(dataFrameLong(writeRows, 27, ruleSuiteResultType, null), rules, compileEvals = false) // false for coverage public needs checking
 
@@ -34,10 +32,9 @@ class RoundTripTest extends SharedTests with RowTools {
     val ds = df.select("DataQuality.*").as[RuleSuiteResult]
     // it's sufficient to run the results for this test, if it can't be encoded it will throw on count
     assert(ds.count == writeRows + 1)
-  }
+  } }
 
-  @Test
-  def ruleEvalToOverallAndDetailsAndEncodeBack: Unit = evalCodeGens {
+  test("ruleEvalToOverallAndDetailsAndEncodeBack") { evalCodeGens {
     val rules = genRules(27, 27)
     val df = dataFrameLong(writeRows, 27, ruleSuiteResultType, null).
       transform(taddOverallResultsAndDetailsF(rules))
@@ -51,10 +48,9 @@ class RoundTripTest extends SharedTests with RowTools {
     val dso = df.select("DQ_overallResult")
     // it's sufficient to run the results for this test, if it can't be encoded it will throw on count
     assert(dso.count == writeRows + 1)
-  }
+  } }
 
-  @Test
-  def ruleEvalToStructAndEncodeBackWithUserType: Unit = evalCodeGens {
+  test("ruleEvalToStructAndEncodeBackWithUserType") { evalCodeGens {
     val rules = genRules(27, 27)
     val df = taddDataQuality(dataFrameLong(writeRows, 27, ruleSuiteResultType, null), rules)
 
@@ -69,7 +65,7 @@ class RoundTripTest extends SharedTests with RowTools {
     debug(ds.show)
     // it's sufficient to run the results for this test, if it can't be encoded it will throw on count
     assert(ds.count == writeRows + 1)
-  }
+  } }
 
   // translate into expr's instead of the default
   ///   counter expr, expr to aggregate, evaluation expr of counter and aggregate
@@ -77,8 +73,7 @@ class RoundTripTest extends SharedTests with RowTools {
   /**
    * Disk writing forces compilation
    */
-  @Test
-  def ruleEvalAndBackViaDisk: Unit = evalCodeGens {
+  test("ruleEvalAndBackViaDisk") { evalCodeGens {
     registerQualityFunctions()
     val rules = genRules(27, 27)
     val df = dataFrameLong(writeRows, 27, ruleSuiteResultType, null)
@@ -91,13 +86,12 @@ class RoundTripTest extends SharedTests with RowTools {
 
     // it's sufficient to run the results for this test, if it can't be encoded it will throw on count
     assert(rere.count == writeRows + 1)
-  }
+  } }
 
   /**
    * Verify roundtripping of storage
    */
-  @Test
-  def ruleSuiteRoundTrippingToDF: Unit = evalCodeGens {  funNRewrites {
+  test("ruleSuiteRoundTrippingToDF") { evalCodeGens {  funNRewrites {
     val rsId = Id(1,1)
     val rules = RuleSuite(rsId, Seq(
       RuleSet(Id(50, 1), Seq(
@@ -158,13 +152,12 @@ class RoundTripTest extends SharedTests with RowTools {
     }
 
     assert(toOrdered(rules) == toOrdered(reRules), "The rules were not identical")
-  } }
+  } } }
 
   /**
    * Verify roundtripping of storage
    */
-  @Test
-  def ruleEngineSuiteRoundTrippingToDF: Unit = evalCodeGens { funNRewrites {
+  test("ruleEngineSuiteRoundTrippingToDF") { evalCodeGens { funNRewrites {
     val rsId = Id(1,1)
     val rules = RuleSuite(rsId, Seq(
       RuleSet(Id(50, 1), Seq(
@@ -253,6 +246,6 @@ class RoundTripTest extends SharedTests with RowTools {
     }
 
     assert(toOrdered(rules) == toOrdered(reRules), "The rules were not identical")
-  } }
+  } } }
 
 }

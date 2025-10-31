@@ -111,14 +111,12 @@ class MapLookupTests extends SharedTests {
     ))
   }
 
-  @Test
-  def lookupTest: Unit = evalCodeGensNoResolve {
+  test("lookupTest") { evalCodeGensNoResolve {
     val lookups = getRef()
     MapLookupTest.doTradeLookupTest(lookups, sparkSession)
-  }
+  } }
 
-  @Test
-  def setTest: Unit = evalCodeGensNoResolve {
+  test("setTest") { evalCodeGensNoResolve {
     val lookups = getRef()
     registerMapLookupsAndFunction(lookups)
     val s = sparkSession
@@ -127,10 +125,9 @@ class MapLookupTests extends SharedTests {
 
     val res = df.select(col("*"), expr("mapContains('countryCode', country)").as("doesCountryExist"))
     assert(!res.head.getAs[Boolean]("doesCountryExist"), "CHRISLAND should not exist")
-  }
+  } }
 
-  @Test
-  def emptyTest: Unit = evalCodeGensNoResolve {
+  test("emptyTest") { evalCodeGensNoResolve {
     val s = sparkSession
     import s.implicits._
 
@@ -152,10 +149,9 @@ class MapLookupTests extends SharedTests {
     val res2 = df.select(col("*"), map_contains("empty", col("country"), lookups).as("doesCountryExist")).
       filter("doesCountryExist = false")
     assert(res2.count == df.count,"all of the rows should be false" )
-  }
+  } }
 
-  @Test
-  def multiKey: Unit = evalCodeGensNoResolve {
+  test("multiKey") { evalCodeGensNoResolve {
     val s = sparkSession
     import s.implicits._
 
@@ -171,10 +167,9 @@ class MapLookupTests extends SharedTests {
     val res = sparkSession.sql("select mapLookup('multi', struct('GB', 2)) res").as[String].collect()
     assert(res.length == 1,"should have found a single match" )
     assert(res.head == "GBP", "should have got the pound")
-  }
+  } }
 
-  @Test
-  def taxonomyLookup: Unit = forceInterpreted { funNRewrites {
+  test("taxonomyLookup") { forceInterpreted { funNRewrites {
     val orchid = Seq("open","difficult","prized")
 
     // 1) if a hierarchy is not given whole term is null and default to input (null, null) key
@@ -218,7 +213,7 @@ class MapLookupTests extends SharedTests {
     assert(testLookup("flowers", null) == Seq(), "Rule 4")
 
     // NB this only works as there is a struct (tuple) wrapping the fields so the lookup itself is non-null, although the values are null
-  } }
+  } } }
 }
 
 case class Item(hierarchy: String, item: String, attributes: scala.collection.immutable.Seq[String])

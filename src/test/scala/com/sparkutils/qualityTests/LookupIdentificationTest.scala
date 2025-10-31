@@ -6,14 +6,11 @@ import org.scalatest.FunSuite
 
 class LookupIdentificationTest extends FunSuite with SharedTests {
 
-  @Test
-  def mapLookuplambdaTest = doSimpleLambdaTest("mapLookup", MapLookupType(_), asis)
+  test("mapLookuplambdaTest") { doSimpleLambdaTest("mapLookup", MapLookupType(_), asis)}
 
-  @Test
-  def mapContainslambdaTest = doSimpleLambdaTest("mapContains", MapLookupType(_), asis)
+  test("mapContainslambdaTest") { doSimpleLambdaTest("mapContains", MapLookupType(_), asis)}
 
-  @Test
-  def probabilityInlambdaTest = doSimpleLambdaTest("probabilityIn", BloomLookupType(_), flipped)
+  test("probabilityInlambdaTest") { doSimpleLambdaTest("probabilityIn", BloomLookupType(_), flipped)}
 
   var asis = (arg1: String, arg2: String) => s"$arg1, $arg2"
   var flipped = (arg1: String, arg2: String) => s"$arg2, $arg1"
@@ -38,8 +35,7 @@ class LookupIdentificationTest extends FunSuite with SharedTests {
     assert(res.lambdaResults.lookupConstants == expected)
   } }
 
-  @Test
-  def testMixed: Unit = evalCodeGensNoResolve { funNRewrites {
+  test("testMixed") { evalCodeGensNoResolve { funNRewrites {
     import com.sparkutils.quality._
     registerQualityFunctions()
 
@@ -52,7 +48,7 @@ class LookupIdentificationTest extends FunSuite with SharedTests {
     val expected = Map(Id(2,3) -> Set(MapLookupType("ccyRate"), BloomLookupType("ccyRate")) )
     assert(res.lambdaResults.lookupConstants == expected)
 
-  } }
+  } }}
 
 
 }

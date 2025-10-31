@@ -6,8 +6,7 @@ import org.scalatest.FunSuite
 
 class RoundTripTest3 extends FunSuite with RowTools with TestUtils {
 
-  @Test
-  def testULEquals: Unit = evalCodeGensNoResolve {
+  test("testULEquals") { evalCodeGensNoResolve {
     val s = sparkSession
     import s.implicits._
     val leftRaw =

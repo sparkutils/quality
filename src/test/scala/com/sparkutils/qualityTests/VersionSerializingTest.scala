@@ -18,8 +18,7 @@ class VersionSerializingTest extends SharedTests {
    * Lambdas are additive but will select the highest version (global or otherwise).
    * Output expressions are exact.
    */
-  @Test
-  def ruleEngineSuiteVersionedRoundTripsDF: Unit = evalCodeGens {
+  test("ruleEngineSuiteVersionedRoundTripsDF") { evalCodeGens {
     // literal description of what should be in the files - not the objects
     val (rsIdA1, rsIdA2, rsIdA3) = (Id(1,1), Id(1,2), Id(1,3))
     val rulesA1 = RuleSuite(rsIdA1, Seq(
@@ -172,6 +171,6 @@ class VersionSerializingTest extends SharedTests {
     assertEq(rsIdA2, expectedA2)
     assertEq(rsIdA3, expectedA3)
 
-  }
+  } }
 
 }

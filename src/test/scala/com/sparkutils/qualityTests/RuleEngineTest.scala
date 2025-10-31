@@ -59,8 +59,7 @@ class RuleEngineTest extends FunSuite with SharedTests {
         resolveWith = if (doResolve.get()) Some(dataFrame) else None, compileEvals = compileEvals)
   }
 
-  @Test
-  def testSimpleProductionRules(): Unit = evalCodeGensNoResolve { testPlan(FunNRewrite, disable = _ == 32) {
+  test("testSimpleProductionRules") { evalCodeGensNoResolve { testPlan(FunNRewrite, disable = _ == 32) {
     val rer = irules(
       Seq((ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040,1),
         OutputExpression("array(account_row('from'), account_row('to', 'other_account1'))"))),
@@ -98,13 +97,11 @@ class RuleEngineTest extends FunSuite with SharedTests {
     assert(res(5).result.contains(Seq(NewPosting("fromWithField", "4201", "eqotc", 6000), NewPosting("to", "other_account1", "eqotc", 60))))
 
 
-  } }
+  } } }
 
-  @Test
-  def testProbabilityRuleFail = doTestProbabilityRules(OverallResult(currentResult = Failed))
+  test("testProbabilityRuleFail") { doTestProbabilityRules(OverallResult(currentResult = Failed)) }
 
-  @Test
-  def testProbabilityRulePass = doTestProbabilityRules(OverallResult(probablePass = 0.6, currentResult = Passed))
+  test("testProbabilityRulePass") { doTestProbabilityRules(OverallResult(probablePass = 0.6, currentResult = Passed)) }
 
   def doTestProbabilityRules(overallResult: OverallResult): Unit = evalCodeGens { funNRewrites {
     val rer = irules(
@@ -128,8 +125,7 @@ class RuleEngineTest extends FunSuite with SharedTests {
     assert(res(0).ruleSuiteResults.overallResult == overallResult.currentResult)
   } }
 
-  @Test
-  def testFlattenResults(): Unit = evalCodeGensNoResolve { funNRewrites {
+  test("testFlattenResults") { evalCodeGensNoResolve { funNRewrites {
     val rer = rules(
       (ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040,1),
         OutputExpression("array(account_row('from', account), account_row('to', 'other_account1'))"))),
@@ -164,10 +160,9 @@ class RuleEngineTest extends FunSuite with SharedTests {
     assert(res(0) == Seq(Posting("from", "4201"), Posting("to","other_account1")))
     assert(res(6) == Seq(Posting("from", "another_account"), Posting("to","4206")))
     assert(res(8) == Seq(Posting("from", "another_account"), Posting("to","4201")))
-  } }
+  } } }
 
-  @Test
-  def testSalience(): Unit = evalCodeGensNoResolve { funNRewrites {
+  test("testSalience") { evalCodeGensNoResolve { funNRewrites {
     val rer = rules(
       (ExpressionRule("product = 'eqotc' and account = '4201'"), RunOnPassProcessor(100, Id(1040,1),
         OutputExpression("array(updateField(account_row('fr', account), 'transfer_type', 'from'), account_row('to', 'other_account1'))"))),
@@ -208,10 +203,9 @@ class RuleEngineTest extends FunSuite with SharedTests {
     assert(sruleres(1) == nulls)
     assert(sruleres(2) == nulls)
     assert(sruleres(3) == nulls)
-  } }
+  } } }
 
-  @Test
-  def testDebug(): Unit = evalCodeGens { funNRewrites {
+  test("testDebug") { evalCodeGens { funNRewrites {
     val rer = debugRules(
       (ExpressionRule("product = 'eqotc' and account = '4201'"), RunOnPassProcessor(100, Id(1040,1),
         OutputExpression("array(account_row('from', account), account_row('to', 'other_account1'))"))),
@@ -238,10 +232,9 @@ class RuleEngineTest extends FunSuite with SharedTests {
     assert(res(0).contains(Seq(justSeq)))
     assert(res(4).contains(Seq(justSeq)))
     assert(res(5).contains(Seq((100, Seq(Posting("from", "4201"), Posting("to", "other_account1"))), justSeq)))
-  } }
+  } } }
 
-  @Test
-  def testHugeAmountOfRulesSOE(): Unit = evalCodeGensNoResolve { funNRewrites {
+  test("testHugeAmountOfRulesSOE") { evalCodeGensNoResolve { funNRewrites {
     val rer = irules(
       Seq.fill(4000)(ExpressionRule(1 to 50 map ((i: Int) => s"(product = 'edt' and subcode = ${40 + i})") mkString " or "),
         RunOnPassProcessor(1000, Id(3010, 1),
@@ -282,11 +275,10 @@ class RuleEngineTest extends FunSuite with SharedTests {
     val os = new ObjectOutputStream(bos)
     os.writeObject(expression(rerer))
     val bytes = bos.toByteArray()
-  } }
+  } } }
 
 
-  @Test
-  def scalarSubqueryAsOutputExpressionInStruct(): Unit = evalCodeGensNoResolve {
+  test("scalarSubqueryAsOutputExpressionInStruct") { evalCodeGensNoResolve {
     v3_4_and_above {
       // assert that using a join to test with is fine even when nested
       val s = sparkSession
@@ -319,10 +311,9 @@ class RuleEngineTest extends FunSuite with SharedTests {
           throw t
       }
     }
-  }
+  } }
 
-  @Test
-  def scalarSubqueryAsOutputExpression(): Unit = evalCodeGensNoResolve {
+  test("scalarSubqueryAsOutputExpression") { evalCodeGensNoResolve {
     v3_4_and_above {
       // assert that using a join to test with is fine even when nested
       val s = sparkSession
@@ -353,10 +344,9 @@ class RuleEngineTest extends FunSuite with SharedTests {
           throw t
       }
     }
-  }
+  } }
 
-  @Test
-  def scalarSubqueryAsOutputExpressionViaLambdaParam(): Unit = evalCodeGensNoResolve {
+  test("scalarSubqueryAsOutputExpressionViaLambdaParam") { evalCodeGensNoResolve {
     v3_4_and_above {
       // using subqueries in lambdas does not work, it can't see the outer scope when it's a lambda variable, assume it's something like bind being called after subquery
 
@@ -394,10 +384,9 @@ class RuleEngineTest extends FunSuite with SharedTests {
       testRes(testDF.transform(ruleEngineWithStructF(rs, alias = null)).asInstanceOf[DataFrame])
       testRes(testDF.transform(ruleEngineWithStructF(rs, alias = "")).asInstanceOf[DataFrame])
     }
-  }
+  } }
 
-  @Test
-  def scalarSubqueryAsOutputExpressionViaLambdaNonAttributeParam(): Unit = evalCodeGensNoResolve {
+  test("scalarSubqueryAsOutputExpressionViaLambdaNonAttributeParam") { evalCodeGensNoResolve {
     v3_4_and_above {
       // assert that using a join to test with is fine even when nested
       val s = sparkSession
@@ -430,10 +419,9 @@ class RuleEngineTest extends FunSuite with SharedTests {
           throw t
       }
     }
-  }
+  } }
 
-  @Test
-  def scalarSubqueryAsOutputExpressionViaLambdaNoParam(): Unit = evalCodeGensNoResolve {
+  test("scalarSubqueryAsOutputExpressionViaLambdaNoParam") { evalCodeGensNoResolve {
     v3_4_and_above {
       // in this scenario the lambda is just used to avoid repeating the subquery, pretty much just a join.
 
@@ -467,5 +455,5 @@ class RuleEngineTest extends FunSuite with SharedTests {
           throw t
       }
     }
-  }
+  } }
 }

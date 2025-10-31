@@ -15,8 +15,7 @@ class DocMarkdownTest extends SharedTests { // test utils to force spark session
   /**
    * doesn't test anything but it's helpfully bootstrapped
    */
-  @Test
-  def testMDRuleDocs = {
+  test("testMDRuleDocs") {
     com.sparkutils.quality.registerMapLookupsAndFunction(Map.empty)
     // Id(6,1) is on a rule, outputexpression and a lambda to force correct called by resolution
     val output2 = RunOnPassProcessor(0, Id(6,1), OutputExpression("testCaller2(fielda, fieldb)"))

@@ -10,8 +10,7 @@ import org.scalatest.FunSuite
 
 class RoundTripPrivateTest extends FunSuite with SharedTests {
 
-  @Test
-  def ruleExprSwapping(): Unit = evalCodeGens {
+  test("ruleExprSwapping") { evalCodeGens {
 
     case class LitRule(string: String) extends ExprLogic {
       val expr = Literal.create(string, StringType)
@@ -70,6 +69,6 @@ class RoundTripPrivateTest extends FunSuite with SharedTests {
     ))
 
     assert( expected == reincorporated, "didn't come back alive" )
-  }
+  }}
 
 }

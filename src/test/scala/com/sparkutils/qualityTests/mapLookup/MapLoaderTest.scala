@@ -27,8 +27,7 @@ class MapLoaderTest extends SharedTests {
       MapRow(Id(1,1),"countryCode", Some("countryCode"), None, None, "country", "struct(funnycheck, ccy)")
     )
 
-  @Test
-  def testConfigLoading(): Unit = {
+  test("testConfigLoading") {
     val s = sparkSession
     import s.implicits._
 
@@ -39,8 +38,7 @@ class MapLoaderTest extends SharedTests {
     doConfigTest(mapConfigs)
   }
 
-  @Test
-  def testConfigLoadingWithoutIds(): Unit = {
+  test("testConfigLoadingWithoutIds") {
     val s = sparkSession
     import s.implicits._
 
@@ -60,8 +58,7 @@ class MapLoaderTest extends SharedTests {
     assert(sorted(1).key == "country")
   }
 
-  @Test
-  def testMapLoading(): Unit = {
+  test("testMapLoading") {
     val s = sparkSession
     import s.implicits._
     val (mapConfigs, _) = loadMapConfigs(loader, config.toDF(), expr("id.id"), expr("id.version"), Id(1,1),
@@ -76,8 +73,7 @@ class MapLoaderTest extends SharedTests {
   }
 
 
-  @Test
-  def testMapSQLLoading(): Unit = {
+  test("testMapSQLLoading") {
     val s = sparkSession
     import s.implicits._
 
