@@ -1,11 +1,19 @@
 package com.sparkutils.qualityTests
 
+import com.sparkutils.manual.ProcessorThroughputBenchmark.createSparkSessions
+import com.sparkutils.testing.{ClassicOnly, ConnectionType, Sessions}
 import org.apache.spark.sql.types.{DataType, LongType, StringType, StructField, StructType}
 import org.apache.spark.sql.SparkSession
 
 //case class Test(a: Int, b: Int)
 
 object ResultHelper extends RowTools {
+
+
+  override def connectionType: ConnectionType = ClassicOnly
+
+  override def sessions: Sessions = createSparkSessions(connectionType)
+
   def longColsWithDQ(max: Int, dataType: DataType) =
     (for( c <- 0 until max)
       yield StructField(c.toString, LongType)) :+ StructField("DataQuality", dataType)

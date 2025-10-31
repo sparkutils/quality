@@ -1,13 +1,16 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality.impl.util.RuleSuiteDocs
+
 import java.io.FileOutputStream
 import RuleSuiteDocs.RelativeWarningsAndErrors
 import com.sparkutils.quality.{ExpressionRule, Id, LambdaFunction, OutputExpression, Rule, RuleSet, RuleSuite, RunOnPassProcessor, validate}
+
+import com.sparkutils.testing.TestUtils.debug
 import org.apache.commons.io.IOUtils
 import org.junit.Test
 
-class DocMarkdownTest extends TestUtils { // test utils to force spark session before register is called
+class DocMarkdownTest extends SharedTests { // test utils to force spark session before register is called
 
   /**
    * doesn't test anything but it's helpfully bootstrapped

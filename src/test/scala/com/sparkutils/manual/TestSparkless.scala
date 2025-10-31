@@ -29,7 +29,8 @@ object TestSparkless {
       config("spark.master", s"local[1]").
       config("spark.ui.enabled", false).getOrCreate()
 
-    import sparkSession._
+    val s = sparkSession
+    import s._
 
     val ruleSuite = RuleSuite(Id(1, 1), Seq(
       RuleSet(Id(50, 1), Seq(

@@ -14,7 +14,7 @@ import java.io.{ByteArrayOutputStream, ObjectOutputStream}
  * Primarily to prove joins with relation's work with resolveWith across versions.
  * Secondary usage is to prove a simple join (vs maplookup approach) can work with resolveWith for lookups
  */
-class JoinValidationTest extends FunSuite with TestUtils {
+class JoinValidationTest extends FunSuite with SharedTests {
 
   val testData=Seq(
     TestOn("edt", "4201", 40),
@@ -59,7 +59,8 @@ class JoinValidationTest extends FunSuite with TestUtils {
     )
 
     val (testDataDF, testSourceDataDF) = {
-      import sparkSession.implicits._
+      val s = sparkSession
+      import s.implicits._
       (testData.toDF(), testSource.toDF())
     }
     testDataDF.createOrReplaceTempView("testLookups")
@@ -88,7 +89,8 @@ class JoinValidationTest extends FunSuite with TestUtils {
     )
 
     val (testDataDF, testSourceDataDF) = {
-      import sparkSession.implicits._
+      val s = sparkSession
+      import s.implicits._
       (testData.toDF(), testSource.toDF())
     }
     testDataDF.createOrReplaceTempView("testLookups")

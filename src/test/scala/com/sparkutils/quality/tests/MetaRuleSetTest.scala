@@ -4,14 +4,14 @@ import com.sparkutils.quality.Rule
 import com.sparkutils.quality.impl.util.RuleModel.RuleSuiteMap
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.util.MetaRuleSetRow
-import com.sparkutils.qualityTests.{RowTools, TestUtils}
+import com.sparkutils.qualityTests.{RowTools, SharedTests}
 import org.apache.spark.sql.ShimUtils.{column, expression}
 import org.apache.spark.sql.catalyst.expressions.objects.AssertNotNull
 import org.apache.spark.sql.{Column, DataFrame}
 import org.junit.Test
 import org.scalatest.FunSuite
 
-class MetaRuleSetTest extends FunSuite with TestUtils {
+class MetaRuleSetTest extends FunSuite with SharedTests {
 
   def ruleSet(id: Int, arg: String, exp: String) = MetaRuleSetRow(1,1,id,id*2,"",
     s"$arg -> $exp")
@@ -39,7 +39,8 @@ class MetaRuleSetTest extends FunSuite with TestUtils {
 
   @Test
   def filterExpTest: Unit = evalCodeGens {
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
     import org.apache.spark.sql.functions.col
     // force the name field to be non-nullable
     val df = sparkSession.createDataset(persons).toDF.withColumn("name", column(AssertNotNull(expression(col("name")))))
@@ -54,7 +55,8 @@ class MetaRuleSetTest extends FunSuite with TestUtils {
   }
 
   def doFullLoadTest(transform: DataFrame => DataFrame, columnFilter: String): Unit = evalCodeGens {
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
     import org.apache.spark.sql.functions.col
     // force the name field to be non-nullable
     val df = sparkSession.createDataset(persons).toDF.withColumn("name", column(AssertNotNull(expression(col("name")))))

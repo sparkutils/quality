@@ -2,8 +2,9 @@ package org.apache.spark.sql.qualityFunctions
 
 import com.sparkutils.quality.QualityException
 import com.sparkutils.quality.impl.{ExpressionCompiler, RuleLogicUtils}
-import com.sparkutils.quality.impl.util.SparkVersions
+import com.sparkutils.testing.SparkVersions
 import com.sparkutils.shim.expressions.HigherOrderFunctionLike
+import com.sparkutils.testing.SparkVersions
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{TypeCheckResult, UnresolvedAttribute}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper

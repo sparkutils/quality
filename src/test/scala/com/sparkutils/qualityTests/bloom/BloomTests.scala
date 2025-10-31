@@ -3,6 +3,8 @@ package com.sparkutils.qualityTests.bloom
 import com.sparkutils.quality._
 import functions._
 import com.sparkutils.qualityTests._
+
+import com.sparkutils.testing.TestUtils.{anyCauseHas, debug}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.{Column, DataFrame, SaveMode, SparkSession}
 import org.junit.Test
@@ -10,7 +12,7 @@ import org.scalatest.FunSuite
 
 case class Pair(a: Long, b: Long)
 
-class BloomTests extends FunSuite with TestUtils {
+class BloomTests extends SharedTests {
 
   def directCreateSpark() = {
     // train it
@@ -66,7 +68,8 @@ class BloomTests extends FunSuite with TestUtils {
   def doVerifyMeasurement(func: (BloomFilterMap, DataFrame) => DataFrame, bloomsF: () => (BloomFilterMap, Double) = directCreateSpark): Unit = evalCodeGensNoResolve { // eval only works here - can't compile due to types being messsed up?
     val (blooms, fpp) = bloomsF()
 
-    import sqlContext.implicits._
+    val sc = sqlContext
+    import sc.implicits._
 
     val comporig = sqlContext.createDataset(Seq(
       Pair(0, 0),

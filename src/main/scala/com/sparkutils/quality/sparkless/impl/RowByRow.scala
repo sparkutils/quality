@@ -3,8 +3,8 @@ package com.sparkutils.quality.sparkless.impl
 import com.sparkutils.quality.{QualityException, enableOptimizations}
 import com.sparkutils.quality.impl.{GenerateDecoderOpEncoderProjection, GenerateDecoderOpEncoderVarProjection}
 import com.sparkutils.quality.impl.extension.FunNRewrite
-import com.sparkutils.quality.impl.util.Testing
 import com.sparkutils.quality.sparkless.{Processor, ProcessorFactory}
+import com.sparkutils.testing.Testing
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.{DataFrame, Encoder, QualitySparkUtils, ShimUtils}
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
@@ -158,7 +158,7 @@ object Processors {
           }
         }.distinct.toSet
 
-      val projector =
+      val projector = // TODO bring this back to life
         //if (forceVarCompilation && allOrdinals.size < maxVarCompilationInputFields)
           //GenerateDecoderOpEncoderVarProjection.create[I, O](exprsToUse, allOrdinals)
         //else

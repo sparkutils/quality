@@ -1,9 +1,12 @@
 package com.sparkutils.qualityTests
 
+import com.globalmentor.apache.hadoop.fs.BareLocalFileSystem
+
 import java.io.File
 import com.sparkutils.quality.impl.extension.{AsUUIDFilter, ExtensionTesting, FunNRewrite, IDBase64Filter, QualitySparkExtension}
 import com.sparkutils.quality.impl.extension.QualitySparkExtension.disableRulesConf
-import com.sparkutils.quality.impl.util.Testing
+import com.sparkutils.testing.TestUtils.anyCauseHas
+import com.sparkutils.testing.{ClassicTestUtils, Testing}
 import org.apache.spark.sql.catalyst.expressions.{And, Attribute, BinaryComparison, EqualTo, Equality, Expression, Or}
 import org.apache.spark.sql.catalyst.plans.logical.Join
 import org.apache.spark.sql.sources.{Filter, And => SAnd, EqualTo => SEqualTo, GreaterThan => SGreaterThan, GreaterThanOrEqual => SGreaterThanOrEqual, In => SIn, Or => SOr}
@@ -16,19 +19,14 @@ import org.apache.spark.sql.catalyst.FunctionIdentifier
 import org.apache.spark.sql.catalyst.analysis.FunctionRegistry
 
 // including rowtools so standalone tests behave as if all of them are running and for verify compatibility
-abstract class ExtensionTestBase extends FunSuite with TestUtils {
+abstract class ExtensionTestBase extends SharedTests  {
 
   def shouldRun: Boolean
 
   def when_not_disabled(thunk: => Unit): Unit =
     if (shouldRun) {
       thunk
-    }
-
-  @Before
-  override def setup(): Unit = {
-    cleanupOutput() // weirdly doesn't always run on databricks so we have test failures as a result.
-  }
+   }
 
   def wrapWithExtension(thunk: SparkSession => Unit): Unit = wrapWithExtensionT(thunk)
 
@@ -37,7 +35,7 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
 
     try {
       try {
-        sparkSessionF.close() // needed to stop the below being ignored
+        sparkSession.close() // needed to stop the below being ignored
       } catch {
         case t: Throwable => fail("Could not shut down the wrapping spark", t)
       }
@@ -61,7 +59,15 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
           builder
 
       // attempt to create a new session
-      tsparkSession = enableDelta( enableHive( registerFS(SparkSession.builder()).config("spark.master", s"local[$hostMode]").config("spark.ui.enabled", false).
+      tsparkSession = enableDelta( enableHive(
+        {
+          val builder = SparkSession.builder()
+          if (System.getProperty("os.name").startsWith("Windows"))
+            builder.config("spark.hadoop.fs.file.impl", classOf[BareLocalFileSystem].getName)
+          else
+            builder
+        }
+        .config("spark.master", s"local[$classicHostMode]").config("spark.ui.enabled", false).
         config("spark.sql.extensions", classOf[QualitySparkExtension].getName()) ) )
         .getOrCreate()
       tsparkSession.sparkContext.setLogLevel("ERROR")
@@ -126,7 +132,8 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
 
   val createview = (sparkSession: SparkSession) => {
     sparkSession.sql(s"create or replace view testfunctionview as select as_uuid($lower, $higher) context");
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
     val res = sparkSession.sql("select context from testfunctionview").as[String].collect()
     assert(res.length == 1)
     assert(res.head == (theuuid + "6"))
@@ -167,7 +174,7 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
 
   // pretty much only for databricks
   def wrapWithExistingSession(thunk: SparkSession => Unit): Unit = {
-    val tsparkSession = sparkSessionF
+    val tsparkSession = sparkSession
     thunk(tsparkSession)
   }
 
@@ -233,14 +240,15 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
       sparkSession.sql(s"create table testme using $format location '$abspath'")
 
       sparkSession.sql(s"create or replace view testfunctionview as select alower, ahigher, as_uuid(alower, ahigher) context from testme");
-      import sparkSession.implicits._
+      val s = sparkSession
+    import s.implicits._
       val resdf = sparkSession.sql(s"select context from testfunctionview where context = '${theuuid + "6"}' limit 10")
       /*val res = resdf.as[String].collect()
       assert(res.length == 1)
       assert(res.head == (theuuid + "6"))
 */
       // verify push downs
-      val pushdowns = getPushDowns( resdf.queryExecution.executedPlan )
+      val pushdowns = ClassicTestUtils.getPushDowns( resdf.queryExecution.executedPlan )
 
       // with joins both sides should have pushdown for equals, but for gt,lt etc. it'll be one sided for some, not for others
       assert(pushdowns.nonEmpty, s"did not have any pushed down filters")
@@ -374,13 +382,13 @@ abstract class ExtensionTestBase extends FunSuite with TestUtils {
 
         def assertWithPlan(condition: Boolean, hint: Any) = {
           if (!condition) {
-            debug(println(s"<---- filter was $filter"))
+            com.sparkutils.testing.TestUtils.debug(println(s"<---- filter was $filter"))
             // ds.explain(true)
           }
           assert(condition, hint)
         }
 
-        val pushdowns = getPushDowns( ds.queryExecution.executedPlan )
+        val pushdowns = ClassicTestUtils.getPushDowns( ds.queryExecution.executedPlan )
 
         // with joins both sides should have pushdown for equals, but for gt,lt etc. it'll be one sided for some, not for others
         assertWithPlan(pushdowns.nonEmpty, s"$hint - did not have any pushed down filters")

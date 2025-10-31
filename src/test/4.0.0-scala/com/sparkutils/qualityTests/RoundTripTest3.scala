@@ -4,11 +4,13 @@ import org.apache.spark.sql.functions._
 import org.junit.Test
 import org.scalatest.FunSuite
 
-class RoundTripTest3 extends FunSuite with RowTools with TestUtils {
+class RoundTripTest3 extends FunSuite with RowTools with SharedTests {
 
   @Test
   def testULEquals: Unit = evalCodeGensNoResolve {
-    import sparkSession.implicits._
+    val s = sparkSession
+
+    import s.implicits._
     val leftRaw =
       for{ i <- 1 to 20 } yield TestIdLeft(i, i)
     val lefts = leftRaw.toDS()

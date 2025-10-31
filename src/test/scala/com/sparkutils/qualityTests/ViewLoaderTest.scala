@@ -1,16 +1,18 @@
 package com.sparkutils.qualityTests
 import com.sparkutils.quality.{DataFrameLoader, Id, loadViewConfigs, loadViews}
 import com.sparkutils.quality.impl.views.{MissingViewAnalysisException, ViewConfig, ViewLoaderAnalysisException}
+import com.sparkutils.testing.SparkVersions.sparkVersion
 import org.apache.spark.sql.functions.{col, expr}
 import org.apache.spark.sql.{DataFrame, ShimUtils}
-import org.junit.Assert.{fail}
+import org.junit.Assert.fail
 import org.junit.{After, Test}
 
-class ViewLoaderTest extends TestUtils {
+class ViewLoaderTest extends SharedTests {
 
   val loader = new DataFrameLoader {
     override def load(token: String): DataFrame = {
-      import sparkSession.implicits._
+      val s = sparkSession
+    import s.implicits._
       token match {
         case "names" | "names2" => Seq(X2("rog","dodge"), X2("rog","nododge"), X2("rod","nojane"), X2("freddy", "jane")).toDF()
         case "ages" | "ages2" => Seq(X2("dodge",12), X2("nododge",45), X2("nojane", 50), X2("jane", 24)).toDF()
@@ -42,7 +44,8 @@ class ViewLoaderTest extends TestUtils {
 
   @Test
   def testConfigLoading(): Unit = {
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
 
     val res = loadViewConfigs(loader, config.toDF(), expr("id.id"), expr("id.version"), Id(1,1),
       col("name"),col("token"),col("filter"),col("sql")
@@ -53,7 +56,8 @@ class ViewLoaderTest extends TestUtils {
 
   @Test
   def testConfigLoadingWithoutIds(): Unit = {
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
 
     val res = loadViewConfigs(loader, config.filterNot(_.id == Id(100,1)).map(_.to2).toDF(),
       col("name"),col("token"),col("filter"),col("sql")
@@ -64,7 +68,8 @@ class ViewLoaderTest extends TestUtils {
 
   @Test
   def testViewLoads(): Unit = {
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
 
     val (viewConfigs, _) = loadViewConfigs(loader, config.toDF(), expr("id.id"), expr("id.version"), Id(1,1),
       col("name"),col("token"),col("filter"),col("sql")
@@ -83,7 +88,8 @@ class ViewLoaderTest extends TestUtils {
 
   @Test
   def testViewLoadsFailedAsJoinsNotPresent(): Unit = {
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
 
     val config =
       Seq(
@@ -120,7 +126,8 @@ class ViewLoaderTest extends TestUtils {
 
   @Test
   def testViewLoadsFailedAsInfinite(): Unit = {
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
 
     val config =
       Seq(
@@ -139,7 +146,8 @@ class ViewLoaderTest extends TestUtils {
 
   @Test
   def testViewLoadsThatNeedQuoting(): Unit = {
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
 
     val config =
       Seq(
@@ -169,7 +177,8 @@ class ViewLoaderTest extends TestUtils {
 
   @Test
   def testViewLoadsThatDontParse(): Unit = {
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
 
     val config =
       Seq(

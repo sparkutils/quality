@@ -2,17 +2,18 @@ package com.sparkutils.qualityTests.mapLookup
 
 import com.sparkutils.quality.impl.mapLookup.MapConfig
 import com.sparkutils.quality.{DataFrameLoader, Id, loadMapConfigs, loadMaps}
-import com.sparkutils.qualityTests.TestUtils
+import com.sparkutils.qualityTests.SharedTests
 import org.apache.spark.sql.functions.{col, expr}
 import org.apache.spark.sql.DataFrame
 import org.junit.Test
 
 // NB the other combinations of loading are covered by the ViewLoaderTest
-class MapLoaderTest extends TestUtils {
+class MapLoaderTest extends SharedTests {
 
   val loader = new DataFrameLoader {
     override def load(token: String): DataFrame = {
-      import sparkSession.implicits._
+      val s = sparkSession
+    import s.implicits._
       token match {
         case "ccyRate" => TradeTests.ccyRate.toDF("ccy", "rate")
         case "countryCode" => TradeTests.countryCodeCCY.toDF("country", "funnycheck", "ccy")
@@ -28,7 +29,8 @@ class MapLoaderTest extends TestUtils {
 
   @Test
   def testConfigLoading(): Unit = {
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
 
     val (mapConfigs, _) = loadMapConfigs(loader, config.toDF(), expr("id.id"), expr("id.version"), Id(1,1),
       col("name"),col("token"),col("filter"),col("sql"),col("key"),col("value")
@@ -39,7 +41,8 @@ class MapLoaderTest extends TestUtils {
 
   @Test
   def testConfigLoadingWithoutIds(): Unit = {
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
 
     val (mapConfigs, _) = loadMapConfigs(loader, config.map(_.to2).toDF(),
       col("name"),col("token"),col("filter"),col("sql"),col("key"),col("value")
@@ -59,7 +62,8 @@ class MapLoaderTest extends TestUtils {
 
   @Test
   def testMapLoading(): Unit = {
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
     val (mapConfigs, _) = loadMapConfigs(loader, config.toDF(), expr("id.id"), expr("id.version"), Id(1,1),
       col("name"),col("token"),col("filter"),col("sql"),col("key"),col("value")
     )
@@ -74,7 +78,8 @@ class MapLoaderTest extends TestUtils {
 
   @Test
   def testMapSQLLoading(): Unit = {
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
 
     TradeTests.ccyRate.toDF("ccy", "rate").createOrReplaceTempView("ccyRate")
 

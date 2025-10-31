@@ -1,11 +1,13 @@
 package com.sparkutils.qualityTests
 
+import com.sparkutils.manual.ProcessorThroughputBenchmark.createSparkSessions
 import com.sparkutils.quality.impl.RuleLogicUtils.mapRules
 import com.sparkutils.quality._
 import types._
 import com.sparkutils.quality.functions.rng_bytes
 import com.sparkutils.quality.impl.rng.RandomBytes
 import com.sparkutils.qualityTests.ResultHelper.longSchema
+import com.sparkutils.testing.{ClassicOnly, ConnectionType, Sessions}
 import org.apache.commons.rng.simple.RandomSource
 import org.apache.spark.sql.catalyst.encoders.RowEncoder
 import org.apache.spark.sql.functions._
@@ -17,7 +19,7 @@ import org.scalameter.api._
 
 import scala.collection.JavaConverters._
 
-trait RowTools extends TestUtils {
+trait RowTools extends TestUtilsBase {
 
   val structWithColumnExpr = (rules: Int, cols: Int, df: DataFrame) =>
     df.withColumn("DataQuality", ruleRunner(genRules(rules, cols), compileEvals = false))
@@ -77,7 +79,7 @@ trait RowTools extends TestUtils {
   def sampleDataAsLong[T](maxRows: Int, maxCols: Int, startValue: T): Seq[Row] =
     (0 to maxRows).map(i => (0L until maxCols).map(i+_)).map(t => Row((t :+ startValue) :_*))
 
-  def dataFrameLong[T](maxRows: Int, maxCols: Int, dataType: DataType, startValue: T) = sparkSessionF.createDataFrame(sampleDataAsLong(maxRows, maxCols, startValue).asJava, longSchema(maxCols, dataType))
+  def dataFrameLong[T](maxRows: Int, maxCols: Int, dataType: DataType, startValue: T) = sparkSession.createDataFrame(sampleDataAsLong(maxRows, maxCols, startValue).asJava, longSchema(maxCols, dataType))
 
   def sampleDataAsLongLazy[T](ids: Dataset[java.lang.Long], maxCols: Int, startValue: T, structType: StructType): DataFrame = {
     implicit val renc = ShimUtils.rowEncoder(structType)
@@ -87,7 +89,7 @@ trait RowTools extends TestUtils {
   /**
    * unlike dataFrameLong it's lazy
    */
-  def dataFrameLongLazy[T](maxRows: Int, maxCols: Int, dataType: DataType, startValue: T) = sampleDataAsLongLazy(sparkSessionF.range(0, maxRows), maxCols, startValue, longSchema(maxCols, dataType))
+  def dataFrameLongLazy[T](maxRows: Int, maxCols: Int, dataType: DataType, startValue: T) = sampleDataAsLongLazy(sparkSession.range(0, maxRows), maxCols, startValue, longSchema(maxCols, dataType))
 
 }
 
@@ -144,6 +146,10 @@ object WriteRowPerfTest extends Bench.OfflineReport with RowTools {
     }
   }
 
+  override def connectionType: ConnectionType = ClassicOnly
+
+  override def sessions: Sessions = createSparkSessions(connectionType)
+
 }
 
 trait ReadBased extends RowTools {
@@ -176,7 +182,7 @@ trait ReadBased extends RowTools {
         } else {
           val path = SparkTestUtils.path("interimTest")
           ndf.write.mode("overwrite").parquet(path)
-          sparkSessionF.read.parquet(path)
+          sparkSession.read.parquet(path)
         }
       res
     }
@@ -210,6 +216,12 @@ object ReadRowPerfTest extends Bench.OfflineReport with ReadBased {
       using(readGen[RuleSuiteResult](structWithColumnExpr, ruleSuiteResultType, null)) in evaluateRead(justDataRead, rowUnit)
     }
   }
+
+
+  override def connectionType: ConnectionType = ClassicOnly
+
+  override def sessions: Sessions = createSparkSessions(connectionType)
+
 }
 
 object FilterRowPerfTest extends Bench.OfflineReport with ReadBased {
@@ -257,6 +269,12 @@ ds.select(col("*"), expr("filter(map_values(res.ruleSetResults), ruleSet -> size
     }
 
   }
+
+
+  override def connectionType: ConnectionType = ClassicOnly
+
+  override def sessions: Sessions = createSparkSessions(connectionType)
+
 }
 
 /**
@@ -287,7 +305,7 @@ object UUIDPerfTest extends Bench.OfflineReport with RowTools {
   }
 
   def evaluate(func: Dataset[java.lang.Long] => DataFrame, testName: String)(params: Int) = {
-    val rdf = sparkSessionF.range(0, params)
+    val rdf = sparkSession.range(0, params)
     val df = func(rdf)
     val path = SparkTestUtils.path("writePerfTest")
     //df.write.mode("overwrite").parquet(path + testName) // force a write rather than gen then read - differently optimised
@@ -296,6 +314,10 @@ object UUIDPerfTest extends Bench.OfflineReport with RowTools {
     df.toLocalIterator().asScala.map(_.getLong(0)).sum
   }
 
+
+  override def connectionType: ConnectionType = ClassicOnly
+
+  override def sessions: Sessions = createSparkSessions(connectionType)
 
 }
 
@@ -363,7 +385,7 @@ object IDJoinStarter {
 object IDJoinPerfTest extends Bench.OfflineReport with RowTools {
   val rowCount = IDJoinStarter.maxRows
   // writeRows * 3
-  val stable = sparkSessionF
+  val stable = sparkSession
   import stable.implicits._
 
   val rows = Gen.range("rowCount")(rowCount, rowCount, 1)
@@ -387,10 +409,10 @@ object IDJoinPerfTest extends Bench.OfflineReport with RowTools {
   }
 
   def evaluate(func: (DataFrame, DataFrame) => DataFrame)(params: Int) = {
-    val ids = sparkSessionF.read.parquet(SparkTestUtils.path("ids_for_ctw_joins"))
+    val ids = sparkSession.read.parquet(SparkTestUtils.path("ids_for_ctw_joins"))
     //idsRaw.persist(org.apache.spark.storage.StorageLevel.DISK_ONLY) // force persist to disk
 
-    val evens = sparkSessionF.read.parquet(SparkTestUtils.path("evens_for_ctw_joins"))
+    val evens = sparkSession.read.parquet(SparkTestUtils.path("evens_for_ctw_joins"))
     // evensRaw.persist(org.apache.spark.storage.StorageLevel.DISK_ONLY) // force persist to disk
 
     val df = func(ids, evens)
@@ -399,6 +421,10 @@ object IDJoinPerfTest extends Bench.OfflineReport with RowTools {
     df.count
   }
 
+
+  override def connectionType: ConnectionType = ClassicOnly
+
+  override def sessions: Sessions = createSparkSessions(connectionType)
 
 }
 
@@ -464,5 +490,9 @@ object LambdaRowPerfTest extends Bench.OfflineReport with RowTools {
       ndf.count()
     }
   }
+
+  override def connectionType: ConnectionType = ClassicOnly
+
+  override def sessions: Sessions = createSparkSessions(connectionType)
 
 }

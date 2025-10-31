@@ -10,9 +10,11 @@ import org.apache.spark.sql.types.LongType
 import org.junit.Test
 import org.scalatest.FunSuite
 import com.sparkutils.qualityTests.mapLookup.TradeTests._
+
+import com.sparkutils.testing.TestUtils.debug
 import org.apache.spark.sql.ShimUtils.expression
 
-class UserLambdaFunctionTest extends FunSuite with TestUtils {
+class UserLambdaFunctionTest extends SharedTests {
   @Test
   def nullInParam: Unit = evalCodeGensNoResolve { funNRewrites {
     val blowup = "0"
@@ -43,7 +45,8 @@ class UserLambdaFunctionTest extends FunSuite with TestUtils {
   @Test
   def lambdaRuleTest: Unit = evalCodeGensNoResolve { funNRewrites {
 
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
     val df = simpleTrades.toDF(tradeCols :_ *)
 
     //val rule = LambdaFunction("multValCCY", "(theValue: BIGINT, ccy: DECIMAL) -> theValue * ccy", Id(1,2))
@@ -58,7 +61,8 @@ class UserLambdaFunctionTest extends FunSuite with TestUtils {
   @Test
   def lambdaNoParamsRuleTest: Unit = evalCodeGensNoResolve { funNRewrites {
 
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
     val df = simpleTrades.toDF(tradeCols :_ *)
 
     //val rule = LambdaFunction("multValCCY", "(theValue: BIGINT, ccy: DECIMAL) -> theValue * ccy", Id(1,2))
@@ -71,14 +75,15 @@ class UserLambdaFunctionTest extends FunSuite with TestUtils {
   } }
 
   def doTest(ndf: DataFrame): Unit = {
-    debug{ndf.show()}
+    debug {ndf.show()}
     ndf.collect().foreach{r => assert(r.getAs[Double]("newcalc") == r.getAs[Int]("value") * r.getAs[Double]("ccyrate")) }
   }
 
   @Test
   def lambdaMultiParamLengthExpandedTest: Unit = evalCodeGensNoResolve { funNRewrites {
 
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
     val df = simpleTrades.toDF(tradeCols :_ *)
 
     //val rule = LambdaFunction("multValCCY", "(theValue: BIGINT, ccy: DECIMAL) -> theValue * ccy", Id(1,2))
@@ -96,7 +101,8 @@ class UserLambdaFunctionTest extends FunSuite with TestUtils {
   @Test
   def lambdaMultiParamLengthSelfReferenceTest: Unit = evalCodeGensNoResolve { funNRewrites {
 
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
     val df = simpleTrades.toDF(tradeCols :_ *)
 
     //val rule = LambdaFunction("multValCCY", "(theValue: BIGINT, ccy: DECIMAL) -> theValue * ccy", Id(1,2))
@@ -114,7 +120,8 @@ class UserLambdaFunctionTest extends FunSuite with TestUtils {
   @Test
   def lambdaMultiParamDupeLengthTest: Unit = evalCodeGensNoResolve { funNRewrites {
 
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
     val df = simpleTrades.toDF(tradeCols :_ *)
 
     //val rule = LambdaFunction("multValCCY", "(theValue: BIGINT, ccy: DECIMAL) -> theValue * ccy", Id(1,2))
@@ -131,7 +138,8 @@ class UserLambdaFunctionTest extends FunSuite with TestUtils {
   @Test
   def lambdaMissing0LengthTest: Unit = evalCodeGensNoResolve { funNRewrites {
 
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
     val df = simpleTrades.toDF(tradeCols :_ *)
 
     //val rule = LambdaFunction("multValCCY", "(theValue: BIGINT, ccy: DECIMAL) -> theValue * ccy", Id(1,2))
@@ -148,7 +156,8 @@ class UserLambdaFunctionTest extends FunSuite with TestUtils {
   @Test
   def nestedLambdaRuleTest: Unit = evalCodeGensNoResolve { funNRewrites {
 
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
     val df = simpleTrades.toDF(tradeCols :_ *)
 
     //val rule = LambdaFunction("multValCCY", "(theValue: BIGINT, ccy: DECIMAL) -> theValue * ccy", Id(1,2))
@@ -207,7 +216,8 @@ class UserLambdaFunctionTest extends FunSuite with TestUtils {
     val deep1 = LambdaFunction("deep1", "(func, b) -> use1(func, b)", Id(2,2))
     registerLambdaFunctions(Seq(mult, plus, user, use1, deep, deep1))
 
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
 
     // types per default placeholder of LongType
     assert(2L == sparkSession.sql("select use(mult(_(), _()), 1L, 2L) as res").as[Long].head)
@@ -244,7 +254,8 @@ class UserLambdaFunctionTest extends FunSuite with TestUtils {
     val papplyt = LambdaFunction("papplyt", "(func, a, b, c) -> callFun(callFun(func, _(), _(), c), a, b)", Id(2,2))
     registerLambdaFunctions(Seq(plus2, plus3, papplyt))
 
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
 
     assert(6L == { val sql = sparkSession.sql("select papplyt(plus(_(), _(), _()), 1L, 2L, 3L) as res")
       sql.as[Long].head})
@@ -257,7 +268,8 @@ class UserLambdaFunctionTest extends FunSuite with TestUtils {
     val retLambda = LambdaFunction("retLambda", "(a, b) -> plus(a, b, _())", Id(2,2))
     registerLambdaFunctions(Seq(plus2, plus3, retLambda))
 
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
 
     assert(6L == { val sql = sparkSession.sql("select callFun(retLambda(1L, 2L), 3L) as res")
       sql.as[Long].head})
@@ -269,7 +281,8 @@ class UserLambdaFunctionTest extends FunSuite with TestUtils {
     val hof = LambdaFunction("hof", "func -> aggregate(array(1, 2, 3), 0, _lambda_(func))", Id(3,2))
     registerLambdaFunctions(Seq(plus, plus3, hof))
 
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
 
     // attempt to dropping a reference to a function where simple lambdas are expected.
     // control
@@ -303,7 +316,8 @@ class UserLambdaFunctionTest extends FunSuite with TestUtils {
     val dropNConcat = LambdaFunction("dropNConcat", "(k, v1, v2) -> concat(v1, v2)", Id(2, 2))
     registerLambdaFunctions(Seq(plus, times, sort1, sort2, gt, ismod, notnull, isnull, drop2nd, dropNConcat))
 
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
     // SELECT _FUNC_(array(1, 2, 3), 0, (acc, x) -> acc + x, acc -> acc * 10);
     assert(60 == sparkSession.sql("SELECT aggregate(array(1, 2, 3), 0, _lambda_(plus(_('int'), _('int'))), _lambda_(times(_('int'), 10))) as res").as[Int].head)
     // SELECT _FUNC_(array(1, 2, 3), x -> x + 1);
@@ -422,7 +436,8 @@ class UserLambdaFunctionTest extends FunSuite with TestUtils {
     val funF = LambdaFunction("funf", "f -> aggregate(array(1, 2, 3), 0, _lambda_(f) )", Id(1, 2)) // ignore the params but keep the shape
     registerLambdaFunctions(Seq(plus, funF))
 
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
     assert(9 == sparkSession.sql("SELECT funf(plus(_('int'), 3, _('int'))) as res").as[Int].head)
   } }
 

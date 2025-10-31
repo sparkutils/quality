@@ -5,6 +5,8 @@ import com.sparkutils.quality.impl.RuleRegistrationFunctions.INC_REWRITE_GENEXP_
 import com.sparkutils.quality.functions._
 import com.sparkutils.quality.impl.aggregates.ResultsExpression
 import com.sparkutils.qualityTests.mapLookup.TradeTests._
+import com.sparkutils.testing.SparkVersions.sparkVersion
+import com.sparkutils.testing.TestUtils.debug
 import org.apache.spark.SparkException
 import org.apache.spark.sql.catalyst.expressions.GenericRowWithSchema
 import org.apache.spark.sql.functions.{col, concat, expr, lit, struct, when}
@@ -14,7 +16,7 @@ import org.junit.Test
 import org.scalatest.FunSuite
 import org.scalatest.Matchers.convertToAnyShouldWrapper
 
-class AggregatesTest extends FunSuite with TestUtils {
+class AggregatesTest extends SharedTests {
 
   def doMapTest(transform: Dataset[java.lang.Long] => Dataset[java.lang.Long], sql: String): Unit = evalCodeGensNoResolve {
     val factor = 200 // NB 2000 runs in 5m2s with default index scan and replace and map_concat which clearly fails, 4m 51 with index and map merge with expr based add
@@ -58,7 +60,8 @@ class AggregatesTest extends FunSuite with TestUtils {
 
   @Test
   def multiGroups(): Unit = evalCodeGens {
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
 
     // register the various Quality sql functions as used below
     com.sparkutils.quality.registerQualityFunctions()
@@ -111,7 +114,8 @@ class AggregatesTest extends FunSuite with TestUtils {
    */
   @Test
   def groupByNestedMapWith(): Unit = evalCodeGens {
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
 
     // register the various Quality sql functions as used below
     com.sparkutils.quality.registerQualityFunctions()
@@ -187,7 +191,8 @@ class AggregatesTest extends FunSuite with TestUtils {
 
   @Test
   def sumTestDSL: Unit = evalCodeGensNoResolve {
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
     val df = sparkSession.range(1, 20).union(sparkSession.range(1,2).map(_ => null.asInstanceOf[Long]))
 
     val summed = df.select(agg_expr(LongType, col("id") % 2 > 0, sum_with(sum => sum + col("id")), results_with( (sum, count) => sum / count ) ).as("aggExpr"))
@@ -213,7 +218,8 @@ class AggregatesTest extends FunSuite with TestUtils {
 
   @Test
   def evalSumTest: Unit = evalCodeGensNoResolve {
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
     val df = sparkSession.range(1, 20).union(sparkSession.range(1,2).map(_ => null.asInstanceOf[Long]))
 
     val summed = df.select(expr("aggExpr(id % 2 > 0, sumWith(sum -> sum + id), resultsWith( (sum, count) -> sum / count ) )").as("aggExpr"))
@@ -241,7 +247,8 @@ class AggregatesTest extends FunSuite with TestUtils {
   lazy val mapDeprecatedCountExpr = expr("aggExpr(1 > 0, mapWith('MAP<STRING, LONG>', date || ', ' || product, entry -> entry + 1 ), resultsWith('MAP<STRING, LONG>', (sum, count) -> sum ) )").as("mapCountExpr")
 
   def doMapAggrCountTest(expr: Column): Unit = evalCodeGensNoResolve {
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
     val df = simpleTrades.toDF(tradeCols :_ *)
 
     val summed = df.select(expr)
@@ -268,7 +275,8 @@ class AggregatesTest extends FunSuite with TestUtils {
   ))
 
   def doMapStructKeyAggrCountTest(expr: Column): Unit = evalCodeGensNoResolve {
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
     val df = simpleTrades.toDF(tradeCols :_ *)
 
     val summed = df.select(expr)
@@ -306,7 +314,8 @@ class AggregatesTest extends FunSuite with TestUtils {
   }
 
   def doMapAggrSumTest[T: ToDouble](expr: Column): Unit = evalCodeGensNoResolve {
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
     val df = simpleTrades.toDF(tradeCols :_ *)
 
     val summed = df.select(expr)
@@ -330,7 +339,8 @@ class AggregatesTest extends FunSuite with TestUtils {
   }
 
   def doMapAggrOnePassTest(expr1: Column, expr2: Column): Unit = evalCodeGensNoResolve {
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
     val df = simpleTrades.toDF(tradeCols :_ *)
 
     val summed = df.select(expr1, expr2)
@@ -365,7 +375,8 @@ class AggregatesTest extends FunSuite with TestUtils {
     doDecimalPrecisionTestF(df => col, expected = expected)
   }
   def doDecimalPrecisionTestF(col: DataFrame => Column, expected: BigDecimal = BigDecimal(23245.68200000000)): Unit = evalCodeGensNoResolve {
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
     val testDF = Seq(("a", BigDecimal.valueOf(0.34)),("b", BigDecimal.valueOf(23245.342))).
       toDF("str","dec")
 

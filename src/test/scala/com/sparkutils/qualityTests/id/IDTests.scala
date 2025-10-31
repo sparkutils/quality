@@ -1,5 +1,6 @@
 package com.sparkutils.qualityTests.id
 
+import com.sparkutils.manual.ProcessorThroughputBenchmark.createSparkSessions
 import com.sparkutils.quality._
 import functions._
 import com.sparkutils.quality.impl.hash.{HashFunctionFactory, MessageDigestFactory, ZALongHashFunctionFactory, ZALongTupleHashFunctionFactory}
@@ -8,6 +9,8 @@ import com.sparkutils.quality.impl.id.model.{ProvidedID, RandomID}
 import com.sparkutils.quality.impl.rng.RandomLongs
 import com.sparkutils.quality.impl.util.BytePackingUtils
 import com.sparkutils.qualityTests._
+import com.sparkutils.testing.{ClassicOnly, ConnectionType, Sessions}
+import com.sparkutils.testing.TestUtils.{anyCauseHas, debug}
 import org.apache.commons.rng.simple.RandomSource
 import org.apache.spark.sql.ShimUtils.expression
 import org.apache.spark.sql.functions._
@@ -22,7 +25,7 @@ import java.util.Base64
 import scala.collection.JavaConverters
 import scala.jdk.CollectionConverters._
 
-class IDTests extends FunSuite with TestUtils {
+class IDTests extends SharedTests {
 
   @Test
   def rountTripRandom: Unit = doRoundTripGenericLongBasedID(model.RandomID)
@@ -278,7 +281,8 @@ class IDTests extends FunSuite with TestUtils {
   def doFieldGenTest(digestImpl: String, digestFun: String, fieldBasedId: String = "fieldBasedID", digestFactory: String => DigestFactory = MessageDigestFactory, longCount: Int = 2 ): Unit = {
     import com.sparkutils.quality._
     registerQualityFunctions()
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
 
     def testRes(md5Exploded: DataFrame): Unit = {
       debug(md5Exploded.show)
@@ -314,7 +318,8 @@ class IDTests extends FunSuite with TestUtils {
   def testMurmur3: Unit = evalCodeGensNoResolve {
     import com.sparkutils.quality._
     registerQualityFunctions()
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
 
     def testRes(md5Exploded: DataFrame): Unit = {
       debug(md5Exploded.show)
@@ -391,7 +396,8 @@ class IDTests extends FunSuite with TestUtils {
     import com.sparkutils.quality._
     registerQualityFunctions()
 
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
 
     def mismatch(str: String) = notValidTest(str, "mismatch")
     def bigInt(str: String) = notValidTest(str, ".._i1: BIGINT")
@@ -489,7 +495,7 @@ class IDTests extends FunSuite with TestUtils {
 import org.scalameter.api._
 
 object SumIdGenTest extends Bench.OfflineReport with RowTools {
-  val stable = sparkSessionF
+  val stable = sparkSession
   import stable.implicits._
 
   import scala.collection.JavaConverters._
@@ -520,7 +526,7 @@ object SumIdGenTest extends Bench.OfflineReport with RowTools {
 
   def evaluate(func: (DataFrame) => DataFrame, colname: String)(param: Int) = {
     // the extra fields are added so performance of the other alternatives can be managed
-    val df = sparkSessionF.range(0, param).selectExpr("id", "id || '_field' as f1", "id || '_field2' as f2", "id || '_field3' as f3")
+    val df = sparkSession.range(0, param).selectExpr("id", "id || '_field' as f1", "id || '_field2' as f2", "id || '_field3' as f3")
 
     val ndf = func(df)
 
@@ -528,6 +534,11 @@ object SumIdGenTest extends Bench.OfflineReport with RowTools {
       JavaConverters.asScalaIteratorConverter(ndf.toLocalIterator()).asScala.map { _.getAs[Long](colname) }.sum // get will probably be dumped, but hopefully not
     sum
   }
+
+
+  override def connectionType: ConnectionType = ClassicOnly
+
+  override def sessions: Sessions = createSparkSessions(connectionType)
 
 }
 

@@ -2,14 +2,15 @@ package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.HasRuleText
+
+import com.sparkutils.testing.TestUtils.debug
 import impl.imports.RuleResultsImports.packId
 import impl.util.OutputExpressionRow
 import org.apache.spark.sql.functions._
 import org.junit.Test
-import org.scalatest.FunSuite
 import simpleVersioning._
 
-class VersionSerializingTest extends FunSuite with TestUtils {
+class VersionSerializingTest extends SharedTests {
 
   /**
    * Verify versions with all combos.
@@ -97,7 +98,8 @@ class VersionSerializingTest extends FunSuite with TestUtils {
             null // just to keep the outputexpressions clean
         }.filterNot(_ eq null))
       val outputExpressionsDF = {
-        import sparkSession.implicits._
+        val s = sparkSession
+    import s.implicits._
         flattened.toDF
       }
       outputExpressionsDF

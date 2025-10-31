@@ -19,7 +19,7 @@ import java.util.concurrent.atomic.AtomicInteger
 /**
  * tests if sub expressions are properly eliminated in the various runner configurations
  */
-class SubExpressionEliminationTest extends FunSuite with TestUtils {
+class SubExpressionEliminationTest extends FunSuite with SharedTests {
 
   val data = Seq(
     TestOn("p1","a1", 0),
@@ -60,7 +60,8 @@ class SubExpressionEliminationTest extends FunSuite with TestUtils {
   def doRunner(count: Int, rsf: RuleSuite => Column): Unit = not_Cluster{
     EqualToTest.counter.set(0)
     val rs = RuleSuite(Id(1,1), Seq(RuleSet(Id(1,1), triggers)), lambdaFunctions = lambdas)
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
     val res = data.toDS().withColumn("dq", rsf(rs)).collect()
     val cur = EqualToTest.counter.get()
     /*import quality.implicits._

@@ -7,7 +7,7 @@ import org.apache.spark.sql.catalyst.expressions.Expression
 import org.junit.Test
 import org.scalatest.FunSuite
 
-class VariableIdentificationTest extends FunSuite with TestUtils {
+class VariableIdentificationTest extends FunSuite with SharedTests {
 
   val parser = newParser()
 

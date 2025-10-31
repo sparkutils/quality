@@ -2,17 +2,18 @@ package com.sparkutils.qualityTests.bloom
 
 import com.sparkutils.quality.impl.bloom.BloomConfig
 import com.sparkutils.quality.{DataFrameLoader, Id, loadBloomConfigs, loadBlooms}
-import com.sparkutils.qualityTests.TestUtils
+import com.sparkutils.qualityTests.SharedTests
 import org.apache.spark.sql.functions.{col, expr}
 import org.apache.spark.sql.DataFrame
 import org.junit.Test
 
 // NB the other combinations of loading are covered by the ViewLoaderTest
-class BloomLoaderTest extends TestUtils {
+class BloomLoaderTest extends SharedTests {
 
   val loader = new DataFrameLoader {
     override def load(token: String): DataFrame = {
-      import sparkSession.implicits._
+      val s = sparkSession
+    import s.implicits._
 
       token match {
         case "undertwenty" => sqlContext.range(0, 19)
@@ -29,7 +30,8 @@ class BloomLoaderTest extends TestUtils {
 
   @Test
   def testConfigLoading(): Unit = {
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
 
     val (bloomConfigs, _) = loadBloomConfigs(loader, config.toDF(), expr("id.id"), expr("id.version"), Id(1,1),
       col("name"),col("token"),col("filter"),col("sql"), col("bigBloom"),
@@ -41,7 +43,8 @@ class BloomLoaderTest extends TestUtils {
 
   @Test
   def testConfigLoadingWithoutIds(): Unit = {
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
 
     val (bloomConfigs, _) = loadBloomConfigs(loader, config.map(_.to2).toDF(),
       col("name"),col("token"),col("filter"),col("sql"), col("bigBloom"),
@@ -61,7 +64,8 @@ class BloomLoaderTest extends TestUtils {
 
   @Test
   def testBloomLoading(): Unit = {
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
     val (bloomConfigs, _) = loadBloomConfigs(loader, config.toDF(), expr("id.id"), expr("id.version"), Id(1,1),
       col("name"),col("token"),col("filter"),col("sql"), col("bigBloom"),
       col("value"), col("numberOfElements"), col("expectedFPP")
@@ -73,7 +77,8 @@ class BloomLoaderTest extends TestUtils {
 
   @Test
   def testMapSQLLoading(): Unit = {
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
 
     sqlContext.range(0, 19).createOrReplaceTempView("undertwenty")
 

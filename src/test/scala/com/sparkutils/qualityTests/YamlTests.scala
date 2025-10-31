@@ -10,7 +10,7 @@ import org.scalatest.FunSuite
 
 import scala.language.postfixOps
 
-class YamlTests extends FunSuite with RowTools with TestUtils {
+class YamlTests extends FunSuite with RowTools with SharedTests {
 
   def doSerDeTestMaps(original: String, ddl: String) = evalCodeGens {
     def serDe(renderOptions: Map[String, String]) {
@@ -134,7 +134,8 @@ class YamlTests extends FunSuite with RowTools with TestUtils {
 
   @Test
   def decimalViaYaml: Unit = evalCodeGens {
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
     val str =
       sparkSession.sql(s"select to_yaml(cast(1234.50404 as decimal(30,10)), $UseFullScalarType) r").as[String].head
 

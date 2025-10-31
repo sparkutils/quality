@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl.extension
 
 import com.sparkutils.quality.impl.extension.QualitySparkExtension.{disableRulesConf, forceInjectFunction}
-import com.sparkutils.quality.impl.util.Testing
+import com.sparkutils.testing.Testing
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.{ShimUtils, SparkSession, SparkSessionExtensions}
 import org.apache.spark.sql.catalyst.expressions.Expression

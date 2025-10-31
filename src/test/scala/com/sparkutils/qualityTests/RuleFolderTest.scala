@@ -13,7 +13,7 @@ import org.apache.spark.sql.types.{IntegerType, StringType, StructField, StructT
 import org.junit.Test
 import org.scalatest.FunSuite
 
-class RuleFolderTest extends FunSuite with TestUtils {
+class RuleFolderTest extends FunSuite with SharedTests {
 
   val testData=Seq(
     TestOn("edt", "4201", 40),
@@ -46,7 +46,8 @@ class RuleFolderTest extends FunSuite with TestUtils {
       RuleSet(Id(50, 1), rules
       )))
 
-    import sqlContext.implicits._
+    val sc = sqlContext
+    import sc.implicits._
 
     (dataFrame: DataFrame) =>
       ruleFolderRunner(transformRuleSuite(ruleSuite), struct(lit("").as("transfer_type"), $"account", $"product", $"subcode"), debugMode = debugMode,
@@ -71,7 +72,8 @@ class RuleFolderTest extends FunSuite with TestUtils {
     ) // compileEvals + codeGens IS NOT forcing a code gen on >Spark3
 
     val testDataDF = {
-      import sparkSession.implicits._
+      val s = sparkSession
+    import s.implicits._
       testData.toDF()
     }
 
@@ -139,7 +141,8 @@ class RuleFolderTest extends FunSuite with TestUtils {
       )))
 
     val testDataDF = {
-      import sparkSession.implicits._
+      val s = sparkSession
+    import s.implicits._
       testData.toDF()
     }
     //testDataDF.show
@@ -147,9 +150,10 @@ class RuleFolderTest extends FunSuite with TestUtils {
   }
 
   def doReplaceTest(outdf: DataFrame): Unit = {
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
 
-    debug(outdf.show)
+    com.sparkutils.testing.TestUtils.debug(outdf.show)
 
     val res = outdf.filter("subcode is not null").as[TestOn].collect()
 
@@ -267,7 +271,8 @@ class RuleFolderTest extends FunSuite with TestUtils {
   def doTestFlattenResults(useSetSyntax: Boolean): Unit =  evalCodeGens { funNRewrites {//forceInterpreted { // evalCodeGensNoResolve {
     val (testDataDF, ruleSuite) = testAndRulesForReplace(useSetSyntax)
 
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
 
     testDataDF.write.mode("overwrite").parquet(outputDir+"/ruleFolder")
     val loadedDF = sparkSession.read.parquet(outputDir+"/ruleFolder")

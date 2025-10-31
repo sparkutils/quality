@@ -9,7 +9,7 @@ import org.apache.spark.sql.types.{BinaryType, LongType, StringType}
 import org.junit.Test
 import org.scalatest.FunSuite
 
-class RngAndRowIdTest extends FunSuite with TestUtils {
+class RngAndRowIdTest extends FunSuite with SharedTests {
 
   @Test
   def rngBytesTest: Unit = evalCodeGensNoResolve {

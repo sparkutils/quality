@@ -1,6 +1,8 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
+
+import com.sparkutils.testing.TestUtils.debug
 import types._
 import impl.imports.RuleResultsImports.packId
 import impl.util.OutputExpressionRow
@@ -9,7 +11,7 @@ import org.apache.spark.sql.functions._
 import org.junit.Test
 import org.scalatest.FunSuite
 
-class RoundTripTest extends FunSuite with RowTools with TestUtils {
+class RoundTripTest extends SharedTests with RowTools {
 
   @Test
   def verifyPacking(): Unit = {
@@ -196,7 +198,8 @@ class RoundTripTest extends FunSuite with RowTools with TestUtils {
         OutputExpressionRow(oe.rule, oe.id.id, oe.id.version, global.id, global.version)
       })
     val outputExpressionsDF = {
-      import sparkSession.implicits._
+      val s = sparkSession
+    import s.implicits._
       flattened.toDF
     }
     debug(outputExpressionsDF.show())

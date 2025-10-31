@@ -82,6 +82,8 @@ object RunOnPassProcessor {
 
 }
 
+// TODO all interface for connect must be serialisableid providing so version compat on client/server comms works.
+
 /**
   * A rule to run over a row
   * @param id

@@ -189,34 +189,6 @@ case class TransientHolder[T](val initialise: () => T) extends Serializable {
   }
 }
 
-/**
- * Signifies that testing is being done, it should be ignored by users.
- */
-object Testing {
-  // horrible hack for testing, but at least attempt to make it performant
-  private val testingFlag = new AtomicBoolean(false)
-
-  /**
-   * Should not be used by users but currently (0.0.2) only forces re-evaluation of the quality.lambdaHandlers configuration rather than caching once.
-   */
-  protected[sparkutils] def setTesting() = {
-    testingFlag.set(true)
-  }
-
-  def testing = testingFlag.get
-
-  /**
-   * Should not be called by users of the library and is provided for testing support only
-   * @param thunk
-   */
-  def test(thunk: => Unit): Unit = try {
-    setTesting()
-    thunk
-  } finally {
-    testingFlag.set(false)
-  }
-}
-
 object Comparison {
 
   /**
@@ -292,26 +264,6 @@ object Arrays {
       case _ => array.array
     }
 
-}
-
-/**
- * With the introduction of the 4 runtime folder needs different
- * resolved behaviour on lazytyperef, as such these move here
- * from TestUtils
- */
-object SparkVersions {
-
-  lazy val sparkFullVersion = {
-    val pos = classOf[Expression].getPackage.getSpecificationVersion
-    if ((pos eq null) || pos == "0.0") // DBR is always null, Fabric 0.0
-      SparkSession.active.version
-    else
-      pos
-  }
-
-  lazy val sparkVersion = sparkFullVersion.split('.').take(2).mkString(".")
-
-  lazy val sparkMajorVersion = sparkFullVersion.split('.').head
 }
 
 /**

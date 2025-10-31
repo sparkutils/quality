@@ -16,12 +16,13 @@ import org.scalatest.FunSuite
 
 import java.util.UUID
 import com.sparkutils.quality.impl.yaml.{YamlDecoderExpr, YamlEncoderExpr}
+import com.sparkutils.testing.TestUtils.debug
 import frameless.TypedExpressionEncoder
 import org.apache.spark.sql.ShimUtils.expression
 
 import scala.language.postfixOps
 
-class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
+class BaseFunctionalityTest extends FunSuite with RowTools with SharedTests {
 
   @Test
   def flattenResultsTest: Unit = evalCodeGensNoResolve {
@@ -105,7 +106,8 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     //println(exploded.queryExecution)
     //exploded.show(84)
 
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
     val res = exploded.selectExpr("sum(toCount)").as[Long].head
 
     // it's sufficient to run the results for this test, if it can't be encoded it will throw on count
@@ -121,7 +123,8 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
   @Test
   def longPairEqual: Unit = evalCodeGens {
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
     val (seq, ceq) = sparkSession.range(1).selectExpr("120 a_lower", "304 a_higher", "120 b_lower", "304 b_higher").
       select(expr("long_pair_equal('a','b') seq"), long_pair_equal("a","b") as "ceq").as[(Boolean, Boolean)].head
 
@@ -150,7 +153,8 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
         "as_uuid(fparts.lower + id, fparts.higher) as asUUIDExpr"
       ).select(expr("*"), unpack(col("d")) as "g2", as_uuid(expr("fparts.lower + id"), expr("fparts.higher")).as("asUUIDCol"))
 
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
     val unpackCheck = df.selectExpr("g", "g2").as[((Int, Int), (Int, Int))].head
     assert(unpackCheck._1 == unpackCheck._2)
 
@@ -269,7 +273,8 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     import frameless._
 
     val df = {
-      import sparkSession.implicits._ // can't have it use these defaults or it fails on versionedid and friends
+      val s = sparkSession
+      import s.implicits._ // can't have it use these defaults or it fails on versionedid and friends
       sparkSession.createDataset(Seq(1)).toDF()
     }
     val res = df.transform(taddDataQualityF(ruleSuite)).select("DataQuality.*").as[RuleSuiteResult].collect()
@@ -312,7 +317,8 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
   def doTestPrint(default: String, custom: String, customTest: String, addTest: String, expr: String): Unit = {
     import com.sparkutils.quality._
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
     val plus = LambdaFunction("plus", "(a, b) -> a + b", Id(3,2)) // force compile with codegen
     registerLambdaFunctions(Seq(plus))
     Holder.res = ""
@@ -373,7 +379,8 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
   @Test
   def testComparableResultsDifferentKeysAndMapValue: Unit = evalCodeGensNoResolve {
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
 
     def doCheck[T: Encoder](seq: Seq[T], thereCanBeOnlyOne: Boolean = false): Unit = {
       val df = seq.toDS()
@@ -436,7 +443,8 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
     val ma1 = MapArray(Seq(map))
     val ma2 = MapArray(Seq(map))
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
     val ds1 = Seq(ma1, ma2).toDS()
     val ds2 = Seq(ma1, ma2).toDS()
 
@@ -467,7 +475,8 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     val map = Map(1 -> 1, 2 -> 2, 3 -> 3, 4 -> 4)
     val maps = (0 to 4).map(i => map.mapValues(_ * i))
 
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
     val ds = maps.reverse.map(m => MapArray(Seq(m.toMap))).toDS()
     ds.head
 
@@ -503,7 +512,8 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     val map = Map(1 -> 1, 2 -> 2, 3 -> 3, 4 -> 4)
     val maps = (0 to 4).map(i => map.mapValues(_ * i))
 
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
     val ds = maps.reverse.map(m => NestedMapStruct(NestedStruct(m.head._1, Map( m.head._1 -> MapArray(Seq(m.toMap)))))).toDS()
     ds.head
 
@@ -544,7 +554,8 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
   def scalarSubqueryAsTrigger(): Unit = evalCodeGensNoResolve {
     v3_4_and_above {
       // assert that using a join to test with is fine even when nested
-      import sparkSession.implicits._
+      val s = sparkSession
+      import s.implicits._
       val seq = Seq(0, 1, 2, 3, 4)
       val df = seq.toDF("i") // Force GenericArrayData instead of UnsafeArrayData
       val tableName = "the_I_s_Have_It"
@@ -607,7 +618,8 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
   } }
 
   def doTheRuleResultTest(df: DataFrame, toWrite: Int): Unit = {
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
 
     // using a lambda to ensure it works to reduce code duplication
     val l = LambdaFunction("dq_rule_result", "(a, b) -> rule_result(DataQuality, pack_ints(1,1), a, b)", Id(0,0))
@@ -676,7 +688,8 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     )))
 
     val strippedGres = {
-      import sparkSession.implicits._
+      val s = sparkSession
+      import s.implicits._
       stripped.select(rule_result(col("rr"), pack_ints(10,2), pack_ints(20,1), pack_ints(Id(31,3))))
         .as[String].head
     }
@@ -710,7 +723,8 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
       Id(32, 3) -> null
     ))))
 
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
     val gres =
       processed.selectExpr("rule_result(expressionResults, pack_ints(10,2), pack_ints(20,1), pack_ints(31,3)) rr")
         .as[String].head
@@ -719,7 +733,8 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
 
   @Test
   def updateFields(): Unit = evalCodeGens {
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
 
     val og = sparkSession.range(1).selectExpr("named_struct('a', 1, 'b', named_struct('c', 4, 'd', named_struct('e', 'wot')), 'f', 'string', 'g', 134) s")
     def assertsbc(df: DataFrame, expected: Int, expectedString: String) = {
@@ -861,7 +876,8 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
       end)""" ))))))
 
     val data = {
-      import sparkSession.implicits._
+      val s = sparkSession
+    import s.implicits._
 
       Seq[(Int, String, String, String, String)](
         (123, "a1", "b1", "c1", null),

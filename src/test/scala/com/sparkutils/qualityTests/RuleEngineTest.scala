@@ -4,6 +4,7 @@ import com.sparkutils.quality._
 import com.sparkutils.quality.functions.{flatten_rule_results, unpack_id_triple}
 import com.sparkutils.quality.impl.extension.FunNRewrite
 import com.sparkutils.quality.impl.{RuleEngineRunner, RunOnPassProcessor}
+import com.sparkutils.testing.TestUtils.debug
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.ShimUtils.expression
 import org.apache.spark.sql.functions._
@@ -18,7 +19,7 @@ case class TestOn(product: String, account: String, subcode: Int)
 case class NewPosting(transfer_type: String, account: String, product: String, subcode: Int)
 case class Posting(transfer_type: String, account: String)
 
-class RuleEngineTest extends FunSuite with TestUtils {
+class RuleEngineTest extends FunSuite with SharedTests {
 
   val testData=Seq(
     TestOn("edt", "4201", 40),
@@ -71,7 +72,8 @@ class RuleEngineTest extends FunSuite with TestUtils {
     )
 
     val testDataDF = {
-      import sparkSession.implicits._
+      val s = sparkSession
+    import s.implicits._
       testData.toDF()
     }
 
@@ -111,7 +113,8 @@ class RuleEngineTest extends FunSuite with TestUtils {
       , transformRuleSuite = _.withProbablePass(overallResult.probablePass))
 
     val testDataDF = {
-      import sparkSession.implicits._
+      val s = sparkSession
+    import s.implicits._
       testData.toDF()
     }
 
@@ -134,7 +137,8 @@ class RuleEngineTest extends FunSuite with TestUtils {
         OutputExpression("array(named_struct('transfer_type', 'from', 'account', 'another_account', 'product', product, 'subcode', subcode), named_struct('transfer_type', 'to', 'account', account, 'product', product, 'subcode', subcode))")))
     )
 
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
 
     val testDataDF = testData.toDF()
 
@@ -172,7 +176,8 @@ class RuleEngineTest extends FunSuite with TestUtils {
     )
 
     val testDataDF = {
-      import sparkSession.implicits._
+      val s = sparkSession
+    import s.implicits._
       testData.toDF()
     }
 
@@ -215,7 +220,8 @@ class RuleEngineTest extends FunSuite with TestUtils {
     )
 
     val testDataDF = {
-      import sparkSession.implicits._
+      val s = sparkSession
+    import s.implicits._
       testData.toDF()
     }
     import frameless._
@@ -283,7 +289,8 @@ class RuleEngineTest extends FunSuite with TestUtils {
   def scalarSubqueryAsOutputExpressionInStruct(): Unit = evalCodeGensNoResolve {
     v3_4_and_above {
       // assert that using a join to test with is fine even when nested
-      import sparkSession.implicits._
+      val s = sparkSession
+    import s.implicits._
       val seq = Seq(0, 1, 2, 3, 4)
       val df = seq.toDF("i") // Force GenericArrayData instead of UnsafeArrayData
       df.write.mode("overwrite").parquet(outputDir + "/i_s_hav_it") // force relation as LocalRelation is driver only so no serialisation attempted
@@ -318,7 +325,8 @@ class RuleEngineTest extends FunSuite with TestUtils {
   def scalarSubqueryAsOutputExpression(): Unit = evalCodeGensNoResolve {
     v3_4_and_above {
       // assert that using a join to test with is fine even when nested
-      import sparkSession.implicits._
+      val s = sparkSession
+    import s.implicits._
       val seq = Seq(0, 1, 2, 3, 4)
       val df = seq.toDF("i") // Force GenericArrayData instead of UnsafeArrayData
       val tableName = "the_I_s_Have_It"
@@ -353,7 +361,8 @@ class RuleEngineTest extends FunSuite with TestUtils {
       // using subqueries in lambdas does not work, it can't see the outer scope when it's a lambda variable, assume it's something like bind being called after subquery
 
       // assert that using a join to test with is fine even when nested
-      import sparkSession.implicits._
+      val s = sparkSession
+    import s.implicits._
       val seq = Seq(0, 1, 2, 3, 4)
       val df = seq.toDF("i") // Force GenericArrayData instead of UnsafeArrayData
       val tableName = "the_I_s_Have_It"
@@ -391,7 +400,8 @@ class RuleEngineTest extends FunSuite with TestUtils {
   def scalarSubqueryAsOutputExpressionViaLambdaNonAttributeParam(): Unit = evalCodeGensNoResolve {
     v3_4_and_above {
       // assert that using a join to test with is fine even when nested
-      import sparkSession.implicits._
+      val s = sparkSession
+    import s.implicits._
       val seq = Seq(0, 1, 2, 3, 4)
       val df = seq.toDF("i") // Force GenericArrayData instead of UnsafeArrayData
       val tableName = "the_I_s_Have_It"
@@ -428,7 +438,8 @@ class RuleEngineTest extends FunSuite with TestUtils {
       // in this scenario the lambda is just used to avoid repeating the subquery, pretty much just a join.
 
       // assert that using a join to test with is fine even when nested
-      import sparkSession.implicits._
+      val s = sparkSession
+    import s.implicits._
       val seq = Seq(0, 1, 2, 3, 4)
       val df = seq.toDF("i") // Force GenericArrayData instead of UnsafeArrayData
       val tableName = "the_I_s_Have_It"

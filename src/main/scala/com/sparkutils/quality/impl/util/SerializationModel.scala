@@ -86,7 +86,8 @@ case class MetaRuleSetRow(ruleSuiteId: Int,
    */
   protected[quality] def filterColumns(dataFrame: DataFrame, transform: DataFrame => DataFrame = identity): Set[String] = {
     import dataFrame.sparkSession
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
 
     val origds = sparkSession.createDataset( dataFrame.schema.fields.map(f=>
       SimpleField(f.name, f.dataType.sql, f.nullable)) ).toDF()

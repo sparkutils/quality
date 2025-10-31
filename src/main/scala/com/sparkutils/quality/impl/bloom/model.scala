@@ -83,7 +83,8 @@ case object SparkBloomFilterSerializer extends BloomSerializer[Array[Byte], com.
   import scala.language.implicitConversions
 
   implicit def enc(sparkSession: SparkSession): Encoder[SerType] = {
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
     implicitly[Encoder[BloomRaw]]
   }
 

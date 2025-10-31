@@ -1,6 +1,7 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
+import com.sparkutils.testing.TestUtils.anyCauseHas
 import org.apache.spark.sql.DataFrame
 import types._
 import org.apache.spark.sql.functions.expr
@@ -17,7 +18,7 @@ import org.junit.Test
  * Alas it adds another minute to the testing, but worth it.  It will add more when engine is codegen'd ...
  */
 //@Ignore
-class CodeGenTest extends RowTools with TestUtils {
+class CodeGenTest extends SharedTests with RowTools {
 
   def readGen[T](func: (Int, Int, DataFrame) => DataFrame, dataType: DataType, startValue: T)  = {
 
