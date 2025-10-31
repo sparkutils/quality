@@ -375,7 +375,7 @@ trait RuleEngineRunnerBase[T] extends UnaryExpression with NonSQLExpression {
 
   lazy val resultDataType = {
     val resultDataType = nonNullableDataType(realChildren(realChildren.length / 2).dataType)
-
+// TODO - Correct this type checking and re-enable the DDL to force nullability etc.
 /*    realChildren.drop(realChildren.length / 2).find(e => nonNullableDataType(e.dataType) != resultDataType).foreach{ e =>
       throw new QualityException(s"RuleEngine DataType ${e.dataType.sql} does not match the first OutputExpression type ${resultDataType.sql}")
     }*/

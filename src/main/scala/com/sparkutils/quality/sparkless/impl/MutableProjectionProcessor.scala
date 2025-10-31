@@ -2,14 +2,13 @@ package com.sparkutils.quality.sparkless.impl
 
 import com.sparkutils.quality.impl.extension.FunNRewrite
 import com.sparkutils.quality.sparkless.impl.Processors.{NO_QUERY_PLANS, isCopyNeeded}
-import com.sparkutils.quality.{QualityException, enableOptimizations, registerQualityFunctions}
+import com.sparkutils.quality.{QualityException, enableOptimizations}
 import com.sparkutils.quality.sparkless.{Processor, ProcessorFactory}
 import org.apache.spark.sql.{DataFrame, Encoder, QualitySparkUtils, ShimUtils}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
-import org.apache.spark.sql.catalyst.expressions.{Expression, GenericInternalRow, MutableProjection, PlanExpression}
+import org.apache.spark.sql.catalyst.expressions.{MutableProjection, PlanExpression}
 import org.apache.spark.sql.catalyst.optimizer.ConstantFolding
-import org.apache.spark.sql.types.{ObjectType, StructType}
+import org.apache.spark.sql.types.ObjectType
 
 object MutableProjectionProcessor {
 
@@ -29,7 +28,7 @@ object MutableProjectionProcessor {
     val iEnc = implicitly[Encoder[I]]
     val exprFrom = ShimUtils.expressionEncoder(iEnc).resolveAndBind().serializer
 
-    val (exprs, exprTo) = QualitySparkUtils.resolveExpressionsR[I, O](iEnc, df => {
+    val (exprs, exprTo) = QualitySparkUtils.resolveExpressions[I, O](iEnc, df => {
       dataFrameFunction(extraProjection(df))
     })
 
@@ -62,7 +61,7 @@ object MutableProjectionProcessor {
             else
               exprs
 
-          val processor = QualitySparkUtils.rowProcessor(exprsToUse, false /*compile*/).asInstanceOf[MutableProjection]
+          val processor = QualitySparkUtils.rowProcessor(exprsToUse, compile).asInstanceOf[MutableProjection]
 
           override def apply(i: I): O = {
             val ti = enc(InternalRow(i))

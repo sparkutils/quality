@@ -1,6 +1,6 @@
 package com.sparkutils.quality.sparkless.impl
 
-import com.sparkutils.quality.enableOptimizations
+import com.sparkutils.quality.{QualityException, enableOptimizations}
 import com.sparkutils.quality.impl.{GenerateDecoderOpEncoderProjection, GenerateDecoderOpEncoderVarProjection}
 import com.sparkutils.quality.impl.extension.FunNRewrite
 import com.sparkutils.quality.impl.util.Testing
@@ -8,7 +8,7 @@ import com.sparkutils.quality.sparkless.{Processor, ProcessorFactory}
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.{DataFrame, Encoder, QualitySparkUtils, ShimUtils}
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
-import org.apache.spark.sql.catalyst.expressions.{BoundReference, Expression, HigherOrderFunction}
+import org.apache.spark.sql.catalyst.expressions.{BoundReference, Expression, HigherOrderFunction, PlanExpression}
 import org.apache.spark.sql.catalyst.optimizer.ConstantFolding
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.qualityFunctions.FunN
@@ -132,22 +132,24 @@ object Processors {
   def processFactory[I: Encoder, O: Encoder](dataFrameFunction: DataFrame => DataFrame, compile: Boolean = true,
       forceMutable: Boolean = false, forceVarCompilation: Boolean = false, extraProjection: DataFrame => DataFrame = identity,
       enableQualityOptimisations: Boolean = true): ProcessorFactory[I, O] = {
-    //if (forceMutable || !compile)
+    if (forceMutable || !compile)
       MutableProjectionProcessor.processFactory[I, O](dataFrameFunction, compile, extraProjection,
         enableQualityOptimisations = enableQualityOptimisations)
-    /*else {
+    else {
       if (enableQualityOptimisations) {
         enableOptimizations(Seq(FunNRewrite, ConstantFolding))
       }
 
       val iEnc = implicitly[Encoder[I]]
-      val exprs = QualitySparkUtils.resolveExpressions[I](iEnc, df => {
+      val (exprsToUse, exprTo) = QualitySparkUtils.resolveExpressions[I, O](iEnc, df => {
         dataFrameFunction(extraProjection(df))
       })
 
-      // the code references to the other fields is already present inside of expressions, works for input_row based,
-      // but not wholestage approach, this is performed by all the CodegenSupport execs via attribute lookups
-      val exprsToUse = exprs.drop( exprs.length - toSize)
+      if (exprsToUse.exists(_.collect {
+        case s: PlanExpression[_] => s
+      }.nonEmpty)) {
+        throw new QualityException(NO_QUERY_PLANS)
+      }
 
       val allOrdinals =
         exprsToUse.flatMap{
@@ -157,10 +159,10 @@ object Processors {
         }.distinct.toSet
 
       val projector =
-        if (forceVarCompilation && allOrdinals.size < maxVarCompilationInputFields)
-          GenerateDecoderOpEncoderVarProjection.create[I, O](exprs, toSize, allOrdinals)
-        else
-          GenerateDecoderOpEncoderProjection.generate[I, O](exprs, useSubexprElimination = true, toSize)
+        //if (forceVarCompilation && allOrdinals.size < maxVarCompilationInputFields)
+          //GenerateDecoderOpEncoderVarProjection.create[I, O](exprsToUse, allOrdinals)
+        //else
+          GenerateDecoderOpEncoderProjection.generate[I, O](exprsToUse, exprTo, useSubexprElimination = true)
       new ProcessorFactory[I, O] {
         override def instance: Processor[I, O] = new Processor[I, O] {
           private val theInstance = projector.newInstance
@@ -169,7 +171,7 @@ object Processors {
           override def close(): Unit = {}
         }
       }
-    }*/
+    }
   }
 
 }

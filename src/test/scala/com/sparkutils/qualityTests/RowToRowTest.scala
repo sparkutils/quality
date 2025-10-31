@@ -841,7 +841,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
 
     val df = sparkSession.sql("select named_struct('account', 'acc124', 'product', 'ppp', 'subcode', 123) s").
       selectExpr("s.*").as[TestOn]
-    df.show
+
     df.head() shouldBe TestOn("ppp","acc124", 123)
 
     val DDL = "STRUCT<`account`: STRING, `product`: STRING, `subcode`: INTEGER >"
@@ -1164,12 +1164,12 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
     }
     val processora = processorF.instance
     processora.setPartition(1)
-    testProcessor(processora, 1)
+    testProcessor(processora, 2)
     StatefulTest.initCount should be >= 2
 
     val processorb = processorF.instance
     processorb.setPartition(2)
-    testProcessor(processorb, 3)
+    testProcessor(processorb, 6)
 
     StatefulTest.initCount should be >= 3
   } } } } }
@@ -1201,12 +1201,12 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
     // the stateful needs new copys , funn shouldn't change this
     val processora = processorF.instance
     processora.setPartition(1)
-    testProcessor(processora, 1)
+    testProcessor(processora, 2)
     StatefulTest.initCount should be >= 2
 
     val processorb = processorF.instance
     processorb.setPartition(2)
-    testProcessor(processorb, 3)
+    testProcessor(processorb, 6)
 
     StatefulTest.initCount should be >= 3
   } } } } }
@@ -1239,21 +1239,21 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
     // when compiling the stateful test code should be rolled into the compilation
     val processora = processorF.instance
     processora.setPartition(1)
-    testProcessor(processora, 1)
+    testProcessor(processora, 2)
     (inCodegen, forceMutable) match {
-      case (true, false) => StatefulTest.initCount should be <= 2
-      case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 2
+      case (true, false) => StatefulTest.initCount should be <= 3
+      case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 3
       case _ => StatefulTest.initCount should be >= 2
     }
 
     val processorb = processorF.instance
     processorb.setPartition(2)
-    testProcessor(processorb, 3)
+    testProcessor(processorb, 6)
 
     (inCodegen, forceMutable) match {
-      case (true, false) => StatefulTest.initCount should be <= 2
-      case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 2
-      case _ => StatefulTest.initCount should be >= 2
+      case (true, false) => StatefulTest.initCount should be <= 3
+      case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 3
+      case _ => StatefulTest.initCount should be >= 3
     }
   } } } } }
 
@@ -1289,12 +1289,12 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
       // so the results should be the same as "codegenfallback stateful handling on instance/setpartition funn"
       val processora = processorF.instance
       processora.setPartition(1)
-      testProcessor(processora, 1)
+      testProcessor(processora, 2)
       StatefulTest.initCount should be >= 2
 
       val processorb = processorF.instance
       processorb.setPartition(2)
-      testProcessor(processorb, 3)
+      testProcessor(processorb, 6)
 
       StatefulTest.initCount should be >= 3
     } finally {
@@ -1330,20 +1330,20 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
     // when compiling the stateful test code should be rolled into the compilation as should funn
     val processora = processorF.instance
     processora.setPartition(1)
-    testProcessor(processora, 1)
+    testProcessor(processora, 2)
     (inCodegen, forceMutable) match {
-      case (true, false) => StatefulTest.initCount should be <= 2
-      case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 2
+      case (true, false) => StatefulTest.initCount should be <= 3
+      case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 3
       case _ => StatefulTest.initCount should be >= 2
     }
 
     val processorb = processorF.instance
     processorb.setPartition(2)
-    testProcessor(processorb, 3)
+    testProcessor(processorb, 6)
 
     (inCodegen, forceMutable) match {
-      case (true, false) => StatefulTest.initCount should be <= 2
-      case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 2
+      case (true, false) => StatefulTest.initCount should be <= 3
+      case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 3
       case _ => StatefulTest.initCount should be >= 2
     }
   } } } } }
@@ -1377,12 +1377,12 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
     // when compiling the stateful test code should be rolled into the compilation but the hof should break it
     val processora = processorF.instance
     processora.setPartition(1)
-    testProcessor(processora, 1)
+    testProcessor(processora, 2)
     StatefulTest.initCount should be >= 2
 
     val processorb = processorF.instance
     processorb.setPartition(2)
-    testProcessor(processorb, 3)
+    testProcessor(processorb, 6)
 
     StatefulTest.initCount should be >= 3
   } } } } }
@@ -1423,20 +1423,20 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
       // "codegenfallback stateful handling on instance/setpartition codegen funn"
       val processora = processorF.instance
       processora.setPartition(1)
-      testProcessor(processora, 1)
+      testProcessor(processora, 2)
       (inCodegen, forceMutable) match {
-        case (true, false) => StatefulTest.initCount should be <= 2
-        case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 2
+        case (true, false) => StatefulTest.initCount should be <= 3
+        case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 3
         case _ => StatefulTest.initCount should be >= 2
       }
 
       val processorb = processorF.instance
       processorb.setPartition(2)
-      testProcessor(processorb, 3)
+      testProcessor(processorb, 6)
 
       (inCodegen, forceMutable) match {
-        case (true, false) => StatefulTest.initCount should be <= 2
-        case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 2
+        case (true, false) => StatefulTest.initCount should be <= 3
+        case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 3
         case _ => StatefulTest.initCount should be >= 2
       }
     } finally {
@@ -1482,20 +1482,20 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
       // when compiling the stateful test code should be rolled into the compilation but although it's a hof we've implemented its code gen
       val processora = processorF.instance
       processora.setPartition(1)
-      testProcessor(processora, 1)
+      testProcessor(processora, 2)
       (inCodegen, forceMutable) match {
-        case (true, false) => StatefulTest.initCount should be <= 2
-        case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 2
+        case (true, false) => StatefulTest.initCount should be <= 3
+        case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 3
         case _ => StatefulTest.initCount should be >= 2
       }
 
       val processorb = processorF.instance
       processorb.setPartition(2)
-      testProcessor(processorb, 3)
+      testProcessor(processorb, 6)
 
       (inCodegen, forceMutable) match {
-        case (true, false) => StatefulTest.initCount should be <= 2
-        case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 2
+        case (true, false) => StatefulTest.initCount should be <= 3
+        case (true, true) if sparkVersionNumericMajor < 34 => StatefulTest.initCount should be <= 3
         case _ => StatefulTest.initCount should be >= 2
       }
 
