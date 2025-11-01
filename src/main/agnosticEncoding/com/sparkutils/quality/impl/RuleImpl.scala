@@ -1,5 +1,6 @@
 package com.sparkutils.quality.impl
 
+import com.sparkutils.quality.impl.util.EmbeddedTypeCorrection.noCorrection
 import com.sparkutils.quality.sparkless.ProcessorFactory
 import com.sparkutils.quality.sparkless.impl.Processors.processFactory
 import com.sparkutils.quality.{LazyRuleSuiteResult, LazyRuleSuiteResultDetails, RuleSuiteResult, RuleSuiteResultDetails}
@@ -30,7 +31,7 @@ object RowDeserializing {
    */
   def rowDeserializer[T: Encoder](rowEnc: Encoder[Row]): ProcessorFactory[Row, T] = {
     implicit val i: Encoder[Row] = rowEnc
-    processFactory[Row, T](identity)//( _ => implicitly[Encoder[T]])
+    processFactory[Row, T](identity, noCorrection)//( _ => implicitly[Encoder[T]])
   }
 }
 

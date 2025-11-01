@@ -2,13 +2,13 @@ package org.apache.spark.sql
 
 import com.sparkutils.quality.impl.util.DebugTime.debugTime
 import com.sparkutils.quality.impl.util.Params.formatParams
-import com.sparkutils.quality.impl.util.{PassThrough, PassThroughCompileEvals}
+import com.sparkutils.quality.impl.util.{EmbeddedTypeCorrection, PassThrough, PassThroughCompileEvals}
 import com.sparkutils.quality.impl.{RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
 import com.sparkutils.shim.expressions.{HigherOrderFunctionLike, PredicateHelperPlus}
 import org.apache.spark.sql.ShimUtils.column
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCoercion}
 import org.apache.spark.sql.catalyst.encoders.RowEncoder
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, QualityExprUtils, GenerateMutableProjection}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, GenerateMutableProjection, QualityExprUtils}
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, BindReferences, EqualNullSafe, Expression, ExpressionSet, HigherOrderFunction, InterpretedMutableProjection, Literal, Projection, UpdateFields}
 import org.apache.spark.sql.catalyst.optimizer._
 import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, LogicalPlan, Project, UnaryNode}
@@ -149,7 +149,8 @@ object QualitySparkUtils {
    * @param dataFrameF
    * @return
    */
-  def resolveExpressions[T, R: Encoder](encFrom: Encoder[T], dataFrameF: DataFrame => DataFrame): (Seq[Expression], Expression) = {
+  def resolveExpressions[T, R: Encoder](encFrom: Encoder[T], embeddedTypeCorrection: EmbeddedTypeCorrection,
+                                        dataFrameF: DataFrame => DataFrame): (Seq[Expression], Expression) = {
     val enc = ShimUtils.expressionEncoder[T](encFrom)
 
     val plan = LocalRelation(enc.schema.fields.map{ field =>
@@ -175,7 +176,14 @@ object QualitySparkUtils {
       }
 
     val oEnc = implicitly[Encoder[R]]
-    val dec = ShimUtils.expressionEncoder(oEnc).resolveAndBind(
+    // original enc has possbly incorrect paths
+    val oExprEnc = ShimUtils.expressionEncoder(oEnc)
+
+    val adjustedEnc = oExprEnc.copy(objDeserializer =
+      embeddedTypeCorrection.correctDeserializer(oExprEnc.objDeserializer, aplan)
+    )
+
+    val dec = adjustedEnc.resolveAndBind(
       aplan.output, df.sparkSession.sessionState.analyzer)
 
     // folder introduces multiple projections, these are the ones we explicitly use

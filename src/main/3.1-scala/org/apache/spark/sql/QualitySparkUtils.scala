@@ -2,7 +2,7 @@ package org.apache.spark.sql
 
 import com.sparkutils.quality.impl.util.DebugTime.debugTime
 import com.sparkutils.quality.impl.util.Params.formatParams
-import com.sparkutils.quality.impl.util.{PassThrough, PassThroughCompileEvals}
+import com.sparkutils.quality.impl.util.{EmbeddedTypeCorrection, PassThrough, PassThroughCompileEvals}
 import com.sparkutils.quality.impl.{RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
 import com.sparkutils.shim.expressions.PredicateHelperPlus
 import org.apache.spark.sql.QualityStructFunctions.UpdateFields
@@ -12,7 +12,7 @@ import org.apache.spark.sql.catalyst.analysis.{Analyzer, ResolveCatalogs, Resolv
 import org.apache.spark.sql.catalyst.catalog.SessionCatalog
 import org.apache.spark.sql.catalyst.encoders.RowEncoder
 import org.apache.spark.sql.catalyst.errors.TreeNodeException
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode, QualityExprUtils, GenerateMutableProjection}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode, GenerateMutableProjection, QualityExprUtils}
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, BindReferences, CreateNamedStruct, EqualNullSafe, Expression, ExpressionSet, ExtractValue, GetStructField, If, InterpretedMutableProjection, IsNull, LeafExpression, Literal, Projection, UnaryExpression, Unevaluable}
 import org.apache.spark.sql.catalyst.optimizer.{BooleanSimplification, CollapseProject, CombineConcats, CombineTypedFilters, ConstantFolding, ConstantPropagation, EliminateMapObjects, EliminateSerialization, FoldablePropagation, LikeSimplification, NormalizeFloatingNumbers, NullPropagation, ObjectSerializerPruning, OptimizeIn, OptimizeUpdateFields, ReassignLambdaVariableID, RemoveDispensableExpressions, RemoveNoopOperators, RemoveRedundantAliases, ReorderAssociativeOperator, ReplaceExpressions, ReplaceNullWithFalseInPredicate, ReplaceUpdateFieldsExpression, SimplifyBinaryComparison, SimplifyCaseConversionExpressions, SimplifyCasts, SimplifyConditionals, SimplifyExtractValueOps, UnwrapCastInBinaryComparison}
 import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, LogicalPlan, Project, UnaryNode}
@@ -138,7 +138,8 @@ object QualitySparkUtils {
    * @param dataFrameF
    * @return
    */
-  def resolveExpressions[T, R: Encoder](encFrom: Encoder[T], dataFrameF: DataFrame => DataFrame): (Seq[Expression], Expression) = {
+  def resolveExpressions[T, R: Encoder](encFrom: Encoder[T], embeddedTypeCorrection: EmbeddedTypeCorrection,
+                                        dataFrameF: DataFrame => DataFrame): (Seq[Expression], Expression) = {
     val enc = ShimUtils.expressionEncoder[T](encFrom)
 
     val plan = LocalRelation(enc.schema.fields.map{ field =>
@@ -164,7 +165,14 @@ object QualitySparkUtils {
       }
 
     val oEnc = implicitly[Encoder[R]]
-    val dec = ShimUtils.expressionEncoder(oEnc).resolveAndBind(
+    // original enc has possbly incorrect paths
+    val oExprEnc = ShimUtils.expressionEncoder(oEnc)
+
+    val adjustedEnc = oExprEnc.copy(objDeserializer =
+      embeddedTypeCorrection.correctDeserializer(oExprEnc.objDeserializer, aplan)
+    )
+
+    val dec = adjustedEnc.resolveAndBind(
       aplan.output, df.sparkSession.sessionState.analyzer)
 
     // folder introduces multiple projections, these are the ones we explicitly use

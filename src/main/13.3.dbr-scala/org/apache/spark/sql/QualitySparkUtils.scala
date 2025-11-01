@@ -3,7 +3,7 @@ package org.apache.spark.sql
 import org.apache.spark.sql.ShimUtils.column
 import com.sparkutils.quality.impl.util.DebugTime.debugTime
 import com.sparkutils.quality.impl.util.Params.formatParams
-import com.sparkutils.quality.impl.util.{PassThrough, PassThroughCompileEvals}
+import com.sparkutils.quality.impl.util.{EmbeddedTypeCorrection, PassThrough, PassThroughCompileEvals}
 import com.sparkutils.quality.impl.{RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
 import com.sparkutils.shim.expressions.HigherOrderFunctionLike
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCoercion}
@@ -80,7 +80,7 @@ object QualitySparkUtils {
    * @param dataFrameF
    * @return
    */
-  def resolveExpressions[T, R: Encoder](encFrom: Encoder[T], dataFrameF: DataFrame => DataFrame): (Seq[Expression], Expression) =
+  def resolveExpressions[T, R: Encoder](encFrom: Encoder[T], embeddedTypeCorrection: EmbeddedTypeCorrection, dataFrameF: DataFrame => DataFrame): (Seq[Expression], Expression) =
     throw new Exception("Not supported on Databricks runtimes")
 
   /**

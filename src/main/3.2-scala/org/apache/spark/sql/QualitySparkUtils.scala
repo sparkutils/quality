@@ -3,7 +3,7 @@ package org.apache.spark.sql
 import org.apache.spark.sql.ShimUtils.column
 import com.sparkutils.quality.impl.util.DebugTime.debugTime
 import com.sparkutils.quality.impl.util.Params.formatParams
-import com.sparkutils.quality.impl.util.{PassThrough, PassThroughCompileEvals}
+import com.sparkutils.quality.impl.util.{EmbeddedTypeCorrection, PassThrough, PassThroughCompileEvals}
 import com.sparkutils.quality.impl.{RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
 import com.sparkutils.shim.expressions.{HigherOrderFunctionLike, PredicateHelperPlus}
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveHigherOrderFunctions, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCoercion}
@@ -148,7 +148,8 @@ object QualitySparkUtils {
    * @param dataFrameF
    * @return
    */
-  def resolveExpressions[T, R: Encoder](encFrom: Encoder[T], dataFrameF: DataFrame => DataFrame): (Seq[Expression], Expression) = {
+  def resolveExpressions[T, R: Encoder](encFrom: Encoder[T], embeddedTypeCorrection: EmbeddedTypeCorrection,
+                                        dataFrameF: DataFrame => DataFrame): (Seq[Expression], Expression) = {
     val enc = ShimUtils.expressionEncoder[T](encFrom)
 
     val plan = LocalRelation(enc.schema.fields.map{ field =>
@@ -174,7 +175,14 @@ object QualitySparkUtils {
       }
 
     val oEnc = implicitly[Encoder[R]]
-    val dec = ShimUtils.expressionEncoder(oEnc).resolveAndBind(
+    // original enc has possbly incorrect paths
+    val oExprEnc = ShimUtils.expressionEncoder(oEnc)
+
+    val adjustedEnc = oExprEnc.copy(objDeserializer =
+      embeddedTypeCorrection.correctDeserializer(oExprEnc.objDeserializer, aplan)
+    )
+
+    val dec = adjustedEnc.resolveAndBind(
       aplan.output, df.sparkSession.sessionState.analyzer)
 
     // folder introduces multiple projections, these are the ones we explicitly use

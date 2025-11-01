@@ -1,6 +1,7 @@
 package com.sparkutils.quality.sparkless
 
 import com.sparkutils.quality.impl.Encoders.rowTypedEnc
+import com.sparkutils.quality.impl.util.EmbeddedTypeCorrection.{noCorrection, ofRuleEngine, ofRuleFolder}
 import com.sparkutils.quality.impl.{Encoders, LazyRuleSuiteResultDetailsImpl, LazyRuleSuiteResultDetailsProxyImpl, LazyRuleSuiteResultImpl}
 import com.sparkutils.quality.impl.util.Encoding.fromNormalEncoder
 import com.sparkutils.quality.sparkless.StarUtil.star
@@ -34,7 +35,7 @@ trait LazyProcessFunctions { self: NonLazyProcessFunctions =>
     val iEnc = implicitly[Encoder[I]]
 
     val r = processFactory[I, (RuleResult, Row)](addOverallResultsAndDetailsWrapperF(ruleSuite,
-      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval), compile, forceMutable = forceMutable,
+      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval), noCorrection, compile, forceMutable = forceMutable,
       extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)
 
@@ -70,7 +71,7 @@ trait LazyProcessFunctions { self: NonLazyProcessFunctions =>
     implicit val enc = TypedEncoder[(Row, Option[SalientRule], Option[T])].agnosticEncoder
 
     val r = processFactory[I, (Row, Option[SalientRule], Option[T])](star("ruleEngine")(ruleEngineWithStructF(ruleSuite,
-      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval)), compile,
+      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval)), ofRuleEngine[Option[T]], compile,
       forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)
 
@@ -100,7 +101,7 @@ trait LazyProcessFunctions { self: NonLazyProcessFunctions =>
     implicit val enc = TypedEncoder[(Row, Option[T])].agnosticEncoder
 
     val r = processFactory[I, (Row, Option[T])](star("foldedFields")(foldAndReplaceFieldPairsWithStruct(ruleSuite, fields, outputType,
-      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval)), compile,
+      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval)), ofRuleFolder[T], compile,
       forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)
 
@@ -131,7 +132,7 @@ trait LazyProcessFunctions { self: NonLazyProcessFunctions =>
 
 // TODO this doesn't seem right, same function def?
     val r = processFactory[I, (Row, Option[T])](star("foldedFields")(foldAndReplaceFieldsWithStruct(ruleSuite, outputType,
-      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval)), compile,
+      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval)), ofRuleFolder[T], compile,
       forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)
 
