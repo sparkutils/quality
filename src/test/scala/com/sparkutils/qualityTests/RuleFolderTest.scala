@@ -10,7 +10,7 @@ import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder
 import org.apache.spark.sql.catalyst.expressions.Literal
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.{IntegerType, StringType, StructField, StructType}
-import org.junit.Test
+
 import org.scalatest.FunSuite
 
 class RuleFolderTest extends FunSuite with SharedTests {

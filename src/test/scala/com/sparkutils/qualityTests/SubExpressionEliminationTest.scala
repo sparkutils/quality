@@ -3,7 +3,7 @@ package com.sparkutils.qualityTests
 import org.apache.spark.sql.{Column, ShimUtils, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
-import org.junit.{Before, Test}
+
 import org.scalatest.FunSuite
 import com.sparkutils.quality.{LambdaFunction, _}
 import com.sparkutils.quality.impl.ExpressionRunner
@@ -47,13 +47,13 @@ class SubExpressionEliminationTest extends FunSuite with SharedTests {
   lazy val registerFunction: (String, Seq[Expression] => Expression) => Unit =
     ShimUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
 
-  @Before
-  def resetCountAndRegister(): Unit = {
+  override def beforeAll(): Unit = {
     // no-op to force it to be created (parent hasn't happened yet)
     sparkSession.conf
 
     EqualToTest.counter.set(0)
     registerFunction("myequal", exprs => EqualToTest(exprs.head, exprs.last))
+    super.beforeAll()
   }
 
   // can't do cluster runs as this is local vm only

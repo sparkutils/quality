@@ -9,7 +9,7 @@ import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.ShimUtils.expression
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.{BooleanType, DataType, IntegerType, StructField, StructType}
-import org.junit.Test
+
 import org.scalatest.FunSuite
 
 import java.io.{ByteArrayOutputStream, ObjectOutputStream}

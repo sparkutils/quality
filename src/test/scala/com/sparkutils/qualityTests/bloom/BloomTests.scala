@@ -7,7 +7,7 @@ import com.sparkutils.qualityTests._
 import com.sparkutils.testing.TestUtils.{anyCauseHas, debug}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.{Column, DataFrame, SaveMode, SparkSession}
-import org.junit.Test
+
 import org.scalatest.FunSuite
 
 case class Pair(a: Long, b: Long)

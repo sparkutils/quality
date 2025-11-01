@@ -6,10 +6,6 @@ import org.apache.spark.sql.DataFrame
 import types._
 import org.apache.spark.sql.functions.expr
 import org.apache.spark.sql.types.{DataType, LongType}
-import org.junit.Ignore
-// 3.4 drops this import org.codehaus.janino.InternalCompilerException
-import org.junit.Assert.fail
-import org.junit.Test
 
 /**
  * Attempts to force wholestagecodegen with enough rules to force the 64k hit, then prove the codegen options resolve them.
@@ -129,7 +125,7 @@ class CodeGenTest extends SharedTests with RowTools {
     //res
   }
 
-  @Ignore // as of e149d590 (#71) no longer triggered on Spark4
+  // as of e149d590 (#71) no longer triggered on Spark4
   def ruleEngineRunnerTooMuchPerFunc: Unit = not_Cluster{ not2_4{ forceCodeGen {
     // as of eec8842 does not hit 64k on the server at 900
     shouldAssert64kb{

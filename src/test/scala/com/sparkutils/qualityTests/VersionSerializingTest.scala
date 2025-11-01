@@ -7,7 +7,7 @@ import com.sparkutils.testing.TestUtils.debug
 import impl.imports.RuleResultsImports.packId
 import impl.util.OutputExpressionRow
 import org.apache.spark.sql.functions._
-import org.junit.Test
+
 import simpleVersioning._
 
 class VersionSerializingTest extends SharedTests {

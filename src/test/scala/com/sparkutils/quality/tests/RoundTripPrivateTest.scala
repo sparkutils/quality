@@ -5,7 +5,7 @@ import com.sparkutils.quality.impl.{ExprLogic, RuleRegistrationFunctions, RuleRu
 import com.sparkutils.qualityTests.SharedTests
 import org.apache.spark.sql.catalyst.expressions.Literal
 import org.apache.spark.sql.types.StringType
-import org.junit.Test
+
 import org.scalatest.FunSuite
 
 class RoundTripPrivateTest extends FunSuite with SharedTests {

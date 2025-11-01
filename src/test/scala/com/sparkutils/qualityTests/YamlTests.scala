@@ -5,7 +5,7 @@ import com.sparkutils.quality.functions._
 import com.sparkutils.quality.impl.YamlDecoder
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.DataType
-import org.junit.Test
+
 import org.scalatest.FunSuite
 
 import scala.language.postfixOps

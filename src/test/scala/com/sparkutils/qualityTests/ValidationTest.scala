@@ -10,7 +10,7 @@ import impl.imports.RuleResultsImports.packId
 import org.apache.spark.sql.{Column, DataFrame, Row}
 import org.apache.spark.sql.functions.expr
 import org.apache.spark.sql.types.{BooleanType, DoubleType, IntegerType, LongType, StringType, StructField, StructType}
-import org.junit.Test
+
 import org.scalatest.FunSuite
 
 class ValidationTest extends FunSuite with SharedTests {

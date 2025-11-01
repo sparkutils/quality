@@ -6,7 +6,7 @@ import com.sparkutils.quality.impl.rng.RandomLongs
 import org.apache.spark.sql.{Row, SaveMode}
 import org.apache.spark.sql.functions.{col, expr}
 import org.apache.spark.sql.types.{BinaryType, LongType, StringType}
-import org.junit.Test
+
 import org.scalatest.FunSuite
 
 class RngAndRowIdTest extends FunSuite with SharedTests {

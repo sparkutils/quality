@@ -12,7 +12,7 @@ import org.apache.spark.sql.catalyst.expressions.GenericRowWithSchema
 import org.apache.spark.sql.functions.{col, concat, expr, lit, struct, when}
 import org.apache.spark.sql.types.{DataType, DecimalType, LongType, MapType, StringType, StructField, StructType}
 import org.apache.spark.sql.{Column, DataFrame, Dataset, Encoder, functions}
-import org.junit.Test
+
 import org.scalatest.FunSuite
 import org.scalatest.Matchers.convertToAnyShouldWrapper
 

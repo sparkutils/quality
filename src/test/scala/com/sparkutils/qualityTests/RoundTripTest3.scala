@@ -1,7 +1,6 @@
 package com.sparkutils.qualityTests
 
 import org.apache.spark.sql.functions._
-import org.junit.Test
 import org.scalatest.FunSuite
 
 class RoundTripTest3 extends FunSuite with RowTools with SharedTests {

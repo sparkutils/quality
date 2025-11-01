@@ -92,7 +92,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
 
         val idx = outputs.getOrElse(rule.runOnPassProcessor.id, {
             val expr = rule.runOnPassProcessor match {
-              case NoOpRunOnPassProcessor.noOp => qualityException(s"You cannot use a RuleEngineRunner if any of the rules do not have RunOnPassProcessors set ruleSet ${ruleSet.id}, rule ${rule.id}}")
+              case NoOpRunOnPassProcessor.noOp => qualityException(s"You cannot use a RuleEngine, RuleFolder or ExpressionRunner if any of the rules do not have RunOnPassProcessors set ruleSet ${ruleSet.id}, rule ${rule.id}}")
               case r: RunOnPassProcessor => r.returnIfPassed.expr
             }
             outputs.put(rule.runOnPassProcessor.id, pos)
@@ -374,7 +374,7 @@ trait RuleEngineRunnerBase[T] extends UnaryExpression with NonSQLExpression {
     }
 
   lazy val resultDataType = {
-    val resultDataType = nonNullableDataType(realChildren(realChildren.length / 2).dataType)
+    val resultDataType = nonNullableDataType(realChildren.last.dataType)
 // TODO - Correct this type checking and re-enable the DDL to force nullability etc.
 /*    realChildren.drop(realChildren.length / 2).find(e => nonNullableDataType(e.dataType) != resultDataType).foreach{ e =>
       throw new QualityException(s"RuleEngine DataType ${e.dataType.sql} does not match the first OutputExpression type ${resultDataType.sql}")

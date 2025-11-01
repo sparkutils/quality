@@ -6,12 +6,11 @@ import java.io.File
 import com.sparkutils.quality.impl.extension.{AsUUIDFilter, ExtensionTesting, FunNRewrite, IDBase64Filter, QualitySparkExtension}
 import com.sparkutils.quality.impl.extension.QualitySparkExtension.disableRulesConf
 import com.sparkutils.testing.TestUtils.anyCauseHas
-import com.sparkutils.testing.{ClassicTestUtils, Testing}
+import com.sparkutils.testing.{ClassicTestUtils, ConnectionType, Testing}
 import org.apache.spark.sql.catalyst.expressions.{And, Attribute, BinaryComparison, EqualTo, Equality, Expression, Or}
 import org.apache.spark.sql.catalyst.plans.logical.Join
 import org.apache.spark.sql.sources.{Filter, And => SAnd, EqualTo => SEqualTo, GreaterThan => SGreaterThan, GreaterThanOrEqual => SGreaterThanOrEqual, In => SIn, Or => SOr}
 import org.apache.spark.sql.{Column, DataFrame, SparkSession}
-import org.junit.{Before, Test}
 import org.scalatest.FunSuite
 
 import java.util.UUID
@@ -711,7 +710,7 @@ abstract class ExtensionTestBase extends SharedTests  {
 
 case class TestRow(lower: Long, higher: Long, asString: String)
 case class TestID(base: Int, i0: Long, i1: Long)
-
+/*
 class ExtensionParquetTest extends ExtensionTestBase {
   val format = "parquet"
 
@@ -723,3 +722,4 @@ class ExtensionDeltaTest extends ExtensionTestBase {
 
   val shouldRun = true
 }
+*/

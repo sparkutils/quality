@@ -9,7 +9,7 @@ import org.apache.spark.sql.catalyst.expressions.GenericRowWithSchema
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.{IntegerType, StringType, StructField, StructType}
 import org.apache.spark.sql.{Column, SparkSession, functions}
-import org.junit.Test
+
 import org.scalatest.FunSuite
 
 case class Pair(a: Int, b: Int)

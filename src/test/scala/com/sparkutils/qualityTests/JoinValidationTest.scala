@@ -5,7 +5,7 @@ import com.sparkutils.quality.impl.RuleEngineRunner
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.DataType
-import org.junit.Test
+
 import org.scalatest.FunSuite
 
 import java.io.{ByteArrayOutputStream, ObjectOutputStream}

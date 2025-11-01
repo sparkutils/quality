@@ -4,8 +4,6 @@ import com.sparkutils.quality.impl.views.{MissingViewAnalysisException, ViewConf
 import com.sparkutils.testing.SparkVersions.sparkVersion
 import org.apache.spark.sql.functions.{col, expr}
 import org.apache.spark.sql.{DataFrame, ShimUtils}
-import org.junit.Assert.fail
-import org.junit.{After, Test}
 
 class ViewLoaderTest extends SharedTests {
 
@@ -196,8 +194,7 @@ class ViewLoaderTest extends SharedTests {
     }
   }
 
-  @After
-  def cleanupViews(): Unit = {
+  override def afterAll(): Unit = {
     Set("joined", "names", "nameLess", "ages", "bad", "names2", "ages2").foreach{
       sparkSession.catalog.dropTempView(_)
     }

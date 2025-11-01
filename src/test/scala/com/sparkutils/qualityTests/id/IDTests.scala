@@ -9,6 +9,7 @@ import com.sparkutils.quality.impl.id.model.{ProvidedID, RandomID}
 import com.sparkutils.quality.impl.rng.RandomLongs
 import com.sparkutils.quality.impl.util.BytePackingUtils
 import com.sparkutils.qualityTests._
+import com.sparkutils.testing.SparkTestUtils.enumToScala
 import com.sparkutils.testing.{ClassicOnly, ConnectionType, Sessions}
 import com.sparkutils.testing.TestUtils.{anyCauseHas, debug}
 import org.apache.commons.rng.simple.RandomSource
@@ -16,7 +17,6 @@ import org.apache.spark.sql.ShimUtils.expression
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.shim.hash.DigestFactory
 import org.apache.spark.sql.{Column, DataFrame, Row, ShimUtils}
-import org.junit.Test
 import org.scalameter.api.{Bench, Gen}
 import org.scalatest.FunSuite
 
@@ -138,7 +138,7 @@ class IDTests extends SharedTests {
   test("testGuaranteedUniqueIDOps") {
     import java.net._
 
-    val nonNulls = SparkTestUtils.enumToScala(NetworkInterface.getNetworkInterfaces) map (_.getHardwareAddress) filter (_ != null)
+    val nonNulls = enumToScala(NetworkInterface.getNetworkInterfaces) map (_.getHardwareAddress) filter (_ != null)
     val hardwareAddress: Array[Byte] = nonNulls.next
 
     assert(model.localMAC.zip(hardwareAddress).forall(p => p._1 == p._2), "Should have identical local mac")

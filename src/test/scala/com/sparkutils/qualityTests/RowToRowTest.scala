@@ -22,9 +22,7 @@ import org.apache.spark.sql.qualityFunctions.LambdaCompilationUtils.LambdaCompil
 import org.apache.spark.sql.qualityFunctions.NamedLambdaVariableCodeGen
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.UTF8String
-import org.junit.runner.RunWith
 import org.scalatest.{BeforeAndAfterAll, FunSuite, Matchers}
-import org.scalatestplus.junit.JUnitRunner
 
 import java.io.ByteArrayOutputStream
 import scala.beans.BeanProperty
@@ -179,7 +177,6 @@ class NewPostingBean(){
 }
 
 // purposefully NOT in the testShade as this is inappropriate for actual spark usage
-@RunWith(classOf[JUnitRunner])
 class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with SharedTests {
 
   // processors should never be on connect

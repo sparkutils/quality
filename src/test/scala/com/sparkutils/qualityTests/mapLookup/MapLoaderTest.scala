@@ -5,7 +5,6 @@ import com.sparkutils.quality.{DataFrameLoader, Id, loadMapConfigs, loadMaps}
 import com.sparkutils.qualityTests.SharedTests
 import org.apache.spark.sql.functions.{col, expr}
 import org.apache.spark.sql.DataFrame
-import org.junit.Test
 
 // NB the other combinations of loading are covered by the ViewLoaderTest
 class MapLoaderTest extends SharedTests {

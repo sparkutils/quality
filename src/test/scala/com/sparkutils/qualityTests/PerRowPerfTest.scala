@@ -7,7 +7,7 @@ import types._
 import com.sparkutils.quality.functions.rng_bytes
 import com.sparkutils.quality.impl.rng.RandomBytes
 import com.sparkutils.qualityTests.ResultHelper.longSchema
-import com.sparkutils.testing.{ClassicOnly, ConnectionType, Sessions}
+import com.sparkutils.testing.{ClassicOnly, ConnectionType, Sessions, SparkTestUtils}
 import org.apache.commons.rng.simple.RandomSource
 import org.apache.spark.sql.catalyst.encoders.RowEncoder
 import org.apache.spark.sql.functions._

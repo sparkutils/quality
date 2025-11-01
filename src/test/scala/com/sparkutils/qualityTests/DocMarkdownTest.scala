@@ -5,10 +5,11 @@ import com.sparkutils.quality.impl.util.RuleSuiteDocs
 import java.io.FileOutputStream
 import RuleSuiteDocs.RelativeWarningsAndErrors
 import com.sparkutils.quality.{ExpressionRule, Id, LambdaFunction, OutputExpression, Rule, RuleSet, RuleSuite, RunOnPassProcessor, validate}
-
 import com.sparkutils.testing.TestUtils.debug
 import org.apache.commons.io.IOUtils
-import org.junit.Test
+
+import java.util.concurrent.atomic.AtomicReference
+
 
 class DocMarkdownTest extends SharedTests { // test utils to force spark session before register is called
 
@@ -43,13 +44,13 @@ class DocMarkdownTest extends SharedTests { // test utils to force spark session
     val relative = RelativeWarningsAndErrors("../sampleDocsValidation/", errors, warnings)
     val md = RuleSuiteDocs.createMarkdown(docs, rs, expr, "../../sqlfunctions/", Some(relative))
 
-    val docsf = new java.io.File(SparkTestUtils.docpath("sampleDocsOutput.md"))
+    val docsf = new java.io.File(QualityDocsPath.docpath("sampleDocsOutput.md"))
     docsf.getParentFile.mkdirs
     IOUtils.write(md, new FileOutputStream(docsf))
 
     debug(println(md))
 
-    val samplesf = new java.io.File(SparkTestUtils.docpath("sampleDocsValidation.md"))
+    val samplesf = new java.io.File(QualityDocsPath.docpath("sampleDocsValidation.md"))
     samplesf.getParentFile.mkdirs
     val emd = RuleSuiteDocs.createErrorAndWarningMarkdown(docs, rs, relative.copy( relativePath = "../sampleDocsOutput/"))
     IOUtils.write(emd, new FileOutputStream(samplesf))
@@ -57,4 +58,12 @@ class DocMarkdownTest extends SharedTests { // test utils to force spark session
     debug(println(emd))
 
   }
+}
+
+object QualityDocsPath {
+
+  protected var tdocpath = new AtomicReference[String]("./docs/advanced")
+  def docDir = tdocpath.get
+  def docpath(suffix: String) = s"${tdocpath.get}/$suffix"
+
 }

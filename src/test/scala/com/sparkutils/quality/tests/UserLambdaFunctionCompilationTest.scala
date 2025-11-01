@@ -3,12 +3,11 @@ package com.sparkutils.quality.tests
 import com.sparkutils.quality._
 import com.sparkutils.testing.Testing
 import com.sparkutils.quality.tests.TestHandler._
-import com.sparkutils.qualityTests.{RowTools, SparkTestUtils, SharedTests}
+import com.sparkutils.qualityTests.SharedTests
 import org.apache.spark.sql.catalyst.expressions.{ArrayFilter, ExprId, Expression, NamedLambdaVariable, ZipWith}
 import org.apache.spark.sql.qualityFunctions.LambdaCompilationUtils.{LambdaCompilationHandler, convertToCompilationHandlers, envLambdaHandlers, loadLambdaCompilationHandlers}
 import org.apache.spark.sql.qualityFunctions.{DoCodegenFallbackHandler, FunN, NamedLambdaVariableCodeGen}
-import org.junit.{Before, Test}
-import org.scalatest.{BeforeAndAfterAll, FunSuite}
+import org.scalatest.BeforeAndAfterAll
 import org.scalatest.Matchers.convertToAnyShouldWrapper
 
 import java.util.concurrent.atomic.AtomicBoolean
@@ -90,9 +89,6 @@ class UserLambdaFunctionCompilationTest extends SharedTests with BeforeAndAfterA
   } }
 
   def doWithFilterHof: Unit = {
-    if (SparkTestUtils.skipHofs && !onDatabricks) return
-    // we can't run tests on 9.1.dbr build, but can on runtime
-
     /**
      * NOTE this can only exercise the code it can't test it's called DoCodeGen properly
      */

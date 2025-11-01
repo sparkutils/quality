@@ -6,7 +6,7 @@ import com.sparkutils.quality.spark.rowid.RowID
 import com.sparkutils.quality.{RowTools, TestUtils}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions.expr
-import org.junit.Test
+
 import org.scalatest.FunSuite
 
 /**

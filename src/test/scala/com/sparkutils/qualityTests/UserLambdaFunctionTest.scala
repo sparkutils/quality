@@ -7,10 +7,9 @@ import org.apache.spark.sql.{DataFrame, QualitySparkUtils, SaveMode}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.qualityFunctions.PlaceHolderExpression
 import org.apache.spark.sql.types.LongType
-import org.junit.Test
 import org.scalatest.FunSuite
 import com.sparkutils.qualityTests.mapLookup.TradeTests._
-
+import com.sparkutils.testing.SparkTestUtils
 import com.sparkutils.testing.TestUtils.debug
 import org.apache.spark.sql.ShimUtils.expression
 
