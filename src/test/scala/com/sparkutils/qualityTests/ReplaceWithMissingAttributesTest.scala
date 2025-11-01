@@ -65,9 +65,9 @@ class ReplaceWithMissingAttributesTest extends FunSuite with SharedTests {
   // @Test NOTE this cannot pass without traversing all coalesce functions in validation step to dive in lambda lookups,
   // that's problematic for a number of reasons as we'd need to have validate output cleansed lambdas
   // TODO - if we scrap the ifAttributeMissing variant processIfAttributeMissing can go before validate, which makes more sense.  needs discussion
-  def testCalledLambdaReplaceCoalesce: Unit = funNRewrites {
+  ignore("testCalledLambdaReplaceCoalesce") { funNRewrites {
     doTestCalledLambdaReplace(s"coalesceIfAttributesMissing(theLambda(fielda), 42)", "42")
-  }
+  }}
 
   test("testCalledWithLambdaReplaceCoalesce") { funNRewrites {
     doTestCalledWithLambdaReplace("variable -> coalesceIfAttributesMissing(fieldb > 1, true)", "variable -> true", _.nonEmpty)
