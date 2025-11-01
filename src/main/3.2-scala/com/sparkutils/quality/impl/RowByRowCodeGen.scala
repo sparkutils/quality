@@ -31,9 +31,9 @@ object GenerateDecoderOpEncoderProjection extends CodeGenerator[Seq[Expression],
   protected def create(expressions: Seq[Expression]): DecoderOpEncoderProjection[_,_] = ???
   // $COVERAGE-ON$
 
-  def generate[I: Encoder, O: Encoder](expressions: Seq[Expression],
-                                       useSubexprElimination: Boolean, toSize: Int): DecoderOpEncoderProjection[I,O] = {
-    create(canonicalize(expressions), useSubexprElimination, toSize)
+  def generate[I: Encoder, O: Encoder](expressions: Seq[Expression], exprTo: Expression,
+                                       useSubexprElimination: Boolean): DecoderOpEncoderProjection[I,O] = {
+    create(canonicalize(expressions), exprTo: Expression, useSubexprElimination)
   }
 
   def projections(ctx: CodegenContext, expressions: Seq[Expression], mutableRow: String, useSubexprElimination: Boolean = false) = {
@@ -83,27 +83,20 @@ object GenerateDecoderOpEncoderProjection extends CodeGenerator[Seq[Expression],
   // $COVERAGE-ON$
 
   private def create[I: Encoder, O: Encoder](
-                      expressions: Seq[Expression],
-                      useSubexprElimination: Boolean, toSize: Int): DecoderOpEncoderProjection[I,O] = {
+                      expressions: Seq[Expression], exprTo: Expression,
+                      useSubexprElimination: Boolean): DecoderOpEncoderProjection[I,O] = {
 
     val iEnc = implicitly[Encoder[I]]
     val oEnc = implicitly[Encoder[O]]
     val exprFrom = ShimUtils.expressionEncoder(iEnc).resolveAndBind().serializer
-    val exprTo = ShimUtils.expressionEncoder(implicitly[Encoder[O]]).resolveAndBind().deserializer
+
+    val toSize = oEnc.schema.size
 
     if (expressions.exists(_.collect {
       case s: PlanExpression[_] => s
       }.nonEmpty)) {
       throw new QualityException(NO_QUERY_PLANS)
     }
-
-
-    val (resTypeIsStruct, resType) =
-      if (toSize == 1)
-        (expressions.last.dataType.isInstanceOf[StructType],
-          expressions.last.dataType.asInstanceOf[StructType])
-      else
-        (false, null)
 
     val ctx = newCodeGenContext()
 
@@ -123,7 +116,7 @@ object GenerateDecoderOpEncoderProjection extends CodeGenerator[Seq[Expression],
     val evalSubexpr = ctx.subexprFunctionsCode.replace(encSubExprs, "")
 
     val allProjections = ctx.splitExpressionsWithCurrentInputs(projectionCodes.map(_._2))
-    val allUpdates = ctx.splitExpressionsWithCurrentInputs(projectionCodes.map(_._3))
+    //val allUpdates = ctx.splitExpressionsWithCurrentInputs(projectionCodes.map(_._3))
 
     val processorResult = projectionCodes.takeRight(toSize).map(_._1.value)
 
@@ -132,7 +125,7 @@ object GenerateDecoderOpEncoderProjection extends CodeGenerator[Seq[Expression],
     val decProjectionCodes = projections(ctx, Seq(exprTo), "decRow").toIndexedSeq
 
     val decProjections = ctx.splitExpressionsWithCurrentInputs(decProjectionCodes.map(_._2))
-    val decUpdates = ctx.splitExpressionsWithCurrentInputs(decProjectionCodes.map(_._3))
+    //val decUpdates = ctx.splitExpressionsWithCurrentInputs(decProjectionCodes.map(_._3))
 
     val returnValue = decProjectionCodes.last._1.value
 
@@ -148,7 +141,6 @@ object GenerateDecoderOpEncoderProjection extends CodeGenerator[Seq[Expression],
         private InternalRow mutableRow;
         private InternalRow encRow;
         private InternalRow decRow;
-        private InternalRow interim;
         ${ctx.declareMutableStates()}
 
         public SpecificMutableProjection(Object[] references) {
@@ -156,13 +148,6 @@ object GenerateDecoderOpEncoderProjection extends CodeGenerator[Seq[Expression],
           mutableRow = new $genericMutableRowType(${expressions.size});
           inRow = new $genericMutableRowType(1);
           encRow = new $genericMutableRowType(${exprFrom.length});
-          decRow = new $genericMutableRowType(${toSize});
-          ${
-            if (toSize == 1 && resTypeIsStruct)
-              ""
-            else
-              s"interim = new $genericMutableRowType(${toSize});"
-          }
           ${ctx.initMutableStates()}
         }
 
@@ -200,16 +185,7 @@ object GenerateDecoderOpEncoderProjection extends CodeGenerator[Seq[Expression],
           // uncomment to debug the output, extraProjection can introduce extra fields..
           // com.sparkutils.quality.impl.GenerateDecoderOpEncoderProjection.debug(mutableRow);
 
-          ${
-            if (toSize == 1 && resTypeIsStruct)
-              s"interim = mutableRow.getStruct(${expressions.length - 1}, ${resType.length});"
-            else
-              (for(i <- 0 until toSize) yield
-                s"interim.update($i, ${CodeGenerator.getValue("mutableRow", expressions((expressions.length - toSize) + i).dataType, ((expressions.length - toSize) + i).toString)});"
-                ).mkString("\n")
-          }
-
-          InternalRow dec = (InternalRow) interim;
+          InternalRow dec = (InternalRow) mutableRow;
           // dec subexprs
           //decSubExprs
           // dec projections
@@ -238,7 +214,7 @@ object GenerateDecoderOpEncoderProjection extends CodeGenerator[Seq[Expression],
 
         // needs a fresh tree copy for each newInstance, so we need to proxy it
         override def newInstance: DecoderOpEncoderProjection[I, O] =
-          create[I, O](ShimUtils.copyStateful(expressions), useSubexprElimination, toSize)
+          create[I, O](ShimUtils.copyStateful(expressions), exprTo, useSubexprElimination)
 
         override def initialize(partitionIndex: Int): Unit = initial.initialize(partitionIndex)
       }

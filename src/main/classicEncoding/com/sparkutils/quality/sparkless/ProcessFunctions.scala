@@ -2,6 +2,7 @@ package com.sparkutils.quality.sparkless
 
 import com.sparkutils.quality.impl.{Encoders, LazyRuleSuiteResultDetailsImpl, LazyRuleSuiteResultDetailsProxyImpl, LazyRuleSuiteResultImpl}
 import com.sparkutils.quality.impl.util.Encoding.fromNormalEncoder
+import com.sparkutils.quality.sparkless.StarUtil.star
 import com.sparkutils.quality.{LazyRuleEngineResult, LazyRuleFolderResult, LazyRuleSuiteResultDetails, Passed, RuleResult, RuleSuite, RuleSuiteResultDetails, SalientRule, foldAndReplaceFieldPairsWithStruct, foldAndReplaceFieldsWithStruct, ruleEngineWithStructF}
 import com.sparkutils.quality.sparkless.impl.Processors.processFactory
 import frameless.{TypedEncoder, TypedExpressionEncoder}
@@ -33,7 +34,7 @@ trait LazyProcessFunctions { self: NonLazyProcessFunctions =>
     val iEnc = implicitly[Encoder[I]]
 
     val r = processFactory[I, (RuleResult, InternalRow)](addOverallResultsAndDetailsWrapperF(ruleSuite,
-      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval), 2, compile, forceMutable = forceMutable,
+      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval), compile, forceMutable = forceMutable,
       extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)(
       implicitly[Encoder[I]], tup
@@ -58,7 +59,7 @@ trait LazyProcessFunctions { self: NonLazyProcessFunctions =>
    * @tparam T the result type of the rule engine
    * @return
    */
-  def lazyRuleEngineFactory[I: Encoder, T: Encoder](ruleSuite: RuleSuite, outputType: DataType, compile: Boolean = true,
+  def lazyRuleEngineFactory[I: Encoder, T: Encoder](ruleSuite: RuleSuite, compile: Boolean = true,
                                                     compileEvals: Boolean = false,
                                                     forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false, forceMutable: Boolean = false,
                                                     extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
@@ -66,11 +67,11 @@ trait LazyProcessFunctions { self: NonLazyProcessFunctions =>
     import com.sparkutils.quality.implicits._
     implicit val rowEnc = Encoders.internalRowTypedEnc(Encoders.ruleSuiteResultTypedEnc.catalystRepr)
 
-    implicit val ttyped: TypedEncoder[T] = fromNormalEncoder[T](outputType)
+    implicit val ttyped: TypedEncoder[T] = fromNormalEncoder[T]
     implicit val enc = TypedExpressionEncoder[(InternalRow, Option[SalientRule], Option[T])]
 
-    val r = processFactory[I, (InternalRow, Option[SalientRule], Option[T])](ruleEngineWithStructF(ruleSuite, outputType,
-      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval), 1, compile,
+    val r = processFactory[I, (InternalRow, Option[SalientRule], Option[T])](star("ruleEngine")(ruleEngineWithStructF(ruleSuite,
+      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval)), compile,
       forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)(
       implicitly[Encoder[I]], enc)
@@ -97,11 +98,11 @@ trait LazyProcessFunctions { self: NonLazyProcessFunctions =>
     import com.sparkutils.quality.implicits._
     implicit val rowEnc = Encoders.internalRowTypedEnc(Encoders.ruleSuiteResultTypedEnc.catalystRepr)
 
-    implicit val ttyped: TypedEncoder[T] = fromNormalEncoder[T](outputType)
+    implicit val ttyped: TypedEncoder[T] = fromNormalEncoder[T]
     implicit val enc = TypedExpressionEncoder[(InternalRow, Option[T])]
 
-    val r = processFactory[I, (InternalRow, Option[T])](foldAndReplaceFieldPairsWithStruct(ruleSuite, fields, outputType,
-      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval), 1, compile,
+    val r = processFactory[I, (InternalRow, Option[T])](star("foldedFields")(foldAndReplaceFieldPairsWithStruct(ruleSuite, fields, outputType,
+      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval)), compile,
       forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)(
       implicitly[Encoder[I]], enc)
@@ -128,11 +129,11 @@ trait LazyProcessFunctions { self: NonLazyProcessFunctions =>
     import com.sparkutils.quality.implicits._
     implicit val rowEnc = Encoders.internalRowTypedEnc(Encoders.ruleSuiteResultTypedEnc.catalystRepr)
 
-    implicit val ttyped: TypedEncoder[T] = fromNormalEncoder[T](outputType)
+    implicit val ttyped: TypedEncoder[T] = fromNormalEncoder[T]
     implicit val enc = TypedExpressionEncoder[(InternalRow, Option[T])]
 
-    val r = processFactory[I, (InternalRow, Option[T])](foldAndReplaceFieldsWithStruct(ruleSuite, outputType,
-      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval), 1, compile,
+    val r = processFactory[I, (InternalRow, Option[T])](star("foldedFields")(foldAndReplaceFieldsWithStruct(ruleSuite, outputType,
+      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval)), compile,
       forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)(
       implicitly[Encoder[I]], enc)

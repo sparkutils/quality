@@ -19,8 +19,8 @@ import org.apache.spark.sql.types.StructType
  * fresh tree.
  */
 object GenerateDecoderOpEncoderProjection {
-  def generate[I: Encoder, O: Encoder](expressions: Seq[Expression],
-                                       useSubexprElimination: Boolean, toSize: Int): DecoderOpEncoderProjection[I,O] =
+  def generate[I: Encoder, O: Encoder](expressions: Seq[Expression], exprTo: Expression,
+                                       useSubexprElimination: Boolean): DecoderOpEncoderProjection[I,O] =
     throw new Exception("Not supported on any Databricks runtime")
 
 }

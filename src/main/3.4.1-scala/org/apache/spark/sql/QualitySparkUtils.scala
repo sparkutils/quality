@@ -22,7 +22,6 @@ import org.apache.spark.util.Utils
  * Set of utilities to reach in to private functions
  */
 object QualitySparkUtils {
-
   /**
    * Spark >3.1 supports the very useful getLocalInputVariableValues, 2.4 needs the previous approach
    *
@@ -148,8 +147,8 @@ object QualitySparkUtils {
    * @param dataFrameF
    * @return
    */
-  def resolveExpressions[T](encFrom: Encoder[T], dataFrameF: DataFrame => DataFrame): Seq[Expression] = {
-    val enc = ShimUtils.expressionEncoder(encFrom)
+  def resolveExpressions[T, R: Encoder](encFrom: Encoder[T], dataFrameF: DataFrame => DataFrame): (Seq[Expression], Expression) = {
+    val enc = ShimUtils.expressionEncoder[T](encFrom)
 
     val plan = LocalRelation(enc.schema.fields.map(_.toAttribute))
 
@@ -167,9 +166,14 @@ object QualitySparkUtils {
         }
 
     // lookup the actual expressions
-    val res = debugTime("find underlying expressions") {
-      EvaluableExpressions(aplan).expressions
-    }
+    val res =
+      debugTime("find underlying expressions") {
+        EvaluableExpressions(aplan).expressions
+      }
+
+    val oEnc = implicitly[Encoder[R]]
+    val dec = ShimUtils.expressionEncoder(oEnc).resolveAndBind(
+      aplan.output, df.sparkSession.sessionState.analyzer)
 
     // folder introduces multiple projections, these are the ones we explicitly use
     val fres = debugTime("bindReferences") {
@@ -178,7 +182,7 @@ object QualitySparkUtils {
         map(BindReferences.bindReference(_, plan.output, allowFailures = true))
     }
 
-    fres
+    (fres, dec.deserializer)
   }
 
   /**

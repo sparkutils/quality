@@ -179,8 +179,8 @@ object QualitySparkUtils {
    * @param dataFrameF
    * @return
    */
-  def resolveExpressions[T](encFrom: Encoder[T], dataFrameF: DataFrame => DataFrame): Seq[Expression] = {
-    val enc = ShimUtils.expressionEncoder(encFrom)
+  def resolveExpressions[T, R: Encoder](encFrom: Encoder[T], dataFrameF: DataFrame => DataFrame): (Seq[Expression], Expression) = {
+    val enc = ShimUtils.expressionEncoder[T](encFrom)
 
     val plan = LocalRelation(enc.schema)
 
@@ -193,14 +193,19 @@ object QualitySparkUtils {
     val aplan =
       (optimizerBatches ++ SparkSession.getActiveSession.get.experimental.extraOptimizations).
         foldLeft(df.queryExecution.analyzed){
-        (p, b) =>
-          b.apply(p)
-      }
+          (p, b) =>
+            b.apply(p)
+        }
 
     // lookup the actual expressions
-    val res = debugTime("find underlying expressions") {
-      EvaluableExpressions(aplan).expressions
-    }
+    val res =
+      debugTime("find underlying expressions") {
+        EvaluableExpressions(aplan).expressions
+      }
+
+    val oEnc = implicitly[Encoder[R]]
+    val dec = ShimUtils.expressionEncoder(oEnc).resolveAndBind(
+      aplan.output, df.sparkSession.sessionState.analyzer)
 
     // folder introduces multiple projections, these are the ones we explicitly use
     val fres = debugTime("bindReferences") {
@@ -209,7 +214,7 @@ object QualitySparkUtils {
         map(BindReferences.bindReference(_, plan.output, allowFailures = true))
     }
 
-    fres
+    (fres, dec.deserializer)
   }
 
   /**

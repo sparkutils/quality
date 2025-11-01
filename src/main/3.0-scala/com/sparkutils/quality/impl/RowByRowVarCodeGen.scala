@@ -31,7 +31,7 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
   protected def create(expressions: Seq[Expression]): DecoderOpEncoderProjection[_,_] = ???
   // $COVERAGE-ON$
 
-  def create[I: Encoder, O: Encoder](
-                      expressions: Seq[Expression], toSize: Int, allOrdinals: Set[Int]): DecoderOpEncoderProjection[I,O] =
-    GenerateDecoderOpEncoderProjection.generate[I, O](expressions, useSubexprElimination = true, toSize)
+  def create[I: Encoder, O: Encoder](expressions: Seq[Expression], toSize: Int,
+                                     allOrdinals: Set[Int]): DecoderOpEncoderProjection[I,O] =
+    ???//GenerateDecoderOpEncoderProjection.generate[I, O](expressions, useSubexprElimination = true)
 }

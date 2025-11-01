@@ -19,7 +19,7 @@ object Encoding {
    * @tparam T
    * @return
    */
-  def fromNormalEncoder[T: Encoder](outputType: DataType): TypedEncoder[T] = {
+  def fromNormalEncoder[T: Encoder]: TypedEncoder[T] = {
     val oexpr = ShimUtils.expressionEncoder(implicitly[Encoder[T]])
 
     implicit val cltag = oexpr.clsTag
@@ -54,29 +54,9 @@ object Encoding {
               }
             case m: UnresolvedMapObjects => m.copy(child = path)
             case n: NewInstance =>
-              val o = outputType.asInstanceOf[StructType].zipWithIndex.map{case (e,i) => e.name -> i }.toMap
-
-              If(IsNull(ForceNullable(path)), Literal(null),
-                n.withNewChildren(n.children map {
-                  _.transform {
-                    case u: UnresolvedAttribute if o.contains(u.name) =>
-                      GetStructField3(path, o(u.name))
-                  }
-                })
-              )
+              If(IsNull(ForceNullable(path)), Literal(null), n)
             case i: InitializeJavaBean =>
-              val o = outputType.asInstanceOf[StructType].zipWithIndex.map{case (e,i) => e.name -> i }.toMap
-
-              If(IsNull(ForceNullable(path)), Literal(null),
-                i.copy(setters =
-                  i.setters.map{ p =>
-                    (p._1, p._2.transform {
-                      case u: UnresolvedAttribute if o.contains(u.name) =>
-                        GetStructField3(path, o(u.name))
-                    })
-                  }
-                )
-              )
+              If(IsNull(ForceNullable(path)), Literal(null), i)
             // all single fields from a struct
             case i: Invoke =>
               i.transformUp {
@@ -110,7 +90,7 @@ object Encoding {
             }
           }
         else {
-          val o = outputType.asInstanceOf[StructType]
+          val o = implicitly[Encoder[T]].schema
 
           val dealiased = se.map {
             case a: Alias =>

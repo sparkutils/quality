@@ -128,7 +128,7 @@ trait NonLazyProcessFunctions {
                                                  forceVarCompilation: Boolean = false): ProcessorFactory[I, RuleEngineResult[T]] = {
     import com.sparkutils.quality.implicits._
     import com.sparkutils.quality.impl.util.Encoding._
-
+    implicit val ttyped: TypedEncoder[T] = fromNormalEncoder[T]
     implicit val enc = TypedExpressionEncoder[RuleEngineResult[T]]
     ruleEngineFactory[I, T](ruleSuite, compile = compile,
       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval,
@@ -152,6 +152,7 @@ trait NonLazyProcessFunctions {
     import com.sparkutils.quality.implicits._
     import com.sparkutils.quality.impl.util.Encoding._
 
+    implicit val ttyped: TypedEncoder[T] = fromNormalEncoder[T]
     implicit val enc = TypedExpressionEncoder[RuleEngineResult[Seq[(Int, T)]]]
     iRuleEngineFactory[I, Seq[(Int, T)]](ruleSuite, compile = compile, debugMode = true,
       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval,
@@ -203,11 +204,12 @@ trait NonLazyProcessFunctions {
                                                  forceVarCompilation: Boolean = false): ProcessorFactory[I, RuleFolderResult[T]] = {
     import com.sparkutils.quality.implicits._
     import com.sparkutils.quality.impl.util.Encoding._
-
+    implicit val ttyped: TypedEncoder[T] = fromNormalEncoder[T]
+    implicit val enc = TypedExpressionEncoder[RuleFolderResult[T]]
     ruleFolderFactory[I, T](ruleSuite, outputType, compile = compile,
       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval,
       forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
-      forceVarCompilation = forceVarCompilation)( implicitly[Encoder[I]], TypedEncoder[RuleFolderResult[T]].agnosticEncoder )
+      forceVarCompilation = forceVarCompilation)( implicitly[Encoder[I]], enc)
   }
 
 
@@ -242,7 +244,8 @@ trait NonLazyProcessFunctions {
                                                                   extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
                                                                   forceVarCompilation: Boolean = false): ProcessorFactory[I, RuleFolderResult[T]] = {
     import com.sparkutils.quality.implicits._
-
+    implicit val ttyped: TypedEncoder[T] = fromNormalEncoder[T]
+    implicit val enc = TypedExpressionEncoder[RuleFolderResult[T]]
     ruleFolderFactoryWithStructStarter[I, T](ruleSuite, fields, outputType, compile = compile,
       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval,
       forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
@@ -264,7 +267,8 @@ trait NonLazyProcessFunctions {
                                                                        extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
                                                                        forceVarCompilation: Boolean = false): ProcessorFactory[I, RuleFolderResult[Seq[(Int, T)]]] = {
     import com.sparkutils.quality.implicits._
-
+    implicit val ttyped: TypedEncoder[T] = fromNormalEncoder[T]
+    implicit val enc = TypedExpressionEncoder[RuleFolderResult[Seq[(Int, T)]]]
     iRuleFolderFactoryWithStructStarter[I, Seq[(Int, T)]](ruleSuite, fields, outputType, compile = compile, debugMode = true,
       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval,
       forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
@@ -321,6 +325,8 @@ trait NonLazyProcessFunctions {
                                                        extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
                                                        forceVarCompilation: Boolean = false): ProcessorFactory[I, GeneralExpressionsResult[T]] = {
     import com.sparkutils.quality.implicits._
+    implicit val ttyped: TypedEncoder[T] = fromNormalEncoder[T]
+    implicit val enc = TypedExpressionEncoder[GeneralExpressionsResult[T]]
 
     expressionRunnerFactory[I, T](ruleSuite, outputType = outputType, compile = compile,
       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceMutable = forceMutable,
