@@ -1,9 +1,10 @@
 package com.sparkutils.quality.sparkless
 
+import com.sparkutils.quality.impl.util.EmbeddedTypeCorrection.{noCorrection, ofRuleEngine, ofRuleFolder}
 import com.sparkutils.quality.impl.{Encoders, LazyRuleSuiteResultDetailsImpl, LazyRuleSuiteResultDetailsProxyImpl, LazyRuleSuiteResultImpl}
 import com.sparkutils.quality.impl.util.Encoding.fromNormalEncoder
 import com.sparkutils.quality.sparkless.StarUtil.star
-import com.sparkutils.quality.{LazyRuleEngineResult, LazyRuleFolderResult, LazyRuleSuiteResultDetails, Passed, RuleResult, RuleSuite, RuleSuiteResultDetails, SalientRule, foldAndReplaceFieldPairsWithStruct, foldAndReplaceFieldsWithStruct, ruleEngineWithStructF}
+import com.sparkutils.quality.{LazyRuleEngineResult, LazyRuleFolderResult, LazyRuleSuiteResultDetails, Passed, RuleEngineResult, RuleFolderResult, RuleResult, RuleSuite, RuleSuiteResultDetails, SalientRule, foldAndReplaceFieldPairsWithStruct, foldAndReplaceFieldsWithStruct, ruleEngineWithStructF}
 import com.sparkutils.quality.sparkless.impl.Processors.processFactory
 import frameless.{TypedEncoder, TypedExpressionEncoder}
 import org.apache.spark.sql.{Column, DataFrame, Encoder}
@@ -34,7 +35,7 @@ trait LazyProcessFunctions { self: NonLazyProcessFunctions =>
     val iEnc = implicitly[Encoder[I]]
 
     val r = processFactory[I, (RuleResult, InternalRow)](addOverallResultsAndDetailsWrapperF(ruleSuite,
-      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval), compile, forceMutable = forceMutable,
+      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval), noCorrection, compile, forceMutable = forceMutable,
       extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)(
       implicitly[Encoder[I]], tup
@@ -71,10 +72,9 @@ trait LazyProcessFunctions { self: NonLazyProcessFunctions =>
     implicit val enc = TypedExpressionEncoder[(InternalRow, Option[SalientRule], Option[T])]
 
     val r = processFactory[I, (InternalRow, Option[SalientRule], Option[T])](star("ruleEngine")(ruleEngineWithStructF(ruleSuite,
-      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval)), compile,
+      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval)), ofRuleEngine[Option[T]], compile,
       forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
-      forceVarCompilation = forceVarCompilation)(
-      implicitly[Encoder[I]], enc)
+      forceVarCompilation = forceVarCompilation)(implicitly[Encoder[I]], enc)
 
     ProcessorFactoryProxy(r, (p: ((InternalRow, Option[SalientRule], Option[T]))) => {
       LazyRuleEngineResult(LazyRuleSuiteResultImpl(p._1), p._2, p._3)
@@ -102,7 +102,7 @@ trait LazyProcessFunctions { self: NonLazyProcessFunctions =>
     implicit val enc = TypedExpressionEncoder[(InternalRow, Option[T])]
 
     val r = processFactory[I, (InternalRow, Option[T])](star("foldedFields")(foldAndReplaceFieldPairsWithStruct(ruleSuite, fields, outputType,
-      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval)), compile,
+      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval)), ofRuleFolder[T], compile,
       forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)(
       implicitly[Encoder[I]], enc)
@@ -133,10 +133,11 @@ trait LazyProcessFunctions { self: NonLazyProcessFunctions =>
     implicit val enc = TypedExpressionEncoder[(InternalRow, Option[T])]
 
     val r = processFactory[I, (InternalRow, Option[T])](star("foldedFields")(foldAndReplaceFieldsWithStruct(ruleSuite, outputType,
-      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval)), compile,
+      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval)), ofRuleFolder[T], compile,
       forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)(
-      implicitly[Encoder[I]], enc)
+      implicitly[Encoder[I]], enc
+    )
 
     ProcessorFactoryProxy(r, (p: ((InternalRow, Option[T]))) => {
       LazyRuleFolderResult(LazyRuleSuiteResultImpl(p._1), p._2)

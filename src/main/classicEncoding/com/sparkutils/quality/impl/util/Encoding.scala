@@ -1,12 +1,61 @@
 package com.sparkutils.quality.impl.util
 
-import com.sparkutils.shim.expressions.{CreateNamedStruct1, GetStructField3}
+import com.sparkutils.shim.expressions.CreateNamedStruct1
 import frameless.TypedEncoder
 import org.apache.spark.sql.{Encoder, ShimUtils}
 import org.apache.spark.sql.catalyst.analysis.{GetColumnByOrdinal, UnresolvedAttribute}
 import org.apache.spark.sql.catalyst.expressions.{Alias, BoundReference, Expression, If, IsNull, Literal, NamedExpression}
 import org.apache.spark.sql.catalyst.expressions.objects.{InitializeJavaBean, Invoke, MapObjects, NewInstance, UnresolvedMapObjects}
+import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, Project}
 import org.apache.spark.sql.types.{DataType, StructField, StructType}
+
+import scala.language.higherKinds
+
+/**
+ * Provides correction needed to types from field order
+ * @tparam
+ */
+trait EmbeddedTypeCorrection {
+  def correctDeserializer(expr: Expression, analyzed: LogicalPlan): Expression
+}
+object EmbeddedTypeCorrection {
+
+  val noCorrection: EmbeddedTypeCorrection = (expr: Expression, analyzed: LogicalPlan) => expr
+
+  def findInPlan(resultName: String, plan: LogicalPlan) =
+    plan.find(_.output.exists(_.name == resultName)).
+      flatMap(_.output.find(f => f.name == resultName && f.dataType.isInstanceOf[StructType]))
+
+  def of[T: Encoder](topField: String): EmbeddedTypeCorrection =
+    (expr: Expression, analyzed: LogicalPlan) => {
+      val e = implicitly[Encoder[T]]
+      findInPlan(topField, analyzed) match {
+        case Some(attr) =>
+          attr.dataType match {
+            case structType: StructType =>
+              val o = structType.zipWithIndex.map { case (e, i) => e.name -> i }.toMap
+              expr.transformUp {
+                case n: NewInstance =>
+                  n.transform {
+                    case u: UnresolvedAttribute if o.contains(u.name) =>
+                      // println(s"original from encoder ${u.name} index from analyzed type ${o(u.name)} maps to ${targetType(o(u.name))}")
+                      UnresolvedAttribute(attr.name + "." + u.name) //+targetType(o(u.name)).name)
+                  }
+              }
+            case _ => expr
+          }
+        case _ => expr
+      }
+    }
+
+  def ofRuleEngine[T: Encoder]: EmbeddedTypeCorrection = of("result")
+
+  def ofRuleFolder[T: Encoder]: EmbeddedTypeCorrection = ofRuleEngine
+
+  def ofExpressionResult[T: Encoder]: EmbeddedTypeCorrection = ofRuleEngine
+
+  def ofExpressionResultNoDDL = noCorrection
+}
 
 object Encoding {
 
@@ -15,7 +64,6 @@ object Encoding {
    *
    * This is not intended for general use and is used by the ProcessFunctions.
    *
-   * @param outputType
    * @tparam T
    * @return
    */
@@ -41,6 +89,8 @@ object Encoding {
       }
 
       override def fromCatalyst(path: Expression): Expression = {
+        val outputType = path.dataType
+
         val de = oexpr.deserializer
         val r =
           de match {
@@ -54,9 +104,29 @@ object Encoding {
               }
             case m: UnresolvedMapObjects => m.copy(child = path)
             case n: NewInstance =>
-              If(IsNull(ForceNullable(path)), Literal(null), n)
+              val o = outputType.asInstanceOf[StructType].zipWithIndex.map{case (e,i) => e.name -> i }.toMap
+
+              If(IsNull(ForceNullable(path)), Literal(null),
+                n/*.withNewChildren(n.children map {
+                  _.transform {
+                    case u: UnresolvedAttribute if o.contains(u.name) =>
+                      GetStructField3(path, o(u.name))
+                  }
+                })*/
+              )
             case i: InitializeJavaBean =>
-              If(IsNull(ForceNullable(path)), Literal(null), i)
+              val o = outputType.asInstanceOf[StructType].zipWithIndex.map{case (e,i) => e.name -> i }.toMap
+
+              If(IsNull(ForceNullable(path)), Literal(null),
+                i/*.copy(setters =
+                  i.setters.map{ p =>
+                    (p._1, p._2.transform {
+                      case u: UnresolvedAttribute if o.contains(u.name) =>
+                        GetStructField3(path, o(u.name))
+                    })
+                  }
+                )*/
+              )
             // all single fields from a struct
             case i: Invoke =>
               i.transformUp {
@@ -74,6 +144,8 @@ object Encoding {
 
       // only used by resolveAndBind
       override def toCatalyst(path: Expression): Expression = {
+        val outputType = oexpr.schema
+
         val se = oexpr.serializer
         if (se.length == 1)
           se.head match {
@@ -90,7 +162,7 @@ object Encoding {
             }
           }
         else {
-          val o = implicitly[Encoder[T]].schema
+          val o = outputType.asInstanceOf[StructType]
 
           val dealiased = se.map {
             case a: Alias =>
@@ -112,4 +184,3 @@ object Encoding {
   }
 
 }
-

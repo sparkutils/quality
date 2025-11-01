@@ -1,6 +1,7 @@
 package com.sparkutils.quality.sparkless.impl
 
 import com.sparkutils.quality.impl.extension.FunNRewrite
+import com.sparkutils.quality.impl.util.EmbeddedTypeCorrection
 import com.sparkutils.quality.sparkless.impl.Processors.{NO_QUERY_PLANS, isCopyNeeded}
 import com.sparkutils.quality.{QualityException, enableOptimizations}
 import com.sparkutils.quality.sparkless.{Processor, ProcessorFactory}
@@ -9,6 +10,8 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{MutableProjection, PlanExpression}
 import org.apache.spark.sql.catalyst.optimizer.ConstantFolding
 import org.apache.spark.sql.types.ObjectType
+
+import scala.language.higherKinds
 
 object MutableProjectionProcessor {
 
@@ -20,7 +23,8 @@ object MutableProjectionProcessor {
    * @tparam O
    * @return
    */
-  def processFactory[I: Encoder, O: Encoder](dataFrameFunction: DataFrame => DataFrame, compile: Boolean = true, extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true): ProcessorFactory[I, O] = {
+  def processFactory[I: Encoder, O: Encoder](dataFrameFunction: DataFrame => DataFrame, embeddedTypeCorrection: EmbeddedTypeCorrection, compile: Boolean = true,
+                                             extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true): ProcessorFactory[I, O] = {
     if (enableQualityOptimisations) {
       enableOptimizations(Seq(FunNRewrite, ConstantFolding))
     }
@@ -28,7 +32,7 @@ object MutableProjectionProcessor {
     val iEnc = implicitly[Encoder[I]]
     val exprFrom = ShimUtils.expressionEncoder(iEnc).resolveAndBind().serializer
 
-    val (exprs, exprTo) = QualitySparkUtils.resolveExpressions[I, O](iEnc, df => {
+    val (exprs, exprTo) = QualitySparkUtils.resolveExpressions[I, O](iEnc, embeddedTypeCorrection, df => {
       dataFrameFunction(extraProjection(df))
     })
 

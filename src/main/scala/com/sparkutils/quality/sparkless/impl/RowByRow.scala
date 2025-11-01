@@ -3,6 +3,7 @@ package com.sparkutils.quality.sparkless.impl
 import com.sparkutils.quality.{QualityException, enableOptimizations}
 import com.sparkutils.quality.impl.{GenerateDecoderOpEncoderProjection, GenerateDecoderOpEncoderVarProjection}
 import com.sparkutils.quality.impl.extension.FunNRewrite
+import com.sparkutils.quality.impl.util.EmbeddedTypeCorrection
 import com.sparkutils.quality.sparkless.{Processor, ProcessorFactory}
 import com.sparkutils.testing.Testing
 import org.apache.spark.broadcast.Broadcast
@@ -15,6 +16,7 @@ import org.apache.spark.sql.qualityFunctions.FunN
 import org.apache.spark.sql.qualityFunctions.LambdaCompilationUtils.{LambdaCompilationHandler, compilationHandlers}
 import org.apache.spark.sql.types.{ArrayType, DataType, MapType, StructType}
 
+import scala.language.higherKinds
 import scala.reflect.ClassTag
 import scala.util.Try
 
@@ -129,11 +131,12 @@ object Processors {
    * @tparam O
    * @return
    */
-  def processFactory[I: Encoder, O: Encoder](dataFrameFunction: DataFrame => DataFrame, compile: Boolean = true,
+  def processFactory[I: Encoder, O: Encoder](dataFrameFunction: DataFrame => DataFrame, embeddedTypeCorrection: EmbeddedTypeCorrection,
+                                             compile: Boolean = true,
       forceMutable: Boolean = false, forceVarCompilation: Boolean = false, extraProjection: DataFrame => DataFrame = identity,
       enableQualityOptimisations: Boolean = true): ProcessorFactory[I, O] = {
     if (forceMutable || !compile)
-      MutableProjectionProcessor.processFactory[I, O](dataFrameFunction, compile, extraProjection,
+      MutableProjectionProcessor.processFactory[I, O](dataFrameFunction, embeddedTypeCorrection, compile, extraProjection,
         enableQualityOptimisations = enableQualityOptimisations)
     else {
       if (enableQualityOptimisations) {
@@ -141,7 +144,7 @@ object Processors {
       }
 
       val iEnc = implicitly[Encoder[I]]
-      val (exprsToUse, exprTo) = QualitySparkUtils.resolveExpressions[I, O](iEnc, df => {
+      val (exprsToUse, exprTo) = QualitySparkUtils.resolveExpressions[I, O](iEnc, embeddedTypeCorrection, df => {
         dataFrameFunction(extraProjection(df))
       })
 
