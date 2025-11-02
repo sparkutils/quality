@@ -21,13 +21,13 @@ trait RuleRunnerFunctionsImport {
    * @param writer override the printCode and printExpr print writing function (defaults to println)
    * @param registerFunction function to register the sql extensions
    */
-  def registerQualityFunctions(parseTypes: String => Option[DataType] = defaultParseTypes _,
-                               zero: DataType => Option[Any] = defaultZero _,
+  def registerQualityFunctions(parseTypes: String => Option[DataType] = defaultParseTypes,
+                               zero: DataType => Option[Any] = defaultZero,
                                add: DataType => Option[(Expression, Expression) => Expression] = (dataType: DataType) => defaultAdd(dataType),
                                mapCompare: DataType => Option[(Any, Any) => Int] = (dataType: DataType) => utils.defaultMapCompare(dataType),
                                writer: String => Unit = println(_),
                                registerFunction: (String, Seq[Expression] => Expression) => Unit =
-                                  ShimUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
+                                ShimUtils.registerFunction(SparkSession.active)
                        ) =
     RuleRegistrationFunctions.registerQualityFunctions(parseTypes,
       zero,

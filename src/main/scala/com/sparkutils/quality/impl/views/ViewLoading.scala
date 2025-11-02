@@ -72,7 +72,7 @@ object ViewLoader {
           }
 
           config.source.fold(identity, SparkSession.active.sql(_))
-           .createOrReplaceTempView(name)
+           .toDF.createOrReplaceTempView(name)
 
           // it worked, remove it
           leftToProcess = leftToProcess - name

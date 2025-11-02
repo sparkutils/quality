@@ -1,6 +1,5 @@
 package com.sparkutils.qualityTests
 
-import com.sparkutils.manual.ProcessorThroughputBenchmark.createSparkSessions
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.FlattenStruct.ruleSuiteDeserializer
 import com.sparkutils.quality.sparkless.impl.{LocalBroadcast, Processors}

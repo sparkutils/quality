@@ -5,7 +5,7 @@ import com.sparkutils.testing.SparkVersions.sparkVersion
 import org.apache.spark.sql.functions.{col, expr}
 import org.apache.spark.sql.{DataFrame, ShimUtils}
 
-class ViewLoaderTest extends SharedTests {
+class ViewLoaderTest extends SharedConnectTests {
 
   val loader = new DataFrameLoader {
     override def load(token: String): DataFrame = {
@@ -105,7 +105,7 @@ class ViewLoaderTest extends SharedTests {
         val notFound = r.right.get
 
         val expectedNotFoundSet =
-          if (sparkVersion == "2.4")
+          if ((sparkVersion == "2.4") || inConnect.get())
             Set("names43")
           else
             Set("names43","ages353")
@@ -157,7 +157,7 @@ class ViewLoaderTest extends SharedTests {
         val r = ShimUtils.tableOrViewNotFound(cause).getOrElse(throw cause)
         assert(r.isRight)
         // sparks below 3.2 don't quote.
-        if (sparkVersion.replace(".","").toInt < 32)
+        if ((sparkVersion.replace(".","").toInt < 32) || inConnect.get())
           assert(missingRelationNames == Set("le-21"))
         else
           assert(missingRelationNames == Set("`le-21`"))
@@ -195,8 +195,10 @@ class ViewLoaderTest extends SharedTests {
   }
 
   override def afterAll(): Unit = {
-    Set("joined", "names", "nameLess", "ages", "bad", "names2", "ages2").foreach{
-      sparkSession.catalog.dropTempView(_)
+    forEachSession { session =>
+      Set("joined", "names", "nameLess", "ages", "bad", "names2", "ages2").foreach {
+        session.catalog.dropTempView(_)
+      }
     }
   }
 }

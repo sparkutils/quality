@@ -18,7 +18,9 @@ trait SharedTests extends FunSuite with TestUtilsBase with SharedSessions with B
     // no-op to force it to be created
     sparkSession.conf
     cleanupOutput()
-    com.sparkutils.quality.registerQualityFunctions()
+    withClassicAsActive {
+      com.sparkutils.quality.registerQualityFunctions()
+    }
   }
 }
 
@@ -45,7 +47,7 @@ trait SharedConnectTests extends SharedTests {
   override def connectServerLoggingLevel = "DEBUG"
 
   override def sparkConnectServerConfig(): Map[String, String] =
-    super.sparkConnectServerConfig() + //useDebugConnectLogs +
+    super.sparkConnectServerConfig() + useDebugConnectLogs +
       mainClassPathsConfig + connectMemory("4g") +
       (("spark.sql.extensions", classOf[QualitySparkExtension].getName)) +
       (("spark.executor.extraClassPath", System.getProperty("java.class.path")))
