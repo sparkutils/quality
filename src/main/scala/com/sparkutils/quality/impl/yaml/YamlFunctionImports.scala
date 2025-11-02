@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl.yaml
 
-import org.apache.spark.sql.Column
-import org.apache.spark.sql.ShimUtils.{column, expression}
+import org.apache.spark.sql.{Column, ShimUtils}
+import org.apache.spark.sql.functions.{typedLit, lit}
 import org.apache.spark.sql.types.DataType
 
 trait YamlFunctionImports {
@@ -13,7 +13,7 @@ trait YamlFunctionImports {
    * @return
    */
   def to_yaml(col: Column, renderOptions: Map[String, String] = Map.empty): Column =
-    column(YamlEncoderExpr(expression(col), renderOptions))
+    ShimUtils.callFunction("to_yaml", col, typedLit(renderOptions))
 
   /**
    * Converts yaml expressions to spark native types
@@ -23,6 +23,6 @@ trait YamlFunctionImports {
    * @return
    */
   def from_yaml(yaml: Column, dataType: DataType): Column =
-    column(YamlDecoderExpr(expression(yaml), dataType))
+    ShimUtils.callFunction("from_yaml", yaml, lit(dataType.sql))
 
 }

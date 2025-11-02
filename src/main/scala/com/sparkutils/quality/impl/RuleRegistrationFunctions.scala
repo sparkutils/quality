@@ -15,6 +15,7 @@ import com.sparkutils.shim
 import org.apache.commons.rng.simple.RandomSource
 import org.apache.spark.sql.ShimUtils.{add, column, expression}
 import org.apache.spark.sql.catalyst.expressions.{Add, AttributeReference, CreateMap, Expression, Literal, UnresolvedNamedLambdaVariable, LambdaFunction => SLambdaFunction}
+import org.apache.spark.sql.catalyst.util.ArrayBasedMapData
 import org.apache.spark.sql.qualityFunctions.LambdaFunctions.processTopCallFun
 import org.apache.spark.sql.qualityFunctions._
 import org.apache.spark.sql.types._
@@ -168,6 +169,8 @@ object RuleRegistrationFunctions {
     }
 
     def getMap(exp: Expression) = exp match {
+      case l: Literal if l.dataType.isInstanceOf[MapType] =>
+        MapUtils.toScalaMap(l.value.asInstanceOf[ArrayBasedMapData], StringType, StringType).asInstanceOf[Map[String,String]]
       case c: CreateMap if c.children.grouped(2).forall{
         case Seq(Literal(_: UTF8String, StringType), _: Literal) =>
           true

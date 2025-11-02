@@ -3,14 +3,14 @@ package com.sparkutils.qualityTests
 import com.sparkutils.quality._
 import com.sparkutils.quality.functions._
 import com.sparkutils.quality.impl.YamlDecoder
+import org.apache.spark.SparkException
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.DataType
-
 import org.scalatest.FunSuite
 
 import scala.language.postfixOps
 
-class YamlTests extends FunSuite with RowTools with SharedTests {
+class YamlTests extends SharedConnectTests with RowTools {
 
   def doSerDeTestMaps(original: String, ddl: String) = evalCodeGens {
     def serDe(renderOptions: Map[String, String]) {
@@ -161,24 +161,27 @@ class YamlTests extends FunSuite with RowTools with SharedTests {
   test("nonLiteralMapEntriesTest") { evalCodeGens {
     try {
       sparkSession.sql("select array(1,2,3,4,5) og")
-        .selectExpr("*", s"to_yaml(og, map(og, 1)) y")
+        .selectExpr("*", s"to_yaml(og, map(og, 1)) y").count()
       fail("Should have thrown as og is not a literal")
     } catch {
       case t: QualityException => assert(t.getMessage.contains("Could not process a literal map with expression"))
+      case t: SparkException => assert(t.getMessage.contains("Could not process a literal map with expression"))
     }
     try {
       sparkSession.sql("select array(1,2,3,4,5) og")
-        .selectExpr("*", s"to_yaml(og, map(1, 'true')) y")
+        .selectExpr("*", s"to_yaml(og, map(1, 'true')) y").count()
       fail("Should have thrown as 1 is not a string literal")
     } catch {
       case t: QualityException => assert(t.getMessage.contains("Could not process a literal map with expression"))
+      case t: SparkException => assert(t.getMessage.contains("Could not process a literal map with expression"))
     }
     try {
       sparkSession.sql("select array(1,2,3,4,5) og")
-        .selectExpr("*", s"to_yaml(og, map('1', og)) y")
+        .selectExpr("*", s"to_yaml(og, map('1', og)) y").count()
       fail("Should have thrown as og is not a literal")
     } catch {
       case t: QualityException => assert(t.getMessage.contains("Could not process a literal map with expression"))
+      case t: SparkException => assert(t.getMessage.contains("Could not process a literal map with expression"))
     }
   } }
 

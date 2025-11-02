@@ -1,8 +1,9 @@
 package com.sparkutils.qualityTests
 
-import com.sparkutils.quality.impl.extension.FunNRewrite
+import com.sparkutils.quality.impl.extension.{FunNRewrite, QualitySparkExtension}
 import com.sparkutils.quality.{RuleSuite, ruleRunner}
-import com.sparkutils.testing.{ClassicOnly, ConnectionType}
+import com.sparkutils.testing.Utils.{MAIN_CLASSPATH, connectMemory, mainClassPathsConfig, useDebugConnectLogs}
+import com.sparkutils.testing.{ClassicOnly, ConnectionType, Sessions, SessionsStateHolder, SparkTestSuite, UseBoth}
 import com.sparkutils.testing.sessionStrategies.{GlobalSession, SharedSessions}
 import org.apache.spark.sql.QualitySparkUtils.DatasetBase
 import org.apache.spark.sql.{Dataset, Row}
@@ -10,7 +11,7 @@ import org.scalatest.{BeforeAndAfterAll, FunSuite}
 
 trait SharedTests extends FunSuite with TestUtilsBase with SharedSessions with BeforeAndAfterAll {
 
-  override val currentSessionsHolder = GlobalSession
+  override val currentSessionsHolder: SessionsStateHolder = GlobalSession
 
   override def beforeAll(): Unit = {
     super.beforeAll()
@@ -21,7 +22,38 @@ trait SharedTests extends FunSuite with TestUtilsBase with SharedSessions with B
   }
 }
 
-trait TestUtilsBase extends com.sparkutils.testing.TestUtils {
+object GlobalSession2 extends SessionsStateHolder {
+
+  private var current: Sessions = _
+
+  override def setSessions(sessions: => Sessions): Unit = {
+    current = sessions
+  }
+
+  override def getSessions: Sessions = current
+
+  override def stop(): Unit = {
+    super.stop()
+    current = null
+  }
+}
+
+trait SharedConnectTests extends SharedTests {
+  override val currentSessionsHolder: SessionsStateHolder = GlobalSession2
+  override def connectionType: ConnectionType = UseBoth
+
+  override def connectServerLoggingLevel = "DEBUG"
+
+  override def sparkConnectServerConfig(): Map[String, String] =
+    super.sparkConnectServerConfig() + //useDebugConnectLogs +
+      mainClassPathsConfig + connectMemory("4g") +
+      (("spark.sql.extensions", classOf[QualitySparkExtension].getName)) +
+      (("spark.executor.extraClassPath", System.getProperty("java.class.path")))
+
+
+}
+
+trait TestUtilsBase extends SparkTestSuite {
 
   override def connectionType: ConnectionType = ClassicOnly
 
