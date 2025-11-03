@@ -1,6 +1,6 @@
 package org.apache.spark.sql
 
-import com.sparkutils.quality.impl.extension.QualityFunctionParser.{CREATE_FUNCTION_PREFIX, WITH_TOKEN}
+import com.sparkutils.quality.impl.extension.QualityFunctionParser.{CREATE_FUNCTION_PREFIX, DIVIDER, WITH_TOKEN}
 import org.apache.spark.sql.ShimUtils.{column, expression}
 import com.sparkutils.quality.impl.util.DebugTime.debugTime
 import com.sparkutils.quality.impl.util.Params.formatParams
@@ -450,12 +450,12 @@ object QualitySparkUtils {
         LambdaFunctions.registerLambdaFunctions(functions)
       case _  =>
         val s = SparkSession.active
-        val command = s"$CREATE_FUNCTION_PREFIX \n" +
+        val command = s"$CREATE_FUNCTION_PREFIX\n" +
           functions.map{
             f =>
               // needs to be registered via the extension
               s"${f.name}$WITH_TOKEN${f.rule}"
-          }.mkString("\n")
+          }.mkString(DIVIDER)
         s.sql(command)
     }
 
