@@ -10,7 +10,7 @@ import org.apache.spark.sql.functions._
 
 import simpleVersioning._
 
-class VersionSerializingTest extends SharedTests {
+class VersionSerializingTest extends SharedConnectTests {
 
   /**
    * Verify versions with all combos.

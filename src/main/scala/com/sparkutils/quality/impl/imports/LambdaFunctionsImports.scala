@@ -2,6 +2,7 @@ package com.sparkutils.quality.impl.imports
 
 import com.sparkutils.quality.Id
 import com.sparkutils.quality.impl.LambdaFunction
+import org.apache.spark.sql.QualitySparkUtils
 import org.apache.spark.sql.qualityFunctions.LambdaFunctions
 
 trait LambdaFunctionsImports {
@@ -15,7 +16,7 @@ trait LambdaFunctionsImports {
    * @param functions
    */
   def registerLambdaFunctions(functions: Seq[LambdaFunction]): Unit =
-    LambdaFunctions.registerLambdaFunctions(functions)
+    QualitySparkUtils.registerLambdaFunctions(functions)
 
   type IdTriple = (Id, Id, Id)
 }

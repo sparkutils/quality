@@ -14,9 +14,10 @@ trait SharedTests extends FunSuite with TestUtilsBase with SharedSessions with B
   override val currentSessionsHolder: SessionsStateHolder = GlobalSession
 
   override def beforeAll(): Unit = {
-    super.beforeAll()
     // no-op to force it to be created
-    sparkSession.conf
+    forceLoad
+    super.beforeAll()
+
     cleanupOutput()
     withClassicAsActive {
       com.sparkutils.quality.registerQualityFunctions()
@@ -51,7 +52,6 @@ trait SharedConnectTests extends SharedTests {
       mainClassPathsConfig + connectMemory("4g") +
       (("spark.sql.extensions", classOf[QualitySparkExtension].getName)) +
       (("spark.executor.extraClassPath", System.getProperty("java.class.path")))
-
 
 }
 

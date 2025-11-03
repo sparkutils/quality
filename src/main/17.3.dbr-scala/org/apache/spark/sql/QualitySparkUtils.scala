@@ -4,7 +4,7 @@ import org.apache.spark.sql.ShimUtils.{column, expression}
 import com.sparkutils.quality.impl.util.DebugTime.debugTime
 import com.sparkutils.quality.impl.util.Params.formatParams
 import com.sparkutils.quality.impl.util.{EmbeddedTypeCorrection, PassThrough, PassThroughCompileEvals}
-import com.sparkutils.quality.impl.{RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
+import com.sparkutils.quality.impl.{LambdaFunction, RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
 import com.sparkutils.shim.expressions.{HigherOrderFunctionLike, PredicateHelperPlus}
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCoercion}
 import org.apache.spark.sql.catalyst.encoders.{ExpressionEncoder, RowEncoder}
@@ -14,7 +14,7 @@ import org.apache.spark.sql.catalyst.optimizer.{BooleanSimplification, CollapseP
 import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, LogicalPlan, Project, UnaryNode}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.qualityFunctions.FunN
+import org.apache.spark.sql.qualityFunctions.{FunN, LambdaFunctions}
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.util.Utils
 
@@ -331,4 +331,16 @@ object QualitySparkUtils {
       }
     )
 
+  def registerLambdaFunctions(functions: Seq[LambdaFunction]): Unit =
+    SparkSession.active match {
+      case s: classic.SparkSession =>
+        LambdaFunctions.registerLambdaFunctions(functions)
+      case _  =>
+        val s = SparkSession.active
+        functions.foreach{
+          f =>
+            // needs to be registered via the extension
+            s.sql(s"$CREATE_FUNCTION_PREFIX${f.name}$WITH_TOKEN${f.rule}")
+        }
+    }
 }

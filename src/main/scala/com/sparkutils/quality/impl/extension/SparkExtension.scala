@@ -72,6 +72,7 @@ class QualitySparkExtension extends ((SparkSessionExtensions) => Unit) with Logg
     com.sparkutils.quality.registerQualityFunctions(parseTypes, zero, add, mapCompare, writer,
       registerFunction = func
     )
+    extensions.injectParser(QualityFunctionParser)
 
     if (Testing.testing) {
       ExtensionTesting.disableRuleResult = ""

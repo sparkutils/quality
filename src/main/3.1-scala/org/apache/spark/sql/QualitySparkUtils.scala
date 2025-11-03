@@ -3,7 +3,8 @@ package org.apache.spark.sql
 import com.sparkutils.quality.impl.util.DebugTime.debugTime
 import com.sparkutils.quality.impl.util.Params.formatParams
 import com.sparkutils.quality.impl.util.{EmbeddedTypeCorrection, PassThrough, PassThroughCompileEvals}
-import com.sparkutils.quality.impl.{RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
+import com.sparkutils.quality.impl.{LambdaFunction, RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
+import org.apache.spark.sql.qualityFunctions.{FunN, LambdaFunctions}
 import com.sparkutils.shim.expressions.PredicateHelperPlus
 import org.apache.spark.sql.QualityStructFunctions.UpdateFields
 import org.apache.spark.sql.ShimUtils.{column, toSQLExpr, toSQLType}
@@ -442,6 +443,9 @@ object QualitySparkUtils {
         }
       }
     )
+
+  def registerLambdaFunctions(functions: Seq[LambdaFunction]): Unit =
+    LambdaFunctions.registerLambdaFunctions(functions)
 }
 
 object QualityStructFunctions {
