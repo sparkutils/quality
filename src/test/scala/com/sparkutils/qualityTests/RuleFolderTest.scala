@@ -13,7 +13,7 @@ import org.apache.spark.sql.types.{IntegerType, StringType, StructField, StructT
 
 import org.scalatest.FunSuite
 
-class RuleFolderTest extends FunSuite with SharedTests {
+class RuleFolderTest extends FunSuite with ClassicSharedTests {
 
   val testData=Seq(
     TestOn("edt", "4201", 40),

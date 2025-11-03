@@ -11,7 +11,7 @@ import org.apache.commons.io.IOUtils
 import java.util.concurrent.atomic.AtomicReference
 
 
-class DocMarkdownTest extends SharedTests { // test utils to force spark session before register is called
+class DocMarkdownTest extends ClassicSharedTests { // test utils to force spark session before register is called
 
   /**
    * doesn't test anything but it's helpfully bootstrapped

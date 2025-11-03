@@ -12,7 +12,7 @@ import org.scalatest.FunSuite
 
 case class Pair(a: Long, b: Long)
 
-class BloomTests extends SharedTests {
+class BloomTests extends ClassicSharedTests {
 
   def directCreateSpark() = {
     // train it

@@ -1,9 +1,8 @@
 package com.sparkutils.qualityTests
 
 import org.apache.spark.sql.functions._
-import org.scalatest.FunSuite
 
-class RoundTripTest3 extends FunSuite with RowTools with SharedTests {
+class RoundTripTest3 extends ClassicSharedTests {
 
   test("testULEquals") { evalCodeGensNoResolve {
     val s = sparkSession

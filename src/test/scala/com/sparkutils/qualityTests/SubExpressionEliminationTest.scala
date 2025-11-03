@@ -19,7 +19,7 @@ import java.util.concurrent.atomic.AtomicInteger
 /**
  * tests if sub expressions are properly eliminated in the various runner configurations
  */
-class SubExpressionEliminationTest extends FunSuite with SharedTests {
+class SubExpressionEliminationTest extends ClassicSharedTests {
 
   val data = Seq(
     TestOn("p1","a1", 0),

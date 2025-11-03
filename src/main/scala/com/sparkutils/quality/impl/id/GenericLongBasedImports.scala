@@ -3,8 +3,9 @@ package com.sparkutils.quality.impl.id
 import com.sparkutils.quality.impl.hash.{HashFunctionFactory, HashFunctionsExpression, MessageDigestFactory}
 import com.sparkutils.quality.impl.rng.RandLongsWithJump
 import org.apache.commons.rng.simple.RandomSource
-import org.apache.spark.sql.Column
-import org.apache.spark.sql.ShimUtils.{column, expression}
+import org.apache.spark.sql.{Column, ShimUtils}
+import org.apache.spark.sql.ShimUtils.{callFunction, column, expression}
+import org.apache.spark.sql.functions.lit
 import org.apache.spark.sql.shim.hash.DigestFactory
 
 trait GenericLongBasedImports {
@@ -12,38 +13,13 @@ trait GenericLongBasedImports {
    * Creates a default randomRNG based on RandomSource.XO_RO_SHI_RO_128_PP
    */
   def rngID(prefix: String): Column =
-    column(GenericLongBasedIDExpression(model.RandomID,
-      RandLongsWithJump(0L, RandomSource.XO_RO_SHI_RO_128_PP), prefix))
+    callFunction("rng_id", lit(prefix))
 
   /**
    * Creates a randomRNG ID based on randomSource with a given seed
    */
   def rng_id(prefix: String, randomSource: RandomSource, seed: Long = 0L): Column =
-    column( GenericLongBasedIDExpression (model.RandomID,
-      RandLongsWithJump(seed, randomSource), prefix) )
-
-  /**
-   * Creates a hash based ID based on a 128 bit MD5 by default
-   * @param prefix
-   * @return
-   */
-  def fieldBasedID(prefix: String, children: Seq[Column], digestImpl: String = "MD5", digestFactory: String => DigestFactory = MessageDigestFactory): Column =
-    column(GenericLongBasedIDExpression(model.FieldBasedID,
-      HashFunctionsExpression(children.map(expression(_)), digestImpl, true, digestFactory(digestImpl)), prefix))
-
-  // NB field_based_id is in HashRelatedFunctionImports, same impl and interface but fits the sql name
-
-  /**
-   * Creates an id from fields using MessageDigests, in line with SQL naming please use field_based_id
-   *
-   * @param prefix
-   * @param digestImpl
-   * @param children
-   * @return
-   */
-  @deprecated(since = "0.1.0", message = "migrate to field_based_id")
-  def fieldBasedID(prefix: String, digestImpl: String, children: Column *): Column =
-    fieldBasedID(prefix, children, digestImpl)
+    callFunction("rng_id", lit(prefix), lit(randomSource.name()), lit(seed))
 
   /**
    * Creates a hash based ID based on an upstream compatible long generator, in line with sql functions please migrate to provided_id
@@ -61,20 +37,7 @@ trait GenericLongBasedImports {
    * @return
    */
   def provided_id(prefix: String, child: Column): Column =
-    column(GenericLongBasedIDExpression(model.ProvidedID, expression(child), prefix))
-
-  /**
-   * Murmur3 hash
-   * @param prefix
-   * @param children
-   * @param digestImpl - only Murmur3 currently supported
-   * @return
-   */
-  def hashID(prefix: String, children: Seq[Column], digestImpl: String = "IGNORED"): Column =
-    column(GenericLongBasedIDExpression(model.FieldBasedID,
-      HashFunctionsExpression(children.map(expression(_)), digestImpl, true, HashFunctionFactory("IGNORED")), prefix))
-
-  def hashID(prefix: String, digestImpl: String, children: Column*): Column = hashID(prefix, children, digestImpl)
+    callFunction("provided_id", lit(prefix), child)
 
   /**
    * Murmur3 hash
@@ -82,7 +45,10 @@ trait GenericLongBasedImports {
    * @param children
    * @return
    */
-  def murmur3ID(prefix: String, children: Seq[Column]): Column = hashID(prefix, children, "M3_128")
-  def murmur3ID(prefix: String, child1: Column, restOfchildren: Column*): Column = hashID(prefix, child1 +: restOfchildren, "M3_128")
+  def murmur3ID(prefix: String, children: Seq[Column]): Column =
+    callFunction("murmur3_id", (Seq(lit(prefix)) ++ children ) :_*)
+
+  def murmur3ID(prefix: String, child1: Column, restOfchildren: Column*): Column =
+    murmur3ID(prefix, child1 +: restOfchildren)
 
 }

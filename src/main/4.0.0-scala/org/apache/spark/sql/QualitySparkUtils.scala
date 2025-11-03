@@ -450,11 +450,13 @@ object QualitySparkUtils {
         LambdaFunctions.registerLambdaFunctions(functions)
       case _  =>
         val s = SparkSession.active
-        functions.foreach{
-          f =>
-            // needs to be registered via the extension
-            s.sql(s"$CREATE_FUNCTION_PREFIX${f.name}$WITH_TOKEN${f.rule}")
-        }
+        val command = s"$CREATE_FUNCTION_PREFIX \n" +
+          functions.map{
+            f =>
+              // needs to be registered via the extension
+              s"${f.name}$WITH_TOKEN${f.rule}"
+          }.mkString("\n")
+        s.sql(command)
     }
 
 }

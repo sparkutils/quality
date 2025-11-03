@@ -4,12 +4,12 @@ import com.sparkutils.quality.Rule
 import com.sparkutils.quality.impl.util.RuleModel.RuleSuiteMap
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.util.MetaRuleSetRow
-import com.sparkutils.qualityTests.SharedTests
+import com.sparkutils.qualityTests.ClassicSharedTests
 import org.apache.spark.sql.ShimUtils.{column, expression}
 import org.apache.spark.sql.catalyst.expressions.objects.AssertNotNull
 import org.apache.spark.sql.{Column, DataFrame}
 
-class MetaRuleSetTest extends SharedTests {
+class MetaRuleSetTest extends ClassicSharedTests {
 
   def ruleSet(id: Int, arg: String, exp: String) = MetaRuleSetRow(1,1,id,id*2,"",
     s"$arg -> $exp")

@@ -12,8 +12,11 @@ import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, NoopCommand}
 import org.apache.spark.sql.qualityFunctions.LambdaFunctions
 import org.apache.spark.sql.types.{DataType, StructType}
 
+import scala.io.Source
+
 object QualityFunctionParser {
-  val CREATE_FUNCTION_PREFIX = "CREATE QUALITY FUNCTION "
+  val CREATE_FUNCTION_PREFIX = "CREATE QUALITY FUNCTION"
+  val DIVIDER = " _END_OF_USER_FUNCTION_ "
   val WITH_TOKEN = " _WITH_IMPL_ "
 }
 
@@ -21,17 +24,21 @@ case class QualityFunctionParser(sparkSession: SparkSession, delegate: ParserInt
 
   override def parsePlan(sqlText: String): LogicalPlan =
     if (sqlText.startsWith(CREATE_FUNCTION_PREFIX)) {
-      val command = sqlText.drop(CREATE_FUNCTION_PREFIX.length)
-      val idx = command.indexOf(WITH_TOKEN)
-      val name = command.take(idx)
-      val rule = command.drop(idx + WITH_TOKEN.length)
-      logDebug(s"Quality Rule via extension $name with rule: $rule")
+
+      val lines = Source.fromString(sqlText).getLines()
+      val functions =
+        for{ line <- lines.drop(1) } yield { // first not needed
+          val idx = line.indexOf(WITH_TOKEN)
+          val name = line.take(idx)
+          val rule = line.drop(idx + WITH_TOKEN.length)
+          logDebug(s"Quality Rule via extension $name with rule: $rule")
+          LambdaFunctionImpl(name, rule, Id(-1,-1))
+        }
+
       val sess = SparkSession.getActiveSession
       try {
         SparkSession.setActiveSession(sparkSession)
-        LambdaFunctions.registerLambdaFunctions(Seq(
-          LambdaFunctionImpl(name, rule, Id(-1,-1))
-        ))
+        LambdaFunctions.registerLambdaFunctions(functions.toSeq)
         NoopCommand(CREATE_FUNCTION_PREFIX, Seq.empty)
       } finally {
         sess.foreach(SparkSession.setActiveSession)

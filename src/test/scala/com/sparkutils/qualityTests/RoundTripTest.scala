@@ -11,7 +11,8 @@ import org.apache.spark.sql.functions._
 
 import org.scalatest.FunSuite
 
-class RoundTripTest extends SharedTests with RowTools {
+// TODO 4 tests use taddDataQuality so they fail on connect
+class RoundTripTest extends ClassicSharedTests with RowTools {
 
   test("verifyPacking") {
     import implicits._

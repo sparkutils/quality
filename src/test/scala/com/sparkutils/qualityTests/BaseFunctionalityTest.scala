@@ -21,7 +21,7 @@ import org.apache.spark.sql.ShimUtils.expression
 
 import scala.language.postfixOps
 
-class BaseFunctionalityTest extends SharedTests with RowTools {
+class BaseFunctionalityTest extends ClassicSharedTests with RowTools {
 
   test("flattenResultsTest") { evalCodeGensNoResolve {
     val rules = genRules(27, 27)

@@ -2,13 +2,13 @@ package com.sparkutils.quality.tests
 
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.{ExprLogic, RuleRegistrationFunctions, RuleRunnerUtils, ExpressionWrapper}
-import com.sparkutils.qualityTests.SharedTests
+import com.sparkutils.qualityTests.ClassicSharedTests
 import org.apache.spark.sql.catalyst.expressions.Literal
 import org.apache.spark.sql.types.StringType
 
 import org.scalatest.FunSuite
 
-class RoundTripPrivateTest extends FunSuite with SharedTests {
+class RoundTripPrivateTest extends FunSuite with ClassicSharedTests {
 
   test("ruleExprSwapping") { evalCodeGens {
 

@@ -91,7 +91,7 @@ object MapLookupTest {
 
 }
 
-class MapLookupTests extends SharedTests {
+class MapLookupTests extends ClassicSharedTests {
 
   import TradeTests._
 

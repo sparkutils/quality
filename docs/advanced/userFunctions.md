@@ -37,6 +37,15 @@ Single argument lambdas should not use brackets around the parameters and zero a
 
     The use of re-writes with 3.2.x has been identified in one test case (testSimpleProductionRules) as problematic for codegen, please use more recent Spark versions.    
 
+## Why do these exist when Spark supports SQL functions
+
+In short:
+1. Multiple-arity
+2. Late type binding (outside of HoFs)
+3. Lighter syntax
+4. Higher Order Functions, use them in any appropriate Spark function like aggregates
+4. Correlated subquery support when used as HoFs
+
 ## What about default parameter or different length parameter length Lambdas?  
 
 To define multiple parameter length lambdas just define new lambdas with the same name but different argument lengths.  You can freely call the same lambda name with different parameters e.g.:

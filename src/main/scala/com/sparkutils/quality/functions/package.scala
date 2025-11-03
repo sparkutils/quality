@@ -10,10 +10,11 @@ import com.sparkutils.quality.impl.mapLookup.MapLookupFunctionImports
 import com.sparkutils.quality.impl.rng.RngFunctionImports
 import com.sparkutils.quality.impl.util.{ComparableMapsImports, StructFunctionsImport}
 import com.sparkutils.quality.impl.yaml.YamlFunctionImports
-import org.apache.spark.sql.ShimUtils.column
+import org.apache.spark.sql.ShimUtils.{callFunction, column}
 import org.apache.spark.sql.{Column, ShimUtils}
 import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
 import org.apache.spark.sql.catalyst.expressions.{And, EqualTo}
+import org.apache.spark.sql.functions.lit
 
 /**
  * Collection of the Quality Spark Expressions for use in select( Column * )
@@ -30,14 +31,8 @@ package object functions extends ComparableMapsImports with GuaranteedUniqueIDIm
    * @param bPrefix
    * @return
    */
-  def long_pair_equal(aPrefix: String, bPrefix: String): Column = {
-
-    def lower(a: Any) = UnresolvedAttribute(s"${a}_lower")
-
-    def higher(a: Any) = UnresolvedAttribute(s"${a}_higher")
-
-    column(And(EqualTo(lower(aPrefix), lower(bPrefix)), EqualTo(higher(aPrefix), higher(bPrefix))))
-  }
+  def long_pair_equal(aPrefix: String, bPrefix: String): Column =
+    callFunction("long_pair_equal", lit(aPrefix), lit(bPrefix))
 
   /**
    * Similar to long_pair_equal but against 160 bit ids.
@@ -45,17 +40,8 @@ package object functions extends ComparableMapsImports with GuaranteedUniqueIDIm
    * @param bPrefix
    * @return
    */
-  def id_equal(aPrefix: String, bPrefix: String): Column = {
-    def attr(a: Any, field: String) = UnresolvedAttribute(s"${a}_$field")
-    val a = aPrefix
-    val b = bPrefix
-
-    column(
-      And(And(EqualTo(attr(a, "base"), attr(b, "base")),
-        EqualTo(attr(a, "i0"), attr(b, "i0"))),
-        EqualTo(attr(a, "i1"), attr(b, "i1")))
-    )
-  }
+  def id_equal(aPrefix: String, bPrefix: String): Column =
+    callFunction("id_equal", lit(aPrefix), lit(bPrefix))
 
   /**
    * Converts a lower and higher pair of longs into a uuid string
@@ -63,5 +49,5 @@ package object functions extends ComparableMapsImports with GuaranteedUniqueIDIm
    * @param higher
    */
   def as_uuid(lower: Column, higher: Column): Column =
-    AsUUID(lower, higher)
+    callFunction("as_uuid", lower, higher)
 }

@@ -18,7 +18,7 @@ import org.apache.spark.sql.catalyst.FunctionIdentifier
 import org.apache.spark.sql.catalyst.analysis.FunctionRegistry
 
 // including rowtools so standalone tests behave as if all of them are running and for verify compatibility
-abstract class ExtensionTestBase extends SharedTests  {
+abstract class ExtensionTestBase extends ClassicSharedTests  {
 
   def shouldRun: Boolean
 

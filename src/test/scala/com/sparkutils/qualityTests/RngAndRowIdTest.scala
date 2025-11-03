@@ -1,15 +1,11 @@
 package com.sparkutils.qualityTests
 
-import com.sparkutils.quality.functions.{long_pair, long_pair_from_uuid, rng_bytes, rng_uuid}
-import com.sparkutils.quality.impl.bloom.parquet.{BlockSplitBloomFilterImpl, ThreadSafeBloomLookupImpl}
+import com.sparkutils.quality.functions.{long_pair, long_pair_from_uuid, rng_bytes, rng_uuid, unique_id}
 import com.sparkutils.quality.impl.rng.RandomLongs
-import org.apache.spark.sql.{Row, SaveMode}
 import org.apache.spark.sql.functions.{col, expr}
 import org.apache.spark.sql.types.{BinaryType, LongType, StringType}
 
-import org.scalatest.FunSuite
-
-class RngAndRowIdTest extends FunSuite with SharedTests {
+class RngAndRowIdTest extends SharedConnectTests {
 
   test("rngBytesTest") { evalCodeGensNoResolve {
     val numRows = 10000
@@ -61,6 +57,8 @@ class RngAndRowIdTest extends FunSuite with SharedTests {
     assert(unique.filter("uuid != uuid2").count() == 0)
   }
 
+  // TODO add prefixed_to_long_pair test
+
   test("idFromUUIDTest") { evalCodeGensNoResolve {
     val numRows = 10000
     // obviously can't actually test the values
@@ -100,6 +98,14 @@ class RngAndRowIdTest extends FunSuite with SharedTests {
       .distinct()
 
     assert(unique.count() == numRows)
+
+    val unique2 = ids.select(expr("*"), unique_id("pre").as("uuid"))
+      .select(expr("uuid u1"), expr("uuid u2"))
+      .filter("u1 = u2")
+      .distinct()
+
+    assert(unique2.count() == numRows)
+
   }}
 
   test("rngBytesWellsTest") { evalCodeGensNoResolve {

@@ -3,7 +3,7 @@ package com.sparkutils.quality.tests
 import com.sparkutils.quality._
 import com.sparkutils.testing.Testing
 import com.sparkutils.quality.tests.TestHandler._
-import com.sparkutils.qualityTests.SharedTests
+import com.sparkutils.qualityTests.ClassicSharedTests
 import org.apache.spark.sql.catalyst.expressions.{ArrayFilter, ExprId, Expression, NamedLambdaVariable, ZipWith}
 import org.apache.spark.sql.qualityFunctions.LambdaCompilationUtils.{LambdaCompilationHandler, convertToCompilationHandlers, envLambdaHandlers, loadLambdaCompilationHandlers}
 import org.apache.spark.sql.qualityFunctions.{DoCodegenFallbackHandler, FunN, NamedLambdaVariableCodeGen}
@@ -12,7 +12,7 @@ import org.scalatest.Matchers.convertToAnyShouldWrapper
 
 import java.util.concurrent.atomic.AtomicBoolean
 
-class UserLambdaFunctionCompilationTest extends SharedTests with BeforeAndAfterAll {
+class UserLambdaFunctionCompilationTest extends ClassicSharedTests with BeforeAndAfterAll {
   // le horrible hack for testing
   Testing.setTesting()
 

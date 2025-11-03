@@ -9,7 +9,7 @@ import org.apache.spark.sql.QualitySparkUtils.DatasetBase
 import org.apache.spark.sql.{Dataset, Row}
 import org.scalatest.{BeforeAndAfterAll, FunSuite}
 
-trait SharedTests extends FunSuite with TestUtilsBase with SharedSessions with BeforeAndAfterAll {
+trait ClassicSharedTests extends FunSuite with TestUtilsBase with SharedSessions with BeforeAndAfterAll {
 
   override val currentSessionsHolder: SessionsStateHolder = GlobalSession
 
@@ -25,7 +25,7 @@ trait SharedTests extends FunSuite with TestUtilsBase with SharedSessions with B
   }
 }
 
-object GlobalSession2 extends SessionsStateHolder {
+object GlobalSessionWithConnect extends SessionsStateHolder {
 
   private var current: Sessions = _
 
@@ -41,8 +41,8 @@ object GlobalSession2 extends SessionsStateHolder {
   }
 }
 
-trait SharedConnectTests extends SharedTests {
-  override val currentSessionsHolder: SessionsStateHolder = GlobalSession2
+trait SharedConnectTests extends ClassicSharedTests {
+  override val currentSessionsHolder: SessionsStateHolder = GlobalSessionWithConnect
   override def connectionType: ConnectionType = UseBoth
 
   override def connectServerLoggingLevel = "DEBUG"
@@ -126,10 +126,22 @@ trait TestUtilsBase extends SparkTestSuite {
   /**
    * enable funN rewrites, runs the test twice, once under the optimisation, once without
    */
-  lazy val funNRewrites = testPlan(FunNRewrite) _
+  def funNRewrites: Unit => Unit = (u:Unit) => {
+    if (!inConnect.get()) {
+      testPlan(FunNRewrite)(u)
+    } else {
+      u
+    }
+  }
   /**
    * enable funN rewrites for one test run only
    */
-  lazy val justfunNRewrite = testPlan(FunNRewrite, secondRunWithoutPlan = false) _
+  def justfunNRewrite: Unit => Unit = (u:Unit) => {
+    if (!inConnect.get()) {
+      testPlan(FunNRewrite, secondRunWithoutPlan = false)(u)
+    } else {
+      u
+    }
+  }
 
 }

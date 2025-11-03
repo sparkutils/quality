@@ -14,7 +14,7 @@ import org.apache.spark.sql.types.{DataType, LongType}
  * Alas it adds another minute to the testing, but worth it.  It will add more when engine is codegen'd ...
  */
 //@Ignore
-class CodeGenTest extends SharedTests with RowTools {
+class CodeGenTest extends ClassicSharedTests with RowTools {
 
   def readGen[T](func: (Int, Int, DataFrame) => DataFrame, dataType: DataType, startValue: T)  = {
 

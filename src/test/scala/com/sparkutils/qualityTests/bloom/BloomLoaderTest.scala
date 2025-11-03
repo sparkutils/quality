@@ -2,13 +2,13 @@ package com.sparkutils.qualityTests.bloom
 
 import com.sparkutils.quality.impl.bloom.BloomConfig
 import com.sparkutils.quality.{DataFrameLoader, Id, loadBloomConfigs, loadBlooms}
-import com.sparkutils.qualityTests.SharedTests
+import com.sparkutils.qualityTests.ClassicSharedTests
 import org.apache.spark.sql.functions.{col, expr}
 import org.apache.spark.sql.DataFrame
 
 
 // NB the other combinations of loading are covered by the ViewLoaderTest
-class BloomLoaderTest extends SharedTests {
+class BloomLoaderTest extends ClassicSharedTests {
 
   val loader = new DataFrameLoader {
     override def load(token: String): DataFrame = {

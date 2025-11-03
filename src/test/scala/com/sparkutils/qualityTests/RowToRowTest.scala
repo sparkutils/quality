@@ -176,7 +176,7 @@ class NewPostingBean(){
 }
 
 // purposefully NOT in the testShade as this is inappropriate for actual spark usage
-class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with SharedTests {
+class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with ClassicSharedTests {
 
   // processors should never be on connect
   override def connectionType: ConnectionType = ClassicOnly

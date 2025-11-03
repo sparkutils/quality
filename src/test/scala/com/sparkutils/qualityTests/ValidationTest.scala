@@ -13,7 +13,7 @@ import org.apache.spark.sql.types.{BooleanType, DoubleType, IntegerType, LongTyp
 
 import org.scalatest.FunSuite
 
-class ValidationTest extends FunSuite with SharedTests {
+class ValidationTest extends ClassicSharedTests {
 
   val struct = StructType(Seq(
     StructField("fielda", StringType),

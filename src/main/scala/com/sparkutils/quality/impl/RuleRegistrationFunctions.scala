@@ -4,43 +4,44 @@ import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.functions._
 import com.sparkutils.quality.impl.aggregates.AggregateExpressions
 import com.sparkutils.quality.impl.bloom.{BucketedArrayParquetAggregator, ParquetAggregator}
-import com.sparkutils.quality.impl.hash.{HashFunctionFactory, HashFunctionsExpression}
-import com.sparkutils.quality.impl.id.{GenericLongBasedIDExpression, model}
-import com.sparkutils.quality.impl.longPair.{AsUUID, LongPairExpression}
-import com.sparkutils.quality.impl.rng.{RandomBytes, RandomLongs}
+import com.sparkutils.quality.impl.hash.{HashFunctionFactory, HashFunctionsExpression, MessageDigestFactory, ZALongHashFunctionFactory, ZALongTupleHashFunctionFactory}
+import com.sparkutils.quality.impl.id.{AsBase64Fields, AsBase64Struct, GenericLongBasedIDExpression, GuaranteedUniqueID, GuaranteedUniqueIdIDExpression, IDFromBase64, IDToRawIDDataType, SizeOfIDString, model}
+import com.sparkutils.quality.impl.longPair.{AsUUID, LongPairExpression, PrefixedToLongPair}
+import com.sparkutils.quality.impl.rng.{RandLongsWithJump, RandomBytes, RandomLongs}
 import com.sparkutils.quality.impl.util.{ComparableMapConverter, ComparableMapReverser, InputWrapper, PrintCode}
 import com.sparkutils.quality.impl.yaml.{YamlDecoderExpr, YamlEncoderExpr}
 import com.sparkutils.quality.{QualityException, impl}
-import com.sparkutils.shim
 import org.apache.commons.rng.simple.RandomSource
 import org.apache.spark.sql.ShimUtils.{add, column, expression}
-import org.apache.spark.sql.catalyst.expressions.{Add, AttributeReference, CreateMap, Expression, Literal, UnresolvedNamedLambdaVariable, LambdaFunction => SLambdaFunction}
+import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
+import org.apache.spark.sql.catalyst.expressions.{Add, And, AttributeReference, CreateMap, EqualTo, Expression, Literal, UnresolvedNamedLambdaVariable, LambdaFunction => SLambdaFunction}
 import org.apache.spark.sql.catalyst.util.ArrayBasedMapData
 import org.apache.spark.sql.qualityFunctions.LambdaFunctions.processTopCallFun
 import org.apache.spark.sql.qualityFunctions._
+import org.apache.spark.sql.shim.hash.DigestFactory
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.{Column, ShimUtils, SparkSession, functions}
+import org.apache.spark.sql.{ShimUtils, SparkSession, functions}
 import org.apache.spark.unsafe.types.UTF8String
 
 object RuleRegistrationFunctions {
 
-  protected[quality] def literalsNeeded(pos: Int): Nothing =
+  protected[quality] def literalsNeeded(pos: Int, typ: String = "String"): Nothing =
     if (pos == -1)
       qualityException("Cannot setup Quality Expression with non-literals")
     else
-      qualityException(s"Quality Expression requires a string literal in (starts with position 0) position $pos")
+      qualityException(s"Quality Expression requires a $typ literal in (starts with position 0) position $pos")
 
   protected[quality] def literalsNeeded: Nothing = literalsNeeded( -1 )
 
   protected[quality] def getLong(exp: Expression, pos: Int = -1) =
     exp match {
       case Literal(seed: Long, LongType) => seed
-      case _ => literalsNeeded(pos)
+      case _ => literalsNeeded(pos, "Long")
     }
   protected[quality] def getInteger(exp: Expression, pos: Int = -1) =
     exp match {
       case Literal(seed: Int, IntegerType) => seed
-      case _ => literalsNeeded(pos)
+      case _ => literalsNeeded(pos, "Integer")
     }
   protected[quality] def getString(exp: Expression, pos: Int = -1) =
     exp match {
@@ -353,7 +354,7 @@ object RuleRegistrationFunctions {
           case 0 => (16, RandomSource.XO_RO_SHI_RO_128_PP, 0L)
           case 1 => (16, getRandom(exps(0), 0), 0L)
           case 2 => (16, getRandom(exps(0), 0), getLong(exps(1), 1))
-          case 3 => (getLong(exps(2)).toInt, getRandom(exps(0), 0), getLong(exps(1), 1))
+          case 3 => (getInteger(exps(2), 2), getRandom(exps(0), 0), getLong(exps(1), 1))
           case _ => literalsNeeded
         }
 
@@ -396,37 +397,58 @@ object RuleRegistrationFunctions {
 
     val longPairEqual = (exps: Seq[Expression]) => {
       val Seq(Literal(a, StringType), Literal(b, StringType)) = exps
-      expression(long_pair_equal(a.toString, b.toString))
+
+      def lower(a: Any) = UnresolvedAttribute(s"${a}_lower")
+
+      def higher(a: Any) = UnresolvedAttribute(s"${a}_higher")
+
+      And(EqualTo(lower(a), lower(b)), EqualTo(higher(a), higher(b)))
     }
     register("long_Pair_Equal", longPairEqual, Set(2))
 
     val idEqual = (exps: Seq[Expression]) => {
       val Seq(Literal(a, StringType), Literal(b, StringType)) = exps
-      expression(id_equal(a.toString, b.toString))
+      def attr(a: Any, field: String) = UnresolvedAttribute(s"${a}_$field")
+
+      And(And(EqualTo(attr(a, "base"), attr(b, "base")),
+        EqualTo(attr(a, "i0"), attr(b, "i0"))),
+        EqualTo(attr(a, "i1"), attr(b, "i1")))
     }
-    register("idEqual", idEqual, Set(2))
+    register("id_equal", idEqual, Set(2))
 
     register("as_uuid", exps => AsUUID(exps(0), exps(1)), Set(2))
 
     register("rule_Suite_Result_Details", exps => impl.RuleSuiteResultDetailsExpr(exps(0)), Set(1))
 
-    register("digest_To_Longs_Struct",  exps => expression(digest_to_longs_struct(getString(exps.head, 0), exps.tail.map(column(_)): _*)), minimum = 2)
-    register("digest_To_Longs", exps => expression(digest_to_longs(getString(exps.head, 0), exps.tail.map(column(_)): _*)), minimum = 2)
-
-    def fieldBasedID(func: (String, String, Seq[Column]) => Column) = (exps: Seq[Expression]) =>
+    def fieldsToHash(asStruct: Boolean, factory: String => DigestFactory) = (exps: Seq[Expression]) =>
       exps.size match {
         case a if a > 3 =>
-          val digestImpl = getString(exps(1), 1)
-          val prefix = getString(exps.head, 0)
-          expression(func(prefix, digestImpl, exps.drop(2).map(column(_)) ))
+          val digestImpl = getString(exps(0), 0)
+
+          HashFunctionsExpression(exps.drop(1), digestImpl, asStruct, factory(digestImpl))
 
         case _ => literalsNeeded
       }
 
-    register("field_Based_ID", fieldBasedID(field_based_id _), minimum = 3)
-    register("za_Longs_Field_Based_ID", fieldBasedID(za_longs_field_based_id _), minimum = 3)
-    register("za_Field_Based_ID", fieldBasedID(za_field_based_id _), minimum = 3)
-    register("hash_Field_Based_ID", fieldBasedID(hash_field_based_id _), minimum = 3)
+    register("digest_To_Longs_Struct", fieldsToHash(true, MessageDigestFactory), minimum = 2)
+    register("digest_To_Longs",  fieldsToHash(false, MessageDigestFactory), minimum = 2)
+
+    def fieldBasedID(factory: String => DigestFactory) = (exps: Seq[Expression]) =>
+      exps.size match {
+        case a if a > 3 =>
+          val digestImpl = getString(exps(1), 1)
+          val prefix = getString(exps.head, 0)
+
+          GenericLongBasedIDExpression(model.FieldBasedID,
+            HashFunctionsExpression(exps.drop(2), digestImpl, true, factory(digestImpl)), prefix)
+
+        case _ => literalsNeeded
+      }
+
+    register("field_Based_ID", fieldBasedID(MessageDigestFactory), minimum = 3)
+    register("za_Longs_Field_Based_ID", fieldBasedID(ZALongTupleHashFunctionFactory), minimum = 3)
+    register("za_Field_Based_ID", fieldBasedID(ZALongHashFunctionFactory), minimum = 3)
+    register("hash_Field_Based_ID", fieldBasedID(HashFunctionFactory(_)), minimum = 3)
 
     val providedID = (exps: Seq[Expression]) =>
       exps.size match {
@@ -442,7 +464,7 @@ object RuleRegistrationFunctions {
     val prefixedToLongPair = (exps: Seq[Expression]) =>
       exps.size match {
         case 2 =>
-          expression(prefixed_to_long_pair(column(exps(1)), getString(exps.head, 0)))
+          PrefixedToLongPair(exps(1), getString(exps.head, 0))
 
         case _ => literalsNeeded
       }
@@ -453,11 +475,12 @@ object RuleRegistrationFunctions {
         exps.size match {
           case 1 => ( RandomSource.XO_RO_SHI_RO_128_PP, 0L, getString(exps.head, 0))
           case 2 => ( getRandom(exps(1), 1), 0L,  getString(exps.head, 0))
-          case 3 => ( getRandom(exps(1), 1), getLong(exps(2), 1),  getString(exps.head, 0))
+          case 3 => ( getRandom(exps(1), 1), getLong(exps(2), 2),  getString(exps.head, 0))
           case _ => literalsNeeded
         }
 
-      expression(rng_id(prefix, randomSource, seed))
+      GenericLongBasedIDExpression(model.RandomID,
+        RandLongsWithJump(seed, randomSource), prefix)
     }
     register("rng_ID", rngID, Set(1,2,3))
 
@@ -468,17 +491,23 @@ object RuleRegistrationFunctions {
           case _ => literalsNeeded
         }
 
-      expression(unique_id(prefix))
+      GuaranteedUniqueIdIDExpression(
+        GuaranteedUniqueID() // defaults are all fine, ms just relates to definition instead of action
+        , prefix
+      )
     }
     register("unique_ID", uniqueID, Set(1))
 
-    register("id_size", exps => expression(id_size(column(exps.head))), Set(1))
-    register("id_base64", exps => expression(id_base64(exps.map(column(_)): _*)), minimum = 1)
+    register("id_size", exps => SizeOfIDString(exps.head), Set(1))
+    register("id_base64", exps => exps match {
+      case Seq(e) => AsBase64Struct(e)
+      case _ => AsBase64Fields(exps)
+    }, minimum = 1)
     register("id_from_base64", {
-      case Seq(e) => expression(id_from_base64(column(e)))
-      case Seq(e, s) => expression(id_from_base64(column(e), getInteger(s)))
+      case Seq(e) => IDFromBase64(e, 2)
+      case Seq(e, s) => IDFromBase64(e, getInteger(s))
     }, Set(1,2))
-    register("id_raw_type", exps => expression(id_raw_type(column(exps.head))), Set(1))
+    register("id_raw_type", exps => IDToRawIDDataType(exps.head), Set(1))
 
     val Murmur3_128_64 = (exps: Seq[Expression]) => {
       val (prefix) =
@@ -491,14 +520,14 @@ object RuleRegistrationFunctions {
     }
     register("murmur3_ID", Murmur3_128_64, minimum = 2)
 
-    register("hash_With", exps => expression(hash_with(getString(exps.head, 0), exps.tail.map(column(_)) :_*)), minimum = 2)
-    register("hash_With_Struct", exps => expression(hash_with_struct(getString(exps.head, 0), exps.tail.map(column(_)) :_*)), minimum = 2)
+    register("hash_With", fieldsToHash(false, HashFunctionFactory(_)), minimum = 2)
+    register("hash_With_Struct", fieldsToHash(true, HashFunctionFactory(_)), minimum = 2)
 
-    register("za_Hash_With", exps => expression(za_hash_with(getString(exps.head, 0), exps.tail.map(column(_)) :_*)), minimum = 2) // 64bit only, not a great id choice
-    register("za_Hash_With_Struct", exps => expression(za_hash_with_struct(getString(exps.head,0 ), exps.tail.map(column(_)) :_*)), minimum = 2) // 64bit only, not a great id choice
+    register("za_Hash_With", fieldsToHash(false, ZALongHashFunctionFactory(_)), minimum = 2) // 64bit only, not a great id choice
+    register("za_Hash_With_Struct", fieldsToHash(true, ZALongHashFunctionFactory(_)), minimum = 2) // 64bit only, not a great id choice
 
-    register("za_Hash_Longs_With", exps => expression(za_hash_longs_with(getString(exps.head, 0), exps.tail.map(column(_)) :_*)), minimum = 2)
-    register("za_Hash_Longs_With_Struct", exps => expression(za_hash_longs_with_struct(getString(exps.head, 0), exps.tail.map(column(_)) :_*)), minimum = 2)
+    register("za_Hash_Longs_With", fieldsToHash(false, ZALongTupleHashFunctionFactory(_)), minimum = 2)
+    register("za_Hash_Longs_With_Struct", fieldsToHash(true, ZALongTupleHashFunctionFactory(_)), minimum = 2)
 
     // here to stop these functions being used and allow validation
     register("coalesce_If_Attributes_Missing", _ => qualityException("coalesceIf functions cannot be created") )

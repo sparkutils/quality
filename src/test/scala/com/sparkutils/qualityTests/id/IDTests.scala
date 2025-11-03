@@ -1,31 +1,27 @@
 package com.sparkutils.qualityTests.id
 
-import com.sparkutils.manual.ProcessorThroughputBenchmark.createSparkSessions
 import com.sparkutils.quality._
 import functions._
-import com.sparkutils.quality.impl.hash.{HashFunctionFactory, MessageDigestFactory, ZALongHashFunctionFactory, ZALongTupleHashFunctionFactory}
 import com.sparkutils.quality.impl.id._
 import com.sparkutils.quality.impl.id.model.{ProvidedID, RandomID}
 import com.sparkutils.quality.impl.rng.RandomLongs
 import com.sparkutils.quality.impl.util.BytePackingUtils
 import com.sparkutils.qualityTests._
-import com.sparkutils.testing.SparkTestUtils.enumToScala
+import com.sparkutils.testing.SparkTestUtils.{enumToScala, ouputDir}
 import com.sparkutils.testing.{ClassicOnly, ConnectionType, Sessions}
 import com.sparkutils.testing.TestUtils.{anyCauseHas, debug}
 import org.apache.commons.rng.simple.RandomSource
 import org.apache.spark.sql.ShimUtils.expression
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.shim.hash.DigestFactory
 import org.apache.spark.sql.{Column, DataFrame, Row, ShimUtils}
 import org.scalameter.api.{Bench, Gen}
-import org.scalatest.FunSuite
 
 import java.security.{MessageDigest, Provider}
 import java.util.Base64
 import scala.collection.JavaConverters
 import scala.jdk.CollectionConverters._
 
-class IDTests extends SharedTests {
+class IDTests extends SharedConnectTests {
 
   test("rountTripRandom") { doRoundTripGenericLongBasedID(model.RandomID) }
   test("rountTripProvided") { doRoundTripGenericLongBasedID(model.ProvidedID) }
@@ -188,7 +184,7 @@ class IDTests extends SharedTests {
     testRes(rngExplodedSQL)
   } }
 
-  test("testRNGIDGenNonJump") { evalCodeGensNoResolve {
+  test("testRNGIDGenNonJump") { classicOnly{ evalCodeGensNoResolve {
     import com.sparkutils.quality._
     registerQualityFunctions()
 
@@ -205,7 +201,7 @@ class IDTests extends SharedTests {
     val df = sparkSession.range(0, 6000)
     val rngExploded = df.withColumn("rng_id", nonJump("rng_id")).selectExpr("id","rng_id.*")
     testRes(rngExploded)
-  } }
+  } } }
 
   test("testSHA256IDGen") { evalCodeGensNoResolve  {
     doFieldGenTest("SHA-256", "digestToLongsStruct", longCount = 4)
@@ -224,42 +220,43 @@ class IDTests extends SharedTests {
   } }
 
   test("testMURMUR3_128IDGenHashFun") { evalCodeGensNoResolve  {
-    doFieldGenTest("MURMUR3_128", "hashWithStruct", "hashFieldBasedID", HashFunctionFactory(_))
+    doFieldGenTest("MURMUR3_128", "hashWithStruct", "hashFieldBasedID", hashFunctionFwd = (p,d,c) => hash_field_based_id(p,d,c:_*))
   } }
 
   test("testXXH3IDGenZAHashFun") { evalCodeGensNoResolve  {
-    doFieldGenTest("XXH3", "zaHashLongsWithStruct", "zaLongsFieldBasedID", ZALongTupleHashFunctionFactory)
+    doFieldGenTest("XXH3", "zaHashLongsWithStruct", "zaLongsFieldBasedID", hashFunctionFwd = (p,d,c) => za_longs_field_based_id(p,d,c:_*))
   } }
 
   test("testMURMUR3_128IDZAGenHashFun") { evalCodeGensNoResolve  {
-    doFieldGenTest("MURMUR3_128", "zaHashLongsWithStruct", "zaLongsFieldBasedID", ZALongTupleHashFunctionFactory)
+    doFieldGenTest("MURMUR3_128", "zaHashLongsWithStruct", "zaLongsFieldBasedID", hashFunctionFwd = (p,d,c) => za_longs_field_based_id(p,d,c:_*))
   } }
 
   test("testMURMUR3IDZAGenHashFun") { evalCodeGensNoResolve  {
-    doFieldGenTest("MURMUR3", "zaHashWithStruct", "zaFieldBasedID", ZALongHashFunctionFactory, 1)
+    doFieldGenTest("MURMUR3", "zaHashWithStruct", "zaFieldBasedID", hashFunctionFwd = (p,d,c) => za_field_based_id(p,d,c:_*), 1)
   } }
 
   /**
    * should generate a 32bit which is padded to 64, fake digest to trigger this
    */
-  test("testFakeIDGenDigestFun") { not_Cluster {
+  test("testFakeIDGenDigestFun") { classicOnly { not_Cluster {
     class TwoByteProvider extends Provider("TwoByte", 0.1, "fake digest") {
       put("MessageDigest.TwoByte", classOf[TwoByteDigest].getName)
     }
     java.security.Security.addProvider(new TwoByteProvider)
     evalCodeGensNoResolve  {
-      doFieldGenTest("TwoByte", "digestToLongsStruct", digestFactory = MessageDigestFactory, longCount = 1)
+      doFieldGenTest("TwoByte", "digestToLongsStruct", longCount = 1)
     }
-  } }
+  } } }
 
   /**
    * should generate a 32bit which is padded to 64
    */
   test("testAdlerIDGenHashFun") { evalCodeGensNoResolve  {
-    doFieldGenTest("ADLER32", "hashWithStruct", "hashFieldBasedID", HashFunctionFactory(_), 1)
+    doFieldGenTest("ADLER32", "hashWithStruct", "hashFieldBasedID", hashFunctionFwd = (p,d,c) => hash_field_based_id(p,d,c:_*), 1)
   } }
 
-  def doFieldGenTest(digestImpl: String, digestFun: String, fieldBasedId: String = "fieldBasedID", digestFactory: String => DigestFactory = MessageDigestFactory, longCount: Int = 2 ): Unit = {
+  def doFieldGenTest(digestImpl: String, digestFun: String, fieldBasedId: String = "fieldBasedID", hashFunctionFwd: (String, String, Seq[Column]) => Column =
+                     (p, d, c) => field_based_id(p, d, c:_*), longCount: Int = 2 ): Unit = {
     import com.sparkutils.quality._
     registerQualityFunctions()
     val s = sparkSession
@@ -274,7 +271,7 @@ class IDTests extends SharedTests {
     }
 
     val df = sparkSession.range(0, 6000).selectExpr("id", "id || '_field' as f1", "id || '_field2' as f2", "id || '_field3' as f3")
-    val md5Exploded = df.withColumn("md5_id", fieldBasedID("md5_id", Seq($"f1", $"f2", $"f3"), digestImpl, digestFactory)).selectExpr("id","md5_id.*")
+    val md5Exploded = df.withColumn("md5_id", hashFunctionFwd("md5_id", digestImpl, Seq($"f1", $"f2", $"f3"))).selectExpr("id","md5_id.*")
     testRes(md5Exploded)
 
     // same with text version
@@ -360,7 +357,8 @@ class IDTests extends SharedTests {
 
     val df = sparkSession.range(0, 6000)
     val uniqueExploded = df.withColumn("unique_id", unique_id("unique_id")).selectExpr("id","unique_id.*")
-    val cached = uniqueExploded.cache
+    uniqueExploded.write.mode("overwrite").parquet(ouputDir + "uniqueidequal") // .cache doesn't work on connect base and 0 work finds 15000 rows, 1 doesn't match anything
+    val cached = sparkSession.read.parquet(ouputDir + "uniqueidequal")
 
     val count = uniqueExploded.count
 
