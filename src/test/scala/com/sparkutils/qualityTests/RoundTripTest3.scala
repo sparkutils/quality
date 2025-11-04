@@ -1,5 +1,7 @@
 package com.sparkutils.qualityTests
 
+import com.sparkutils.testing.{ClassicSparkTestUtils, SparkTestUtils}
+import org.apache.spark.sql.ShimUtils
 import org.apache.spark.sql.functions._
 
 class RoundTripTest3 extends ClassicSharedTests {
@@ -29,7 +31,7 @@ class RoundTripTest3 extends ClassicSharedTests {
     val frights = sparkSession.read.parquet(outputDir + "/rights")
 
     val fjoined = flefts.join(frights, expr("longPairEqual('left', 'right')"))
-    fjoined.queryExecution.executedPlan.children.foreach {
+    ClassicSparkTestUtils.getExecutedPlan(fjoined).foreach(_.children.foreach {
       p =>
         p.children.foreach { f =>
           val fstring = f.verboseString(1)
@@ -38,6 +40,6 @@ class RoundTripTest3 extends ClassicSharedTests {
             assert(fstring.contains("IsNotNull(right_higher)"))
           }
         }
-    }
+    })
   }}
 }

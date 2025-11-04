@@ -1161,7 +1161,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     val s = sparkSession
     import s.implicits._
 
-    val funReg = ShimUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
+    val funReg = ShimUtils.registerFunction(sparkSession) _
     funReg("stateful_test", _ => StatefulTestFallback())
 
     val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
@@ -1175,7 +1175,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     val processorF = ProcessFunctions.expressionRunnerFactoryT[TestOn, Int](rs, IntegerType,
       compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation)
 
-    def testProcessor(processor: Processor[TestOn, GeneralExpressionsResult[Int]], expectedPartition: Int) {
+    def testProcessor(processor: Processor[TestOn, GeneralExpressionsResult[Int]], expectedPartition: Int): Unit = {
       val res = map(testData, processor)
       res.map(_.getRuleSetResults.asScala) shouldBe res.map(_.ruleSetResults)
       res.map(_.ruleSetResults(Id(20,1))) shouldBe Seq.fill(6)(Map(
@@ -1198,7 +1198,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     val s = sparkSession
     import s.implicits._
 
-    val funReg = ShimUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
+    val funReg = ShimUtils.registerFunction(sparkSession) _
     funReg("stateful_test", _ => StatefulTestFallback())
 
     val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
@@ -1212,7 +1212,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     val processorF = ProcessFunctions.expressionRunnerFactoryT[TestOn, Int](rs, IntegerType,
       compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation)
 
-    def testProcessor(processor: Processor[TestOn, GeneralExpressionsResult[Int]], expectedPartition: Int) {
+    def testProcessor(processor: Processor[TestOn, GeneralExpressionsResult[Int]], expectedPartition: Int): Unit =  {
       val res = map(testData, processor)
       res.map(_.getRuleSetResults.asScala) shouldBe res.map(_.ruleSetResults)
       res.map(_.ruleSetResults(Id(20,1))) shouldBe Seq.fill(6)(Map(
@@ -1236,7 +1236,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     val s = sparkSession
     import s.implicits._
 
-    val funReg = ShimUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
+    val funReg = ShimUtils.registerFunction(sparkSession) _
     funReg("stateful_test", _ => StatefulTestCodeGen())
 
     val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
@@ -1250,7 +1250,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     val processorF = ProcessFunctions.expressionRunnerFactoryT[TestOn, Int](rs, IntegerType,
       compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation)
 
-    def testProcessor(processor: Processor[TestOn, GeneralExpressionsResult[Int]], expectedPartition: Int) {
+    def testProcessor(processor: Processor[TestOn, GeneralExpressionsResult[Int]], expectedPartition: Int): Unit =  {
       val res = map(testData, processor)
       res.map(_.getRuleSetResults.asScala) shouldBe res.map(_.ruleSetResults)
       res.map(_.ruleSetResults(Id(20,1))) shouldBe Seq.fill(6)(Map(
@@ -1284,7 +1284,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     val s = sparkSession
     import s.implicits._
 
-    val funReg = ShimUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
+    val funReg = ShimUtils.registerFunction(sparkSession) _
     funReg("stateful_test", _ => StatefulTestCodeGen())
 
     val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
@@ -1300,7 +1300,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
       val processorF = ProcessFunctions.expressionRunnerFactoryT[TestOn, Int](rs, IntegerType,
         compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation)
 
-      def testProcessor(processor: Processor[TestOn, GeneralExpressionsResult[Int]], expectedPartition: Int) {
+      def testProcessor(processor: Processor[TestOn, GeneralExpressionsResult[Int]], expectedPartition: Int): Unit =  {
         val res = map(testData, processor)
         res.map(_.getRuleSetResults.asScala) shouldBe res.map(_.ruleSetResults)
         res.map(_.ruleSetResults(Id(20, 1))) shouldBe Seq.fill(6)(Map(
@@ -1329,7 +1329,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     val s = sparkSession
     import s.implicits._
 
-    val funReg = ShimUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
+    val funReg = ShimUtils.registerFunction(sparkSession) _
     funReg("stateful_test", _ => StatefulTestCodeGen())
 
     val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
@@ -1343,7 +1343,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     val processorF = ProcessFunctions.expressionRunnerFactoryT[TestOn, Int](rs, IntegerType,
       compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation)
 
-    def testProcessor(processor: Processor[TestOn, GeneralExpressionsResult[Int]], expectedPartition: Int) {
+    def testProcessor(processor: Processor[TestOn, GeneralExpressionsResult[Int]], expectedPartition: Int): Unit =  {
       val res = map(testData, processor)
       res.map(_.getRuleSetResults.asScala) shouldBe res.map(_.ruleSetResults)
       res.map(_.ruleSetResults(Id(20,1))) shouldBe Seq.fill(6)(Map(
@@ -1377,7 +1377,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     val s = sparkSession
     import s.implicits._
 
-    val funReg = ShimUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
+    val funReg = ShimUtils.registerFunction(sparkSession) _
     funReg("stateful_test", _ => StatefulTestCodeGen())
 
     val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
@@ -1391,7 +1391,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     val processorF = ProcessFunctions.expressionRunnerFactoryT[TestOn, Int](rs, IntegerType,
       compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation)
 
-    def testProcessor(processor: Processor[TestOn, GeneralExpressionsResult[Int]], expectedPartition: Int) {
+    def testProcessor(processor: Processor[TestOn, GeneralExpressionsResult[Int]], expectedPartition: Int): Unit =  {
       val res = map(testData, processor)
       res.map(_.getRuleSetResults.asScala) shouldBe res.map(_.ruleSetResults)
       res.map(_.ruleSetResults(Id(20,1))) shouldBe Seq.fill(6)(Map(
@@ -1417,7 +1417,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     val s = sparkSession
     import s.implicits._
 
-    val funReg = ShimUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
+    val funReg = ShimUtils.registerFunction(sparkSession) _
     funReg("stateful_test", _ => StatefulTestCodeGen())
 
     val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
@@ -1434,7 +1434,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
       val processorF = ProcessFunctions.expressionRunnerFactoryT[TestOn, Int](rs, IntegerType,
         compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation)
 
-      def testProcessor(processor: Processor[TestOn, GeneralExpressionsResult[Int]], expectedPartition: Int) {
+      def testProcessor(processor: Processor[TestOn, GeneralExpressionsResult[Int]], expectedPartition: Int): Unit =  {
         val res = map(testData, processor)
         res.map(_.getRuleSetResults.asScala) shouldBe res.map(_.ruleSetResults)
         res.map(_.ruleSetResults(Id(20, 1))) shouldBe Seq.fill(6)(Map(
@@ -1476,7 +1476,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     val s = sparkSession
     import s.implicits._
 
-    val funReg = ShimUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
+    val funReg = ShimUtils.registerFunction(sparkSession) _
     funReg("stateful_test", _ => StatefulTestCodeGen())
 
     val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
@@ -1496,7 +1496,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
       val processorF = ProcessFunctions.expressionRunnerFactoryT[TestOn, Int](rs, IntegerType,
         compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation)
 
-      def testProcessor(processor: Processor[TestOn, GeneralExpressionsResult[Int]], expectedPartition: Int) {
+      def testProcessor(processor: Processor[TestOn, GeneralExpressionsResult[Int]], expectedPartition: Int): Unit =  {
         val res = map(testData, processor)
         res.map(_.getRuleSetResults.asScala) shouldBe res.map(_.ruleSetResults)
         res.map(_.ruleSetResults(Id(20, 1))) shouldBe Seq.fill(6)(Map(
@@ -1546,7 +1546,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     val s = sparkSession
     import s.implicits._
 
-    val funReg = ShimUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
+    val funReg = ShimUtils.registerFunction(sparkSession) _
     funReg("stateful_test", _ => StatefulTestFallback())
 
     val rs = RuleSuite(Id(10, 2), Seq(
