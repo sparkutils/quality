@@ -44,15 +44,12 @@ class SubExpressionEliminationTest extends ClassicSharedTests {
     LambdaFunction("myequal3","(a, b) -> myequal(a,b)",Id(2,1))
   )
 
-  lazy val registerFunction: (String, Seq[Expression] => Expression) => Unit =
-    ShimUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
-
   override def beforeAll(): Unit = {
     // no-op to force it to be created (parent hasn't happened yet)
     sparkSession.conf
 
     EqualToTest.counter.set(0)
-    registerFunction("myequal", exprs => EqualToTest(exprs.head, exprs.last))
+    ShimUtils.registerFunction(sparkSession)("myequal", exprs => EqualToTest(exprs.head, exprs.last))
     super.beforeAll()
   }
 

@@ -6,7 +6,7 @@ import java.io.File
 import com.sparkutils.quality.impl.extension.{AsUUIDFilter, ExtensionTesting, FunNRewrite, IDBase64Filter, QualitySparkExtension}
 import com.sparkutils.quality.impl.extension.QualitySparkExtension.disableRulesConf
 import com.sparkutils.testing.TestUtils.anyCauseHas
-import com.sparkutils.testing.{ClassicTestUtils, ConnectionType, Testing}
+import com.sparkutils.testing.{ClassicSparkTestUtils, ClassicTestUtils, ConnectionType, Testing}
 import org.apache.spark.sql.catalyst.expressions.{And, Attribute, BinaryComparison, EqualTo, Equality, Expression, Or}
 import org.apache.spark.sql.catalyst.plans.logical.Join
 import org.apache.spark.sql.sources.{Filter, And => SAnd, EqualTo => SEqualTo, GreaterThan => SGreaterThan, GreaterThanOrEqual => SGreaterThanOrEqual, In => SIn, Or => SOr}
@@ -238,7 +238,7 @@ abstract class ExtensionTestBase extends ClassicSharedTests  {
       assert(res.head == (theuuid + "6"))
 */
       // verify push downs
-      val pushdowns = ClassicTestUtils.getPushDowns( resdf.queryExecution.executedPlan )
+      val pushdowns = ClassicTestUtils.getPushDowns( ClassicSparkTestUtils.getExecutedPlan(resdf).get )
 
       // with joins both sides should have pushdown for equals, but for gt,lt etc. it'll be one sided for some, not for others
       assert(pushdowns.nonEmpty, s"did not have any pushed down filters")
@@ -329,8 +329,8 @@ abstract class ExtensionTestBase extends ClassicSharedTests  {
   or for > than
   (((ahigher#14L = bhigher#36L) AND (alower#13L > blower#35L)) OR (ahigher#14L > bhigher#36L))
    */
-  def verifyJoinPlanUUID(ds: DataFrame): Boolean =
-    ds.queryExecution.optimizedPlan.collect {
+  def verifyJoinPlanUUID(ds: DataFrame): Boolean = //  ds.queryExecution.optimizedPlan
+    ClassicSparkTestUtils.getExecutedPlan(ds).map(_.collect {
       case j: Join =>
         j.condition.flatMap{
           case And(Equality(alower: Attribute, blower: Attribute),Equality(ahigher: Attribute, bhigher: Attribute))
@@ -346,7 +346,7 @@ abstract class ExtensionTestBase extends ClassicSharedTests  {
             Some(true)
           case _ => None
         }
-    }.flatten.nonEmpty
+    }).flatten.nonEmpty
 
   def doTestAsymmetricFilterPlan(withContextF: SparkSession => DataFrame, filters: Seq[(String, Filter, String)],
                                  joinTest: Boolean = false, viaExtension: (SparkSession => Unit) => Unit = wrapWithExtension _,
@@ -366,7 +366,7 @@ abstract class ExtensionTestBase extends ClassicSharedTests  {
           assert(condition, hint)
         }
 
-        val pushdowns = ClassicTestUtils.getPushDowns( ds.queryExecution.executedPlan )
+        val pushdowns = ClassicTestUtils.getPushDowns( ClassicSparkTestUtils.getExecutedPlan(ds).get )
 
         // with joins both sides should have pushdown for equals, but for gt,lt etc. it'll be one sided for some, not for others
         assertWithPlan(pushdowns.nonEmpty, s"$hint - did not have any pushed down filters")
@@ -385,8 +385,8 @@ abstract class ExtensionTestBase extends ClassicSharedTests  {
   /*
   Spark thankfully removes all the superfluous And(trues)
    */
-  def verifyJoinPlanID(ds: DataFrame): Boolean =
-    ds.queryExecution.optimizedPlan.collect {
+  def verifyJoinPlanID(ds: DataFrame): Boolean = //  ds.queryExecution.optimizedPlan
+    ClassicSparkTestUtils.getExecutedPlan(ds).map(_.collect {
       case j: Join =>
         j.condition.flatMap{
           case And(And(Equality(abase: Attribute, bbase: Attribute),Equality(ai0: Attribute, bi0: Attribute)),Equality(ai1: Attribute, bi1: Attribute))
@@ -407,7 +407,7 @@ abstract class ExtensionTestBase extends ClassicSharedTests  {
             Some(true)
           case _ => None
         }
-    }.flatten.nonEmpty
+    }).flatten.nonEmpty
 
   val theSixthIDString = "AbRr/ChS6QAAAAAMA/hChwAAAAY="
   val testI1= 286051723926044678L
