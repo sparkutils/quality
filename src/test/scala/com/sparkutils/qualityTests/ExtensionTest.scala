@@ -330,7 +330,7 @@ abstract class ExtensionTestBase extends ClassicSharedTests  {
   (((ahigher#14L = bhigher#36L) AND (alower#13L > blower#35L)) OR (ahigher#14L > bhigher#36L))
    */
   def verifyJoinPlanUUID(ds: DataFrame): Boolean = //  ds.queryExecution.optimizedPlan
-    ClassicSparkTestUtils.getExecutedPlan(ds).map(_.collect {
+    ClassicSparkTestUtils.getExecutedPlan(ds).map(_.logicalLink.collect {
       case j: Join =>
         j.condition.flatMap{
           case And(Equality(alower: Attribute, blower: Attribute),Equality(ahigher: Attribute, bhigher: Attribute))
@@ -346,7 +346,7 @@ abstract class ExtensionTestBase extends ClassicSharedTests  {
             Some(true)
           case _ => None
         }
-    }).flatten.nonEmpty
+    }.flatten).nonEmpty
 
   def doTestAsymmetricFilterPlan(withContextF: SparkSession => DataFrame, filters: Seq[(String, Filter, String)],
                                  joinTest: Boolean = false, viaExtension: (SparkSession => Unit) => Unit = wrapWithExtension _,
@@ -386,7 +386,7 @@ abstract class ExtensionTestBase extends ClassicSharedTests  {
   Spark thankfully removes all the superfluous And(trues)
    */
   def verifyJoinPlanID(ds: DataFrame): Boolean = //  ds.queryExecution.optimizedPlan
-    ClassicSparkTestUtils.getExecutedPlan(ds).map(_.collect {
+    ClassicSparkTestUtils.getExecutedPlan(ds).map(_.logicalLink.collect {
       case j: Join =>
         j.condition.flatMap{
           case And(And(Equality(abase: Attribute, bbase: Attribute),Equality(ai0: Attribute, bi0: Attribute)),Equality(ai1: Attribute, bi1: Attribute))
@@ -407,7 +407,7 @@ abstract class ExtensionTestBase extends ClassicSharedTests  {
             Some(true)
           case _ => None
         }
-    }).flatten.nonEmpty
+    }.flatten).nonEmpty
 
   val theSixthIDString = "AbRr/ChS6QAAAAAMA/hChwAAAAY="
   val testI1= 286051723926044678L

@@ -51,7 +51,8 @@ trait SharedConnectTests extends ClassicSharedTests {
     super.sparkConnectServerConfig() + useDebugConnectLogs +
       mainClassPathsConfig + connectMemory("4g") +
       (("spark.sql.extensions", classOf[QualitySparkExtension].getName)) +
-      (("spark.executor.extraClassPath", System.getProperty("java.class.path")))
+      (("spark.executor.extraClassPath", System.getProperty("java.class.path"))) //+
+      //(("spark.repl.class.uri",""))
 
 }
 

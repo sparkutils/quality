@@ -34,7 +34,7 @@ case class QualityFunctionParser(sparkSession: SparkSession, delegate: ParserInt
       try {
         SparkSession.setActiveSession(sparkSession)
         LambdaFunctions.registerLambdaFunctions(functions.toSeq)
-        NoopCommand(CREATE_FUNCTION_PREFIX, Seq.empty)
+        NoopCommand(CREATE_FUNCTION_PREFIX, scala.Seq.empty)
       } finally {
         sess.foreach(SparkSession.setActiveSession)
       }
