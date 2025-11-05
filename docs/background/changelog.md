@@ -1,3 +1,24 @@
+### [0.2.0](https://github.com/sparkutils/quality/milestone/10?closed=1) <small>24th December, 2025</small>
+
+This release migrates Spark 4 support to use AgnosticEncoders and removes EOL runtimes: 2.4 and DBR's 9.1, 10.4, 11.3
+
+#90 - Migrate to Spark 4 sql-api, AgnosticEncoder's and support Connect:
+
+> The Sparkutils libraries Shim 0.3.0, Testing 0.1.0 and Frameless 2.0.0 provide support for
+> custom encoding via AgnosticEncoders and a stable API that works with both Spark Classic and Connect.
+> 
+> To use Connect the Quality SparkSessionExtension must be enabled on the "server" Spark Driver side, 
+> the connect friendly DSL forwards all the complexity to the Connect Server.  The newly released Testing project
+> is used to run the same test cases against both Classic and Connect ensuring the API is stable.
+> 
+> The Testless cluster notebook testing experience has been abstracted to the Testing project providing a standard  
+> interface Quality Scalatest's on clusters, now shared with all Sparkutils testshade based projects.  On Databricks
+> the testing runs will also run in the normal Classic mode and, via the scala.api.mode=connect config parameter, 
+> against the provided Spark Connect server.
+> 
+> A number of functions are not possible to run in Connect and are provided with _classic as a suffix, these typically
+> relate to extension points such as monadic add.
+
 ### [0.1.3.1](https://github.com/sparkutils/quality/milestone/10?closed=1) <small>24th October, 2025</small>
 
 This is the last release of 2.4, 3.0 is deprecated as of this release, similarly, Databricks versions 9.1 through to 11.3 are also now deprecated and unsupported functionality (fixes for #84 will be gladly accepted), 12.2 support will continue.
