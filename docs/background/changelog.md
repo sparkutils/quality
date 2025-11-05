@@ -9,7 +9,8 @@ This release migrates Spark 4 support to use AgnosticEncoders and removes EOL ru
 > 
 > To use Connect the Quality SparkSessionExtension must be enabled on the "server" Spark Driver side, 
 > the connect friendly DSL forwards all the complexity to the Connect Server.  The newly released Testing project
-> is used to run the same test cases against both Classic and Connect ensuring the API is stable.
+> is used to run the same test cases against both Classic and Connect ensuring the API is stable.  This also extends 
+> to user functions (LambdaFunctions), on Connect they are sent to the server via a custom command.
 > 
 > The Testless cluster notebook testing experience has been abstracted to the Testing project providing a standard  
 > interface Quality Scalatest's on clusters, now shared with all Sparkutils testshade based projects.  On Databricks
@@ -18,6 +19,10 @@ This release migrates Spark 4 support to use AgnosticEncoders and removes EOL ru
 > 
 > A number of functions are not possible to run in Connect and are provided with _classic as a suffix, these typically
 > relate to extension points such as monadic add.
+
+#87 - EOL DBR and Spark runtimes are removed: 9.1, 10.4, 11.3
+
+#21 - Remove 2.4 Support, Tech Debt removal
 
 ### [0.1.3.1](https://github.com/sparkutils/quality/milestone/10?closed=1) <small>24th October, 2025</small>
 
