@@ -16,7 +16,9 @@ import org.apache.spark.sql.{Column, DataFrame, Dataset, Encoder, functions}
 import org.scalatest.FunSuite
 import org.scalatest.Matchers.convertToAnyShouldWrapper
 
-class AggregatesTest extends ClassicSharedTests {
+// dec 38,18 is not supported by connect 37,18 works https://issues.apache.org/jira/browse/SPARK-53938
+
+class AggregatesTest extends SharedConnectTests {
 
   def doMapTest(transform: Dataset[java.lang.Long] => Dataset[java.lang.Long], sql: String): Unit = evalCodeGensNoResolve {
     val factor = 200 // NB 2000 runs in 5m2s with default index scan and replace and map_concat which clearly fails, 4m 51 with index and map merge with expr based add
@@ -338,11 +340,11 @@ class AggregatesTest extends ClassicSharedTests {
     doMapSumAggr[Double](summed)
   }
 
-  lazy val mapDecimalDSL = agg_expr(MapType(StringType, DecimalType(38,18)), lit(1) > 0, map_with(concat(col("date"), lit(", "), col("product")),
+  lazy val mapDecimalDSL = agg_expr(MapType(StringType, DecimalType(38,16)), lit(1) > 0, map_with(concat(col("date"), lit(", "), col("product")),
     entry => entry + when(col("ccy") === "CHF", col("value")).otherwise(col("value") * col("ccyrate")) ), return_sum ).as("mapSumExpr")
 
   lazy val mapDecimalExpr = // if also works but it's not present in the dsl - expr("aggExpr('MAP<STRING, DECIMAL(38,18)>', 1 > 0, mapWith(date || ', ' || product, entry -> entry + IF(ccy='CHF', value, value * ccyrate) ), returnSum() )").as("mapSumExpr")
-    expr("aggExpr('MAP<STRING, DECIMAL(38,18)>', 1 > 0, mapWith(date || ', ' || product, entry -> entry + case when ccy='CHF' then value else value * ccyrate end ), returnSum() )").as("mapSumExpr")
+    expr("aggExpr('MAP<STRING, DECIMAL(38,16)>', 1 > 0, mapWith(date || ', ' || product, entry -> entry + case when ccy='CHF' then value else value * ccyrate end ), returnSum() )").as("mapSumExpr")
 
   test("mapAggrDecimalTest") { doMapAggrSumTest[java.math.BigDecimal](mapDecimalExpr) }
 
@@ -355,8 +357,9 @@ class AggregatesTest extends ClassicSharedTests {
   /**
    * DecimalPrecision means the type specified in sumWith (that of entry and expected return) is analysed
    * as potentially having a different precision.  This explicit test covers that.
+   *
    */
-  def doDecimalPrecisionTest(col: Column, expected: BigDecimal = BigDecimal(23245.68200000000)): Unit = evalCodeGensNoResolve {
+  def doDecimalPrecisionTest(col: Column, expected: BigDecimal = BigDecimal(23245.682000000000)): Unit = evalCodeGensNoResolve {
     doDecimalPrecisionTestF(df => col, expected = expected)
   }
   def doDecimalPrecisionTestF(col: DataFrame => Column, expected: BigDecimal = BigDecimal(23245.68200000000)): Unit = evalCodeGensNoResolve {
@@ -371,18 +374,18 @@ class AggregatesTest extends ClassicSharedTests {
     assert(expected == rows(0))
   }
 
-  test("decimalPrecisionTest") { doDecimalPrecisionTest(  expr("aggExpr('DECIMAL(38,18)', dec IS NOT NULL, sumWith(entry -> dec + entry ), returnSum()) as agg" )) }
+  test("decimalPrecisionTest") { doDecimalPrecisionTest(  expr("aggExpr('DECIMAL(37,18)', dec IS NOT NULL, sumWith(entry -> dec + entry ), returnSum()) as agg" )) }
 
-  test("decimalPrecisionExprDSLTest") { doDecimalPrecisionTestF( df => agg_expr(DecimalType(38,18), df("dec").isNotNull, sum_with(entry => df("dec") + entry ), return_sum) as "agg") }
+  test("decimalPrecisionExprDSLTest") { doDecimalPrecisionTestF( df => agg_expr(DecimalType(37,18), df("dec").isNotNull, sum_with(entry => df("dec") + entry ), return_sum) as "agg") }
 
-  test("decimalPrecisionNO_REWRITETest") { doDecimalPrecisionTest(  expr("aggExpr('NO_REWRITE', dec IS NOT NULL, sumWith('DECIMAL(38,18)', entry -> cast( (dec + entry) as DECIMAL(38,18)) ), returnSum('DECIMAL(38,18)')) as agg" )) }
+  test("decimalPrecisionNO_REWRITETest") { doDecimalPrecisionTest(  expr("aggExpr('NO_REWRITE', dec IS NOT NULL, sumWith('DECIMAL(37,18)', entry -> cast( (dec + entry) as DECIMAL(37,18)) ), returnSum('DECIMAL(37,18)')) as agg" )) }
 
   //@Test
   //def decimalPrecisionDeprecatedTest = doDecimalPrecisionTest(  "aggExpr(dec IS NOT NULL, sumWith('DECIMAL(38,18)', entry -> cast((dec + entry) as DECIMAL(38,18)) ), returnSum()) as agg" )
 
-  test("decimalPrecisionIncTest") { doDecimalPrecisionTest(  expr("aggExpr('DECIMAL(38,18)', dec IS NOT NULL, inc(dec), returnSum()) as agg" )) }
+  test("decimalPrecisionIncTest") { doDecimalPrecisionTest(  expr("aggExpr('DECIMAL(37,18)', dec IS NOT NULL, inc(dec), returnSum()) as agg" )) }
 
-  test("decimalPrecisionIncDSLTest") { doDecimalPrecisionTestF( df => agg_expr(DecimalType(38,18), df("dec").isNotNull, inc(df("dec")), return_sum) as "agg" ) }
+  test("decimalPrecisionIncDSLTest") { doDecimalPrecisionTestF( df => agg_expr(DecimalType(37,18), df("dec").isNotNull, inc(df("dec")), return_sum) as "agg" ) }
 
   test("decimalPrecisionHofTest") { funNRewrites {
     val sf = LambdaFunction("myinc", "entry -> entry + dec", Id(0,3))
@@ -396,32 +399,32 @@ class AggregatesTest extends ClassicSharedTests {
       if (sparkVersion != "2.4") // not spark 2.4
         ("","as agg")
       else
-        ("cast("," as DECIMAL(38,18)) as agg")
+        ("cast("," as DECIMAL(37,12)) as agg")
     }
 
     // (1) test with wider partial application
-    doDecimalPrecisionTest( expr( s"${pre}aggExpr('DECIMAL(38,18)', dec IS NOT NULL, myinc(_()), myretsum(_(), cast(0.0 as DECIMAL(38,18)), _())) ${post}" ) )
+    doDecimalPrecisionTest( expr( s"${pre}aggExpr('DECIMAL(37,18)', dec IS NOT NULL, myinc(_()), myretsum(_(), cast(0.0 as DECIMAL(37,18)), _())) ${post}" ) )
     // (2) test with 1:1 hof
-    doDecimalPrecisionTest( expr("aggExpr('DECIMAL(38,18)', dec IS NOT NULL, myinc(_()), myretsum(_(), _())) as agg" ) )
+    doDecimalPrecisionTest( expr("aggExpr('DECIMAL(37,18)', dec IS NOT NULL, myinc(_()), myretsum(_(), _())) as agg" ) )
     // (3) test with partial on sum
-    doDecimalPrecisionTest( expr( s"${pre}aggExpr('DECIMAL(38,18)', dec IS NOT NULL, myinc(_(), cast(0.0 as DECIMAL(38,18))), myretsum(_(), _())) ${post}" ) )
+    doDecimalPrecisionTest( expr( s"${pre}aggExpr('DECIMAL(37,18)', dec IS NOT NULL, myinc(_(), cast(0.0 as DECIMAL(37,18))), myretsum(_(), _())) ${post}" ) )
   } }
 
-  test("decimalPrecisionIncExprTest") { funNRewrites { doDecimalPrecisionTest( expr(  "aggExpr('DECIMAL(38,18)', dec IS NOT NULL, inc(dec + 0), returnSum()) as agg" ) ) } }
+  test("decimalPrecisionIncExprTest") { funNRewrites { doDecimalPrecisionTest( expr(  "aggExpr('DECIMAL(37,18)', dec IS NOT NULL, inc(dec + 0), returnSum()) as agg" ) ) } }
 
-  test("decimalPrecisionIncExprDSLTest") { funNRewrites { doDecimalPrecisionTestF( df => agg_expr(DecimalType(38,18), df("dec").isNotNull, inc(df("dec") + 0 ), return_sum) as "agg") } }
+  test("decimalPrecisionIncExprDSLTest") { funNRewrites { doDecimalPrecisionTestF( df => agg_expr(DecimalType(37,18), df("dec").isNotNull, inc(df("dec") + 0 ), return_sum) as "agg") } }
 
   test("decimalPrecisionNO_REWRITEIncTest") { funNRewrites { try {
-    doDecimalPrecisionTest( expr( "aggExpr('NO_REWRITE', dec IS NOT NULL, inc('DECIMAL(38,18)', cast( dec as DECIMAL(38,18))), returnSum('DECIMAL(38,18)')) as agg" ) )
+    doDecimalPrecisionTest( expr( "aggExpr('NO_REWRITE', dec IS NOT NULL, inc('DECIMAL(37,18)', cast( dec as DECIMAL(37,18))), returnSum('DECIMAL(37,18)')) as agg" ) )
     fail("Should have thrown " + INC_REWRITE_GENEXP_ERR_MSG)
   } catch {
-    case t: Throwable if t.getMessage == INC_REWRITE_GENEXP_ERR_MSG =>
+    case t: Throwable if t.getMessage.contains( INC_REWRITE_GENEXP_ERR_MSG )=>
       // passed
     case t: Throwable =>
-      fail("Should have thrown " + INC_REWRITE_GENEXP_ERR_MSG +" but threw ", t)
+      fail("Should have thrown " + INC_REWRITE_GENEXP_ERR_MSG + " but threw ", t)
   } } }
 
-  test("decimalPrecisionDeprecatedIncTest") { funNRewrites { doDecimalPrecisionTest(  expr("aggExpr(dec IS NOT NULL, inc('DECIMAL(38,18)', dec ), returnSum('DECIMAL(38,18)')) as agg" ) ) } }
+  test("decimalPrecisionDeprecatedIncTest") { funNRewrites { doDecimalPrecisionTest(  expr("aggExpr(dec IS NOT NULL, inc('DECIMAL(37,18)', dec ), returnSum('DECIMAL(37,18)')) as agg" ) ) } }
 
 }
 

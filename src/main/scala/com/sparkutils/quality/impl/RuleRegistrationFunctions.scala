@@ -43,6 +43,11 @@ object RuleRegistrationFunctions {
       case Literal(seed: Int, IntegerType) => seed
       case _ => literalsNeeded(pos, "Integer")
     }
+  protected[quality] def getBoolean(exp: Expression, pos: Int = -1) =
+    exp match {
+      case Literal(seed: Boolean, BooleanType) => seed
+      case _ => literalsNeeded(pos, "Boolean")
+    }
   protected[quality] def getString(exp: Expression, pos: Int = -1) =
     exp match {
       case Literal(str: UTF8String, StringType) => str.toString()
@@ -67,8 +72,6 @@ object RuleRegistrationFunctions {
     )
     withUnderscores ++ withUnderscores.map(n => if (mustKeepNames(n)) n else n.replaceAll("_",""))
   }
-
-  val maxDec = DecimalType(DecimalType.MAX_PRECISION, DecimalType.MAX_SCALE)
 
   private val noopAdd = (dt: DataType) => None
 
@@ -134,7 +137,7 @@ object RuleRegistrationFunctions {
                 s"Valid parameter counts are ${paramNumbers.mkString(", ")}"
               else
                 s"A minimum of $minimum parameters is required."
-            throw QualityException(s"Wrong number of arguments provided to Quality function $name. $sizeerr")
+            throw QualityException(s"Wrong number of arguments provided to Quality function $name, received ${exps.size}. $sizeerr")
           }
           argsf(exps)
         }
@@ -277,7 +280,7 @@ object RuleRegistrationFunctions {
         // backwards compat
         case 2 => (parse(exps(0)), exps(1))
       }
-      FunN(Seq(RefExpression(dataType)), origExp, Some("sum_With"))
+      FunN(Seq(RefExpression(dataType)), origExp, Some("sum_With"), usedAsLambda = true)
     }, Set(1, 2))
 
     val ff2 = (exps: Seq[Expression]) => {
@@ -288,7 +291,7 @@ object RuleRegistrationFunctions {
           case 2 => (parse(exps(0)), exps(1)) // support the NO_REWRITE override case
         }
 
-      FunN(Seq(RefExpression(sumType), RefExpression(LongType)), exp, Some("results_With"))
+      FunN(Seq(RefExpression(sumType), RefExpression(LongType)), exp, Some("results_With"), usedAsLambda = true)
     }
     register("results_With", ff2, Set(1, 2))
 
@@ -334,7 +337,7 @@ object RuleRegistrationFunctions {
         // could be a cast around x or three attributes plusing each other or....
         FunN(Seq(RefExpression(LongType)),
           SLambdaFunction(addf(a.left, y, LongType), Seq(sum), hidden )
-          , Some("inc")) // keep the type
+          , Some("inc"), usedAsLambda = true) // keep the type
       case Seq() => expression(functions.expr(s"sumWith(sum -> sum + 1)"))
     }
     register("inc", incX, Set(1, 0, 2))
@@ -557,6 +560,28 @@ object RuleRegistrationFunctions {
       writer(s"$msg $exp .  Sql is ${exp.sql}")
       exp
     }, Set(1,2))
+
+    // additional functions for agg_expr and FunN
+    register("qualityrefexpression", {
+      case Seq(e) => RefExpression(parse(e))
+      case _ => literalsNeeded
+    }, Set(1))
+    register("qualityfunn", exps => {
+      val args = exps.dropRight(4)
+      val params = exps.drop(args.length)
+      val (function, name, attemptCodeGen, useAsLambda) =
+        params match {
+          case Seq(f, n, a, u) => (f, {
+            val s = getString(n)
+            if (s.isEmpty)
+              None
+            else
+              Some(s)
+          }, getBoolean(a), getBoolean(u))
+        }
+      FunN(args, function, name, attemptCodeGen = attemptCodeGen, usedAsLambda = useAsLambda)
+    }, minimum = 5)
+
   }
 
 }

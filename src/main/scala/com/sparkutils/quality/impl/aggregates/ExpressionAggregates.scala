@@ -1,6 +1,7 @@
 package com.sparkutils.quality.impl.aggregates
 
 import com.sparkutils.quality.QualityException.qualityException
+import com.sparkutils.quality.impl.RuleRegistrationFunctions.{defaultAdd, defaultZero}
 import eu.timepit.refined.boolean.False
 import org.apache.spark.sql.QualitySparkUtils
 import org.apache.spark.sql.ShimUtils.cast
@@ -48,7 +49,8 @@ object AggregateExpressions {
    *                 adding them in at the dsl level, however, prevents resolving the lambdas, using Column cast doesn't work either, so they are added in the expression itself
    *                 As the lambda's won't be resolved when calling this the existing matching for the expr sql variant cannot work.
    */
-  def apply(sumType: DataType, ifExpr: Expression, sum: Expression, evaluate: Expression, zero: DataType => Option[Any], add: DataType => Option[( Expression, Expression ) => Expression], notYetResolved: Boolean = false ): Expression = {
+  def apply(sumType: DataType, ifExpr: Expression, sum: Expression, evaluate: Expression, zero: DataType => Option[Any] = defaultZero,
+            add: DataType => Option[( Expression, Expression ) => Expression]= (dataType: DataType) => defaultAdd(dataType), notYetResolved: Boolean = false ): Expression = {
     /*
      * in the case of decimal's being used the DecimalPrecision analysis can change the types such that the
      * precision is ignored e.g.
