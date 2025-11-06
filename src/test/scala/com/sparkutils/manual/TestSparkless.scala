@@ -70,7 +70,7 @@ object TestSparkless {
     object implicits extends SQLImplicits with Serializable {
       protected override def _sqlContext: SQLContext = ???
     }*/
-
+//TODO - make this work again?
     sparkSession.stop()
     // give it a chance to stop
     Thread.sleep(4000)
