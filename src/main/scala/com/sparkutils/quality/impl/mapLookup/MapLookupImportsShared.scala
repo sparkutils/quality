@@ -8,7 +8,7 @@ import org.apache.spark.sql.catalyst.util.MapData
 import org.apache.spark.sql.functions.lit
 import org.apache.spark.sql.{Column, DataFrame, SparkSession}
 
-trait MapLookupImports {
+trait MapLookupImportsShared {
 
   def registerMapLookupsAndFunction(mapLookups: MapLookups) =
     MapLookupFunctions.registerMapLookupsAndFunction(mapLookups)
@@ -26,9 +26,8 @@ trait MapLookupImports {
    * @param creators a map of string id to MapCreator
    * @return a map of id to broadcast variables needed for exact lookup and mapping checks
    */
-  def mapLookupsFromDFs(creators: Map[String, MapCreator], broadcastFunction: MapData => Broadcast[MapData] =
-  SparkSession.active.sparkContext.broadcast(_)): MapLookups =
-    MapLookupFunctions.mapLookupsFromDFs(creators, broadcastFunction)
+  def mapLookupsFromDFs(creators: Map[String, MapCreator]): MapLookups =
+    MapLookupFunctions.mapLookupsFromDFs(creators)
 
   import MapLookupFunctions.{factory, mapRowEncoder}
 

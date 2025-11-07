@@ -19,6 +19,10 @@ This release migrates Spark 4 support to use AgnosticEncoders and removes EOL ru
 > 
 > A number of functions are not possible to run in Connect and are provided with _classic as a suffix, these typically
 > relate to extension points such as monadic add.
+> 
+> Map and Bloom related functions from 0.2.0 Spark 4 onwards allow multiple lookups to be used and leverage a 
+> struct [Spark Variable](https://spark.apache.org/docs/latest/sql-ref-syntax-ddl-declare-variable.html#:~:text=Temporary%20variables%20are%20scoped%20at,a%20column%20or%20column%20alias.).
+> This change swaps the last parameter type of the DSL, and introduces a third parameter for the SQL interface, to refer to the Spark Variable, with each map being a strongly typed member of the variable available for use with any Spark queries (although probably not all too useful for blooms).
 
 #87 - EOL DBR and Spark runtimes are removed: 9.1, 10.4, 11.3
 

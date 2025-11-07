@@ -2,14 +2,12 @@ package com.sparkutils.qualityTests.mapLookup
 
 import com.sparkutils.quality._
 import functions.map_contains
-import com.sparkutils.qualityTests._
+import com.sparkutils.qualityTests.{VariableTestShims, _}
 import com.sparkutils.qualityTests.mapLookup.TradeTests.{ccyRate, countryCodeCCY, simpleTrades, tradeCols}
-
 import org.apache.spark.sql.catalyst.expressions.GenericRowWithSchema
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.{IntegerType, StringType, StructField, StructType}
 import org.apache.spark.sql.{Column, SparkSession, functions}
-
 import org.scalatest.FunSuite
 
 case class Pair(a: Int, b: Int)
@@ -44,7 +42,7 @@ object TradeTests {
   val tradeCols = Seq("date", "product", "value", "ccy", "ccyrate", "country")
 }
 
-object MapLookupTest {
+object MapLookupTest extends VariableTestShims {
 
   val structType = StructType( Seq(
     StructField("funnycheck", IntegerType),
@@ -57,9 +55,9 @@ object MapLookupTest {
     import s.implicits._
     val df = simpleTrades.toDF(tradeCols: _ *)
 
-    val res = df.select(col("*"), expr("mapLookup('ccyRate', ccy)").as("lookedUpCCYRate"),
-      expr("mapLookup('countryCode', country)").as("countrystuff"),
-      expr("mapLookup('countryCode', country).ccy").as("countrystuffccy")
+    val res = df.select(col("*"), expr(map_lookupSQL("ccyRate", "ccy")).as("lookedUpCCYRate"),
+      expr(map_lookupSQL("countryCode", "country")).as("countrystuff"),
+      expr(s"${map_lookupSQL("countryCode", "country")}.ccy").as("countrystuffccy")
     )
     com.sparkutils.testing.TestUtils.debug(res.show())
 
@@ -91,7 +89,7 @@ object MapLookupTest {
 
 }
 
-class MapLookupTests extends ClassicSharedTests {
+class MapLookupTests extends ClassicSharedTests with VariableTestShims  {
 
   import TradeTests._
 
@@ -123,7 +121,7 @@ class MapLookupTests extends ClassicSharedTests {
     import s.implicits._
     val df = wrongCountryTrade.toDF(tradeCols :_ *)
 
-    val res = df.select(col("*"), expr("mapContains('countryCode', country)").as("doesCountryExist"))
+    val res = df.select(col("*"), expr(map_containsSQL("countryCode","country")).as("doesCountryExist"))
     assert(!res.head.getAs[Boolean]("doesCountryExist"), "CHRISLAND should not exist")
   } }
 
@@ -141,7 +139,7 @@ class MapLookupTests extends ClassicSharedTests {
     registerMapLookupsAndFunction(lookups)
     val df = wrongCountryTrade.toDF(tradeCols :_ *)
 
-    val res = df.select(col("*"), expr("mapContains('empty', country)").as("doesCountryExist")).
+    val res = df.select(col("*"), expr(map_containsSQL("empty","country")).as("doesCountryExist")).
       filter("doesCountryExist = false")
     assert(res.count == df.count,"all of the rows should be false" )
 
@@ -164,9 +162,13 @@ class MapLookupTests extends ClassicSharedTests {
 
     registerMapLookupsAndFunction(lookups)
 
-    val res = sparkSession.sql("select mapLookup('multi', struct('GB', 2)) res").as[String].collect()
+    val res = sparkSession.sql(s"select ${map_lookupSQL("multi", "struct('GB', 2)")} res").as[String].collect()
     assert(res.length == 1,"should have found a single match" )
     assert(res.head == "GBP", "should have got the pound")
+
+    val res2 = sparkSession.sql(s"select struct('GB', 2) key").select(map_lookup("multi", col("key"), lookups)).as[String].collect()
+    assert(res2.length == 1,"should have found a single match" )
+    assert(res2.head == "GBP", "should have got the pound")
   } }
 
   test("taxonomyLookup") { forceInterpreted { funNRewrites {
@@ -195,7 +197,7 @@ class MapLookupTests extends ClassicSharedTests {
     registerMapLookupsAndFunction(lookups)
 
     registerLambdaFunctions(Seq(LambdaFunction("hierarchyLookup",
-      s"( hierarchy, item) -> if(item is null, array(), nvl(mapLookup('hierarchy', struct(hierarchy, item)), array(item)))",Id(0,1))))
+      s"( hierarchy, item) -> if(item is null, array(), nvl(${map_lookupSQL("hierarchy","struct(hierarchy, item)")}, array(item)))",Id(0,1))))
 
     def orNull(what: String) =
       if (what eq null) "null" else s"'$what'"

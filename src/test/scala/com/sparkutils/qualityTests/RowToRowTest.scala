@@ -1782,7 +1782,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
         val df = theMap.toDF("subcode", "isvalid")
         (df, column("subcode"), column("isvalid"))
       } )
-    ), LocalBroadcast(_))
+    ))
 
     registerMapLookupsAndFunction(lookups)
 
