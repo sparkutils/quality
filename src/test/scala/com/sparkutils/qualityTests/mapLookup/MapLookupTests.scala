@@ -89,7 +89,7 @@ object MapLookupTest extends VariableTestShims {
 
 }
 
-class MapLookupTests extends ClassicSharedTests with VariableTestShims  {
+class MapLookupTests extends SharedConnectTests with VariableTestShims  {
 
   import TradeTests._
 
