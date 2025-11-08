@@ -7,6 +7,7 @@ import com.sparkutils.quality.impl.id.model.{ProvidedID, RandomID}
 import com.sparkutils.quality.impl.rng.RandomLongs
 import com.sparkutils.quality.impl.util.BytePackingUtils
 import com.sparkutils.qualityTests._
+import com.sparkutils.qualityTests.util.{RowTools, SharedConnectTests}
 import com.sparkutils.testing.SparkTestUtils.{enumToScala, ouputDir}
 import com.sparkutils.testing.{ClassicOnly, ConnectionType, Sessions}
 import com.sparkutils.testing.TestUtils.{anyCauseHas, debug}

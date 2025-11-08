@@ -1,9 +1,9 @@
-package com.sparkutils.qualityTests
+package com.sparkutils.qualityTests.util
 
 import com.sparkutils.quality.impl.extension.{FunNRewrite, QualitySparkExtension}
 import com.sparkutils.quality.{RuleSuite, ruleRunner}
-import com.sparkutils.testing.Utils.{MAIN_CLASSPATH, connectMemory, mainClassPathsConfig, useDebugConnectLogs}
-import com.sparkutils.testing.{ClassicOnly, ConnectionType, Sessions, SessionsStateHolder, SparkTestSuite, UseBoth}
+import com.sparkutils.testing.Utils.{connectMemory, mainClassPathsConfig, useDebugConnectLogs}
+import com.sparkutils.testing._
 import com.sparkutils.testing.sessionStrategies.{GlobalSession, SharedSessions}
 import org.apache.spark.sql.QualitySparkUtils.DatasetBase
 import org.apache.spark.sql.{Dataset, Row}

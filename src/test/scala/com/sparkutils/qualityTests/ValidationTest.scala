@@ -5,12 +5,12 @@ import com.sparkutils.quality.impl.{DataFrameSyntaxError, ExtraDocParameter, Has
 import com.sparkutils.quality.impl.util.RuleSuiteDocs.{LambdaId, OutputExpressionId, RuleId}
 import com.sparkutils.quality.{ExpressionRule, Id, LambdaFunction, OutputExpression, Rule, RuleSet, RuleSuite, RunOnPassProcessor, impl, ruleEngineRunner, ruleRunner, validate}
 import Validation.emptyDocs
+import com.sparkutils.qualityTests.util.ClassicSharedTests
 import com.sparkutils.testing.TestUtils.debug
 import impl.imports.RuleResultsImports.packId
 import org.apache.spark.sql.{Column, DataFrame, Row}
 import org.apache.spark.sql.functions.expr
 import org.apache.spark.sql.types.{BooleanType, DoubleType, IntegerType, LongType, StringType, StructField, StructType}
-
 import org.scalatest.FunSuite
 
 class ValidationTest extends ClassicSharedTests with VariableTestShims {

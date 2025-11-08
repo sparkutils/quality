@@ -1,6 +1,7 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
+import com.sparkutils.qualityTests.util.{ClassicSharedTests, RowTools}
 import com.sparkutils.testing.TestUtils.anyCauseHas
 import org.apache.spark.sql.DataFrame
 import types._

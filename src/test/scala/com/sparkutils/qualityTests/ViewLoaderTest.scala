@@ -1,6 +1,7 @@
 package com.sparkutils.qualityTests
 import com.sparkutils.quality.{DataFrameLoader, Id, loadViewConfigs, loadViews}
 import com.sparkutils.quality.impl.views.{MissingViewAnalysisException, ViewConfig, ViewLoaderAnalysisException}
+import com.sparkutils.qualityTests.util.SharedConnectTests
 import com.sparkutils.testing.SparkVersions.sparkVersion
 import org.apache.spark.sql.functions.{col, expr}
 import org.apache.spark.sql.{DataFrame, ShimUtils}

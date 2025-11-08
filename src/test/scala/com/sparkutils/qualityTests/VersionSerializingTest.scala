@@ -2,12 +2,11 @@ package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.HasRuleText
-
+import com.sparkutils.qualityTests.util.SharedConnectTests
 import com.sparkutils.testing.TestUtils.debug
 import impl.imports.RuleResultsImports.packId
 import impl.util.OutputExpressionRow
 import org.apache.spark.sql.functions._
-
 import simpleVersioning._
 
 class VersionSerializingTest extends SharedConnectTests {

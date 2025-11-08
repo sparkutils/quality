@@ -5,6 +5,7 @@ import com.sparkutils.quality.impl.RuleRegistrationFunctions.INC_REWRITE_GENEXP_
 import com.sparkutils.quality.functions._
 import com.sparkutils.quality.impl.aggregates.ResultsExpression
 import com.sparkutils.qualityTests.mapLookup.TradeTests._
+import com.sparkutils.qualityTests.util.SharedConnectTests
 import com.sparkutils.testing.SparkVersions.sparkVersion
 import com.sparkutils.testing.TestUtils.debug
 import org.apache.spark.SparkException
@@ -12,7 +13,6 @@ import org.apache.spark.sql.catalyst.expressions.GenericRowWithSchema
 import org.apache.spark.sql.functions.{col, concat, expr, lit, struct, when}
 import org.apache.spark.sql.types.{DataType, DecimalType, LongType, MapType, StringType, StructField, StructType}
 import org.apache.spark.sql.{Column, DataFrame, Dataset, Encoder, functions}
-
 import org.scalatest.FunSuite
 import org.scalatest.Matchers.convertToAnyShouldWrapper
 

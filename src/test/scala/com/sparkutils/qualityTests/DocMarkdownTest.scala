@@ -5,6 +5,7 @@ import com.sparkutils.quality.impl.util.RuleSuiteDocs
 import java.io.FileOutputStream
 import RuleSuiteDocs.RelativeWarningsAndErrors
 import com.sparkutils.quality.{ExpressionRule, Id, LambdaFunction, OutputExpression, Rule, RuleSet, RuleSuite, RunOnPassProcessor, validate}
+import com.sparkutils.qualityTests.util.ClassicSharedTests
 import com.sparkutils.testing.TestUtils.debug
 import org.apache.commons.io.IOUtils
 

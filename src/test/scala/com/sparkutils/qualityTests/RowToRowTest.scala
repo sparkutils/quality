@@ -5,6 +5,7 @@ import com.sparkutils.quality.impl.FlattenStruct.ruleSuiteDeserializer
 import com.sparkutils.quality.sparkless.impl.{LocalBroadcast, Processors}
 import com.sparkutils.quality.sparkless.impl.Processors.NO_QUERY_PLANS
 import com.sparkutils.quality.sparkless.{ProcessFunctions, Processor}
+import com.sparkutils.qualityTests.util.ClassicSharedTests
 import com.sparkutils.shim.expressions.StatefulLike
 import com.sparkutils.testing.{ClassicOnly, ConnectionType, Sessions}
 import org.apache.avro.SchemaBuilder

@@ -1,6 +1,7 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.manual.ProcessorThroughputBenchmark.createSparkSessions
+import com.sparkutils.qualityTests.util.RowTools
 import com.sparkutils.testing.{ClassicOnly, ConnectionType, Sessions}
 import org.apache.spark.sql.types.{DataType, LongType, StringType, StructField, StructType}
 import org.apache.spark.sql.SparkSession

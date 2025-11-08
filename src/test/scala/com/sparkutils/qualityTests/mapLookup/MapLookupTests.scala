@@ -4,6 +4,7 @@ import com.sparkutils.quality._
 import functions.map_contains
 import com.sparkutils.qualityTests.{VariableTestShims, _}
 import com.sparkutils.qualityTests.mapLookup.TradeTests.{ccyRate, countryCodeCCY, simpleTrades, tradeCols}
+import com.sparkutils.qualityTests.util.SharedConnectTests
 import org.apache.spark.sql.catalyst.expressions.GenericRowWithSchema
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.{IntegerType, StringType, StructField, StructType}

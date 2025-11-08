@@ -2,7 +2,7 @@ package com.sparkutils.qualityTests.bloom
 
 import com.sparkutils.quality.impl.bloom.BloomConfig
 import com.sparkutils.quality.{DataFrameLoader, Id, loadBloomConfigs, loadBlooms}
-import com.sparkutils.qualityTests.ClassicSharedTests
+import com.sparkutils.qualityTests.util.ClassicSharedTests
 import org.apache.spark.sql.functions.{col, expr}
 import org.apache.spark.sql.DataFrame
 

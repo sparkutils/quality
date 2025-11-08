@@ -3,11 +3,10 @@ package com.sparkutils.qualityTests.bloom
 import com.sparkutils.quality._
 import functions._
 import com.sparkutils.qualityTests._
-
+import com.sparkutils.qualityTests.util.ClassicSharedTests
 import com.sparkutils.testing.TestUtils.{anyCauseHas, debug}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.{Column, DataFrame, SaveMode, SparkSession}
-
 import org.scalatest.FunSuite
 
 case class Pair(a: Long, b: Long)

@@ -1,5 +1,6 @@
 package com.sparkutils.qualityTests
 
+import com.sparkutils.qualityTests.util.ClassicSharedTests
 import com.sparkutils.testing.{ClassicSparkTestUtils, SparkTestUtils}
 import org.apache.spark.sql.ShimUtils
 import org.apache.spark.sql.functions._

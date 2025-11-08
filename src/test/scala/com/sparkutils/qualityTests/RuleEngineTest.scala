@@ -4,12 +4,12 @@ import com.sparkutils.quality._
 import com.sparkutils.quality.functions.{flatten_rule_results, unpack_id_triple}
 import com.sparkutils.quality.impl.extension.FunNRewrite
 import com.sparkutils.quality.impl.{RuleEngineRunner, RunOnPassProcessor}
+import com.sparkutils.qualityTests.util.ClassicSharedTests
 import com.sparkutils.testing.TestUtils.debug
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.ShimUtils.expression
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.{BooleanType, DataType, IntegerType, StructField, StructType}
-
 import org.scalatest.FunSuite
 
 import java.io.{ByteArrayOutputStream, ObjectOutputStream}

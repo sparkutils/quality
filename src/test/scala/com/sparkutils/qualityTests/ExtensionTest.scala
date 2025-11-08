@@ -5,6 +5,7 @@ import com.globalmentor.apache.hadoop.fs.BareLocalFileSystem
 import java.io.File
 import com.sparkutils.quality.impl.extension.{AsUUIDFilter, ExtensionTesting, FunNRewrite, IDBase64Filter, QualitySparkExtension}
 import com.sparkutils.quality.impl.extension.QualitySparkExtension.disableRulesConf
+import com.sparkutils.qualityTests.util.ClassicSharedTests
 import com.sparkutils.testing.TestUtils.anyCauseHas
 import com.sparkutils.testing.{ClassicSparkTestUtils, ClassicTestUtils, ConnectionType, Testing}
 import org.apache.spark.sql.catalyst.expressions.{And, Attribute, BinaryComparison, EqualTo, Equality, Expression, Or}

@@ -15,6 +15,7 @@ import org.scalatest.FunSuite
 
 import java.util.UUID
 import com.sparkutils.quality.impl.yaml.{YamlDecoderExpr, YamlEncoderExpr}
+import com.sparkutils.qualityTests.util.{ClassicSharedTests, RowTools}
 import com.sparkutils.testing.TestUtils.debug
 import frameless.TypedExpressionEncoder
 import org.apache.spark.sql.ShimUtils.expression

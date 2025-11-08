@@ -2,9 +2,9 @@ package com.sparkutils.qualityTests
 
 import com.sparkutils.quality.Id
 import com.sparkutils.quality.impl.util.{ExpressionLookup, VariablesLookup}
+import com.sparkutils.qualityTests.util.ClassicSharedTests
 import org.apache.spark.sql.ShimUtils.newParser
 import org.apache.spark.sql.catalyst.expressions.Expression
-
 import org.scalatest.FunSuite
 
 class VariableIdentificationTest extends ClassicSharedTests {

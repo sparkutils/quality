@@ -4,6 +4,7 @@ import com.sparkutils.quality._
 import com.sparkutils.quality.functions._
 import com.sparkutils.quality.impl.{LambdaFunctionImpl, YamlDecoder}
 import com.sparkutils.quality.impl.extension.QualityFunctionParser.{CREATE_FUNCTION_PREFIX, WITH_TOKEN}
+import com.sparkutils.qualityTests.util.SharedConnectTests
 import com.sparkutils.testing.{ConnectOnly, ConnectionType, UseBoth}
 import org.apache.spark.SparkException
 import org.apache.spark.sql.functions._

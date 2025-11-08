@@ -5,6 +5,7 @@ import com.sparkutils.quality.impl.VersionedId
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions._
 import com.sparkutils.qualityTests.mapLookup.TradeTests._
+import com.sparkutils.qualityTests.util.SharedConnectTests
 import com.sparkutils.testing.SparkTestUtils
 import com.sparkutils.testing.TestUtils.debug
 import org.apache.spark.sql.ShimUtils.expression

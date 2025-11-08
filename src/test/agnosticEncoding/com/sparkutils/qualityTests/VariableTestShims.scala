@@ -1,9 +1,8 @@
 package com.sparkutils.qualityTests
 
-import com.sparkutils.quality.{MapLookups, registerMapLookupsAndFunction => ogRegMaps}
+import com.sparkutils.quality.MapLookups
 import com.sparkutils.quality.functions.{map_lookup => ogml, map_contains => ogmc}
 import org.apache.spark.sql.Column
-import org.apache.spark.sql.functions.lit
 
 /**
  * Support the differences between classic and post 0.2.0 Spark 4 interfaces using

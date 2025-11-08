@@ -3,6 +3,7 @@ package com.sparkutils.qualityTests
 import com.sparkutils.quality._
 import com.sparkutils.quality.functions.flatten_folder_results
 import com.sparkutils.quality.impl.RunOnPassProcessor
+import com.sparkutils.qualityTests.util.ClassicSharedTests
 import frameless.TypedExpressionEncoder
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.QualitySparkUtils.DatasetBase
@@ -10,7 +11,6 @@ import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder
 import org.apache.spark.sql.catalyst.expressions.Literal
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.{IntegerType, StringType, StructField, StructType}
-
 import org.scalatest.FunSuite
 
 class RuleFolderTest extends FunSuite with ClassicSharedTests {

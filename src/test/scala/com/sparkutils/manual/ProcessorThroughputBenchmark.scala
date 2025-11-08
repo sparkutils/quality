@@ -3,7 +3,7 @@ package com.sparkutils.manual
 import com.sparkutils.quality.registerQualityFunctions
 import com.sparkutils.quality.sparkless.{ProcessFunctions, Processor}
 import com.sparkutils.qualityTests.ResultHelper.longSchema
-import com.sparkutils.qualityTests.RowTools
+import com.sparkutils.qualityTests.util.RowTools
 import com.sparkutils.testing.{ClassicOnly, ConnectionType, Sessions}
 import org.apache.spark.sql.types.{IntegerType, LongType}
 import org.apache.spark.sql.{Row, ShimUtils}

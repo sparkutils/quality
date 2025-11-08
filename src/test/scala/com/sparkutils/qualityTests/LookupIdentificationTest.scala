@@ -1,7 +1,7 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality.impl.util.{BloomLookupType, MapLookupType}
-
+import com.sparkutils.qualityTests.util.ClassicSharedTests
 import org.scalatest.FunSuite
 
 class LookupIdentificationTest extends FunSuite with ClassicSharedTests {
