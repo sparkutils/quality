@@ -1,17 +1,12 @@
 package com.sparkutils.quality.impl.mapLookup
 
-import com.sparkutils.quality.impl.mapLookup.MapLookupFunctions.MapLookups
+import com.sparkutils.quality.impl.mapLookup.MapLookupFunctions.{MapCreator, MapLookups}
 import com.sparkutils.quality.{DataFrameLoader, Id}
 import com.sparkutils.quality.impl.util.ConfigLoader
-import org.apache.spark.broadcast.Broadcast
-import org.apache.spark.sql.catalyst.util.MapData
 import org.apache.spark.sql.functions.lit
-import org.apache.spark.sql.{Column, DataFrame, SparkSession}
+import org.apache.spark.sql.{Column, DataFrame}
 
 trait MapLookupImportsShared {
-
-  def registerMapLookupsAndFunction(mapLookups: MapLookups) =
-    MapLookupFunctions.registerMapLookupsAndFunction(mapLookups)
 
   /**
    * Used as a param to load the map lookups - note the type of the broadcast is always Map[AnyRef, AnyRef]
@@ -19,6 +14,9 @@ trait MapLookupImportsShared {
   type MapLookups = MapLookupFunctions.MapLookups
 
   type MapCreator = MapLookupFunctions.MapCreator
+
+  def registerMapLookupsAndFunction(mapLookups: MapLookups) =
+    MapLookupFunctions.registerMapLookupsAndFunction(mapLookups)
 
   /**
    * Loads maps to broadcast, each individual dataframe may have different associated expressions
@@ -84,7 +82,6 @@ trait MapLookupImportsShared {
   def loadMaps(configs: Seq[MapConfig]): MapLookups =
     MapLookupFunctions.loadMaps(configs)
 }
-
 
 trait MapLookupFunctionImports {
 

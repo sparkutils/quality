@@ -3,6 +3,7 @@ package com.sparkutils.quality.impl
 import frameless.{Injection, NotCatalystNullable}
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.util.Serializing
+import org.apache.spark.sql.catalyst.CatalystTypeConverters
 import org.apache.spark.sql.catalyst.util.{ArrayData, MapData}
 import org.apache.spark.sql.types.DataType
 
@@ -65,6 +66,13 @@ object EmptyMap extends MapData {
 object MapUtils {
   def toScalaMap(map: MapData, keyType: DataType, valueType: DataType): Map[Any, Any] = {
     val keys = map.keyArray.toObjectArray(keyType)
+    val values = map.valueArray.toObjectArray(valueType)
+    keys.zip(values).toMap
+  }
+
+  def toScalaMapKeysConverted(map: MapData, keyType: DataType, valueType: DataType): Map[Any, Any] = {
+    val keyConverter = CatalystTypeConverters.createToScalaConverter(keyType)
+    val keys = map.keyArray.toObjectArray(keyType).map(keyConverter)
     val values = map.valueArray.toObjectArray(valueType)
     keys.zip(values).toMap
   }

@@ -10,6 +10,7 @@ import org.apache.spark.sql.functions.lit
  */
 trait VariableTestShims {
 
+  def registerMapLookupsAndFunction(): Unit = registerMapLookupsAndFunction(Map.empty)
   def registerMapLookupsAndFunction(lookups: MapLookups): Unit =
     ogRegMaps(lookups)
 

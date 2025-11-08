@@ -1,64 +1,128 @@
 package com.sparkutils.quality.impl.mapLookup
 
-import com.sparkutils.quality.impl.RuleRegistrationFunctions.registerWithChecks
+import com.sparkutils.quality.QualityException.qualityException
+import com.sparkutils.quality.impl.RuleRegistrationFunctions.{getString, literalsNeeded, registerWithChecks}
 import com.sparkutils.quality.impl.util.{Config, ConfigFactory}
+import com.sparkutils.shim.expressions.GetStructField3
 import com.sparkutils.shim.toCatalyst
-import org.apache.spark.sql.catalyst.expressions.{Expression, IsNotNull}
+import org.apache.spark.sql.catalyst.expressions.{Expression, IsNotNull, Literal, VariableReference}
 import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, MapData}
-import org.apache.spark.sql.functions.expr
-import org.apache.spark.sql.types.DataType
+import org.apache.spark.sql.functions.{col, expr, named_struct}
+import org.apache.spark.sql.types.{DataType, MapType, StructField, StructType}
 import org.apache.spark.sql._
+import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.catalog.VariableDefinition
 
+import java.util.concurrent.atomic.AtomicInteger
 import scala.collection.JavaConverters._
 import scala.collection.Map
 
+case class Lookups(name: String, lookups: Column)
+
 object MapLookupFunctions {
 
-  def registerMapLookupsForAgnostic(func: (String, Seq[Expression]) => Expression): Unit = {}
+  private val nameCounter = new AtomicInteger(0)
 
-  def registerMapLookupsAndFunction(mapLookups: MapLookups) {
-    val funcReg = ShimUtils.registerFunction(SparkSession.getActiveSession.get) _
-    def register(name: String, argsf: Seq[Expression] => Expression, paramNumbers: Set[Int] = Set.empty, minimum: Int = -1) =
-      registerWithChecks(funcReg, name, argsf, paramNumbers, minimum)
+  private val GENERATED_NAME_PREFIX = "QUALITY_LOOKUPS_GENERATED_NAME_"
 
-    val f = (exps: Seq[Expression]) => MapLookup(exps(0), exps(1), mapLookups)
-    register("map_lookup", f, Set(2))
-
-    val sf = (exps: Seq[Expression]) => IsNotNull(  MapLookup(exps(0), exps(1), mapLookups) )
-    register("map_contains", sf, Set(2))
-  }
+  // only for the current session, so regardless of on driver with static or connect client this works
+  private def uniqueName() = GENERATED_NAME_PREFIX + nameCounter.incrementAndGet()
 
   /**
-    * Used as a param to load the map lookups - note the type of the broadcast is always Map[AnyRef, AnyRef]
+   * Used as a param to load the map lookups - note the type of the broadcast is always Map[AnyRef, AnyRef]
    */
-  type MapLookups = Map[ String, ( MapData, DataType ) ]
+  type MapLookups = Lookups
 
   type MapCreator = () => (DataFrame, Column, Column)
 
+  protected[quality] def registerMapLookupsForAgnostic(registerFunction: (String, Seq[Expression] => Expression) => Unit): Unit = {
+    def register(name: String, argsf: Seq[Expression] => Expression, paramNumbers: Set[Int] = Set.empty, minimum: Int = -1) =
+      registerWithChecks(registerFunction, name, argsf, paramNumbers, minimum)
+
+    val f = (exps: Seq[Expression]) => {
+      val mapId = getString(exps(0))
+
+      // use the VariableReference directly rather than unpack it to the literal, cannot actually serialize this as FakeSystemCatalog is not serializable, so need to serialize the entire data right now
+      val (md, dt) = exps(2) match {
+        case v:VariableReference if v.dataType.isInstanceOf[StructType] =>
+          val st = v.dataType.asInstanceOf[StructType]
+          val col = st.fields.zipWithIndex.find(_._1.name == mapId)
+          col match {
+            case Some((f, i)) =>
+              if (!f.dataType.isInstanceOf[MapType])
+                qualityException(s"Quality map_lookup expression called with map name $mapId doesn't have map type, instead it has: ${f.dataType.sql}")
+              else
+                // it's a map ..
+                (v.eval().asInstanceOf[InternalRow].getMap(i), f.dataType.asInstanceOf[MapType].valueType)
+
+            case None =>
+              qualityException(s"Quality map_lookup expression called with map name $mapId doesn't exist in struct with type: ${st.sql}")
+          }
+
+        case _ => literalsNeeded(2, "StructType")
+      }
+      MapLookupExpression(mapId, exps(1), md, dt)
+    }
+    register("map_lookup", f, Set(3))
+
+    register("map_contains", s => IsNotNull(f(s)), Set(3))
+  }
+
   /**
-    * Loads maps to broadcast, each individual dataframe may have different associated expressions
+   * No-op on 0.2.0 4.0
+   * @param mapLookups
+   * @return
+   */
+  def registerMapLookupsAndFunction(mapLookups: MapLookups): Unit = {
+  }
+
+  /**
+   * Loads maps to broadcast, each individual dataframe may have different associated expressions
    *
-    * @param creators a map of string id to MapCreator
-    * @return a map of id to broadcast variables needed for exact lookup and mapping checks
-    */
-  def mapLookupsFromDFs(creators: Map[String, MapCreator]): MapLookups =
-    creators.map{
+   * @param creators a map of string id to MapCreator
+   * @param stableName uses a stable name for the lookups
+   * @return a map of id to broadcast variables needed for exact lookup and mapping checks
+   */
+  def mapLookupsFromDFs(creators: Map[String, MapCreator], stableName: String): MapLookups =
+    buildStruct(creators.map {
       case (id, mapCreator: MapCreator) =>
         val (df, key, value) = mapCreator()
 
         mapFromDF(id, df, key, value)
-    }.toMap
+    }.toSeq, stableName)
+
+
+  /**
+   *
+   * Loads maps to broadcast, each individual dataframe may have different associated expressions.
+   * Uses a generated name
+   *
+   * @param creators a map of string id to MapCreator
+   * @return a map of id to broadcast variables needed for exact lookup and mapping checks
+   */
+  def mapLookupsFromDFs(creators: Map[String, MapCreator]): MapLookups =
+    mapLookupsFromDFs(creators, uniqueName())
+
+  private def buildStruct(strs: Seq[(String, String, DataType)], name: String): Lookups = {
+    val struct = "named_struct("+strs.map(_._2).mkString("\n,")+")"
+    val ddl = StructType(strs.map{ s =>
+      StructField(s._1, s._3)
+    }).toDDL
+    // Defaults can't have subqueries
+    val defaultCommand = s"declare variable `$name` struct<$ddl> default null;"
+    SparkSession.active.sql(defaultCommand)
+    val setCommand = s"set var `$name` = $struct;"
+    SparkSession.active.sql(setCommand)
+    Lookups(name, col(name))
+  }
+
+  private val MAP_NAME = "QualityMapLookup_Temp_"
 
   private def mapFromDF(id: String, df: DataFrame, key: Column, value: Column) = {
-    val translated = df.select(key.as("key"), value.as("value"))
-    val map = translated.toLocalIterator().asScala.map {
-      mapPair =>
-        toCatalyst(mapPair.get(0)) ->
-          toCatalyst(mapPair.get(1))
-    }.toMap
+    val translated = df.select(key.as("key"), value.as("value")).selectExpr("map_from_entries(collect_set(struct(key, value))) as themap")
+    translated.createOrReplaceTempView(s"`$MAP_NAME$id`")
 
-    val mapData: MapData = ArrayBasedMapData(map)
-    id -> (mapData, translated.schema.last.dataType)
+    (id, s""""$id", (select first(themap) from `$MAP_NAME$id`)""", translated.schema.fields(0).dataType)
   }
 
   implicit val factory =
@@ -69,12 +133,21 @@ object MapLookupFunctions {
 
   implicit val mapRowEncoder: Encoder[MapRow] = Encoders.product[MapRow]
 
-  def loadMaps(configs: Seq[MapConfig]): MapLookups =
-    configs.map{
+  /**
+   *
+   * @param configs
+   * @param stableName Uses a stable name to register the MapLookups
+   * @return
+   */
+  def loadMaps(configs: Seq[MapConfig], stableName: String): MapLookups =
+    buildStruct(configs.map {
       config =>
         val df = config.source.fold(identity, SparkSession.active.sql(_))
 
         mapFromDF(config.name, df, expr(config.key), expr(config.value))
-    }.toMap
+    }, stableName)
+
+  def loadMaps(configs: Seq[MapConfig]): MapLookups =
+    loadMaps(configs, uniqueName())
 
 }

@@ -65,9 +65,6 @@ class MapLoaderTest extends ClassicSharedTests {
     )
 
     val maps = loadMaps(mapConfigs)
-    val keys = maps.keySet
-    assert(keys == Set("ccyRate", "countryCode"))
-
     MapLookupTest.doTradeLookupTest(maps, sparkSession)
   }
 
@@ -85,9 +82,6 @@ class MapLoaderTest extends ClassicSharedTests {
     )
 
     val maps = loadMaps(mapConfigs)
-    val keys = maps.keySet
-    assert(keys == Set("ccyRate", "countryCode"))
-
     MapLookupTest.doTradeLookupTest(maps, sparkSession)
   }
 

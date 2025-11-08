@@ -17,7 +17,7 @@ trait MapLookupExpressionBase[T] extends UnaryExpression with CodegenFallback {
 
   def mapData(t: T): MapData
 
-  lazy val theMap = MapUtils.toScalaMap(mapData(arrayMap), child.dataType, dataType)
+  lazy val theMap = MapUtils.toScalaMapKeysConverted(mapData(arrayMap), child.dataType, dataType)
 
   lazy val converter = CatalystTypeConverters.createToScalaConverter(child.dataType)
 
@@ -40,5 +40,5 @@ trait MapLookupExpressionBase[T] extends UnaryExpression with CodegenFallback {
 
   override def nullable: Boolean = true
 
-  override def sql: String = s"(mapLookup($mapId, ${child.sql}))"
+  override def sql: String = s"(map_lookup($mapId, ${child.sql}))"
 }

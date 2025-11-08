@@ -10,11 +10,16 @@ import org.apache.spark.sql.functions.lit
  */
 trait VariableTestShims {
 
-  def registerMapLookupsAndFunction(lookups: MapLookups): Unit =
-    ogRegMaps(lookups)
+  def registerMapLookupsAndFunction(): Unit = ()
+
+  var currentLookups: MapLookups = _
+
+  def registerMapLookupsAndFunction(lookups: MapLookups): Unit = {
+    currentLookups = lookups
+  }
 
   def map_lookupSQL(mapLookupName: String, lookupKey: String): String =
-    s"mapLookup('$mapLookupName', $lookupKey)"
+    s"mapLookup('$mapLookupName', $lookupKey, ${currentLookups.name})"
 
   def map_lookup(mapLookupName: String, lookupKey: Column, mapLookups: MapLookups): Column =
     ogml(mapLookupName, lookupKey, mapLookups)
@@ -30,6 +35,6 @@ trait VariableTestShims {
     ogmc(mapLookupName, lookupKey, mapLookups)
 
   def map_containsSQL(mapLookupName: String, lookupKey: String): String =
-    s"mapContains('$mapLookupName', $lookupKey)"
+    s"mapContains('$mapLookupName', $lookupKey, ${currentLookups.name})"
 
 }

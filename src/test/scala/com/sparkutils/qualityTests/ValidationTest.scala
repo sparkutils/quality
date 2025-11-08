@@ -13,7 +13,7 @@ import org.apache.spark.sql.types.{BooleanType, DoubleType, IntegerType, LongTyp
 
 import org.scalatest.FunSuite
 
-class ValidationTest extends ClassicSharedTests {
+class ValidationTest extends ClassicSharedTests with VariableTestShims {
 
   val struct = StructType(Seq(
     StructField("fielda", StringType),
@@ -393,7 +393,7 @@ class ValidationTest extends ClassicSharedTests {
   }
 
   test("testExpressionLookups") {
-    com.sparkutils.quality.registerMapLookupsAndFunction(Map.empty)
+    registerMapLookupsAndFunction()
     // test output, lambda and rule for lookups
     // Id(6,1) is on a rule, outputexpression and a lambda to force correct called by resolution
     val output2 = RunOnPassProcessor(0, Id(6,1), OutputExpression("testCaller2(fielda, fieldb)"))

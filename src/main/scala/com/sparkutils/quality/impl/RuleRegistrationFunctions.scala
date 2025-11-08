@@ -7,6 +7,7 @@ import com.sparkutils.quality.impl.bloom.{BucketedArrayParquetAggregator, Parque
 import com.sparkutils.quality.impl.hash.{HashFunctionFactory, HashFunctionsExpression, MessageDigestFactory, ZALongHashFunctionFactory, ZALongTupleHashFunctionFactory}
 import com.sparkutils.quality.impl.id.{AsBase64Fields, AsBase64Struct, GenericLongBasedIDExpression, GuaranteedUniqueID, GuaranteedUniqueIdIDExpression, IDFromBase64, IDToRawIDDataType, SizeOfIDString, model}
 import com.sparkutils.quality.impl.longPair.{AsUUID, LongPairExpression, PrefixedToLongPair}
+import com.sparkutils.quality.impl.mapLookup.MapLookupFunctions.registerMapLookupsForAgnostic
 import com.sparkutils.quality.impl.rng.{RandLongsWithJump, RandomBytes, RandomLongs}
 import com.sparkutils.quality.impl.util.{ComparableMapConverter, ComparableMapReverser, InputWrapper, PrintCode}
 import com.sparkutils.quality.impl.yaml.{YamlDecoderExpr, YamlEncoderExpr}
@@ -582,6 +583,7 @@ object RuleRegistrationFunctions {
       FunN(args, function, name, attemptCodeGen = attemptCodeGen, usedAsLambda = useAsLambda)
     }, minimum = 5)
 
+    registerMapLookupsForAgnostic(registerFunction)
   }
 
 }

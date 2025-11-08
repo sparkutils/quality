@@ -11,13 +11,13 @@ import org.apache.commons.io.IOUtils
 import java.util.concurrent.atomic.AtomicReference
 
 
-class DocMarkdownTest extends ClassicSharedTests { // test utils to force spark session before register is called
+class DocMarkdownTest extends ClassicSharedTests with VariableTestShims { // test utils to force spark session before register is called
 
   /**
    * doesn't test anything but it's helpfully bootstrapped
    */
   test("testMDRuleDocs") {
-    com.sparkutils.quality.registerMapLookupsAndFunction(Map.empty)
+    registerMapLookupsAndFunction()
     // Id(6,1) is on a rule, outputexpression and a lambda to force correct called by resolution
     val output2 = RunOnPassProcessor(0, Id(6,1), OutputExpression("testCaller2(fielda, fieldb)"))
     val rule1 = Rule(Id(2,1), ExpressionRule("/** description @param fielda desc */ concat(fielda, fieldb)"), output2)
