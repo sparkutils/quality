@@ -8,4 +8,8 @@ object QualityTestRunner extends TestRunner {
 
   val projectName: String = "Quality"
 
+  override val classLoader: ClassLoader = classOf[RemoteFunctionTests].getClassLoader
+  def main(args: Array[String]): Unit = {
+    test(args)
+  }
 }

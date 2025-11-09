@@ -48,7 +48,7 @@ trait SharedConnectTests extends ClassicSharedTests {
   override def connectServerLoggingLevel = "DEBUG"
 
   override def sparkConnectServerConfig(): Map[String, String] =
-    super.sparkConnectServerConfig() + useDebugConnectLogs +
+    super.sparkConnectServerConfig() + //useDebugConnectLogs +
       mainClassPathsConfig + connectMemory("4g") +
       (("spark.sql.extensions", classOf[QualitySparkExtension].getName))// +
       //(("spark.sql.codegen.wholeStage", "false"))
