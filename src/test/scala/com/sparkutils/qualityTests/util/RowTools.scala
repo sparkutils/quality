@@ -1,7 +1,7 @@
 package com.sparkutils.qualityTests.util
 
 import com.sparkutils.quality._
-import com.sparkutils.qualityTests.ResultHelper.longSchema
+import ResultHelper.longSchema
 import org.apache.spark.sql.functions.lit
 import org.apache.spark.sql.types.{DataType, StructType}
 import org.apache.spark.sql.{DataFrame, Dataset, Row, ShimUtils}

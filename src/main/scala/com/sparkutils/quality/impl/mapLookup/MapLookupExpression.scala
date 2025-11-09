@@ -8,7 +8,7 @@ import org.apache.spark.sql.catalyst.{CatalystTypeConverters, InternalRow}
 import org.apache.spark.sql.types.DataType
 
 
-trait MapLookupExpressionBase[T] extends UnaryExpression with CodegenFallback {
+trait MapLookupExpressionBase[T] extends Expression with CodegenFallback {
 
   val mapId: String
   val child: Expression

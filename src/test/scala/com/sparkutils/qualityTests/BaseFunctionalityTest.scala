@@ -1,5 +1,6 @@
 package com.sparkutils.qualityTests
 
+import com.sparkutils.manual.RowId
 import com.sparkutils.quality
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.YamlDecoder

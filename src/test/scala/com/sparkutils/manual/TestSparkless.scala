@@ -3,7 +3,7 @@ package com.sparkutils.manual
 import com.sparkutils.manual.ProcessorThroughputBenchmark.genRules
 import com.sparkutils.quality.sparkless.{ProcessFunctions, Processor}
 import com.sparkutils.quality.{ExpressionRule, Id, Rule, RuleSet, RuleSuite, RuleSuiteResult}
-import com.sparkutils.qualityTests.ResultHelper.longSchema
+import com.sparkutils.qualityTests.util.ResultHelper.longSchema
 import com.sparkutils.qualityTests.TestOn
 import org.apache.spark.sql.types.LongType
 import org.apache.spark.sql.{Row, SQLContext, SQLImplicits, ShimUtils, SparkSession}

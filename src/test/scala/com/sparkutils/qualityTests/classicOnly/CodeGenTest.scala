@@ -1,12 +1,12 @@
-package com.sparkutils.qualityTests
+package com.sparkutils.qualityTests.classicOnly
 
 import com.sparkutils.quality._
+import com.sparkutils.quality.types._
 import com.sparkutils.qualityTests.util.{ClassicSharedTests, RowTools}
 import com.sparkutils.testing.TestUtils.anyCauseHas
 import org.apache.spark.sql.DataFrame
-import types._
 import org.apache.spark.sql.functions.expr
-import org.apache.spark.sql.types.{DataType, LongType}
+import org.apache.spark.sql.types.DataType
 
 /**
  * Attempts to force wholestagecodegen with enough rules to force the 64k hit, then prove the codegen options resolve them.
@@ -23,8 +23,6 @@ class CodeGenTest extends ClassicSharedTests with RowTools {
     val ndf = func(10, 1600, df)
 
     import frameless._
-
-    import com.sparkutils.quality.implicits._
 
     implicit val enc = TypedExpressionEncoder[(RuleResult, RuleSuiteResultDetails)]
 
@@ -116,8 +114,6 @@ class CodeGenTest extends ClassicSharedTests with RowTools {
     val df = dataFrameLong(40, 1600, ruleSuiteResultType, null)
     //df.show
     val ndf = func(set, rules, df)
-
-    import frameless._
 
     import com.sparkutils.quality.implicits._
 

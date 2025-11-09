@@ -1,7 +1,6 @@
-package com.sparkutils.qualityTests
+package com.sparkutils.qualityTests.classicOnly
 
 import com.sparkutils.quality.impl.util.{Docs, DocsParser}
-
 import org.scalatest.{FunSuite, Matchers}
 
 class DocsParserTest extends FunSuite with Matchers {

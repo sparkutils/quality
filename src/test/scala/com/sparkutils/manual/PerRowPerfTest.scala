@@ -1,21 +1,17 @@
-package com.sparkutils.qualityTests
+package com.sparkutils.manual
 
-import com.sparkutils.manual.ProcessorThroughputBenchmark.createSparkSessions
-import com.sparkutils.quality.impl.RuleLogicUtils.mapRules
 import com.sparkutils.quality._
-import types._
 import com.sparkutils.quality.functions.rng_bytes
+import com.sparkutils.quality.impl.RuleLogicUtils.mapRules
 import com.sparkutils.quality.impl.rng.RandomBytes
-import com.sparkutils.qualityTests.ResultHelper.longSchema
-import com.sparkutils.qualityTests.util.{RowTools, TestUtilsBase}
+import com.sparkutils.quality.types._
+import com.sparkutils.qualityTests.util.RowTools
 import com.sparkutils.testing.{ClassicOnly, ConnectionType, Sessions, SparkTestUtils}
 import org.apache.commons.rng.simple.RandomSource
-import org.apache.spark.sql.catalyst.encoders.RowEncoder
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.types.{DataType, StringType, StructType}
-import org.apache.spark.sql.{DataFrame, Dataset, QualitySparkUtils, Row, ShimUtils, SparkSession}
+import org.apache.spark.sql.types.{DataType, StringType}
+import org.apache.spark.sql.{DataFrame, Dataset, Row, SparkSession}
 import org.apache.spark.storage.StorageLevel
-import org.scalameter.api.Gen.crossProduct
 import org.scalameter.api._
 
 import scala.collection.JavaConverters._

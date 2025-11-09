@@ -1,10 +1,8 @@
-package com.sparkutils.qualityTests
+package com.sparkutils.qualityTests.util
 
-import com.sparkutils.manual.ProcessorThroughputBenchmark.createSparkSessions
-import com.sparkutils.qualityTests.util.RowTools
 import com.sparkutils.testing.{ClassicOnly, ConnectionType, Sessions}
-import org.apache.spark.sql.types.{DataType, LongType, StringType, StructField, StructType}
 import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.types._
 
 //case class Test(a: Int, b: Int)
 
@@ -22,16 +20,9 @@ object ResultHelper extends RowTools {
   def longSchema(maxCols: Int, dataType: DataType = StringType) = StructType(longColsWithDQ(maxCols, dataType))
 
   def main(args: Array[String]): Unit = {
-    import frameless._
-
-    import scala.collection.JavaConverters._
-
-    import org.apache.spark.sql.functions.{col, expr}
 
     val sparkSession: SparkSession = SparkSession.builder().config("spark.master", "local").getOrCreate()
     val sqlContext = sparkSession.sqlContext
-
-    import sqlContext.implicits._
 /*
     val ds = sqlContext.createDataFrame(Seq.empty[Test])
     ds.show */

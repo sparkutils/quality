@@ -6,7 +6,7 @@ import com.sparkutils.quality.impl.RuleRegistrationFunctions
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.ShimUtils.{column, expression}
 import org.apache.spark.sql.{Column, SparkSession}
-import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionDescription}
+import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionDescription, UnaryExpression}
 import org.apache.spark.sql.catalyst.util.MapData
 import org.apache.spark.sql.types.DataType
 
@@ -45,7 +45,7 @@ object MapLookup {
   """,
   since = "0.0.1")
 case class MapLookupExpression(mapId: String, child: Expression, arrayMap: Broadcast[MapData], dataType: DataType) extends
-  MapLookupExpressionBase[Broadcast[MapData]] {
+  UnaryExpression with MapLookupExpressionBase[Broadcast[MapData]] {
 
   protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
 

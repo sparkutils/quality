@@ -2,7 +2,7 @@ package com.sparkutils.manual
 
 import com.sparkutils.quality.registerQualityFunctions
 import com.sparkutils.quality.sparkless.{ProcessFunctions, Processor}
-import com.sparkutils.qualityTests.ResultHelper.longSchema
+import com.sparkutils.qualityTests.util.ResultHelper.longSchema
 import com.sparkutils.qualityTests.util.RowTools
 import com.sparkutils.testing.{ClassicOnly, ConnectionType, Sessions}
 import org.apache.spark.sql.types.{IntegerType, LongType}

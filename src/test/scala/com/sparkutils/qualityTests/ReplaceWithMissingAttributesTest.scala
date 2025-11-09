@@ -6,6 +6,8 @@ import com.sparkutils.qualityTests.util.ClassicSharedTests
 import org.apache.spark.sql.types.{IntegerType, StructField, StructType}
 import org.scalatest.FunSuite
 
+// TODO figure out this, it requires server side components - after implementing the rule engine / RuleSuite serialisation via typedLit it should be possible to cust expression this, the problem is if parser is not on the executors?
+
 class ReplaceWithMissingAttributesTest extends ClassicSharedTests {
 
   val struct = StructType(Seq(

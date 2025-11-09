@@ -1,22 +1,20 @@
-package com.sparkutils.qualityTests
+package com.sparkutils.qualityTests.classicOnly
 
 import com.globalmentor.apache.hadoop.fs.BareLocalFileSystem
-
-import java.io.File
-import com.sparkutils.quality.impl.extension.{AsUUIDFilter, ExtensionTesting, FunNRewrite, IDBase64Filter, QualitySparkExtension}
 import com.sparkutils.quality.impl.extension.QualitySparkExtension.disableRulesConf
+import com.sparkutils.quality.impl.extension._
 import com.sparkutils.qualityTests.util.ClassicSharedTests
 import com.sparkutils.testing.TestUtils.anyCauseHas
-import com.sparkutils.testing.{ClassicSparkTestUtils, ClassicTestUtils, ConnectionType, Testing}
-import org.apache.spark.sql.catalyst.expressions.{And, Attribute, BinaryComparison, EqualTo, Equality, Expression, Or}
-import org.apache.spark.sql.catalyst.plans.logical.Join
-import org.apache.spark.sql.sources.{Filter, And => SAnd, EqualTo => SEqualTo, GreaterThan => SGreaterThan, GreaterThanOrEqual => SGreaterThanOrEqual, In => SIn, Or => SOr}
-import org.apache.spark.sql.{Column, DataFrame, SparkSession}
-import org.scalatest.FunSuite
-
-import java.util.UUID
+import com.sparkutils.testing.{ClassicSparkTestUtils, ClassicTestUtils, Testing}
 import org.apache.spark.sql.catalyst.FunctionIdentifier
 import org.apache.spark.sql.catalyst.analysis.FunctionRegistry
+import org.apache.spark.sql.catalyst.expressions.{And, Attribute, BinaryComparison, EqualTo, Equality, Expression, Or}
+import org.apache.spark.sql.catalyst.plans.logical.Join
+import org.apache.spark.sql.sources.{Filter, And => SAnd, EqualTo => SEqualTo, GreaterThan => SGreaterThan, In => SIn, Or => SOr}
+import org.apache.spark.sql.{Column, DataFrame, SparkSession}
+
+import java.io.File
+import java.util.UUID
 
 // including rowtools so standalone tests behave as if all of them are running and for verify compatibility
 abstract class ExtensionTestBase extends ClassicSharedTests  {
@@ -232,7 +230,6 @@ abstract class ExtensionTestBase extends ClassicSharedTests  {
 
       sparkSession.sql(s"create or replace view testfunctionview as select alower, ahigher, as_uuid(alower, ahigher) context from testme");
       val s = sparkSession
-    import s.implicits._
       val resdf = sparkSession.sql(s"select context from testfunctionview where context = '${theuuid + "6"}' limit 10")
       /*val res = resdf.as[String].collect()
       assert(res.length == 1)
@@ -516,7 +513,7 @@ abstract class ExtensionTestBase extends ClassicSharedTests  {
   def doTestDifferentLengthsIdJoin(viaExtension: (SparkSession => Unit) => Unit, hint: String, generator: ((Column, Column) => Column) => SparkSession => DataFrame, joinOp: (Column, Column) => Column): Unit = when_not_disabled {
     // will trigger the IF clause and return false, so no records are found and, given no broken down part equals, no pushed down predicates either.
     try {doTestAsymmetricFilterPlan(generator(joinOp), Seq(
-      (s" '$theSixthIDString' = aid", SEqualTo("aid",testI1), s"expr_rhs $hint")
+      (s" '$theSixthIDString' = aid", SEqualTo("ai1",testI1), s"expr_rhs $hint")
     ), true, viaExtension = viaExtension, verifyJoinPlan = verifyJoinPlanID(_))
     } catch {
       case t: Throwable if anyCauseHas(t, _.getMessage().indexOf(" different sizes - did not have re-written join") > -1)=> ()
@@ -525,7 +522,7 @@ abstract class ExtensionTestBase extends ClassicSharedTests  {
   def doTestDifferentLengthsIdJoinAndFilter(viaExtension: (SparkSession => Unit) => Unit, hint: String, generator: ((Column, Column) => Column) => SparkSession => DataFrame): Unit = when_not_disabled {
     // will trigger the IF clause and return false, so no records are found and, given no broken down part equals, no pushed down predicates either.
     try {doTestAsymmetricFilterPlan(generator((l, r) => l.===(r)), Seq(
-      (s" '$theSixthIDString' = aid", SEqualTo("aid",testI1), s"expr_rhs $hint")
+      (s" '$theSixthIDString' = aid", SEqualTo("ai1",testI1), s"expr_rhs $hint")
     ), true, viaExtension = viaExtension, verifyJoinPlan = verifyJoinPlanID(_))
     } catch {
       case t: Throwable if anyCauseHas(t, _.getMessage().indexOf(" different sizes - did not have re-written join") > -1)=> ()
@@ -711,7 +708,7 @@ abstract class ExtensionTestBase extends ClassicSharedTests  {
 
 case class TestRow(lower: Long, higher: Long, asString: String)
 case class TestID(base: Int, i0: Long, i1: Long)
-/*
+
 class ExtensionParquetTest extends ExtensionTestBase {
   val format = "parquet"
 
@@ -723,4 +720,3 @@ class ExtensionDeltaTest extends ExtensionTestBase {
 
   val shouldRun = true
 }
-*/
