@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl.mapLookup
 
 import com.sparkutils.quality.impl.MapUtils
-import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode}
 import org.apache.spark.sql.catalyst.expressions.{Expression, UnaryExpression}
 import org.apache.spark.sql.catalyst.util.MapData
 import org.apache.spark.sql.catalyst.{CatalystTypeConverters, InternalRow}
@@ -41,4 +41,11 @@ trait MapLookupExpressionBase[T] extends Expression with CodegenFallback {
   override def nullable: Boolean = true
 
   override def sql: String = s"(map_lookup($mapId, ${child.sql}))"
+
+  override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
+    // force theMap and converter to be resolved before the session may be shut in processors
+    theMap
+    converter
+    super.doGenCode(ctx, ev)
+  }
 }

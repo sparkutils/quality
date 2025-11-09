@@ -5,7 +5,7 @@ import com.sparkutils.quality.impl.RuleRegistrationFunctions
 import com.sparkutils.quality.impl.mapLookup.MapLookupFunctions.MapLookups
 import org.apache.spark.sql.ShimUtils.{column, expression}
 import org.apache.spark.sql.{Column, ShimUtils, SparkSession}
-import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionDescription}
+import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression, ExpressionDescription}
 import org.apache.spark.sql.catalyst.util.MapData
 import org.apache.spark.sql.types.{DataType, MapType}
 
@@ -33,20 +33,16 @@ object MapLookup {
        0.9
   """,
   since = "0.2.0")
-case class MapLookupExpression(mapId: String, child: Expression, arrayMap: MapData, dataType: DataType) extends
-  MapLookupExpressionBase[MapData] {
-
-  protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
-
-  override def mapData(t: MapData): MapData = t
-
-}
-/*case class MapLookupExpression(mapId: String, child: Expression, arrayMap: Expression) extends
+// BinaryExpression needed so ResolveExecuteImmediate can pickup arrayMap and convert from VariableReference to Literal
+case class MapLookupExpression(mapId: String, child: Expression, arrayMap: Expression) extends BinaryExpression with
   MapLookupExpressionBase[Expression] {
 
-  protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
+  override def left: Expression = child
+  override def right: Expression = arrayMap
+
+  protected def withNewChildrenInternal(left: Expression, right: Expression): Expression = copy(child = left, arrayMap = right)
 
   override def mapData(t: Expression): MapData = t.eval().asInstanceOf[MapData]
 
   override val dataType: DataType = arrayMap.dataType.asInstanceOf[MapType].valueType
-}*/
+}

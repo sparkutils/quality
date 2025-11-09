@@ -7,6 +7,7 @@ import com.sparkutils.testing.TestUtils.anyCauseHas
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions.expr
 import org.apache.spark.sql.types.DataType
+import com.sparkutils.quality.implicits._
 
 /**
  * Attempts to force wholestagecodegen with enough rules to force the 64k hit, then prove the codegen options resolve them.

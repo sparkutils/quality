@@ -177,7 +177,7 @@ class NewPostingBean(){
 }
 
 // purposefully NOT in the testShade as this is inappropriate for actual spark usage
-class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with ClassicSharedTests {
+class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with ClassicSharedTests with VariableTestShims {
 
   // processors should never be on connect
   override def connectionType: ConnectionType = ClassicOnly
@@ -1789,7 +1789,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
 
     val rs = RuleSuite(Id(1,1), Seq(
       RuleSet(Id(50, 1), Seq(
-        Rule(Id(100, 1), ExpressionRule("if(product like '%otc%', account = '4201', mapLookup('subcodes', subcode))"))
+        Rule(Id(100, 1), ExpressionRule(s"if(product like '%otc%', account = '4201', ${map_lookupSQL("subcodes", "subcode")})"))
       ))
     ))
 

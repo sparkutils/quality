@@ -42,8 +42,8 @@ object MapLookupFunctions {
     val f = (exps: Seq[Expression]) => {
       val mapId = getString(exps(0))
 
-      // use the VariableReference directly rather than unpack it to the literal, cannot actually serialize this as FakeSystemCatalog is not serializable, so need to serialize the entire data right now
-      val (md, dt) = exps(2) match {
+      // use the VariableReference directly rather than unpack it to the literal - ResolveExecuteImmediate does the unpacking to Literal for us
+      val expr = exps(2) match {
         case v:VariableReference if v.dataType.isInstanceOf[StructType] =>
           val st = v.dataType.asInstanceOf[StructType]
           val col = st.fields.zipWithIndex.find(_._1.name == mapId)
@@ -53,7 +53,7 @@ object MapLookupFunctions {
                 qualityException(s"Quality map_lookup expression called with map name $mapId doesn't have map type, instead it has: ${f.dataType.sql}")
               else
                 // it's a map ..
-                (v.eval().asInstanceOf[InternalRow].getMap(i), f.dataType.asInstanceOf[MapType].valueType)
+                GetStructField3(v, i, Some(f.name))
 
             case None =>
               qualityException(s"Quality map_lookup expression called with map name $mapId doesn't exist in struct with type: ${st.sql}")
@@ -61,7 +61,7 @@ object MapLookupFunctions {
 
         case _ => literalsNeeded(2, "StructType")
       }
-      MapLookupExpression(mapId, exps(1), md, dt)
+      MapLookupExpression(mapId, exps(1), expr)
     }
     register("map_lookup", f, Set(3))
 
