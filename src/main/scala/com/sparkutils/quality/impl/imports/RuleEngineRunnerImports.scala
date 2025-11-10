@@ -1,9 +1,10 @@
 package com.sparkutils.quality.impl.imports
 
 import com.sparkutils.quality.RuleSuite
-import com.sparkutils.quality.impl.RuleEngineRunnerImpl
+import com.sparkutils.quality.impl.{RuleEngineRunnerImpl, RuleSuiteHelpers}
+import org.apache.spark.sql.functions.lit
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.{Column, DataFrame}
+import org.apache.spark.sql.{Column, DataFrame, ShimUtils}
 
 trait RuleEngineRunnerImports {
 
@@ -32,8 +33,14 @@ trait RuleEngineRunnerImports {
   def ruleEngineRunner(ruleSuite: RuleSuite, resultDataType: Option[DataType] = None, compileEvals: Boolean = true,
                        debugMode: Boolean = false, resolveWith: Option[DataFrame] = None, variablesPerFunc: Int = 40,
                        variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = true): Column =
-    RuleEngineRunnerImpl.ruleEngineRunnerImpl(ruleSuite, resultDataType, compileEvals, debugMode, resolveWith, variablesPerFunc,
-      variableFuncGroup, forceRunnerEval, forceTriggerEval)
+    if (ResolveUtil.checkResolveMakesSenseOrClassic(resolveWith))
+      RuleEngineRunnerImpl.ruleEngineRunnerImpl(ruleSuite, resultDataType, compileEvals, debugMode, resolveWith, variablesPerFunc,
+        variableFuncGroup, forceRunnerEval, forceTriggerEval)
+    else
+      ShimUtils.callFunction("rule_engine_runner", lit(RuleSuiteHelpers.serialize(ruleSuite)),
+        lit(resultDataType.map(_.sql).getOrElse("")),  lit(compileEvals), lit(debugMode), lit(variablesPerFunc),
+        lit(variableFuncGroup), lit(forceRunnerEval), lit(forceTriggerEval)
+      )
 
   /**
    * Creates a column that runs the RuleSuite.  This also forces registering the lambda functions used by that RuleSuite

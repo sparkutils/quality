@@ -3,7 +3,8 @@ package com.sparkutils.quality.impl
 import com.sparkutils.quality.{GeneralExpressionsResult, RuleEngineResult, RuleFolderResult, RuleSuite, RuleSuiteResult}
 import frameless.TypedEncoder
 import org.apache.spark.sql.catalyst.encoders.AgnosticEncoder
-import org.apache.spark.sql.{Encoder, Row, ShimUtils}
+import org.apache.spark.sql.functions.{lit, named_struct}
+import org.apache.spark.sql.{Column, Encoder, Row, ShimUtils}
 import org.apache.spark.sql.types.{DataType, StructType}
 import shapeless.{HList, LabelledGeneric, Lazy}
 import shapeless.ops.hlist.IsHCons
@@ -72,3 +73,7 @@ object Encoders extends EncodersImplicits {
 
 }
 
+object NamedStruct {
+  def apply(pairs: Seq[(String, Column)]): Column =
+    named_struct(pairs.flatMap(p => Seq(lit(p._1), p._2)):_*)
+}

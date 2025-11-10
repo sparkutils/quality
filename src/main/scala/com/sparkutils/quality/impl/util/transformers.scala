@@ -1,5 +1,6 @@
 package com.sparkutils.quality.impl.util
 
+import com.sparkutils.quality.impl.NamedStruct
 import com.sparkutils.quality.{RuleSuite, ruleFolderRunner}
 import com.sparkutils.shim.expressions.CreateNamedStruct1
 import org.apache.spark.sql.{Column, DataFrame, ShimUtils, Row => SRow}
@@ -30,17 +31,11 @@ protected[quality] object AddDataFunctions {
 
     val fieldNames = fields.fold(identity, _.map(_._1))
 
-    val theStruct = fields.fold( fields =>
-      struct(fields.head, fields.tail :_*),
-      pairs =>
-        ShimUtils.column(
-          CreateNamedStruct1(pairs.flatMap(p => Seq(lit(p._1), p._2)).map(ShimUtils.expression(_)))
-        )
+    val theStruct = fields.fold(
+      fields => struct(fields.head, fields.tail :_*),
+      pairs => NamedStruct(pairs)
     )
     val withFolder =
-      /* < 3.2 can't handle select
-      df.select(expr("*"), ruleFolderRunner(rules, theStruct, debugMode = debugMode, useType = useType,
-       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval).as(foldFieldName)) */
       df.withColumn(foldFieldName, ruleFolderRunner(rules, theStruct, debugMode = debugMode, useType = useType,
         compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval))
 

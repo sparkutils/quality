@@ -12,7 +12,7 @@ import com.sparkutils.quality.impl.mapLookup.MapLookupFunctions.registerMapLooku
 import com.sparkutils.quality.impl.rng.{RandLongsWithJump, RandomBytes, RandomLongs}
 import com.sparkutils.quality.impl.util.{ComparableMapConverter, ComparableMapReverser, InputWrapper, PrintCode}
 import com.sparkutils.quality.impl.yaml.{YamlDecoderExpr, YamlEncoderExpr}
-import com.sparkutils.quality.{QualityException, impl}
+import com.sparkutils.quality.{QualityException, impl, ruleFolderRunnerClassic}
 import org.apache.commons.rng.simple.RandomSource
 import org.apache.spark.sql.ShimUtils.{add, column, expression}
 import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
@@ -628,6 +628,39 @@ object RuleRegistrationFunctions {
         expression(ExpressionRunner(deserialize(getBinary(rs,0)), name = getString(name, 1), renderOptions = getMap(options, 2),
           forceRunnerEval = getBoolean(force, 3)))
     }, Set(1, 2, 3, 4))
+
+    register("rule_engine_runner", {
+      case Seq(rs) =>
+        expression(RuleEngineRunnerImpl.ruleEngineRunnerImpl(deserialize(getBinary(rs,0)), None))
+      case Seq(rs, dt) =>
+        expression(RuleEngineRunnerImpl.ruleEngineRunnerImpl(deserialize(getBinary(rs,0)), defaultParseTypes(getString(dt, 1))))
+      case Seq(rs, dt, debug) =>
+        expression(RuleEngineRunnerImpl.ruleEngineRunnerImpl(deserialize(getBinary(rs,0)), defaultParseTypes(getString(dt, 1)),
+          debugMode = getBoolean(debug, 2)))
+      case Seq(rs, dt, compe, debug, varp, varg, forr, fort) =>
+        expression(RuleEngineRunnerImpl.ruleEngineRunnerImpl(deserialize(getBinary(rs,0)), defaultParseTypes(getString(dt, 1)),
+          compileEvals = getBoolean(compe, 2), debugMode = getBoolean(debug, 3), variablesPerFunc = getInteger(varp, 4),
+          variableFuncGroup = getInteger(varg, 5), forceRunnerEval = getBoolean(forr, 6), forceTriggerEval = getBoolean(fort, 7)
+        ))
+    }, Set(1, 2, 3, 8))
+
+    register("rule_folder_runner", {
+      case Seq(rs, starter) =>
+        expression(ruleFolderRunnerClassic(deserialize(getBinary(rs,0)), column(starter)))
+      case Seq(rs, starter, dt) =>
+        expression(ruleFolderRunnerClassic(deserialize(getBinary(rs,0)), column(starter),
+          useType = defaultParseTypes(getString(dt, 2)).map(_.asInstanceOf[StructType])))
+      case Seq(rs, starter, debug, dt) =>
+        expression(ruleFolderRunnerClassic(deserialize(getBinary(rs,0)), column(starter),
+          debugMode = getBoolean(debug, 2), useType = defaultParseTypes(getString(dt, 3)).map(_.asInstanceOf[StructType])))
+      case Seq(rs, starter, compe, debug, varp, varg, forr, dt, fort) =>
+        expression(ruleFolderRunnerClassic(deserialize(getBinary(rs,0)), column(starter),
+          compileEvals = getBoolean(compe, 2), debugMode = getBoolean(debug, 3), variablesPerFunc = getInteger(varp, 4),
+          variableFuncGroup = getInteger(varg, 5), forceRunnerEval = getBoolean(forr, 6),
+          useType = defaultParseTypes(getString(dt, 7)).map(_.asInstanceOf[StructType]), forceTriggerEval = getBoolean(fort, 8)
+        ))
+    }, Set(2, 3, 4, 9))
+
   }
 
 }

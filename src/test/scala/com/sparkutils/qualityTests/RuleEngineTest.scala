@@ -4,12 +4,11 @@ import com.sparkutils.quality._
 import com.sparkutils.quality.functions.{flatten_rule_results, unpack_id_triple}
 import com.sparkutils.quality.impl.extension.FunNRewrite
 import com.sparkutils.quality.impl.{RuleEngineRunner, RunOnPassProcessor}
-import com.sparkutils.qualityTests.util.ClassicSharedTests
+import com.sparkutils.qualityTests.util.SharedConnectTests
 import com.sparkutils.testing.TestUtils.debug
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.ShimUtils.expression
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.types.{BooleanType, DataType, IntegerType, StructField, StructType}
 import org.scalatest.FunSuite
 
 import java.io.{ByteArrayOutputStream, ObjectOutputStream}
@@ -19,7 +18,7 @@ case class TestOn(product: String, account: String, subcode: Int)
 case class NewPosting(transfer_type: String, account: String, product: String, subcode: Int)
 case class Posting(transfer_type: String, account: String)
 
-class RuleEngineTest extends FunSuite with ClassicSharedTests {
+class RuleEngineTest extends SharedConnectTests {
 
   val testData=Seq(
     TestOn("edt", "4201", 40),
@@ -59,20 +58,28 @@ class RuleEngineTest extends FunSuite with ClassicSharedTests {
         resolveWith = if (doResolve.get()) Some(dataFrame) else None, compileEvals = compileEvals)
   }
 
-  test("testSimpleProductionRules") { evalCodeGensNoResolve { testPlan(FunNRewrite, disable = _ == 32) {
+  test("testSimpleProductionRules Classic") { classicOnly{ evalCodeGensNoResolve { testPlan(FunNRewrite, disable = _ == 32) {
+    doSimpleProductionRules()
+  } } } }
+
+  test("testSimpleProductionRules Connect") { connectOnly{
+    doSimpleProductionRules()
+  } }
+
+  private def doSimpleProductionRules(): Unit = {
     val rer = irules(
-      Seq((ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040,1),
+      Seq((ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040, 1),
         OutputExpression("array(account_row('from'), account_row('to', 'other_account1'))"))),
-        (ExpressionRule("product like '%fx%'"), RunOnPassProcessor(1000, Id(1042,1),
+        (ExpressionRule("product like '%fx%'"), RunOnPassProcessor(1000, Id(1042, 1),
           OutputExpression("array(named_struct('transfer_type', 'from', 'account', 'another_account', 'product', product, 'subcode', subcode), named_struct('transfer_type', 'to', 'account', account, 'product', product, 'subcode', subcode))"))),
-        (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1000, Id(1043,1),
+        (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1000, Id(1043, 1),
           OutputExpression("array(subcode('fromWithField', 6000), account_row('to', 'other_account1'))")))
       ), compileEvals = false
     )
 
     val testDataDF = {
       val s = sparkSession
-    import s.implicits._
+      import s.implicits._
       testData.toDF()
     }
 
@@ -84,9 +91,9 @@ class RuleEngineTest extends FunSuite with ClassicSharedTests {
     val res = outdf.select("together.*").as[RuleEngineResult[Seq[NewPosting]]].collect()
 
     // this row will fail as the 0.6 doesn't class as a pass for the output expression - regardless of overall status
-    assert(res(0).result.contains( Seq(NewPosting("from", "4201", "edt", 40), NewPosting("to","other_account1", "edt", 40))) )
+    assert(res(0).result.contains(Seq(NewPosting("from", "4201", "edt", 40), NewPosting("to", "other_account1", "edt", 40))))
     assert(res(0).salientRule.contains(SalientRule(Id(1, 1), Id(50, 1), Id(0, 1))))
-// TestOn("fx", "4206", 90),
+    // TestOn("fx", "4206", 90),
     //    TestOn("fxotc", "4201", 40),
     assert(res(3).result.contains(Seq(NewPosting("from", "another_account", "fx", 90), NewPosting("to", "4206", "fx", 90))))
     assert(res(4).result.contains(Seq(NewPosting("from", "another_account", "fxotc", 40), NewPosting("to", "4201", "fxotc", 40))))
@@ -95,9 +102,7 @@ class RuleEngineTest extends FunSuite with ClassicSharedTests {
 
     // did the field replace work
     assert(res(5).result.contains(Seq(NewPosting("fromWithField", "4201", "eqotc", 6000), NewPosting("to", "other_account1", "eqotc", 60))))
-
-
-  } } }
+  }
 
   test("testProbabilityRuleFail") { doTestProbabilityRules(OverallResult(currentResult = Failed)) }
 
@@ -234,11 +239,11 @@ class RuleEngineTest extends FunSuite with ClassicSharedTests {
     assert(res(5).contains(Seq((100, Seq(Posting("from", "4201"), Posting("to", "other_account1"))), justSeq)))
   } } }
 
-  test("testHugeAmountOfRulesSOE") { evalCodeGensNoResolve { funNRewrites {
+  test("testHugeAmountOfRulesSOE Classic") { classicOnly{ evalCodeGensNoResolve { funNRewrites {
     val rer = irules(
       Seq.fill(4000)(ExpressionRule(1 to 50 map ((i: Int) => s"(product = 'edt' and subcode = ${40 + i})") mkString " or "),
         RunOnPassProcessor(1000, Id(3010, 1),
-        OutputExpression("array(account_row('from', account), account_row('to', 'other_account1'))"))), compileEvals = false
+          OutputExpression("array(account_row('from', account), account_row('to', 'other_account1'))"))), compileEvals = false
     )(null.asInstanceOf[DataFrame]) // the df is irrelevant as we are NoResolving
 
     val rs = expression(rer).asInstanceOf[RuleEngineRunner].ruleSuite
@@ -266,7 +271,7 @@ class RuleEngineTest extends FunSuite with ClassicSharedTests {
       col("ruleSuiteVersion")
     )
 
-    val (ruleMap, missing) = integrateOutputExpressions(ruleMapWithoutOE, outputExpressions, Some(Id(-1,-1))) // non-existent but shouldn't throw key not found exception
+    val (ruleMap, missing) = integrateOutputExpressions(ruleMapWithoutOE, outputExpressions, Some(Id(-1, -1))) // non-existent but shouldn't throw key not found exception
 
     // attempt to serialise, it if works that's enough to pass as throwing an SOE is the problem
     val rerer = ruleEngineRunner(ruleMap.head._2)
@@ -275,8 +280,7 @@ class RuleEngineTest extends FunSuite with ClassicSharedTests {
     val os = new ObjectOutputStream(bos)
     os.writeObject(expression(rerer))
     val bytes = bos.toByteArray()
-  } } }
-
+  } } } }
 
   test("scalarSubqueryAsOutputExpressionInStruct") { evalCodeGensNoResolve {
     v3_4_and_above {
@@ -352,7 +356,7 @@ class RuleEngineTest extends FunSuite with ClassicSharedTests {
 
       // assert that using a join to test with is fine even when nested
       val s = sparkSession
-    import s.implicits._
+      import s.implicits._
       val seq = Seq(0, 1, 2, 3, 4)
       val df = seq.toDF("i") // Force GenericArrayData instead of UnsafeArrayData
       val tableName = "the_I_s_Have_It"

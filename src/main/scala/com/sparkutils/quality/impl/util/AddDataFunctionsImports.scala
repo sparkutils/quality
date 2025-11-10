@@ -1,6 +1,6 @@
 package com.sparkutils.quality.impl.util
 
-import com.sparkutils.quality.RuleSuite
+import com.sparkutils.quality.{RuleSuite, ruleEngineRunner}
 import com.sparkutils.quality.functions.strip_result_ddl
 import com.sparkutils.quality.impl.util.AddDataFunctions.ifoldAndReplaceFields
 import com.sparkutils.quality.impl.{ExpressionRunner, RuleEngineRunnerImpl, RuleRunnerImpl}
@@ -169,7 +169,7 @@ trait AddDataFunctionsImports {
     (if ( (alias eq null) || alias.isEmpty )
       dataFrame
     else
-      dataFrame.as(alias)).select(expr("*"), RuleEngineRunnerImpl.ruleEngineRunnerImpl(rules, Some(outputType), debugMode = debugMode,
+      dataFrame.as(alias)).select(expr("*"), ruleEngineRunner(rules, Some(outputType), debugMode = debugMode,
       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval).as(ruleEngineFieldName))
   }
 
@@ -195,7 +195,7 @@ trait AddDataFunctionsImports {
     (if ( (alias eq null) || alias.isEmpty )
       dataFrame
     else
-      dataFrame.as(alias)).select(expr("*"), RuleEngineRunnerImpl.ruleEngineRunnerImpl(rules, outputType, debugMode = debugMode,
+      dataFrame.as(alias)).select(expr("*"), ruleEngineRunner(rules, outputType, debugMode = debugMode,
       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval).as(ruleEngineFieldName))
   }
 
