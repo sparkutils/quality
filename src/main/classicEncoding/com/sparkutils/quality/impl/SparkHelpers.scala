@@ -2,10 +2,12 @@ package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.{GeneralExpressionsResult, RuleEngineResult, RuleFolderResult, RuleSuiteResult}
 import com.sparkutils.quality.impl.{IdEncoders, IntEncoders}
+import com.sparkutils.shim.expressions.CreateNamedStruct1
 import frameless.TypedEncoder
-import org.apache.spark.sql.Encoder
+import org.apache.spark.sql.{Column, Encoder, ShimUtils}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.Expression
+import org.apache.spark.sql.functions.lit
 import org.apache.spark.sql.types.DataType
 import shapeless.{HList, LabelledGeneric, Lazy}
 import shapeless.ops.hlist.IsHCons
@@ -84,6 +86,6 @@ object Encoders extends EncodersImplicits {
 object NamedStruct {
   def apply(pairs: Seq[(String, Column)]): Column =
     ShimUtils.column(
-      CreateNamedStruct1(pairs.flatMap(p => Seq(lit(p._1), p._2)).map(ShimUtils.expression(_)))
+      CreateNamedStruct1(pairs.flatMap(p => Seq(lit(p._1), p._2)).map(ShimUtils.expression))
     )
 }
