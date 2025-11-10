@@ -1,17 +1,15 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
-import com.sparkutils.qualityTests.util.{ClassicSharedTests, RowTools}
+import com.sparkutils.qualityTests.util.{RowTools, SharedConnectTests}
 import com.sparkutils.testing.TestUtils.debug
 import types._
 import impl.imports.RuleResultsImports.packId
 import impl.util.OutputExpressionRow
 import org.apache.spark.sql.SaveMode
 import org.apache.spark.sql.functions._
-import org.scalatest.FunSuite
 
-// TODO 4 tests use taddDataQuality so they fail on connect
-class RoundTripTest extends ClassicSharedTests with RowTools {
+class RoundTripTest extends SharedConnectTests with RowTools {
 
   test("verifyPacking") {
     import implicits._

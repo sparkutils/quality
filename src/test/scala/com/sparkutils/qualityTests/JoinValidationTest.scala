@@ -2,7 +2,7 @@ package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.RuleEngineRunner
-import com.sparkutils.qualityTests.util.ClassicSharedTests
+import com.sparkutils.qualityTests.util.{ClassicSharedTests, SharedConnectTests}
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.DataType
@@ -14,7 +14,7 @@ import java.io.{ByteArrayOutputStream, ObjectOutputStream}
  * Primarily to prove joins with relation's work with resolveWith across versions.
  * Secondary usage is to prove a simple join (vs maplookup approach) can work with resolveWith for lookups
  */
-class JoinValidationTest extends FunSuite with ClassicSharedTests {
+class JoinValidationTest extends SharedConnectTests {
 
   val testData=Seq(
     TestOn("edt", "4201", 40),

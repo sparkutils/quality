@@ -1,8 +1,8 @@
-package com.sparkutils.qualityTests
+package com.sparkutils.qualityTests.classicOnly
 
 import com.sparkutils.qualityTests.util.ClassicSharedTests
-import com.sparkutils.testing.{ClassicSparkTestUtils, SparkTestUtils}
-import org.apache.spark.sql.ShimUtils
+import com.sparkutils.qualityTests.{TestIdLeft, TestIdRight}
+import com.sparkutils.testing.ClassicSparkTestUtils
 import org.apache.spark.sql.functions._
 
 class RoundTripTest3 extends ClassicSharedTests {
