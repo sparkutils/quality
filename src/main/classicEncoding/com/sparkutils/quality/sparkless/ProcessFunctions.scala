@@ -4,7 +4,7 @@ import com.sparkutils.quality.impl.util.EmbeddedTypeCorrection.{noCorrection, of
 import com.sparkutils.quality.impl.{Encoders, LazyRuleSuiteResultDetailsImpl, LazyRuleSuiteResultDetailsProxyImpl, LazyRuleSuiteResultImpl}
 import com.sparkutils.quality.impl.util.Encoding.fromNormalEncoder
 import com.sparkutils.quality.sparkless.StarUtil.star
-import com.sparkutils.quality.{LazyRuleEngineResult, LazyRuleFolderResult, LazyRuleSuiteResultDetails, Passed, RuleEngineResult, RuleFolderResult, RuleResult, RuleSuite, RuleSuiteResultDetails, SalientRule, foldAndReplaceFieldPairsWithStruct, foldAndReplaceFieldsWithStruct, ruleEngineWithStructF}
+import com.sparkutils.quality.{LazyRuleEngineResult, LazyRuleFolderResult, LazyRuleSuiteResultDetails, Passed, RuleResult, RuleSuite, RuleSuiteResultDetails, SalientRule, foldAndReplaceFieldPairsWithStruct, foldAndReplaceFieldsWithStruct, ruleEngineWithStructFOT}
 import com.sparkutils.quality.sparkless.impl.Processors.processFactory
 import frameless.{TypedEncoder, TypedExpressionEncoder}
 import org.apache.spark.sql.{Column, DataFrame, Encoder}
@@ -60,7 +60,7 @@ trait LazyProcessFunctions { self: NonLazyProcessFunctions =>
    * @tparam T the result type of the rule engine
    * @return
    */
-  def lazyRuleEngineFactory[I: Encoder, T: Encoder](ruleSuite: RuleSuite, compile: Boolean = true,
+  def lazyRuleEngineFactory[I: Encoder, T: Encoder](ruleSuite: RuleSuite, outputType: Option[DataType] = None, compile: Boolean = true,
                                                     compileEvals: Boolean = false,
                                                     forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false, forceMutable: Boolean = false,
                                                     extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
@@ -71,7 +71,7 @@ trait LazyProcessFunctions { self: NonLazyProcessFunctions =>
     implicit val ttyped: TypedEncoder[T] = fromNormalEncoder[T]
     implicit val enc = TypedExpressionEncoder[(InternalRow, Option[SalientRule], Option[T])]
 
-    val r = processFactory[I, (InternalRow, Option[SalientRule], Option[T])](star("ruleEngine")(ruleEngineWithStructF(ruleSuite,
+    val r = processFactory[I, (InternalRow, Option[SalientRule], Option[T])](star("ruleEngine")(ruleEngineWithStructFOT(ruleSuite, outputType = outputType,
       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval)), ofRuleEngine[Option[T]], compile,
       forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)(implicitly[Encoder[I]], enc)

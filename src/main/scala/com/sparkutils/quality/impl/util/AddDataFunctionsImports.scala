@@ -21,7 +21,7 @@ trait AddDataFunctionsImports {
   def addDataQuality(dataFrame: DataFrame, rules: RuleSuite, name: String = "DataQuality", compileEvals: Boolean = false,
                      forceRunnerEval: Boolean = false): DataFrame = {
     import org.apache.spark.sql.functions.expr
-    dataFrame.select(expr("*"), RuleRunnerImpl.ruleRunnerImpl(rules, compileEvals = compileEvals,
+    dataFrame.select(expr("*"), com.sparkutils.quality.ruleRunner(rules, compileEvals = compileEvals,
       forceRunnerEval = forceRunnerEval).as(name))
   }
 

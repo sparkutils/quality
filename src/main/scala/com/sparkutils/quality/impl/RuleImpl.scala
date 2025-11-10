@@ -14,6 +14,7 @@ import org.apache.spark.sql.types.{DataType, Decimal}
 import org.apache.spark.sql.{ShimUtils, SparkSession}
 import org.apache.spark.unsafe.types.UTF8String
 
+import java.io.{ByteArrayInputStream, ByteArrayOutputStream, ObjectInputStream, ObjectOutputStream}
 import scala.collection.mutable
 
 /**
@@ -171,12 +172,14 @@ trait LambdaFunction extends HasRuleText with HasExpr {
   def parsed: LambdaFunctionParsed
 }
 
+@SerialVersionUID(1L)
 case class LambdaFunctionImpl(name: String, rule: String, id: Id) extends LambdaFunction {
   override def expr: Expression = RuleLogicUtils.expr(rule)
 
   def parsed: LambdaFunctionParsed = LambdaFunctionParsed(name, rule, id, expr)
 }
 
+@SerialVersionUID(1L)
 case class LambdaFunctionParsed(name: String, rule: String, id: Id, override val expr: Expression) extends LambdaFunction {
   def parsed: LambdaFunctionParsed = this
 }
@@ -229,6 +232,7 @@ trait HasRuleText extends HasExpr {
  * @param rule
  * @param expr
  */
+@SerialVersionUID(1L)
 case class ExpressionRuleExpr( rule: String, override val expr: Expression ) extends ExprLogic with HasRuleText {
   override def reset(): Unit = super[HasRuleText].reset()
 }
@@ -296,6 +300,7 @@ trait ExpressionCompiler extends HasExpr {
   * Rewritten children at eval will be swapped out
   * @param expr
   */
+@SerialVersionUID(1L)
 case class ExpressionWrapper( expr: Expression, compileEval: Boolean = true) extends ExprLogic with ExpressionCompiler {
   override def internalEval(internalRow: InternalRow): Any = {
     if (compileEval)
@@ -343,6 +348,7 @@ object UpdateFolderExpression {
  * Used in post serializing processing to keep the rule around
  * @param expr
  */
+@SerialVersionUID(1L)
 case class OutputExpressionExpr( rule: String, override val expr: Expression) extends OutputExprLogic with HasRuleText {
   override def reset(): Unit = super[HasRuleText].reset()
 }
@@ -368,6 +374,7 @@ trait RunOnPassProcessor extends Serializable {
  * Generates a result upon a pass, it is not evaluated otherwise and only evaluated if no other rule has higher salience.
  * It is not possible to have more than one rule evaluate the returnIfPassed.
  */
+@SerialVersionUID(1L)
 case class RunOnPassProcessorImpl(salience: Int, id: Id, rule: String, returnIfPassed: OutputExprLogic) extends RunOnPassProcessor with Serializable {
   override def withExpr(expr: OutputExpression): RunOnPassProcessor =
     copy(rule = expr.rule, returnIfPassed = expr)
@@ -384,6 +391,7 @@ case class HolderUsedInsteadIfImpl(id: Id) extends
  * @param salience
  * @param id
  */
+@SerialVersionUID(1L)
 case class RunOnPassProcessorHolder(salience: Int, id: Id) extends RunOnPassProcessor with Serializable {
   def returnIfPassed: OutputExprLogic = throw HolderUsedInsteadIfImpl(id)
   def rule: String = throw HolderUsedInsteadIfImpl(id)
@@ -609,3 +617,21 @@ case class LazyRuleSuiteResultDetailsProxyImpl(_ruleSuiteResultDetails: RuleSuit
   override def ruleSuiteResultDetails: RuleSuiteResultDetails = _ruleSuiteResultDetails
 }
 
+
+object RuleSuiteHelpers {
+  protected[quality] def deserialize(in: Array[Byte]): RuleSuite = {
+    val os = new ObjectInputStream(new ByteArrayInputStream(in))
+    val suite = os.readObject()
+    os.close()
+    suite.asInstanceOf[RuleSuite]
+  }
+
+  protected[quality] def serialize(ruleSuite: RuleSuite): Array[Byte] = {
+    val bos = new ByteArrayOutputStream()
+    val os = new ObjectOutputStream(bos)
+    os.writeObject(ruleSuite)
+    val res = bos.toByteArray
+    os.close()
+    res
+  }
+}

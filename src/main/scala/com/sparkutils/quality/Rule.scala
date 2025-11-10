@@ -89,8 +89,10 @@ object RunOnPassProcessor {
   * @param id
   * @param expression
   */
+@SerialVersionUID(1L)
 case class Rule(id: Id, expression: RuleLogic, runOnPassProcessor: RunOnPassProcessor = NoOpRunOnPassProcessor.noOp) extends Serializable
 
+@SerialVersionUID(1L)
 case class RuleSet(id: Id, rules: Seq[Rule]) extends Serializable
 
 /**
@@ -100,6 +102,7 @@ case class RuleSet(id: Id, rules: Seq[Rule]) extends Serializable
  * @param lambdaFunctions
  * @param probablePass override to specify a different percentage for treating probability results as passes - defaults to 80% (0.8)
  */
+@SerialVersionUID(1L)
 case class RuleSuite(id: Id, ruleSets: Seq[RuleSet], lambdaFunctions: Seq[LambdaFunction] = Seq.empty, probablePass: Double = 0.8) extends Serializable {
 
   /**

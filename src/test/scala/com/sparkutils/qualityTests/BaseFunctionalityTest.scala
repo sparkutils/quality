@@ -16,14 +16,14 @@ import org.scalatest.FunSuite
 
 import java.util.UUID
 import com.sparkutils.quality.impl.yaml.{YamlDecoderExpr, YamlEncoderExpr}
-import com.sparkutils.qualityTests.util.{ClassicSharedTests, RowTools}
-import com.sparkutils.testing.TestUtils.debug
+import com.sparkutils.qualityTests.util.{ClassicSharedTests, RowTools, SharedConnectTests}
+import com.sparkutils.testing.TestUtils.{anyCauseHas, debug}
 import frameless.TypedExpressionEncoder
 import org.apache.spark.sql.ShimUtils.expression
 
 import scala.language.postfixOps
 
-class BaseFunctionalityTest extends ClassicSharedTests with RowTools {
+class BaseFunctionalityTest extends SharedConnectTests with RowTools {
 
   test("flattenResultsTest") { evalCodeGensNoResolve {
     val rules = genRules(27, 27)
@@ -44,7 +44,8 @@ class BaseFunctionalityTest extends ClassicSharedTests with RowTools {
     assert(rulecount * (toWrite + 1) == exploded.count(), "exploded count size was unexpected")
   } }
 
-  test("flattenResultsWithMissingTest") { evalCodeGensNoResolve {
+  // TODO coalesce etc.
+  test("flattenResultsWithMissingTest") { classicOnly { evalCodeGensNoResolve {
     val rules = genRules(27, 27)
     val rulecount = rules.ruleSets.map( s => s.rules.size).sum
 
@@ -71,47 +72,8 @@ class BaseFunctionalityTest extends ClassicSharedTests with RowTools {
 
     // it's sufficient to run the results for this test, if it can't be encoded it will throw on count
     assert(rulecount * (toWrite + 1) == exploded.count(), "exploded count size was unexpected")
-  } }
-/*
-  @Test // 3.2 is random when the deserializer is not pushed through the planner / query execution phases - which is nice
-  def loadsOfFlattens: Unit = loadsOf(flattenResultsTest)
+  } } }
 
-  def loadsOf(thunk: => Unit, runs: Int = 300): Unit = {
-    var passed = 0
-    for{ i <- 0 until runs }{
-      try {
-        thunk
-        passed += 1
-      } catch {
-        case e: org.scalatest.exceptions.TestFailedException => println("failed "+e.getMessage())
-        case t: Throwable => println("failed unexpectedly "+t.getMessage())
-      }
-    }
-    assert(passed == runs, "Should have passed all of them, nothing has changed in between runs")
-  }*/
-/* disabled as it's tested above with the 3.2 workaround
-  @Test // 3.2 is random - which is nice
-  def loadsOfFlattensReduced: Unit = loadsOf(flattenResultsTestReduced, 30) // 300 takes too long
-
-  test("flattenResultsTestReduced") { evalCodeGensNoResolve {
-    val rules = genRules(27, 27)
-    val rulecount = rules.ruleSets.map( s => s.rules.size).sum
-
-    val df = taddDataQuality(dataFrameLong(writeRows, 27, ruleSuiteResultType, null), rules)
-
-    val exploded = df.selectExpr("size(flattenResults(DataQuality)) as toCount")
-
-    //println(exploded.queryExecution)
-    //exploded.show(84)
-
-    val s = sparkSession
-    import s.implicits._
-    val res = exploded.selectExpr("sum(toCount)").as[Long].head
-
-    // it's sufficient to run the results for this test, if it can't be encoded it will throw on count
-    assert(rulecount * (writeRows + 1) == res, "exploded count size was unexpected")
-  }
-*/
   test("verifyResultExprDSL") {  evalCodeGens {
     assert(sparkSession.range(1).selectExpr("passed() p", "soft_failed() s", "disabled_rule() d", "failed() f")
       .select(expr("*"), passed as "p1", soft_failed as "s1", disabled_rule as "d1", failed as "f1")
@@ -276,12 +238,16 @@ class BaseFunctionalityTest extends ClassicSharedTests with RowTools {
     assert(res2.head._2 == res.head.details)
   }
 
-  test("testPrintExpr") { funNRewrites {
+  test("testPrintExpr") { classicOnly { funNRewrites {
     doTestPrint("Expression toStr is ->", "my message is", "my message is", "plus(1, 1, lambda", "printExpr")
-  }}
+  }} }
 
   // 2.4 doesn't support forceInterpreted so we can't test that it _doesn't_ compile, databricks is cluster based so we'll not be able to capture it without dumping to files
-  test("testPrintCode") { not_Cluster{ v3_2_and_above {
+  test("testPrintCode") { classicOnly { not_Cluster{ v3_2_and_above {
+
+    val s = sparkSession
+    import s.implicits._
+
     // using eval we shouldn't get output
     forceInterpreted {  {
       doTestPrint(null, "my message is", null, null, "printCode")
@@ -298,7 +264,7 @@ class BaseFunctionalityTest extends ClassicSharedTests with RowTools {
         doTestPrint(PrintCode(expression(lit(""))).msg, "my message is", "my message is", "LambdaVariable - b", "printCode")
       }
     }
-  }}}
+  }}}}
 
   def doTestPrint(default: String, custom: String, customTest: String, addTest: String, expr: String): Unit = {
     import com.sparkutils.quality._
@@ -375,7 +341,12 @@ class BaseFunctionalityTest extends ClassicSharedTests with RowTools {
         fail("Is assumed to fail as spark doesn't order maps")
       } catch {
         case t: Throwable =>
-          assert(t.getMessage.toLowerCase.contains("map type"))
+          classicOnly {
+            assert(t.getMessage.toLowerCase.contains("map type"))
+          }
+          connectOnly {
+            assert(t.getMessage.toLowerCase.contains("the feature is not supported") || t.getMessage.toLowerCase.contains("map<int, int>"))
+          }
       }
 
       // can't resolve DataQuality here, manages quite nicely on it's own
@@ -398,10 +369,14 @@ class BaseFunctionalityTest extends ClassicSharedTests with RowTools {
     doCheck(Seq(Holder(Map(Seq(1,2) -> 1, Seq(2,1) -> 2 )), Holder(Map(Seq(2,1) -> 1, Seq(3,1) -> 1 ))))
     doCheck(Seq(Holder(Map(Seq(1,2) -> 1, Seq(2,1) -> 1 )), Holder(Map(Seq(2,1) -> 1, Seq(1,2) -> 1 ))), true)
     doCheck(Seq(Holder(Map(Seq(1,2) -> 1, Seq(2) -> 2 )), Holder(Map(Seq(2) -> 1, Seq(3,1) -> 1 ))))
-    // maps
-    doCheck(Seq(Holder(Map(Map(1 -> 2, 2 -> 2) -> 1, Map(3 -> 2, 4 -> 2) -> 1)), Holder(Map(Map(2 -> 1, 1 -> 2) -> 1)))) // 2 -> 2 is different
-    doCheck(Seq(Holder(Map(Map(1 -> 2, 2 -> 2) -> 1)), Holder(Map(Map(2 -> 1, 1 -> 2) -> 1)))) // 2 -> 2 is different
-    doCheck(Seq(Holder(Map(Map(1 -> 2, 2 -> 1) -> 1)), Holder(Map(Map(2 -> 1, 1 -> 2) -> 1))), true)
+    // maps -- connect/arrow can't deal with it, calling .as[T] does not work TODO figure out which?
+    classicOnly {
+
+      doCheck(Seq(Holder(Map(Map(1 -> 2, 2 -> 2) -> 1, Map(3 -> 2, 4 -> 2) -> 1)), Holder(Map(Map(2 -> 1, 1 -> 2) -> 1)))) // 2 -> 2 is different
+      doCheck(Seq(Holder(Map(Map(1 -> 2, 2 -> 2) -> 1)), Holder(Map(Map(2 -> 1, 1 -> 2) -> 1)))) // 2 -> 2 is different
+      doCheck(Seq(Holder(Map(Map(1 -> 2, 2 -> 1) -> 1)), Holder(Map(Map(2 -> 1, 1 -> 2) -> 1))), true)
+
+    }
 
     // map value
     doCheck(Seq(Holder(Map(1 -> Map(1 -> 2, 2 -> 2))), Holder(Map(1 -> Map(2 -> 1, 1 -> 2))))) // 2 -> 2 is different
@@ -568,7 +543,7 @@ class BaseFunctionalityTest extends ClassicSharedTests with RowTools {
     sparkSession.sql("select inc(1,34,3243,666)")
     fail("Should have thrown")
   } catch {
-    case QualityException(m,_) if m.contains("counts are 1, 0, 2") => ()
+    case e: Throwable if e.getMessage.contains("counts are 1, 0, 2") => ()
   }}
 
   test("testRuleResult") {  evalCodeGensNoResolve { funNRewrites {

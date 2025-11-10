@@ -15,8 +15,9 @@ import org.apache.spark.sql.catalyst.expressions.codegen.Block._
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode, ExprValue}
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression, UnaryExpression}
 import org.apache.spark.sql.catalyst.util.ArrayBasedMapData
+import org.apache.spark.sql.functions.{lit, typedLit}
 import org.apache.spark.sql.types.DataType
-import org.apache.spark.sql.{Column, DataFrame, QualitySparkUtils}
+import org.apache.spark.sql.{Column, DataFrame, QualitySparkUtils, ShimUtils}
 
 import scala.collection.mutable
 import scala.reflect.{ClassTag, classTag}
@@ -55,7 +56,7 @@ protected[quality] object RuleRunnerImpl {
    * @param forceRunnerEval Defaulting to false, passing true forces a simplified partially interpreted evaluation (compileEvals must be false to get fully interpreted)
    * @return A Column representing the Quality DQ expression built from this ruleSuite
    */
-  def ruleRunnerImpl(ruleSuite: RuleSuite, compileEvals: Boolean = false, resolveWith: Option[DataFrame] = None,
+  def ruleRunnerImplClassic(ruleSuite: RuleSuite, compileEvals: Boolean = false, resolveWith: Option[DataFrame] = None,
                      variablesPerFunc: Int = 40, variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false): Column = {
     com.sparkutils.quality.registerLambdaFunctions( ruleSuite.lambdaFunctions )
     val flattened = flattenExpressions(ruleSuite)
@@ -87,6 +88,20 @@ protected[quality] object RuleRunnerImpl {
       } getOrElse runner
     )
   }
+
+  /**
+   * Creates a column that runs the RuleSuite.  This also forces registering the lambda functions used by that RuleSuite
+   *
+   * @param ruleSuite The Qualty RuleSuite to evaluate
+   * @param compileEvals Should the rules be compiled out to interim objects - by default false, allowing optimisations
+   * @param variablesPerFunc Defaulting to 40, it allows, in combination with variableFuncGroup customisation of handling the 64k jvm method size limitation when performing WholeStageCodeGen.  You _shouldn't_ need it but it's there just in case.
+   * @param variableFuncGroup Defaulting to 20
+   * @param forceRunnerEval Defaulting to false, passing true forces a simplified partially interpreted evaluation (compileEvals must be false to get fully interpreted)
+   * @return A Column representing the Quality DQ expression built from this ruleSuite
+   */
+  def ruleRunnerImpl(ruleSuite: RuleSuite, compileEvals: Boolean = false,
+                     variablesPerFunc: Int = 40, variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false): Column =
+    ShimUtils.callFunction("dq_rule_runner", lit(RuleSuiteHelpers.serialize(ruleSuite)), lit(compileEvals), lit(variablesPerFunc), lit(variableFuncGroup), lit(forceRunnerEval))
 
 }
 

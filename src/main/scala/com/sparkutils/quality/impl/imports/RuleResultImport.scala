@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl.imports
 
 import com.sparkutils.quality.impl.RuleResultExpression
-import org.apache.spark.sql.Column
+import org.apache.spark.sql.{Column, ShimUtils}
 
 trait RuleResultImport {
 
@@ -15,5 +15,5 @@ trait RuleResultImport {
    * @return
    */
   def rule_result(ruleSuiteResults: Column, ruleSuiteId: Column, ruleSetId: Column, ruleId: Column): Column =
-    RuleResultExpression(ruleSuiteResults, ruleSuiteId, ruleSetId, ruleId)
+    ShimUtils.callFunction("rule_result", ruleSuiteResults, ruleSuiteId, ruleSetId, ruleId)
 }

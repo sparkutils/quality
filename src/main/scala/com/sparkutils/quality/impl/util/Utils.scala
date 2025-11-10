@@ -8,7 +8,7 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode, ExprValue, JavaCode, QualityExprUtils, VariableValue}
 import org.apache.spark.sql.catalyst.expressions.{Alias, BinaryExpression, BoundReference, Expression, If, IsNull, Literal, NamedExpression, Unevaluable, UnsafeArrayData}
 import org.apache.spark.sql.catalyst.util.ArrayData
-import org.apache.spark.sql.types.{ArrayType, BooleanType, DataType, StructField, StructType}
+import org.apache.spark.sql.types.{ArrayType, BooleanType, DataType, MapType, StructField, StructType}
 
 import java.util.concurrent.atomic.AtomicBoolean
 import org.apache.spark.internal.Logging
@@ -17,6 +17,7 @@ import org.apache.spark.sql.{Encoder, ShimUtils, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.objects.{InitializeJavaBean, Invoke, MapObjects, NewInstance, UnresolvedMapObjects}
 
+import scala.annotation.tailrec
 import scala.reflect.ClassTag
 
 object DebugTime extends Logging {
@@ -390,3 +391,30 @@ case class InputWrapper(left: Expression, right: Expression) extends BinaryExpre
   override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode =
     right.genCode(ctx)
 }
+/*
+object TypeUtils {
+
+  private def mapType(l: MapType, r: MapType) =
+    equivalent(l.keyType, r.keyType) && equivalent(l.valueType, r.valueType)
+
+  /**
+   * Compares struct fields without using nullability
+   * @param left
+   * @param right
+   * @return
+   */
+  @tailrec
+  def equivalent(left: DataType, right: DataType): Boolean =
+    (left, right) match {
+      case (l: StructType, r: StructType) if l.fields.length == r.fields.length =>
+        l.copy(fields = l.fields.map(f => f.copy(nullable = true))) ==
+          r.copy(fields = r.fields.map(f => f.copy(nullable = true)))
+      case (_: StructType, _: StructType) =>
+        false
+      case (l: ArrayType, r: ArrayType) =>
+        equivalent(l.elementType, r.elementType)
+      case (l: MapType, r: MapType) =>
+        mapType(l, r)
+      case _ => left == right
+    }
+} */

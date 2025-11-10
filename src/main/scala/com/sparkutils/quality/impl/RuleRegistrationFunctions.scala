@@ -2,6 +2,7 @@ package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.functions._
+import com.sparkutils.quality.impl.RuleSuiteHelpers.deserialize
 import com.sparkutils.quality.impl.aggregates.AggregateExpressions
 import com.sparkutils.quality.impl.bloom.{BucketedArrayParquetAggregator, ParquetAggregator}
 import com.sparkutils.quality.impl.hash.{HashFunctionFactory, HashFunctionsExpression, MessageDigestFactory, ZALongHashFunctionFactory, ZALongTupleHashFunctionFactory}
@@ -21,7 +22,7 @@ import org.apache.spark.sql.qualityFunctions.LambdaFunctions.processTopCallFun
 import org.apache.spark.sql.qualityFunctions._
 import org.apache.spark.sql.shim.hash.DigestFactory
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.{ShimUtils, SparkSession, functions}
+import org.apache.spark.sql.{QualitySparkUtils, ShimUtils, SparkSession, functions}
 import org.apache.spark.unsafe.types.UTF8String
 
 object RuleRegistrationFunctions {
@@ -53,6 +54,12 @@ object RuleRegistrationFunctions {
     exp match {
       case Literal(str: UTF8String, StringType) => str.toString()
       case _ => literalsNeeded(pos)
+    }
+
+  protected[quality] def getBinary(exp: Expression, pos: Int = -1): Array[Byte] =
+    exp match {
+      case Literal(ar: Array[Byte], _: BinaryType) => ar
+      case _ => literalsNeeded(pos, "Binary")
     }
 
   protected[quality] val mustKeepNames = Set(LambdaFunctions.PlaceHolder,
@@ -173,9 +180,9 @@ object RuleRegistrationFunctions {
       parseTypes(str.toString).getOrElse(qualityException(s"Could not parse the type $str"))
     }
 
-    def getMap(exp: Expression) = exp match {
+    def getMap(exp: Expression, pos: Int = -1) = exp match {
       case l: Literal if l.dataType.isInstanceOf[MapType] =>
-        MapUtils.toScalaMap(l.value.asInstanceOf[ArrayBasedMapData], StringType, StringType).asInstanceOf[Map[String,String]]
+        MapUtils.toScalaMap(l.value.asInstanceOf[ArrayBasedMapData], StringType, StringType).map(p => (p._1.toString, p._2.toString))
       case c: CreateMap if c.children.grouped(2).forall{
         case Seq(Literal(_: UTF8String, StringType), _: Literal) =>
           true
@@ -185,7 +192,7 @@ object RuleRegistrationFunctions {
           case Seq(Literal(str: UTF8String, StringType), value: Literal) =>
             str.toString -> value.value.toString()
         }.toMap
-      case _ => throw QualityException(s"Could not process a literal map with expression $exp")
+      case _ => throw QualityException(s"Could not process a literal map with expression $exp index $pos")
     }
 
     register("processor_input_wrapper", exps => InputWrapper(exps.head, exps.last), minimum = 2)
@@ -539,10 +546,10 @@ object RuleRegistrationFunctions {
 
     // 3.0.1 adds this #37 drops 3.0.0 and we can remove the c+p from 3.4.1 needed due to #36
     register("update_field", exps => {
-      expression(update_field(column(exps.head), ( exps.tail.grouped(2).map(p => getString(p.head, 0) -> column(p.last)).toSeq): _*))
+      expression(QualitySparkUtils.update_field(column(exps.head), ( exps.tail.grouped(2).map(p => getString(p.head, 0) -> column(p.last)).toSeq): _*))
     }, minimum = 3)
     register("drop_field", exps => {
-      expression(drop_field(column(exps.head), exps.tail.zipWithIndex.map{case (p, i) => getString(p, i+1)} : _*))
+      expression(QualitySparkUtils.drop_field(column(exps.head), exps.tail.zipWithIndex.map{case (p, i) => getString(p, i+1)} : _*))
     }, minimum = 2)
 
     def msgAndExpr(msgDefault: String, exps: Seq[Expression]) = exps match {
@@ -584,6 +591,43 @@ object RuleRegistrationFunctions {
     }, minimum = 5)
 
     registerMapLookupsForAgnostic(registerFunction)
+
+    // actual runners
+    register("dq_rule_runner", {
+      case Seq(rs) =>
+        expression(RuleRunnerImpl.ruleRunnerImplClassic(deserialize(getBinary(rs,0))))
+      case Seq(rs, comp) =>
+        expression(RuleRunnerImpl.ruleRunnerImplClassic(deserialize(getBinary(rs,0)), getBoolean(comp, 1)))
+      case Seq(rs, comp, varPer, varG) =>
+        expression(RuleRunnerImpl.ruleRunnerImplClassic(deserialize(getBinary(rs,0)), getBoolean(comp, 1), None,
+          variablesPerFunc = getInteger(varPer, 2), variableFuncGroup = getInteger(varG, 3)))
+      case Seq(rs, comp, varPer, varG, force) =>
+        expression(RuleRunnerImpl.ruleRunnerImplClassic(deserialize(getBinary(rs,0)), getBoolean(comp, 1), None,
+          variablesPerFunc = getInteger(varPer, 2), variableFuncGroup = getInteger(varG, 3),
+          forceRunnerEval = getBoolean(force, 4)))
+    }, Set(1, 2, 4, 5))
+
+    register("typed_expression_runner", {
+      case Seq(rs, ddl) =>
+        expression(ExpressionRunner(deserialize(getBinary(rs,0)), ddlType = getString(ddl, 1)))
+      case Seq(rs, ddl, name) =>
+        expression(ExpressionRunner(deserialize(getBinary(rs,0)), ddlType = getString(ddl, 1), name = getString(name, 2)))
+      case Seq(rs, ddl, name, force) =>
+        expression(ExpressionRunner(deserialize(getBinary(rs,0)), ddlType = getString(ddl, 1), name = getString(name, 2),
+          forceRunnerEval = getBoolean(force, 3)))
+    }, Set(2, 3, 4))
+
+    register("expression_runner", {
+      case Seq(rs) =>
+        expression(ExpressionRunner(deserialize(getBinary(rs,0))))
+      case Seq(rs, name) =>
+        expression(ExpressionRunner(deserialize(getBinary(rs,0)), name = getString(name, 1)))
+      case Seq(rs, name, options) =>
+        expression(ExpressionRunner(deserialize(getBinary(rs,0)), name = getString(name, 1), renderOptions = getMap(options, 2)))
+      case Seq(rs, name, options, force) =>
+        expression(ExpressionRunner(deserialize(getBinary(rs,0)), name = getString(name, 1), renderOptions = getMap(options, 2),
+          forceRunnerEval = getBoolean(force, 3)))
+    }, Set(1, 2, 3, 4))
   }
 
 }
