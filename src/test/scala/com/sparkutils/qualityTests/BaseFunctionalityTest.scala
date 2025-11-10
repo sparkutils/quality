@@ -20,6 +20,7 @@ import com.sparkutils.qualityTests.util.{ClassicSharedTests, RowTools, SharedCon
 import com.sparkutils.testing.TestUtils.{anyCauseHas, debug}
 import frameless.TypedExpressionEncoder
 import org.apache.spark.sql.ShimUtils.expression
+import org.scalatest.Matchers.convertToAnyShouldWrapper
 
 import scala.language.postfixOps
 
@@ -849,6 +850,30 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
       Map(Passed -> 6, SoftFailed -> 2)
     ))
   } } }
+
+  test("Resolve should work correctly") {
+    val rules = genRules(27, 27)
+
+    val toWrite = 1 // writeRows
+
+    var df: DataFrame = null
+    classicOnly {
+      evalCodeGens {
+        df = taddDataQuality(dataFrameLong(toWrite, 27, ruleSuiteResultType, null), rules)
+      }
+    }
+    connectOnly {
+      try {
+        doWithResolve {
+          df = taddDataQuality(dataFrameLong(toWrite, 27, ruleSuiteResultType, null), rules)
+        }
+        fail("resolveWith isn't possible with connect so this should have thrown")
+      } catch {
+        case t: Throwable => t.getMessage.contains("resolveWith is being used with Connect, this is not a valid combination") shouldBe true
+          df = taddDataQuality(dataFrameLong(toWrite, 27, ruleSuiteResultType, null), rules)
+      }
+    }
+  }
 }
 
 object Holder {

@@ -1,24 +1,15 @@
 package com.sparkutils.quality.impl.imports
 
-import com.sparkutils.quality.QualityException.qualityException
-import com.sparkutils.quality.{RuleSuite, impl}
-import com.sparkutils.quality.impl.{FlattenStruct, PackId, ProbabilityExpr, RuleRunnerImpl}
-import org.apache.spark.sql.ShimUtils.{callFunction, column, expression}
+import com.sparkutils.quality.RuleSuite
+import com.sparkutils.quality.impl.imports.ResolveUtil.checkResolveMakesSenseOrClassic
+import com.sparkutils.quality.impl.{PackId, RuleRunnerImpl}
+import org.apache.spark.sql.ShimUtils.callFunction
 import org.apache.spark.sql.catalyst.expressions.Literal
 import org.apache.spark.sql.types.IntegerType
-import org.apache.spark.sql.{Column, DataFrame, ShimUtils, SparkSession}
+import org.apache.spark.sql.{Column, DataFrame}
 import org.apache.spark.unsafe.types.UTF8String
 
 trait RuleRunnerImports {
-
-  // $COVERAGE-OFF$
-  protected[quality] def checkResolveMakesSenseOrClassic(resolveWith: Option[DataFrame]): Boolean = {
-    if (resolveWith.exists(df => !ShimUtils.isClassic(df.sparkSession))) {
-      qualityException("resolveWith is being used with Connect, this is not a valid combination")
-    }
-    resolveWith.isDefined || ShimUtils.isClassic(SparkSession.active)
-  }
-  // $COVERAGE-ON$
 
   /**
    * Creates a column that runs the RuleSuite.  This also forces registering the lambda functions used by that RuleSuite
