@@ -301,7 +301,7 @@ class RuleEngineTest extends FunSuite with ClassicSharedTests {
       ))
       val testDF = seq.toDF("i").as("main")
       testDF.collect()
-      val resdf = testDF.transform(ruleEngineWithStructF(rs))
+      val resdf = testDF.transform(ruleEngineWithStructFOT(rs))
       try {
         val res = resdf.selectExpr("ruleEngine.result.col1").as[Option[Int]].collect()
         assert(res.count(_.isEmpty) == 1)
@@ -334,7 +334,7 @@ class RuleEngineTest extends FunSuite with ClassicSharedTests {
       ))
       val testDF = seq.toDF("i")
       testDF.collect()
-      val resdf = testDF.transform(ruleEngineWithStructF(rs))
+      val resdf = testDF.transform(ruleEngineWithStructFOT(rs))
       try {
         val res = resdf.selectExpr("ruleEngine.result").as[Option[Int]].collect()
         assert(res.count(_.isEmpty) == 1)
@@ -381,8 +381,8 @@ class RuleEngineTest extends FunSuite with ClassicSharedTests {
       }
 
       // test no alias paths as well
-      testRes(testDF.transform(ruleEngineWithStructF(rs, alias = null)).asInstanceOf[DataFrame])
-      testRes(testDF.transform(ruleEngineWithStructF(rs, alias = "")).asInstanceOf[DataFrame])
+      testRes(testDF.transform(ruleEngineWithStructFOT(rs, alias = null)).asInstanceOf[DataFrame])
+      testRes(testDF.transform(ruleEngineWithStructFOT(rs, alias = "")).asInstanceOf[DataFrame])
     }
   } }
 
@@ -408,7 +408,7 @@ class RuleEngineTest extends FunSuite with ClassicSharedTests {
       ), Seq(LambdaFunction("genMax", sub(), Id(2404,1))))
       val testDF = seq.toDF("i").as("main")
       testDF.collect()
-      val resdf = testDF.transform(ruleEngineWithStructF(rs))
+      val resdf = testDF.transform(ruleEngineWithStructFOT(rs))
       try {
         val res = resdf.selectExpr("ruleEngine.result").as[Option[Int]].collect()
         // the o.g. '4' value should return null
@@ -444,7 +444,7 @@ class RuleEngineTest extends FunSuite with ClassicSharedTests {
       ), Seq(LambdaFunction("genMax", sub(), Id(2404,1))))
       val testDF = seq.toDF("i")
       testDF.collect()
-      val resdf = testDF.transform(ruleEngineWithStructF(rs)) // uses main default
+      val resdf = testDF.transform(ruleEngineWithStructFOT(rs)) // uses main default
       try {
         val res = resdf.selectExpr("ruleEngine.result").as[Option[Int]].collect()
         // the o.g. '4' value should return null

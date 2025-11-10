@@ -28,16 +28,23 @@ object RuleEngineRunnerImpl {
   /**
    * Creates a column that runs the RuleSuite.  This also forces registering the lambda functions used by that RuleSuite
    * @param ruleSuite The ruleSuite with runOnPassProcessors
+   * @param resultDataType The type of the results from runOnPassProcessors - must be the same for all result types
    * @param compileEvals Should the rules be compiled out to interim objects - by default false, allowing optimisations
-   * @param debugMode When debugMode is enabled the resultDataType is wrapped in Array of (salience, result) pairs to ease debugging
-   * @param resolveWith This experimental parameter can take the DataFrame these rules will be added to and pre-resolve and optimise the sql expressions, see the documentation for details on when to and not to use this.
-   * @param variablesPerFunc Defaulting to 40 allows, in combination with variableFuncGroup allows customisation of handling the 64k jvm method size limitation when performing WholeStageCodeGen
+   * @param debugMode When debugMode is enabled the resultDataType is wrapped in Array of (salience, result) pairs to
+   *                  ease debugging
+   * @param resolveWith This experimental parameter can take the DataFrame these rules will be added to and pre-resolve
+   *                    and optimise the sql expressions, see the documentation for details on when to and not to use this.
+   * @param variablesPerFunc Defaulting to 40 allows, in combination with variableFuncGroup allows customisation of
+   *                         handling the 64k jvm method size limitation when performing WholeStageCodeGen
    * @param variableFuncGroup Defaulting to 20
-   * @param forceRunnerEval Defaulting to false, passing true forces a simplified partially interpreted evaluation (compileEvals must be false to get fully interpreted)
-   * @param forceTriggerEval Defaulting to false, passing true forces each trigger expression to be compiled (compileEvals) and used in place, false instead expands the trigger in-line giving possible performance boosts based on JIT
+   * @param forceRunnerEval Defaulting to false, passing true forces a simplified partially interpreted evaluation
+   *                        (compileEvals must be false to get fully interpreted)
+   * @param forceTriggerEval Defaulting to false, passing true forces each trigger expression to be compiled
+   *                         (compileEvals) and used in place, false instead expands the trigger in-line giving
+   *                         possible performance boosts based on JIT
    * @return A Column representing the QualityRules expression built from this ruleSuite
    */
-  def ruleEngineRunnerImpl(ruleSuite: RuleSuite, compileEvals: Boolean = false,
+  def ruleEngineRunnerImpl(ruleSuite: RuleSuite, resultDataType: Option[DataType], compileEvals: Boolean = false,
                        debugMode: Boolean = false, resolveWith: Option[DataFrame] = None, variablesPerFunc: Int = 40,
                        variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false): Column = {
     com.sparkutils.quality.registerLambdaFunctions( ruleSuite.lambdaFunctions )
@@ -55,10 +62,10 @@ object RuleEngineRunnerImpl {
     // clean out expressions, UnresolvedRelations etc. from subquery usage forceRunnerEval,
     val runner =
       if (forceRunnerEval || resolveWith.isDefined)
-        new RuleEngineRunnerEval(cleaned, exprs, compileEvals,
+        new RuleEngineRunnerEval(cleaned, exprs, resultDataType, compileEvals,
           debugMode, variablesPerFunc, variableFuncGroup, expressionOffsets = indexes, forceTriggerEval)
       else
-        new RuleEngineRunner(cleaned, exprs, compileEvals,
+        new RuleEngineRunner(cleaned, exprs, resultDataType, compileEvals,
           debugMode, variablesPerFunc, variableFuncGroup, expressionOffsets = indexes, forceTriggerEval)
 
     ShimUtils.column(
@@ -355,9 +362,9 @@ trait RuleEngineRunnerBase[T] extends UnaryExpression with NonSQLExpression {
   val variableFuncGroup: Int
   val forceTriggerEval: Boolean
   val expressionOffsets: Array[Int]
+  val userResultDataType: Option[DataType]
 
   implicit val classTagT: ClassTag[T]
-
 
   def structToNullable(struct: StructType): StructType = {
     StructType(
@@ -374,7 +381,7 @@ trait RuleEngineRunnerBase[T] extends UnaryExpression with NonSQLExpression {
     }
 
   lazy val resultDataType = {
-    val resultDataType = nonNullableDataType(realChildren.last.dataType)
+    val resultDataType = userResultDataType.getOrElse(nonNullableDataType(realChildren.last.dataType))
 // TODO - Correct this type checking and re-enable the DDL to force nullability etc.
 /*    realChildren.drop(realChildren.length / 2).find(e => nonNullableDataType(e.dataType) != resultDataType).foreach{ e =>
       throw new QualityException(s"RuleEngine DataType ${e.dataType.sql} does not match the first OutputExpression type ${resultDataType.sql}")
@@ -472,7 +479,7 @@ trait RuleEngineRunnerBase[T] extends UnaryExpression with NonSQLExpression {
   }
 }
 
-case class RuleEngineRunnerEval(ruleSuite: RuleSuite, child: Expression,
+case class RuleEngineRunnerEval(ruleSuite: RuleSuite, child: Expression, userResultDataType: Option[DataType],
                             compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
                             variableFuncGroup: Int, expressionOffsets: Array[Int],
                             forceTriggerEval: Boolean) extends RuleEngineRunnerBase[RuleEngineRunnerEval] with CodegenFallback {
@@ -483,7 +490,7 @@ case class RuleEngineRunnerEval(ruleSuite: RuleSuite, child: Expression,
 }
 
 
-case class RuleEngineRunner(ruleSuite: RuleSuite, child: Expression,
+case class RuleEngineRunner(ruleSuite: RuleSuite, child: Expression, userResultDataType: Option[DataType],
                                 compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
                                 variableFuncGroup: Int, expressionOffsets: Array[Int],
                                 forceTriggerEval: Boolean) extends RuleEngineRunnerBase[RuleEngineRunner] {

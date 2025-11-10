@@ -145,7 +145,7 @@ trait NonLazyProcessFunctions {
    * @tparam T the result type of the rule engine
    * @return
    */
-  def ruleEngineFactoryDebugT[I: Encoder, T: Encoder](ruleSuite: RuleSuite, compile: Boolean = true,
+  def ruleEngineFactoryDebugT[I: Encoder, T: Encoder](ruleSuite: RuleSuite, outputType: Option[DataType] = None, compile: Boolean = true,
                                                       compileEvals: Boolean = false,
                                                       forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false, forceMutable: Boolean = false,
                                                       extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
@@ -156,7 +156,7 @@ trait NonLazyProcessFunctions {
     implicit val ttyped: TypedEncoder[T] = fromNormalEncoder[T]
     implicit val senc = TypedExpressionEncoder[Seq[(Int, T)]]
     implicit val enc = TypedExpressionEncoder[RuleEngineResult[Seq[(Int, T)]]]
-    iRuleEngineFactory[I, Seq[(Int, T)]](ruleSuite, compile = compile, debugMode = true,
+    iRuleEngineFactory[I, Seq[(Int, T)]](ruleSuite, outputType = outputType, compile = compile, debugMode = true,
       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval,
       forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)
@@ -168,24 +168,24 @@ trait NonLazyProcessFunctions {
    * @tparam T result type
    * @return
    */
-  def ruleEngineFactory[I: Encoder, T: Encoder](ruleSuite: RuleSuite, compile: Boolean = true,
+  def ruleEngineFactory[I: Encoder, T: Encoder](ruleSuite: RuleSuite, outputType: Option[DataType] = None, compile: Boolean = true,
                                        compileEvals: Boolean = false,
                                        forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false, forceMutable: Boolean = false,
                                        extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
                                        forceVarCompilation: Boolean = false)(implicit resEnc: Encoder[RuleEngineResult[T]]):
   ProcessorFactory[I, RuleEngineResult[T]] =
-    iRuleEngineFactory[I, T](ruleSuite, compile = compile,
+    iRuleEngineFactory[I, T](ruleSuite, outputType = outputType, compile = compile,
       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval,
       forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)
 
-  private def iRuleEngineFactory[I: Encoder, T: Encoder](ruleSuite: RuleSuite, compile: Boolean = true,
+  private def iRuleEngineFactory[I: Encoder, T: Encoder](ruleSuite: RuleSuite, outputType: Option[DataType] = None, compile: Boolean = true,
                                                 debugMode: Boolean = false, compileEvals: Boolean = false,
                                                 forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false, forceMutable: Boolean = false,
                                                 extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
                                                 forceVarCompilation: Boolean = false)(implicit resEnc: Encoder[RuleEngineResult[T]]):
   ProcessorFactory[I, RuleEngineResult[T]] =
-    processFactory[I, RuleEngineResult[T]]( star("ruleEngine")(ruleEngineWithStructF(ruleSuite, debugMode = debugMode,
+    processFactory[I, RuleEngineResult[T]]( star("ruleEngine")(ruleEngineWithStructFOT(ruleSuite, outputType = outputType, debugMode = debugMode,
       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval)), ofRuleEngine[T], compile,
       forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)(

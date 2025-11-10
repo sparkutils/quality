@@ -910,7 +910,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     res(5).result shouldBe Some(TestOn("from", "4200_fruit", 60))
   } } } } }
 
-  ignore("via ProcessFactory folder engine T struct product debug no fields in outputs or filters") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+  test("via ProcessFactory folder engine T struct product debug no fields in outputs or filters") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     val s = sparkSession
     import s.implicits._
 
