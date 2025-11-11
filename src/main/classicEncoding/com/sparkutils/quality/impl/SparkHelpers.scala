@@ -118,10 +118,6 @@ object OfRuleSuite {
 object OfRuleOutputSuite {
   import OfRuleSuite.attempt
 
-  def unapply(expression: Any): Option[RuleSuite] =
-    expression match {
-      case e: Literal if e.dataType == BinaryType =>
-        attempt(getBinary(e, 0))
-      case _ => None
-    }
+  def unapply(expression: Any): Option[RuleSuite] = OfRuleSuite.unapply(expression)
+
 }

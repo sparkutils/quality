@@ -2,6 +2,7 @@ package com.sparkutils.quality.impl.mapLookup
 
 import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.impl.RuleRegistrationFunctions.{getString, literalsNeeded, registerWithChecks}
+import com.sparkutils.quality.impl.VariableHelper
 import com.sparkutils.quality.impl.util.{Config, ConfigFactory}
 import com.sparkutils.shim.expressions.GetStructField3
 import com.sparkutils.shim.toCatalyst
@@ -109,10 +110,7 @@ object MapLookupFunctions {
       StructField(s._1, s._3)
     }).toDDL
     // Defaults can't have subqueries
-    val defaultCommand = s"declare variable `$name` struct<$ddl> default null;"
-    SparkSession.active.sql(defaultCommand)
-    val setCommand = s"set var `$name` = $struct;"
-    SparkSession.active.sql(setCommand)
+    VariableHelper.createVar(name, s"struct<$ddl>", struct)
     Lookups(name, col(name))
   }
 

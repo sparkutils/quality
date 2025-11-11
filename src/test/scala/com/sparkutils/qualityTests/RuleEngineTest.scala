@@ -4,6 +4,7 @@ import com.sparkutils.quality._
 import com.sparkutils.quality.functions.{flatten_rule_results, unpack_id_triple}
 import com.sparkutils.quality.impl.extension.FunNRewrite
 import com.sparkutils.quality.impl.{RuleEngineRunner, RunOnPassProcessor}
+import com.sparkutils.qualityTests.RuleEngineTest.{rulesRaw, testData}
 import com.sparkutils.qualityTests.util.SharedConnectTests
 import com.sparkutils.testing.TestUtils.debug
 import org.apache.spark.sql.DataFrame
@@ -18,7 +19,7 @@ case class TestOn(product: String, account: String, subcode: Int)
 case class NewPosting(transfer_type: String, account: String, product: String, subcode: Int)
 case class Posting(transfer_type: String, account: String)
 
-class RuleEngineTest extends SharedConnectTests {
+object RuleEngineTest {
 
   val testData=Seq(
     TestOn("edt", "4201", 40),
@@ -31,13 +32,7 @@ class RuleEngineTest extends SharedConnectTests {
 
   val DDL = "ARRAY<STRUCT<`transfer_type`: STRING, `account`: STRING, `product`: STRING, `subcode`: INTEGER >>"
 
-  def debugRules(expressionRules: (ExpressionRule, RunOnPassProcessor) *) =
-    irules(expressionRules, true)
-
-  def rules(expressionRules: (ExpressionRule, RunOnPassProcessor) *) =
-    irules(expressionRules)
-
-  def irules(expressionRules: Seq[(ExpressionRule, RunOnPassProcessor)], debugMode: Boolean = false, compileEvals: Boolean = true, transformRuleSuite: RuleSuite => RuleSuite = identity) = {
+  def rulesRaw(expressionRules: Seq[(ExpressionRule, RunOnPassProcessor)]) = {
     registerLambdaFunctions(Seq(
       LambdaFunction("account_row", "(transfer_type, account) -> named_struct('transfer_type', transfer_type, 'account', account, 'product', product, 'subcode', subcode)", Id(123, 23)),
       LambdaFunction("account_row", "transfer_type -> account_row(transfer_type, account)", Id(123, 24)),
@@ -53,6 +48,21 @@ class RuleEngineTest extends SharedConnectTests {
       RuleSet(Id(50, 1), rules
       )))
 
+    ruleSuite
+  }
+
+}
+
+class RuleEngineTest extends SharedConnectTests {
+
+  def debugRules(expressionRules: (ExpressionRule, RunOnPassProcessor) *) =
+    irules(expressionRules, true)
+
+  def rules(expressionRules: (ExpressionRule, RunOnPassProcessor) *) =
+    irules(expressionRules)
+
+  def irules(expressionRules: Seq[(ExpressionRule, RunOnPassProcessor)], debugMode: Boolean = false, compileEvals: Boolean = true, transformRuleSuite: RuleSuite => RuleSuite = identity) = {
+    val ruleSuite = rulesRaw(expressionRules)
     (dataFrame: DataFrame) =>
       ruleEngineRunner(transformRuleSuite(ruleSuite), debugMode = debugMode,
         resolveWith = if (doResolve.get()) Some(dataFrame) else None, compileEvals = compileEvals)

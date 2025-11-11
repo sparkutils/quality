@@ -1,10 +1,11 @@
 package com.sparkutils.quality.impl.util
 
+import com.sparkutils.quality.impl.mapLookup.Lookups
 import com.sparkutils.quality.{ExpressionRule, Id, LambdaFunction, OutputExpression, Rule, RuleSet, RuleSuite, RunOnPassProcessor}
-import com.sparkutils.quality.impl.{LambdaFunction, NoOpRunOnPassProcessor, VersionedId}
+import com.sparkutils.quality.impl.{LambdaFunction, NoOpRunOnPassProcessor, VariableHelper, VersionedId}
 import com.sparkutils.quality.impl.util.Serializing.{notPresentOutputId, notPresentOutputVersion, notPresentSalience}
 import com.sparkutils.quality.impl.util.VersionSpecificSerializingImports.uniqueName
-import org.apache.spark.sql.{Dataset, Encoder}
+import org.apache.spark.sql.{Dataset, Encoder, SparkSession}
 import org.apache.spark.sql.functions.{col, collect_set, lit, named_struct, struct}
 import org.apache.spark.sql.types.ArrayType
 
@@ -43,7 +44,10 @@ trait VersionSpecificSerializingImports {
 
     import ruleRows.sparkSession.implicits._
 
-    val rows = outputExpressionRows.fold(ruleRows.select(
+    val outputExpressionRowsT = outputExpressionRows.flatMap(r => if (r.isEmpty) None else Some(r))
+    val lambdaFunctionRowsT = lambdaFunctionRows.flatMap(r => if (r.isEmpty) None else Some(r))
+
+    val rows = outputExpressionRowsT.fold(ruleRows.select(
       struct(
         col("ruleSuiteId"),
         col("ruleSuiteVersion"),
@@ -97,7 +101,7 @@ trait VersionSpecificSerializingImports {
         lit(null).cast(ArrayType(implicitly[Encoder[LambdaFunctionRow]].schema)).as("lambdaFunctions") // Using Seq in the implicit treats it as a valueclass of seq.
       )
 
-    lambdaFunctionRows.fold(suiteRows){
+    lambdaFunctionRowsT.fold(suiteRows){
       lambdas =>
         val grouped = lambdas.groupBy("ruleSuiteId", "ruleSuiteVersion").agg(collect_set(
           struct(
@@ -189,4 +193,36 @@ trait VersionSpecificSerializingImports {
     else
       Some(rule_suite(r.head()))
   }
+
+  /**
+   * Registers the RuleSuite with a Spark Variable with a unique_id
+   * @param ds
+   * @param id
+   * @return the variable name
+   */
+  def register_rule_suite_variable(ds: Dataset[CombinedRuleSuiteRows], id: VersionedId): String =
+    register_rule_suite_variable(ds, id, uniqueName())
+
+  /**
+   * Registers the RuleSuite with a Spark Variable with the provided stable id
+   * @param ds
+   * @param id
+   * @param stableName
+   * @return stableName
+   */
+  def register_rule_suite_variable(ds: Dataset[CombinedRuleSuiteRows], id: VersionedId, stableName: String): String = {
+    val r = ds.filter(col("ruleSuiteId") === id.id && col("ruleSuiteVersion") === id.version)
+    val tv = uniqueName()
+    r.createOrReplaceTempView(tv)
+    val s = SparkSession.active
+    import s.implicits._
+    val ddl = implicitly[Encoder[CombinedRuleSuiteRows]].schema.toDDL
+
+    VariableHelper.createVar(stableName, s"struct<$ddl>",
+      s"(select first(struct(ruleSuiteId, ruleSuiteVersion, ruleRows, lambdaFunctions)) from `$tv`)")
+
+    stableName
+  }
 }
+
+
