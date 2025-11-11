@@ -141,7 +141,7 @@ object Serializing {
       ser.toType(pair)
     }.toSeq
 
-    val sess = SparkSession.getDefaultSession.get
+    val sess = SparkSession.active
     implicit val enc = ser.enc(sess)
 
     sess.createDataset(blooms).asInstanceOf[Dataset[BloomSerializer[SerializedType, T]#SerType]]

@@ -20,6 +20,36 @@ trait SerializingImports {
    * @param lambdaFunctionExpression
    * @return
    */
+  def readLambdaRowsFromDF(
+                            lambdaFunctionDF: DataFrame,
+                            lambdaFunctionName: Column,
+                            lambdaFunctionExpression: Column,
+                            lambdaFunctionId: Column,
+                            lambdaFunctionVersion: Column,
+                            lambdaFunctionRuleSuiteId: Column,
+                            lambdaFunctionRuleSuiteVersion: Column
+                          ): Dataset[LambdaFunctionRow] =
+    Serializing.readLambdaRowsFromDF(
+      lambdaFunctionDF,
+      lambdaFunctionName,
+      lambdaFunctionExpression,
+      lambdaFunctionId,
+      lambdaFunctionVersion,
+      lambdaFunctionRuleSuiteId,
+      lambdaFunctionRuleSuiteVersion
+    )
+
+  /**
+   * Loads lambda functions
+   * @param lambdaFunctionDF
+   * @param lambdaFunctionRuleSuiteId
+   * @param lambdaFunctionRuleSuiteVersion
+   * @param lambdaFunctionId
+   * @param lambdaFunctionVersion
+   * @param lambdaFunctionName
+   * @param lambdaFunctionExpression
+   * @return
+   */
   def readLambdasFromDF(
                          lambdaFunctionDF: DataFrame,
                          lambdaFunctionName: Column,
@@ -38,6 +68,34 @@ trait SerializingImports {
       lambdaFunctionRuleSuiteId,
       lambdaFunctionRuleSuiteVersion
     )
+
+  /**
+   * Loads output expressions
+   * @param outputExpressionDF
+   * @param outputExpressionRuleSuiteId
+   * @param outputExpressionRuleSuiteVersion
+   * @param outputExpressionId
+   * @param outputExpressionVersion
+   * @param outputExpression
+   * @return
+   */
+  def readOutputExpressionRowsFromDF(
+                                      outputExpressionDF: DataFrame,
+                                      outputExpression: Column,
+                                      outputExpressionId: Column,
+                                      outputExpressionVersion: Column,
+                                      outputExpressionRuleSuiteId: Column,
+                                      outputExpressionRuleSuiteVersion: Column
+                                    ): Dataset[OutputExpressionRow] =
+    Serializing.readOutputExpressionRowsFromDF(
+      outputExpressionDF,
+      outputExpression,
+      outputExpressionId,
+      outputExpressionVersion,
+      outputExpressionRuleSuiteId,
+      outputExpressionRuleSuiteVersion
+    )
+
 
   /**
    * Loads output expressions
@@ -82,6 +140,58 @@ trait SerializingImports {
       metaRuleSetVersion,
       metaRuleSuiteId,
       metaRuleSuiteVersion)
+
+  /**
+   * Loads RuleRows from a dataframe with integers ruleSuiteId, ruleSuiteVersion, ruleSetId, ruleSetVersion, ruleId, ruleVersion and an expression string ruleExpr
+   */
+  def readRuleRowsFromDF(df: DataFrame,
+                         ruleSuiteId: Column,
+                         ruleSuiteVersion: Column,
+                         ruleSetId: Column,
+                         ruleSetVersion: Column,
+                         ruleId: Column,
+                         ruleVersion: Column,
+                         ruleExpr: Column,
+                         ruleEngine: Option[(Column, Column, Column)] = None
+                        ): Dataset[RuleRow] =
+    Serializing.readRuleRowsFromDF(
+      df,
+      ruleSuiteId,
+      ruleSuiteVersion,
+      ruleSetId,
+      ruleSetVersion,
+      ruleId,
+      ruleVersion,
+      ruleExpr,
+      ruleEngine
+    )
+
+  /**
+   * Loads RuleRows from a dataframe with integers ruleSuiteId, ruleSuiteVersion, ruleSetId, ruleSetVersion, ruleId, ruleVersion and an expression string ruleExpr
+   */
+  def readRuleRowsFromDF(df: DataFrame,
+                         ruleSuiteId: Column,
+                         ruleSuiteVersion: Column,
+                         ruleSetId: Column,
+                         ruleSetVersion: Column,
+                         ruleId: Column,
+                         ruleVersion: Column,
+                         ruleExpr: Column,
+                         outputExpressionSalience: Column,
+                         outputExpressionId: Column,
+                         outputExpressionVersion: Column
+                        ): Dataset[RuleRow] =
+    Serializing.readRuleRowsFromDF(
+      df,
+      ruleSuiteId,
+      ruleSuiteVersion,
+      ruleSetId,
+      ruleSetVersion,
+      ruleId,
+      ruleVersion,
+      ruleExpr,
+      Some((outputExpressionSalience, outputExpressionId, outputExpressionVersion))
+    )
 
   /**
    * Loads a RuleSuite from a dataframe with integers ruleSuiteId, ruleSuiteVersion, ruleSetId, ruleSetVersion, ruleId, ruleVersion and an expression string ruleExpr

@@ -170,7 +170,7 @@ object RuleRegistrationFunctions {
                                writer: String => Unit = println(_),
                                registerFunction: (String, Seq[Expression] => Expression) => Unit =
                                 ShimUtils.registerFunction(SparkSession.active)
-                              ) {
+                              ) : Unit = {
 
     def register(name: String, argsf: Seq[Expression] => Expression, paramNumbers: Set[Int] = Set.empty, minimum: Int = -1) =
       registerWithChecks(registerFunction, name, argsf, paramNumbers, minimum)
@@ -594,67 +594,67 @@ object RuleRegistrationFunctions {
 
     // actual runners
     register("dq_rule_runner", {
-      case Seq(rs) =>
-        expression(RuleRunnerImpl.ruleRunnerImplClassic(deserialize(getBinary(rs,0))))
-      case Seq(rs, comp) =>
-        expression(RuleRunnerImpl.ruleRunnerImplClassic(deserialize(getBinary(rs,0)), getBoolean(comp, 1)))
-      case Seq(rs, comp, varPer, varG) =>
-        expression(RuleRunnerImpl.ruleRunnerImplClassic(deserialize(getBinary(rs,0)), getBoolean(comp, 1), None,
+      case Seq(OfRuleSuite(rs)) =>
+        expression(RuleRunnerImpl.ruleRunnerImplClassic(rs))
+      case Seq(OfRuleSuite(rs), comp) =>
+        expression(RuleRunnerImpl.ruleRunnerImplClassic(rs, getBoolean(comp, 1)))
+      case Seq(OfRuleSuite(rs), comp, varPer, varG) =>
+        expression(RuleRunnerImpl.ruleRunnerImplClassic(rs, getBoolean(comp, 1), None,
           variablesPerFunc = getInteger(varPer, 2), variableFuncGroup = getInteger(varG, 3)))
-      case Seq(rs, comp, varPer, varG, force) =>
-        expression(RuleRunnerImpl.ruleRunnerImplClassic(deserialize(getBinary(rs,0)), getBoolean(comp, 1), None,
+      case Seq(OfRuleSuite(rs), comp, varPer, varG, force) =>
+        expression(RuleRunnerImpl.ruleRunnerImplClassic(rs, getBoolean(comp, 1), None,
           variablesPerFunc = getInteger(varPer, 2), variableFuncGroup = getInteger(varG, 3),
           forceRunnerEval = getBoolean(force, 4)))
     }, Set(1, 2, 4, 5))
 
     register("typed_expression_runner", {
-      case Seq(rs, ddl) =>
-        expression(ExpressionRunner(deserialize(getBinary(rs,0)), ddlType = getString(ddl, 1)))
-      case Seq(rs, ddl, name) =>
-        expression(ExpressionRunner(deserialize(getBinary(rs,0)), ddlType = getString(ddl, 1), name = getString(name, 2)))
-      case Seq(rs, ddl, name, force) =>
-        expression(ExpressionRunner(deserialize(getBinary(rs,0)), ddlType = getString(ddl, 1), name = getString(name, 2),
+      case Seq(OfRuleSuite(rs), ddl) =>
+        expression(ExpressionRunner(rs, ddlType = getString(ddl, 1)))
+      case Seq(OfRuleSuite(rs), ddl, name) =>
+        expression(ExpressionRunner(rs, ddlType = getString(ddl, 1), name = getString(name, 2)))
+      case Seq(OfRuleSuite(rs), ddl, name, force) =>
+        expression(ExpressionRunner(rs, ddlType = getString(ddl, 1), name = getString(name, 2),
           forceRunnerEval = getBoolean(force, 3)))
     }, Set(2, 3, 4))
 
     register("expression_runner", {
-      case Seq(rs) =>
-        expression(ExpressionRunner(deserialize(getBinary(rs,0))))
-      case Seq(rs, name) =>
-        expression(ExpressionRunner(deserialize(getBinary(rs,0)), name = getString(name, 1)))
-      case Seq(rs, name, options) =>
-        expression(ExpressionRunner(deserialize(getBinary(rs,0)), name = getString(name, 1), renderOptions = getMap(options, 2)))
-      case Seq(rs, name, options, force) =>
-        expression(ExpressionRunner(deserialize(getBinary(rs,0)), name = getString(name, 1), renderOptions = getMap(options, 2),
+      case Seq(OfRuleSuite(rs)) =>
+        expression(ExpressionRunner(rs))
+      case Seq(OfRuleSuite(rs), name) =>
+        expression(ExpressionRunner(rs, name = getString(name, 1)))
+      case Seq(OfRuleSuite(rs), name, options) =>
+        expression(ExpressionRunner(rs, name = getString(name, 1), renderOptions = getMap(options, 2)))
+      case Seq(OfRuleSuite(rs), name, options, force) =>
+        expression(ExpressionRunner(rs, name = getString(name, 1), renderOptions = getMap(options, 2),
           forceRunnerEval = getBoolean(force, 3)))
     }, Set(1, 2, 3, 4))
 
     register("rule_engine_runner", {
-      case Seq(rs) =>
-        expression(RuleEngineRunnerImpl.ruleEngineRunnerImpl(deserialize(getBinary(rs,0)), None))
-      case Seq(rs, dt) =>
-        expression(RuleEngineRunnerImpl.ruleEngineRunnerImpl(deserialize(getBinary(rs,0)), defaultParseTypes(getString(dt, 1))))
-      case Seq(rs, dt, debug) =>
-        expression(RuleEngineRunnerImpl.ruleEngineRunnerImpl(deserialize(getBinary(rs,0)), defaultParseTypes(getString(dt, 1)),
+      case Seq(OfRuleOutputSuite(rs)) =>
+        expression(RuleEngineRunnerImpl.ruleEngineRunnerImpl(rs, None))
+      case Seq(OfRuleOutputSuite(rs), dt) =>
+        expression(RuleEngineRunnerImpl.ruleEngineRunnerImpl(rs, defaultParseTypes(getString(dt, 1))))
+      case Seq(OfRuleOutputSuite(rs), dt, debug) =>
+        expression(RuleEngineRunnerImpl.ruleEngineRunnerImpl(rs, defaultParseTypes(getString(dt, 1)),
           debugMode = getBoolean(debug, 2)))
-      case Seq(rs, dt, compe, debug, varp, varg, forr, fort) =>
-        expression(RuleEngineRunnerImpl.ruleEngineRunnerImpl(deserialize(getBinary(rs,0)), defaultParseTypes(getString(dt, 1)),
+      case Seq(OfRuleOutputSuite(rs), dt, compe, debug, varp, varg, forr, fort) =>
+        expression(RuleEngineRunnerImpl.ruleEngineRunnerImpl(rs, defaultParseTypes(getString(dt, 1)),
           compileEvals = getBoolean(compe, 2), debugMode = getBoolean(debug, 3), variablesPerFunc = getInteger(varp, 4),
           variableFuncGroup = getInteger(varg, 5), forceRunnerEval = getBoolean(forr, 6), forceTriggerEval = getBoolean(fort, 7)
         ))
     }, Set(1, 2, 3, 8))
 
     register("rule_folder_runner", {
-      case Seq(rs, starter) =>
-        expression(ruleFolderRunnerClassic(deserialize(getBinary(rs,0)), column(starter)))
-      case Seq(rs, starter, dt) =>
-        expression(ruleFolderRunnerClassic(deserialize(getBinary(rs,0)), column(starter),
+      case Seq(OfRuleOutputSuite(rs), starter) =>
+        expression(ruleFolderRunnerClassic(rs, column(starter)))
+      case Seq(OfRuleOutputSuite(rs), starter, dt) =>
+        expression(ruleFolderRunnerClassic(rs, column(starter),
           useType = defaultParseTypes(getString(dt, 2)).map(_.asInstanceOf[StructType])))
-      case Seq(rs, starter, debug, dt) =>
-        expression(ruleFolderRunnerClassic(deserialize(getBinary(rs,0)), column(starter),
+      case Seq(OfRuleOutputSuite(rs), starter, debug, dt) =>
+        expression(ruleFolderRunnerClassic(rs, column(starter),
           debugMode = getBoolean(debug, 2), useType = defaultParseTypes(getString(dt, 3)).map(_.asInstanceOf[StructType])))
-      case Seq(rs, starter, compe, debug, varp, varg, forr, dt, fort) =>
-        expression(ruleFolderRunnerClassic(deserialize(getBinary(rs,0)), column(starter),
+      case Seq(OfRuleOutputSuite(rs), starter, compe, debug, varp, varg, forr, dt, fort) =>
+        expression(ruleFolderRunnerClassic(rs, column(starter),
           compileEvals = getBoolean(compe, 2), debugMode = getBoolean(debug, 3), variablesPerFunc = getInteger(varp, 4),
           variableFuncGroup = getInteger(varg, 5), forceRunnerEval = getBoolean(forr, 6),
           useType = defaultParseTypes(getString(dt, 7)).map(_.asInstanceOf[StructType]), forceTriggerEval = getBoolean(fort, 8)

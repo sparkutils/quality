@@ -1,11 +1,15 @@
 package com.sparkutils.quality.impl
 
+import com.sparkutils.quality.QualityException.qualityException
+import com.sparkutils.quality.impl.RuleRegistrationFunctions.getBinary
+import com.sparkutils.quality.impl.RuleSuiteHelpers.deserialize
 import com.sparkutils.quality.{GeneralExpressionsResult, RuleEngineResult, RuleFolderResult, RuleSuite, RuleSuiteResult}
 import frameless.TypedEncoder
 import org.apache.spark.sql.catalyst.encoders.AgnosticEncoder
+import org.apache.spark.sql.catalyst.expressions.{Expression, Literal, VariableReference}
 import org.apache.spark.sql.functions.{lit, named_struct}
 import org.apache.spark.sql.{Column, Encoder, Row, ShimUtils}
-import org.apache.spark.sql.types.{DataType, StructType}
+import org.apache.spark.sql.types.{BinaryType, DataType, StructType}
 import shapeless.{HList, LabelledGeneric, Lazy}
 import shapeless.ops.hlist.IsHCons
 
@@ -76,4 +80,42 @@ object Encoders extends EncodersImplicits {
 object NamedStruct {
   def apply(pairs: Seq[(String, Column)]): Column =
     named_struct(pairs.flatMap(p => Seq(lit(p._1), p._2)):_*)
+}
+
+/**
+ * Ignores extra output expressions
+ */
+object OfRuleSuite {
+
+  private[quality] def attempt(bin: Array[Byte]): Option[RuleSuite] =
+    try {
+      Some(deserialize(bin))
+    } catch {
+      case e: Exception => qualityException("Could not deserialize a byte array to a RuleSuite", e)
+    }
+
+  def unapply(expression: Any): Option[RuleSuite] =
+    expression match {
+      case e: Literal if e.dataType == BinaryType =>
+        attempt(getBinary(e, 0))
+      case e: VariableReference if e.dataType == BinaryType =>
+        attempt(e.eval().asInstanceOf)
+      case _ => None
+    }
+}
+
+/**
+ * Requires output expressions
+ */
+object OfRuleOutputSuite {
+  import OfRuleSuite.attempt
+
+  def unapply(expression: Any): Option[RuleSuite] =
+    expression match {
+      case e: Literal if e.dataType == BinaryType =>
+        attempt(getBinary(e, 0))
+      case e: VariableReference if e.dataType == BinaryType =>
+        attempt(e.eval().asInstanceOf)
+      case _ => None
+    }
 }

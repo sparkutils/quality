@@ -2,7 +2,7 @@ package com.sparkutils.quality.impl
 
 import com.sparkutils.quality
 import com.sparkutils.quality.impl.ExpressionCompiler.withExpressionCompiler
-import com.sparkutils.quality.impl.util.SubQueryWrapper
+import com.sparkutils.quality.impl.util.{Serializing, SubQueryWrapper}
 import com.sparkutils.quality._
 import org.apache.spark.sql.ShimUtils.newParser
 import org.apache.spark.sql.catalyst.InternalRow
@@ -403,8 +403,8 @@ case class RunOnPassProcessorHolder(salience: Int, id: Id) extends RunOnPassProc
 }
 
 object NoOpRunOnPassProcessor {
-  val noOpId = Id(Int.MinValue, Int.MinValue)
-  val noOp = RunOnPassProcessorImpl(Int.MaxValue, noOpId, "", OutputExpression(""))
+  val noOpId = Id(Serializing.notPresentOutputId, Serializing.notPresentOutputVersion)
+  val noOp = RunOnPassProcessorImpl(Serializing.notPresentSalience, noOpId, "", OutputExpression(""))
 }
 
 object RuleSuiteFunctions {
