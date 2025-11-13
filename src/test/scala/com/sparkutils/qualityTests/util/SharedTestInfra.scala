@@ -2,7 +2,7 @@ package com.sparkutils.qualityTests.util
 
 import com.sparkutils.quality.impl.extension.{FunNRewrite, QualitySparkExtension}
 import com.sparkutils.quality.{RuleSuite, ruleRunner}
-import com.sparkutils.testing.Utils.{connectMemory, mainClassPathsConfig, useDebugConnectLogs}
+import com.sparkutils.testing.Utils.{connectMemory, mainClassPathsConfig}
 import com.sparkutils.testing._
 import com.sparkutils.testing.sessionStrategies.{GlobalSession, SharedSessions}
 import org.apache.spark.sql.QualitySparkUtils.DatasetBase
@@ -48,7 +48,7 @@ trait SharedConnectTests extends ClassicSharedTests {
   override def connectServerLoggingLevel = "DEBUG"
 
   override def sparkConnectServerConfig(): Map[String, String] =
-    super.sparkConnectServerConfig() + //useDebugConnectLogs +
+    super.sparkConnectServerConfig() + // useDebugConnectLogs +
       mainClassPathsConfig + connectMemory("4g") +
       (("spark.sql.extensions", classOf[QualitySparkExtension].getName))// +
       //(("spark.sql.codegen.wholeStage", "false"))

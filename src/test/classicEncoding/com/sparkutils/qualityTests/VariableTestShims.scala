@@ -33,4 +33,6 @@ trait VariableTestShims {
   def map_containsSQL(mapLookupName: String, lookupKey: String): String =
     s"mapContains('$mapLookupName', $lookupKey)"
 
+  val mapFactor = 200 // 200 is too large on connnect
+
 }

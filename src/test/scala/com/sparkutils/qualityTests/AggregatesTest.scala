@@ -17,12 +17,11 @@ import org.scalatest.FunSuite
 import org.scalatest.Matchers.convertToAnyShouldWrapper
 
 // dec 38,18 is not supported by connect 37,18 works https://issues.apache.org/jira/browse/SPARK-53938
-
-class AggregatesTest extends SharedConnectTests {
+// todo right size the runs for 4, it takes too long
+class AggregatesTest extends SharedConnectTests with VariableTestShims {
 
   def doMapTest(transform: Dataset[java.lang.Long] => Dataset[java.lang.Long], sql: String): Unit = evalCodeGensNoResolve {
-    val factor = 200 // NB 2000 runs in 5m2s with default index scan and replace and map_concat which clearly fails, 4m 51 with index and map merge with expr based add
-    val df = transform( (1 until factor).foldLeft( sparkSession.range(1, 20) ) {
+    val df = transform( (1 until mapFactor).foldLeft( sparkSession.range(1, 20) ) {
       (ndf, i) =>
         ndf.union( sparkSession.range(1, 20) )
     } )
@@ -33,7 +32,7 @@ class AggregatesTest extends SharedConnectTests {
     debug(println(map))
 
     assert(19 == map.size, "Should have had the full 1 until 20 items")
-    assert( map.forall(_._2 == factor), "all entries should have had factor as the value")
+    assert( map.forall(_._2 == mapFactor), "all entries should have had factor as the value")
   }
   val mapTestSql = "aggExpr('MAP<LONG, LONG>',1 > 0, mapWith(id, entry -> entry + 1 ), returnSum() )"
 
