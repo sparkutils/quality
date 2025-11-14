@@ -94,7 +94,7 @@ class UserLambdaFunctionCompilationTest extends ClassicSharedTests with BeforeAn
      */
     registerLambdaFunctions(Seq(
       LambdaFunction("bottom", "filterB -> filter(filterB, i -> i % 2 = 0)", Id(1, 3)),
-      LambdaFunction("top", "a -> printCode(bottom(a))", Id(1, 3))
+      LambdaFunction("top", "a -> bottom(a)", Id(1, 3))
     ))
     val s = sparkSession
     import s.implicits._

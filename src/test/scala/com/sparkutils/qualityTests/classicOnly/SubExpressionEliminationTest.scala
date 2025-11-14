@@ -45,12 +45,12 @@ class SubExpressionEliminationTest extends ClassicSharedTests {
   )
 
   override def beforeAll(): Unit = {
-    // no-op to force it to be created (parent hasn't happened yet)
-    sparkSession.conf
+    super.beforeAll()
 
     EqualToTest.counter.set(0)
-    ShimUtils.registerFunction(sparkSession)("myequal", exprs => EqualToTest(exprs.head, exprs.last))
-    super.beforeAll()
+    withClassicAsActive({
+      ShimUtils.registerFunction(sparkSession)("myequal", exprs => EqualToTest(exprs.head, exprs.last))
+    })
   }
 
   // can't do cluster runs as this is local vm only

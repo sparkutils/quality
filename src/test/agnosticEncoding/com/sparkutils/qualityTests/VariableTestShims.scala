@@ -36,6 +36,9 @@ trait VariableTestShims {
   def map_containsSQL(mapLookupName: String, lookupKey: String): String =
     s"mapContains('$mapLookupName', $lookupKey, ${currentLookups.name})"
 
-  val mapFactor = 10 // 200 is too large on connnect
+  val mapFactor = 10 // 200 is too large on connect
 
+  val idRange = 500 // 6000 was original, but it takes a while, connect has to drag everything to the client
+
+  val aggregatesTestSTooFastBuffer = 2000 // no issue on classic, so we need to make it more expensive for connect due to SPARK-53900
 }

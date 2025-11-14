@@ -180,7 +180,7 @@ class NewPostingBean(){
 class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with ClassicSharedTests with VariableTestShims {
 
   // processors should never be on connect
-  override def connectionType: ConnectionType = ClassicOnly
+  override val runWith: ConnectionType = ClassicOnly
 
   var forceMutable = false
   var forceVarCompilation = true
@@ -217,11 +217,6 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     StructField("account", StringType, nullable = false),
     StructField("subcode", IntegerType, nullable = false)
   ))
-
-  override def beforeAll(): Unit = {
-    val s = sparkSession // force it
-    registerQualityFunctions()
-  }
 
   test("simple projection") { not2_4 { not_Cluster { evalCodeGensNoResolve {
     def map(seq: Seq[TestOn], projection: Projection, resi: Int): Seq[Int] = seq.map{ s =>

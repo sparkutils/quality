@@ -1,6 +1,6 @@
 package com.sparkutils.quality.impl.extension
 
-import com.sparkutils.quality.impl.extension.QualitySparkExtension.{disableRulesConf, forceInjectFunction}
+import com.sparkutils.quality.impl.extension.QualitySparkExtension.{disableRulesConf, forceInjectFunction, testingConf}
 import com.sparkutils.testing.Testing
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.{ShimUtils, SparkSession, SparkSessionExtensions}
@@ -16,6 +16,7 @@ object QualitySparkExtension {
    */
   val disableRulesConf = "quality_disable_optimiser_rules"
   val forceInjectFunction = "quality_force_inject_function"
+  val testingConf = "quality_testing"
 }
 
 /**
@@ -41,13 +42,14 @@ class QualitySparkExtension extends ((SparkSessionExtensions) => Unit) with Logg
   def dump(str: String, prefix: String = "Quality SparkExtensions") = writer(s"$prefix: $str")
 
   /**
-   * attempts to logInfo, typically doesn't work, but also then dumps the str
+   * attempts to logInfo, typically doesn't work, but also then dumps the str.  Doesn't log when testing
    * @param str
    */
-  def attemptLogInfo(str: String) = {
-    logInfo(str)
-    dump(str)
-  }
+  def attemptLogInfo(str: String) =
+    if (!Option(System.getProperty(testingConf)).contains("testing")) {
+      logInfo(str)
+      dump(str)
+    }
 
   /**
    * Adds AsymmetricFilterExpressions for AsUUID

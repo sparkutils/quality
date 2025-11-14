@@ -2,7 +2,7 @@ package com.sparkutils.qualityTests.util
 
 import com.sparkutils.quality.impl.extension.{FunNRewrite, QualitySparkExtension}
 import com.sparkutils.quality.{RuleSuite, ruleRunner}
-import com.sparkutils.testing.Utils.{connectMemory, mainClassPathsConfig}
+import com.sparkutils.testing.Utils.{connectMemory, scoverageClassPathsConfig, useDebugConnectLogs}
 import com.sparkutils.testing._
 import com.sparkutils.testing.sessionStrategies.{GlobalSession, SharedSessions}
 import org.apache.spark.sql.QualitySparkUtils.DatasetBase
@@ -13,51 +13,38 @@ trait ClassicSharedTests extends FunSuite with TestUtilsBase with SharedSessions
 
   override val currentSessionsHolder: SessionsStateHolder = GlobalSession
 
+  override val runWith: ConnectionType = ClassicOnly
+
   override def beforeAll(): Unit = {
     // no-op to force it to be created
     forceLoad
     super.beforeAll()
 
     cleanupOutput()
-    withClassicAsActive {
+
+    withClassicAsActive({
       com.sparkutils.quality.registerQualityFunctions()
-    }
+    })
   }
-}
-
-object GlobalSessionWithConnect extends SessionsStateHolder {
-
-  private var current: Sessions = _
-
-  override def setSessions(sessions: => Sessions): Unit = {
-    current = sessions
-  }
-
-  override def getSessions: Sessions = current
-
-  override def stop(): Unit = {
-    super.stop()
-    current = null
-  }
-}
-
-trait SharedConnectTests extends ClassicSharedTests {
-  override val currentSessionsHolder: SessionsStateHolder = GlobalSessionWithConnect
-  override def connectionType: ConnectionType = UseBoth
 
   override def connectServerLoggingLevel = "DEBUG"
 
   override def sparkConnectServerConfig(): Map[String, String] =
-    super.sparkConnectServerConfig() + // useDebugConnectLogs +
-      mainClassPathsConfig + connectMemory("4g") +
-      (("spark.sql.extensions", classOf[QualitySparkExtension].getName))// +
-      //(("spark.sql.codegen.wholeStage", "false"))
+    super.sparkConnectServerConfig() + //  useDebugConnectLogs +
+      scoverageClassPathsConfig + connectMemory("4g") +
+      (("spark.sql.extensions", classOf[QualitySparkExtension].getName)) +
+      (("javax.jdo.option.ConnectionURL", "jdbc:derby:;databaseName=connect_metastore_db;create=true")) +
+      (("spark.sql.codegen.factoryMode", "NO_CODEGEN"))
+
+}
+
+trait SharedConnectTests extends ClassicSharedTests {
+
+  override val runWith: ConnectionType = UseBoth
 
 }
 
 trait TestUtilsBase extends SparkTestSuite {
-
-  override def connectionType: ConnectionType = ClassicOnly
 
   /**
    * Adds a DataQuality field using the RuleSuite and RuleSuiteResult structure

@@ -71,7 +71,7 @@ object WriteRowPerfTest extends Bench.OfflineReport with RowTools {
     }
   }
 
-  override def connectionType: ConnectionType = ClassicOnly
+  override val connectionType: ConnectionType = ClassicOnly
 
   override def sessions: Sessions = createSparkSessions(connectionType)
 
@@ -143,7 +143,7 @@ object ReadRowPerfTest extends Bench.OfflineReport with ReadBased {
   }
 
 
-  override def connectionType: ConnectionType = ClassicOnly
+  override val connectionType: ConnectionType = ClassicOnly
 
   override def sessions: Sessions = createSparkSessions(connectionType)
 
@@ -196,7 +196,7 @@ ds.select(col("*"), expr("filter(map_values(res.ruleSetResults), ruleSet -> size
   }
 
 
-  override def connectionType: ConnectionType = ClassicOnly
+  override val connectionType: ConnectionType = ClassicOnly
 
   override def sessions: Sessions = createSparkSessions(connectionType)
 
@@ -240,7 +240,7 @@ object UUIDPerfTest extends Bench.OfflineReport with RowTools {
   }
 
 
-  override def connectionType: ConnectionType = ClassicOnly
+  override val connectionType: ConnectionType = ClassicOnly
 
   override def sessions: Sessions = createSparkSessions(connectionType)
 
@@ -347,7 +347,7 @@ object IDJoinPerfTest extends Bench.OfflineReport with RowTools {
   }
 
 
-  override def connectionType: ConnectionType = ClassicOnly
+  override val connectionType: ConnectionType = ClassicOnly
 
   override def sessions: Sessions = createSparkSessions(connectionType)
 
@@ -416,7 +416,7 @@ object LambdaRowPerfTest extends Bench.OfflineReport with RowTools {
     }
   }
 
-  override def connectionType: ConnectionType = ClassicOnly
+  override val connectionType: ConnectionType = ClassicOnly
 
   override def sessions: Sessions = createSparkSessions(connectionType)
 

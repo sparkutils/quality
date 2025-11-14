@@ -261,7 +261,7 @@ object ProcessorThroughputBenchmark extends Bench.OfflineReport with RowTools {
       }
   }
 
-  override def connectionType: ConnectionType = ClassicOnly
+  override val connectionType: ConnectionType = ClassicOnly
 
   override def sessions: Sessions = createSparkSessions(connectionType)
 }

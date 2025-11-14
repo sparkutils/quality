@@ -22,7 +22,7 @@ import java.util.Base64
 import scala.collection.JavaConverters
 import scala.jdk.CollectionConverters._
 
-class IDTests extends SharedConnectTests {
+class IDTests extends SharedConnectTests with VariableTestShims {
 
   test("rountTripRandom") { doRoundTripGenericLongBasedID(model.RandomID) }
   test("rountTripProvided") { doRoundTripGenericLongBasedID(model.ProvidedID) }
@@ -177,7 +177,7 @@ class IDTests extends SharedConnectTests {
     }
 
 
-    val df = sparkSession.range(0, 6000)
+    val df = sparkSession.range(0, idRange)
     val rngExploded = df.withColumn("rng_id", rngID("rng_id")).selectExpr("id","rng_id.*")
     testRes(rngExploded)
 
@@ -199,7 +199,7 @@ class IDTests extends SharedConnectTests {
       ShimUtils.column(GenericLongBasedIDExpression(model.RandomID,
         expression(RandomLongs(RandomSource.KISS)), prefix))
 
-    val df = sparkSession.range(0, 6000)
+    val df = sparkSession.range(0, idRange)
     val rngExploded = df.withColumn("rng_id", nonJump("rng_id")).selectExpr("id","rng_id.*")
     testRes(rngExploded)
   } } }
@@ -271,7 +271,7 @@ class IDTests extends SharedConnectTests {
       assert(md5Exploded.schema.fields.length == 2 + longCount )
     }
 
-    val df = sparkSession.range(0, 6000).selectExpr("id", "id || '_field' as f1", "id || '_field2' as f2", "id || '_field3' as f3")
+    val df = sparkSession.range(0, idRange).selectExpr("id", "id || '_field' as f1", "id || '_field2' as f2", "id || '_field3' as f3")
     val md5Exploded = df.withColumn("md5_id", hashFunctionFwd("md5_id", digestImpl, Seq($"f1", $"f2", $"f3"))).selectExpr("id","md5_id.*")
     testRes(md5Exploded)
 
@@ -305,7 +305,7 @@ class IDTests extends SharedConnectTests {
         .containsSlice( Seq("id", "md5_id_base", "md5_id_i0", "md5_id_i1")), "Column names incorrect")
     }
 
-    val df = sparkSession.range(0, 6000).selectExpr("id", "id || '_field' as f1", "id || '_field2' as f2", "id || '_field3' as f3")
+    val df = sparkSession.range(0, idRange).selectExpr("id", "id || '_field' as f1", "id || '_field2' as f2", "id || '_field3' as f3")
     val md5Exploded = df.withColumn("md5_id", murmur3ID("md5_id", Seq($"f1", $"f2", $"f3"))).selectExpr("id","md5_id.*")
     testRes(md5Exploded)
 
@@ -321,7 +321,7 @@ class IDTests extends SharedConnectTests {
     import com.sparkutils.quality._
     registerQualityFunctions()
 
-    val df = sparkSession.range(0, 6000)
+    val df = sparkSession.range(0, idRange)
     val uniqueExploded = df.withColumn("unique_id", unique_id("unique_id")).selectExpr("id","unique_id.*")
     debug(uniqueExploded.show)
     assert(uniqueExploded.schema.fields.map(_.name).toSeq
@@ -356,7 +356,7 @@ class IDTests extends SharedConnectTests {
     import com.sparkutils.quality._
     registerQualityFunctions()
 
-    val df = sparkSession.range(0, 6000)
+    val df = sparkSession.range(0, idRange)
     val uniqueExploded = df.withColumn("unique_id", unique_id("unique_id")).selectExpr("id","unique_id.*")
     uniqueExploded.write.mode("overwrite").parquet(ouputDir + "uniqueidequal")
     // .cache doesn't work on connect base and 0 work finds 15000 rows, 1 doesn't match anything possibly https://issues.apache.org/jira/browse/SPARK-53917
@@ -430,7 +430,7 @@ class IDTests extends SharedConnectTests {
     import com.sparkutils.quality._
     registerQualityFunctions()
 
-    val df = sparkSession.range(0, 6000)
+    val df = sparkSession.range(0, idRange)
     val uuidExploded = df.selectExpr("uuid() as uuid").selectExpr("*", "providedId('pre', longPairFromUUID(uuid)) as pid").
       selectExpr("pid","uuid","rngUUID(prefixedToLongPair('pre', pid)) as rere")
 
@@ -511,8 +511,7 @@ object SumIdGenTest extends Bench.OfflineReport with RowTools {
     sum
   }
 
-
-  override def connectionType: ConnectionType = ClassicOnly
+  override val connectionType: ConnectionType = ClassicOnly
 
   override def sessions: Sessions = createSparkSessions(connectionType)
 

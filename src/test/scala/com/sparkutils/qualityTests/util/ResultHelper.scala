@@ -9,7 +9,7 @@ import org.apache.spark.sql.types._
 object ResultHelper extends RowTools {
 
 
-  override def connectionType: ConnectionType = ClassicOnly
+  override val connectionType: ConnectionType = ClassicOnly
 
   override def sessions: Sessions = createSparkSessions(connectionType)
 

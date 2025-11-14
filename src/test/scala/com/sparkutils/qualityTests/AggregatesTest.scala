@@ -191,13 +191,13 @@ class AggregatesTest extends SharedConnectTests with VariableTestShims {
   test("sumTestDSL") { evalCodeGensNoResolve {
     val s = sparkSession
     import s.implicits._
-    val df = sparkSession.range(1, 20).union(sparkSession.range(1,2).map(_ => null.asInstanceOf[Long]))
+    val df = sparkSession.range(1, aggregatesTestSTooFastBuffer).union(sparkSession.range(1,2).map(_ => null.asInstanceOf[Long]))
 
     val summed = df.select(agg_expr(LongType, col("id") % 2 > 0, sum_with(sum => sum + col("id")), results_with( (sum, count) => sum / count ) ).as("aggExpr"))
 
     debug(summed.show(1))
 
-    val set = (1 to 20).filter(_ % 2 > 0)
+    val set = (1 to aggregatesTestSTooFastBuffer).filter(_ % 2 > 0)
 
     assert(summed.head().getAs[Double]("aggExpr") == (set.sum / set.size), "aggExpr did not have the correct math")
 
@@ -217,13 +217,13 @@ class AggregatesTest extends SharedConnectTests with VariableTestShims {
   test("evalSumTest") { evalCodeGensNoResolve {
     val s = sparkSession
     import s.implicits._
-    val df = sparkSession.range(1, 20).union(sparkSession.range(1,2).map(_ => null.asInstanceOf[Long]))
+    val df = sparkSession.range(1, aggregatesTestSTooFastBuffer).union(sparkSession.range(1,2).map(_ => null.asInstanceOf[Long]))
 
     val summed = df.select(expr("aggExpr(id % 2 > 0, sumWith(sum -> sum + id), resultsWith( (sum, count) -> sum / count ) )").as("aggExpr"))
 
     debug(summed.show(1))
 
-    val set = (1 to 20).filter(_ % 2 > 0)
+    val set = (1 to aggregatesTestSTooFastBuffer).filter(_ % 2 > 0)
 
     assert(summed.head().getAs[Double]("aggExpr") == (set.sum / set.size), "aggExpr did not have the correct math")
 

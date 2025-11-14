@@ -5,7 +5,7 @@ import com.sparkutils.quality.impl.extension.QualitySparkExtension.disableRulesC
 import com.sparkutils.quality.impl.extension._
 import com.sparkutils.qualityTests.util.ClassicSharedTests
 import com.sparkutils.testing.TestUtils.anyCauseHas
-import com.sparkutils.testing.{ClassicSparkTestUtils, ClassicTestUtils, Testing}
+import com.sparkutils.testing.{ClassicSparkTestUtils, ClassicTestUtils, Sessions, Testing}
 import org.apache.hadoop.fs.local.BareStreamingLocalFileSystem
 import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.sql.catalyst.FunctionIdentifier
@@ -31,40 +31,66 @@ abstract class ExtensionTestBase extends ClassicSharedTests  {
   def wrapWithExtension(thunk: SparkSession => Unit): Unit = wrapWithExtensionT(thunk)
 
   def wrapWithExtensionT(thunk: SparkSession => Unit, disableConf: String = "", forceInjection: String = null, withHive: Boolean = false): Unit = {
-    var tsparkSession: (SparkSession, () => Unit) = null
+    var tsparkSession: SparkSession = null
 
-    val old = sparkSession
     try {
-      try {
+      swapSession {
+        if (withHive) {
+          cleanUp("./metastore_db")
+          cleanUp("./spark-warehouse")
+        }
 
-      } catch {
-        case t: Throwable => fail("Could not shut down the wrapping spark", t)
+        try {
+          System.setProperty(QualitySparkExtension.testingConf, "testing")
+          System.setProperty(QualitySparkExtension.disableRulesConf, disableConf)
+          if (forceInjection eq null)
+            System.clearProperty(QualitySparkExtension.forceInjectFunction)
+          else
+            System.setProperty(QualitySparkExtension.forceInjectFunction, forceInjection)
+
+          val enableHive = (builder: SparkSession.Builder) =>
+            if (withHive)
+              builder.enableHiveSupport()
+            else
+              builder
+
+          val enableDelta = (builder: SparkSession.Builder) =>
+            if (format == "delta")
+              builder.config("spark.sql.extensions", classOf[QualitySparkExtension].getName() + ",io.delta.sql.DeltaSparkSessionExtension")
+                .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+            else
+              builder
+
+          // attempt to create a new session
+          tsparkSession = enableDelta(enableHive(
+            {
+              val builder = SparkSession.builder()
+              if (System.getProperty("os.name").startsWith("Windows"))
+                builder.config("spark.hadoop.fs.file.impl", classOf[BareLocalFileSystem].getName).
+                  config("spark.hadoop.fs.AbstractFileSystem.file.impl", classOf[BareStreamingLocalFileSystem].getName)
+              else
+                builder
+            }
+              .config("spark.master", s"local[$classicHostMode]").config("spark.ui.enabled", false).
+              config("spark.sql.extensions", classOf[QualitySparkExtension].getName())))
+            .getOrCreate()
+          tsparkSession.sparkContext.setLogLevel("ERROR")
+
+          thunk(tsparkSession)
+        } finally {
+            if (tsparkSession ne null) {
+              tsparkSession.close()
+            }
+        }
       }
-      System.setProperty(QualitySparkExtension.disableRulesConf, disableConf)
-      if (forceInjection eq null)
-        System.clearProperty(QualitySparkExtension.forceInjectFunction)
-      else
-        System.setProperty(QualitySparkExtension.forceInjectFunction, forceInjection)
-
-      tsparkSession = SparkBuilderHelper.build(withHive, format = format, classicHostMode = classicHostMode)
-
-      thunk(tsparkSession._1)
 
     } finally {
-      try {
-        if (tsparkSession ne null) {
-          tsparkSession._1.close()
-          tsparkSession._2.apply()
-        }
-      } finally {
-        System.clearProperty(QualitySparkExtension.disableRulesConf)
-        System.clearProperty(QualitySparkExtension.forceInjectFunction)
+      System.clearProperty(QualitySparkExtension.disableRulesConf)
+      System.clearProperty(QualitySparkExtension.forceInjectFunction)
 
-        if (format == "delta") {
-          // https://github.com/delta-io/delta/issues/629 workaround
-          org.apache.spark.sql.delta.DeltaLog.clearCache()
-        }
-        SparkSession.setActiveSession(old)
+      if (format == "delta") {
+        // https://github.com/delta-io/delta/issues/629 workaround
+        org.apache.spark.sql.delta.DeltaLog.clearCache()
       }
     }
 
@@ -148,6 +174,8 @@ abstract class ExtensionTestBase extends ClassicSharedTests  {
   // pretty much only for databricks
   def wrapWithExistingSession(thunk: SparkSession => Unit): Unit = {
     val tsparkSession = sparkSession
+    com.sparkutils.quality.registerQualityFunctions()
+
     thunk(tsparkSession)
   }
 
@@ -200,8 +228,6 @@ abstract class ExtensionTestBase extends ClassicSharedTests  {
   } }
 
   test("testAsymmetricFilterEqSQL") { when_not_disabled { not_Cluster { not2_4 {
-    cleanUp("./metastore_db")
-
     wrapWithExtensionT(sparkSession => {
       val ds = uuidPairsWithContext("a")(sparkSession)
       val abspath = new File(ds.inputFiles.head).getParentFile.getPath.replaceAll("\\\\", "/")
