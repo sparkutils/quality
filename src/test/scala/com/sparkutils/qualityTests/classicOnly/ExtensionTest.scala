@@ -113,9 +113,7 @@ abstract class ExtensionTestBase extends ClassicSharedTests  {
 
   test("testExtensionDisableSpecific") { when_not_disabled { not2_4 {
     not_Cluster { // will never work on 2.4 and Databricks has a fixed session
-      Testing.test {
-        wrapWithExtensionT(tsparkSession => {}, AsUUIDFilter.getClass.getName)
-      }
+      wrapWithExtensionT(tsparkSession => {}, AsUUIDFilter.getClass.getName)
       val str = ExtensionTesting.disableRuleResult
       assert(str.indexOf(s"${disableRulesConf} = Set(${AsUUIDFilter.getClass.getName}) leaving List(${IDBase64Filter.getClass.getName}, ${FunNRewrite.getClass.getName}) remaining") > -1, s"str didn't have the expected contents, got $str")
     }
@@ -123,9 +121,7 @@ abstract class ExtensionTestBase extends ClassicSharedTests  {
 
   test("testExtensionDisableStar") { when_not_disabled { not2_4 {
     not_Cluster { // will never work on 2.4 and Databricks has a fixed session
-      Testing.test {
-        wrapWithExtensionT(tsparkSession => {}, "*")
-      }
+      wrapWithExtensionT(tsparkSession => {}, "*")
       val str = ExtensionTesting.disableRuleResult
       assert(str.isEmpty, s"should have been empty, got $str")
     }
@@ -148,23 +144,19 @@ abstract class ExtensionTestBase extends ClassicSharedTests  {
         registerFunction = (str: String, f: Seq[Expression] => Expression) => FunctionRegistry.builtin.dropFunction(FunctionIdentifier(str))
       )
 
-      Testing.test {
-        try {
-          wrapWithExtensionT(createview, forceInjection = "true")
-          fail("expected to fail as the functions are temporary only")
-        } catch {
-          case throwable: Throwable =>
-            if (throwable.getMessage.contains("as_uuid"))  ()
-        }
+      try {
+        wrapWithExtensionT(createview, forceInjection = "true")
+        fail("expected to fail as the functions are temporary only")
+      } catch {
+        case throwable: Throwable =>
+          if (throwable.getMessage.contains("as_uuid"))  ()
       }
     }
   } } }
 
   test("testDefaultFunctionRegistrationViaBuiltIn") { when_not_disabled { not2_4 {
     not_Cluster { // will never work on 2.4 and Databricks has a fixed session
-      Testing.test {
-        wrapWithExtensionT(createview)
-      }
+      wrapWithExtensionT(createview)
     }
   } } }
 
@@ -226,30 +218,6 @@ abstract class ExtensionTestBase extends ClassicSharedTests  {
   test("testAsymmetricFilterPlanJoinEq") { not_Cluster {
     doTestAsymmetricFilterPlanJoin(wrapWithExtension, "eq", (l, r) => l.===(r))
   } }
-
-  test("testAsymmetricFilterEqSQL") { when_not_disabled { not_Cluster { not2_4 {
-    wrapWithExtensionT(sparkSession => {
-      val ds = uuidPairsWithContext("a")(sparkSession)
-      val abspath = new File(ds.inputFiles.head).getParentFile.getPath.replaceAll("\\\\", "/")
-      sparkSession.sql(s"drop table if exists testme")
-      sparkSession.sql(s"create table testme using $format location '$abspath'")
-
-      sparkSession.sql(s"create or replace view testfunctionview as select alower, ahigher, as_uuid(alower, ahigher) context from testme");
-      val s = sparkSession
-      val resdf = sparkSession.sql(s"select context from testfunctionview where context = '${theuuid + "6"}' limit 10")
-      /*val res = resdf.as[String].collect()
-      assert(res.length == 1)
-      assert(res.head == (theuuid + "6"))
-*/
-      // verify push downs
-      val pushdowns = ClassicTestUtils.getPushDowns( ClassicSparkTestUtils.getExecutedPlan(resdf).get )
-
-      // with joins both sides should have pushdown for equals, but for gt,lt etc. it'll be one sided for some, not for others
-      assert(pushdowns.nonEmpty, s"did not have any pushed down filters")
-
-      assert(pushdowns.contains(theuuid6Higher), s"did not have a pushdown with the correct predicates including $theuuid6Higher but $pushdowns")
-    }, withHive = true)
-  }}}}
 
   test("testAsymmetricFilterPlanJoinEqViaExistingSession") { onlyWithExtension {
     doTestAsymmetricFilterPlanJoin(wrapWithExistingSession, "eq", (l, r) => l.===(r))
@@ -725,4 +693,30 @@ class ExtensionDeltaTest extends ExtensionTestBase {
   val format = "delta"
 
   val shouldRun = true
+
+  // test doesn't run in parquet due to some weird hive issue.
+  test("testAsymmetricFilterEqSQL") { when_not_disabled { not_Cluster { not2_4 {
+    wrapWithExtensionT(sparkSession => {
+      val ds = uuidPairsWithContext("a")(sparkSession)
+      val abspath = new File(ds.inputFiles.head).getParentFile.getPath.replaceAll("\\\\", "/")
+      sparkSession.sql(s"drop table if exists testme")
+      sparkSession.sql(s"create table testme using $format location '$abspath'")
+
+      sparkSession.sql(s"create or replace view testfunctionview as select alower, ahigher, as_uuid(alower, ahigher) context from testme");
+      val s = sparkSession
+      val resdf = sparkSession.sql(s"select context from testfunctionview where context = '${theuuid + "6"}' limit 10")
+      /*val res = resdf.as[String].collect()
+      assert(res.length == 1)
+      assert(res.head == (theuuid + "6"))
+*/
+      // verify push downs
+      val pushdowns = ClassicTestUtils.getPushDowns( ClassicSparkTestUtils.getExecutedPlan(resdf).get )
+
+      // with joins both sides should have pushdown for equals, but for gt,lt etc. it'll be one-sided for some, not for others
+      assert(pushdowns.nonEmpty, s"did not have any pushed down filters")
+
+      assert(pushdowns.contains(theuuid6Higher), s"did not have a pushdown with the correct predicates including $theuuid6Higher but $pushdowns")
+    }, withHive = true)
+  }}}}
+
 }

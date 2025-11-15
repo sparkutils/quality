@@ -368,6 +368,11 @@ class IDTests extends SharedConnectTests with VariableTestShims {
     val renamed = cached.selectExpr("unique_id_base as unid_base", "unique_id_i0 as unid_i0", "unique_id_i1 as unid_i1")
     val after = renamed.join(cached, expr("idEqual('unique_id', 'unid')")).count
     assert(after == count, "idEqual should have joined them fully")
+
+    val renamedf = cached.selectExpr("unique_id_base as unid_base", "unique_id_i0 as unid_i0", "unique_id_i1 as unid_i1")
+    val afterf = renamed.join(cached, id_equal("unique_id", "unid")).count
+    assert(afterf == count, "idEqual should have joined them fully")
+
   } }
 
   test("testIDBase64") { evalCodeGensNoResolve {

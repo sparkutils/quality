@@ -343,7 +343,6 @@ object Params {
   def formatParams(ctx: CodegenContext, a: Seq[ExprValue], callsKeepArrays: Boolean = false): (String, String) = {
     // filter out any top level arrays, the input is a set, so params need the same order
     val ordered = a.flatMap {
-      //case a: VariableValue if ExprUtils.isVariableMutableArray(ctx, a) => None
       case a: VariableValue => Some(a)
       case _ => None
     }

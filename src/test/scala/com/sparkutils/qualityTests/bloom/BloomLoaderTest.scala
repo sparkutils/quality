@@ -28,7 +28,7 @@ class BloomLoaderTest extends ClassicSharedTests {
       BloomRow(Id(1,1),"twenties", Some("twenties"), None, None, true, "id", 10, 0.01 )
     )
 
-  test("testConfigLoading") { {
+  test("testConfigLoading") {
     val s = sparkSession
     import s.implicits._
 
@@ -38,9 +38,9 @@ class BloomLoaderTest extends ClassicSharedTests {
     )
 
     doConfigTest(bloomConfigs)
-  } }
+  }
 
-  test("testConfigLoadingWithoutIds") { {
+  test("testConfigLoadingWithoutIds") {
     val s = sparkSession
     import s.implicits._
 
@@ -50,7 +50,7 @@ class BloomLoaderTest extends ClassicSharedTests {
     )
 
     doConfigTest(bloomConfigs)
-  } }
+  }
 
   private def doConfigTest(bloomConfigs: Seq[BloomConfig]) = {
     assert(bloomConfigs.size == 2)
@@ -60,7 +60,7 @@ class BloomLoaderTest extends ClassicSharedTests {
     assert(bloomConfigs.forall(_.expectedFPP == 0.01d))
   }
 
-  test("testBloomLoading") { {
+  test("testBloomLoading") {
     val s = sparkSession
     import s.implicits._
     val (bloomConfigs, _) = loadBloomConfigs(loader, config.toDF(), expr("id.id"), expr("id.version"), Id(1,1),
@@ -69,10 +69,10 @@ class BloomLoaderTest extends ClassicSharedTests {
     )
 
     doBloomTest(bloomConfigs)
-  } }
+  }
 
 
-  test("testMapSQLLoading") { {
+  test("testMapSQLLoading") {
     val s = sparkSession
     import s.implicits._
 
@@ -86,7 +86,7 @@ class BloomLoaderTest extends ClassicSharedTests {
     )
 
     doBloomTest(bloomConfigs)
-  } }
+  }
 
   private def doBloomTest(bloomConfigs: Seq[BloomConfig]) = {
     val blooms = loadBlooms(bloomConfigs)
@@ -97,7 +97,7 @@ class BloomLoaderTest extends ClassicSharedTests {
     val twenties = blooms("twenties")._1
 
     // these will work at least, longs are in the bloom, not ints
-    assert((1L until 19L).map(undertwenty.mightContain(_)).forall(_ == true))
+    assert((1L until 19L).map(undertwenty.apply).forall(_ == true))
     assert((1 until 19).map(undertwenty.mightContain(_)).forall(_ == false))
 
     assert((20L until 29L).map(twenties.mightContain(_)).forall(_ == true))

@@ -168,7 +168,7 @@ object LambdaCompilationUtils {
         )
     }
 
-  private lazy val testing = {
+  private def testing = {
     Testing.testing
   }
   private lazy val cached = convertToCompilationHandlers()

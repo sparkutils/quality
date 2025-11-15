@@ -13,8 +13,6 @@ import org.scalatest.Matchers.convertToAnyShouldWrapper
 import java.util.concurrent.atomic.AtomicBoolean
 
 class UserLambdaFunctionCompilationTest extends ClassicSharedTests with BeforeAndAfterAll {
-  // le horrible hack for testing
-  Testing.setTesting()
 
   test("defaultHofConfigTests") {
     val (simple, simpleimpl, notso, complex) = ("simple", "simpleimpl", "not.so.simple", "complex")

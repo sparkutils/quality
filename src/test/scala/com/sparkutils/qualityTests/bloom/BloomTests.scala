@@ -23,10 +23,10 @@ class BloomTests extends ClassicSharedTests {
   }
 
   def directCreateParquetExpr() =
-    directCreateParquetI(bloomLookup(_), expr(s"small_bloom(id, 20, cast(0.01 as double))"))
+    directCreateParquetI(bloomLookup, expr(s"small_bloom(id, 20, cast(0.01 as double))"))
 
   def directCreateParquetCol() =
-    directCreateParquetI(bloomLookup(_), small_bloom(col("id"), 20, 0.01))
+    directCreateParquetI(bloomLookup, small_bloom(col("id"), 20, 0.01))
 
   def directCreateBucketedArrayParquet(bloomType: String = "eager") = {
     registerQualityFunctions()

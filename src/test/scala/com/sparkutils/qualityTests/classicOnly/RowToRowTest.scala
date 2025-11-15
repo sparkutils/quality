@@ -7,7 +7,7 @@ import com.sparkutils.quality.sparkless.impl.Processors.NO_QUERY_PLANS
 import com.sparkutils.quality.sparkless.{ProcessFunctions, Processor}
 import com.sparkutils.qualityTests.util.ClassicSharedTests
 import com.sparkutils.shim.expressions.StatefulLike
-import com.sparkutils.testing.{ClassicOnly, ConnectionType, Sessions}
+import com.sparkutils.testing.{ClassicOnly, ConnectionType, Sessions, Testing}
 import org.apache.avro.SchemaBuilder
 import org.apache.avro.generic.{GenericData, GenericDatumWriter, GenericRecord}
 import org.apache.avro.io.EncoderFactory
@@ -446,6 +446,9 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
       compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation).instance
 
     val res = map(testData, processor)
+
+    res.map(t => Option(t.getResult.orElse(null))) shouldBe res.map(_.result)
+    res.map(t => Option(t.getSalientRule.orElse(null))) shouldBe res.map(_.salientRule)
 
     // first three all failed
     for(i <- 0 until 3) {
