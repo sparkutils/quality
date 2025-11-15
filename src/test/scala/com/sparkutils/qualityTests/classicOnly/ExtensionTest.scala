@@ -5,15 +5,14 @@ import com.sparkutils.quality.impl.extension.QualitySparkExtension.disableRulesC
 import com.sparkutils.quality.impl.extension._
 import com.sparkutils.qualityTests.util.ClassicSharedTests
 import com.sparkutils.testing.TestUtils.anyCauseHas
-import com.sparkutils.testing.{ClassicSparkTestUtils, ClassicTestUtils, Sessions, Testing}
+import com.sparkutils.testing.{ClassicSparkTestUtils, ClassicTestUtils}
 import org.apache.hadoop.fs.local.BareStreamingLocalFileSystem
-import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.sql.catalyst.FunctionIdentifier
 import org.apache.spark.sql.catalyst.analysis.FunctionRegistry
 import org.apache.spark.sql.catalyst.expressions.{And, Attribute, BinaryComparison, EqualTo, Equality, Expression, Or}
 import org.apache.spark.sql.catalyst.plans.logical.Join
 import org.apache.spark.sql.sources.{Filter, And => SAnd, EqualTo => SEqualTo, GreaterThan => SGreaterThan, In => SIn, Or => SOr}
-import org.apache.spark.sql.{Column, DataFrame, SparkBuilderHelper, SparkSession}
+import org.apache.spark.sql.{Column, DataFrame, SparkSession}
 
 import java.io.File
 import java.util.UUID
