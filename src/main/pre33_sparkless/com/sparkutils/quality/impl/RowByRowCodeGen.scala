@@ -4,12 +4,11 @@ import com.sparkutils.quality.QualityException
 import com.sparkutils.quality.sparkless.impl.DecoderOpEncoderProjection
 import com.sparkutils.quality.sparkless.impl.Processors.{NO_QUERY_PLANS, isCopyNeeded}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.{Encoder, ShimUtils}
 import org.apache.spark.sql.catalyst.expressions.BindReferences.bindReferences
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate.NoOp
 import org.apache.spark.sql.catalyst.expressions.codegen._
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.{Encoder, ShimUtils}
 
 /**
  * CODE is based on MutableProjection and generates a transformation between two encoders over a middle operation.
@@ -92,10 +91,9 @@ object GenerateDecoderOpEncoderProjection extends CodeGenerator[Seq[Expression],
 
     val toSize = oEnc.schema.size
 
-    if (expressions.exists(_.exists{
-      case s: PlanExpression[_] => true
-      case _ => false
-      })) {
+    if (expressions.exists(_.collect {
+      case s: PlanExpression[_] => s
+      }.nonEmpty)) {
       throw new QualityException(NO_QUERY_PLANS)
     }
 

@@ -1,6 +1,6 @@
 package com.sparkutils.quality.impl.util
 
-import com.sparkutils.shim.expressions.CreateNamedStruct1
+import com.sparkutils.shim.expressions.{CreateNamedStruct1, GetStructField3}
 import frameless.TypedEncoder
 import org.apache.spark.sql.{Encoder, ShimUtils}
 import org.apache.spark.sql.catalyst.analysis.{GetColumnByOrdinal, UnresolvedAttribute}
@@ -60,14 +60,24 @@ object EmbeddedTypeCorrection {
 object Encoding {
 
   /**
-   * Wraps a non Frameless encoder in a TypedEncoder, adjusting paths as needed.
+   * Wraps a non-Frameless encoder in a TypedEncoder, adjusting paths as needed.
    *
    * This is not intended for general use and is used by the ProcessFunctions.
    *
    * @tparam T
    * @return
    */
-  def fromNormalEncoder[T: Encoder]: TypedEncoder[T] = {
+  def fromNormalEncoder[T: Encoder]: TypedEncoder[T] = fromNormalEncoderWithType(None)
+
+    /**
+   * Wraps a non-Frameless encoder in a TypedEncoder, adjusting paths as needed.
+   *
+   * This is not intended for general use and is used by the ProcessFunctions.
+   *
+   * @tparam T
+   * @return
+   */
+  def fromNormalEncoderWithType[T: Encoder](outputTypeO: Option[DataType]): TypedEncoder[T] = {
     val oexpr = ShimUtils.expressionEncoder(implicitly[Encoder[T]])
 
     implicit val cltag = oexpr.clsTag
@@ -89,8 +99,6 @@ object Encoding {
       }
 
       override def fromCatalyst(path: Expression): Expression = {
-        val outputType = path.dataType
-
         val de = oexpr.deserializer
         val r =
           de match {
@@ -104,29 +112,41 @@ object Encoding {
               }
             case m: UnresolvedMapObjects => m.copy(child = path)
             case n: NewInstance =>
-              val o = outputType.asInstanceOf[StructType].zipWithIndex.map{case (e,i) => e.name -> i }.toMap
+              outputTypeO.fold{
+                // typical case, normal name resolution will work
+                If(IsNull(ForceNullable(path)), Literal(null), n)
+              } { outputType =>
+                // e.g. buried in an array
+                val o = outputType.asInstanceOf[StructType].zipWithIndex.map { case (e, i) => e.name -> i }.toMap
 
-              If(IsNull(ForceNullable(path)), Literal(null),
-                n/*.withNewChildren(n.children map {
-                  _.transform {
-                    case u: UnresolvedAttribute if o.contains(u.name) =>
-                      GetStructField3(path, o(u.name))
-                  }
-                })*/
-              )
-            case i: InitializeJavaBean =>
-              val o = outputType.asInstanceOf[StructType].zipWithIndex.map{case (e,i) => e.name -> i }.toMap
-
-              If(IsNull(ForceNullable(path)), Literal(null),
-                i/*.copy(setters =
-                  i.setters.map{ p =>
-                    (p._1, p._2.transform {
+                If(IsNull(ForceNullable(path)), Literal(null),
+                  n.withNewChildren(n.children map {
+                    _.transform {
                       case u: UnresolvedAttribute if o.contains(u.name) =>
                         GetStructField3(path, o(u.name))
-                    })
-                  }
-                )*/
-              )
+                    }
+                  })
+                )
+              }
+            case i: InitializeJavaBean =>
+              outputTypeO.fold{
+                // typical case, normal name resolution will work
+                If(IsNull(ForceNullable(path)), Literal(null), i)
+              } { outputType =>
+                // e.g. buried in an array
+                val o = outputType.asInstanceOf[StructType].zipWithIndex.map{case (e,i) => e.name -> i }.toMap
+
+                If(IsNull(ForceNullable(path)), Literal(null),
+                  i.copy(setters =
+                    i.setters.map{ p =>
+                      (p._1, p._2.transform {
+                        case u: UnresolvedAttribute if o.contains(u.name) =>
+                          GetStructField3(path, o(u.name))
+                      })
+                    }
+                  )
+                )
+              }
             // all single fields from a struct
             case i: Invoke =>
               i.transformUp {

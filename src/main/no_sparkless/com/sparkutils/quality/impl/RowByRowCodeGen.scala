@@ -1,14 +1,8 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality.QualityException
 import com.sparkutils.quality.sparkless.impl.DecoderOpEncoderProjection
-import com.sparkutils.quality.sparkless.impl.Processors.{NO_QUERY_PLANS, isCopyNeeded}
-import org.apache.spark.sql.{Encoder, ShimUtils}
-import org.apache.spark.sql.catalyst.expressions.BindReferences.bindReferences
+import org.apache.spark.sql.Encoder
 import org.apache.spark.sql.catalyst.expressions._
-import org.apache.spark.sql.catalyst.expressions.aggregate.NoOp
-import org.apache.spark.sql.catalyst.expressions.codegen._
-import org.apache.spark.sql.types.StructType
 
 /**
  * CODE is based on MutableProjection and generates a transformation between two encoders over a middle operation.

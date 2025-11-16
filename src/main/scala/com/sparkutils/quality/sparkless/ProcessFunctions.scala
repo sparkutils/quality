@@ -2,7 +2,7 @@ package com.sparkutils.quality.sparkless
 
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.util.EmbeddedTypeCorrection.{noCorrection, ofExpressionResult, ofExpressionResultNoDDL, ofRuleEngine, ofRuleFolder}
-import com.sparkutils.quality.impl.util.Encoding.fromNormalEncoder
+import com.sparkutils.quality.impl.util.Encoding.{fromNormalEncoder, fromNormalEncoderWithType}
 import com.sparkutils.quality.sparkless.StarUtil.star
 import com.sparkutils.quality.sparkless.impl.Processors.processFactory
 import frameless.{TypedEncoder, TypedExpressionEncoder}
@@ -269,9 +269,10 @@ trait NonLazyProcessFunctions {
                                                                        extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
                                                                        forceVarCompilation: Boolean = false): ProcessorFactory[I, RuleFolderResult[Seq[(Int, T)]]] = {
     import com.sparkutils.quality.implicits._
-    implicit val ttyped: TypedEncoder[T] = fromNormalEncoder[T]
+    implicit val ttyped: TypedEncoder[T] = fromNormalEncoderWithType[T](Some(outputType)) // needed as it's burried in an array
     implicit val senc = TypedExpressionEncoder[Seq[(Int, T)]]
     implicit val enc = TypedExpressionEncoder[RuleFolderResult[Seq[(Int, T)]]]
+
     iRuleFolderFactoryWithStructStarter[I, Seq[(Int, T)]](ruleSuite, fields, outputType, compile = compile, debugMode = true,
       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval,
       forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
@@ -307,7 +308,8 @@ trait NonLazyProcessFunctions {
                                                                  extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
                                                                  forceVarCompilation: Boolean = false)(implicit resEnc: Encoder[RuleFolderResult[T]]):
   ProcessorFactory[I, RuleFolderResult[T]] =
-    processFactory[I, RuleFolderResult[T]](star("foldedFields")(foldAndReplaceFieldPairsWithStruct(ruleSuite, fields, outputType, debugMode = debugMode,
+    processFactory[I, RuleFolderResult[T]](
+      star("foldedFields")(foldAndReplaceFieldPairsWithStruct(ruleSuite, fields, outputType, debugMode = debugMode,
       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval)), ofRuleFolder[T],  compile,
       forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)(
