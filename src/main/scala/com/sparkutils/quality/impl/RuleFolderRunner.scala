@@ -107,8 +107,12 @@ trait RuleFolderRunnerBase[T] extends BinaryExpression with NonSQLExpression {
 
     // order by salience
     val salience = com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenSalience(ruleSuite)
-    val outputs = 0 until (realChildren.size - expressionOffsets.size)
-    val reordered = outputs zip salience sortBy(_._2) map(_._1)
+    val outputs = 0 until (realChildren.size - expressionOffsets.size) // only unique exprs are present
+    val reordered = // fill the index list, still only uniques
+      (0 until (realChildren.size - outputs.size)).map{i =>
+        // lookup the output expressions
+        expressionOffsets(i)
+      } zip salience sortBy(_._2) map(_._1)
 
     val lazyRefsGenCode = realChildren.drop(expressionOffsets.length).map(_.asInstanceOf[FunN].arguments.head.genCode(ctx))
 

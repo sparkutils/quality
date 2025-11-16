@@ -41,9 +41,6 @@ trait PassThrough extends Expression {
   override def eval(input: InternalRow): Any = Literal(true).eval(input)
 
   override def dataType: DataType = BooleanType
-
-  // TODO #21 - migrate to withNewChildren when 2.4 is dropped
-  def withNewChilds(newChildren: IndexedSeq[Expression]): Expression
 }
 
 /**
@@ -55,7 +52,6 @@ case class PassThroughCompileEvals(children: Seq[Expression]) extends PassThroug
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
 
-  override def withNewChilds(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
 }
 
 /**
@@ -63,12 +59,10 @@ case class PassThroughCompileEvals(children: Seq[Expression]) extends PassThroug
  * rules / triggers and for any output expressions, it may take part in SubExprEvaluationRuntime
  * @param children
  */
-case class PassThroughEvalOnly(children: Seq[Expression]) extends PassThrough {
+case class PassThroughEvalOnly(children: Seq[Expression]) extends PassThrough with Unevaluable {
+
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
 
-  protected def doGenCode(ctx: org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev: org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = ???
-
-  override def withNewChilds(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
 }
 
 /**
