@@ -15,25 +15,36 @@ import org.apache.spark.sql.ShimUtils.{cast => castf}
 object AggregateExpressions {
 
   def transformSumType(function: Expression, param: NamedLambdaVariable, newDT: DataType) =
-    function.transform {
+    function.transformUp {
       case n: NamedLambdaVariable if n.exprId == param.exprId =>
         n.copy(dataType = newDT)
-      // spark for decimals already gets the type wrong for 0.7.1 syntax type and double wraps it (only checking single breaks deprecated syntax), so
+      /*// spark for decimals already gets the type wrong for 0.7.1 syntax type and double wraps it (only checking single breaks deprecated syntax), so
       // ugly workarounds for types not matching.. see above comment
-      case cast: Cast if cast.child.isInstanceOf[Cast] && cast.child.asInstanceOf[Cast].child.isInstanceOf[NamedLambdaVariable] =>
+      case cast: Cast if cast.child.isInstanceOf[Cast] && cast.child.asInstanceOf[Cast].child.isInstanceOf[NamedLambdaVariable] &&
+        cast.dataType.isInstanceOf[DecimalType] && newDT.isInstanceOf[DecimalType] =>
         val nvl = cast.child.asInstanceOf[Cast].child.asInstanceOf[NamedLambdaVariable]
-        if (nvl.exprId == param.exprId)
-          castf(castf(nvl.copy(dataType = newDT), newDT), cast.dataType)
-        else
-          cast
+      //  if (nvl.exprId == param.exprId)
+        castf(castf(nvl.copy(dataType = newDT), newDT), newDT)
+
+      case cast: Cast if cast.child.isInstanceOf[Cast] &&
+        cast.dataType.isInstanceOf[DecimalType] && newDT.isInstanceOf[DecimalType] =>
+        val nvl = cast.child.asInstanceOf[Cast].child
+        //  if (nvl.exprId == param.exprId)
+        castf(castf(nvl, newDT), newDT)
+      // else
+         // cast
       // for dbr > 11.2, the cast is on the variable not the expression
-      case cast: Cast if cast.child.isInstanceOf[NamedLambdaVariable] =>
+      case cast: Cast if cast.child.isInstanceOf[NamedLambdaVariable] &&
+        cast.dataType.isInstanceOf[DecimalType] && newDT.isInstanceOf[DecimalType] =>
         val nvl = cast.child.asInstanceOf[NamedLambdaVariable]
-        if (nvl.exprId == param.exprId)
-          castf( child = cast.child.asInstanceOf[NamedLambdaVariable].
-            copy(dataType = newDT), newDT)
-        else
-          cast
+        //if (nvl.exprId == param.exprId)
+          castf( child = nvl.copy(dataType = newDT), newDT)*/
+        //else
+        //  cast
+      // attributes themselves can get recast by spark, detected by changes in tests for connect
+      case cast: Cast if //cast.child.isInstanceOf[AttributeReference] &&
+        cast.dataType.isInstanceOf[DecimalType] && newDT.isInstanceOf[DecimalType] =>
+        castf( child = cast.child, dataType = newDT )
 
     }
 
