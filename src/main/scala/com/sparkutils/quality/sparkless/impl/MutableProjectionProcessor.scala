@@ -81,7 +81,9 @@ object MutableProjectionProcessor {
           override def setPartition(partition: Int): Unit =
             processor.initialize(partition)
 
+          // $COVERAGE-OFF$
           override def close(): Unit = {}
+          // $COVERAGE-ON$
         }
     }
 

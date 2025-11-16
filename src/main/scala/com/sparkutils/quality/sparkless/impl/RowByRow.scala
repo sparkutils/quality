@@ -67,7 +67,9 @@ object Processors {
     if (testing)
       isOverrideSet // re-evaluate
     else
+      // $COVERAGE-OFF$ // impossible to test and keep lazy val
       cachedOverrideIsSet
+      // $COVERAGE-ON$
 
   private lazy val cachedOverride = shouldForceCopyOverrideEnv
 
@@ -75,7 +77,9 @@ object Processors {
     if (testing)
       shouldForceCopyOverrideEnv // re-evaluate
     else
+      // $COVERAGE-OFF$
       cachedOverride
+      // $COVERAGE-ON$
 
   /**
    * Are there any stateful expressions in interpreted mode (or fallback) require fresh copies.
@@ -171,16 +175,13 @@ object Processors {
           private val theInstance = projector.newInstance
           override def apply(i: I): O = theInstance(i)
           override def setPartition(partition: Int): Unit = theInstance.initialize(partition)
+          // if this is spun out into a separate jar it'd be a good to provide caching & test which used this
+          // $COVERAGE-OFF$
           override def close(): Unit = {}
+          // $COVERAGE-ON$
         }
       }
     }
   }
 
-}
-
-case class LocalBroadcast[T: ClassTag](_value: T, _id: Long = 0) extends Broadcast[T](_id) {
-  override protected def getValue(): T = _value
-  override protected def doUnpersist(blocking: Boolean): Unit = ???
-  override protected def doDestroy(blocking: Boolean): Unit = ???
 }

@@ -2,7 +2,7 @@ package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.FlattenStruct.ruleSuiteDeserializer
-import com.sparkutils.quality.sparkless.impl.{LocalBroadcast, Processors}
+import com.sparkutils.quality.sparkless.impl.Processors
 import com.sparkutils.quality.sparkless.impl.Processors.NO_QUERY_PLANS
 import com.sparkutils.quality.sparkless.{ProcessFunctions, Processor}
 import com.sparkutils.qualityTests.util.ClassicSharedTests

@@ -123,10 +123,12 @@ object QualityYamlDecoding extends Logging {
             tuples.asScala.zipWithIndex.map {
               case (tuple, index) =>
                 val name = tuple.getKeyNode.asInstanceOf[ScalarNode]
+                // $COVERAGE-OFF$ belts and braces only
                 if (name.getValue != st.fields(index).name) {
                   logWarning(s"Could not load yaml, expected field name ${st.fields(index).name} but got ${name.getValue}, returning null")
                   return { case _ => (a: Node) => null }
                 }
+                // $COVERAGE-ON$
 
                 converters(index)(tuple.getValueNode)
             }
@@ -164,11 +166,11 @@ object QualityYamlDecoding extends Logging {
           ArrayBasedMapData.apply(smap)
         }
       }
-
+    // $COVERAGE-OFF$ completeness only
     case _: NullType =>
       (a: Node) =>
         null
-
+    // $COVERAGE-ON$
   }
 
 }

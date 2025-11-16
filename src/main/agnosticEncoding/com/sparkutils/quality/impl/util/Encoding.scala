@@ -5,6 +5,7 @@ import org.apache.spark.sql.Encoder
 import org.apache.spark.sql.catalyst.encoders.{AgnosticEncoder, ExpressionEncoder}
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
+import org.apache.spark.sql.types.DataType
 
 import scala.language.higherKinds
 
@@ -29,6 +30,9 @@ object EmbeddedTypeCorrection {
 }
 
 object Encoding {
+
+  def fromNormalEncoderWithType[T: Encoder](outputType: Option[DataType]): TypedEncoder[T] =
+    fromNormalEncoder
 
   /**
    * Wraps a non-Frameless encoder in a TypedEncoder, adjusting paths as needed.

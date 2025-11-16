@@ -8,21 +8,18 @@ import com.sparkutils.qualityTests.mapLookup.TradeTests._
 import com.sparkutils.qualityTests.util.SharedConnectTests
 import com.sparkutils.testing.SparkVersions.sparkVersion
 import com.sparkutils.testing.TestUtils.debug
-import org.apache.spark.SparkException
 import org.apache.spark.sql.catalyst.expressions.GenericRowWithSchema
 import org.apache.spark.sql.functions.{col, concat, expr, lit, struct, when}
-import org.apache.spark.sql.types.{DataType, DecimalType, LongType, MapType, StringType, StructField, StructType}
-import org.apache.spark.sql.{Column, DataFrame, Dataset, Encoder, functions}
-import org.scalatest.FunSuite
+import org.apache.spark.sql.types.{DecimalType, LongType, MapType, StringType, StructField, StructType}
+import org.apache.spark.sql.{Column, DataFrame, Dataset, functions}
 import org.scalatest.Matchers.convertToAnyShouldWrapper
 
 // dec 38,18 is not supported by connect 37,18 works https://issues.apache.org/jira/browse/SPARK-53938
-// todo right size the runs for 4, it takes too long
 class AggregatesTest extends SharedConnectTests with VariableTestShims {
 
   def doMapTest(transform: Dataset[java.lang.Long] => Dataset[java.lang.Long], sql: String): Unit = evalCodeGensNoResolve {
     val df = transform( (1 until mapFactor).foldLeft( sparkSession.range(1, 20) ) {
-      (ndf, i) =>
+      (ndf, _) =>
         ndf.union( sparkSession.range(1, 20) )
     } )
 
@@ -163,11 +160,11 @@ class AggregatesTest extends SharedConnectTests with VariableTestShims {
       }
 
     val reformattedSUM =
-      (res.flatMap { hrPair =>
+      res.flatMap { hrPair =>
         pairs(hrPair, _._2, "mobile") ++
         pairs(hrPair, _._3, "mobile_type") ++
         pairs(hrPair, _._4, "sim_type")
-      }).toSeq.toDS.toDF("hr", "key", "value", "total_count", "unique_count")
+      }.toSeq.toDS.toDF("hr", "key", "value", "total_count", "unique_count")
 
     reformattedSUM.count shouldBe pureSQL.count
     reformattedSUM.union(pureSQL).distinct().count shouldBe pureSQL.count
@@ -339,11 +336,11 @@ class AggregatesTest extends SharedConnectTests with VariableTestShims {
     doMapSumAggr[Double](summed)
   }
 
-  lazy val mapDecimalDSL = agg_expr(MapType(StringType, DecimalType(38,16)), lit(1) > 0, map_with(concat(col("date"), lit(", "), col("product")),
+  lazy val mapDecimalDSL = agg_expr(MapType(StringType, DecimalType(37,18)), lit(1) > 0, map_with(concat(col("date"), lit(", "), col("product")),
     entry => entry + when(col("ccy") === "CHF", col("value")).otherwise(col("value") * col("ccyrate")) ), return_sum ).as("mapSumExpr")
 
   lazy val mapDecimalExpr = // if also works but it's not present in the dsl - expr("aggExpr('MAP<STRING, DECIMAL(38,18)>', 1 > 0, mapWith(date || ', ' || product, entry -> entry + IF(ccy='CHF', value, value * ccyrate) ), returnSum() )").as("mapSumExpr")
-    expr("aggExpr('MAP<STRING, DECIMAL(38,16)>', 1 > 0, mapWith(date || ', ' || product, entry -> entry + case when ccy='CHF' then value else value * ccyrate end ), returnSum() )").as("mapSumExpr")
+    expr("aggExpr('MAP<STRING, DECIMAL(37,18)>', 1 > 0, mapWith(date || ', ' || product, entry -> entry + case when ccy='CHF' then value else value * ccyrate end ), returnSum() )").as("mapSumExpr")
 
   test("mapAggrDecimalTest") { doMapAggrSumTest[java.math.BigDecimal](mapDecimalExpr) }
 
@@ -359,7 +356,7 @@ class AggregatesTest extends SharedConnectTests with VariableTestShims {
    *
    */
   def doDecimalPrecisionTest(col: Column, expected: BigDecimal = BigDecimal(23245.682000000000)): Unit = evalCodeGensNoResolve {
-    doDecimalPrecisionTestF(df => col, expected = expected)
+    doDecimalPrecisionTestF(_ => col, expected = expected)
   }
   def doDecimalPrecisionTestF(col: DataFrame => Column, expected: BigDecimal = BigDecimal(23245.68200000000)): Unit = evalCodeGensNoResolve {
     val s = sparkSession
@@ -394,19 +391,18 @@ class AggregatesTest extends SharedConnectTests with VariableTestShims {
     registerLambdaFunctions(Seq(sf, sf2, rf, rf2))
     // NOTE on spark 2.4 it will not auto cast to BigDecimal on part 1 and 3 below
     // as such we wrap sql...
-    val (pre, post) = {
+    val (pre, post) =
       if (sparkVersion != "2.4") // not spark 2.4
         ("","as agg")
       else
         ("cast("," as DECIMAL(37,12)) as agg")
-    }
 
     // (1) test with wider partial application
-    doDecimalPrecisionTest( expr( s"${pre}aggExpr('DECIMAL(37,18)', dec IS NOT NULL, myinc(_()), myretsum(_(), cast(0.0 as DECIMAL(37,18)), _())) ${post}" ) )
+    doDecimalPrecisionTest( expr( s"${pre}aggExpr('DECIMAL(37,18)', dec IS NOT NULL, myinc(_()), myretsum(_(), cast(0.0 as DECIMAL(37,18)), _())) $post" ) )
     // (2) test with 1:1 hof
     doDecimalPrecisionTest( expr("aggExpr('DECIMAL(37,18)', dec IS NOT NULL, myinc(_()), myretsum(_(), _())) as agg" ) )
     // (3) test with partial on sum
-    doDecimalPrecisionTest( expr( s"${pre}aggExpr('DECIMAL(37,18)', dec IS NOT NULL, myinc(_(), cast(0.0 as DECIMAL(37,18))), myretsum(_(), _())) ${post}" ) )
+    doDecimalPrecisionTest( expr( s"${pre}aggExpr('DECIMAL(37,18)', dec IS NOT NULL, myinc(_(), cast(0.0 as DECIMAL(37,18))), myretsum(_(), _())) $post" ) )
   } }
 
   test("decimalPrecisionIncExprTest") { funNRewrites { doDecimalPrecisionTest( expr(  "aggExpr('DECIMAL(37,18)', dec IS NOT NULL, inc(dec + 0), returnSum()) as agg" ) ) } }

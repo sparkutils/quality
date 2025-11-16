@@ -248,7 +248,9 @@ case class YamlEncoderExpr(child: Expression, implicit val renderOptions: Map[St
       serializer.close()
     } catch {
       case e: IOException =>
+        // $COVERAGE-OFF$ belts and braces
         throw new YAMLException(e)
+        // $COVERAGE-ON$
     }
 
     val str = writer.getBuffer.toString

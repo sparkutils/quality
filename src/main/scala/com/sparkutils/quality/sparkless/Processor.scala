@@ -58,7 +58,8 @@ case class ProcessorFactoryProxy[I, T, O](underlyingFactory: ProcessorFactory[I,
       override def apply(i: I): O = convert(underlying.apply(i))
 
       override def setPartition(partition: Int): Unit = underlying.setPartition(partition)
-
+      // $COVERAGE-OFF$
       override def close(): Unit = underlying.close()
+      // $COVERAGE-ON$
     }
 }
