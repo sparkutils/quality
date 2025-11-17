@@ -61,8 +61,8 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression {
 
   val startingStruct: Expression = children.head
 
-  lazy val realChildren = getRealChildren(children)
-  
+  lazy val realChildren = getRealChildren(children.tail)
+
   // only used for compilation
   lazy val compiledRealChildren = realChildren.slice(0, expressionOffsets.length).map(ExpressionWrapper(_, compileEvals)).toArray
 
