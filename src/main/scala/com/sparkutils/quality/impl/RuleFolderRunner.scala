@@ -58,9 +58,12 @@ trait RuleFolderRunnerBase[T] extends BinaryExpression with NonSQLExpression {
   val tClass: Class[T]
 
   // hack to push type through to lambda's on 2.4, should be in withNewChildren after 2.4 is dropped,
-  // resolution only happens on driver
+  // resolution only happens on driver.  Only set once or the plan can get different nullables on lower sparks
   if (left.resolved) {
-    dataRef.set(left.dataType)
+    val cur = dataRef.get()
+    if (cur eq null) {
+      dataRef.set(left.dataType)
+    }
   }
 
   import RuleEngineRunnerUtils._
@@ -200,8 +203,8 @@ case class RuleFolderRunnerEval(ruleSuite: RuleSuite, left: Expression, right: E
     val c =
       if (newLeft.resolved)
         newRight.transform{
-          case RefExpressionLazyType(a, n, false) =>
-            RefExpressionLazyType(a, n, true)
+          case r@ RefExpressionLazyType(_, _, false) =>
+            r.copy(_resolved = true)
         }
       else
         newRight
@@ -231,8 +234,8 @@ case class RuleFolderRunner(ruleSuite: RuleSuite, left: Expression, right: Expre
     val c =
       if (newLeft.resolved)
         newRight.transform{
-          case RefExpressionLazyType(a, n, false) =>
-            RefExpressionLazyType(a, n, true)
+          case r@ RefExpressionLazyType(_, _, false) =>
+            r.copy(_resolved = true)
         }
       else
         newRight

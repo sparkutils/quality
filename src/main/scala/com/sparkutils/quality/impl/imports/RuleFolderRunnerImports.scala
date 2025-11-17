@@ -69,7 +69,7 @@ trait RuleFolderRunnerImports {
                        forceTriggerEval: Boolean = false): Column = {
     com.sparkutils.quality.registerLambdaFunctions( ruleSuite.lambdaFunctions )
 
-    // needed to resolve variables
+    // needed to resolve variables -- this changes between invocation and stops the type checks.  In the test case it's subcode that is on one type nullable and the other not
     val dataRef = new AtomicReference[DataType]()
 
     val realType = () => {
@@ -88,7 +88,7 @@ trait RuleFolderRunnerImports {
 
     val (expressions, indexes) = flattenExpressions(ruleSuite, liftLambda)
 
-    val cleaed = RuleLogicUtils.cleanExprs(ruleSuite)
+    val cleaned = RuleLogicUtils.cleanExprs(ruleSuite)
     val starter = expression(startingStruct)
     val exprs =
       // ExpressionProxy and SubExprEvaluationRuntime cannot be used with compileEvals
@@ -99,12 +99,12 @@ trait RuleFolderRunnerImports {
 
     val runner =
       if (forceRunnerEval || resolveWith.isDefined)
-        new RuleFolderRunnerEval(cleaed, starter, exprs,
+        new RuleFolderRunnerEval(cleaned, starter, exprs,
           realType, compileEvals = compileEvals,
           debugMode = debugMode, variablesPerFunc, variableFuncGroup,
           expressionOffsets = indexes, dataRef, forceTriggerEval)
       else
-        new RuleFolderRunner(cleaed, starter, exprs,
+        new RuleFolderRunner(cleaned, starter, exprs,
           realType, compileEvals = compileEvals,
           debugMode = debugMode, variablesPerFunc, variableFuncGroup,
           expressionOffsets = indexes, dataRef, forceTriggerEval)

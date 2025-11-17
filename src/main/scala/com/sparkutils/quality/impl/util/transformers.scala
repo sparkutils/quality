@@ -29,7 +29,7 @@ protected[quality] object AddDataFunctions {
     val df = rdf.asInstanceOf[DataFrame]
     import org.apache.spark.sql.functions._
 
-    val fieldNames = fields.fold(identity, _.map(_._1))
+    val fieldNames = fields.fold(identity, _.map(_._1)).toSet
 
     val theStruct = fields.fold(
       fields => struct(fields.head, fields.tail :_*),
@@ -39,20 +39,26 @@ protected[quality] object AddDataFunctions {
       df.withColumn(foldFieldName, ruleFolderRunner(rules, theStruct, debugMode = debugMode, useType = useType,
         compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval))
 
+    val schema = withFolder.schema
+    val dfFields = schema.map(_.name)
+
     // create now as the schema will have the folder, which we may want to keep
     val namesInOrder =
       if (maintainOrder)
-        withFolder.schema.map(_.name)
+        dfFields
       else
         Seq()
     // lift the results
     val result =
       if (debugMode)
-        withFolder.drop(fieldNames : _*).selectExpr("*",
-          s"if(size($foldFieldName.result) == 0 or $foldFieldName.result is null, null, element_at($foldFieldName.result, -1)).result as $tempFoldDebugName"
-        ).selectExpr("*", s"$tempFoldDebugName.*").drop(tempFoldDebugName)
+        withFolder.selectExpr(
+          dfFields.filterNot(fieldNames) ++
+          fieldNames.map { name =>
+            s"if(size($foldFieldName.result) == 0 or $foldFieldName.result is null, null, element_at($foldFieldName.result, -1)).result.$name as $name"
+          } :_*
+        )
       else
-        withFolder.drop(fieldNames : _*).selectExpr("*", s"$foldFieldName.result.*" )
+        withFolder.selectExpr(dfFields.filterNot(fieldNames) :+ s"$foldFieldName.result.*" :_*)
 
     // bring back to top level in the correct order
     if (maintainOrder)

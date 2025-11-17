@@ -137,7 +137,7 @@ object RefExpressionLazyType {
 }
 
 /**
- * Getter, trimmed version of NamedLambdaVariable as it should never be resolved
+ * Allows threading types from child resolves, the type is atomic but the value is not
  * @param dataTypeF
  * @param nullable
  */
@@ -250,12 +250,16 @@ case class FunN(arguments: Seq[Expression], function: Expression, name: Option[S
   }
 
   @transient lazy val LambdaFunction(lambdaFunction, elementNamedVariables, _) = function
-  @transient lazy val elementVars = elementNamedVariables.map(_.asInstanceOf[NamedLambdaVariable])
+  @transient lazy val elementVars = elementNamedVariables//.map(_.asInstanceOf[NamedLambdaVariable])
 
   override def eval(inputRow: InternalRow): Any = {
     // set up the variable to be evaluated
     elementVars.zip(arguments).foreach{ case (element, expr) =>
-      element.value.set(expr.eval(inputRow))
+      val r = expr.eval(inputRow)
+      element match {
+        case nlv: NamedLambdaVariable => nlv.value.set(r)
+        case nlvg: NamedLambdaVariableCodeGen => nlvg.value = r
+      }
     }
 
     function.eval(inputRow)
