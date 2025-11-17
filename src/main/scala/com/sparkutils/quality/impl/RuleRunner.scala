@@ -4,7 +4,7 @@ import com.sparkutils.quality.impl.RuleLogicUtils.mapRules
 import com.sparkutils.quality.impl.RuleRunnerUtils.flattenExpressions
 import com.sparkutils.quality.impl.imports.RuleResultsImports.packId
 import com.sparkutils.quality._
-import com.sparkutils.quality.impl.RuleRunnerImpl.getRealChildren
+import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
 import types.ruleSuiteResultType
 import com.sparkutils.quality.impl.imports.RuleRunnerImports
 import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals}
@@ -13,13 +13,12 @@ import org.apache.spark.sql.ShimUtils.column
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode, ExprValue}
-import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionProxy, NonSQLExpression, UnaryExpression}
+import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression}
 import org.apache.spark.sql.catalyst.util.ArrayBasedMapData
 import org.apache.spark.sql.functions.lit
 import org.apache.spark.sql.types.DataType
 import org.apache.spark.sql.{Column, DataFrame, QualitySparkUtils, ShimUtils}
 
-import scala.collection.mutable
 import scala.reflect.ClassTag
 
 object PackId {
@@ -43,19 +42,6 @@ object PackId {
 }
 
 protected[quality] object RuleRunnerImpl {
-
-  /**
-   * unpack correct children to eval/compile against.
-   * @param children
-   * @return
-   */
-  def getRealChildren(children: Seq[Expression]): Seq[Expression] =
-    children.map {
-      case r @ NonPassThrough(_) => r.rule
-      case PassThroughCompileEvals(child) => child
-      case e: ExpressionProxy if e.child.isInstanceOf[PassThroughCompileEvals] => e.child.children.head
-      case child => child
-    }
 
   /**
    * Creates a column that runs the RuleSuite.  This also forces registering the lambda functions used by that RuleSuite

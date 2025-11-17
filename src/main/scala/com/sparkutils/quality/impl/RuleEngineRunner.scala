@@ -8,13 +8,13 @@ import com.sparkutils.quality.impl.RuleRunnerUtils.{genRuleSuiteTerm, packTheId}
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.imports.{RuleEngineRunnerImports, RuleResultsImports}
 import RuleResultsImports.packId
-import com.sparkutils.quality.impl.RuleRunnerImpl.getRealChildren
+import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
 import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals, PassThroughEvalOnly}
 import org.apache.spark.sql.QualitySparkUtils.genParams
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode}
-import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionProxy, NonSQLExpression}
+import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression}
 import org.apache.spark.sql.catalyst.util.GenericArrayData
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.{Column, DataFrame, QualitySparkUtils, ShimUtils}

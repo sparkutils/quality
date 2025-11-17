@@ -61,7 +61,7 @@ case class PassThroughEvalOnly(children: Seq[Expression]) extends PassThrough wi
  */
 case class PassThroughCompileEvals(child: Expression) extends UnaryExpression with PassThrough with CodegenFallback {
 
-  override protected def withNewChildInternal(newChild: Expression): Expression = copy(newChild)
+  protected def withNewChildInternal(newChild: Expression): Expression = copy(newChild)
 
   override def nullable: Boolean = child.nullable
 
@@ -81,8 +81,8 @@ case class NonPassThrough(rule: Expression) extends UnaryExpression with Unevalu
   override def dataType: DataType = BooleanType
 
   override def child: Expression = Literal(true)
-// possibly should be child not newChild here
-  override protected def withNewChildInternal(newChild: Expression): Expression = copy(newChild)
+
+  protected def withNewChildInternal(newChild: Expression): Expression = copy(newChild)
 
 }
 
