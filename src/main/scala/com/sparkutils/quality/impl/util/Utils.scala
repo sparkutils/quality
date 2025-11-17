@@ -71,7 +71,7 @@ case class PassThroughCompileEvals(child: Expression) extends UnaryExpression wi
 }
 
 /**
- * Should not be used in queryplanning
+ * Should not be used in queryplanning  TODO verify if this still needs to be unevaluable, it did under spark 2.4
  * @param rules should be hidden from plans
  */
 case class NonPassThrough(rule: Expression) extends UnaryExpression with Unevaluable {
@@ -81,6 +81,9 @@ case class NonPassThrough(rule: Expression) extends UnaryExpression with Unevalu
   override def dataType: DataType = BooleanType
 
   override def child: Expression = Literal(true)
+
+  // needed for Spark3, runs constant folder before getRealChildren is called
+  override val foldable: Boolean = false
 
   protected def withNewChildInternal(newChild: Expression): Expression = copy(newChild)
 
