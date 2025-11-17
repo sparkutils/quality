@@ -8,6 +8,7 @@ import com.sparkutils.quality.impl.RuleRunnerUtils.{genRuleSuiteTerm, packTheId}
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.imports.{RuleEngineRunnerImports, RuleResultsImports}
 import RuleResultsImports.packId
+import com.sparkutils.quality.impl.RuleRunnerImpl.getRealChildren
 import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals, PassThroughEvalOnly}
 import org.apache.spark.sql.QualitySparkUtils.genParams
 import org.apache.spark.sql.catalyst.InternalRow
@@ -394,13 +395,7 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression {
 
   import RuleEngineRunnerUtils._
 
-  lazy val realChildren =
-    children.map {
-      case r @ NonPassThrough(_) => r.rule
-      case PassThroughCompileEvals(child) => child
-      case e: ExpressionProxy if e.child.isInstanceOf[PassThroughCompileEvals] => e.child.children.head
-      case child => child
-    }
+  lazy val realChildren = getRealChildren(children)
 
   // only used for compilation
   lazy val compiledRealChildren = realChildren.slice(0, expressionOffsets.length).map(ExpressionWrapper(_, compileEvals)).toArray

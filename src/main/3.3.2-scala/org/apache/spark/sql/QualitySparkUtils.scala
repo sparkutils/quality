@@ -374,15 +374,16 @@ object QualitySparkUtils {
     }
     // special case as it's faster to do individual items it seems, 36816ms vs 48974ms
     expr match {
-      case r: RuleEngineRunnerBase[_] if r.child.isInstanceOf[PassThrough] =>
-        val nexprs = r.child.children.map(forExpr)
-        r.withNewChildren(Seq(r.child.withNewChildren(nexprs)))
-      case r: RuleFolderRunnerBase[_] if r.right.isInstanceOf[PassThrough]  =>
-        val nexprs = r.right.children.map(forExpr)
-        r.withNewChildren(Seq(r.starter, r.right.withNewChildren(nexprs)))
-      case r: RuleRunnerBase[_] if r.child.isInstanceOf[PassThrough] =>
-        val nexprs = r.child.children.map(forExpr)
-        r.withNewChildren(Seq(PassThroughCompileEvals(nexprs)))
+      case r: RuleEngineRunnerBase[_] if r.children.head.isInstanceOf[PassThrough] =>
+        val nexprs = r.children.map(c => c.withNewChildren(Seq(forExpr(c.children.head))))
+        r.withNewChildren(nexprs)
+      case r: RuleFolderRunnerBase[_] if r.children(1).isInstanceOf[PassThrough] =>
+        val starter = r.children.head
+        val nexprs = r.children.tail.map(c => c.withNewChildren(Seq(forExpr(c.children.head))))
+        r.withNewChildren(starter +: nexprs)
+      case r: RuleRunnerBase[_] if r.children.head.isInstanceOf[PassThrough] =>
+        val nexprs = r.children.map(c => c.withNewChildren(Seq(forExpr(c.children.head))))
+        r.withNewChildren(nexprs)
       case _ => forExpr(expr)
     }
   }

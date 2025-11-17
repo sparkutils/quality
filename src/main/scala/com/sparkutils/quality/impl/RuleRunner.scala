@@ -4,6 +4,7 @@ import com.sparkutils.quality.impl.RuleLogicUtils.mapRules
 import com.sparkutils.quality.impl.RuleRunnerUtils.flattenExpressions
 import com.sparkutils.quality.impl.imports.RuleResultsImports.packId
 import com.sparkutils.quality._
+import com.sparkutils.quality.impl.RuleRunnerImpl.getRealChildren
 import types.ruleSuiteResultType
 import com.sparkutils.quality.impl.imports.RuleRunnerImports
 import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals}
@@ -43,6 +44,18 @@ object PackId {
 
 protected[quality] object RuleRunnerImpl {
 
+  /**
+   * unpack correct children to eval/compile against.
+   * @param children
+   * @return
+   */
+  def getRealChildren(children: Seq[Expression]): Seq[Expression] =
+    children.map {
+      case r @ NonPassThrough(_) => r.rule
+      case PassThroughCompileEvals(child) => child
+      case e: ExpressionProxy if e.child.isInstanceOf[PassThroughCompileEvals] => e.child.children.head
+      case child => child
+    }
 
   /**
    * Creates a column that runs the RuleSuite.  This also forces registering the lambda functions used by that RuleSuite
@@ -317,13 +330,7 @@ trait RuleRunnerBase[T] extends NonSQLExpression {
 
   import RuleRunnerUtils._
 
-  lazy val realChildren =
-    children.map {
-      case r @ NonPassThrough(_) => r.rule
-      case PassThroughCompileEvals(child) => child
-      case e: ExpressionProxy if e.child.isInstanceOf[PassThroughCompileEvals] => e.child.children.head
-      case child => child
-    }
+  lazy val realChildren = getRealChildren(children)
 
   override def nullable: Boolean = false
   override def toString: String = s"RuleRunner(${realChildren.mkString(", ")})"

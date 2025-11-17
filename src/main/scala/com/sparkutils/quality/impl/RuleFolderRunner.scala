@@ -1,6 +1,7 @@
 package com.sparkutils.quality.impl
 
 import com.sparkutils.quality._
+import com.sparkutils.quality.impl.RuleRunnerImpl.getRealChildren
 import com.sparkutils.quality.impl.imports.RuleFolderRunnerImports
 import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals, PassThroughEvalOnly}
 import org.apache.spark.sql.catalyst.InternalRow
@@ -60,15 +61,8 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression {
 
   val startingStruct: Expression = children.head
 
-  lazy val realChildren =
-    children.tail.map {
-      case r @ NonPassThrough(_) => r.rule
-      case PassThroughCompileEvals(child) => child
-      case e: ExpressionProxy if e.child.isInstanceOf[PassThroughCompileEvals] => e.child.children.head
-      case child => child
-    }
-
-
+  lazy val realChildren = getRealChildren(children)
+  
   // only used for compilation
   lazy val compiledRealChildren = realChildren.slice(0, expressionOffsets.length).map(ExpressionWrapper(_, compileEvals)).toArray
 
