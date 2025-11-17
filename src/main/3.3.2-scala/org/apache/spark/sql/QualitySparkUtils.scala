@@ -379,7 +379,7 @@ object QualitySparkUtils {
         r.withNewChildren(Seq(r.child.withNewChildren(nexprs)))
       case r: RuleFolderRunnerBase[_] if r.right.isInstanceOf[PassThrough]  =>
         val nexprs = r.right.children.map(forExpr)
-        r.withNewChildren(Seq(r.left, r.right.withNewChildren(nexprs)))
+        r.withNewChildren(Seq(r.starter, r.right.withNewChildren(nexprs)))
       case r: RuleRunnerBase[_] if r.child.isInstanceOf[PassThrough] =>
         val nexprs = r.child.children.map(forExpr)
         r.withNewChildren(Seq(PassThroughCompileEvals(nexprs)))

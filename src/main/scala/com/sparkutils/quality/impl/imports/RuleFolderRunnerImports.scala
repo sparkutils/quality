@@ -3,7 +3,7 @@ package com.sparkutils.quality.impl.imports
 import com.sparkutils.quality.RuleSuite
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenExpressions
 import com.sparkutils.quality.impl.{RuleFolderRunner, RuleFolderRunnerEval, RuleLogicUtils, RuleSuiteHelpers}
-import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals, PassThroughEvalOnly}
+import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals}
 import org.apache.spark.sql.ShimUtils.{column, expression}
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.functions.lit
@@ -93,18 +93,18 @@ trait RuleFolderRunnerImports {
     val exprs =
       // ExpressionProxy and SubExprEvaluationRuntime cannot be used with compileEvals
       if (compileEvals)
-        PassThroughCompileEvals(expressions)
+        expressions.map(PassThroughCompileEvals(_))
       else
-        PassThroughEvalOnly(expressions)
+        expressions
 
     val runner =
       if (forceRunnerEval || resolveWith.isDefined)
-        new RuleFolderRunnerEval(cleaned, starter, exprs,
+        new RuleFolderRunnerEval(cleaned, starter +: exprs,
           realType, compileEvals = compileEvals,
           debugMode = debugMode, variablesPerFunc, variableFuncGroup,
           expressionOffsets = indexes, dataRef, forceTriggerEval)
       else
-        new RuleFolderRunner(cleaned, starter, exprs,
+        new RuleFolderRunner(cleaned, starter +: exprs,
           realType, compileEvals = compileEvals,
           debugMode = debugMode, variablesPerFunc, variableFuncGroup,
           expressionOffsets = indexes, dataRef, forceTriggerEval)
@@ -113,11 +113,11 @@ trait RuleFolderRunnerImports {
       QualitySparkUtils.resolveWithOverride(resolveWith).map { df =>
         val resolved = QualitySparkUtils.resolveExpression(df, runner)
 
-        resolved.withNewChildren(Seq(runner.left, resolved.children.head match {
+        resolved.withNewChildren(resolved.children.map{
           // replace the expr
-          case PassThroughCompileEvals(children) => NonPassThrough(children)
-          case PassThroughEvalOnly(children) => NonPassThrough(children)
-        }))
+          case PassThroughCompileEvals(child) => NonPassThrough(child)
+          case child => NonPassThrough(child)
+        })
       } getOrElse runner
     )
   }

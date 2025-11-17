@@ -6,12 +6,12 @@ import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode}
-import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression, NonSQLExpression}
+import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionProxy, NonSQLExpression}
 import org.apache.spark.sql.qualityFunctions.{FunN, RefExpressionLazyType}
 import org.apache.spark.sql.types._
 
 import java.util.concurrent.atomic.AtomicReference
-import scala.reflect.{ClassTag, classTag}
+import scala.reflect.ClassTag
 
 
 
@@ -40,11 +40,9 @@ private[quality] object RuleFolderRunnerUtils extends RuleFolderRunnerImports {
   * Children will be rewritten by the plan, it's then re-incorporated into ruleSuite
   * expressionOffsets.length is the length of the trigger expressions in realChildren, realChildren(expressionOffsets.length + expressionOffsets(x)) will be the correct OutputExpression
   */
-trait RuleFolderRunnerBase[T] extends BinaryExpression with NonSQLExpression {
+trait RuleFolderRunnerBase[T] extends NonSQLExpression {
 
   val ruleSuite: RuleSuite
-  val left: Expression
-  val right: Expression
   val resultDataType: () => DataType
   val compileEvals: Boolean
   val debugMode: Boolean
@@ -57,26 +55,19 @@ trait RuleFolderRunnerBase[T] extends BinaryExpression with NonSQLExpression {
   implicit val classTagT: ClassTag[T]
   val tClass: Class[T]
 
-  // hack to push type through to lambda's on 2.4, should be in withNewChildren after 2.4 is dropped,
-  // resolution only happens on driver.  Only set once or the plan can get different nullables on lower sparks
-  if (left.resolved) {
-    val cur = dataRef.get()
-    if (cur eq null) {
-      dataRef.set(left.dataType)
-    }
-  }
-
   import RuleEngineRunnerUtils._
   import RuleFolderRunnerUtils._
 
-  val startingStruct: Expression = left
+  val startingStruct: Expression = children.head
 
   lazy val realChildren =
-    right match {
-      case r @ NonPassThrough(_) => r.rules
-      case PassThroughCompileEvals(children) => children
-      case PassThroughEvalOnly(children) => children
+    children.tail.map {
+      case r @ NonPassThrough(_) => r.rule
+      case PassThroughCompileEvals(child) => child
+      case e: ExpressionProxy if e.child.isInstanceOf[PassThroughCompileEvals] => e.child.children.head
+      case child => child
     }
+
 
   // only used for compilation
   lazy val compiledRealChildren = realChildren.slice(0, expressionOffsets.length).map(ExpressionWrapper(_, compileEvals)).toArray
@@ -120,7 +111,7 @@ trait RuleFolderRunnerBase[T] extends BinaryExpression with NonSQLExpression {
     val lazyRefsGenCode = realChildren.drop(expressionOffsets.length).map(_.asInstanceOf[FunN].arguments.head.genCode(ctx))
 
     val compilerTerms =
-      RuleEngineRunnerUtils.genCompilerTerms[T](ctx, right, expressionOffsets, realChildren,
+      RuleEngineRunnerUtils.genCompilerTerms[T](ctx, PassThroughEvalOnly(realChildren), expressionOffsets, realChildren,
         debugMode, variablesPerFunc, variableFuncGroup, forceTriggerEval,
         // capture the current
         extraResult = (outArrTerm: String) => s"$folderV = $outArrTerm;",
@@ -138,7 +129,7 @@ trait RuleFolderRunnerBase[T] extends BinaryExpression with NonSQLExpression {
     import compilerTerms._
 
     // generate the starting struct
-    val starterEval = left.genCode(ctx)
+    val starterEval = startingStruct.genCode(ctx)
 
     val pre = s"""
           $currentSalience = java.lang.Integer.MAX_VALUE;
@@ -186,6 +177,29 @@ trait RuleFolderRunnerBase[T] extends BinaryExpression with NonSQLExpression {
     res
 
   }
+
+  def processNewChildren(newChildren: Seq[Expression]): Seq[Expression] = {
+    val starter = newChildren.head
+    val rest = newChildren.tail
+    val crest =
+      if (starter.resolved) {
+        // resolution only happens on driver.  Only set once or the plan can get different nullables on lower sparks
+        val cur = dataRef.get()
+        if (cur eq null) {
+          dataRef.set(starter.dataType)
+        }
+
+        rest.map(_.transform{
+          case r@ RefExpressionLazyType(_, _, false) =>
+            r.copy(_resolved = true)
+        })
+
+      } else
+        rest
+
+    starter +: crest
+  }
+
 }
 
 
@@ -193,24 +207,14 @@ trait RuleFolderRunnerBase[T] extends BinaryExpression with NonSQLExpression {
  * Children will be rewritten by the plan, it's then re-incorporated into ruleSuite
  * expressionOffsets.length is the length of the trigger expressions in realChildren, realChildren(expressionOffsets.length + expressionOffsets(x)) will be the correct OutputExpression
  */
-case class RuleFolderRunnerEval(ruleSuite: RuleSuite, left: Expression, right: Expression, resultDataType: () => DataType,
+case class RuleFolderRunnerEval(ruleSuite: RuleSuite, children: Seq[Expression], resultDataType: () => DataType,
                             compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
                             variableFuncGroup: Int, expressionOffsets: Array[Int],
                             dataRef: AtomicReference[DataType], forceTriggerEval: Boolean
                            ) extends RuleFolderRunnerBase[RuleFolderRunnerEval] with CodegenFallback {
 
-  protected def withNewChildrenInternal(newLeft: Expression, newRight: Expression): Expression = {
-    val c =
-      if (newLeft.resolved)
-        newRight.transform{
-          case r@ RefExpressionLazyType(_, _, false) =>
-            r.copy(_resolved = true)
-        }
-      else
-        newRight
-
-    copy(left = newLeft, right = c)
-  }
+  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
+    copy(children = processNewChildren(newChildren))
 
   override implicit val classTagT: ClassTag[RuleFolderRunnerEval] = ClassTag(classOf[RuleFolderRunnerEval])
 
@@ -222,26 +226,14 @@ case class RuleFolderRunnerEval(ruleSuite: RuleSuite, left: Expression, right: E
  * Children will be rewritten by the plan, it's then re-incorporated into ruleSuite
  * expressionOffsets.length is the length of the trigger expressions in realChildren, realChildren(expressionOffsets.length + expressionOffsets(x)) will be the correct OutputExpression
  */
-case class RuleFolderRunner(ruleSuite: RuleSuite, left: Expression, right: Expression, resultDataType: () => DataType,
+case class RuleFolderRunner(ruleSuite: RuleSuite, children: Seq[Expression], resultDataType: () => DataType,
                                 compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
                                 variableFuncGroup: Int, expressionOffsets: Array[Int],
                                 dataRef: AtomicReference[DataType], forceTriggerEval: Boolean
                                ) extends RuleFolderRunnerBase[RuleFolderRunner] {
 
-  protected def withNewChildrenInternal(newLeft: Expression, newRight: Expression): Expression = {
-    // Spark 4 re-orders the checking of types, so we don't have a type until resolving
-    // as such we need to now force resolved to true - dropping 2.4 anyway
-    val c =
-      if (newLeft.resolved)
-        newRight.transform{
-          case r@ RefExpressionLazyType(_, _, false) =>
-            r.copy(_resolved = true)
-        }
-      else
-        newRight
-
-    copy(left = newLeft, right = c)
-  }
+  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
+    copy(children = processNewChildren(newChildren))
 
   override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = doGenCodeI(ctx, ev)
 

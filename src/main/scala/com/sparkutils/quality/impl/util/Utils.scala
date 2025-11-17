@@ -6,7 +6,7 @@ import com.sparkutils.shim.expressions.{CreateNamedStruct1, GetStructField3, Map
 import frameless.TypedEncoder
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode, ExprValue, JavaCode, QualityExprUtils, VariableValue}
-import org.apache.spark.sql.catalyst.expressions.{Alias, BinaryExpression, BoundReference, Expression, If, IsNull, Literal, NamedExpression, Unevaluable, UnsafeArrayData}
+import org.apache.spark.sql.catalyst.expressions.{Alias, BinaryExpression, BoundReference, Expression, If, IsNull, Literal, NamedExpression, UnaryExpression, Unevaluable, UnsafeArrayData}
 import org.apache.spark.sql.catalyst.util.ArrayData
 import org.apache.spark.sql.types.{ArrayType, BooleanType, DataType, MapType, StructField, StructType}
 
@@ -44,17 +44,6 @@ trait PassThrough extends Expression {
 }
 
 /**
- * Same as unevaluable but the queryplan runs.  This version requires compileEvals = true (rules are independent and
- * will not use Subexpression Elimination at eval time) and as such cannot be used with SubExprEvaluationRuntime
- * @param children
- */
-case class PassThroughCompileEvals(children: Seq[Expression]) extends PassThrough with CodegenFallback {
-
-  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
-
-}
-
-/**
  * Same as unevaluable but the queryplan runs.  This version should only be used for eval (compileEvals = false) of
  * rules / triggers and for any output expressions, it may take part in SubExprEvaluationRuntime
  * @param children
@@ -66,17 +55,35 @@ case class PassThroughEvalOnly(children: Seq[Expression]) extends PassThrough wi
 }
 
 /**
+ * Same as unevaluable but the queryplan runs.  This version requires compileEvals = true (rules are independent and
+ * will not use Subexpression Elimination at eval time) and as such cannot be used with SubExprEvaluationRuntime
+ * @param children
+ */
+case class PassThroughCompileEvals(child: Expression) extends UnaryExpression with PassThrough with CodegenFallback {
+
+  override protected def withNewChildInternal(newChild: Expression): Expression = copy(newChild)
+
+  override def nullable: Boolean = child.nullable
+
+  override def eval(input: InternalRow): Any = child.eval(input)
+
+  override def dataType: DataType = child.dataType
+}
+
+/**
  * Should not be used in queryplanning
  * @param rules should be hidden from plans
  */
-case class NonPassThrough(rules: Seq[Expression]) extends Unevaluable {
+case class NonPassThrough(rule: Expression) extends UnaryExpression with Unevaluable {
+
   override def nullable: Boolean = true
 
   override def dataType: DataType = BooleanType
 
-  override def children: Seq[Expression] = Seq(Literal(true))
+  override def child: Expression = Literal(true)
+// possibly should be child not newChild here
+  override protected def withNewChildInternal(newChild: Expression): Expression = copy(newChild)
 
-  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = this
 }
 
 sealed trait LookupType {

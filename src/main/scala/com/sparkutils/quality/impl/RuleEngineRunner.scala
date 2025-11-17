@@ -8,20 +8,19 @@ import com.sparkutils.quality.impl.RuleRunnerUtils.{genRuleSuiteTerm, packTheId}
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.imports.{RuleEngineRunnerImports, RuleResultsImports}
 import RuleResultsImports.packId
-import com.sparkutils.quality.impl.util.SubQueryWrapper.hasASubQuery
-import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals, PassThroughEvalOnly, SubQueryWrapper}
+import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals, PassThroughEvalOnly}
 import org.apache.spark.sql.QualitySparkUtils.genParams
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode}
-import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression, UnaryExpression}
+import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionProxy, NonSQLExpression}
 import org.apache.spark.sql.catalyst.util.GenericArrayData
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.{AnalysisException, Column, DataFrame, QualitySparkUtils, ShimUtils}
+import org.apache.spark.sql.{Column, DataFrame, QualitySparkUtils, ShimUtils}
 
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
-import scala.reflect.{ClassTag, classTag}
+import scala.reflect.ClassTag
 
 object RuleEngineRunnerImpl {
 
@@ -55,9 +54,9 @@ object RuleEngineRunnerImpl {
     val exprs =
       // ExpressionProxy and SubExprEvaluationRuntime cannot be used with compileEvals
       if (compileEvals)
-        PassThroughCompileEvals(expressions)
+        expressions.map(PassThroughCompileEvals(_))
       else
-        PassThroughEvalOnly(expressions)
+        expressions
 
     // clean out expressions, UnresolvedRelations etc. from subquery usage forceRunnerEval,
     val runner =
@@ -72,11 +71,11 @@ object RuleEngineRunnerImpl {
       QualitySparkUtils.resolveWithOverride(resolveWith).map { df =>
         val resolved = QualitySparkUtils.resolveExpression(df, runner)
 
-        resolved.withNewChildren(Seq(resolved.children.head match {
+        resolved.withNewChildren(resolved.children.map{
           // replace the expr
-          case PassThroughCompileEvals(children) => NonPassThrough(children)
-          case PassThroughEvalOnly(children) => NonPassThrough(children)
-        }))
+          case PassThroughCompileEvals(child) => NonPassThrough(child)
+          case child => NonPassThrough(child)
+        })
       } getOrElse runner
     )
   }
@@ -353,9 +352,8 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
   * Children will be rewritten by the plan, it's then re-incorporated into ruleSuite
   * expressionOffsets.length is the length of the trigger expressions in realChildren, realChildren(expressionOffsets.length + expressionOffsets(x)) will be the correct OutputExpression
   */
-trait RuleEngineRunnerBase[T] extends UnaryExpression with NonSQLExpression {
+trait RuleEngineRunnerBase[T] extends NonSQLExpression {
   val ruleSuite: RuleSuite
-  val child: Expression
   val compileEvals: Boolean
   val debugMode: Boolean
   val variablesPerFunc: Int
@@ -397,10 +395,11 @@ trait RuleEngineRunnerBase[T] extends UnaryExpression with NonSQLExpression {
   import RuleEngineRunnerUtils._
 
   lazy val realChildren =
-    child match {
-      case r @ NonPassThrough(_) => r.rules
-      case PassThroughCompileEvals(children) => children
-      case PassThroughEvalOnly(children) => children
+    children.map {
+      case r @ NonPassThrough(_) => r.rule
+      case PassThroughCompileEvals(child) => child
+      case e: ExpressionProxy if e.child.isInstanceOf[PassThroughCompileEvals] => e.child.children.head
+      case child => child
     }
 
   // only used for compilation
@@ -430,7 +429,7 @@ trait RuleEngineRunnerBase[T] extends UnaryExpression with NonSQLExpression {
     ctx.references += this
 
     val compilerTerms =
-      RuleEngineRunnerUtils.genCompilerTerms[T](ctx, child, expressionOffsets, realChildren,
+      RuleEngineRunnerUtils.genCompilerTerms[T](ctx, PassThroughEvalOnly(realChildren), expressionOffsets, realChildren,
         debugMode, variablesPerFunc, variableFuncGroup, forceTriggerEval)
 
     import compilerTerms._
@@ -479,23 +478,23 @@ trait RuleEngineRunnerBase[T] extends UnaryExpression with NonSQLExpression {
   }
 }
 
-case class RuleEngineRunnerEval(ruleSuite: RuleSuite, child: Expression, userResultDataType: Option[DataType],
+case class RuleEngineRunnerEval(ruleSuite: RuleSuite, children: Seq[Expression], userResultDataType: Option[DataType],
                             compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
                             variableFuncGroup: Int, expressionOffsets: Array[Int],
                             forceTriggerEval: Boolean) extends RuleEngineRunnerBase[RuleEngineRunnerEval] with CodegenFallback {
 
-  protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
+  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
 
   override implicit val classTagT: ClassTag[RuleEngineRunnerEval] = ClassTag(classOf[RuleEngineRunnerEval])
 }
 
 
-case class RuleEngineRunner(ruleSuite: RuleSuite, child: Expression, userResultDataType: Option[DataType],
+case class RuleEngineRunner(ruleSuite: RuleSuite, children: Seq[Expression], userResultDataType: Option[DataType],
                                 compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
                                 variableFuncGroup: Int, expressionOffsets: Array[Int],
                                 forceTriggerEval: Boolean) extends RuleEngineRunnerBase[RuleEngineRunner] {
 
-  protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
+  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
 
   override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = doGenCodeI(ctx, ev)
 

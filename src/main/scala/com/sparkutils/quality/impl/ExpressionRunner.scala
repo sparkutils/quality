@@ -4,13 +4,13 @@ import com.sparkutils.quality
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.RuleRunnerUtils.{RuleSuiteResultArray, flattenExpressions, genRuleSuiteTerm, nonOutputRuleGen, reincorporateExpressions}
 import com.sparkutils.quality.impl.imports.RuleResultsImports.packId
-import com.sparkutils.quality.impl.util.{Arrays, NonPassThrough, PassThroughCompileEvals, PassThroughEvalOnly}
+import com.sparkutils.quality.impl.util.{Arrays, NonPassThrough, PassThroughCompileEvals}
 import com.sparkutils.quality.impl.yaml.YamlEncoderExpr
 import com.sparkutils.quality.types._
 import org.apache.spark.sql.{Column, ShimUtils}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode, ExprValue}
-import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression, UnaryExpression}
+import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionProxy, NonSQLExpression, UnaryExpression}
 import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, GenericArrayData, MapData}
 import org.apache.spark.sql.shim.expressions.InputTypeChecks
 import org.apache.spark.sql.types.{DataType, StringType}
@@ -38,9 +38,9 @@ object ExpressionRunner {
     val exprs =
       // ExpressionProxy and SubExprEvaluationRuntime cannot be used with compileEvals
       if (compileEvals)
-        PassThroughCompileEvals(collectExpressions)
+        collectExpressions.map(PassThroughCompileEvals(_))
       else
-        PassThroughEvalOnly(collectExpressions)
+        collectExpressions
 
     val ddl_type =
       if (ddlType.isEmpty)
@@ -118,7 +118,7 @@ private[quality] object ExpressionRunnerUtils {
  * Creates an extensible wrapper result column for aggregate expressions, storing the results as yaml
  *
  */
-trait ExpressionRunnerBase[T] extends UnaryExpression with NonSQLExpression {
+trait ExpressionRunnerBase[T] extends NonSQLExpression {
 
   val ruleSuite: RuleSuite
   val ddlType: DataType
@@ -129,10 +129,11 @@ trait ExpressionRunnerBase[T] extends UnaryExpression with NonSQLExpression {
   implicit val classTagT: ClassTag[T]
 
   lazy val realChildren =
-    child match {
-      case r @ NonPassThrough(_) => r.rules
-      case PassThroughCompileEvals(children) => children
-      case PassThroughEvalOnly(children) => children
+    children.map {
+      case r @ NonPassThrough(_) => r.rule
+      case PassThroughCompileEvals(child) => child
+      case e: ExpressionProxy if e.child.isInstanceOf[PassThroughCompileEvals] => e.child.children.head
+      case child => child
     }
 
   override def toString: String = s"ExpressionRunner(${realChildren.mkString(", ")})"
@@ -193,27 +194,26 @@ trait ExpressionRunnerBase[T] extends UnaryExpression with NonSQLExpression {
  * Creates an extensible wrapper result column for aggregate expressions, storing the results as yaml
  *
  */
-case class ExpressionRunnerEval(ruleSuite: RuleSuite, child: Expression, ddlType: DataType,
+case class ExpressionRunnerEval(ruleSuite: RuleSuite, children: Seq[Expression], ddlType: DataType,
                             compileEvals: Boolean, variablesPerFunc: Int,
                             variableFuncGroup: Int)
   extends ExpressionRunnerBase[ExpressionRunnerEval] with CodegenFallback {
 
   override implicit val classTagT: ClassTag[ExpressionRunnerEval] = ClassTag(classOf[ExpressionRunnerEval])
 
-  protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
+  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
 }
 
 /**
  * Creates an extensible wrapper result column for aggregate expressions, storing the results as yaml
  *
  */
-case class ExpressionRunner(ruleSuite: RuleSuite, child: Expression, ddlType: DataType,
+case class ExpressionRunner(ruleSuite: RuleSuite, children: Seq[Expression], ddlType: DataType,
                                 compileEvals: Boolean, variablesPerFunc: Int,
                                 variableFuncGroup: Int)
   extends ExpressionRunnerBase[ExpressionRunner] {
 
-
-  protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
+  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
 
   override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = doGenCodeI(ctx, ev)
 
