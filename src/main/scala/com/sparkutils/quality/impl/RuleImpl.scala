@@ -213,7 +213,7 @@ trait HasRuleText extends HasExpr {
   // doesn't need to be serialized, done by RuleRunners
   @volatile
   private[quality] var exprI: Expression = _
-  private[quality] def expression(): Expression = {
+  protected[quality] def expression(): Expression = {
     if (exprI eq null) {
       exprI = RuleLogicUtils.expr(rule)
     }
@@ -235,6 +235,8 @@ trait HasRuleText extends HasExpr {
 @SerialVersionUID(1L)
 case class ExpressionRuleExpr( rule: String, override val expr: Expression ) extends ExprLogic with HasRuleText {
   override def reset(): Unit = super[HasRuleText].reset()
+
+  override protected[quality] def expression(): Expression = expr // ignore resets - allows process_if_att.., the ruletext remains with coalesce, the expr is corrected
 }
 
 object ExpressionCompiler {

@@ -2,12 +2,12 @@ package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality.impl.mapLookup.Lookups
 import com.sparkutils.quality.{ExpressionRule, Id, LambdaFunction, OutputExpression, Rule, RuleSet, RuleSuite, RunOnPassProcessor}
-import com.sparkutils.quality.impl.{LambdaFunction, NoOpRunOnPassProcessor, VariableHelper, VersionedId}
+import com.sparkutils.quality.impl.{LambdaFunction, NoOpRunOnPassProcessor, RuleSuiteHelpers, VariableHelper, VersionedId}
 import com.sparkutils.quality.impl.util.Serializing.{notPresentOutputId, notPresentOutputVersion, notPresentSalience}
 import com.sparkutils.quality.impl.util.VersionSpecificSerializingImports.uniqueName
 import org.apache.spark.sql.{Dataset, Encoder, SparkSession}
 import org.apache.spark.sql.functions.{col, collect_set, lit, named_struct, struct}
-import org.apache.spark.sql.types.ArrayType
+import org.apache.spark.sql.types.{ArrayType, BinaryType}
 
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -223,6 +223,31 @@ trait VersionSpecificSerializingImports {
 
     stableName
   }
+
+  /**
+   * Registers a ruleSuite directly as an Spark Variable (with object stream encoding).
+   * Where possible using the CombinedRuleSuiteRows should be preferred and manage the ruleSuites on the server.
+   * @param ruleSuite
+   * @param stableName
+   * @return
+   */
+  def register_rule_suite(ruleSuite: RuleSuite, stableName: String): String = {
+    val s = SparkSession.active
+    import s.implicits._
+    val tv = uniqueName()
+    s.sql("select 1").select(lit(RuleSuiteHelpers.serialize(ruleSuite)).as("rs")).createOrReplaceTempView(tv)
+    VariableHelper.createVar(stableName, BinaryType.sql,
+      s"(select first(rs) from `$tv`)")
+
+    stableName
+  }
+
+  /**
+   * Registers a ruleSuite directly as an Spark Variable (with object stream encoding)
+   * @param ruleSuite
+   * @return
+   */
+  def register_rule_suite(ruleSuite: RuleSuite): String = register_rule_suite(ruleSuite, uniqueName())
 }
 
 

@@ -33,7 +33,7 @@ case class ExpressionRule( rule: String ) extends ExprLogic with HasRuleText {
  * @param rule
  */
 case class OutputExpression( rule: String ) extends OutputExprLogic with HasRuleText with Logging {
-  private[quality] override def expression() = {
+  protected[quality] override def expression() = {
     val parsed = RuleLogicUtils.expr(rule)
     // output expressions can be:
     // 1. simple expressions for ruleEngine
