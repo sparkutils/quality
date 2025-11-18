@@ -133,7 +133,7 @@ object QualityYamlEncoding {
       if (ar == null)
         createNullNode
       else {
-        val vals = Arrays.mapArray[Node](ar, at.elementType, elementConverter(_))
+        val vals = Arrays.mapArray[Node](ar, at.elementType, elementConverter)
         new SequenceNode(Tag.SEQ, vals.toSeq.asJava, DumperOptions.FlowStyle.FLOW)
       }
     }

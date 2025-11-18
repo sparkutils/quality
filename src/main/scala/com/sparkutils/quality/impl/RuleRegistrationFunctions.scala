@@ -167,7 +167,7 @@ object RuleRegistrationFunctions {
                                zero: DataType => Option[Any] = defaultZero,
                                add: DataType => Option[(Expression, Expression) => Expression] = (dataType: DataType) => defaultAdd(dataType),
                                mapCompare: DataType => Option[(Any, Any) => Int] = (dataType: DataType) => utils.defaultMapCompare(dataType),
-                               writer: String => Unit = println(_),
+                               writer: String => Unit = println,
                                registerFunction: (String, Seq[Expression] => Expression) => Unit =
                                 ShimUtils.registerFunction(SparkSession.active)
                               ) : Unit = {

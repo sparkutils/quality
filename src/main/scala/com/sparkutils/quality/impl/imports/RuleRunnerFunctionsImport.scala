@@ -7,7 +7,7 @@ import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.qualityFunctions.utils
 import org.apache.spark.sql.types.DataType
-import org.apache.spark.sql.{QualitySparkUtils, ShimUtils, SparkSession}
+import org.apache.spark.sql.{ShimUtils, SparkSession}
 
 trait RuleRunnerFunctionsImport {
 
@@ -25,7 +25,7 @@ trait RuleRunnerFunctionsImport {
                                zero: DataType => Option[Any] = defaultZero,
                                add: DataType => Option[(Expression, Expression) => Expression] = (dataType: DataType) => defaultAdd(dataType),
                                mapCompare: DataType => Option[(Any, Any) => Int] = (dataType: DataType) => utils.defaultMapCompare(dataType),
-                               writer: String => Unit = println(_),
+                               writer: String => Unit = println,
                                registerFunction: (String, Seq[Expression] => Expression) => Unit =
                                 ShimUtils.registerFunction(SparkSession.active)
                        ) =
@@ -57,7 +57,7 @@ trait RuleRunnerFunctionsImport {
    * @param extraOptimizations rules to be added in order
    */
   def enableOptimizations(extraOptimizations: Seq[Rule[LogicalPlan]]): Unit = extraOptimizations.foreach(
-    addOptimisation(_)
+    addOptimisation
   )
 
 }

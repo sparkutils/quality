@@ -39,7 +39,7 @@ object ExpressionRunner {
     val exprs =
       // ExpressionProxy and SubExprEvaluationRuntime cannot be used with compileEvals
       if (compileEvals)
-        collectExpressions.map(PassThroughCompileEvals(_))
+        collectExpressions.map(PassThroughCompileEvals)
       else
         collectExpressions
 
