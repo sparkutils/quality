@@ -187,8 +187,8 @@ package object simpleVersioning {
   }
 
   protected[quality] case class SameOrNextVersionLower[T](map: Map[Id, Seq[T]]) extends Function1[Id, Option[Seq[T]]] {
-    implicit val ordering = new Ordering[Id] {
-      def compare(x: Id, y: Id): Int = {
+    implicit val ordering: Ordering[Id] =
+      (x: Id, y: Id) => {
         if (x == y)
           0
         else
@@ -197,7 +197,6 @@ package object simpleVersioning {
           else
             x.version - y.version
       }
-    }
 
     val sorted = TreeMap[Id, Seq[T]]() ++ map
 

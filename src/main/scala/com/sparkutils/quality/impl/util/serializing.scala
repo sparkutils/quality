@@ -279,7 +279,7 @@ object Serializing {
    * @return
    */
   def toSeq(ruleSuiteMap: RuleSuiteMap): RuleSuiteMap =
-    ruleSuiteMap.mapValues(toSeq _).toMap
+    ruleSuiteMap.mapValues(toSeq).toMap
 
   /**
    * Loads a RuleSuite from a dataframe with integers ruleSuiteId, ruleSuiteVersion, ruleSetId, ruleSetVersion, ruleId, ruleVersion and an expression string ruleExpr

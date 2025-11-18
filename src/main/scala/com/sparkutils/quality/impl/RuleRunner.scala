@@ -62,7 +62,7 @@ protected[quality] object RuleRunnerImpl {
     val input =
       // ExpressionProxy and SubExprEvaluationRuntime cannot be used with compileEvals
       if (compileEvals)
-        flattened.map(PassThroughCompileEvals( _ ))
+        flattened.map(PassThroughCompileEvals)
       else
         flattened
 
