@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality._
-import com.sparkutils.quality.impl.RuleLogicUtils
+import com.sparkutils.quality.impl.{RuleLogicUtils, ThreeOnlyNonFoldable}
 import com.sparkutils.shim.expressions.{CreateNamedStruct1, GetStructField3, MapObjects5}
 import frameless.TypedEncoder
 import org.apache.spark.sql.catalyst.InternalRow
@@ -17,7 +17,7 @@ import org.apache.spark.sql.{Encoder, ShimUtils, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.objects.{InitializeJavaBean, Invoke, MapObjects, NewInstance, UnresolvedMapObjects}
 
-import scala.annotation.tailrec
+import scala.annotation.{elidable, tailrec}
 import scala.reflect.ClassTag
 
 object DebugTime extends Logging {
@@ -74,16 +74,13 @@ case class PassThroughCompileEvals(child: Expression) extends UnaryExpression wi
  * Should not be used in queryplanning  TODO verify if this still needs to be unevaluable, it did under spark 2.4
  * @param rules should be hidden from plans
  */
-case class NonPassThrough(rule: Expression) extends UnaryExpression with Unevaluable {
+case class NonPassThrough(rule: Expression) extends UnaryExpression with ThreeOnlyNonFoldable with Unevaluable {
 
   override def nullable: Boolean = true
 
   override def dataType: DataType = BooleanType
 
   override def child: Expression = Literal(true)
-
-  // needed for Spark3, runs constant folder before getRealChildren is called
-  override val foldable: Boolean = false
 
   protected def withNewChildInternal(newChild: Expression): Expression = copy(newChild)
 

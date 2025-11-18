@@ -1,6 +1,7 @@
 ### [0.2.0](https://github.com/sparkutils/quality/milestone/10?closed=1) <small>24th December, 2025</small>
 
-This release migrates Spark 4 support to use AgnosticEncoders and removes EOL runtimes: 2.4 and DBR's 9.1, 10.4, 11.3
+This release migrates Spark 4 support to use AgnosticEncoders and removes EOL runtimes: 2.4 and DBR's 9.1, 10.4, 11.3.  
+Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1 and 3.3.2 are deprecated as are DBR's 12.2, 13.1, 13.3 and 14.0 and will be removed as of Quality version 0.2.0. 
 
 #90 - Migrate to Spark 4 sql-api, AgnosticEncoder's and support Connect:
 
