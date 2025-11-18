@@ -234,20 +234,20 @@ object IDBase64Filter extends AsymmetricFilterExpressions {
         if (a.size != b.size) None
         else
           Some(
-            andFields(a.size, leftFields(_), GetStructField(right, _), create)
+            andFields(a.size, leftFields, GetStructField(right, _), create)
           )
       case (a@ AsBase64Fields(leftFields), b@ AsBase64Fields(rightFields), Equality(_,_) ) =>
         if (a.size != b.size) None
         else
           Some(
-            andFields(a.size, leftFields(_), rightFields(_), create)
+            andFields(a.size, leftFields, rightFields, create)
           )
       // filter case's
       case (a @ AsBase64Fields(leftFields), c: Expression, Equality(_,_)) if c.dataType == StringType =>
         val id = IDFromBase64(c, a.size)
         Some(
           wrapSizeCheck(a.size, c,
-            andFields(a.size, leftFields(_), GetStructField(id, _), create))
+            andFields(a.size, leftFields, GetStructField(id, _), create))
         )
       case (a @ AsBase64Struct(left), c: Expression, Equality(_,_)) if c.dataType == StringType =>
         val id = IDFromBase64(c, a.size)
@@ -269,7 +269,7 @@ object IDBase64Filter extends AsymmetricFilterExpressions {
           None
         else
           Some(
-            orAndFields(a.size, left(_), right(_), create)
+            orAndFields(a.size, left, right, create)
           )
 
       case (a@AsBase64Fields(left), b@AsBase64Struct(right), _: LessThan | _: LessThanOrEqual | _: GreaterThan | _: GreaterThanOrEqual) =>
@@ -277,7 +277,7 @@ object IDBase64Filter extends AsymmetricFilterExpressions {
           None
         else
           Some(
-            orAndFields(a.size, left(_), GetStructField(right, _), create)
+            orAndFields(a.size, left, GetStructField(right, _), create)
           )
 
       case (a@AsBase64Struct(left), b@AsBase64Struct(right), _: LessThan | _: LessThanOrEqual | _: GreaterThan | _: GreaterThanOrEqual) =>
@@ -300,7 +300,7 @@ object IDBase64Filter extends AsymmetricFilterExpressions {
         val id = IDFromBase64(c, a.size)
         Some(
           wrapSizeCheck(a.size, c,
-            orAndFields(a.size, left(_), GetStructField(id, _), create))
+            orAndFields(a.size, left, GetStructField(id, _), create))
         )
 
       case _ => None

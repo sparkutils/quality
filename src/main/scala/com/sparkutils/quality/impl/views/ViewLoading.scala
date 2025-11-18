@@ -71,7 +71,7 @@ object ViewLoader {
             replaced += name
           }
 
-          config.source.fold(identity, SparkSession.active.sql(_))
+          config.source.fold(identity, SparkSession.active.sql)
            .toDF.createOrReplaceTempView(name)
 
           // it worked, remove it

@@ -11,7 +11,7 @@ import org.apache.spark.sql.types.DataType
  * @param child
  * @param msg defaults to "Codegen Result ->"
  */
-case class PrintCode(child: Expression, msg: String = "CodeGen Result ->", writer: String => Unit = println(_)) extends UnaryExpression {
+case class PrintCode(child: Expression, msg: String = "CodeGen Result ->", writer: String => Unit = println) extends UnaryExpression {
   protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
 
   def dataType: DataType = child.dataType

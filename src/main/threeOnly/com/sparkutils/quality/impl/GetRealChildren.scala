@@ -12,7 +12,7 @@ object GetRealChildren {
    */
   def getRealChildren(children: Seq[Expression]): Seq[Expression] =
     children.map {
-      case r @ NonPassThrough(_) => r.rule
+      case r: NonPassThrough => r.rule
       case PassThroughCompileEvals(child) => child
 //      case e: ExpressionProxy if e.child.isInstanceOf[PassThroughCompileEvals] => e.child.children.head
       case child => child

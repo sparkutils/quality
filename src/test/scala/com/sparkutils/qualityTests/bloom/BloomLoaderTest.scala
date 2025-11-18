@@ -98,10 +98,10 @@ class BloomLoaderTest extends ClassicSharedTests {
 
     // these will work at least, longs are in the bloom, not ints
     assert((1L until 19L).map(undertwenty.apply).forall(_ == true))
-    assert((1 until 19).map(undertwenty.mightContain(_)).forall(_ == false))
+    assert((1 until 19).map(undertwenty.mightContain).forall(_ == false))
 
-    assert((20L until 29L).map(twenties.mightContain(_)).forall(_ == true))
-    assert((20 until 29).map(twenties.mightContain(_)).forall(_ == false))
+    assert((20L until 29L).map(twenties.mightContain).forall(_ == true))
+    assert((20 until 29).map(twenties.mightContain).forall(_ == false))
   }
 }
 

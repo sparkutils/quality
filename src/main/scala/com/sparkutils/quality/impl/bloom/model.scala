@@ -160,7 +160,7 @@ object Serializing {
       config =>
         import config._
 
-        val df = source.fold(identity, SparkSession.active.sql(_))
+        val df = source.fold(identity, SparkSession.active.sql)
 
         val (lookup, fpp) =
           if (config.bigBloom) {
