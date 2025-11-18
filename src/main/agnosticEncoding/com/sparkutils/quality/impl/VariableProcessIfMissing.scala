@@ -1,5 +1,7 @@
 package com.sparkutils.quality.impl
 
+import com.sparkutils.quality.QualityException.qualityException
+import com.sparkutils.quality.impl.RuleRegistrationFunctions.{defaultParseTypes, getString}
 import com.sparkutils.quality.impl.util.VersionSpecificSerializingImports.uniqueName
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.{Column, ShimUtils}
@@ -10,6 +12,14 @@ object VariableProcessIfMissing {
 
   protected[quality] def registerProcessIfAttributeMissingForAgnostic(registerFunction: (String, Seq[Expression] => Expression) => Unit): Unit = {
     // parse the rulesuite, call the functions with structs, set a new variable, probably needs to be direct
+    registerFunction("process_if_attribute_missing", {
+      case Seq(OfRuleSuite(ruleSuite), ddl, name) =>
+        val s = defaultParseTypes(getString(ddl, 1)).
+          collect {case s:StructType => s}.
+          getOrElse(qualityException("process_if_attribute_missing Did not get a struct dll for param 2"))
+        val r = com.sparkutils.quality.processIfAttributeMissing(ruleSuite, s)
+
+    })
   }
 }
 
