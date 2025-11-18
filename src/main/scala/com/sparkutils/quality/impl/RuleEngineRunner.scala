@@ -55,7 +55,7 @@ object RuleEngineRunnerImpl {
     val exprs =
       // ExpressionProxy and SubExprEvaluationRuntime cannot be used with compileEvals
       if (compileEvals)
-        expressions.map(PassThroughCompileEvals(_))
+        expressions.map(PassThroughCompileEvals)
       else
         expressions
 

@@ -6,11 +6,11 @@ import org.scalatest.FunSuite
 
 class LookupIdentificationTest extends FunSuite with ClassicSharedTests {
 
-  test("mapLookuplambdaTest") { doSimpleLambdaTest("mapLookup", MapLookupType(_), asis)}
+  test("mapLookuplambdaTest") { doSimpleLambdaTest("mapLookup", MapLookupType, asis)}
 
-  test("mapContainslambdaTest") { doSimpleLambdaTest("mapContains", MapLookupType(_), asis)}
+  test("mapContainslambdaTest") { doSimpleLambdaTest("mapContains", MapLookupType, asis)}
 
-  test("probabilityInlambdaTest") { doSimpleLambdaTest("probabilityIn", BloomLookupType(_), flipped)}
+  test("probabilityInlambdaTest") { doSimpleLambdaTest("probabilityIn", BloomLookupType, flipped)}
 
   var asis = (arg1: String, arg2: String) => s"$arg1, $arg2"
   var flipped = (arg1: String, arg2: String) => s"$arg2, $arg1"

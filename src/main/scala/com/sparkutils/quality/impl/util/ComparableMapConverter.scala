@@ -31,22 +31,19 @@ object ComparableMapConverter {
       val actualKeyType = ensureType(key._1)
       val actualValueType = ensureType(value._1)
 
-      val compareF = compareLookup(actualKeyType).getOrElse(
-        sys.error(s"Could not identify the comparison function for type $actualKeyType to order keys")
-      )
-      // for the key type, expanded for 2.4, scala 2.11 support
-      val comparisonOrdering: Ordering[Any] = new Ordering[Any] {
-        override def compare(x: Any, y: Any): Int = compareF(x, y)
-      }
+      implicit val comparisonOrdering: Ordering[Any] =
+        compareLookup(actualKeyType).getOrElse(
+          sys.error(s"Could not identify the comparison function for type $actualKeyType to order keys")
+        ) (_, _)
 
       {
         case theMap: MapData =>
 
           // maps are already converted all the way down before trying to sort by key._2
-          val sorted = Arrays.mapArray(theMap.keyArray(), actualKeyType, key._2).zipWithIndex.sortBy(_._1)(comparisonOrdering)
+          val sorted = Arrays.mapArray(theMap.keyArray(), actualKeyType, key._2).zipWithIndex.sortBy(_._1)
           val vals = {
-            val valArray =theMap.valueArray()
-            (idx: Int) => valArray.get(idx, actualValueType) //Arrays.toArray(theMap.valueArray(), actualValueType)
+            val valArray = theMap.valueArray()
+            (idx: Int) => valArray.get(idx, actualValueType)
           }
           // now re-pack as structs
           ArrayData.toArrayData(sorted.map {

@@ -31,13 +31,13 @@ case class LongHashFunctionProxy(hasher: Long => LongHashFunction) extends Diges
 
 object LongHashFunctionFactory {
   val mapF = Map[String, () => Long => LongHashFunction](
-    ("MURMUR3_64", () => LongHashFunction.murmur_3(_)),
-    ("CITY_1_1", () => LongHashFunction.city_1_1(_)),
-    ("FARMNA", () => LongHashFunction.farmNa(_)),
-    ("FARMOU", () => LongHashFunction.farmUo(_)),
-    ("METRO", () => LongHashFunction.metro(_)),
-    ("WY_V3", () => LongHashFunction.wy_3(_)),
-    ("XX", () => LongHashFunction.xx(_))
+    ("MURMUR3_64", () => LongHashFunction.murmur_3),
+    ("CITY_1_1", () => LongHashFunction.city_1_1),
+    ("FARMNA", () => LongHashFunction.farmNa),
+    ("FARMOU", () => LongHashFunction.farmUo),
+    ("METRO", () => LongHashFunction.metro),
+    ("WY_V3", () => LongHashFunction.wy_3),
+    ("XX", () => LongHashFunction.xx)
   )
 }
 
@@ -84,8 +84,8 @@ case class LongTupleHashFunctionProxy(hasher: Long => LongTupleHashFunction) ext
 
 object LongTupleHashFunctionFactory {
   val mapF = Map[String, () => Long => LongTupleHashFunction](
-    ("MURMUR3_128", () => LongTupleHashFunction.murmur_3(_)),
-    ("XXH3", () => LongTupleHashFunction.xx128(_))
+    ("MURMUR3_128", () => LongTupleHashFunction.murmur_3),
+    ("XXH3", () => LongTupleHashFunction.xx128)
   )
 }
 

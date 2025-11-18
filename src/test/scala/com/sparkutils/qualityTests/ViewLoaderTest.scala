@@ -198,7 +198,7 @@ class ViewLoaderTest extends SharedConnectTests {
   override def afterAll(): Unit = {
     forEachSession(currentSessionsHolder.getSessions, session =>
       Set("joined", "names", "nameLess", "ages", "bad", "names2", "ages2").foreach {
-        session.catalog.dropTempView(_)
+        session.catalog.dropTempView
       }
     )
   }

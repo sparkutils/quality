@@ -392,7 +392,7 @@ abstract class ExtensionTestBase extends ClassicSharedTests  {
       (s" '$theSixthIDString' = id and i1 > 286051723926044673L", SEqualTo("i1",testI1), "expr_rhs with further filter"),
       (s" id = '$theSixthIDString' and i1 > 286051723926044673L", SEqualTo("i1",testI1), "expr_lhs with further filter"),
       (s" id in ('$theSixthIDString', '$theSeventhIDString')", SIn("i1",Array(testI1, 286051723926044679L)), "with in")
-    ), viaExtension = viaExtension, verifyJoinPlan = verifyJoinPlanID(_)) }
+    ), viaExtension = viaExtension, verifyJoinPlan = verifyJoinPlanID) }
 /*
 +--------+-------------------+------------------+
 |pre_base|             pre_i0|            pre_i1|
@@ -555,7 +555,7 @@ abstract class ExtensionTestBase extends ClassicSharedTests  {
         SOr(SAnd(SAnd(SEqualTo("abase", 28601340), SEqualTo("ai0", 2905640895816663052L)),
           SGreaterThan("ai1", 286051723926044678L)), SOr(SAnd(SEqualTo("abase", 28601340),
           SGreaterThan("ai0", 2905640895816663052L)), SGreaterThan("abase", 28601340))), s"expr_lhs gt with further filter $hint")
-    ), true, viaExtension = viaExtension, verifyJoinPlan = verifyJoinPlanID(_)) }
+    ), true, viaExtension = viaExtension, verifyJoinPlan = verifyJoinPlanID) }
 
   test("testAsymmetricFilterPlanJoinFieldsEq") { not_Cluster {
     doTestAsymmetricFilterPlanJoinIDS(wrapWithExtension, "eq", (l, r) => l.===(r), viaJoinIDFields)

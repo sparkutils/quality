@@ -85,7 +85,7 @@ object MapLookupFunctions {
   def loadMaps(configs: Seq[MapConfig]): MapLookups =
     configs.map{
       config =>
-        val df = config.source.fold(identity, SparkSession.active.sql(_))
+        val df = config.source.fold(identity, SparkSession.active.sql)
 
         mapFromDF(config.name, df, expr(config.key), expr(config.value))
     }.toMap

@@ -28,11 +28,11 @@ object QualitySparkExtension {
  */
 class QualitySparkExtension extends ((SparkSessionExtensions) => Unit) with Logging {
 
-  def parseTypes: String => Option[DataType] = com.sparkutils.quality.impl.RuleRegistrationFunctions.defaultParseTypes _
-  def zero: DataType => Option[Any] = com.sparkutils.quality.impl.RuleRegistrationFunctions.defaultZero _
+  def parseTypes: String => Option[DataType] = com.sparkutils.quality.impl.RuleRegistrationFunctions.defaultParseTypes
+  def zero: DataType => Option[Any] = com.sparkutils.quality.impl.RuleRegistrationFunctions.defaultZero
   def add: DataType => Option[(Expression, Expression) => Expression] = (dataType: DataType) => com.sparkutils.quality.impl.RuleRegistrationFunctions.defaultAdd(dataType)
   def mapCompare: DataType => Option[(Any, Any) => Int] = (dataType: DataType) => utils.defaultMapCompare(dataType)
-  def writer: String => Unit = println(_)
+  def writer: String => Unit = println
 
   /**
    * uses writer to write prefix: str

@@ -30,7 +30,7 @@ trait LazyProcessFunctions { self: NonLazyProcessFunctions =>
     implicit val rowEnc = rowTypedEnc(Encoders.ruleSuiteResultDetailsTypedEnc.catalystRepr)
 
     implicit val tup = TypedEncoder[(RuleResult, Row)].agnosticEncoder
-    val defaultIfPassedProxy = defaultIfPassed.map(LazyRuleSuiteResultDetailsProxyImpl(_))
+    val defaultIfPassedProxy = defaultIfPassed.map(LazyRuleSuiteResultDetailsProxyImpl)
 
     val iEnc = implicitly[Encoder[I]]
 
