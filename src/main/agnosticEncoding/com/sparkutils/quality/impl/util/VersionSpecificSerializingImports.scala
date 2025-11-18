@@ -33,7 +33,7 @@ object VersionSpecificSerializingImports {
   private val GENERATED_NAME_PREFIX = "QUALITY_RULE_SUITE_GENERATED_NAME_"
 
   // only for the current session, so regardless of on driver with static or connect client this works
-  private def uniqueName() = GENERATED_NAME_PREFIX + nameCounter.incrementAndGet()
+  protected[quality] def uniqueName(): String = GENERATED_NAME_PREFIX + nameCounter.incrementAndGet()
 
 }
 

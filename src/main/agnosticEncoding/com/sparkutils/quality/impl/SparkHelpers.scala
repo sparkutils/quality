@@ -139,13 +139,16 @@ object OfRuleOutputSuite {
 
 object VariableHelper {
   /**
-   * creates a variable.  The expr is set with 'set var' allowing queries, the default is null
+   * creates a variable.  The expr is set with 'set var' allowing queries, the default is null.
+   *
+   * NB declare or replace is used.
+   *
    * @param stableName
    * @param ddl
    */
   def createVar(stableName: String, ddl: String, expr: String): Unit = {
     // Defaults can't have subqueries
-    val defaultCommand = s"declare variable `$stableName` $ddl default null;"
+    val defaultCommand = s"declare or replace variable `$stableName` $ddl default null;"
     SparkSession.active.sql(defaultCommand)
     val setCommand = s"set var `$stableName` = $expr;"
     SparkSession.active.sql(setCommand)

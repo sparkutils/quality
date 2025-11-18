@@ -3,6 +3,7 @@ package com.sparkutils.quality.impl
 import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.functions._
 import com.sparkutils.quality.impl.RuleSuiteHelpers.deserialize
+import com.sparkutils.quality.impl.VariableProcessIfMissing.registerProcessIfAttributeMissingForAgnostic
 import com.sparkutils.quality.impl.aggregates.AggregateExpressions
 import com.sparkutils.quality.impl.bloom.{BucketedArrayParquetAggregator, ParquetAggregator}
 import com.sparkutils.quality.impl.hash.{HashFunctionFactory, HashFunctionsExpression, MessageDigestFactory, ZALongHashFunctionFactory, ZALongTupleHashFunctionFactory}
@@ -661,6 +662,8 @@ object RuleRegistrationFunctions {
         ))
     }, Set(2, 3, 4, 9))
 
+    // coalesce support
+    registerProcessIfAttributeMissingForAgnostic(registerFunction)
   }
 
 }
