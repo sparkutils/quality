@@ -3,11 +3,12 @@ package com.sparkutils.qualityTests
 import com.sparkutils.qualityTests.util.SharedConnectTests
 import com.sparkutils.quality._
 import com.sparkutils.quality.functions.flatten_results
-import com.sparkutils.quality.impl.{NoOpRunOnPassProcessor, RuleError, RuleSuiteHelpers}
+import com.sparkutils.quality.impl.{NoOpRunOnPassProcessor, RuleError, RuleSuiteHelpers, RunOnPassProcessorImpl}
 import com.sparkutils.quality.impl.RuleLogicUtils.mapRules
+import com.sparkutils.quality.impl.VariableProcessIfMissing.process_if_attribute_missing_name
 import com.sparkutils.quality.impl.util.{CombinedRuleSuiteRows, LambdaFunctionRow}
 import com.sparkutils.qualityTests.RuleEngineTest.{rulesRaw, testData}
-import com.sparkutils.testing.TestUtils.debug
+import com.sparkutils.testing.TestUtils.{anyCauseHas, debug}
 import org.apache.spark.sql.ShimUtils
 import org.apache.spark.sql.functions.{col, explode, flatten}
 import org.apache.spark.sql.types.{IntegerType, StructField, StructType}
@@ -159,9 +160,9 @@ class ConnectRuleSuitesTest extends SharedConnectTests with Matchers {
 
   val names = namesFromSchema(struct)
 
-  def doExpressionReplaceWith(ruleText: String, expected: String, empty: Set[RuleError] => Boolean) : Unit = {
+  def doExpressionReplaceWith(ruleText: String, expected: String, rsf: RuleSuite => RuleSuite = identity) : Unit = {
     val orule = Rule(Id(2,1), ExpressionRule(ruleText))
-    val rs = RuleSuite(Id(0,1), Seq(RuleSet(Id(1,1), Seq(orule))))
+    val rs = rsf(RuleSuite(Id(0,1), Seq(RuleSet(Id(1,1), Seq(orule)))))
 
     val cur = register_rule_suite(rs, "testRS")
     val nrs = process_if_attribute_missing(col(cur), struct, cur)
@@ -174,16 +175,63 @@ class ConnectRuleSuitesTest extends SharedConnectTests with Matchers {
 
   test("testRuleDisableCoalesce") {
     val ruleText = "fieldb > 1"
-    doExpressionReplaceWith(s"coalesceIfAttributesMissingDisable($ruleText)", "disabled_rule", _.nonEmpty)
+    doExpressionReplaceWith(s"coalesceIfAttributesMissingDisable($ruleText)", "disabled_rule")
   }
 
   test("testRuleReplaceCoalesce") {
     val ruleText = "fieldb > 1"
-    doExpressionReplaceWith(s"coalesceIfAttributesMissing($ruleText, false)", "failed", _.nonEmpty)
+    doExpressionReplaceWith(s"coalesceIfAttributesMissing($ruleText, false)", "failed")
   }
 
   test("testRuleNoReplaceCoalesce") {
     val ruleText = "fielda > 1"
-    doExpressionReplaceWith(s"coalesceIfAttributesMissing($ruleText, 42)", "passed", _.isEmpty)
+    doExpressionReplaceWith(s"coalesceIfAttributesMissing($ruleText, 42)", "passed")
+  }
+
+  test("test process if with recursive rule") {
+    val ruleText = "process_if_attribute_missing(testRS)"
+    val caught =
+      intercept[Exception] { // Result type: IndexOutOfBoundsException
+        doExpressionReplaceWith(s"coalesceIfAttributesMissing($ruleText, 42)", "passed")
+      }
+
+    recursiveCheck(caught, "trigger rule")
+  }
+
+  test("test process if with recursive outputExpression") {
+    val ruleText = "fielda > 1"
+    val outputRule = "process_if_attribute_missing(testRS)"
+    val caught =
+      intercept[Exception] { // Result type: IndexOutOfBoundsException
+        doExpressionReplaceWith(s"coalesceIfAttributesMissing($ruleText, 42)", "passed",
+          mapRules(_){
+            rule => rule.copy(runOnPassProcessor = RunOnPassProcessorImpl(11, Id(13,13), outputRule, OutputExpression(outputRule)))
+          }
+        )
+      }
+
+    recursiveCheck(caught, "output expression")
+  }
+
+  test("test process if with recursive lambda") {
+    val ruleText = "fielda > 1"
+    val outputRule = "process_if_attribute_missing(testRS)"
+    val caught =
+      intercept[Exception] { // Result type: IndexOutOfBoundsException
+        doExpressionReplaceWith(s"coalesceIfAttributesMissing($ruleText, 42)", "passed",
+          _.copy(lambdaFunctions = Seq(LambdaFunction("lam", outputRule, Id(13,13))))
+        )
+      }
+
+    recursiveCheck(caught, "lambda function")
+  }
+
+  private def recursiveCheck(caught: Exception, typ: String) = {
+    anyCauseHas(caught, {
+      case q: Exception if // connect doesn't nest exceptions, they get put in the message
+        q.getMessage.contains(s"$process_if_attribute_missing_name should not be used") ||
+          q.getMessage.contains(typ) => true
+      case _ => false
+    }) shouldBe true
   }
 }
