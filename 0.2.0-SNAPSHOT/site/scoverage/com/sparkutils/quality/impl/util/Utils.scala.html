@@ -1,0 +1,5101 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/sparkutils/quality/impl/util/Utils.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality.impl.util
+</span>2 <span style=''>
+</span>3 <span style=''>import com.sparkutils.quality._
+</span>4 <span style=''>import com.sparkutils.quality.impl.{RuleLogicUtils, ThreeOnlyNonFoldable}
+</span>5 <span style=''>import com.sparkutils.shim.expressions.{CreateNamedStruct1, GetStructField3, MapObjects5}
+</span>6 <span style=''>import frameless.TypedEncoder
+</span>7 <span style=''>import org.apache.spark.sql.catalyst.InternalRow
+</span>8 <span style=''>import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode, ExprValue, JavaCode, QualityExprUtils, VariableValue}
+</span>9 <span style=''>import org.apache.spark.sql.catalyst.expressions.{Alias, BinaryExpression, BoundReference, Expression, If, IsNull, Literal, NamedExpression, UnaryExpression, Unevaluable, UnsafeArrayData}
+</span>10 <span style=''>import org.apache.spark.sql.catalyst.util.ArrayData
+</span>11 <span style=''>import org.apache.spark.sql.types.{ArrayType, BooleanType, DataType, MapType, StructField, StructType}
+</span>12 <span style=''>
+</span>13 <span style=''>import java.util.concurrent.atomic.AtomicBoolean
+</span>14 <span style=''>import org.apache.spark.internal.Logging
+</span>15 <span style=''>import org.apache.spark.sql.catalyst.analysis.{GetColumnByOrdinal, UnresolvedAttribute}
+</span>16 <span style=''>import org.apache.spark.sql.{Encoder, ShimUtils, SparkSession}
+</span>17 <span style=''>import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
+</span>18 <span style=''>import org.apache.spark.sql.catalyst.expressions.objects.{InitializeJavaBean, Invoke, MapObjects, NewInstance, UnresolvedMapObjects}
+</span>19 <span style=''>
+</span>20 <span style=''>import scala.annotation.{elidable, tailrec}
+</span>21 <span style=''>import scala.reflect.ClassTag
+</span>22 <span style=''>
+</span>23 <span style=''>object DebugTime extends Logging {
+</span>24 <span style=''>
+</span>25 <span style=''>  def debugTime[T](what: String, log: (Long, String)=&gt;Unit = (i, what) =&gt; {logDebug(s&quot;----&gt; ${i}ms for $what&quot;)} )( thunk: =&gt; T): T = {
+</span>26 <span style=''>    val start = </span><span style='background: #AEF1AE'>System.currentTimeMillis</span><span style=''>
+</span>27 <span style=''>    try {
+</span>28 <span style=''>      </span><span style='background: #AEF1AE'>thunk</span><span style=''>
+</span>29 <span style=''>    } finally </span><span style='background: #AEF1AE'>{
+</span>30 <span style=''></span><span style='background: #AEF1AE'>      val stop = System.currentTimeMillis
+</span>31 <span style=''></span><span style='background: #AEF1AE'>
+</span>32 <span style=''></span><span style='background: #AEF1AE'>      log(stop - start, what)
+</span>33 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>34 <span style=''>  }
+</span>35 <span style=''>
+</span>36 <span style=''>}
+</span>37 <span style=''>
+</span>38 <span style=''>trait PassThrough extends Expression {
+</span>39 <span style=''>  override def nullable: Boolean = </span><span style='background: #AEF1AE'>true</span><span style=''>
+</span>40 <span style=''>
+</span>41 <span style=''>  override def eval(input: InternalRow): Any = </span><span style='background: #AEF1AE'>Literal(true).eval(input)</span><span style=''>
+</span>42 <span style=''>
+</span>43 <span style=''>  override def dataType: DataType = </span><span style='background: #AEF1AE'>BooleanType</span><span style=''>
+</span>44 <span style=''>}
+</span>45 <span style=''>
+</span>46 <span style=''>/**
+</span>47 <span style=''> * Same as unevaluable but the queryplan runs.  This version should only be used for eval (compileEvals = false) of
+</span>48 <span style=''> * rules / triggers and for any output expressions, it may take part in SubExprEvaluationRuntime
+</span>49 <span style=''> * @param children
+</span>50 <span style=''> */
+</span>51 <span style=''>case class PassThroughEvalOnly(children: Seq[Expression]) extends PassThrough with Unevaluable {
+</span>52 <span style=''>
+</span>53 <span style=''>  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = </span><span style='background: #AEF1AE'>copy(children = newChildren)</span><span style=''>
+</span>54 <span style=''>
+</span>55 <span style=''>}
+</span>56 <span style=''>
+</span>57 <span style=''>/**
+</span>58 <span style=''> * Same as unevaluable but the queryplan runs.  This version requires compileEvals = true (rules are independent and
+</span>59 <span style=''> * will not use Subexpression Elimination at eval time) and as such cannot be used with SubExprEvaluationRuntime
+</span>60 <span style=''> * @param children
+</span>61 <span style=''> */
+</span>62 <span style=''>case class PassThroughCompileEvals(child: Expression) extends UnaryExpression with PassThrough with CodegenFallback {
+</span>63 <span style=''>
+</span>64 <span style=''>  protected def withNewChildInternal(newChild: Expression): Expression = </span><span style='background: #AEF1AE'>copy(newChild)</span><span style=''>
+</span>65 <span style=''>
+</span>66 <span style=''>  override def nullable: Boolean = </span><span style='background: #AEF1AE'>child.nullable</span><span style=''>
+</span>67 <span style=''>
+</span>68 <span style=''>  override def eval(input: InternalRow): Any = </span><span style='background: #AEF1AE'>child.eval(input)</span><span style=''>
+</span>69 <span style=''>
+</span>70 <span style=''>  override def dataType: DataType = </span><span style='background: #AEF1AE'>child.dataType</span><span style=''>
+</span>71 <span style=''>}
+</span>72 <span style=''>
+</span>73 <span style=''>/**
+</span>74 <span style=''> * Should not be used in queryplanning  TODO verify if this still needs to be unevaluable, it did under spark 2.4
+</span>75 <span style=''> * @param rules should be hidden from plans
+</span>76 <span style=''> */
+</span>77 <span style=''>case class NonPassThrough(rule: Expression) extends UnaryExpression with ThreeOnlyNonFoldable with Unevaluable {
+</span>78 <span style=''>
+</span>79 <span style=''>  override def nullable: Boolean = </span><span style='background: #AEF1AE'>true</span><span style=''>
+</span>80 <span style=''>
+</span>81 <span style=''>  override def dataType: DataType = </span><span style='background: #AEF1AE'>BooleanType</span><span style=''>
+</span>82 <span style=''>
+</span>83 <span style=''>  override def child: Expression = </span><span style='background: #AEF1AE'>Literal(true)</span><span style=''>
+</span>84 <span style=''>
+</span>85 <span style=''>  protected def withNewChildInternal(newChild: Expression): Expression = </span><span style='background: #AEF1AE'>copy(newChild)</span><span style=''>
+</span>86 <span style=''>
+</span>87 <span style=''>}
+</span>88 <span style=''>
+</span>89 <span style=''>sealed trait LookupType {
+</span>90 <span style=''>  val name: String
+</span>91 <span style=''>}
+</span>92 <span style=''>
+</span>93 <span style=''>case class MapLookupType(name: String) extends LookupType
+</span>94 <span style=''>case class BloomLookupType(name: String) extends LookupType
+</span>95 <span style=''>
+</span>96 <span style=''>/**
+</span>97 <span style=''> * Represents the results of lookups.  RuleRows will have empty expressions
+</span>98 <span style=''> *
+</span>99 <span style=''> * @param ruleSuite
+</span>100 <span style=''> * @param ruleResults
+</span>101 <span style=''> * @param lambdaResults it's not always possible to toString against an expression tree
+</span>102 <span style=''> */
+</span>103 <span style=''>case class LookupResults(ruleSuite: RuleSuite, ruleResults: ExpressionLookupResults[RuleRow], lambdaResults: ExpressionLookupResults[Id])
+</span>104 <span style=''>
+</span>105 <span style=''>case class ExpressionLookupResults[A](lookupConstants: Map[A, Set[LookupType]], lookupExpressions: Set[A])
+</span>106 <span style=''>
+</span>107 <span style=''>case class ExpressionLookupResult(constants: Set[LookupType], hasExpressionLookups: Boolean)
+</span>108 <span style=''>
+</span>109 <span style=''>
+</span>110 <span style=''>object LookupIdFunctions {
+</span>111 <span style=''>
+</span>112 <span style=''>  def namesFromSchema(schema: StructType): Set[String] = {
+</span>113 <span style=''>
+</span>114 <span style=''>    def withParent(name: String, parent: String) =
+</span>115 <span style=''>      if (</span><span style='background: #AEF1AE'>parent.isEmpty</span><span style=''>)
+</span>116 <span style=''>        </span><span style='background: #AEF1AE'>name</span><span style=''>
+</span>117 <span style=''>      else
+</span>118 <span style=''>        </span><span style='background: #AEF1AE'>parent + &quot;.&quot; + name</span><span style=''>
+</span>119 <span style=''>
+</span>120 <span style=''>    def accumulate(set: Set[String], schema: StructType, parent: String): Set[String] =
+</span>121 <span style=''>      </span><span style='background: #AEF1AE'>schema.foldLeft(set) {
+</span>122 <span style=''></span><span style='background: #AEF1AE'>        (s, field) =&gt;
+</span>123 <span style=''></span><span style='background: #AEF1AE'>          val name = withParent(field.name, parent)
+</span>124 <span style=''></span><span style='background: #AEF1AE'>          field.dataType match {
+</span>125 <span style=''></span><span style='background: #AEF1AE'>            case struct: StructType =&gt;
+</span>126 <span style=''></span><span style='background: #AEF1AE'>              accumulate(s + name, struct, name)
+</span>127 <span style=''></span><span style='background: #AEF1AE'>            case _ =&gt; s + name
+</span>128 <span style=''></span><span style='background: #AEF1AE'>          }
+</span>129 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>130 <span style=''>
+</span>131 <span style=''>    </span><span style='background: #AEF1AE'>accumulate(Set.empty, schema, &quot;&quot;)</span><span style=''>
+</span>132 <span style=''>  }
+</span>133 <span style=''>
+</span>134 <span style=''>  /**
+</span>135 <span style=''>   * Use this function to identify which maps / blooms etc. are used by a given rulesuite
+</span>136 <span style=''>   * collects all rules that are using lookup functions but without constant expressions and the list of lookups that are constants.
+</span>137 <span style=''>   *
+</span>138 <span style=''>   */
+</span>139 <span style=''>  def identifyLookups(ruleSuite: RuleSuite): LookupResults = {
+</span>140 <span style=''>    val olambdaResults =
+</span>141 <span style=''>      </span><span style='background: #AEF1AE'>ruleSuite.lambdaFunctions.flatMap{r =&gt;
+</span>142 <span style=''></span><span style='background: #AEF1AE'>        val exp = RuleLogicUtils.expr(r.rule)
+</span>143 <span style=''></span><span style='background: #AEF1AE'>        LookupIdFunctionImpl.identifyLookups(exp).map((_,r))
+</span>144 <span style=''></span><span style='background: #AEF1AE'>      }.foldLeft(ExpressionLookupResults[Id](Map.empty, Set.empty)) {
+</span>145 <span style=''></span><span style='background: #AEF1AE'>        (acc, res) =&gt;
+</span>146 <span style=''></span><span style='background: #AEF1AE'>          val r = acc.copy( lookupConstants = acc.lookupConstants + (res._2.id -&gt; res._1.constants))
+</span>147 <span style=''></span><span style='background: #AEF1AE'>          if (res._1.hasExpressionLookups)
+</span>148 <span style=''></span><span style='background: #AEF1AE'>            r.copy(lookupExpressions = r.lookupExpressions + res._2.id)
+</span>149 <span style=''></span><span style='background: #AEF1AE'>          else
+</span>150 <span style=''></span><span style='background: #AEF1AE'>            r
+</span>151 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>152 <span style=''>    val lambdaResults = </span><span style='background: #AEF1AE'>olambdaResults.copy(lookupConstants = olambdaResults.lookupConstants.filter(_._2.nonEmpty))</span><span style=''>
+</span>153 <span style=''>
+</span>154 <span style=''>    </span><span style='background: #AEF1AE'>LookupResults(ruleSuite, ExpressionLookupResults(Map.empty, Set.empty), lambdaResults)</span><span style=''>
+</span>155 <span style=''>  }
+</span>156 <span style=''>}
+</span>157 <span style=''>
+</span>158 <span style=''>case class TSLocal[T](val initialValue: () =&gt; T) extends Serializable {
+</span>159 <span style=''>  @volatile @transient private var threadLocal: ThreadLocal[T] = _
+</span>160 <span style=''>  def get(): T = {
+</span>161 <span style=''>    if (</span><span style='background: #AEF1AE'>threadLocal eq null</span><span style=''>) </span><span style='background: #AEF1AE'>{
+</span>162 <span style=''></span><span style='background: #AEF1AE'>      val init = initialValue
+</span>163 <span style=''></span><span style='background: #AEF1AE'>      this.synchronized {
+</span>164 <span style=''></span><span style='background: #AEF1AE'>
+</span>165 <span style=''></span><span style='background: #AEF1AE'>        threadLocal = new ThreadLocal[T] {
+</span>166 <span style=''></span><span style='background: #AEF1AE'>          override def initialValue(): T = init()
+</span>167 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>168 <span style=''></span><span style='background: #AEF1AE'>
+</span>169 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>170 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>171 <span style=''>    </span><span style='background: #AEF1AE'>threadLocal.get()</span><span style=''>
+</span>172 <span style=''>  }
+</span>173 <span style=''>}
+</span>174 <span style=''>
+</span>175 <span style=''>case class TransientHolder[T](val initialise: () =&gt; T) extends Serializable {
+</span>176 <span style=''>  @volatile @transient private var it: T = _
+</span>177 <span style=''>  def get(): T = {
+</span>178 <span style=''>    if (</span><span style='background: #AEF1AE'>it == null</span><span style=''>) {
+</span>179 <span style=''>      </span><span style='background: #AEF1AE'>this.synchronized {
+</span>180 <span style=''></span><span style='background: #AEF1AE'>
+</span>181 <span style=''></span><span style='background: #AEF1AE'>        it = initialise()
+</span>182 <span style=''></span><span style='background: #AEF1AE'>
+</span>183 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>184 <span style=''>    }
+</span>185 <span style=''>    </span><span style='background: #AEF1AE'>it</span><span style=''>
+</span>186 <span style=''>  }
+</span>187 <span style=''>  def reset: Unit ={
+</span>188 <span style=''>    </span><span style='background: #AEF1AE'>this.synchronized {
+</span>189 <span style=''></span><span style='background: #AEF1AE'>      it = null.asInstanceOf[T]
+</span>190 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>191 <span style=''>  }
+</span>192 <span style=''>}
+</span>193 <span style=''>
+</span>194 <span style=''>object Comparison {
+</span>195 <span style=''>
+</span>196 <span style=''>  /**
+</span>197 <span style=''>   * Forwards to compareTo, allows for compareTo[Type] syntax with internal casts
+</span>198 <span style=''>   * @param left
+</span>199 <span style=''>   * @param right
+</span>200 <span style=''>   * @tparam T
+</span>201 <span style=''>   * @return
+</span>202 <span style=''>   */
+</span>203 <span style=''>  def compareTo[T &lt;: Comparable[T]](left: Any, right: Any): Int =
+</span>204 <span style=''>    if (</span><span style='background: #AEF1AE'>left == null &amp;&amp; right != null</span><span style=''>)
+</span>205 <span style=''>      </span><span style='background: #AEF1AE'>-100</span><span style=''>
+</span>206 <span style=''>    else
+</span>207 <span style=''>      </span><span style='background: #AEF1AE'>if (right == null &amp;&amp; left != null)
+</span>208 <span style=''></span><span style='background: #AEF1AE'>        100
+</span>209 <span style=''></span><span style='background: #AEF1AE'>      else
+</span>210 <span style=''></span><span style='background: #AEF1AE'>        left.asInstanceOf[T].compareTo( right.asInstanceOf[T])</span><span style=''>
+</span>211 <span style=''>
+</span>212 <span style=''>  /**
+</span>213 <span style=''>   * Forwards to compare, allows for compareToOrdering(ordering) syntax with internal casts
+</span>214 <span style=''>   * @param left
+</span>215 <span style=''>   * @param right
+</span>216 <span style=''>   * @tparam T
+</span>217 <span style=''>   * @return
+</span>218 <span style=''>   */
+</span>219 <span style=''>  def compareToOrdering[T](ordering: Ordering[T])(left: Any, right: Any): Int =
+</span>220 <span style=''>    if (</span><span style='background: #AEF1AE'>left == null &amp;&amp; right != null</span><span style=''>)
+</span>221 <span style=''>      </span><span style='background: #AEF1AE'>-100</span><span style=''>
+</span>222 <span style=''>    else
+</span>223 <span style=''>      </span><span style='background: #AEF1AE'>if (right == null &amp;&amp; left != null)
+</span>224 <span style=''></span><span style='background: #AEF1AE'>        100
+</span>225 <span style=''></span><span style='background: #AEF1AE'>      else
+</span>226 <span style=''></span><span style='background: #AEF1AE'>        ordering.compare(left.asInstanceOf[T], right.asInstanceOf[T])</span><span style=''>
+</span>227 <span style=''>
+</span>228 <span style=''>}
+</span>229 <span style=''>
+</span>230 <span style=''>object Optional {
+</span>231 <span style=''>  def toOptional[T](option: Option[T]): java.util.Optional[T] =
+</span>232 <span style=''>    if (</span><span style='background: #AEF1AE'>option.isEmpty</span><span style=''>)
+</span>233 <span style=''>      </span><span style='background: #AEF1AE'>java.util.Optional.empty()</span><span style=''>
+</span>234 <span style=''>    else
+</span>235 <span style=''>      </span><span style='background: #AEF1AE'>java.util.Optional.of(option.get)</span><span style=''>
+</span>236 <span style=''>}
+</span>237 <span style=''>
+</span>238 <span style=''>object Arrays {
+</span>239 <span style=''>  /**
+</span>240 <span style=''>   * UnsafeArrayData doesn't allow calling .array, foreach when needed and for others use array
+</span>241 <span style=''>   *
+</span>242 <span style=''>   * @param array
+</span>243 <span style=''>   * @param dataType
+</span>244 <span style=''>   * @param f
+</span>245 <span style=''>   * @return
+</span>246 <span style=''>   */
+</span>247 <span style=''>  def mapArray[T: ClassTag](array: ArrayData, dataType: DataType, f: Any =&gt; T): Array[T] =
+</span>248 <span style=''>    array match {
+</span>249 <span style=''>      case _: UnsafeArrayData </span><span style='background: #AEF1AE'>=&gt;
+</span>250 <span style=''></span><span style='background: #AEF1AE'>        val res = Array.ofDim[T](array.numElements())
+</span>251 <span style=''></span><span style='background: #AEF1AE'>        array.foreach(dataType, (i, v) =&gt; res.update(i, f(v)))
+</span>252 <span style=''></span><span style='background: #AEF1AE'>        res</span><span style=''>
+</span>253 <span style=''>      case _ =&gt; </span><span style='background: #AEF1AE'>array.array.map(f)</span><span style=''>
+</span>254 <span style=''>    }
+</span>255 <span style=''>
+</span>256 <span style=''>  /**
+</span>257 <span style=''>   * gets an array out of UnsafeArrayData or others
+</span>258 <span style=''>   * @param array
+</span>259 <span style=''>   * @param dataType
+</span>260 <span style=''>   * @return
+</span>261 <span style=''>   */
+</span>262 <span style=''>  def toArray(array: ArrayData, dataType: DataType): Array[Any] =
+</span>263 <span style=''>    array match {
+</span>264 <span style=''>      case _: UnsafeArrayData =&gt;
+</span>265 <span style=''>        </span><span style='background: #AEF1AE'>mapArray(array, dataType, identity)</span><span style=''>
+</span>266 <span style=''>      case _ =&gt; </span><span style='background: #AEF1AE'>array.array</span><span style=''>
+</span>267 <span style=''>    }
+</span>268 <span style=''>
+</span>269 <span style=''>}
+</span>270 <span style=''>
+</span>271 <span style=''>/**
+</span>272 <span style=''> * Frameless sets path in foldable encoders to nullable == false, but it really is nullable
+</span>273 <span style=''> * Spark then just accesses the struct which is null.  This forces codegen only
+</span>274 <span style=''> */
+</span>275 <span style=''>case class ForceNullable(child: Expression) extends Expression {
+</span>276 <span style=''>
+</span>277 <span style=''>  val children = </span><span style='background: #AEF1AE'>Seq(child)</span><span style=''>
+</span>278 <span style=''>
+</span>279 <span style=''>  override def nullable: Boolean = </span><span style='background: #AEF1AE'>true</span><span style=''>
+</span>280 <span style=''>
+</span>281 <span style=''>  override def eval(input: InternalRow): Any = </span><span style='background: #AEF1AE'>child.eval(input)</span><span style=''>
+</span>282 <span style=''>
+</span>283 <span style=''>  override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
+</span>284 <span style=''>    val c = </span><span style='background: #AEF1AE'>child.genCode(ctx)</span><span style=''>
+</span>285 <span style=''>    val typ = </span><span style='background: #AEF1AE'>JavaCode.javaType(dataType)</span><span style=''>
+</span>286 <span style=''>    val boxed = </span><span style='background: #AEF1AE'>JavaCode.boxedType(dataType)</span><span style=''>
+</span>287 <span style=''>    </span><span style='background: #AEF1AE'>ev.copy(code =
+</span>288 <span style=''></span><span style='background: #AEF1AE'>      code&quot;&quot;&quot;
+</span>289 <span style=''></span><span style='background: #AEF1AE'>            ${c.code}
+</span>290 <span style=''></span><span style='background: #AEF1AE'>            boolean ${ev.isNull} = true;
+</span>291 <span style=''></span><span style='background: #AEF1AE'>            $typ ${ev.value} = null;
+</span>292 <span style=''></span><span style='background: #AEF1AE'>            if (${c.value} != null) {
+</span>293 <span style=''></span><span style='background: #AEF1AE'>              ${ev.isNull} = false;
+</span>294 <span style=''></span><span style='background: #AEF1AE'>              ${ev.value} = ($boxed) ${c.value};
+</span>295 <span style=''></span><span style='background: #AEF1AE'>            }
+</span>296 <span style=''></span><span style='background: #AEF1AE'>            &quot;&quot;&quot;)</span><span style=''>
+</span>297 <span style=''>  }
+</span>298 <span style=''>
+</span>299 <span style=''>
+</span>300 <span style=''>  override def dataType: DataType = </span><span style='background: #AEF1AE'>child.dataType</span><span style=''>
+</span>301 <span style=''>
+</span>302 <span style=''>  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
+</span>303 <span style=''>    </span><span style='background: #AEF1AE'>copy(child = newChildren.head)</span><span style=''>
+</span>304 <span style=''>}
+</span>305 <span style=''>
+</span>306 <span style=''>
+</span>307 <span style=''>/**
+</span>308 <span style=''> * wrap subexprs so we can correctly identify the subquery post bindreferences
+</span>309 <span style=''> * @param children
+</span>310 <span style=''> */
+</span>311 <span style=''>case class SubQueryWrapper(children: Seq[Expression]) extends Expression {
+</span>312 <span style=''>
+</span>313 <span style=''>  override def nullable: Boolean = </span><span style='background: #AEF1AE'>children.head.nullable</span><span style=''>
+</span>314 <span style=''>  override def foldable: Boolean = </span><span style='background: #AEF1AE'>false</span><span style=''>
+</span>315 <span style=''>  override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
+</span>316 <span style=''>    val expr = </span><span style='background: #AEF1AE'>children.head.genCode(ctx)</span><span style=''>
+</span>317 <span style=''>    expr
+</span>318 <span style=''>  }
+</span>319 <span style=''>
+</span>320 <span style=''>  override def eval(input: InternalRow): Any = </span><span style='background: #AEF1AE'>children.head.eval(input)</span><span style=''>
+</span>321 <span style=''>
+</span>322 <span style=''>  override def dataType: DataType = </span><span style='background: #AEF1AE'>children.head.dataType</span><span style=''>
+</span>323 <span style=''>
+</span>324 <span style=''>  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = </span><span style='background: #AEF1AE'>copy(children = newChildren)</span><span style=''>
+</span>325 <span style=''>}
+</span>326 <span style=''>
+</span>327 <span style=''>object SubQueryWrapper {
+</span>328 <span style=''>  def hasASubQuery(expr: Expression): Boolean =
+</span>329 <span style=''>    (</span><span style='background: #AEF1AE'>expr.collectFirst {
+</span>330 <span style=''></span><span style='background: #AEF1AE'>      case s: SubQueryWrapper =&gt; s
+</span>331 <span style=''></span><span style='background: #AEF1AE'>    }.isDefined</span><span style=''>)
+</span>332 <span style=''>}
+</span>333 <span style=''>
+</span>334 <span style=''>object Params {
+</span>335 <span style=''>
+</span>336 <span style=''>  def stripBrackets(v: VariableValue): (String, String) = {
+</span>337 <span style=''>    val openb = </span><span style='background: #AEF1AE'>v.toString().indexOf(&quot;[&quot;)</span><span style=''>
+</span>338 <span style=''>    if (</span><span style='background: #AEF1AE'>openb == -1</span><span style=''>)
+</span>339 <span style=''>      </span><span style='background: #AEF1AE'>(v.variableName, &quot;&quot;)</span><span style=''>
+</span>340 <span style=''>    else
+</span>341 <span style=''>      </span><span style='background: #AEF1AE'>(v.variableName.dropRight(v.length - openb), v.variableName.drop(openb))</span><span style=''>
+</span>342 <span style=''>  }
+</span>343 <span style=''>
+</span>344 <span style=''>  def formatParams(ctx: CodegenContext, a: Seq[ExprValue], callsKeepArrays: Boolean = false): (String, String) = {
+</span>345 <span style=''>    // filter out any top level arrays, the input is a set, so params need the same order
+</span>346 <span style=''>    val ordered = </span><span style='background: #AEF1AE'>a.flatMap {
+</span>347 <span style=''></span><span style='background: #AEF1AE'>      case a: VariableValue =&gt; Some(a)
+</span>348 <span style=''></span><span style='background: #AEF1AE'>      case _ =&gt; None
+</span>349 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>350 <span style=''>
+</span>351 <span style=''>    </span><span style='background: #AEF1AE'>(ordered.map { v =&gt;
+</span>352 <span style=''></span><span style='background: #AEF1AE'>      val (stripped, arrayInName) = stripBrackets(v)
+</span>353 <span style=''></span><span style='background: #AEF1AE'>
+</span>354 <span style=''></span><span style='background: #AEF1AE'>      val (typ, array) =
+</span>355 <span style=''></span><span style='background: #AEF1AE'>        if (v.javaType.isArray)
+</span>356 <span style=''></span><span style='background: #AEF1AE'>          (s&quot;${v.javaType.getComponentType.getName}&quot;, &quot;[]&quot;)
+</span>357 <span style=''></span><span style='background: #AEF1AE'>        else if (v.javaType.isPrimitive)
+</span>358 <span style=''></span><span style='background: #AEF1AE'>          (v.javaType.toString, arrayInName.replaceAll(&quot;[^\\[\\]]&quot;,&quot;&quot;))
+</span>359 <span style=''></span><span style='background: #AEF1AE'>        else
+</span>360 <span style=''></span><span style='background: #AEF1AE'>          (v.javaType.getName, arrayInName.replaceAll(&quot;[^\\[\\]]&quot;,&quot;&quot;))
+</span>361 <span style=''></span><span style='background: #AEF1AE'>
+</span>362 <span style=''></span><span style='background: #AEF1AE'>      s&quot;$typ$array $stripped&quot;
+</span>363 <span style=''></span><span style='background: #AEF1AE'>    }.mkString(&quot;, &quot;)
+</span>364 <span style=''></span><span style='background: #AEF1AE'>      , ordered.map(v =&gt;
+</span>365 <span style=''></span><span style='background: #AEF1AE'>        if (v.javaType.isArray &amp;&amp; callsKeepArrays)
+</span>366 <span style=''></span><span style='background: #AEF1AE'>          v.variableName
+</span>367 <span style=''></span><span style='background: #AEF1AE'>        else
+</span>368 <span style=''></span><span style='background: #AEF1AE'>          stripBrackets(v)._1
+</span>369 <span style=''></span><span style='background: #AEF1AE'>      ).mkString(&quot;, &quot;))</span><span style=''>
+</span>370 <span style=''>  }
+</span>371 <span style=''>}
+</span>372 <span style=''>
+</span>373 <span style=''>
+</span>374 <span style=''>/**
+</span>375 <span style=''> * Wraps an expression on the right, using an input field on the left, forcing resolution of processor expressions
+</span>376 <span style=''> * not using input fields.
+</span>377 <span style=''> *
+</span>378 <span style=''> * @param left completely ignored and only present to force correct resolution via predicate helper
+</span>379 <span style=''> * @param right actual code to use, typically a processor
+</span>380 <span style=''> */
+</span>381 <span style=''>case class InputWrapper(left: Expression, right: Expression) extends BinaryExpression {
+</span>382 <span style=''>
+</span>383 <span style=''>  override def nullable: Boolean = </span><span style='background: #AEF1AE'>right.nullable</span><span style=''>
+</span>384 <span style=''>
+</span>385 <span style=''>  override def eval(input: InternalRow): Any = </span><span style='background: #AEF1AE'>right.eval(input)</span><span style=''>
+</span>386 <span style=''>
+</span>387 <span style=''>  protected def withNewChildrenInternal(newLeft: Expression, newRight: Expression): Expression = </span><span style='background: #AEF1AE'>InputWrapper(newLeft, newRight)</span><span style=''>
+</span>388 <span style=''>
+</span>389 <span style=''>  override def dataType: DataType = </span><span style='background: #AEF1AE'>right.dataType</span><span style=''>
+</span>390 <span style=''>
+</span>391 <span style=''>  override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode =
+</span>392 <span style=''>    </span><span style='background: #AEF1AE'>right.genCode(ctx)</span><span style=''>
+</span>393 <span style=''>}
+</span>394 <span style=''>/*
+</span>395 <span style=''>object TypeUtils {
+</span>396 <span style=''>
+</span>397 <span style=''>  private def mapType(l: MapType, r: MapType) =
+</span>398 <span style=''>    equivalent(l.keyType, r.keyType) &amp;&amp; equivalent(l.valueType, r.valueType)
+</span>399 <span style=''>
+</span>400 <span style=''>  /**
+</span>401 <span style=''>   * Compares struct fields without using nullability
+</span>402 <span style=''>   * @param left
+</span>403 <span style=''>   * @param right
+</span>404 <span style=''>   * @return
+</span>405 <span style=''>   */
+</span>406 <span style=''>  @tailrec
+</span>407 <span style=''>  def equivalent(left: DataType, right: DataType): Boolean =
+</span>408 <span style=''>    (left, right) match {
+</span>409 <span style=''>      case (l: StructType, r: StructType) if l.fields.length == r.fields.length =&gt;
+</span>410 <span style=''>        l.copy(fields = l.fields.map(f =&gt; f.copy(nullable = true))) ==
+</span>411 <span style=''>          r.copy(fields = r.fields.map(f =&gt; f.copy(nullable = true)))
+</span>412 <span style=''>      case (_: StructType, _: StructType) =&gt;
+</span>413 <span style=''>        false
+</span>414 <span style=''>      case (l: ArrayType, r: ArrayType) =&gt;
+</span>415 <span style=''>        equivalent(l.elementType, r.elementType)
+</span>416 <span style=''>      case (l: MapType, r: MapType) =&gt;
+</span>417 <span style=''>        mapType(l, r)
+</span>418 <span style=''>      case _ =&gt; left == right
+</span>419 <span style=''>    }
+</span>420 <span style=''>} */
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          7622
+        </td>
+        <td>
+          1528
+          -
+          1552
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.System.currentTimeMillis
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          java.lang.System.currentTimeMillis()
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          7623
+        </td>
+        <td>
+          1569
+          -
+          1574
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.DebugTime.thunk
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          thunk
+        </td>
+      </tr><tr>
+        <td>
+          29
+        </td>
+        <td>
+          7627
+        </td>
+        <td>
+          1589
+          -
+          1669
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val stop: Long = java.lang.System.currentTimeMillis();
+  log.apply(stop.-(start), what)
+}
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          7624
+        </td>
+        <td>
+          1608
+          -
+          1632
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.System.currentTimeMillis
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          java.lang.System.currentTimeMillis()
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          7625
+        </td>
+        <td>
+          1644
+          -
+          1656
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.-
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          stop.-(start)
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          7626
+        </td>
+        <td>
+          1640
+          -
+          1663
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          log.apply(stop.-(start), what)
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          7628
+        </td>
+        <td>
+          1752
+          -
+          1756
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          7629
+        </td>
+        <td>
+          1805
+          -
+          1830
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Literal.eval
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.Literal.apply(true).eval(input)
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          7630
+        </td>
+        <td>
+          1868
+          -
+          1879
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.BooleanType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.BooleanType
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          7631
+        </td>
+        <td>
+          2312
+          -
+          2340
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.PassThroughEvalOnly.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          PassThroughEvalOnly.this.copy(newChildren)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          7632
+        </td>
+        <td>
+          2794
+          -
+          2808
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.PassThroughCompileEvals.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          PassThroughCompileEvals.this.copy(newChild)
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          7633
+        </td>
+        <td>
+          2845
+          -
+          2859
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.nullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          PassThroughCompileEvals.this.child.nullable
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          7634
+        </td>
+        <td>
+          2908
+          -
+          2925
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.eval
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          PassThroughCompileEvals.this.child.eval(input)
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          7635
+        </td>
+        <td>
+          2963
+          -
+          2977
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          PassThroughCompileEvals.this.child.dataType
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          7636
+        </td>
+        <td>
+          3296
+          -
+          3300
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          7637
+        </td>
+        <td>
+          3338
+          -
+          3349
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.BooleanType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.BooleanType
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          7638
+        </td>
+        <td>
+          3386
+          -
+          3399
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Literal.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.Literal.apply(true)
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          7639
+        </td>
+        <td>
+          3474
+          -
+          3488
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.NonPassThrough.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          NonPassThrough.this.copy(newChild)
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          7640
+        </td>
+        <td>
+          4368
+          -
+          4382
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.isEmpty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          parent.isEmpty()
+        </td>
+      </tr><tr>
+        <td>
+          116
+        </td>
+        <td>
+          7641
+        </td>
+        <td>
+          4392
+          -
+          4396
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.LookupIdFunctions.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          name
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          7642
+        </td>
+        <td>
+          4416
+          -
+          4435
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          parent.+(&quot;.&quot;).+(name)
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          7643
+        </td>
+        <td>
+          4416
+          -
+          4435
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          parent.+(&quot;.&quot;).+(name)
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          7652
+        </td>
+        <td>
+          4531
+          -
+          4799
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.foldLeft
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          schema.foldLeft[Set[String]](set)(((s: Set[String], field: org.apache.spark.sql.types.StructField) =&gt; {
+  val name: String = withParent(field.name, parent);
+  field.dataType match {
+    case (struct @ (_: org.apache.spark.sql.types.StructType)) =&gt; accumulate(s.+(name), struct, name)
+    case _ =&gt; s.+(name)
+  }
+}))
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          7644
+        </td>
+        <td>
+          4608
+          -
+          4618
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          field.name
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          7645
+        </td>
+        <td>
+          4597
+          -
+          4627
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.LookupIdFunctions.withParent
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          withParent(field.name, parent)
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          7646
+        </td>
+        <td>
+          4638
+          -
+          4652
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          field.dataType
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          7647
+        </td>
+        <td>
+          4725
+          -
+          4733
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.SetOps.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          s.+(name)
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          7648
+        </td>
+        <td>
+          4714
+          -
+          4748
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.LookupIdFunctions.accumulate
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          accumulate(s.+(name), struct, name)
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          7649
+        </td>
+        <td>
+          4714
+          -
+          4748
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.LookupIdFunctions.accumulate
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          accumulate(s.+(name), struct, name)
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          7650
+        </td>
+        <td>
+          4771
+          -
+          4779
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.SetOps.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          s.+(name)
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          7651
+        </td>
+        <td>
+          4771
+          -
+          4779
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.immutable.SetOps.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          s.+(name)
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          7653
+        </td>
+        <td>
+          4816
+          -
+          4825
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Set.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.Set.empty[String]
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          7654
+        </td>
+        <td>
+          4835
+          -
+          4837
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          7655
+        </td>
+        <td>
+          4805
+          -
+          4838
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.LookupIdFunctions.accumulate
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          accumulate(scala.Predef.Set.empty[String], schema, &quot;&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          7656
+        </td>
+        <td>
+          5255
+          -
+          5261
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.HasRuleText.rule
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          r.rule
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          7657
+        </td>
+        <td>
+          5235
+          -
+          5262
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleLogicUtils.expr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.RuleLogicUtils.expr(r.rule)
+        </td>
+      </tr><tr>
+        <td>
+          143
+        </td>
+        <td>
+          7658
+        </td>
+        <td>
+          5317
+          -
+          5322
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[com.sparkutils.quality.impl.util.ExpressionLookupResult, com.sparkutils.quality.impl.LambdaFunction](x$1, r)
+        </td>
+      </tr><tr>
+        <td>
+          143
+        </td>
+        <td>
+          7659
+        </td>
+        <td>
+          5271
+          -
+          5323
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          LookupIdFunctionImpl.identifyLookups(exp).map[(com.sparkutils.quality.impl.util.ExpressionLookupResult, com.sparkutils.quality.impl.LambdaFunction)](((x$1: com.sparkutils.quality.impl.util.ExpressionLookupResult) =&gt; scala.Tuple2.apply[com.sparkutils.quality.impl.util.ExpressionLookupResult, com.sparkutils.quality.impl.LambdaFunction](x$1, r)))
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          7660
+        </td>
+        <td>
+          5369
+          -
+          5378
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Map.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.Map.empty[com.sparkutils.quality.Id, Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          7661
+        </td>
+        <td>
+          5380
+          -
+          5389
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Set.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.Set.empty[com.sparkutils.quality.Id]
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          7662
+        </td>
+        <td>
+          5341
+          -
+          5390
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.ExpressionLookupResults.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ExpressionLookupResults.apply[com.sparkutils.quality.Id](scala.Predef.Map.empty[com.sparkutils.quality.Id, Nothing], scala.Predef.Set.empty[com.sparkutils.quality.Id])
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          7676
+        </td>
+        <td>
+          5178
+          -
+          5668
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.foldLeft
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuite.lambdaFunctions.flatMap[(com.sparkutils.quality.impl.util.ExpressionLookupResult, com.sparkutils.quality.impl.LambdaFunction)](((r: com.sparkutils.quality.impl.LambdaFunction) =&gt; {
+  val exp: org.apache.spark.sql.catalyst.expressions.Expression = com.sparkutils.quality.impl.RuleLogicUtils.expr(r.rule);
+  LookupIdFunctionImpl.identifyLookups(exp).map[(com.sparkutils.quality.impl.util.ExpressionLookupResult, com.sparkutils.quality.impl.LambdaFunction)](((x$1: com.sparkutils.quality.impl.util.ExpressionLookupResult) =&gt; scala.Tuple2.apply[com.sparkutils.quality.impl.util.ExpressionLookupResult, com.sparkutils.quality.impl.LambdaFunction](x$1, r)))
+})).foldLeft[com.sparkutils.quality.impl.util.ExpressionLookupResults[com.sparkutils.quality.Id]](ExpressionLookupResults.apply[com.sparkutils.quality.Id](scala.Predef.Map.empty[com.sparkutils.quality.Id, Nothing], scala.Predef.Set.empty[com.sparkutils.quality.Id]))(((acc: com.sparkutils.quality.impl.util.ExpressionLookupResults[com.sparkutils.quality.Id], res: (com.sparkutils.quality.impl.util.ExpressionLookupResult, com.sparkutils.quality.impl.LambdaFunction)) =&gt; {
+  val r: com.sparkutils.quality.impl.util.ExpressionLookupResults[com.sparkutils.quality.Id] = acc.copy[com.sparkutils.quality.Id](acc.lookupConstants.+[Set[com.sparkutils.quality.impl.util.LookupType]](scala.Predef.ArrowAssoc[com.sparkutils.quality.Id](res._2.id).-&gt;[Set[com.sparkutils.quality.impl.util.LookupType]](res._1.constants)), acc.copy$default$2[Nothing]);
+  if (res._1.hasExpressionLookups)
+    {
+      &lt;artifact&gt; val x$1: scala.collection.immutable.Set[com.sparkutils.quality.Id] @scala.reflect.internal.annotations.uncheckedBounds = r.lookupExpressions.+(res._2.id);
+      &lt;artifact&gt; val x$2: Map[com.sparkutils.quality.Id,Set[com.sparkutils.quality.impl.util.LookupType]] @scala.reflect.internal.annotations.uncheckedBounds = r.copy$default$1[Nothing];
+      r.copy[com.sparkutils.quality.Id](x$2, x$1)
+    }
+  else
+    r
+}))
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          7663
+        </td>
+        <td>
+          5485
+          -
+          5494
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.LambdaFunction.id
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res._2.id
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          7664
+        </td>
+        <td>
+          5498
+          -
+          5514
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.ExpressionLookupResult.constants
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res._1.constants
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          7665
+        </td>
+        <td>
+          5485
+          -
+          5514
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.ArrowAssoc[com.sparkutils.quality.Id](res._2.id).-&gt;[Set[com.sparkutils.quality.impl.util.LookupType]](res._1.constants)
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          7666
+        </td>
+        <td>
+          5462
+          -
+          5515
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.MapOps.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          acc.lookupConstants.+[Set[com.sparkutils.quality.impl.util.LookupType]](scala.Predef.ArrowAssoc[com.sparkutils.quality.Id](res._2.id).-&gt;[Set[com.sparkutils.quality.impl.util.LookupType]](res._1.constants))
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          7667
+        </td>
+        <td>
+          5438
+          -
+          5438
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.ExpressionLookupResults.copy$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          acc.copy$default$2[Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          7668
+        </td>
+        <td>
+          5434
+          -
+          5516
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.ExpressionLookupResults.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          acc.copy[com.sparkutils.quality.Id](acc.lookupConstants.+[Set[com.sparkutils.quality.impl.util.LookupType]](scala.Predef.ArrowAssoc[com.sparkutils.quality.Id](res._2.id).-&gt;[Set[com.sparkutils.quality.impl.util.LookupType]](res._1.constants)), acc.copy$default$2[Nothing])
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          7669
+        </td>
+        <td>
+          5531
+          -
+          5558
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.ExpressionLookupResult.hasExpressionLookups
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res._1.hasExpressionLookups
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          7670
+        </td>
+        <td>
+          5621
+          -
+          5630
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.LambdaFunction.id
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res._2.id
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          7671
+        </td>
+        <td>
+          5599
+          -
+          5630
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.SetOps.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          r.lookupExpressions.+(res._2.id)
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          7672
+        </td>
+        <td>
+          5574
+          -
+          5574
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.ExpressionLookupResults.copy$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          r.copy$default$1[Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          7673
+        </td>
+        <td>
+          5572
+          -
+          5631
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.ExpressionLookupResults.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          r.copy[com.sparkutils.quality.Id](x$2, x$1)
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          7674
+        </td>
+        <td>
+          5572
+          -
+          5631
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  &lt;artifact&gt; val x$1: scala.collection.immutable.Set[com.sparkutils.quality.Id] @scala.reflect.internal.annotations.uncheckedBounds = r.lookupExpressions.+(res._2.id);
+  &lt;artifact&gt; val x$2: Map[com.sparkutils.quality.Id,Set[com.sparkutils.quality.impl.util.LookupType]] @scala.reflect.internal.annotations.uncheckedBounds = r.copy$default$1[Nothing];
+  r.copy[com.sparkutils.quality.Id](x$2, x$1)
+}
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          7675
+        </td>
+        <td>
+          5659
+          -
+          5660
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.LookupIdFunctions.r
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          r
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          7677
+        </td>
+        <td>
+          5769
+          -
+          5782
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.nonEmpty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$2._2.nonEmpty
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          7678
+        </td>
+        <td>
+          5731
+          -
+          5783
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOps.filter
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          olambdaResults.lookupConstants.filter(((x$2: (com.sparkutils.quality.Id, Set[com.sparkutils.quality.impl.util.LookupType])) =&gt; x$2._2.nonEmpty))
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          7679
+        </td>
+        <td>
+          5708
+          -
+          5708
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.ExpressionLookupResults.copy$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          olambdaResults.copy$default$2[Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          7680
+        </td>
+        <td>
+          5693
+          -
+          5784
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.ExpressionLookupResults.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          olambdaResults.copy[com.sparkutils.quality.Id](olambdaResults.lookupConstants.filter(((x$2: (com.sparkutils.quality.Id, Set[com.sparkutils.quality.impl.util.LookupType])) =&gt; x$2._2.nonEmpty)), olambdaResults.copy$default$2[Nothing])
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          7681
+        </td>
+        <td>
+          5839
+          -
+          5848
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Map.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.Map.empty[com.sparkutils.quality.impl.util.RuleRow, Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          7682
+        </td>
+        <td>
+          5850
+          -
+          5859
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Set.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.Set.empty[com.sparkutils.quality.impl.util.RuleRow]
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          7683
+        </td>
+        <td>
+          5815
+          -
+          5860
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.ExpressionLookupResults.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ExpressionLookupResults.apply[com.sparkutils.quality.impl.util.RuleRow](scala.Predef.Map.empty[com.sparkutils.quality.impl.util.RuleRow, Nothing], scala.Predef.Set.empty[com.sparkutils.quality.impl.util.RuleRow])
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          7684
+        </td>
+        <td>
+          5790
+          -
+          5876
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.LookupResults.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          LookupResults.apply(ruleSuite, ExpressionLookupResults.apply[com.sparkutils.quality.impl.util.RuleRow](scala.Predef.Map.empty[com.sparkutils.quality.impl.util.RuleRow, Nothing], scala.Predef.Set.empty[com.sparkutils.quality.impl.util.RuleRow]), lambdaResults)
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          7685
+        </td>
+        <td>
+          6050
+          -
+          6069
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.eq
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          TSLocal.this.threadLocal.eq(null)
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          7691
+        </td>
+        <td>
+          6071
+          -
+          6247
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val init: () =&gt; T = TSLocal.this.initialValue;
+  this.synchronized[Unit](TSLocal.this.threadLocal_=({
+    final class $anon extends ThreadLocal[T] {
+      def &lt;init&gt;(): &lt;$anon: ThreadLocal[T]&gt; = {
+        $anon.super.&lt;init&gt;();
+        ()
+      };
+      override def initialValue(): T = init.apply()
+    };
+    new $anon()
+  }))
+}
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          7692
+        </td>
+        <td>
+          6046
+          -
+          6046
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          7693
+        </td>
+        <td>
+          6046
+          -
+          6046
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          162
+        </td>
+        <td>
+          7686
+        </td>
+        <td>
+          6090
+          -
+          6102
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.TSLocal.initialValue
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          TSLocal.this.initialValue
+        </td>
+      </tr><tr>
+        <td>
+          163
+        </td>
+        <td>
+          7690
+        </td>
+        <td>
+          6109
+          -
+          6241
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.synchronized
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          this.synchronized[Unit](TSLocal.this.threadLocal_=({
+  final class $anon extends ThreadLocal[T] {
+    def &lt;init&gt;(): &lt;$anon: ThreadLocal[T]&gt; = {
+      $anon.super.&lt;init&gt;();
+      ()
+    };
+    override def initialValue(): T = init.apply()
+  };
+  new $anon()
+}))
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          7688
+        </td>
+        <td>
+          6152
+          -
+          6155
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.TSLocal.$anon.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new $anon()
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          7689
+        </td>
+        <td>
+          6138
+          -
+          6232
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.TSLocal.threadLocal_=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          TSLocal.this.threadLocal_=({
+  final class $anon extends ThreadLocal[T] {
+    def &lt;init&gt;(): &lt;$anon: ThreadLocal[T]&gt; = {
+      $anon.super.&lt;init&gt;();
+      ()
+    };
+    override def initialValue(): T = init.apply()
+  };
+  new $anon()
+})
+        </td>
+      </tr><tr>
+        <td>
+          166
+        </td>
+        <td>
+          7687
+        </td>
+        <td>
+          6216
+          -
+          6222
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function0.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          init.apply()
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          7694
+        </td>
+        <td>
+          6252
+          -
+          6269
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.ThreadLocal.get
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          TSLocal.this.threadLocal.get()
+        </td>
+      </tr><tr>
+        <td>
+          178
+        </td>
+        <td>
+          7695
+        </td>
+        <td>
+          6427
+          -
+          6437
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Any.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          TransientHolder.this.it.==(null)
+        </td>
+      </tr><tr>
+        <td>
+          178
+        </td>
+        <td>
+          7700
+        </td>
+        <td>
+          6423
+          -
+          6423
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          178
+        </td>
+        <td>
+          7701
+        </td>
+        <td>
+          6423
+          -
+          6423
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          7698
+        </td>
+        <td>
+          6447
+          -
+          6502
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.synchronized
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          this.synchronized[Unit](TransientHolder.this.it_=(TransientHolder.this.initialise.apply()))
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          7699
+        </td>
+        <td>
+          6447
+          -
+          6502
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          java.lang.Object.synchronized
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          this.synchronized[Unit](TransientHolder.this.it_=(TransientHolder.this.initialise.apply()))
+        </td>
+      </tr><tr>
+        <td>
+          181
+        </td>
+        <td>
+          7696
+        </td>
+        <td>
+          6481
+          -
+          6493
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function0.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          TransientHolder.this.initialise.apply()
+        </td>
+      </tr><tr>
+        <td>
+          181
+        </td>
+        <td>
+          7697
+        </td>
+        <td>
+          6476
+          -
+          6493
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.TransientHolder.it_=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          TransientHolder.this.it_=(TransientHolder.this.initialise.apply())
+        </td>
+      </tr><tr>
+        <td>
+          185
+        </td>
+        <td>
+          7702
+        </td>
+        <td>
+          6513
+          -
+          6515
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.TransientHolder.it
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          TransientHolder.this.it
+        </td>
+      </tr><tr>
+        <td>
+          188
+        </td>
+        <td>
+          7706
+        </td>
+        <td>
+          6545
+          -
+          6602
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.synchronized
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          this.synchronized[Unit](TransientHolder.this.it_=(null.asInstanceOf[T]))
+        </td>
+      </tr><tr>
+        <td>
+          189
+        </td>
+        <td>
+          7703
+        </td>
+        <td>
+          6576
+          -
+          6580
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          189
+        </td>
+        <td>
+          7704
+        </td>
+        <td>
+          6576
+          -
+          6596
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          null.asInstanceOf[T]
+        </td>
+      </tr><tr>
+        <td>
+          189
+        </td>
+        <td>
+          7705
+        </td>
+        <td>
+          6571
+          -
+          6596
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.TransientHolder.it_=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          TransientHolder.this.it_=(null.asInstanceOf[T])
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          7707
+        </td>
+        <td>
+          6870
+          -
+          6874
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          7708
+        </td>
+        <td>
+          6878
+          -
+          6891
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Any.!=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          right.!=(null)
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          7709
+        </td>
+        <td>
+          6862
+          -
+          6891
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          left.==(null).&amp;&amp;(right.!=(null))
+        </td>
+      </tr><tr>
+        <td>
+          205
+        </td>
+        <td>
+          7710
+        </td>
+        <td>
+          6899
+          -
+          6903
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          -100
+        </td>
+      </tr><tr>
+        <td>
+          205
+        </td>
+        <td>
+          7711
+        </td>
+        <td>
+          6899
+          -
+          6903
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          -100
+        </td>
+      </tr><tr>
+        <td>
+          207
+        </td>
+        <td>
+          7712
+        </td>
+        <td>
+          6932
+          -
+          6936
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          207
+        </td>
+        <td>
+          7713
+        </td>
+        <td>
+          6940
+          -
+          6952
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Any.!=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          left.!=(null)
+        </td>
+      </tr><tr>
+        <td>
+          207
+        </td>
+        <td>
+          7714
+        </td>
+        <td>
+          6923
+          -
+          6952
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          right.==(null).&amp;&amp;(left.!=(null))
+        </td>
+      </tr><tr>
+        <td>
+          207
+        </td>
+        <td>
+          7720
+        </td>
+        <td>
+          6919
+          -
+          7039
+        </td>
+        <td>
+          If
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          if (right.==(null).&amp;&amp;(left.!=(null)))
+  100
+else
+  left.asInstanceOf[T].compareTo(right.asInstanceOf[T])
+        </td>
+      </tr><tr>
+        <td>
+          208
+        </td>
+        <td>
+          7715
+        </td>
+        <td>
+          6962
+          -
+          6965
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          100
+        </td>
+      </tr><tr>
+        <td>
+          208
+        </td>
+        <td>
+          7716
+        </td>
+        <td>
+          6962
+          -
+          6965
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          100
+        </td>
+      </tr><tr>
+        <td>
+          210
+        </td>
+        <td>
+          7717
+        </td>
+        <td>
+          7017
+          -
+          7038
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          right.asInstanceOf[T]
+        </td>
+      </tr><tr>
+        <td>
+          210
+        </td>
+        <td>
+          7718
+        </td>
+        <td>
+          6985
+          -
+          7039
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Comparable.compareTo
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          left.asInstanceOf[T].compareTo(right.asInstanceOf[T])
+        </td>
+      </tr><tr>
+        <td>
+          210
+        </td>
+        <td>
+          7719
+        </td>
+        <td>
+          6985
+          -
+          7039
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          java.lang.Comparable.compareTo
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          left.asInstanceOf[T].compareTo(right.asInstanceOf[T])
+        </td>
+      </tr><tr>
+        <td>
+          220
+        </td>
+        <td>
+          7721
+        </td>
+        <td>
+          7304
+          -
+          7308
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          220
+        </td>
+        <td>
+          7722
+        </td>
+        <td>
+          7312
+          -
+          7325
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Any.!=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          right.!=(null)
+        </td>
+      </tr><tr>
+        <td>
+          220
+        </td>
+        <td>
+          7723
+        </td>
+        <td>
+          7296
+          -
+          7325
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          left.==(null).&amp;&amp;(right.!=(null))
+        </td>
+      </tr><tr>
+        <td>
+          221
+        </td>
+        <td>
+          7724
+        </td>
+        <td>
+          7333
+          -
+          7337
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          -100
+        </td>
+      </tr><tr>
+        <td>
+          221
+        </td>
+        <td>
+          7725
+        </td>
+        <td>
+          7333
+          -
+          7337
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          -100
+        </td>
+      </tr><tr>
+        <td>
+          223
+        </td>
+        <td>
+          7726
+        </td>
+        <td>
+          7366
+          -
+          7370
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          223
+        </td>
+        <td>
+          7727
+        </td>
+        <td>
+          7374
+          -
+          7386
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Any.!=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          left.!=(null)
+        </td>
+      </tr><tr>
+        <td>
+          223
+        </td>
+        <td>
+          7728
+        </td>
+        <td>
+          7357
+          -
+          7386
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          right.==(null).&amp;&amp;(left.!=(null))
+        </td>
+      </tr><tr>
+        <td>
+          223
+        </td>
+        <td>
+          7735
+        </td>
+        <td>
+          7353
+          -
+          7480
+        </td>
+        <td>
+          If
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          if (right.==(null).&amp;&amp;(left.!=(null)))
+  100
+else
+  ordering.compare(left.asInstanceOf[T], right.asInstanceOf[T])
+        </td>
+      </tr><tr>
+        <td>
+          224
+        </td>
+        <td>
+          7729
+        </td>
+        <td>
+          7396
+          -
+          7399
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          100
+        </td>
+      </tr><tr>
+        <td>
+          224
+        </td>
+        <td>
+          7730
+        </td>
+        <td>
+          7396
+          -
+          7399
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          100
+        </td>
+      </tr><tr>
+        <td>
+          226
+        </td>
+        <td>
+          7731
+        </td>
+        <td>
+          7436
+          -
+          7456
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          left.asInstanceOf[T]
+        </td>
+      </tr><tr>
+        <td>
+          226
+        </td>
+        <td>
+          7732
+        </td>
+        <td>
+          7458
+          -
+          7479
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          right.asInstanceOf[T]
+        </td>
+      </tr><tr>
+        <td>
+          226
+        </td>
+        <td>
+          7733
+        </td>
+        <td>
+          7419
+          -
+          7480
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.math.Ordering.compare
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ordering.compare(left.asInstanceOf[T], right.asInstanceOf[T])
+        </td>
+      </tr><tr>
+        <td>
+          226
+        </td>
+        <td>
+          7734
+        </td>
+        <td>
+          7419
+          -
+          7480
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.math.Ordering.compare
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ordering.compare(left.asInstanceOf[T], right.asInstanceOf[T])
+        </td>
+      </tr><tr>
+        <td>
+          232
+        </td>
+        <td>
+          7736
+        </td>
+        <td>
+          7575
+          -
+          7589
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.isEmpty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          option.isEmpty
+        </td>
+      </tr><tr>
+        <td>
+          233
+        </td>
+        <td>
+          7737
+        </td>
+        <td>
+          7597
+          -
+          7623
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.Optional.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          java.util.Optional.empty[T]()
+        </td>
+      </tr><tr>
+        <td>
+          233
+        </td>
+        <td>
+          7738
+        </td>
+        <td>
+          7597
+          -
+          7623
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          java.util.Optional.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          java.util.Optional.empty[T]()
+        </td>
+      </tr><tr>
+        <td>
+          235
+        </td>
+        <td>
+          7739
+        </td>
+        <td>
+          7661
+          -
+          7671
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          option.get
+        </td>
+      </tr><tr>
+        <td>
+          235
+        </td>
+        <td>
+          7740
+        </td>
+        <td>
+          7639
+          -
+          7672
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.Optional.of
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          java.util.Optional.of[T](option.get)
+        </td>
+      </tr><tr>
+        <td>
+          235
+        </td>
+        <td>
+          7741
+        </td>
+        <td>
+          7639
+          -
+          7672
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          java.util.Optional.of
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          java.util.Optional.of[T](option.get)
+        </td>
+      </tr><tr>
+        <td>
+          249
+        </td>
+        <td>
+          7746
+        </td>
+        <td>
+          8010
+          -
+          8141
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val res: Array[T] = scala.Array.ofDim[T](array.numElements())(evidence$1);
+  array.foreach(dataType, ((i: Int, v: Any) =&gt; res.update(i, f.apply(v))));
+  res
+}
+        </td>
+      </tr><tr>
+        <td>
+          250
+        </td>
+        <td>
+          7742
+        </td>
+        <td>
+          8031
+          -
+          8066
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.ofDim
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Array.ofDim[T](array.numElements())(evidence$1)
+        </td>
+      </tr><tr>
+        <td>
+          251
+        </td>
+        <td>
+          7743
+        </td>
+        <td>
+          8123
+          -
+          8127
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          f.apply(v)
+        </td>
+      </tr><tr>
+        <td>
+          251
+        </td>
+        <td>
+          7744
+        </td>
+        <td>
+          8109
+          -
+          8128
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.update(i, f.apply(v))
+        </td>
+      </tr><tr>
+        <td>
+          251
+        </td>
+        <td>
+          7745
+        </td>
+        <td>
+          8075
+          -
+          8129
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.ArrayData.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          array.foreach(dataType, ((i: Int, v: Any) =&gt; res.update(i, f.apply(v))))
+        </td>
+      </tr><tr>
+        <td>
+          253
+        </td>
+        <td>
+          7747
+        </td>
+        <td>
+          8158
+          -
+          8176
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.ArrayOps.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.genericArrayOps[Any](array.array).map[T](f)(evidence$1)
+        </td>
+      </tr><tr>
+        <td>
+          253
+        </td>
+        <td>
+          7748
+        </td>
+        <td>
+          8158
+          -
+          8176
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.ArrayOps.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.genericArrayOps[Any](array.array).map[T](f)(evidence$1)
+        </td>
+      </tr><tr>
+        <td>
+          265
+        </td>
+        <td>
+          7749
+        </td>
+        <td>
+          8451
+          -
+          8459
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.identity
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.identity[Any](x)
+        </td>
+      </tr><tr>
+        <td>
+          265
+        </td>
+        <td>
+          7750
+        </td>
+        <td>
+          8425
+          -
+          8460
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.Arrays.mapArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          Arrays.this.mapArray[Any](array, dataType, ((x: Any) =&gt; scala.Predef.identity[Any](x)))((ClassTag.Any: scala.reflect.ClassTag[Any]))
+        </td>
+      </tr><tr>
+        <td>
+          265
+        </td>
+        <td>
+          7751
+        </td>
+        <td>
+          8425
+          -
+          8460
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.Arrays.mapArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          Arrays.this.mapArray[Any](array, dataType, ((x: Any) =&gt; scala.Predef.identity[Any](x)))((ClassTag.Any: scala.reflect.ClassTag[Any]))
+        </td>
+      </tr><tr>
+        <td>
+          266
+        </td>
+        <td>
+          7752
+        </td>
+        <td>
+          8477
+          -
+          8488
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.ArrayData.array
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          array.array
+        </td>
+      </tr><tr>
+        <td>
+          266
+        </td>
+        <td>
+          7753
+        </td>
+        <td>
+          8477
+          -
+          8488
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.ArrayData.array
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          array.array
+        </td>
+      </tr><tr>
+        <td>
+          277
+        </td>
+        <td>
+          7754
+        </td>
+        <td>
+          8766
+          -
+          8771
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.ForceNullable.child
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ForceNullable.this.child
+        </td>
+      </tr><tr>
+        <td>
+          277
+        </td>
+        <td>
+          7755
+        </td>
+        <td>
+          8762
+          -
+          8772
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqFactory.Delegate.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.`package`.Seq.apply[org.apache.spark.sql.catalyst.expressions.Expression](ForceNullable.this.child)
+        </td>
+      </tr><tr>
+        <td>
+          279
+        </td>
+        <td>
+          7756
+        </td>
+        <td>
+          8809
+          -
+          8813
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          281
+        </td>
+        <td>
+          7757
+        </td>
+        <td>
+          8862
+          -
+          8879
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.eval
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ForceNullable.this.child.eval(input)
+        </td>
+      </tr><tr>
+        <td>
+          284
+        </td>
+        <td>
+          7758
+        </td>
+        <td>
+          8977
+          -
+          8995
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.genCode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ForceNullable.this.child.genCode(ctx)
+        </td>
+      </tr><tr>
+        <td>
+          285
+        </td>
+        <td>
+          7759
+        </td>
+        <td>
+          9028
+          -
+          9036
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.ForceNullable.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ForceNullable.this.dataType
+        </td>
+      </tr><tr>
+        <td>
+          285
+        </td>
+        <td>
+          7760
+        </td>
+        <td>
+          9010
+          -
+          9037
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.javaType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.javaType(ForceNullable.this.dataType)
+        </td>
+      </tr><tr>
+        <td>
+          286
+        </td>
+        <td>
+          7761
+        </td>
+        <td>
+          9073
+          -
+          9081
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.ForceNullable.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ForceNullable.this.dataType
+        </td>
+      </tr><tr>
+        <td>
+          286
+        </td>
+        <td>
+          7762
+        </td>
+        <td>
+          9054
+          -
+          9082
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.boxedType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.boxedType(ForceNullable.this.dataType)
+        </td>
+      </tr><tr>
+        <td>
+          287
+        </td>
+        <td>
+          7772
+        </td>
+        <td>
+          9087
+          -
+          9369
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ev.copy(org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n            &quot;, &quot;\n            boolean &quot;, &quot; = true;\n            &quot;, &quot; &quot;, &quot; = null;\n            if (&quot;, &quot; != null) {\n              &quot;, &quot; = false;\n              &quot;, &quot; = (&quot;, &quot;) &quot;, &quot;;\n            }\n            &quot;)).code(c.code, ev.isNull, typ, ev.value, c.value, ev.isNull, ev.value, boxed, c.value), ev.copy$default$2, ev.copy$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          288
+        </td>
+        <td>
+          7763
+        </td>
+        <td>
+          9108
+          -
+          9368
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;\n            &quot;, &quot;\n            boolean &quot;, &quot; = true;\n            &quot;, &quot; &quot;, &quot; = null;\n            if (&quot;, &quot; != null) {\n              &quot;, &quot; = false;\n              &quot;, &quot; = (&quot;, &quot;) &quot;, &quot;;\n            }\n            &quot;)
+        </td>
+      </tr><tr>
+        <td>
+          288
+        </td>
+        <td>
+          7771
+        </td>
+        <td>
+          9108
+          -
+          9368
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper.code
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n            &quot;, &quot;\n            boolean &quot;, &quot; = true;\n            &quot;, &quot; &quot;, &quot; = null;\n            if (&quot;, &quot; != null) {\n              &quot;, &quot; = false;\n              &quot;, &quot; = (&quot;, &quot;) &quot;, &quot;;\n            }\n            &quot;)).code(c.code, ev.isNull, typ, ev.value, c.value, ev.isNull, ev.value, boxed, c.value)
+        </td>
+      </tr><tr>
+        <td>
+          289
+        </td>
+        <td>
+          7764
+        </td>
+        <td>
+          9130
+          -
+          9136
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.code
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          c.code
+        </td>
+      </tr><tr>
+        <td>
+          290
+        </td>
+        <td>
+          7765
+        </td>
+        <td>
+          9160
+          -
+          9169
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.isNull
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ev.isNull
+        </td>
+      </tr><tr>
+        <td>
+          291
+        </td>
+        <td>
+          7766
+        </td>
+        <td>
+          9198
+          -
+          9206
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.value
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ev.value
+        </td>
+      </tr><tr>
+        <td>
+          292
+        </td>
+        <td>
+          7767
+        </td>
+        <td>
+          9234
+          -
+          9241
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.value
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          c.value
+        </td>
+      </tr><tr>
+        <td>
+          293
+        </td>
+        <td>
+          7768
+        </td>
+        <td>
+          9270
+          -
+          9279
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.isNull
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ev.isNull
+        </td>
+      </tr><tr>
+        <td>
+          294
+        </td>
+        <td>
+          7769
+        </td>
+        <td>
+          9306
+          -
+          9314
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.value
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ev.value
+        </td>
+      </tr><tr>
+        <td>
+          294
+        </td>
+        <td>
+          7770
+        </td>
+        <td>
+          9329
+          -
+          9336
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.value
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          c.value
+        </td>
+      </tr><tr>
+        <td>
+          300
+        </td>
+        <td>
+          7773
+        </td>
+        <td>
+          9412
+          -
+          9426
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ForceNullable.this.child.dataType
+        </td>
+      </tr><tr>
+        <td>
+          303
+        </td>
+        <td>
+          7774
+        </td>
+        <td>
+          9536
+          -
+          9552
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IndexedSeqOps.head
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          newChildren.head
+        </td>
+      </tr><tr>
+        <td>
+          303
+        </td>
+        <td>
+          7775
+        </td>
+        <td>
+          9523
+          -
+          9553
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.ForceNullable.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ForceNullable.this.copy(newChildren.head)
+        </td>
+      </tr><tr>
+        <td>
+          313
+        </td>
+        <td>
+          7776
+        </td>
+        <td>
+          9775
+          -
+          9797
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.nullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SubQueryWrapper.this.children.head.nullable
+        </td>
+      </tr><tr>
+        <td>
+          314
+        </td>
+        <td>
+          7777
+        </td>
+        <td>
+          9833
+          -
+          9838
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          316
+        </td>
+        <td>
+          7778
+        </td>
+        <td>
+          9938
+          -
+          9964
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.genCode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SubQueryWrapper.this.children.head.genCode(ctx)
+        </td>
+      </tr><tr>
+        <td>
+          320
+        </td>
+        <td>
+          7779
+        </td>
+        <td>
+          10026
+          -
+          10051
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.eval
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SubQueryWrapper.this.children.head.eval(input)
+        </td>
+      </tr><tr>
+        <td>
+          322
+        </td>
+        <td>
+          7780
+        </td>
+        <td>
+          10089
+          -
+          10111
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SubQueryWrapper.this.children.head.dataType
+        </td>
+      </tr><tr>
+        <td>
+          324
+        </td>
+        <td>
+          7781
+        </td>
+        <td>
+          10204
+          -
+          10232
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.SubQueryWrapper.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SubQueryWrapper.this.copy(newChildren)
+        </td>
+      </tr><tr>
+        <td>
+          329
+        </td>
+        <td>
+          7783
+        </td>
+        <td>
+          10332
+          -
+          10332
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.SubQueryWrapper.$anonfun.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          330
+        </td>
+        <td>
+          7782
+        </td>
+        <td>
+          10367
+          -
+          10368
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.SubQueryWrapper.$anonfun.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          s
+        </td>
+      </tr><tr>
+        <td>
+          331
+        </td>
+        <td>
+          7784
+        </td>
+        <td>
+          10314
+          -
+          10384
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.isDefined
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          expr.collectFirst[com.sparkutils.quality.impl.util.SubQueryWrapper](({
+  @SerialVersionUID(value = 0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,com.sparkutils.quality.impl.util.SubQueryWrapper] with java.io.Serializable {
+    def &lt;init&gt;(): &lt;$anon: org.apache.spark.sql.catalyst.expressions.Expression =&gt; com.sparkutils.quality.impl.util.SubQueryWrapper&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: org.apache.spark.sql.catalyst.expressions.Expression, B1 &gt;: com.sparkutils.quality.impl.util.SubQueryWrapper](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (s @ (_: com.sparkutils.quality.impl.util.SubQueryWrapper)) =&gt; s
+      case (defaultCase$ @ _) =&gt; default.apply(x1)
+    };
+    final def isDefinedAt(x1: org.apache.spark.sql.catalyst.expressions.Expression): Boolean = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (s @ (_: com.sparkutils.quality.impl.util.SubQueryWrapper)) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,com.sparkutils.quality.impl.util.SubQueryWrapper])).isDefined
+        </td>
+      </tr><tr>
+        <td>
+          337
+        </td>
+        <td>
+          7785
+        </td>
+        <td>
+          10482
+          -
+          10507
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.indexOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          v.toString().indexOf(&quot;[&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          338
+        </td>
+        <td>
+          7786
+        </td>
+        <td>
+          10516
+          -
+          10527
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          openb.==(-1)
+        </td>
+      </tr><tr>
+        <td>
+          339
+        </td>
+        <td>
+          7787
+        </td>
+        <td>
+          10536
+          -
+          10550
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.VariableValue.variableName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          v.variableName
+        </td>
+      </tr><tr>
+        <td>
+          339
+        </td>
+        <td>
+          7788
+        </td>
+        <td>
+          10552
+          -
+          10554
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          339
+        </td>
+        <td>
+          7789
+        </td>
+        <td>
+          10535
+          -
+          10555
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[String, String](v.variableName, &quot;&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          339
+        </td>
+        <td>
+          7790
+        </td>
+        <td>
+          10535
+          -
+          10555
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[String, String](v.variableName, &quot;&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          341
+        </td>
+        <td>
+          7791
+        </td>
+        <td>
+          10572
+          -
+          10586
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.VariableValue.variableName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          v.variableName
+        </td>
+      </tr><tr>
+        <td>
+          341
+        </td>
+        <td>
+          7792
+        </td>
+        <td>
+          10597
+          -
+          10613
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.-
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          codegen.this.ExprValue.exprValueToString(v).length().-(openb)
+        </td>
+      </tr><tr>
+        <td>
+          341
+        </td>
+        <td>
+          7793
+        </td>
+        <td>
+          10572
+          -
+          10614
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.StringOps.dropRight
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.augmentString(v.variableName).dropRight(codegen.this.ExprValue.exprValueToString(v).length().-(openb))
+        </td>
+      </tr><tr>
+        <td>
+          341
+        </td>
+        <td>
+          7794
+        </td>
+        <td>
+          10616
+          -
+          10642
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.StringOps.drop
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.augmentString(v.variableName).drop(openb)
+        </td>
+      </tr><tr>
+        <td>
+          341
+        </td>
+        <td>
+          7795
+        </td>
+        <td>
+          10571
+          -
+          10643
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[String, String](scala.Predef.augmentString(v.variableName).dropRight(codegen.this.ExprValue.exprValueToString(v).length().-(openb)), scala.Predef.augmentString(v.variableName).drop(openb))
+        </td>
+      </tr><tr>
+        <td>
+          341
+        </td>
+        <td>
+          7796
+        </td>
+        <td>
+          10571
+          -
+          10643
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[String, String](scala.Predef.augmentString(v.variableName).dropRight(codegen.this.ExprValue.exprValueToString(v).length().-(openb)), scala.Predef.augmentString(v.variableName).drop(openb))
+        </td>
+      </tr><tr>
+        <td>
+          346
+        </td>
+        <td>
+          7801
+        </td>
+        <td>
+          10872
+          -
+          10949
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOps.flatMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          a.flatMap[org.apache.spark.sql.catalyst.expressions.codegen.VariableValue](((x0$1: org.apache.spark.sql.catalyst.expressions.codegen.ExprValue) =&gt; x0$1 match {
+  case (a @ (_: org.apache.spark.sql.catalyst.expressions.codegen.VariableValue)) =&gt; scala.Some.apply[org.apache.spark.sql.catalyst.expressions.codegen.VariableValue](a)
+  case _ =&gt; scala.None
+}))
+        </td>
+      </tr><tr>
+        <td>
+          347
+        </td>
+        <td>
+          7797
+        </td>
+        <td>
+          10915
+          -
+          10922
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[org.apache.spark.sql.catalyst.expressions.codegen.VariableValue](a)
+        </td>
+      </tr><tr>
+        <td>
+          347
+        </td>
+        <td>
+          7798
+        </td>
+        <td>
+          10915
+          -
+          10922
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[org.apache.spark.sql.catalyst.expressions.codegen.VariableValue](a)
+        </td>
+      </tr><tr>
+        <td>
+          348
+        </td>
+        <td>
+          7799
+        </td>
+        <td>
+          10939
+          -
+          10943
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          348
+        </td>
+        <td>
+          7800
+        </td>
+        <td>
+          10939
+          -
+          10943
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          351
+        </td>
+        <td>
+          7804
+        </td>
+        <td>
+          10955
+          -
+          11562
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[String, String](ordered.map[String](((v: org.apache.spark.sql.catalyst.expressions.codegen.VariableValue) =&gt; {
+  &lt;synthetic&gt; &lt;artifact&gt; private[this] val x$5: (String, String) = (Params.this.stripBrackets(v): (String, String) @unchecked) match {
+    case (_1: String, _2: String): (String, String)((stripped @ _), (arrayInName @ _)) =&gt; scala.Tuple2.apply[String, String](stripped, arrayInName)
+  };
+  val stripped: String = x$5._1;
+  val arrayInName: String = x$5._2;
+  &lt;synthetic&gt; &lt;artifact&gt; private[this] val x$6: (String, String) = (if (v.javaType.isArray())
+    scala.Tuple2.apply[String, String](&quot;&quot;.+(v.javaType.getComponentType().getName()), &quot;[]&quot;)
+  else
+    if (v.javaType.isPrimitive())
+      scala.Tuple2.apply[String, String](v.javaType.toString(), arrayInName.replaceAll(&quot;[^\\[\\]]&quot;, &quot;&quot;))
+    else
+      scala.Tuple2.apply[String, String](v.javaType.getName(), arrayInName.replaceAll(&quot;[^\\[\\]]&quot;, &quot;&quot;)): (String, String) @unchecked) match {
+    case (_1: String, _2: String): (String, String)((typ @ _), (array @ _)) =&gt; scala.Tuple2.apply[String, String](typ, array)
+  };
+  val typ: String = x$6._1;
+  val array: String = x$6._2;
+  &quot;&quot;.+(typ).+(array).+(&quot; &quot;).+(stripped)
+})).mkString(&quot;, &quot;), ordered.map[String](((v: org.apache.spark.sql.catalyst.expressions.codegen.VariableValue) =&gt; if (v.javaType.isArray().&amp;&amp;(callsKeepArrays))
+  v.variableName
+else
+  Params.this.stripBrackets(v)._1)).mkString(&quot;, &quot;))
+        </td>
+      </tr><tr>
+        <td>
+          363
+        </td>
+        <td>
+          7802
+        </td>
+        <td>
+          10956
+          -
+          11394
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.mkString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ordered.map[String](((v: org.apache.spark.sql.catalyst.expressions.codegen.VariableValue) =&gt; {
+  &lt;synthetic&gt; &lt;artifact&gt; private[this] val x$5: (String, String) = (Params.this.stripBrackets(v): (String, String) @unchecked) match {
+    case (_1: String, _2: String): (String, String)((stripped @ _), (arrayInName @ _)) =&gt; scala.Tuple2.apply[String, String](stripped, arrayInName)
+  };
+  val stripped: String = x$5._1;
+  val arrayInName: String = x$5._2;
+  &lt;synthetic&gt; &lt;artifact&gt; private[this] val x$6: (String, String) = (if (v.javaType.isArray())
+    scala.Tuple2.apply[String, String](&quot;&quot;.+(v.javaType.getComponentType().getName()), &quot;[]&quot;)
+  else
+    if (v.javaType.isPrimitive())
+      scala.Tuple2.apply[String, String](v.javaType.toString(), arrayInName.replaceAll(&quot;[^\\[\\]]&quot;, &quot;&quot;))
+    else
+      scala.Tuple2.apply[String, String](v.javaType.getName(), arrayInName.replaceAll(&quot;[^\\[\\]]&quot;, &quot;&quot;)): (String, String) @unchecked) match {
+    case (_1: String, _2: String): (String, String)((typ @ _), (array @ _)) =&gt; scala.Tuple2.apply[String, String](typ, array)
+  };
+  val typ: String = x$6._1;
+  val array: String = x$6._2;
+  &quot;&quot;.+(typ).+(array).+(&quot; &quot;).+(stripped)
+})).mkString(&quot;, &quot;)
+        </td>
+      </tr><tr>
+        <td>
+          369
+        </td>
+        <td>
+          7803
+        </td>
+        <td>
+          11403
+          -
+          11561
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.mkString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ordered.map[String](((v: org.apache.spark.sql.catalyst.expressions.codegen.VariableValue) =&gt; if (v.javaType.isArray().&amp;&amp;(callsKeepArrays))
+  v.variableName
+else
+  Params.this.stripBrackets(v)._1)).mkString(&quot;, &quot;)
+        </td>
+      </tr><tr>
+        <td>
+          383
+        </td>
+        <td>
+          7805
+        </td>
+        <td>
+          12006
+          -
+          12020
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.nullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          InputWrapper.this.right.nullable
+        </td>
+      </tr><tr>
+        <td>
+          385
+        </td>
+        <td>
+          7806
+        </td>
+        <td>
+          12069
+          -
+          12086
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.eval
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          InputWrapper.this.right.eval(input)
+        </td>
+      </tr><tr>
+        <td>
+          387
+        </td>
+        <td>
+          7807
+        </td>
+        <td>
+          12185
+          -
+          12216
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.InputWrapper.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          InputWrapper.apply(newLeft, newRight)
+        </td>
+      </tr><tr>
+        <td>
+          389
+        </td>
+        <td>
+          7808
+        </td>
+        <td>
+          12254
+          -
+          12268
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          InputWrapper.this.right.dataType
+        </td>
+      </tr><tr>
+        <td>
+          392
+        </td>
+        <td>
+          7809
+        </td>
+        <td>
+          12356
+          -
+          12374
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.genCode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          InputWrapper.this.right.genCode(ctx)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
