@@ -132,7 +132,7 @@ object Validation {
   val dataFrameSyntaxErrorId = Id(Int.MinValue+1,Int.MinValue+1)
 
   protected[quality] val defaultViewLookup: String => Boolean =
-    SparkSession.active.catalog.tableExists
+    SparkSession.active.catalog.tableExists(_)
 
   protected[sparkutils] val emptyDocs = Docs()
 
