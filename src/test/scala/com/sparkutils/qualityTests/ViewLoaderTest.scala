@@ -5,6 +5,7 @@ import com.sparkutils.qualityTests.util.SharedConnectTests
 import com.sparkutils.testing.SparkVersions.sparkVersion
 import org.apache.spark.sql.functions.{col, expr}
 import org.apache.spark.sql.{DataFrame, ShimUtils}
+import org.scalatest.BeforeAndAfterEach
 
 class ViewLoaderTest extends SharedConnectTests {
 
@@ -64,6 +65,7 @@ class ViewLoaderTest extends SharedConnectTests {
   }
 
   test("testViewLoads") {
+    cleanup()
     val s = sparkSession
     import s.implicits._
 
@@ -195,12 +197,17 @@ class ViewLoaderTest extends SharedConnectTests {
     }
   }
 
-  override def afterAll(): Unit = {
+  def cleanup(): Unit = {
     forEachSession(currentSessionsHolder.getSessions, session =>
       Set("joined", "names", "nameLess", "ages", "bad", "names2", "ages2").foreach {
         session.catalog.dropTempView
       }
     )
+  }
+
+  override def afterAll(): Unit = {
+    super.afterAll()
+    cleanup()
   }
 }
 
