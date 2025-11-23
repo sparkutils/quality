@@ -2,7 +2,7 @@ package com.sparkutils.qualityTests.util
 
 import com.sparkutils.quality.impl.extension.{FunNRewrite, QualitySparkExtension}
 import com.sparkutils.quality.{RuleSuite, ruleRunner}
-import com.sparkutils.testing.Utils.{connectMemory, scoverageClassPathsConfig, useDebugConnectLogs}
+import com.sparkutils.testing.SparkTestUtils.{connectMemory, scoverageClassPathsConfig, useDebugConnectLogs}
 import com.sparkutils.testing._
 import com.sparkutils.testing.sessionStrategies.{GlobalSession, SharedSessions}
 import org.apache.spark.sql.QualitySparkUtils.DatasetBase

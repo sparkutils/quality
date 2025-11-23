@@ -207,9 +207,9 @@ abstract class ExtensionTestBase extends ClassicSharedTests  {
     }
 
     // if this is not read from file a LocalRelation will be used and there is no Filter to be pushed down
-    therows.toDS.selectExpr(s"lower as ${prefix}lower", s"higher as ${prefix}higher", s"asString as ${prefix}asString").write.mode("overwrite").format(format).save(outputDir + s"/${prefix}asymfilter")
+    therows.toDS.selectExpr(s"lower as ${prefix}lower", s"higher as ${prefix}higher", s"asString as ${prefix}asString").write.mode("overwrite").format(format).save(outputDir + s"/${format}_${prefix}asymfilter")
 
-    val reread = tsparkSession.read.format(format).load(outputDir + s"/${prefix}asymfilter")
+    val reread = tsparkSession.read.format(format).load(outputDir + s"/${format}_${prefix}asymfilter")
     val withcontext = reread.selectExpr("*", s"as_uuid(${prefix}lower, ${prefix}higher) as ${prefix}context")
     withcontext
   }
@@ -415,9 +415,9 @@ abstract class ExtensionTestBase extends ClassicSharedTests  {
     }
 
     // if this is not read from file a LocalRelation will be used and there is no Filter to be pushed down
-    therows.toDS.selectExpr(s"base as ${prefix}base", s"i0 as ${prefix}i0", s"i1 as ${prefix}i1").write.mode("overwrite").format(format).save(outputDir + s"/${prefix}asymfilter")
+    therows.toDS.selectExpr(s"base as ${prefix}base", s"i0 as ${prefix}i0", s"i1 as ${prefix}i1").write.mode("overwrite").format(format).save(outputDir + s"/${format}_${prefix}asymfilter")
 
-    val reread = tsparkSession.read.format(format).load(outputDir + s"/${prefix}asymfilter")
+    val reread = tsparkSession.read.format(format).load(outputDir + s"/${format}_${prefix}asymfilter")
     val withcontext = reread.selectExpr("*", select)
     withcontext
   }

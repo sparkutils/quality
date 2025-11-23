@@ -24,7 +24,7 @@ object VariableProcessIfMissing {
   private def checkNestedCallsInSuite(ruleSuite: RuleSuite): Unit = {
 
     def checkRuleSuiteHasProcess(rule: String, ruleId: Id, typ: String): Unit =
-      if (rule.contains(process_if_attribute_missing_name)) {
+      if (rule.toLowerCase.contains(process_if_attribute_missing_name)) {
         qualityException(s"$process_if_attribute_missing_name should not be used in RuleSuite expressions but was found in $typ with Id $ruleId with text $rule")
       }
 
@@ -61,28 +61,7 @@ object VariableProcessIfMissing {
         // the raw sql remains untouched
         val r = com.sparkutils.quality.processIfAttributeMissing(ruleSuite, s)
 
-        // adjust for name sensitivity settings
-        val aname = {
-          val tn = getString(name, 2)
-
-          // unlike the recursive code, testing setup is not worth it
-          // $COVERAGE-OFF$
-          val nc =
-            if (SQLConf.get.caseSensitiveAnalysis)
-              tn
-            else
-              tn.toLowerCase(Locale.ROOT)
-          // $COVERAGE-ON$
-
-          nc
-        }
-        val varDef = VariableDefinition( Identifier.of(Array("session"), aname), "null",
-          Literal.create(RuleSuiteHelpers.serialize(r), BinaryType) )
-
-        val tempVariableManager: TempVariableManager = SparkSession.active.sessionState.catalogManager.tempVariableManager
-        val nameParts = AttributeNameParser.parseAttributeName(aname)
-        tempVariableManager.create(nameParts, varDef, true)
-        VariableReference(nameParts, FakeSystemCatalog, varDef.identifier, varDef)
+        ShimUtils.createVariable(getString(name, 2), Literal.create(RuleSuiteHelpers.serialize(r), BinaryType), true)
     })
   }
 }

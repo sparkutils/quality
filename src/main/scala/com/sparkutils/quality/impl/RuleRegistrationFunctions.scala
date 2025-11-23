@@ -170,7 +170,7 @@ object RuleRegistrationFunctions {
                                mapCompare: DataType => Option[(Any, Any) => Int] = (dataType: DataType) => utils.defaultMapCompare(dataType),
                                writer: String => Unit = println,
                                registerFunction: (String, Seq[Expression] => Expression) => Unit =
-                                ShimUtils.registerFunction(SparkSession.active)
+                                (n, f) => ShimUtils.registerFunction(SparkSession.active)(n,f)
                               ) : Unit = {
 
     def register(name: String, argsf: Seq[Expression] => Expression, paramNumbers: Set[Int] = Set.empty, minimum: Int = -1) =

@@ -27,7 +27,7 @@ trait RuleRunnerFunctionsImport {
                                mapCompare: DataType => Option[(Any, Any) => Int] = (dataType: DataType) => utils.defaultMapCompare(dataType),
                                writer: String => Unit = println,
                                registerFunction: (String, Seq[Expression] => Expression) => Unit =
-                                ShimUtils.registerFunction(SparkSession.active)
+                                 (n, f) => ShimUtils.registerFunction(SparkSession.active)(n,f)
                        ) =
     RuleRegistrationFunctions.registerQualityFunctions(parseTypes,
       zero,

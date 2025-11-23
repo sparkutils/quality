@@ -269,8 +269,9 @@ object Serializing {
    * @return
    */
   def toSeq(ruleSuite: RuleSuite): RuleSuite =
-    RuleSuite(ruleSuite.id,
-      ruleSuite.ruleSets.map( rs => RuleSet(rs.id, rs.rules.sortBy(r => packId(r.id)).toVector)).toVector
+    ruleSuite.copy(
+      ruleSets = ruleSuite.ruleSets.map( rs => RuleSet(rs.id, rs.rules.sortBy(r => packId(r.id)).toVector)).toVector,
+      lambdaFunctions = ruleSuite.lambdaFunctions.toVector
     )
 
   /**
