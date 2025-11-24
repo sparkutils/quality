@@ -15,15 +15,15 @@ The other non-loading functionality is represented as Spark Connect compatible s
 
 This includes the runners themselves:
 
-* [dq_rule_runner](../sqlfunctions/#dq_rule_runner)
-* [rule_engine_runner](../sqlfunctions/#rule_engine_runner)
-* [rule_folder_runner](../sqlfunctions/#rule_folder_runner)
-* [typed_expression_runner](../sqlfunctions/#typed_expression_runner)
-* [expression_runner](../sqlfunctions/#expression_runner)
+* [dq_rule_runner](../../sqlfunctions/#dq_rule_runner)
+* [rule_engine_runner](../../sqlfunctions/#rule_engine_runner)
+* [rule_folder_runner](../../sqlfunctions/#rule_folder_runner)
+* [typed_expression_runner](../../sqlfunctions/#typed_expression_runner)
+* [expression_runner](../../sqlfunctions/#expression_runner)
 
 as well as some new utility functions:
 
-* [process_if_attribute_missing](../sqlfunctions/#process_if_attribute_missing)
+* [process_if_attribute_missing](../../sqlfunctions/#process_if_attribute_missing)
 
 All SQL functions are simply forwarders to Spark Connects "call_function" implementation.
 
