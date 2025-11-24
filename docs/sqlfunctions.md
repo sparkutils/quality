@@ -573,7 +573,8 @@ __Alternatives:__
 Tags:
 
 {% for tag in descs.tags %}
-- {{ tag }} {% endfor %}
+- {{ tag }}
+{% endfor %}
 </div>
 {%- endif %}
 {% endfor %}
