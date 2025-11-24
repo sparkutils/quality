@@ -29,6 +29,8 @@ All SQL functions are simply forwarders to Spark Connects "call_function" implem
 
 ## Example Java Usage
 
+_more to come, including json example_
+
 ```java
 import static com.sparkutils.connect.functions.*;
 
@@ -69,3 +71,10 @@ ruleSuiteId INT NOT NULL,ruleSuiteVersion INT NOT NULL,
  >,
  probablePass DOUBLE
 ```
+
+## What is not included in the connect support?
+
+Essentially it's:
+
+- blooms, these are memory intensive by default but may be targeted for later releases if demand is raised, 
+- sparkless is, of course, distinctly Spark `Classic` in nature 
