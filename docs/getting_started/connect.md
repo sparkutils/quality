@@ -13,7 +13,7 @@ The loading and serialising functions register ruleSuites as Spark SQL Variables
 
 The other non-loading functionality is represented as Spark Connect compatible sql function calls that require the [SparkSessionExtension](../getting_started/#using-the-sql-functions-on-spark-thrift-hive-servers).
 
-This includes the runners themselves:
+This includes the runners themselves, which also get dsl equivalents:
 
 * [dq_rule_runner](../../sqlfunctions/#dq_rule_runner)
 * [rule_engine_runner](../../sqlfunctions/#rule_engine_runner)
@@ -77,4 +77,4 @@ ruleSuiteId INT NOT NULL,ruleSuiteVersion INT NOT NULL,
 Essentially it's:
 
 - blooms, these are memory intensive by default but may be targeted for later releases if demand is raised, 
-- sparkless is, of course, distinctly Spark `Classic` in nature 
+- sparkless is, of course, distinctly Spark `Classic` in nature
