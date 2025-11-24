@@ -2,37 +2,56 @@ package com.sparkutils.quality.impl.aggregates
 
 import com.sparkutils.quality.QualityException
 import com.sparkutils.quality.impl.RuleRegistrationFunctions.{defaultAdd, defaultZero}
-import org.apache.spark.sql.Column
-import org.apache.spark.sql.ShimUtils.{column, expression}
-import org.apache.spark.sql.catalyst.expressions.{Expression, LambdaFunction}
-import org.apache.spark.sql.functions.struct
-import org.apache.spark.sql.qualityFunctions.{FunN, MapTransform, RefExpression}
+import org.apache.spark.sql.{Column, ShimUtils}
+import org.apache.spark.sql.ShimUtils.{callFunction, column, expression}
+import org.apache.spark.sql.catalyst.expressions.Expression
+import org.apache.spark.sql.functions.{lit, struct}
 import org.apache.spark.sql.shim.utils.createLambda
 import org.apache.spark.sql.types.{DataType, LongType, MapType}
 
 sealed trait SumExpression {
-  protected[quality] def funN(sumType: DataType): Expression
+  protected[quality] def funN(sumType: DataType): Column
+
 }
-protected[quality] case class SumWith(lambdaFunctionIn: LambdaFunction, name: String = "sum_with") extends SumExpression {
-  override def funN(sumType: DataType): Expression = FunN(Seq(RefExpression(sumType)), lambdaFunctionIn, Some(name), usedAsLambda = true)
+protected[quality] case class SumWith(lambdaFunctionIn: Column, name: String = "sum_with") extends SumExpression {
+  override def funN(sumType: DataType): Column =
+    ShimUtils.callFunction("sum_with", lit(sumType.sql), lambdaFunctionIn)
 }
-protected[quality] case class SumWithMap(id: Column, lambdaFunctionIn: LambdaFunction, zero: DataType => Option[Any]) extends SumExpression {
-  override def funN(sumType: DataType): Expression = sumType match {
+protected[quality] case class SumWithMap(id: Column, lambdaFunctionIn: Column, zero: DataType => Option[Any] = defaultZero) extends SumExpression {
+  override def funN(sumType: DataType): Column = sumType match {
     case mt: MapType =>
-      MapTransform.create(RefExpression(sumType), expression(id.cast(mt.keyType)), lambdaFunctionIn, zero)
+      ShimUtils.callFunction("map_with", lit(sumType.sql), id.cast(mt.keyType), lambdaFunctionIn)
     case _ =>
       throw QualityException("You must use a MapType dataType when using map_with")
   }
 }
 
 sealed trait ResultsExpression {
-  def funN(sumType: DataType): Expression
+  def funN(sumType: DataType): Column
 }
-protected[quality] case class ResultsWith(lambdaFunctionIn: LambdaFunction, name: String = "results_with") extends ResultsExpression {
-  override def funN(sumType: DataType): Expression = FunN(Seq(RefExpression(sumType), RefExpression(LongType)), lambdaFunctionIn, Some(name), usedAsLambda = true)
+protected[quality] case class ResultsWith(lambdaFunctionIn: Column, name: String = "results_with") extends ResultsExpression {
+  override def funN(sumType: DataType): Column =
+    // NB - this implementation could just forward to results_with but this tests out the use of FunN and RefExpression
+    ShimUtils.callFunction("qualityfunn", callFunction("qualityrefexpression", lit(sumType.sql)),
+      callFunction("qualityrefexpression", lit(LongType.sql)), lambdaFunctionIn,
+      lit(name), lit(false), lit(true))
 }
 
 trait AggregateFunctionImports {
+
+  /**
+   * Creates an aggregate by applying filter to rows, calling sum with a starting value (provided by zero) and finally calls result to process the sum and count values for a final result.
+   *
+   * Note, when working with lambda's in the dsl it's often required to use the dataframes col function as the scope is incorrect in the lambda.
+   *
+   * @param sumType the type used to sum across rows
+   * @param filter filter only input rows interesting to count (similar to CountIf, SumIf)
+   * @param sum add to the current sum, takes the current sum as the parameter, sum_with, inc, map_with etc. can be used as implementations
+   * @param result processes the sum result and row count (after filtering) to produce the final result of the aggregate
+   * @return
+   */
+  def agg_expr(sumType: DataType, filter: Column, sum: SumExpression, result: ResultsExpression): Column =
+    ShimUtils.callFunction("agg_expr", lit(sumType.sql), filter, sum.funN(sumType), result.funN(sumType) )
 
   /**
    * Creates an aggregate by applying filter to rows, calling sum with a starting value (provided by zero) and finally calls result to process the sum and count values for a final result.
@@ -47,10 +66,10 @@ trait AggregateFunctionImports {
    * @param add the default addition logic for a given sumType, which combines the sumType across partitions
    * @return
    */
-  def agg_expr(sumType: DataType, filter: Column, sum: SumExpression, result: ResultsExpression,
-               zero: DataType => Option[Any] = defaultZero _,
+  def agg_expr_classic(sumType: DataType, filter: Column, sum: SumExpression, result: ResultsExpression,
+               zero: DataType => Option[Any] = defaultZero,
                add: DataType => Option[(Expression, Expression) => Expression] = (dataType: DataType) => defaultAdd(dataType)): Column =
-    column( AggregateExpressions(sumType, expression(filter), sum.funN(sumType), result.funN(sumType), zero, add, notYetResolved = true) )
+    column( AggregateExpressions(sumType, expression(filter), expression(sum.funN(sumType)), expression(result.funN(sumType)), zero, add, notYetResolved = true) )
 
   /**
    * Given the current sum, produce the next sum, for example by incrementing 1 on the sum to count filtered rows
@@ -68,27 +87,6 @@ trait AggregateFunctionImports {
   def results_with(result: (Column, Column) => Column): ResultsExpression =
     ResultsWith(createLambda(result))
 
-/*
-  val incX = (exps: Seq[Expression]) => exps match {
-    case Seq(x: AttributeReference) =>
-      val name = x.qualifier.mkString(".") + x.name // that is bad code man should be option
-      sumWith(s"sum -> sum + $name")(Seq())
-    case Seq(Literal(str: UTF8String, StringType)) =>
-      // case for type passing
-      sumWith("sum -> sum + 1")(exps)
-    case Seq(Literal(str: UTF8String, StringType), x: AttributeReference) =>
-      val name = x.qualifier.mkString(".") + x.name
-      sumWith(s"sum -> sum + $name")(Seq(exps(0))) // keep the type, drop the attr
-    case Seq(Literal(str: UTF8String, StringType), y) =>
-      qualityException(INC_REWRITE_GENEXP_ERR_MSG)
-    case Seq( y ) =>
-      val SLambdaFunction(a: Add, Seq(sum: UnresolvedNamedLambdaVariable), hidden ) = functions.expr("sumWith(sum -> sum + 1)").expr.children(0)
-      import QualitySparkUtils.{add => addf}
-      // could be a cast around x or three attributes plusing each other or....
-      FunN(Seq(RefExpression(LongType)),
-        SLambdaFunction(addf(a.left, y, LongType), Seq(sum), hidden )
-        , Some("inc")) // keep the type
-  */
   /**
    * Adds 1L to the sum value
    * @return
@@ -130,6 +128,17 @@ trait AggregateFunctionImports {
    * @param zero the default value for the map's value type
    * @return
    */
-  def map_with(id: Column, sum: Column => Column, zero: DataType => Option[Any] = defaultZero _): SumExpression =
+  def map_with(id: Column, sum: Column => Column): SumExpression =
+    SumWithMap(id, createLambda(sum))
+
+
+  /**
+   * Creates an entry in a map sum with id and the result of 'sum' with the previous sum at that id as it's parameter.
+   * @param id
+   * @param sum the parameter is the previous value of maps' id entry
+   * @param zero the default value for the map's value type
+   * @return
+   */
+  def map_with_classic(id: Column, sum: Column => Column, zero: DataType => Option[Any] = defaultZero): SumExpression =
     SumWithMap(id, createLambda(sum), zero)
 }

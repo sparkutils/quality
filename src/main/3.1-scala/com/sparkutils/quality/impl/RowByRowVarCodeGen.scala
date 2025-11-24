@@ -33,5 +33,5 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
 
   def create[I: Encoder, O: Encoder](
                       expressions: Seq[Expression], toSize: Int, allOrdinals: Set[Int]): DecoderOpEncoderProjection[I,O] =
-    GenerateDecoderOpEncoderProjection.generate[I, O](expressions, useSubexprElimination = true, toSize)
+    ???//GenerateDecoderOpEncoderProjection.generate[I, O](expressions, useSubexprElimination = true, toSize)
 }

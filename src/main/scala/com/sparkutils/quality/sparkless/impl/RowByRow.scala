@@ -1,20 +1,22 @@
 package com.sparkutils.quality.sparkless.impl
 
-import com.sparkutils.quality.enableOptimizations
+import com.sparkutils.quality.{QualityException, enableOptimizations}
 import com.sparkutils.quality.impl.{GenerateDecoderOpEncoderProjection, GenerateDecoderOpEncoderVarProjection}
 import com.sparkutils.quality.impl.extension.FunNRewrite
-import com.sparkutils.quality.impl.util.Testing
+import com.sparkutils.quality.impl.util.EmbeddedTypeCorrection
 import com.sparkutils.quality.sparkless.{Processor, ProcessorFactory}
+import com.sparkutils.testing.Testing
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.{DataFrame, Encoder, QualitySparkUtils, ShimUtils}
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
-import org.apache.spark.sql.catalyst.expressions.{BoundReference, Expression, HigherOrderFunction}
+import org.apache.spark.sql.catalyst.expressions.{BoundReference, Expression, HigherOrderFunction, PlanExpression}
 import org.apache.spark.sql.catalyst.optimizer.ConstantFolding
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.qualityFunctions.FunN
 import org.apache.spark.sql.qualityFunctions.LambdaCompilationUtils.{LambdaCompilationHandler, compilationHandlers}
 import org.apache.spark.sql.types.{ArrayType, DataType, MapType, StructType}
 
+import scala.language.higherKinds
 import scala.reflect.ClassTag
 import scala.util.Try
 
@@ -65,7 +67,9 @@ object Processors {
     if (testing)
       isOverrideSet // re-evaluate
     else
+      // $COVERAGE-OFF$ // impossible to test and keep lazy val
       cachedOverrideIsSet
+      // $COVERAGE-ON$
 
   private lazy val cachedOverride = shouldForceCopyOverrideEnv
 
@@ -73,7 +77,9 @@ object Processors {
     if (testing)
       shouldForceCopyOverrideEnv // re-evaluate
     else
+      // $COVERAGE-OFF$
       cachedOverride
+      // $COVERAGE-ON$
 
   /**
    * Are there any stateful expressions in interpreted mode (or fallback) require fresh copies.
@@ -117,22 +123,24 @@ object Processors {
    * The chained MutableProjections generate new class code for each instance.  They will also recreate the entire
    * expression tree if a stateful expression is identified when compile = false
    *
+   * The caller is responsible for ensuring the [[O]] output encoder can be applied to the resulting 'DataFrame'.
+   *
    * @param dataFrameFunction
    * @param compile when false reverts to interpreted mode, when true and forceMutable is true it is recommended to cache the instances
    * @param forceMutable when true it forces MutableProjection's to be used, compiled or otherwise, the default of false is likely far faster
    * @param forceVarCompilation defaulting to false it will, when compile is true and forceMutable is false, use variables rather than INPUT_ROW to generate code.
    *                            Although using true is faster past 10 fields, the compilation approach (as of 0.1.3.1) is experimental
    *                            and only supported on version OSS 3.2.1 and above
-   * @param toSize specifies the number of fields required to deserialize and create the [[O]]
    * @tparam I
    * @tparam O
    * @return
    */
-  def processFactory[I: Encoder, O: Encoder](dataFrameFunction: DataFrame => DataFrame, toSize: Int, compile: Boolean = true,
+  def processFactory[I: Encoder, O: Encoder](dataFrameFunction: DataFrame => DataFrame, embeddedTypeCorrection: EmbeddedTypeCorrection,
+                                             compile: Boolean = true,
       forceMutable: Boolean = false, forceVarCompilation: Boolean = false, extraProjection: DataFrame => DataFrame = identity,
       enableQualityOptimisations: Boolean = true): ProcessorFactory[I, O] = {
     if (forceMutable || !compile)
-      MutableProjectionProcessor.processFactory[I, O](dataFrameFunction, toSize, compile, extraProjection,
+      MutableProjectionProcessor.processFactory[I, O](dataFrameFunction, embeddedTypeCorrection, compile, extraProjection,
         enableQualityOptimisations = enableQualityOptimisations)
     else {
       if (enableQualityOptimisations) {
@@ -140,13 +148,15 @@ object Processors {
       }
 
       val iEnc = implicitly[Encoder[I]]
-      val exprs = QualitySparkUtils.resolveExpressions[I](iEnc, df => {
+      val (exprsToUse, exprTo) = QualitySparkUtils.resolveExpressions[I, O](iEnc, embeddedTypeCorrection, df => {
         dataFrameFunction(extraProjection(df))
       })
 
-      // the code references to the other fields is already present inside of expressions, works for input_row based,
-      // but not wholestage approach, this is performed by all the CodegenSupport execs via attribute lookups
-      val exprsToUse = exprs.drop( exprs.length - toSize)
+      if (exprsToUse.exists(_.collect {
+        case s: PlanExpression[_] => s
+      }.nonEmpty)) {
+        throw new QualityException(NO_QUERY_PLANS)
+      }
 
       val allOrdinals =
         exprsToUse.flatMap{
@@ -155,26 +165,23 @@ object Processors {
           }
         }.distinct.toSet
 
-      val projector =
-        if (forceVarCompilation && allOrdinals.size < maxVarCompilationInputFields)
-          GenerateDecoderOpEncoderVarProjection.create[I, O](exprs, toSize, allOrdinals)
-        else
-          GenerateDecoderOpEncoderProjection.generate[I, O](exprs, useSubexprElimination = true, toSize)
+      val projector = // TODO bring this back to life
+        //if (forceVarCompilation && allOrdinals.size < maxVarCompilationInputFields)
+          //GenerateDecoderOpEncoderVarProjection.create[I, O](exprsToUse, allOrdinals)
+        //else
+          GenerateDecoderOpEncoderProjection.generate[I, O](exprsToUse, exprTo, useSubexprElimination = true)
       new ProcessorFactory[I, O] {
         override def instance: Processor[I, O] = new Processor[I, O] {
           private val theInstance = projector.newInstance
           override def apply(i: I): O = theInstance(i)
           override def setPartition(partition: Int): Unit = theInstance.initialize(partition)
+          // if this is spun out into a separate jar it'd be a good to provide caching & test which used this
+          // $COVERAGE-OFF$
           override def close(): Unit = {}
+          // $COVERAGE-ON$
         }
       }
     }
   }
 
-}
-
-case class LocalBroadcast[T: ClassTag](_value: T, _id: Long = 0) extends Broadcast[T](_id) {
-  override protected def getValue(): T = _value
-  override protected def doUnpersist(blocking: Boolean): Unit = ???
-  override protected def doDestroy(blocking: Boolean): Unit = ???
 }

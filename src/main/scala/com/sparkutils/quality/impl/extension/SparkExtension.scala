@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl.extension
 
-import com.sparkutils.quality.impl.extension.QualitySparkExtension.{disableRulesConf, forceInjectFunction}
-import com.sparkutils.quality.impl.util.Testing
+import com.sparkutils.quality.impl.extension.QualitySparkExtension.{disableRulesConf, forceInjectFunction, testingConf}
+import com.sparkutils.testing.Testing
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.{ShimUtils, SparkSession, SparkSessionExtensions}
 import org.apache.spark.sql.catalyst.expressions.Expression
@@ -16,6 +16,7 @@ object QualitySparkExtension {
    */
   val disableRulesConf = "quality_disable_optimiser_rules"
   val forceInjectFunction = "quality_force_inject_function"
+  val testingConf = "quality_testing"
 }
 
 /**
@@ -27,11 +28,11 @@ object QualitySparkExtension {
  */
 class QualitySparkExtension extends ((SparkSessionExtensions) => Unit) with Logging {
 
-  def parseTypes: String => Option[DataType] = com.sparkutils.quality.impl.RuleRegistrationFunctions.defaultParseTypes _
-  def zero: DataType => Option[Any] = com.sparkutils.quality.impl.RuleRegistrationFunctions.defaultZero _
+  def parseTypes: String => Option[DataType] = com.sparkutils.quality.impl.RuleRegistrationFunctions.defaultParseTypes
+  def zero: DataType => Option[Any] = com.sparkutils.quality.impl.RuleRegistrationFunctions.defaultZero
   def add: DataType => Option[(Expression, Expression) => Expression] = (dataType: DataType) => com.sparkutils.quality.impl.RuleRegistrationFunctions.defaultAdd(dataType)
   def mapCompare: DataType => Option[(Any, Any) => Int] = (dataType: DataType) => utils.defaultMapCompare(dataType)
-  def writer: String => Unit = println(_)
+  def writer: String => Unit = println
 
   /**
    * uses writer to write prefix: str
@@ -41,13 +42,14 @@ class QualitySparkExtension extends ((SparkSessionExtensions) => Unit) with Logg
   def dump(str: String, prefix: String = "Quality SparkExtensions") = writer(s"$prefix: $str")
 
   /**
-   * attempts to logInfo, typically doesn't work, but also then dumps the str
+   * attempts to logInfo, typically doesn't work, but also then dumps the str.  Doesn't log when testing
    * @param str
    */
-  def attemptLogInfo(str: String) = {
-    logInfo(str)
-    dump(str)
-  }
+  def attemptLogInfo(str: String) =
+    if (!Option(System.getProperty(testingConf)).contains("testing")) {
+      logInfo(str)
+      dump(str)
+    }
 
   /**
    * Adds AsymmetricFilterExpressions for AsUUID
@@ -72,6 +74,7 @@ class QualitySparkExtension extends ((SparkSessionExtensions) => Unit) with Logg
     com.sparkutils.quality.registerQualityFunctions(parseTypes, zero, add, mapCompare, writer,
       registerFunction = func
     )
+    extensions.injectParser(QualityFunctionParser(_,_))
 
     if (Testing.testing) {
       ExtensionTesting.disableRuleResult = ""

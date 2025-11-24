@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        profile: [Spark3, Spark2, Spark32, Spark321, Spark313, Spark332, Spark341, Spark350]
+        profile: [Spark3, Spark32, Spark321, Spark313, Spark332, Spark341, Spark350]
     runs-on: ubuntu-latest
 
     if: contains(github.event.head_commit.message, '~docsOnly') != true
@@ -83,7 +83,7 @@ jobs:
   noTestBuilds:
     strategy:
       matrix:
-        profile: ["10.4.dbr", "9.1.dbr", "11.3.dbr", "12.2.dbr", "13.1.dbr", "13.3.dbr", "14.0.dbr", "14.3.dbr", "15.4.dbr", "16.4.dbr"]
+        profile: ["12.2.dbr", "13.1.dbr", "13.3.dbr", "14.0.dbr", "14.3.dbr", "15.4.dbr", "16.4.dbr"]
     runs-on: ubuntu-latest
 
     if: contains(github.event.head_commit.message, '~docsOnly') != true
@@ -109,28 +109,15 @@ jobs:
           CENTRAL_TOKEN: ${{ secrets.CENTRAL_TOKEN }}
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
 
-  # prove tests run with single thread, ensures compilation issues aren't hidden by being run on multiple threads instead of re-used in the same thread (e.g. state resetting etc.)
-  # build scoverage tests on 3.3.0 first with aggregate, the copy the data out, not doing a clean build fails on site.  Also needs single threading to work, have noticed multiple failures and inconsistent coverage.
-  mvn_site:
+  # does coverage tests for jdk8
+  jdk8_coverage:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4.1.2
-      - uses: s-weigand/setup-conda@v1
-        with:
-          python-version: '3.10'
       - uses: ./.github/workflows/spark_maven
         with:
-          title: Building site against Spark332 and Spark350
+          title: Building Spark332 and Spark350 coverage
           script: |
-            conda install libgomp=11.2.0 # force the right libs
-            conda install graphviz=2.50.0 # conda is from fatty
-
-            echo '#!/bin/bash' > dott
-            echo 'dot "$@" 2> >(grep -v "pango" | grep -v "Warning" >&2 )' >> dott
-
-            chmod u+x dott
-
             if [ "${{ github.event_name }}" == "pull_request" ]; then
               echo Skipping GPG from PR
               SKIP_GPG="-Dgpg.skip"
@@ -148,22 +135,86 @@ jobs:
             cp ./target/scoverage-data/* tmpSCoverage
 
             mvn $MAVEN_CLI_OPTS clean scoverage:test $SKIP_GPG -P Spark350
-            
-            cp tmpSCoverage/* ./target/scoverage-data
-            
-            mvn $MAVEN_CLI_OPTS site $SKIP_GPG -P Spark350
 
-            echo $(mvn help:evaluate -Dexpression=project.version -q -DforceStdout $SKIP_GPG -P Spark350) > target/version.txt
+            rm ./target/scoverage-data/scoverage.coverage
+            cp -r ./target/scoverage-data/* tmpSCoverage
+            
+            mkdir tmpSCoverage_dir
+            mv tmpSCoverage tmpSCoverage_dir/
 
-            grep -A 3 'Statement coverage:' target/site/scoverage/overview.html | tail -1 | sed 's/[[:space:]]\+//g' > target/coverage.txt
-            grep -A 3 'Branch coverage:' target/site/scoverage/overview.html | tail -1 | sed 's/[[:space:]]\+//g' >> target/coverage.txt
           gpgKey: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
         env:
           CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
           CENTRAL_TOKEN: ${{ secrets.CENTRAL_TOKEN }}
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+      - name: coverageCopy
+        uses: actions/upload-artifact@v4
+        with:
+          name: target-tmpSCoverage
+          path: tmpSCoverage_dir
+
+  # prove tests run with single thread, ensures compilation issues aren't hidden by being run on multiple threads instead of re-used in the same thread (e.g. state resetting etc.)
+  # build scoverage tests on 3.3.2 first, then 3.5.0 and finally 4 with aggregate, the copy the data out, not doing a clean build fails on site.  Also needs single threading to work, have noticed multiple failures and inconsistent coverage.
+  mvn_site:
+    runs-on: ubuntu-latest
+    needs: [ jdk8_coverage ]
+    steps:
+      - uses: actions/checkout@v4.1.2
+      - uses: s-weigand/setup-conda@v1
+        with:
+          python-version: '3.10'
+      - uses: actions/download-artifact@v4
+        with:
+          name: target-tmpSCoverage
+      - uses: sparkutils/spark-maven-action@main
+        with:
+          title: Building Spark4 coverage and site, including Spark332 and Spark350 coverage
+          noCheckout: true # checkout removes tmpSCoverage
+          script: |
+            echo tmpSCoverage contents number of files:
+            ls tmpSCoverage/ | wc -l
+                        
+            export MAVEN_OPTS="${{ inputs.mvnOpts }}"
+            if [ "${{ github.event_name }}" == "pull_request" ]; then
+              echo Skipping GPG from PR
+              SKIP_GPG="-Dgpg.skip"
+            else
+              echo Running GPG
+              SKIP_GPG=""
+            fi
+            conda install libgomp=11.2.0 # force the right libs
+            conda install graphviz=2.50.0 # conda is from fatty
+
+            echo '#!/bin/bash' > dott
+            echo 'dot "$@" 2> >(grep -v "pango" | grep -v "Warning" >&2 )' >> dott
+
+            chmod u+x dott
+
+            export QUALITY_SPARK_HOSTS=1
+            export QUALITY_LAMBDA_SUBS=true
+
+            mvn $MAVEN_CLI_OPTS clean scoverage:test $SKIP_GPG -P Spark4
+            
+            cp tmpSCoverage/* ./target/scoverage-data
+            
+            mvn $MAVEN_CLI_OPTS site $SKIP_GPG -P Spark4
+
+            echo $(mvn help:evaluate -Dexpression=project.version -q -DforceStdout $SKIP_GPG -P Spark4) > target/version.txt
+
+            grep -A 3 'Statement coverage:' target/site/scoverage/overview.html | tail -1 | sed 's/[[:space:]]\+//g' > target/coverage.txt
+            grep -A 3 'Branch coverage:' target/site/scoverage/overview.html | tail -1 | sed 's/[[:space:]]\+//g' >> target/coverage.txt
+          gpgKey: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+          sparkVersion: 3.5.5
+          hadoopVersion: 3
+          jdk: 21
+          mvnCliOpts: "--batch-mode --errors --fail-at-end --show-version -DinstallAtEnd=true -DdeployAtEnd=true"
+          mvnOpts: "-ea -XX:+IgnoreUnrecognizedVMOptions -Dhttp.keepAlive=false -Dmaven.wagon.http.pool=false -Dmaven.wagon.http.retryHandler.class=standard -Dmaven.wagon.http.retryHandler.count=3 -Dhttps.protocols=TLSv1.2 -Dorg.slf4j.simpleLogger.log.org.apache.maven.cli.transfer.Slf4jMavenTransferListener=WARN -Dorg.slf4j.simpleLogger.showDateTime=true -Djava.awt.headless=true --add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.lang.invoke=ALL-UNNAMED --add-opens java.base/java.lang.reflect=ALL-UNNAMED --add-opens java.base/java.io=ALL-UNNAMED --add-opens java.base/java.net=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED --add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/java.util.concurrent=ALL-UNNAMED --add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED --add-opens java.base/sun.nio.ch=ALL-UNNAMED --add-opens java.base/sun.nio.cs=ALL-UNNAMED --add-opens java.base/sun.security.action=ALL-UNNAMED --add-opens java.base/sun.util.calendar=ALL-UNNAMED"
+        env:
+          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+          CENTRAL_TOKEN: ${{ secrets.CENTRAL_TOKEN }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
       - id: version
-        run: echo version=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout $SKIP_GPG -P Spark350) >> "$GITHUB_OUTPUT"
+        run: echo version=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout $SKIP_GPG -P Spark4) >> "$GITHUB_OUTPUT"
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v3
       - name: target
@@ -181,7 +232,7 @@ jobs:
   publish:
     strategy:
       matrix:
-        profile: [Spark3, Spark2, Spark32, Spark321, Spark313, Spark332, Spark341, Spark350, Spark4, "10.4.dbr", "9.1.dbr", "11.3.dbr", "12.2.dbr", "13.1.dbr", "13.3.dbr", "14.0.dbr", "14.3.dbr", "15.4.dbr", "16.4.dbr"]
+        profile: [Spark3, Spark32, Spark321, Spark313, Spark332, Spark341, Spark350, Spark4, "12.2.dbr", "13.1.dbr", "13.3.dbr", "14.0.dbr", "14.3.dbr", "15.4.dbr", "16.4.dbr"]
     needs: [ testBuilds_21, testBuilds, mvn_site, noTestBuilds ] # if the builds don't work don't attempt to publish
     # needs always per https://github.com/actions/runner/issues/491 very annoying
     # only do snapshots on main by default, releases/snapshots forced with ~cut-release
@@ -267,7 +318,7 @@ jobs:
         with:
           name: target-mvn_site
           path: target
-      - uses: ./.github/workflows/mkdocs
+      - uses: sparkutils/mkdocs-action@main
         with:
           prepScript: |
             cp -rf target/site docs/

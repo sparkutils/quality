@@ -1,18 +1,14 @@
 package com.sparkutils.qualityTests
 
-import com.sparkutils.quality.functions.{long_pair, long_pair_from_uuid, rng_bytes, rng_uuid}
-import com.sparkutils.quality.impl.bloom.parquet.{BlockSplitBloomFilterImpl, ThreadSafeBloomLookupImpl}
+import com.sparkutils.quality.functions.{long_pair, long_pair_from_uuid, rng_bytes, rng_uuid, unique_id}
 import com.sparkutils.quality.impl.rng.RandomLongs
-import org.apache.spark.sql.{Row, SaveMode}
+import com.sparkutils.qualityTests.util.SharedConnectTests
 import org.apache.spark.sql.functions.{col, expr}
 import org.apache.spark.sql.types.{BinaryType, LongType, StringType}
-import org.junit.Test
-import org.scalatest.FunSuite
 
-class RngAndRowIdTest extends FunSuite with TestUtils {
+class RngAndRowIdTest extends SharedConnectTests {
 
-  @Test
-  def rngBytesTest: Unit = evalCodeGensNoResolve {
+  test("rngBytesTest") { evalCodeGensNoResolve {
     val numRows = 10000
     // obviously can't actually test the values
     val ids = sparkSession.range(numRows)
@@ -26,12 +22,11 @@ class RngAndRowIdTest extends FunSuite with TestUtils {
       .filter("uuid = uu").count()
 
     assert(check == 0)
-  }
+  }}
 
   // using partitions to try to force jumps, doesn't seem to actually happen without much larger data though, increasing partitions just takes for ever
   // from the catalyst in spark 3, at least, it may never happen either way - but probably only on a cluster
-  @Test
-  def rngLongsTest: Unit = evalCodeGensNoResolve {
+  test("rngLongsTest") { evalCodeGensNoResolve {
     val numRows = 10000
     // obviously can't actually test the values
     val ids = sparkSession.range(numRows).repartition(2)
@@ -41,17 +36,13 @@ class RngAndRowIdTest extends FunSuite with TestUtils {
     assert(unique.schema.fields.head.dataType == LongType)
     assert(unique.schema.fields.last.dataType == LongType)
     assert(unique.count() == numRows)
-  }
+  }}
 
-  @Test
-  def rngLongsUUIDTest: Unit = doRngUUIDTest("rng")
-  @Test
-  def rngBytesUUIDTest: Unit = doRngUUIDTest("rngBytes")
+  test("rngLongsUUIDTest") { doRngUUIDTest("rng")}
+  test("rngBytesUUIDTest") { doRngUUIDTest("rngBytes")}
 
-  @Test
-  def rngLongsUUIDNonJumpableTest: Unit = doRngUUIDTest("rng", "WELL_44497_B")
-  @Test
-  def rngBytesUUIDNonJumpableTest: Unit = doRngUUIDTest("rngBytes", "WELL_44497_B")
+  test("rngLongsUUIDNonJumpableTest") { doRngUUIDTest("rng", "WELL_44497_B")}
+  test("rngBytesUUIDNonJumpableTest") { doRngUUIDTest("rngBytes", "WELL_44497_B")}
 
 
   def doRngUUIDTest(func: String, rand: String = "XO_RO_SHI_RO_128_PP"): Unit = evalCodeGensNoResolve {
@@ -67,8 +58,9 @@ class RngAndRowIdTest extends FunSuite with TestUtils {
     assert(unique.filter("uuid != uuid2").count() == 0)
   }
 
-  @Test
-  def idFromUUIDTest: Unit = evalCodeGensNoResolve {
+  // TODO add prefixed_to_long_pair test
+
+  test("idFromUUIDTest") { evalCodeGensNoResolve {
     val numRows = 10000
     // obviously can't actually test the values
     val ids = sparkSession.range(numRows)
@@ -79,11 +71,10 @@ class RngAndRowIdTest extends FunSuite with TestUtils {
     assert(unique.schema.fields.head.dataType == LongType)
     assert(unique.schema.fields.last.dataType == LongType)
     assert(unique.count() == numRows)
-  }
+  }}
 
   // DBR 15.4 introduced nonVolatile, stopping this code from working as expected (StateFulLike)
-  @Test
-  def rowIDTest: Unit = evalCodeGensNoResolve {
+  test("rowIDTest") { evalCodeGensNoResolve {
     val numRows = 10000
     // obviously can't actually test the values
     val ids = sparkSession.range(numRows)
@@ -95,11 +86,10 @@ class RngAndRowIdTest extends FunSuite with TestUtils {
 
     assert(unique.schema.fields.head.dataType == RandomLongs.structType)
     assert(unique.count() == numRows)
-  }
+  }}
 
   // DBR 15.4 introduced nonVolatile, stopping this code from working as expected (NondeterministicLike)
-  @Test
-  def uniqueIDTest: Unit = evalCodeGensNoResolve {
+  test("uniqueIDTest") { evalCodeGensNoResolve {
     val numRows = 10000
     // obviously can't actually test the values
     val ids = sparkSession.range(numRows)
@@ -109,10 +99,17 @@ class RngAndRowIdTest extends FunSuite with TestUtils {
       .distinct()
 
     assert(unique.count() == numRows)
-  }
 
-  @Test
-  def rngBytesWellsTest: Unit = evalCodeGensNoResolve {
+    val unique2 = ids.select(expr("*"), unique_id("pre").as("uuid"))
+      .select(expr("uuid u1"), expr("uuid u2"))
+      .filter("u1 = u2")
+      .distinct()
+
+    assert(unique2.count() == numRows)
+
+  }}
+
+  test("rngBytesWellsTest") { evalCodeGensNoResolve {
     val numRows = 10000
     // obviously can't actually test the values
     val ids = sparkSession.range(numRows)
@@ -121,7 +118,7 @@ class RngAndRowIdTest extends FunSuite with TestUtils {
 
     assert(unique.schema.fields.head.dataType == BinaryType)
     assert(unique.count() == numRows)
-  }
+  }}
 
 
 

@@ -2,34 +2,31 @@ package com.sparkutils.qualityTests.id
 
 import com.sparkutils.quality._
 import functions._
-import com.sparkutils.quality.impl.hash.{HashFunctionFactory, MessageDigestFactory, ZALongHashFunctionFactory, ZALongTupleHashFunctionFactory}
 import com.sparkutils.quality.impl.id._
 import com.sparkutils.quality.impl.id.model.{ProvidedID, RandomID}
 import com.sparkutils.quality.impl.rng.RandomLongs
 import com.sparkutils.quality.impl.util.BytePackingUtils
 import com.sparkutils.qualityTests._
+import com.sparkutils.qualityTests.util.{RowTools, SharedConnectTests}
+import com.sparkutils.testing.SparkTestUtils.ouputDir
+import com.sparkutils.testing.{ClassicOnly, ConnectionType, Sessions}
+import com.sparkutils.testing.TestUtils.{anyCauseHas, debug, enumToScala}
 import org.apache.commons.rng.simple.RandomSource
 import org.apache.spark.sql.ShimUtils.expression
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.shim.hash.DigestFactory
 import org.apache.spark.sql.{Column, DataFrame, Row, ShimUtils}
-import org.junit.Test
 import org.scalameter.api.{Bench, Gen}
-import org.scalatest.FunSuite
 
 import java.security.{MessageDigest, Provider}
 import java.util.Base64
 import scala.collection.JavaConverters
 import scala.jdk.CollectionConverters._
 
-class IDTests extends FunSuite with TestUtils {
+class IDTests extends SharedConnectTests with VariableTestShims {
 
-  @Test
-  def rountTripRandom: Unit = doRoundTripGenericLongBasedID(model.RandomID)
-  @Test
-  def rountTripProvided: Unit = doRoundTripGenericLongBasedID(model.ProvidedID)
-  @Test
-  def rountTripFields: Unit = doRoundTripGenericLongBasedID(model.FieldBasedID)
+  test("rountTripRandom") { doRoundTripGenericLongBasedID(model.RandomID) }
+  test("rountTripProvided") { doRoundTripGenericLongBasedID(model.ProvidedID) }
+  test("rountTripFields") { doRoundTripGenericLongBasedID(model.FieldBasedID) }
 
   def doRoundTripGenericLongBasedID(idType: IDType): Unit =  {
 
@@ -55,8 +52,7 @@ class IDTests extends FunSuite with TestUtils {
     assert(serder.base64 == base64ID)
   }
 
-  @Test
-  def assertsOnGuaranteedUniqueID: Unit = {
+  test("assertsOnGuaranteedUniqueID") {
 
     var passed = false
     try {
@@ -106,8 +102,7 @@ class IDTests extends FunSuite with TestUtils {
     assert(passed == false, "Should have thrown given larger than 41bit timestamp")
   }
 
-  @Test
-  def roundTripGuaranteedUniqueIDLocalMac: Unit = {
+  test("roundTripGuaranteedUniqueIDLocalMac") {
     doRoundTripGuaranteedUniqueID(model.localMAC)
   }
 
@@ -132,17 +127,15 @@ class IDTests extends FunSuite with TestUtils {
   /***
    * 66-16-a-ffffffa5-fffffff8-fffffff3 being created on gitlab but not serialized properly
    */
-  @Test
-  def guaranteedUniqueIDMACAddressOverflowTest: Unit = {
+  test("guaranteedUniqueIDMACAddressOverflowTest") {
     val hardwareAddress = Array[Byte](0xffffffff, 0x0, 0xa, 0xffffffa5, 0xfffffff8, 0xfffffff3)
     doRoundTripGuaranteedUniqueID(hardwareAddress)
   }
 
-  @Test
-  def testGuaranteedUniqueIDOps: Unit = {
+  test("testGuaranteedUniqueIDOps") {
     import java.net._
 
-    val nonNulls = SparkTestUtils.enumToScala(NetworkInterface.getNetworkInterfaces) map (_.getHardwareAddress) filter (_ != null)
+    val nonNulls = enumToScala(NetworkInterface.getNetworkInterfaces) map (_.getHardwareAddress) filter (_ != null)
     val hardwareAddress: Array[Byte] = nonNulls.next
 
     assert(model.localMAC.zip(hardwareAddress).forall(p => p._1 == p._2), "Should have identical local mac")
@@ -173,8 +166,7 @@ class IDTests extends FunSuite with TestUtils {
     assert(ops.ms == serder.ms, "Serialised after ms re-evaluation should be same as original")
   }
 
-  @Test
-  def testRNGIDGen: Unit = evalCodeGensNoResolve {
+  test("testRNGIDGen") { evalCodeGensNoResolve {
     import com.sparkutils.quality._
     registerQualityFunctions()
 
@@ -185,16 +177,15 @@ class IDTests extends FunSuite with TestUtils {
     }
 
 
-    val df = sparkSession.range(0, 6000)
+    val df = sparkSession.range(0, idRange)
     val rngExploded = df.withColumn("rng_id", rngID("rng_id")).selectExpr("id","rng_id.*")
     testRes(rngExploded)
 
     val rngExplodedSQL = df.selectExpr("*", "rngid('rng_id') as rng_id").selectExpr("id","rng_id.*")
     testRes(rngExplodedSQL)
-  }
+  } }
 
-  @Test
-  def testRNGIDGenNonJump: Unit = evalCodeGensNoResolve {
+  test("testRNGIDGenNonJump") { classicOnly{ evalCodeGensNoResolve {
     import com.sparkutils.quality._
     registerQualityFunctions()
 
@@ -208,77 +199,69 @@ class IDTests extends FunSuite with TestUtils {
       ShimUtils.column(GenericLongBasedIDExpression(model.RandomID,
         expression(RandomLongs(RandomSource.KISS)), prefix))
 
-    val df = sparkSession.range(0, 6000)
+    val df = sparkSession.range(0, idRange)
     val rngExploded = df.withColumn("rng_id", nonJump("rng_id")).selectExpr("id","rng_id.*")
     testRes(rngExploded)
-  }
+  } } }
 
-  @Test
-  def testSHA256IDGen: Unit = evalCodeGensNoResolve  {
+  test("testSHA256IDGen") { evalCodeGensNoResolve  {
     doFieldGenTest("SHA-256", "digestToLongsStruct", longCount = 4)
-  }
+  } }
 
-  @Test
-  def testMD5IDGen: Unit = evalCodeGensNoResolve  {
+  test("testMD5IDGen") { evalCodeGensNoResolve  {
     doFieldGenTest("MD5", "digestToLongsStruct")
-  }
+  } }
 
-  @Test
-  def testSHA256IDGenHashFun: Unit = evalCodeGensNoResolve  {
+  test("testSHA256IDGenHashFun") { evalCodeGensNoResolve  {
     doFieldGenTest("SHA-256", "hashWithStruct", longCount = 4)
-  }
+  } }
 
-  @Test
-  def testMD5IDGenHashFun: Unit = evalCodeGensNoResolve  {
+  test("testMD5IDGenHashFun") { evalCodeGensNoResolve  {
     doFieldGenTest("MD5", "hashWithStruct")
-  }
+  } }
 
-  @Test
-  def testMURMUR3_128IDGenHashFun: Unit = evalCodeGensNoResolve  {
-    doFieldGenTest("MURMUR3_128", "hashWithStruct", "hashFieldBasedID", HashFunctionFactory(_))
-  }
+  test("testMURMUR3_128IDGenHashFun") { evalCodeGensNoResolve  {
+    doFieldGenTest("MURMUR3_128", "hashWithStruct", "hashFieldBasedID", hashFunctionFwd = (p,d,c) => hash_field_based_id(p,d,c:_*))
+  } }
 
-  @Test
-  def testXXH3IDGenZAHashFun: Unit = evalCodeGensNoResolve  {
-    doFieldGenTest("XXH3", "zaHashLongsWithStruct", "zaLongsFieldBasedID", ZALongTupleHashFunctionFactory)
-  }
+  test("testXXH3IDGenZAHashFun") { evalCodeGensNoResolve  {
+    doFieldGenTest("XXH3", "zaHashLongsWithStruct", "zaLongsFieldBasedID", hashFunctionFwd = (p,d,c) => za_longs_field_based_id(p,d,c:_*))
+  } }
 
-  @Test
-  def testMURMUR3_128IDZAGenHashFun: Unit = evalCodeGensNoResolve  {
-    doFieldGenTest("MURMUR3_128", "zaHashLongsWithStruct", "zaLongsFieldBasedID", ZALongTupleHashFunctionFactory)
-  }
+  test("testMURMUR3_128IDZAGenHashFun") { evalCodeGensNoResolve  {
+    doFieldGenTest("MURMUR3_128", "zaHashLongsWithStruct", "zaLongsFieldBasedID", hashFunctionFwd = (p,d,c) => za_longs_field_based_id(p,d,c:_*))
+  } }
 
-  @Test
-  def testMURMUR3IDZAGenHashFun: Unit = evalCodeGensNoResolve  {
-    doFieldGenTest("MURMUR3", "zaHashWithStruct", "zaFieldBasedID", ZALongHashFunctionFactory, 1)
-  }
+  test("testMURMUR3IDZAGenHashFun") { evalCodeGensNoResolve  {
+    doFieldGenTest("MURMUR3", "zaHashWithStruct", "zaFieldBasedID", hashFunctionFwd = (p,d,c) => za_field_based_id(p,d,c:_*), 1)
+  } }
 
   /**
    * should generate a 32bit which is padded to 64, fake digest to trigger this
    */
-  @Test
-  def testFakeIDGenDigestFun: Unit = not_Cluster {
+  test("testFakeIDGenDigestFun") { classicOnly { not_Cluster {
     class TwoByteProvider extends Provider("TwoByte", 0.1, "fake digest") {
       put("MessageDigest.TwoByte", classOf[TwoByteDigest].getName)
     }
     java.security.Security.addProvider(new TwoByteProvider)
     evalCodeGensNoResolve  {
-      doFieldGenTest("TwoByte", "digestToLongsStruct", digestFactory = MessageDigestFactory, longCount = 1)
+      doFieldGenTest("TwoByte", "digestToLongsStruct", longCount = 1)
     }
-  }
+  } } }
 
   /**
    * should generate a 32bit which is padded to 64
    */
-  @Test
-  def testAdlerIDGenHashFun: Unit = evalCodeGensNoResolve  {
-    doFieldGenTest("ADLER32", "hashWithStruct", "hashFieldBasedID", HashFunctionFactory(_), 1)
-  }
+  test("testAdlerIDGenHashFun") { evalCodeGensNoResolve  {
+    doFieldGenTest("ADLER32", "hashWithStruct", "hashFieldBasedID", hashFunctionFwd = (p,d,c) => hash_field_based_id(p,d,c:_*), 1)
+  } }
 
-  def doFieldGenTest(digestImpl: String, digestFun: String, fieldBasedId: String = "fieldBasedID", digestFactory: String => DigestFactory = MessageDigestFactory, longCount: Int = 2 ): Unit = {
+  def doFieldGenTest(digestImpl: String, digestFun: String, fieldBasedId: String = "fieldBasedID", hashFunctionFwd: (String, String, Seq[Column]) => Column =
+                     (p, d, c) => field_based_id(p, d, c:_*), longCount: Int = 2 ): Unit = {
     import com.sparkutils.quality._
     registerQualityFunctions()
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
 
     def testRes(md5Exploded: DataFrame): Unit = {
       debug(md5Exploded.show)
@@ -288,8 +271,8 @@ class IDTests extends FunSuite with TestUtils {
       assert(md5Exploded.schema.fields.length == 2 + longCount )
     }
 
-    val df = sparkSession.range(0, 6000).selectExpr("id", "id || '_field' as f1", "id || '_field2' as f2", "id || '_field3' as f3")
-    val md5Exploded = df.withColumn("md5_id", fieldBasedID("md5_id", Seq($"f1", $"f2", $"f3"), digestImpl, digestFactory)).selectExpr("id","md5_id.*")
+    val df = sparkSession.range(0, idRange).selectExpr("id", "id || '_field' as f1", "id || '_field2' as f2", "id || '_field3' as f3")
+    val md5Exploded = df.withColumn("md5_id", hashFunctionFwd("md5_id", digestImpl, Seq($"f1", $"f2", $"f3"))).selectExpr("id","md5_id.*")
     testRes(md5Exploded)
 
     // same with text version
@@ -310,11 +293,11 @@ class IDTests extends FunSuite with TestUtils {
 
   }
 
-  @Test
-  def testMurmur3: Unit = evalCodeGensNoResolve {
+  test("testMurmur3") { evalCodeGensNoResolve {
     import com.sparkutils.quality._
     registerQualityFunctions()
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
 
     def testRes(md5Exploded: DataFrame): Unit = {
       debug(md5Exploded.show)
@@ -322,7 +305,7 @@ class IDTests extends FunSuite with TestUtils {
         .containsSlice( Seq("id", "md5_id_base", "md5_id_i0", "md5_id_i1")), "Column names incorrect")
     }
 
-    val df = sparkSession.range(0, 6000).selectExpr("id", "id || '_field' as f1", "id || '_field2' as f2", "id || '_field3' as f3")
+    val df = sparkSession.range(0, idRange).selectExpr("id", "id || '_field' as f1", "id || '_field2' as f2", "id || '_field3' as f3")
     val md5Exploded = df.withColumn("md5_id", murmur3ID("md5_id", Seq($"f1", $"f2", $"f3"))).selectExpr("id","md5_id.*")
     testRes(md5Exploded)
 
@@ -332,14 +315,13 @@ class IDTests extends FunSuite with TestUtils {
     // same with text version
     val md5Res = df.selectExpr("*", s"murmur3ID('md5_id', f1, f2, f3) as md5_id" ).selectExpr("id","md5_id.*")
     testRes(md5Res)
-  }
+  } }
 
-  @Test
-  def testUniqueIDGen: Unit = evalCodeGensNoResolve {
+  test("testUniqueIDGen") { evalCodeGensNoResolve {
     import com.sparkutils.quality._
     registerQualityFunctions()
 
-    val df = sparkSession.range(0, 6000)
+    val df = sparkSession.range(0, idRange)
     val uniqueExploded = df.withColumn("unique_id", unique_id("unique_id")).selectExpr("id","unique_id.*")
     debug(uniqueExploded.show)
     assert(uniqueExploded.schema.fields.map(_.name).toSeq
@@ -368,30 +350,37 @@ class IDTests extends FunSuite with TestUtils {
     val sqlID = model.parseID(sqlHead).asInstanceOf[GuaranteedUniqueID]
     assert(sqlID.mac.zip( gen.mac ).forall(p => p._1 == p._2), "Should have had the same mac if the right algo was used")
     assert(sqlID.base == gen.base, "Should have had the same base if the right algo was used")
-  }
+  } }
 
-  @Test
-  def testIDEqual: Unit = evalCodeGensNoResolve {
+  test("testIDEqual") { evalCodeGensNoResolve {
     import com.sparkutils.quality._
     registerQualityFunctions()
 
-    val df = sparkSession.range(0, 6000)
+    val df = sparkSession.range(0, idRange)
     val uniqueExploded = df.withColumn("unique_id", unique_id("unique_id")).selectExpr("id","unique_id.*")
-    val cached = uniqueExploded.cache
+    uniqueExploded.write.mode("overwrite").parquet(ouputDir + "uniqueidequal")
+    // .cache doesn't work on connect base and 0 work finds 15000 rows, 1 doesn't match anything possibly https://issues.apache.org/jira/browse/SPARK-53917
+    // TODO verify if this works on 4.1
+    val cached = sparkSession.read.parquet(ouputDir + "uniqueidequal")
 
     val count = uniqueExploded.count
 
     val renamed = cached.selectExpr("unique_id_base as unid_base", "unique_id_i0 as unid_i0", "unique_id_i1 as unid_i1")
     val after = renamed.join(cached, expr("idEqual('unique_id', 'unid')")).count
     assert(after == count, "idEqual should have joined them fully")
-  }
 
-  @Test
-  def testIDBase64: Unit = evalCodeGensNoResolve {
+    val renamedf = cached.selectExpr("unique_id_base as unid_base", "unique_id_i0 as unid_i0", "unique_id_i1 as unid_i1")
+    val afterf = renamed.join(cached, id_equal("unique_id", "unid")).count
+    assert(afterf == count, "idEqual should have joined them fully")
+
+  } }
+
+  test("testIDBase64") { evalCodeGensNoResolve {
     import com.sparkutils.quality._
     registerQualityFunctions()
 
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
 
     def mismatch(str: String) = notValidTest(str, "mismatch")
     def bigInt(str: String) = notValidTest(str, ".._i1: BIGINT")
@@ -440,14 +429,13 @@ class IDTests extends FunSuite with TestUtils {
     assert(tester.nullString.isEmpty)
     assert(tester.wrongSize.isEmpty)
     assert(tester.junkString.isEmpty)
-  }
+  } }
 
-  @Test
-  def testUUIDRoundTripping: Unit = evalCodeGensNoResolve {
+  test("testUUIDRoundTripping") { evalCodeGensNoResolve {
     import com.sparkutils.quality._
     registerQualityFunctions()
 
-    val df = sparkSession.range(0, 6000)
+    val df = sparkSession.range(0, idRange)
     val uuidExploded = df.selectExpr("uuid() as uuid").selectExpr("*", "providedId('pre', longPairFromUUID(uuid)) as pid").
       selectExpr("pid","uuid","rngUUID(prefixedToLongPair('pre', pid)) as rere")
 
@@ -455,10 +443,9 @@ class IDTests extends FunSuite with TestUtils {
       row =>
         assert(row.getString(1) == row.getString(2))//uuid should be rere
     }
-  }
+  } }
 
-  @Test
-  def equalsTest: Unit = {
+  test("equalsTest") {
     val a1 = Array.ofDim[Long](1)
     val a2 = Array(0L, 1L)
     val a3 = Array(1L, 1L)
@@ -489,7 +476,7 @@ class IDTests extends FunSuite with TestUtils {
 import org.scalameter.api._
 
 object SumIdGenTest extends Bench.OfflineReport with RowTools {
-  val stable = sparkSessionF
+  val stable = sparkSession
   import stable.implicits._
 
   import scala.collection.JavaConverters._
@@ -520,7 +507,7 @@ object SumIdGenTest extends Bench.OfflineReport with RowTools {
 
   def evaluate(func: (DataFrame) => DataFrame, colname: String)(param: Int) = {
     // the extra fields are added so performance of the other alternatives can be managed
-    val df = sparkSessionF.range(0, param).selectExpr("id", "id || '_field' as f1", "id || '_field2' as f2", "id || '_field3' as f3")
+    val df = sparkSession.range(0, param).selectExpr("id", "id || '_field' as f1", "id || '_field2' as f2", "id || '_field3' as f3")
 
     val ndf = func(df)
 
@@ -528,6 +515,10 @@ object SumIdGenTest extends Bench.OfflineReport with RowTools {
       JavaConverters.asScalaIteratorConverter(ndf.toLocalIterator()).asScala.map { _.getAs[Long](colname) }.sum // get will probably be dumped, but hopefully not
     sum
   }
+
+  override val connectionType: ConnectionType = ClassicOnly
+
+  override def sessions: Sessions = createSparkSessions(connectionType)
 
 }
 

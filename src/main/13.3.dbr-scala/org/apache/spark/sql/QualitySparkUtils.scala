@@ -3,8 +3,8 @@ package org.apache.spark.sql
 import org.apache.spark.sql.ShimUtils.column
 import com.sparkutils.quality.impl.util.DebugTime.debugTime
 import com.sparkutils.quality.impl.util.Params.formatParams
-import com.sparkutils.quality.impl.util.{PassThrough, PassThroughCompileEvals}
-import com.sparkutils.quality.impl.{RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
+import com.sparkutils.quality.impl.util.{EmbeddedTypeCorrection, PassThrough, PassThroughCompileEvals}
+import com.sparkutils.quality.impl.{LambdaFunction, RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
 import com.sparkutils.shim.expressions.HigherOrderFunctionLike
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCoercion}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, QualityExprUtils}
@@ -13,7 +13,7 @@ import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, UnaryNode}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.qualityFunctions.FunN
+import org.apache.spark.sql.qualityFunctions.{FunN, LambdaFunctions}
 import org.apache.spark.util.Utils
 
 /**
@@ -80,7 +80,7 @@ object QualitySparkUtils {
    * @param dataFrameF
    * @return
    */
-  def resolveExpressions[T](encFrom: Encoder[T], dataFrameF: DataFrame => DataFrame): Seq[Expression] =
+  def resolveExpressions[T, R: Encoder](encFrom: Encoder[T], embeddedTypeCorrection: EmbeddedTypeCorrection, dataFrameF: DataFrame => DataFrame): (Seq[Expression], Expression) =
     throw new Exception("Not supported on Databricks runtimes")
 
   /**
@@ -248,18 +248,19 @@ object QualitySparkUtils {
          }
        }
        // special case as it's faster to do individual items it seems, 36816ms vs 48974ms
-       expr match {
-         case r: RuleEngineRunnerBase[_] if r.child.isInstanceOf[PassThrough] =>
-           val nexprs = r.child.children.map(forExpr)
-           r.withNewChildren(Seq(r.child.withNewChildren(nexprs)))
-         case r: RuleFolderRunnerBase[_] if r.right.isInstanceOf[PassThrough]  =>
-           val nexprs = r.right.children.map(forExpr)
-           r.withNewChildren(Seq(r.left, r.right.withNewChildren(nexprs)))
-         case r: RuleRunnerBase[_] if r.child.isInstanceOf[PassThrough] =>
-           val nexprs = r.child.children.map(forExpr)
-           r.withNewChildren(Seq(PassThroughCompileEvals(nexprs)))
-         case _ => forExpr(expr)
-       }
+      expr match {
+        case r: RuleEngineRunnerBase[_] if r.children.head.isInstanceOf[PassThrough] =>
+          val nexprs = r.children.map(c => c.withNewChildren(Seq(forExpr(c.children.head))))
+          r.withNewChildren(nexprs)
+        case r: RuleFolderRunnerBase[_] if r.children(1).isInstanceOf[PassThrough] =>
+          val starter = r.children.head
+          val nexprs = r.children.tail.map(c => c.withNewChildren(Seq(forExpr(c.children.head))))
+          r.withNewChildren(starter +: nexprs)
+        case r: RuleRunnerBase[_] if r.children.head.isInstanceOf[PassThrough] =>
+          val nexprs = r.children.map(c => c.withNewChildren(Seq(forExpr(c.children.head))))
+          r.withNewChildren(nexprs)
+        case _ => forExpr(expr)
+      }
      }
 
      case class FakePlan(expr: Expression, child: LogicalPlan)
@@ -329,4 +330,7 @@ object QualitySparkUtils {
         }
       }
     )
+
+  def registerLambdaFunctions(functions: Seq[LambdaFunction]): Unit =
+    LambdaFunctions.registerLambdaFunctions(functions)
 }

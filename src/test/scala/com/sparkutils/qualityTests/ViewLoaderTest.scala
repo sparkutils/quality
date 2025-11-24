@@ -1,16 +1,18 @@
 package com.sparkutils.qualityTests
 import com.sparkutils.quality.{DataFrameLoader, Id, loadViewConfigs, loadViews}
 import com.sparkutils.quality.impl.views.{MissingViewAnalysisException, ViewConfig, ViewLoaderAnalysisException}
+import com.sparkutils.qualityTests.util.SharedConnectTests
+import com.sparkutils.testing.SparkVersions.sparkVersion
 import org.apache.spark.sql.functions.{col, expr}
-import org.apache.spark.sql.{DataFrame, ShimUtils}
-import org.junit.Assert.{fail}
-import org.junit.{After, Test}
+import org.apache.spark.sql.{DataFrame, ShimUtils, SparkSession}
+import org.scalatest.BeforeAndAfterEach
 
-class ViewLoaderTest extends TestUtils {
+class ViewLoaderTest extends SharedConnectTests {
 
   val loader = new DataFrameLoader {
     override def load(token: String): DataFrame = {
-      import sparkSession.implicits._
+      val s = sparkSession
+      import s.implicits._
       token match {
         case "names" | "names2" => Seq(X2("rog","dodge"), X2("rog","nododge"), X2("rod","nojane"), X2("freddy", "jane")).toDF()
         case "ages" | "ages2" => Seq(X2("dodge",12), X2("nododge",45), X2("nojane", 50), X2("jane", 24)).toDF()
@@ -40,9 +42,9 @@ class ViewLoaderTest extends TestUtils {
     assert(sorted(0).source.left.get.filter("b = 12").isEmpty)
   }
 
-  @Test
-  def testConfigLoading(): Unit = {
-    import sparkSession.implicits._
+  test("testConfigLoading") {
+    val s = sparkSession
+    import s.implicits._
 
     val res = loadViewConfigs(loader, config.toDF(), expr("id.id"), expr("id.version"), Id(1,1),
       col("name"),col("token"),col("filter"),col("sql")
@@ -51,9 +53,9 @@ class ViewLoaderTest extends TestUtils {
     doViewLoadingTest(res)
   }
 
-  @Test
-  def testConfigLoadingWithoutIds(): Unit = {
-    import sparkSession.implicits._
+  test("testConfigLoadingWithoutIds") {
+    val s = sparkSession
+    import s.implicits._
 
     val res = loadViewConfigs(loader, config.filterNot(_.id == Id(100,1)).map(_.to2).toDF(),
       col("name"),col("token"),col("filter"),col("sql")
@@ -62,9 +64,11 @@ class ViewLoaderTest extends TestUtils {
     doViewLoadingTest(res)
   }
 
-  @Test
-  def testViewLoads(): Unit = {
-    import sparkSession.implicits._
+  test("testViewLoads") {
+    val s = sparkSession
+    cleanup(s)
+
+    import s.implicits._
 
     val (viewConfigs, _) = loadViewConfigs(loader, config.toDF(), expr("id.id"), expr("id.version"), Id(1,1),
       col("name"),col("token"),col("filter"),col("sql")
@@ -81,9 +85,9 @@ class ViewLoaderTest extends TestUtils {
     assert(results2.replaced == Set("names","ages","joined"))
   }
 
-  @Test
-  def testViewLoadsFailedAsJoinsNotPresent(): Unit = {
-    import sparkSession.implicits._
+  test("testViewLoadsFailedAsJoinsNotPresent") {
+    val s = sparkSession
+    import s.implicits._
 
     val config =
       Seq(
@@ -105,7 +109,7 @@ class ViewLoaderTest extends TestUtils {
         val notFound = r.right.get
 
         val expectedNotFoundSet =
-          if (sparkVersion == "2.4")
+          if ((sparkVersion == "2.4") || inConnect.get())
             Set("names43")
           else
             Set("names43","ages353")
@@ -118,9 +122,9 @@ class ViewLoaderTest extends TestUtils {
     }
   }
 
-  @Test
-  def testViewLoadsFailedAsInfinite(): Unit = {
-    import sparkSession.implicits._
+  test("testViewLoadsFailedAsInfinite") {
+    val s = sparkSession
+    import s.implicits._
 
     val config =
       Seq(
@@ -137,9 +141,9 @@ class ViewLoaderTest extends TestUtils {
     assert(res.notLoadedViews == Set("le1","le2"))
   }
 
-  @Test
-  def testViewLoadsThatNeedQuoting(): Unit = {
-    import sparkSession.implicits._
+  test("testViewLoadsThatNeedQuoting") {
+    val s = sparkSession
+    import s.implicits._
 
     val config =
       Seq(
@@ -157,7 +161,7 @@ class ViewLoaderTest extends TestUtils {
         val r = ShimUtils.tableOrViewNotFound(cause).getOrElse(throw cause)
         assert(r.isRight)
         // sparks below 3.2 don't quote.
-        if (sparkVersion.replace(".","").toInt < 32)
+        if ((sparkVersion.replace(".","").toInt < 32) || inConnect.get())
           assert(missingRelationNames == Set("le-21"))
         else
           assert(missingRelationNames == Set("`le-21`"))
@@ -167,9 +171,9 @@ class ViewLoaderTest extends TestUtils {
   }
 
 
-  @Test
-  def testViewLoadsThatDontParse(): Unit = {
-    import sparkSession.implicits._
+  test("testViewLoadsThatDontParse") {
+    val s = sparkSession
+    import s.implicits._
 
     val config =
       Seq(
@@ -194,11 +198,14 @@ class ViewLoaderTest extends TestUtils {
     }
   }
 
-  @After
-  def cleanupViews(): Unit = {
-    Set("joined", "names", "nameLess", "ages", "bad", "names2", "ages2").foreach{
-      sparkSession.catalog.dropTempView(_)
+  def cleanup(session: SparkSession): Unit =
+    Set("joined", "names", "nameLess", "ages", "bad", "names2", "ages2").foreach {
+      session.catalog.dropTempView
     }
+
+  override def afterAll(): Unit = {
+    super.afterAll()
+    forEachSession(currentSessionsHolder.getSessions, cleanup)
   }
 }
 

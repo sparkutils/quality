@@ -2,16 +2,15 @@ package com.sparkutils.quality.tests
 
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.{ExprLogic, RuleRegistrationFunctions, RuleRunnerUtils, ExpressionWrapper}
-import com.sparkutils.qualityTests.TestUtils
+import com.sparkutils.qualityTests.util.ClassicSharedTests
 import org.apache.spark.sql.catalyst.expressions.Literal
 import org.apache.spark.sql.types.StringType
-import org.junit.Test
+
 import org.scalatest.FunSuite
 
-class RoundTripPrivateTest extends FunSuite with TestUtils {
+class RoundTripPrivateTest extends FunSuite with ClassicSharedTests {
 
-  @Test
-  def ruleExprSwapping(): Unit = evalCodeGens {
+  test("ruleExprSwapping") { evalCodeGens {
 
     case class LitRule(string: String) extends ExprLogic {
       val expr = Literal.create(string, StringType)
@@ -70,6 +69,6 @@ class RoundTripPrivateTest extends FunSuite with TestUtils {
     ))
 
     assert( expected == reincorporated, "didn't come back alive" )
-  }
+  }}
 
 }

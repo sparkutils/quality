@@ -2,8 +2,10 @@ package com.sparkutils.quality.impl
 
 import com.sparkutils.quality
 import com.sparkutils.quality.impl.ExpressionCompiler.withExpressionCompiler
-import com.sparkutils.quality.impl.util.SubQueryWrapper
+import com.sparkutils.quality.impl.util.{Serializing, SubQueryWrapper}
 import com.sparkutils.quality._
+import com.sparkutils.quality.impl.util.Serializing.toSeq
+
 import org.apache.spark.sql.ShimUtils.newParser
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedFunction}
@@ -11,9 +13,10 @@ import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFo
 import org.apache.spark.sql.catalyst.expressions.{Expression, ScalarSubquery, SubqueryExpression, UnresolvedNamedLambdaVariable, LambdaFunction => SparkLambdaFunction}
 import org.apache.spark.sql.qualityFunctions.{FunN, RefExpressionLazyType}
 import org.apache.spark.sql.types.{DataType, Decimal}
-import org.apache.spark.sql.{ShimUtils, SparkSession}
+import org.apache.spark.sql.SparkSession
 import org.apache.spark.unsafe.types.UTF8String
 
+import java.io.{ByteArrayInputStream, ByteArrayOutputStream, ObjectInputStream, ObjectOutputStream, ObjectStreamClass}
 import scala.collection.mutable
 
 /**
@@ -54,7 +57,7 @@ object RuleLogicUtils {
   }
 
   /**
-   * Same as functions)without the wrapping Column
+   * Same as functions without the wrapping Column
    * @param rule
    * @return
    */
@@ -171,12 +174,14 @@ trait LambdaFunction extends HasRuleText with HasExpr {
   def parsed: LambdaFunctionParsed
 }
 
+@SerialVersionUID(1L)
 case class LambdaFunctionImpl(name: String, rule: String, id: Id) extends LambdaFunction {
   override def expr: Expression = RuleLogicUtils.expr(rule)
 
   def parsed: LambdaFunctionParsed = LambdaFunctionParsed(name, rule, id, expr)
 }
 
+@SerialVersionUID(1L)
 case class LambdaFunctionParsed(name: String, rule: String, id: Id, override val expr: Expression) extends LambdaFunction {
   def parsed: LambdaFunctionParsed = this
 }
@@ -210,7 +215,7 @@ trait HasRuleText extends HasExpr {
   // doesn't need to be serialized, done by RuleRunners
   @volatile
   private[quality] var exprI: Expression = _
-  private[quality] def expression(): Expression = {
+  protected[quality] def expression(): Expression = {
     if (exprI eq null) {
       exprI = RuleLogicUtils.expr(rule)
     }
@@ -229,8 +234,11 @@ trait HasRuleText extends HasExpr {
  * @param rule
  * @param expr
  */
+@SerialVersionUID(1L)
 case class ExpressionRuleExpr( rule: String, override val expr: Expression ) extends ExprLogic with HasRuleText {
   override def reset(): Unit = super[HasRuleText].reset()
+
+  override protected[quality] def expression(): Expression = expr // ignore resets - allows process_if_att.., the ruletext remains with coalesce, the expr is corrected
 }
 
 object ExpressionCompiler {
@@ -296,6 +304,7 @@ trait ExpressionCompiler extends HasExpr {
   * Rewritten children at eval will be swapped out
   * @param expr
   */
+@SerialVersionUID(1L)
 case class ExpressionWrapper( expr: Expression, compileEval: Boolean = true) extends ExprLogic with ExpressionCompiler {
   override def internalEval(internalRow: InternalRow): Any = {
     if (compileEval)
@@ -343,6 +352,7 @@ object UpdateFolderExpression {
  * Used in post serializing processing to keep the rule around
  * @param expr
  */
+@SerialVersionUID(1L)
 case class OutputExpressionExpr( rule: String, override val expr: Expression) extends OutputExprLogic with HasRuleText {
   override def reset(): Unit = super[HasRuleText].reset()
 }
@@ -368,6 +378,7 @@ trait RunOnPassProcessor extends Serializable {
  * Generates a result upon a pass, it is not evaluated otherwise and only evaluated if no other rule has higher salience.
  * It is not possible to have more than one rule evaluate the returnIfPassed.
  */
+@SerialVersionUID(1L)
 case class RunOnPassProcessorImpl(salience: Int, id: Id, rule: String, returnIfPassed: OutputExprLogic) extends RunOnPassProcessor with Serializable {
   override def withExpr(expr: OutputExpression): RunOnPassProcessor =
     copy(rule = expr.rule, returnIfPassed = expr)
@@ -384,6 +395,7 @@ case class HolderUsedInsteadIfImpl(id: Id) extends
  * @param salience
  * @param id
  */
+@SerialVersionUID(1L)
 case class RunOnPassProcessorHolder(salience: Int, id: Id) extends RunOnPassProcessor with Serializable {
   def returnIfPassed: OutputExprLogic = throw HolderUsedInsteadIfImpl(id)
   def rule: String = throw HolderUsedInsteadIfImpl(id)
@@ -395,8 +407,8 @@ case class RunOnPassProcessorHolder(salience: Int, id: Id) extends RunOnPassProc
 }
 
 object NoOpRunOnPassProcessor {
-  val noOpId = Id(Int.MinValue, Int.MinValue)
-  val noOp = RunOnPassProcessorImpl(Int.MaxValue, noOpId, "", OutputExpression(""))
+  val noOpId = Id(Serializing.notPresentOutputId, Serializing.notPresentOutputVersion)
+  val noOp = RunOnPassProcessorImpl(Serializing.notPresentSalience, noOpId, "", OutputExpression(""))
 }
 
 object RuleSuiteFunctions {
@@ -603,34 +615,36 @@ object RuleSuiteFunctions {
   }
 }
 
-object LazyRuleSuiteResultDetailsUtils {
-  lazy val deserializer = ShimUtils.expressionEncoder( Encoders.ruleSuiteResultDetailsExpEnc ).
-    resolveAndBind().deserializer
-}
-
-case class LazyRuleSuiteResultDetailsImpl(row: InternalRow) extends LazyRuleSuiteResultDetails with Serializable {
-  @transient
-  lazy val _ruleSuiteResultDetails = LazyRuleSuiteResultDetailsUtils.deserializer.eval(row).
-    asInstanceOf[RuleSuiteResultDetails]
-
-  override def ruleSuiteResultDetails: RuleSuiteResultDetails = _ruleSuiteResultDetails
-}
-
 case class LazyRuleSuiteResultDetailsProxyImpl(_ruleSuiteResultDetails: RuleSuiteResultDetails)
   extends LazyRuleSuiteResultDetails with Serializable {
 
   override def ruleSuiteResultDetails: RuleSuiteResultDetails = _ruleSuiteResultDetails
 }
 
-object LazyRuleSuiteResultUtils {
-  lazy val deserializer = ShimUtils.expressionEncoder( Encoders.ruleSuiteResultExpEnc ).
-    resolveAndBind().deserializer
-}
 
-case class LazyRuleSuiteResultImpl(row: InternalRow) extends LazyRuleSuiteResult with Serializable {
-  @transient
-  lazy val _ruleSuiteResult = LazyRuleSuiteResultUtils.deserializer.eval(row).
-    asInstanceOf[RuleSuiteResult]
+object RuleSuiteHelpers {
+  def getSparkClassLoader: ClassLoader = classOf[SparkSession].getClassLoader
 
-  override def ruleSuiteResult: RuleSuiteResult = _ruleSuiteResult
+  def getContextOrSparkClassLoader: ClassLoader =
+    Option(Thread.currentThread().getContextClassLoader).getOrElse(getSparkClassLoader)
+
+  protected[quality] def deserialize(in: Array[Byte]): RuleSuite = {
+    val os = new ObjectInputStream(new ByteArrayInputStream(in)) {
+      override def resolveClass(desc: ObjectStreamClass): Class[_] =
+        Class.forName(desc.getName, false, getContextOrSparkClassLoader)
+    }
+    val suite = os.readObject()
+    os.close()
+    suite.asInstanceOf[RuleSuite]
+  }
+
+  protected[quality] def serialize(ruleSuite: RuleSuite): Array[Byte] = {
+    val bos = new ByteArrayOutputStream()
+    val os = new ObjectOutputStream(bos)
+    // get rid of List's Vectors are serializable
+    os.writeObject(toSeq(ruleSuite))
+    val res = bos.toByteArray
+    os.close()
+    res
+  }
 }

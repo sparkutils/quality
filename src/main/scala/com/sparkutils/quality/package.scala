@@ -3,8 +3,8 @@ package com.sparkutils
 import com.sparkutils.quality.impl.bloom.parquet.{BlockSplitBloomFilterImports, BucketedCreatorFunctionImports}
 import com.sparkutils.quality.impl.bloom.{BloomFilterLookupImports, BloomFilterRegistration, BloomFilterTypes}
 import com.sparkutils.quality.impl.imports._
-import com.sparkutils.quality.impl.mapLookup.MapLookupImports
-import com.sparkutils.quality.impl.util.{AddDataFunctionsImports, LookupIdFunctionsImports, SerializingImports}
+import com.sparkutils.quality.impl.mapLookup.MapLookupImportsShared
+import com.sparkutils.quality.impl.util.{AddDataFunctionsImports, LookupIdFunctionsImports, SerializingImports, VersionSpecificSerializingImports}
 import com.sparkutils.quality.impl.views.ViewLoading
 import org.apache.spark.sql.internal.SQLConf
 
@@ -12,10 +12,11 @@ import org.apache.spark.sql.internal.SQLConf
  * Provides an easy import point for the library.
  */
 package object quality extends BloomFilterTypes with BucketedCreatorFunctionImports with RuleRunnerFunctionsImport
-  with BloomFilterRegistration with RuleRunnerImports with Serializable with MapLookupImports with LookupIdFunctionsImports
+  with BloomFilterRegistration with RuleRunnerImports with Serializable with MapLookupImportsShared with LookupIdFunctionsImports
   with BloomFilterLookupImports with BlockSplitBloomFilterImports with SerializingImports
   with AddDataFunctionsImports with LambdaFunctionsImports with RuleEngineRunnerImports with ValidationImports
-  with ProcessDisableIfMissingImports with RuleFolderRunnerImports with ViewLoading with ExpressionRunnerImports {
+  with ProcessDisableIfMissingImports with RuleFolderRunnerImports with ViewLoading with ExpressionRunnerImports
+  with VersionSpecificSerializingImports  {
   // NB it must inherit Serializable due to the nested types and sparks serialization
 
   /**

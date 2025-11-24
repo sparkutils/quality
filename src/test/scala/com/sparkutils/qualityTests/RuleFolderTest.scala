@@ -3,17 +3,15 @@ package com.sparkutils.qualityTests
 import com.sparkutils.quality._
 import com.sparkutils.quality.functions.flatten_folder_results
 import com.sparkutils.quality.impl.RunOnPassProcessor
+import com.sparkutils.qualityTests.util.SharedConnectTests
 import frameless.TypedExpressionEncoder
 import org.apache.spark.sql.DataFrame
-import org.apache.spark.sql.QualitySparkUtils.DatasetBase
 import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder
 import org.apache.spark.sql.catalyst.expressions.Literal
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.{IntegerType, StringType, StructField, StructType}
-import org.junit.Test
-import org.scalatest.FunSuite
 
-class RuleFolderTest extends FunSuite with TestUtils {
+class RuleFolderTest extends SharedConnectTests {
 
   val testData=Seq(
     TestOn("edt", "4201", 40),
@@ -46,7 +44,8 @@ class RuleFolderTest extends FunSuite with TestUtils {
       RuleSet(Id(50, 1), rules
       )))
 
-    import sqlContext.implicits._
+    val sc = sqlContext
+    import sc.implicits._
 
     (dataFrame: DataFrame) =>
       ruleFolderRunner(transformRuleSuite(ruleSuite), struct(lit("").as("transfer_type"), $"account", $"product", $"subcode"), debugMode = debugMode,
@@ -54,8 +53,7 @@ class RuleFolderTest extends FunSuite with TestUtils {
   }
 
   // Must use NoResolve as it fails on 2.4 with an npe, resolving on higher works fine
-  @Test
-  def testSimpleProductionRules(): Unit = evalCodeGensNoResolve { funNRewrites {
+  test("testSimpleProductionRules") { evalCodeGensNoResolve { funNRewrites {
     val rer = irules(
       Seq((ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040,1),
         OutputExpression("thecurrent -> updateField(updateField(thecurrent, 'subcode', 1234), 'transfer_type', 'from')"))),
@@ -71,7 +69,8 @@ class RuleFolderTest extends FunSuite with TestUtils {
     ) // compileEvals + codeGens IS NOT forcing a code gen on >Spark3
 
     val testDataDF = {
-      import sparkSession.implicits._
+      val s = sparkSession
+    import s.implicits._
       testData.toDF()
     }
 
@@ -96,7 +95,7 @@ class RuleFolderTest extends FunSuite with TestUtils {
     // did the field replace work
     assert(res(5).result.contains(Seq((1000, NewPosting("from", "4201", "eqotc", 60)), (1001, NewPosting("from", "4201_fruit", "eqotc", 60)))))
 
-  } }
+  } } }
 
   def testAndRulesForReplace(useSetSyntax: Boolean) = {
     registerLambdaFunctions(Seq(
@@ -139,7 +138,8 @@ class RuleFolderTest extends FunSuite with TestUtils {
       )))
 
     val testDataDF = {
-      import sparkSession.implicits._
+      val s = sparkSession
+      import s.implicits._
       testData.toDF()
     }
     //testDataDF.show
@@ -147,9 +147,10 @@ class RuleFolderTest extends FunSuite with TestUtils {
   }
 
   def doReplaceTest(outdf: DataFrame): Unit = {
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
 
-    debug(outdf.show)
+    com.sparkutils.testing.TestUtils.debug(outdf.show)
 
     val res = outdf.filter("subcode is not null").as[TestOn].collect()
 
@@ -164,11 +165,9 @@ class RuleFolderTest extends FunSuite with TestUtils {
 
   }
 
-  @Test
-  def testSimpleProductionRulesReplace(): Unit = doTestSimpleProductionRulesReplace(false)
+  test("testSimpleProductionRulesReplace") { doTestSimpleProductionRulesReplace(false) }
 
-  @Test
-  def testSimpleProductionRulesReplaceSet(): Unit = doTestSimpleProductionRulesReplace(true)
+  test("testSimpleProductionRulesReplaceSet") { doTestSimpleProductionRulesReplace(true) }
 
   def doTestSimpleProductionRulesReplace(useSetSyntax: Boolean): Unit = evalCodeGens {
     val (testDataDF, ruleSuite) = testAndRulesForReplace(useSetSyntax)
@@ -180,10 +179,8 @@ class RuleFolderTest extends FunSuite with TestUtils {
     assert(fields.toSeq == Seq("product", "account", "subcode", "foldedFields"))
   }
 
-  @Test
-  def testSimpleProductionRulesReplaceOutOfOrder(): Unit = doTestSimpleProductionRulesReplaceOutOfOrder(false)
-  @Test
-  def testSimpleProductionRulesReplaceOutOfOrderSet(): Unit = doTestSimpleProductionRulesReplaceOutOfOrder(true)
+  test("testSimpleProductionRulesReplaceOutOfOrder") { doTestSimpleProductionRulesReplaceOutOfOrder(false) }
+  test("testSimpleProductionRulesReplaceOutOfOrderSet") { doTestSimpleProductionRulesReplaceOutOfOrder(true) }
 
   def doTestSimpleProductionRulesReplaceOutOfOrder(useSetSyntax: Boolean): Unit = evalCodeGens { funNRewrites {
     val (testDataDF, ruleSuite) = testAndRulesForReplace(useSetSyntax)
@@ -195,11 +192,9 @@ class RuleFolderTest extends FunSuite with TestUtils {
     assert(fields.toSeq == Seq("foldedFields", "account", "product", "subcode"))
   } }
 
-  @Test
-  def testSimpleProductionRulesReplaceCustomDDL(): Unit = doTestSimpleProductionRulesReplaceCustomDDL(false)
+  test("testSimpleProductionRulesReplaceCustomDDL") { doTestSimpleProductionRulesReplaceCustomDDL(false) }
 
-  @Test
-  def testSimpleProductionRulesReplaceCustomDDLSet(): Unit = doTestSimpleProductionRulesReplaceCustomDDL(true)
+  test("testSimpleProductionRulesReplaceCustomDDLSet") { doTestSimpleProductionRulesReplaceCustomDDL(true) }
 
   def doTestSimpleProductionRulesReplaceCustomDDL(useSetSyntax: Boolean): Unit = evalCodeGens { funNRewrites {
     val (testDataDF, ruleSuite) = testAndRulesForReplace(useSetSyntax)
@@ -214,11 +209,9 @@ class RuleFolderTest extends FunSuite with TestUtils {
 
   // Below seem to have issues with casting as[ the fields are swapped.
 
-  @Test
-  def testSimpleProductionRulesReplaceDebug(): Unit = doTestSimpleProductionRulesReplaceDebug(false)
+  test("testSimpleProductionRulesReplaceDebug") { doTestSimpleProductionRulesReplaceDebug(false) }
 
-  @Test
-  def testSimpleProductionRulesReplaceDebugSet(): Unit = doTestSimpleProductionRulesReplaceDebug(true)
+  test("testSimpleProductionRulesReplaceDebugSet") { doTestSimpleProductionRulesReplaceDebug(true) }
 
   def doTestSimpleProductionRulesReplaceDebug(useSetSyntax: Boolean): Unit = evalCodeGensNoResolve { funNRewrites {
     val (testDataDF, ruleSuite) = testAndRulesForReplace(useSetSyntax)
@@ -258,16 +251,15 @@ class RuleFolderTest extends FunSuite with TestUtils {
     assert(res(5).result.contains( expected(3) ))
   } }
 
-  @Test
-  def testFlattenResults(): Unit = doTestFlattenResults(false)
+  test("testFlattenResults") { doTestFlattenResults(false) }
 
-  @Test
-  def testFlattenResultsSet(): Unit = doTestFlattenResults(true)
+  test("testFlattenResultsSet") { doTestFlattenResults(true) }
 
-  def doTestFlattenResults(useSetSyntax: Boolean): Unit =  evalCodeGens { funNRewrites {//forceInterpreted { // evalCodeGensNoResolve {
+  def doTestFlattenResults(useSetSyntax: Boolean): Unit =  evalCodeGens { funNRewrites {
     val (testDataDF, ruleSuite) = testAndRulesForReplace(useSetSyntax)
 
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
 
     testDataDF.write.mode("overwrite").parquet(outputDir+"/ruleFolder")
     val loadedDF = sparkSession.read.parquet(outputDir+"/ruleFolder")
@@ -317,15 +309,13 @@ class RuleFolderTest extends FunSuite with TestUtils {
 
   } }
 
-  @Test
-  def testSetSyntaxButNoEqualTo(): Unit = {
+  test("testSetSyntaxButNoEqualTo") { classicOnly {
     val bad = OutputExpression("set('lit')").expr
     assert(bad.children.head.getClass == Literal("lit").getClass)
-  }
+  } }
 
-  @Test
-  def testSetSyntaxEqualToButNoAttribute(): Unit = {
+  test("testSetSyntaxEqualToButNoAttribute") { classicOnly {
     val bad = OutputExpression("set( 1 = 'lit' )").expr
     assert(bad.children.head.children.head.getClass == Literal("lit").getClass)
-  }
+  } }
 }

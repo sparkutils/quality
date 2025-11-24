@@ -1,10 +1,10 @@
 package com.sparkutils.qualityTests
 import com.sparkutils.quality.Id
-import org.junit.Test
-import com.sparkutils.quality.impl.util.RuleSuiteDocs._
-import org.junit.Assert.fail
 
-class TrEitherTest {
+import com.sparkutils.quality.impl.util.RuleSuiteDocs._
+import org.scalatest.FunSuite
+
+class TrEitherTest extends FunSuite {
   val lambda = LambdaId(Id(1,2))
   val output = OutputExpressionId(Id(2,2))
   val rule = RuleId(Id(3,2))
@@ -18,8 +18,7 @@ class TrEitherTest {
     }
   }
 
-  @Test
-  def testIs: Unit = {
+  test("testIs") {
     assert(lambda.isA)
     assert(!lambda.isB)
     assert(!lambda.isC)
@@ -33,8 +32,7 @@ class TrEitherTest {
     assert(rule.isC)
   }
 
-  @Test
-  def testGets: Unit = {
+  test("testGets") {
 
     assert(lambda.getA == Id(1,2))
     assertNotImplemented(lambda.getB)
@@ -49,8 +47,7 @@ class TrEitherTest {
     assertNotImplemented(rule.getB)
   }
 
-  @Test
-  def testFolds: Unit = {
+  test("testFolds") {
     assert(lambda.fold(identity,identity,identity) == Id(1,2))
     assert(output.fold(identity,identity,identity) == Id(2,2))
     assert(rule.fold(identity,identity,identity) == Id(3,2))

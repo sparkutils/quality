@@ -7,7 +7,7 @@ import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.qualityFunctions.utils
 import org.apache.spark.sql.types.DataType
-import org.apache.spark.sql.{QualitySparkUtils, ShimUtils, SparkSession}
+import org.apache.spark.sql.{ShimUtils, SparkSession}
 
 trait RuleRunnerFunctionsImport {
 
@@ -21,13 +21,13 @@ trait RuleRunnerFunctionsImport {
    * @param writer override the printCode and printExpr print writing function (defaults to println)
    * @param registerFunction function to register the sql extensions
    */
-  def registerQualityFunctions(parseTypes: String => Option[DataType] = defaultParseTypes _,
-                               zero: DataType => Option[Any] = defaultZero _,
+  def registerQualityFunctions(parseTypes: String => Option[DataType] = defaultParseTypes,
+                               zero: DataType => Option[Any] = defaultZero,
                                add: DataType => Option[(Expression, Expression) => Expression] = (dataType: DataType) => defaultAdd(dataType),
                                mapCompare: DataType => Option[(Any, Any) => Int] = (dataType: DataType) => utils.defaultMapCompare(dataType),
-                               writer: String => Unit = println(_),
+                               writer: String => Unit = println,
                                registerFunction: (String, Seq[Expression] => Expression) => Unit =
-                                  ShimUtils.registerFunction(SparkSession.getActiveSession.get.sessionState.functionRegistry) _
+                                 (n, f) => ShimUtils.registerFunction(SparkSession.active)(n,f)
                        ) =
     RuleRegistrationFunctions.registerQualityFunctions(parseTypes,
       zero,
@@ -57,7 +57,7 @@ trait RuleRunnerFunctionsImport {
    * @param extraOptimizations rules to be added in order
    */
   def enableOptimizations(extraOptimizations: Seq[Rule[LogicalPlan]]): Unit = extraOptimizations.foreach(
-    addOptimisation(_)
+    addOptimisation
   )
 
 }

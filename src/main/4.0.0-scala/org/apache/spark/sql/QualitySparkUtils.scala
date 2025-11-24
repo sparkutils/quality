@@ -1,22 +1,24 @@
 package org.apache.spark.sql
 
+import com.sparkutils.quality.impl.extension.QualityFunctionParser.{CREATE_FUNCTION_PREFIX, DIVIDER, WITH_TOKEN}
 import org.apache.spark.sql.ShimUtils.{column, expression}
 import com.sparkutils.quality.impl.util.DebugTime.debugTime
 import com.sparkutils.quality.impl.util.Params.formatParams
-import com.sparkutils.quality.impl.util.{PassThrough, PassThroughCompileEvals}
-import com.sparkutils.quality.impl.{RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
+import com.sparkutils.quality.impl.util.{EmbeddedTypeCorrection, PassThrough, PassThroughCompileEvals}
+import com.sparkutils.quality.impl.{LambdaFunction, RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
 import com.sparkutils.shim.expressions.{HigherOrderFunctionLike, PredicateHelperPlus}
-import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCoercion}
+import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, SimpleAnalyzer, TimeWindowing, TypeCoercion}
 import org.apache.spark.sql.catalyst.encoders.{ExpressionEncoder, RowEncoder}
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, QualityExprUtils, GenerateMutableProjection}
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, EqualNullSafe, Expression, ExpressionSet, HigherOrderFunction, InterpretedMutableProjection, Literal, Projection, UpdateFields}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, GenerateMutableProjection, QualityExprUtils}
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, EqualNullSafe, Expression, ExpressionSet, HigherOrderFunction, InterpretedMutableProjection, Literal, NamedExpression, Projection, UpdateFields}
 import org.apache.spark.sql.catalyst.optimizer.{BooleanSimplification, CollapseProject, CombineConcats, CombineTypedFilters, ConstantFolding, ConstantPropagation, EliminateMapObjects, EliminateSerialization, FoldablePropagation, LikeSimplification, NormalizeFloatingNumbers, NullDownPropagation, NullPropagation, ObjectSerializerPruning, OptimizeCsvJsonExprs, OptimizeIn, OptimizeRand, OptimizeUpdateFields, PruneFilters, PushFoldableIntoBranches, ReassignLambdaVariableID, RemoveNoopOperators, RemoveRedundantAggregates, RemoveRedundantAliases, ReorderAssociativeOperator, ReplaceExpressions, ReplaceNullWithFalseInPredicate, ReplaceUpdateFieldsExpression, RewriteCorrelatedScalarSubquery, RewriteLateralSubquery, SimplifyBinaryComparison, SimplifyCaseConversionExpressions, SimplifyCasts, SimplifyConditionals, SimplifyExtractValueOps, UnwrapCastInBinaryComparison}
-import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, LogicalPlan, Project, UnaryNode}
+import org.apache.spark.sql.catalyst.plans.logical.{CatalystSerde, DeserializeToObject, LocalRelation, LogicalPlan, Project, UnaryNode}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.qualityFunctions.FunN
+import org.apache.spark.sql.qualityFunctions.{FunN, LambdaFunctions}
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.util.Utils
+
 
 /**
  * Set of utilities to reach in to private functions
@@ -171,6 +173,7 @@ object QualitySparkUtils {
     fres
   }
 
+
   /**
    * Provides a starting plan for a dataframe, resolves the
    *
@@ -178,8 +181,9 @@ object QualitySparkUtils {
    * @param dataFrameF
    * @return
    */
-  def resolveExpressions[T](encFrom: Encoder[T], dataFrameF: DataFrame => DataFrame): Seq[Expression] = {
-    val enc = ShimUtils.expressionEncoder(encFrom)
+  def resolveExpressions[T, R: Encoder](encFrom: Encoder[T], embeddedTypeCorrection: EmbeddedTypeCorrection,
+                                        dataFrameF: DataFrame => DataFrame): (Seq[Expression], Expression) = {
+    val enc = ShimUtils.expressionEncoder[T](encFrom)
 
     val plan = LocalRelation(enc.schema)
 
@@ -197,9 +201,14 @@ object QualitySparkUtils {
         }
 
     // lookup the actual expressions
-    val res = debugTime("find underlying expressions") {
-      EvaluableExpressions(aplan).expressions
-    }
+    val res =
+      debugTime("find underlying expressions") {
+        EvaluableExpressions(aplan).expressions
+      }
+
+    val oEnc = implicitly[Encoder[R]]
+    val dec = ShimUtils.expressionEncoder(oEnc).resolveAndBind(
+      aplan.output, df.sparkSession.sessionState.analyzer)
 
     // folder introduces multiple projections, these are the ones we explicitly use
     val fres = debugTime("bindReferences") {
@@ -208,7 +217,7 @@ object QualitySparkUtils {
         map(BindReferences.bindReference(_, plan.output, allowFailures = true))
     }
 
-    fres
+    (fres, dec.deserializer)
   }
 
   /**
@@ -352,17 +361,19 @@ object QualitySparkUtils {
     }
     // special case as it's faster to do individual items it seems, 36816ms vs 48974ms
     expr match {
-      case r: RuleEngineRunnerBase[_] if r.child.isInstanceOf[PassThrough] =>
-        val nexprs = r.child.children.map(forExpr)
-        r.withNewChildren(Seq(r.child.withNewChildren(nexprs)))
-      case r: RuleFolderRunnerBase[_] if r.right.isInstanceOf[PassThrough]  =>
-        val nexprs = r.right.children.map(forExpr)
-        r.withNewChildren(Seq(r.left, r.right.withNewChildren(nexprs)))
-      case r: RuleRunnerBase[_] if r.child.isInstanceOf[PassThrough] =>
-        val nexprs = r.child.children.map(forExpr)
-        r.withNewChildren(Seq(PassThroughCompileEvals(nexprs)))
+      case r: RuleEngineRunnerBase[_] if r.children.head.isInstanceOf[PassThrough] =>
+        val nexprs = r.children.map(c => c.withNewChildren(Seq(forExpr(c.children.head))))
+        r.withNewChildren(nexprs)
+      case r: RuleFolderRunnerBase[_] if r.children(1).isInstanceOf[PassThrough] =>
+        val starter = r.children.head
+        val nexprs = r.children.tail.map(c => c.withNewChildren(Seq(forExpr(c.children.head))))
+        r.withNewChildren(starter +: nexprs)
+      case r: RuleRunnerBase[_] if r.children.head.isInstanceOf[PassThrough] =>
+        val nexprs = r.children.map(c => c.withNewChildren(Seq(forExpr(c.children.head))))
+        r.withNewChildren(nexprs)
       case _ => forExpr(expr)
     }
+
   }
 
   case class FakePlan(expr: Expression, child: LogicalPlan)
@@ -435,5 +446,23 @@ object QualitySparkUtils {
         }
       }
     )
+
+  def registerLambdaFunctions(functions: Seq[LambdaFunction]): Unit =
+    if (functions.nonEmpty)
+      SparkSession.active match {
+        case s: classic.SparkSession =>
+          LambdaFunctions.registerLambdaFunctions(functions)
+        case _  =>
+          val s = SparkSession.active
+          val command = s"$CREATE_FUNCTION_PREFIX\n" +
+            functions.map{
+              f =>
+                // needs to be registered via the extension
+                s"${f.name}$WITH_TOKEN${f.rule}"
+            }.mkString(DIVIDER)
+          s.sql(command)
+      }
+    else
+      ()
 
 }

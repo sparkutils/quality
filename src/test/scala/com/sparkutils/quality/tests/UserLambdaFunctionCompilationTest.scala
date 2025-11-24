@@ -1,24 +1,20 @@
 package com.sparkutils.quality.tests
 
 import com.sparkutils.quality._
-import com.sparkutils.quality.impl.util.Testing
+import com.sparkutils.testing.Testing
 import com.sparkutils.quality.tests.TestHandler._
-import com.sparkutils.qualityTests.{RowTools, SparkTestUtils, TestUtils}
+import com.sparkutils.qualityTests.util.ClassicSharedTests
 import org.apache.spark.sql.catalyst.expressions.{ArrayFilter, ExprId, Expression, NamedLambdaVariable, ZipWith}
 import org.apache.spark.sql.qualityFunctions.LambdaCompilationUtils.{LambdaCompilationHandler, convertToCompilationHandlers, envLambdaHandlers, loadLambdaCompilationHandlers}
 import org.apache.spark.sql.qualityFunctions.{DoCodegenFallbackHandler, FunN, NamedLambdaVariableCodeGen}
-import org.junit.{Before, Test}
-import org.scalatest.FunSuite
+import org.scalatest.BeforeAndAfterAll
 import org.scalatest.Matchers.convertToAnyShouldWrapper
 
 import java.util.concurrent.atomic.AtomicBoolean
 
-class UserLambdaFunctionCompilationTest extends FunSuite with TestUtils {
-  // le horrible hack for testing
-  Testing.setTesting()
+class UserLambdaFunctionCompilationTest extends ClassicSharedTests with BeforeAndAfterAll {
 
-  @Test
-  def defaultHofConfigTests: Unit = {
+  test("defaultHofConfigTests") {
     val (simple, simpleimpl, notso, complex) = ("simple", "simpleimpl", "not.so.simple", "complex")
     val expected = Map(simple -> simpleimpl, notso -> complex)
     // verify default loading
@@ -26,8 +22,7 @@ class UserLambdaFunctionCompilationTest extends FunSuite with TestUtils {
     assert(got == expected)
   }
 
-  @Test
-  def loadHandlers: Unit = {
+  test("loadHandlers") {
     val handlers = Map(classOf[ZipWith].getName -> classOf[DoCodegenFallbackHandler].getName)
     val res1 = loadLambdaCompilationHandlers(handlers)
     assert(res1.head._2.isInstanceOf[DoCodegenFallbackHandler])
@@ -39,8 +34,7 @@ class UserLambdaFunctionCompilationTest extends FunSuite with TestUtils {
     }
   }
 
-  @Test
-  def convertHandlers: Unit = {
+  test("convertHandlers") {
     try {
       convertToCompilationHandlers(loadLambdaCompilationHandlers(Map(classOf[ZipWith].getName -> classOf[TestMe].getName)))
       assert(false, "Should have thrown")
@@ -49,14 +43,12 @@ class UserLambdaFunctionCompilationTest extends FunSuite with TestUtils {
     }
   }
 
-  @Before
-  override def setup(): Unit = {
-    super.setup()
+  override def beforeAll(): Unit = {
+    super.beforeAll()
     System.clearProperty("quality.lambdaHandlers")
   }
 
-  @Test
-  def loadHandlersViaProperty: Unit = {
+  test("loadHandlersViaProperty") {
     System.setProperty("quality.lambdaHandlers", s"${classOf[ZipWith].getName}=${classOf[ZipWith].getName}")
     try {
       convertToCompilationHandlers()
@@ -75,59 +67,53 @@ class UserLambdaFunctionCompilationTest extends FunSuite with TestUtils {
       LambdaFunction("bottom", "i -> i + 1", Id(1, 3)),
       LambdaFunction("top", "(i, j) -> bottom(i)", Id(1, 3))
     ))
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
     val df = sparkSession.sql("select top(1,2)")
     assert(df.as[Integer].collect.head == 2)
   }
 
-  @Test
-  def runDisabledCompilation: Unit = evalCodeGens {
+  test("runDisabledCompilation") { evalCodeGens {
     funNRewrites {
       System.setProperty("quality.lambdaHandlers", s"${classOf[FunN].getName}=${classOf[DoCodegenFallbackHandler].getName}")
       doSimpleNested
     }
-  }
+  } }
 
-  @Test
-  def runNestedCompilation: Unit = evalCodeGens {
+  test("runNestedCompilation") { evalCodeGens {
     funNRewrites {
       doSimpleNested
     }
-  }
+  } }
 
   def doWithFilterHof: Unit = {
-    if (SparkTestUtils.skipHofs && !onDatabricks) return
-    // we can't run tests on 9.1.dbr build, but can on runtime
-
     /**
      * NOTE this can only exercise the code it can't test it's called DoCodeGen properly
      */
     registerLambdaFunctions(Seq(
       LambdaFunction("bottom", "filterB -> filter(filterB, i -> i % 2 = 0)", Id(1, 3)),
-      LambdaFunction("top", "a -> printCode(bottom(a))", Id(1, 3))
+      LambdaFunction("top", "a -> bottom(a)", Id(1, 3))
     ))
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
     val df = sparkSession.sql("select element_at(top(array(1,2)), 1)")
     assert(df.as[Integer].collect.head == 2)
   }
 
-  @Test
-  def withDefaultHoF: Unit = evalCodeGens {
+  test("withDefaultHoF") { evalCodeGens {
     funNRewrites {
       doWithFilterHof
     }
-  }
+  } }
 
-  @Test
-  def withSpecifiedHoFHandler: Unit = evalCodeGens {
+  test("withSpecifiedHoFHandler") { evalCodeGens {
     funNRewrites {
       sparkSession.sparkContext.setLocalProperty("quality.lambdaHandlers", s"${classOf[ArrayFilter].getName}=${classOf[DoCodegenFallbackHandler].getName}")
       doWithFilterHof
     }
-  }
+  } }
 
-  @Test
-  def runDisabledBottom: Unit = forceCodeGen {
+  test("runDisabledBottom") { forceCodeGen {
 
     def doIt(clearIt: Boolean = false) = {
       reinit()
@@ -178,7 +164,7 @@ class UserLambdaFunctionCompilationTest extends FunSuite with TestUtils {
         calledTransform.get shouldBe true
       }
     }
-  }
+  } }
 
 
 }

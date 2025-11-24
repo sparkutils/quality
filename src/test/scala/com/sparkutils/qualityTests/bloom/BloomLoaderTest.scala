@@ -2,17 +2,18 @@ package com.sparkutils.qualityTests.bloom
 
 import com.sparkutils.quality.impl.bloom.BloomConfig
 import com.sparkutils.quality.{DataFrameLoader, Id, loadBloomConfigs, loadBlooms}
-import com.sparkutils.qualityTests.TestUtils
+import com.sparkutils.qualityTests.util.ClassicSharedTests
 import org.apache.spark.sql.functions.{col, expr}
 import org.apache.spark.sql.DataFrame
-import org.junit.Test
+
 
 // NB the other combinations of loading are covered by the ViewLoaderTest
-class BloomLoaderTest extends TestUtils {
+class BloomLoaderTest extends ClassicSharedTests {
 
   val loader = new DataFrameLoader {
     override def load(token: String): DataFrame = {
-      import sparkSession.implicits._
+      val s = sparkSession
+    import s.implicits._
 
       token match {
         case "undertwenty" => sqlContext.range(0, 19)
@@ -27,9 +28,9 @@ class BloomLoaderTest extends TestUtils {
       BloomRow(Id(1,1),"twenties", Some("twenties"), None, None, true, "id", 10, 0.01 )
     )
 
-  @Test
-  def testConfigLoading(): Unit = {
-    import sparkSession.implicits._
+  test("testConfigLoading") {
+    val s = sparkSession
+    import s.implicits._
 
     val (bloomConfigs, _) = loadBloomConfigs(loader, config.toDF(), expr("id.id"), expr("id.version"), Id(1,1),
       col("name"),col("token"),col("filter"),col("sql"), col("bigBloom"),
@@ -39,9 +40,9 @@ class BloomLoaderTest extends TestUtils {
     doConfigTest(bloomConfigs)
   }
 
-  @Test
-  def testConfigLoadingWithoutIds(): Unit = {
-    import sparkSession.implicits._
+  test("testConfigLoadingWithoutIds") {
+    val s = sparkSession
+    import s.implicits._
 
     val (bloomConfigs, _) = loadBloomConfigs(loader, config.map(_.to2).toDF(),
       col("name"),col("token"),col("filter"),col("sql"), col("bigBloom"),
@@ -59,9 +60,9 @@ class BloomLoaderTest extends TestUtils {
     assert(bloomConfigs.forall(_.expectedFPP == 0.01d))
   }
 
-  @Test
-  def testBloomLoading(): Unit = {
-    import sparkSession.implicits._
+  test("testBloomLoading") {
+    val s = sparkSession
+    import s.implicits._
     val (bloomConfigs, _) = loadBloomConfigs(loader, config.toDF(), expr("id.id"), expr("id.version"), Id(1,1),
       col("name"),col("token"),col("filter"),col("sql"), col("bigBloom"),
       col("value"), col("numberOfElements"), col("expectedFPP")
@@ -71,9 +72,9 @@ class BloomLoaderTest extends TestUtils {
   }
 
 
-  @Test
-  def testMapSQLLoading(): Unit = {
-    import sparkSession.implicits._
+  test("testMapSQLLoading") {
+    val s = sparkSession
+    import s.implicits._
 
     sqlContext.range(0, 19).createOrReplaceTempView("undertwenty")
 
@@ -96,11 +97,11 @@ class BloomLoaderTest extends TestUtils {
     val twenties = blooms("twenties")._1
 
     // these will work at least, longs are in the bloom, not ints
-    assert((1L until 19L).map(undertwenty.mightContain(_)).forall(_ == true))
-    assert((1 until 19).map(undertwenty.mightContain(_)).forall(_ == false))
+    assert((1L until 19L).map(undertwenty.apply).forall(_ == true))
+    assert((1 until 19).map(undertwenty.mightContain).forall(_ == false))
 
-    assert((20L until 29L).map(twenties.mightContain(_)).forall(_ == true))
-    assert((20 until 29).map(twenties.mightContain(_)).forall(_ == false))
+    assert((20L until 29L).map(twenties.mightContain).forall(_ == true))
+    assert((20 until 29).map(twenties.mightContain).forall(_ == false))
   }
 }
 

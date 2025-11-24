@@ -2,10 +2,10 @@ package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.RuleEngineRunner
+import com.sparkutils.qualityTests.util.{ClassicSharedTests, SharedConnectTests}
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.DataType
-import org.junit.Test
 import org.scalatest.FunSuite
 
 import java.io.{ByteArrayOutputStream, ObjectOutputStream}
@@ -14,7 +14,7 @@ import java.io.{ByteArrayOutputStream, ObjectOutputStream}
  * Primarily to prove joins with relation's work with resolveWith across versions.
  * Secondary usage is to prove a simple join (vs maplookup approach) can work with resolveWith for lookups
  */
-class JoinValidationTest extends FunSuite with TestUtils {
+class JoinValidationTest extends SharedConnectTests {
 
   val testData=Seq(
     TestOn("edt", "4201", 40),
@@ -51,15 +51,15 @@ class JoinValidationTest extends FunSuite with TestUtils {
 
   val expected = Seq.fill(3)(Seq(Failed, Passed)).flatten
 
-  @Test
-  def testViaRelation(): Unit = evalCodeGensNoResolve {
+  test("testViaRelation") { evalCodeGensNoResolve {
     val rer = irules(
       Seq(ExpressionRule("testSource.account = testLookups.account")
       )
     )
 
     val (testDataDF, testSourceDataDF) = {
-      import sparkSession.implicits._
+      val s = sparkSession
+      import s.implicits._
       (testData.toDF(), testSource.toDF())
     }
     testDataDF.createOrReplaceTempView("testLookups")
@@ -78,17 +78,17 @@ class JoinValidationTest extends FunSuite with TestUtils {
     // res.foreach(println)
 
     assert(expected == res.map(_.overallResult).toSeq)
-  }
+  }}
 
-  @Test
-  def testWithRenames(): Unit = evalCodeGensNoResolve {
+  test("testWithRenames") { evalCodeGensNoResolve {
     val rer = irules(
       Seq(ExpressionRule("account = testLookupsAccount")
       )
     )
 
     val (testDataDF, testSourceDataDF) = {
-      import sparkSession.implicits._
+      val s = sparkSession
+      import s.implicits._
       (testData.toDF(), testSource.toDF())
     }
     testDataDF.createOrReplaceTempView("testLookups")
@@ -107,6 +107,6 @@ class JoinValidationTest extends FunSuite with TestUtils {
     //res.foreach(println)
 
     assert(expected == res.map(_.overallResult).toSeq)
-  }
+  }}
 
 }

@@ -1,6 +1,7 @@
 package com.sparkutils.quality.impl.aggregates
 
 import com.sparkutils.quality.QualityException.qualityException
+import com.sparkutils.quality.impl.RuleRegistrationFunctions.{defaultAdd, defaultZero}
 import eu.timepit.refined.boolean.False
 import org.apache.spark.sql.QualitySparkUtils
 import org.apache.spark.sql.ShimUtils.cast
@@ -14,25 +15,14 @@ import org.apache.spark.sql.ShimUtils.{cast => castf}
 object AggregateExpressions {
 
   def transformSumType(function: Expression, param: NamedLambdaVariable, newDT: DataType) =
-    function.transform {
+    function.transformUp {
+      // these can be double cast but need the underlying type to change
       case n: NamedLambdaVariable if n.exprId == param.exprId =>
         n.copy(dataType = newDT)
-      // spark for decimals already gets the type wrong for 0.7.1 syntax type and double wraps it (only checking single breaks deprecated syntax), so
-      // ugly workarounds for types not matching.. see above comment
-      case cast: Cast if cast.child.isInstanceOf[Cast] && cast.child.asInstanceOf[Cast].child.isInstanceOf[NamedLambdaVariable] =>
-        val nvl = cast.child.asInstanceOf[Cast].child.asInstanceOf[NamedLambdaVariable]
-        if (nvl.exprId == param.exprId)
-          castf(castf(nvl.copy(dataType = newDT), newDT), cast.dataType)
-        else
-          cast
-      // for dbr > 11.2, the cast is on the variable not the expression
-      case cast: Cast if cast.child.isInstanceOf[NamedLambdaVariable] =>
-        val nvl = cast.child.asInstanceOf[NamedLambdaVariable]
-        if (nvl.exprId == param.exprId)
-          castf( child = cast.child.asInstanceOf[NamedLambdaVariable].
-            copy(dataType = newDT), newDT)
-        else
-          cast
+      // only do this if we need decimal type correction
+      case cast: Cast if
+        cast.dataType.isInstanceOf[DecimalType] && newDT.isInstanceOf[DecimalType] =>
+        castf( child = cast.child, dataType = newDT )
 
     }
 
@@ -48,7 +38,8 @@ object AggregateExpressions {
    *                 adding them in at the dsl level, however, prevents resolving the lambdas, using Column cast doesn't work either, so they are added in the expression itself
    *                 As the lambda's won't be resolved when calling this the existing matching for the expr sql variant cannot work.
    */
-  def apply(sumType: DataType, ifExpr: Expression, sum: Expression, evaluate: Expression, zero: DataType => Option[Any], add: DataType => Option[( Expression, Expression ) => Expression], notYetResolved: Boolean = false ): Expression = {
+  def apply(sumType: DataType, ifExpr: Expression, sum: Expression, evaluate: Expression, zero: DataType => Option[Any] = defaultZero,
+            add: DataType => Option[( Expression, Expression ) => Expression]= (dataType: DataType) => defaultAdd(dataType), notYetResolved: Boolean = false ): Expression = {
     /*
      * in the case of decimal's being used the DecimalPrecision analysis can change the types such that the
      * precision is ignored e.g.

@@ -7,10 +7,10 @@ import org.apache.spark.sql.DataFrame
  * @param msg
  * @param cause
  */
-case class QualityException(msg: String, cause: Exception = null) extends RuntimeException(msg, cause)
+case class QualityException(msg: String, cause: Throwable = null) extends RuntimeException(msg, cause)
 
 object QualityException {
-  def qualityException(msg: String, cause: Exception = null) = throw QualityException(msg, cause)
+  def qualityException(msg: String, cause: Throwable = null): Nothing = throw QualityException(msg, cause)
 }
 
 /**

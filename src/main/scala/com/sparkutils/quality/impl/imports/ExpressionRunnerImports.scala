@@ -1,9 +1,10 @@
 package com.sparkutils.quality.impl.imports
 
 import com.sparkutils.quality.RuleSuite
-import com.sparkutils.quality.impl.{ExpressionRunner, StripResultTypes}
-import org.apache.spark.sql.Column
+import com.sparkutils.quality.impl.{ExpressionRunner, RuleSuiteHelpers, StripResultTypes}
+import org.apache.spark.sql.{Column, ShimUtils}
 import org.apache.spark.sql.ShimUtils.{column, expression}
+import org.apache.spark.sql.functions.{lit, typedLit}
 
 trait ExpressionRunnerImports {
 
@@ -14,10 +15,10 @@ trait ExpressionRunnerImports {
    * @return
    */
   def typedExpressionRunner(ruleSuite: RuleSuite, ddlType: String, name: String = "expressionResults", forceRunnerEval: Boolean = false) =
-    ExpressionRunner(ruleSuite, name, Map.empty, ddlType, forceRunnerEval = forceRunnerEval)
+    ShimUtils.callFunction("typed_expression_runner", lit(RuleSuiteHelpers.serialize(ruleSuite)), lit(ddlType), lit(name), lit(forceRunnerEval))
 
   def expressionRunner(ruleSuite: RuleSuite, name: String = "expressionResults", renderOptions: Map[String, String] = Map.empty, forceRunnerEval: Boolean = false) =
-    ExpressionRunner(ruleSuite, name, renderOptions, forceRunnerEval = forceRunnerEval)
+    ShimUtils.callFunction("expression_runner", lit(RuleSuiteHelpers.serialize(ruleSuite)), lit(name), typedLit(renderOptions), lit(forceRunnerEval))
 
 }
 
@@ -30,5 +31,5 @@ trait StripResultTypesFunction {
    * @return
    */
   def strip_result_ddl(expressionResults: Column): Column =
-    column( StripResultTypes(expression(expressionResults)) )
+    ShimUtils.callFunction("strip_result_ddl", expressionResults)
 }

@@ -1,8 +1,9 @@
 package com.sparkutils.quality.impl.imports
 
-import com.sparkutils.quality.{RuleSuite, impl}
-import com.sparkutils.quality.impl.{FlattenStruct, PackId, ProbabilityExpr, RuleRunnerImpl}
-import org.apache.spark.sql.ShimUtils.{column, expression}
+import com.sparkutils.quality.RuleSuite
+import com.sparkutils.quality.impl.imports.ResolveUtil.checkResolveMakesSenseOrClassic
+import com.sparkutils.quality.impl.{PackId, RuleRunnerImpl}
+import org.apache.spark.sql.ShimUtils.callFunction
 import org.apache.spark.sql.catalyst.expressions.Literal
 import org.apache.spark.sql.types.IntegerType
 import org.apache.spark.sql.{Column, DataFrame}
@@ -22,7 +23,10 @@ trait RuleRunnerImports {
    * @return A Column representing the Quality DQ expression built from this ruleSuite
    */
   def ruleRunner(ruleSuite: RuleSuite, compileEvals: Boolean = true, resolveWith: Option[DataFrame] = None, variablesPerFunc: Int = 40, variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false): Column =
-    RuleRunnerImpl.ruleRunnerImpl(ruleSuite, compileEvals, resolveWith, variablesPerFunc, variableFuncGroup, forceRunnerEval)
+    if (checkResolveMakesSenseOrClassic(resolveWith))
+      RuleRunnerImpl.ruleRunnerImplClassic(ruleSuite, compileEvals, resolveWith, variablesPerFunc, variableFuncGroup, forceRunnerEval)
+    else
+      RuleRunnerImpl.ruleRunnerImpl(ruleSuite, compileEvals, variablesPerFunc, variableFuncGroup, forceRunnerEval)
 
   /**
    * The integer value for soft failed dq rules
@@ -72,33 +76,31 @@ trait RuleRunnerFunctionImports {
    * @param result
    * @return
    */
-  def probability(result: Column): Column =
-    column(ProbabilityExpr(expression(result)))
+  def probability(result: Column): Column = callFunction("probability", result)
 
   /**
    * The soft_failed value
    */
-  val soft_failed = column(RuleResultsImports.SoftFailedExpr)
+  val soft_failed = callFunction("soft_failed")
   /**
    * The disabled_rule value
    */
-  val disabled_rule = column(RuleResultsImports.DisabledRuleExpr)
+  val disabled_rule = callFunction("disabled_rule")
   /**
    * The passed value
    */
-  val passed = column(RuleResultsImports.PassedExpr)
+  val passed = callFunction("passed")
   /**
    * The failed value
    */
-  val failed = column(RuleResultsImports.FailedExpr)
+  val failed = callFunction("failed")
 
   /**
    * Flattens DQ results, unpacking the nested structure into a simple relation
    * @param result
    * @return
    */
-  def flatten_results(result: Column): Column =
-    column(impl.FlattenResultsExpression(expression(result), FlattenStruct.ruleSuiteDeserializer))
+  def flatten_results(result: Column): Column = callFunction("flatten_results", result)
 
   /**
    * Flattens rule results, unpacking the nested structure into a simple relation
@@ -106,8 +108,7 @@ trait RuleRunnerFunctionImports {
    * @param result
    * @return
    */
-  def flatten_rule_results(result: Column): Column =
-    column(impl.FlattenRulesResultsExpression(expression(result), FlattenStruct.ruleSuiteDeserializer))
+  def flatten_rule_results(result: Column): Column = callFunction("flatten_rule_results", result)
 
   /**
    * Flattens folder results, unpacking the nested structure into a simple relation
@@ -115,13 +116,11 @@ trait RuleRunnerFunctionImports {
    * @param result
    * @return
    */
-  def flatten_folder_results(result: Column): Column =
-    column(impl.FlattenFolderResultsExpression(expression(result), FlattenStruct.ruleSuiteDeserializer))
+  def flatten_folder_results(result: Column): Column = callFunction("flatten_folder_results", result)
 
   /**
    * Consumes a RuleSuiteResult and returns RuleSuiteDetails
    */
-  def rule_suite_result_details(result: Column): Column =
-    column( impl.RuleSuiteResultDetailsExpr(expression(result)) )
+  def rule_suite_result_details(result: Column): Column = callFunction("rule_suite_result_details", result)
 
 }

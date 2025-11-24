@@ -1,6 +1,6 @@
 package com.sparkutils.quality.impl.util
 
-import com.sparkutils.quality.RuleSuite
+import com.sparkutils.quality.{RuleSuite, ruleEngineRunner}
 import com.sparkutils.quality.functions.strip_result_ddl
 import com.sparkutils.quality.impl.util.AddDataFunctions.ifoldAndReplaceFields
 import com.sparkutils.quality.impl.{ExpressionRunner, RuleEngineRunnerImpl, RuleRunnerImpl}
@@ -21,7 +21,7 @@ trait AddDataFunctionsImports {
   def addDataQuality(dataFrame: DataFrame, rules: RuleSuite, name: String = "DataQuality", compileEvals: Boolean = false,
                      forceRunnerEval: Boolean = false): DataFrame = {
     import org.apache.spark.sql.functions.expr
-    dataFrame.select(expr("*"), RuleRunnerImpl.ruleRunnerImpl(rules, compileEvals = compileEvals,
+    dataFrame.select(expr("*"), com.sparkutils.quality.ruleRunner(rules, compileEvals = compileEvals,
       forceRunnerEval = forceRunnerEval).as(name))
   }
 
@@ -169,7 +169,33 @@ trait AddDataFunctionsImports {
     (if ( (alias eq null) || alias.isEmpty )
       dataFrame
     else
-      dataFrame.as(alias)).select(expr("*"), RuleEngineRunnerImpl.ruleEngineRunnerImpl(rules, outputType, debugMode = debugMode,
+      dataFrame.as(alias)).select(expr("*"), ruleEngineRunner(rules, Some(outputType), debugMode = debugMode,
+      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval).as(ruleEngineFieldName))
+  }
+
+  /**
+   * Optional outputType, when none attempts will be made by spark to derive the output type based on the first output.
+   * This is often correct, but nullablity and ordering of fields are known problems, use the output type to correct them.
+   *
+   * Leverages the ruleRunner to produce an new output structure, the outputType defines the output structure generated.
+   *
+   * This version should only be used when you require select(*, ruleRunner) to be used, it requires you fully specify types.
+   *
+   * @param rules
+   * @param dataFrame the input dataframe
+   * @param outputType The fields, and types, are used to call the foldRunner.  These types must match in the input fields
+   * @param ruleEngineFieldName The field name the results will be stored in, by default ruleEngine
+   * @param alias sets the alias to use for dataFrame when using subqueries to resolve ambiguities, setting to an empty string (or null) will not assign an alias
+   * @return
+   */
+  def ruleEngineWithStructOT(dataFrame: DataFrame, rules: RuleSuite, outputType: Option[DataType] = None,
+                           ruleEngineFieldName: String = "ruleEngine", alias: String = "main", debugMode: Boolean = false,
+                           compileEvals: Boolean = false, forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false): DataFrame = {
+    import org.apache.spark.sql.functions.expr
+    (if ( (alias eq null) || alias.isEmpty )
+      dataFrame
+    else
+      dataFrame.as(alias)).select(expr("*"), ruleEngineRunner(rules, outputType, debugMode = debugMode,
       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval).as(ruleEngineFieldName))
   }
 
@@ -189,6 +215,24 @@ trait AddDataFunctionsImports {
       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval).asInstanceOf[P[SRow]]
 
   /**
+   * Optional outputType, when none attempts will be made by spark to derive the output type based on the first output.
+   * This is often correct, but nullablity and ordering of fields are known problems, use the output type to correct them.
+   *
+   * Leverages the ruleRunner to produce an new output structure, the outputType defines the output structure generated.
+   *
+   * This version should only be used when you require select(*, ruleRunner) to be used, it requires you fully specify types.
+   *
+   * @param rules
+   * @param outputType The fields, and types, are used to call the foldRunner.  These types must match in the input fields
+   * @return
+   */
+  def ruleEngineWithStructFOT[P[R] >: DatasetBase[R]](rules: RuleSuite, outputType: Option[DataType] = None,
+                                                    ruleEngineFieldName: String = "ruleEngine", alias: String = "main", debugMode: Boolean = false,
+                                                    compileEvals: Boolean = false, forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false): P[SRow] => P[SRow] =
+    (p: P[SRow]) => ruleEngineWithStructOT(p.asInstanceOf[DataFrame], rules, outputType, ruleEngineFieldName, alias, debugMode,
+      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval).asInstanceOf[P[SRow]]
+
+  /**
    * Runs the ruleSuite expressions saving results as a tuple of (ruleResult: yaml, resultType: String)
    * Supplying a ddlType triggers the output type for the expression to be that ddl type, rather than using yaml conversion.
    * @param renderOptions provides rendering options to the underlying snake yaml implementation
@@ -198,18 +242,21 @@ trait AddDataFunctionsImports {
    */
   def addExpressionRunner(dataFrame: DataFrame, ruleSuite: RuleSuite, name: String = "expressionResults",
                        renderOptions: Map[String, String] = Map.empty, ddlType: String = "",
-                       forceRunnerEval: Boolean = false, compileEvals: Boolean = false, stripDDL: Boolean = false): DataFrame = {
+                       forceRunnerEval: Boolean = false, compileEvals: Boolean = false,
+                       stripDDL: Boolean = false, postProcess: DataFrame => DataFrame = identity): DataFrame = {
     import org.apache.spark.sql.functions.expr
     val runner =
       ExpressionRunner(ruleSuite, name = name, renderOptions = renderOptions,
       ddlType = ddlType,
       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval)
 
-    dataFrame.select(expr("*"),
-      if (stripDDL)
-        strip_result_ddl(runner)
-      else
-        runner
+    postProcess(
+      dataFrame.select(expr("*"),
+        if (stripDDL)
+          strip_result_ddl(runner).as(name)
+        else
+          runner
+      )
     )
   }
 
@@ -223,11 +270,13 @@ trait AddDataFunctionsImports {
    */
   def addExpressionRunnerF[P[R] >: DatasetBase[R]](ruleSuite: RuleSuite, name: String = "expressionResults",
                        renderOptions: Map[String, String] = Map.empty, ddlType: String = "",
-                       forceRunnerEval: Boolean = false, compileEvals: Boolean = false, stripDDL: Boolean = false): P[SRow] => P[SRow] =
+                       forceRunnerEval: Boolean = false, compileEvals: Boolean = false,
+                       stripDDL: Boolean = false, postProcess: DataFrame => DataFrame = identity): P[SRow] => P[SRow] =
     (p: P[SRow]) => {
       import org.apache.spark.sql.functions.expr
       addExpressionRunner(p.asInstanceOf[DataFrame], ruleSuite, name = name, renderOptions = renderOptions,
         ddlType = ddlType,
-        compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, stripDDL = stripDDL).asInstanceOf[P[SRow]]
+        compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, stripDDL = stripDDL,
+        postProcess = postProcess).asInstanceOf[P[SRow]]
     }
 }

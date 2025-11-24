@@ -1,11 +1,11 @@
 package com.sparkutils.quality.impl.imports
 
 import com.sparkutils.quality.RuleSuite
-import com.sparkutils.quality.impl.ProcessDisableIfMissing
+import com.sparkutils.quality.impl.{ProcessDisableIfMissing, VariableProcessIfMissing}
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.types.StructType
 
-trait ProcessDisableIfMissingImports {
+trait ProcessDisableIfMissingImports extends VariableProcessIfMissing {
   /**
    * Processes a given RuleSuite to replace any coalesceIfMissingAttributes.  This may be called before validate / docs but
    * *must* be called *before* adding the expression to a dataframe.

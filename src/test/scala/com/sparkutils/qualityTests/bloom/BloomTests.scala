@@ -3,14 +3,15 @@ package com.sparkutils.qualityTests.bloom
 import com.sparkutils.quality._
 import functions._
 import com.sparkutils.qualityTests._
+import com.sparkutils.qualityTests.util.ClassicSharedTests
+import com.sparkutils.testing.TestUtils.{anyCauseHas, debug}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.{Column, DataFrame, SaveMode, SparkSession}
-import org.junit.Test
 import org.scalatest.FunSuite
 
 case class Pair(a: Long, b: Long)
 
-class BloomTests extends FunSuite with TestUtils {
+class BloomTests extends ClassicSharedTests {
 
   def directCreateSpark() = {
     // train it
@@ -22,10 +23,10 @@ class BloomTests extends FunSuite with TestUtils {
   }
 
   def directCreateParquetExpr() =
-    directCreateParquetI(bloomLookup(_), expr(s"small_bloom(id, 20, cast(0.01 as double))"))
+    directCreateParquetI(bloomLookup, expr(s"small_bloom(id, 20, cast(0.01 as double))"))
 
   def directCreateParquetCol() =
-    directCreateParquetI(bloomLookup(_), small_bloom(col("id"), 20, 0.01))
+    directCreateParquetI(bloomLookup, small_bloom(col("id"), 20, 0.01))
 
   def directCreateBucketedArrayParquet(bloomType: String = "eager") = {
     registerQualityFunctions()
@@ -66,7 +67,8 @@ class BloomTests extends FunSuite with TestUtils {
   def doVerifyMeasurement(func: (BloomFilterMap, DataFrame) => DataFrame, bloomsF: () => (BloomFilterMap, Double) = directCreateSpark): Unit = evalCodeGensNoResolve { // eval only works here - can't compile due to types being messsed up?
     val (blooms, fpp) = bloomsF()
 
-    import sqlContext.implicits._
+    val sc = sqlContext
+    import sc.implicits._
 
     val comporig = sqlContext.createDataset(Seq(
       Pair(0, 0),
@@ -104,25 +106,21 @@ class BloomTests extends FunSuite with TestUtils {
         df.withColumn("probability", expr("probabilityIn(a + b, 'ids')"))},
     bloomsF)
 
-  @Test
-  def verifyMeasurementColumnSpark(): Unit = evalCodeGensNoResolve {
+  test("verifyMeasurementColumnSpark") { evalCodeGensNoResolve {
     doVerifyMeasurementColumn(directCreateSpark)
-  }
+  } }
 
-  @Test
-  def verifyMeasurementSQLSpark(): Unit = evalCodeGensNoResolve {
+  test("verifyMeasurementSQLSpark") { evalCodeGensNoResolve {
     doVerifyMeasurementSQL(directCreateSpark)
-  }
+  } }
 
-  @Test
-  def verifyMeasurementColumnParquet(): Unit = evalCodeGensNoResolve {
+  test("verifyMeasurementColumnParquet") { evalCodeGensNoResolve {
     doVerifyMeasurementColumn(directCreateParquetExpr)
-  }
+  } }
 
-  @Test
-  def verifyMeasurementSQLParquet(): Unit = evalCodeGensNoResolve {
+  test("verifyMeasurementSQLParquet") { evalCodeGensNoResolve {
     doVerifyMeasurementSQL(directCreateParquetCol)
-  }
+  } }
 
   def createViaDFRoundTripSpark() = {
     // train it
@@ -156,40 +154,39 @@ class BloomTests extends FunSuite with TestUtils {
       reread.withColumn("probability", expr("probabilityIn(a + b, 'ids')"))
     }, f)
 
-  @Test
-  def verifyMeasurementSQLRoundTripSpark(): Unit =
+  test("verifyMeasurementSQLRoundTripSpark") {
     doVerifyMeasurementSQLRoundTrip(createViaDFRoundTripSpark)
+  }
 
-  @Test
-  def verifyCompilationSpark(): Unit =
+  test("verifyCompilationSpark") {
     doVerifyCompilation(createViaDFRoundTripSpark)
+  }
 
-  @Test
-  def verifyMeasurementSQLRoundTripBucketedArrayEager(): Unit =
+  test("verifyMeasurementSQLRoundTripBucketedArrayEager") {
     doVerifyMeasurementSQLRoundTrip(() => directCreateBucketedArrayParquet("eager"))
+  }
 
-  @Test
-  def verifyCompilationBucketedArrayEager(): Unit =
+  test("verifyCompilationBucketedArrayEager") {
     doVerifyCompilation(() => directCreateBucketedArrayParquet("eager"))
+  }
 
-  @Test
-  def verifyMeasurementSQLRoundTripBucketedArrayLazy(): Unit =
+  test("verifyMeasurementSQLRoundTripBucketedArrayLazy") {
     doVerifyMeasurementSQLRoundTrip(() => directCreateBucketedArrayParquet("lazy"))
+  }
 
-  @Test
-  def verifyCompilationBucketedArrayLazy(): Unit =
+  test("verifyCompilationBucketedArrayLazy") {
     doVerifyCompilation( () => directCreateBucketedArrayParquet("lazy") )
+  }
 
-  @Test
-  def verifyMeasurementSQLRoundTripBucketedArrayMapped(): Unit =
+  test("verifyMeasurementSQLRoundTripBucketedArrayMapped") {
     doVerifyMeasurementSQLRoundTrip( () => directCreateBucketedArrayParquet("mapped") )
+  }
 
-  @Test
-  def verifyCompilationBucketedArrayMapped(): Unit =
+  test("verifyCompilationBucketedArrayMapped") {
     doVerifyCompilation(() => directCreateBucketedArrayParquet("mapped"))
+  }
 
-  @Test
-  def assertIncrementalBucketsViaFPP(): Unit = evalCodeGensNoResolve {
+  test("assertIncrementalBucketsViaFPP") { evalCodeGensNoResolve {
     // going beyond 10 is pointless for a bloom and will cause a wrap around
     val numItems = 10000000000L
     var prev = 0L
@@ -199,10 +196,9 @@ class BloomTests extends FunSuite with TestUtils {
       assert(buckets > prev, "As we increase FPP we should see an increased number of buckets" )
       prev = buckets
     }
-  }
+  } }
 
-  @Test
-  def assertIncrementalBucketsViaExpectedNums(): Unit = evalCodeGensNoResolve {
+  test("assertIncrementalBucketsViaExpectedNums") { evalCodeGensNoResolve {
     val fpp = 0.01
     val numItemsStarter = 1000000000000L
     var prev = 0L
@@ -211,10 +207,9 @@ class BloomTests extends FunSuite with TestUtils {
       assert(buckets > prev, "As we increase FPP we should see an increased number of buckets" )
       prev = buckets
     }
-  }
+  } }
 
-  @Test
-  def verifyBloomsAreIdentified(): Unit = evalCodeGensNoResolve {
+  test("verifyBloomsAreIdentified") { evalCodeGensNoResolve {
      val rules = RuleSuite(Id(1,1), Seq(
       RuleSet(Id(50, 1), Seq(
         Rule(Id(100, 1), ExpressionRule("1<2 and probabilityIn(a + b, 'ids')")),
@@ -240,10 +235,9 @@ class BloomTests extends FunSuite with TestUtils {
 
     val expected = Seq("ids", "dont have it", "amy", "bungle")
     assert(expected == ids, "Did not get the expected id's in the right order")
-  }
+  } }
 
-  @Test
-  def verifyInputParams(): Unit = evalCodeGensNoResolve {
+  test("verifyInputParams") { evalCodeGensNoResolve {
     registerQualityFunctions()
     // train it
     val orig = sqlContext.range(1, 20)
@@ -272,10 +266,9 @@ class BloomTests extends FunSuite with TestUtils {
         val spark34 = t.getMessage.contains("however \"1\" has the type \"INT\".")
         assert(spark2_and_3 || spark32 || spark34 || early_spark34_dbr11_n_12)
     }
-  }
+  } }
 
-  @Test
-  def shouldThrowOnUnknownBlooms(): Unit = {
+  test("shouldThrowOnUnknownBlooms") {
     val b = sparkSession.sparkContext.broadcast(Map.empty[ String, (BloomLookup, Double) ])
     registerBloomMapAndFunction(b)
     try {

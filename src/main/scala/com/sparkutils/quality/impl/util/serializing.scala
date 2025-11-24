@@ -98,6 +98,38 @@ object Serializing {
     (map.toMap, Map() ++ notexists)
   }
 
+  /**
+   * Loads lambda functions
+   * @param lambdaFunctionDF
+   * @param lambdaFunctionRuleSuiteId
+   * @param lambdaFunctionRuleSuiteVersion
+   * @param lambdaFunctionId
+   * @param lambdaFunctionVersion
+   * @param lambdaFunctionName
+   * @param lambdaFunctionExpression
+   * @return
+   */
+  def readLambdaRowsFromDF(
+                         lambdaFunctionDF: DataFrame,
+                         lambdaFunctionName: Column,
+                         lambdaFunctionExpression: Column,
+                         lambdaFunctionId: Column,
+                         lambdaFunctionVersion: Column,
+                         lambdaFunctionRuleSuiteId: Column,
+                         lambdaFunctionRuleSuiteVersion: Column
+                       ): Dataset[LambdaFunctionRow] = {
+    import lambdaFunctionDF.sparkSession.implicits._
+
+    val lambdaFunctionRows = lambdaFunctionDF.select(
+      lambdaFunctionName.as("name"),
+      lambdaFunctionExpression.as("ruleExpr"),
+      lambdaFunctionId.as("functionId"),
+      lambdaFunctionVersion.as("functionVersion"),
+      lambdaFunctionRuleSuiteId.as("ruleSuiteId"),
+      lambdaFunctionRuleSuiteVersion.as("ruleSuiteVersion")
+    ).as[LambdaFunctionRow]
+    lambdaFunctionRows
+  }
 
   /**
    * Loads lambda functions
@@ -119,22 +151,52 @@ object Serializing {
                          lambdaFunctionRuleSuiteId: Column,
                          lambdaFunctionRuleSuiteVersion: Column
                        ): Map[Id, Seq[LambdaFunction]] = {
-    import lambdaFunctionDF.sparkSession.implicits._
-
-    val lambdaFunctionRows = lambdaFunctionDF.select(
-      lambdaFunctionName.as("name"),
-      lambdaFunctionExpression.as("ruleExpr"),
-      lambdaFunctionId.as("functionId"),
-      lambdaFunctionVersion.as("functionVersion"),
-      lambdaFunctionRuleSuiteId.as("ruleSuiteId"),
-      lambdaFunctionRuleSuiteVersion.as("ruleSuiteVersion")
-    ).as[LambdaFunctionRow].toLocalIterator().asScala.toSeq
+    val lambdaFunctionRows =
+      readLambdaRowsFromDF(
+        lambdaFunctionDF,
+        lambdaFunctionName,
+        lambdaFunctionExpression,
+        lambdaFunctionId,
+        lambdaFunctionVersion,
+        lambdaFunctionRuleSuiteId,
+        lambdaFunctionRuleSuiteVersion
+      ).toLocalIterator().asScala.toSeq
 
     lambdaFunctionRows.groupBy( r => packId( Id(r.ruleSuiteId, r.ruleSuiteVersion))).mapValues {
       values =>
         val id = Id(values.head.ruleSuiteId, values.head.ruleSuiteVersion)
         id -> values.map( r => LambdaFunction(r.name, r.ruleExpr, Id(r.functionId, r.functionVersion)) ).toVector
     }.values.toMap
+  }
+
+  /**
+   * Loads output expressions
+   * @param outputExpressionDF
+   * @param outputExpressionRuleSuiteId
+   * @param outputExpressionRuleSuiteVersion
+   * @param outputExpressionId
+   * @param outputExpressionVersion
+   * @param outputExpression
+   * @return
+   */
+  def readOutputExpressionRowsFromDF(
+                                   outputExpressionDF: DataFrame,
+                                   outputExpression: Column,
+                                   outputExpressionId: Column,
+                                   outputExpressionVersion: Column,
+                                   outputExpressionRuleSuiteId: Column,
+                                   outputExpressionRuleSuiteVersion: Column
+                                 ): Dataset[OutputExpressionRow] = {
+    import outputExpressionDF.sparkSession.implicits._
+
+    val outputExpressionRows = outputExpressionDF.select(
+      outputExpression.as("ruleExpr"),
+      outputExpressionId.as("functionId"),
+      outputExpressionVersion.as("functionVersion"),
+      outputExpressionRuleSuiteId.as("ruleSuiteId"),
+      outputExpressionRuleSuiteVersion.as("ruleSuiteVersion")
+    ).as[OutputExpressionRow]
+    outputExpressionRows
   }
 
   /**
@@ -155,15 +217,15 @@ object Serializing {
                                    outputExpressionRuleSuiteId: Column,
                                    outputExpressionRuleSuiteVersion: Column
                                  ): Map[Id, Seq[OutputExpressionRow]] = {
-    import outputExpressionDF.sparkSession.implicits._
-
-    val outputExpressionRows = outputExpressionDF.select(
-      outputExpression.as("ruleExpr"),
-      outputExpressionId.as("functionId"),
-      outputExpressionVersion.as("functionVersion"),
-      outputExpressionRuleSuiteId.as("ruleSuiteId"),
-      outputExpressionRuleSuiteVersion.as("ruleSuiteVersion")
-    ).as[OutputExpressionRow].toLocalIterator().asScala.toSeq
+    val outputExpressionRows =
+      readOutputExpressionRowsFromDF(
+        outputExpressionDF,
+        outputExpression,
+        outputExpressionId,
+        outputExpressionVersion,
+        outputExpressionRuleSuiteId,
+        outputExpressionRuleSuiteVersion
+      ).toLocalIterator().asScala.toSeq
 
     outputExpressionRows.groupBy( r => packId( Id(r.ruleSuiteId, r.ruleSuiteVersion))).mapValues {
       values =>
@@ -207,8 +269,9 @@ object Serializing {
    * @return
    */
   def toSeq(ruleSuite: RuleSuite): RuleSuite =
-    RuleSuite(ruleSuite.id,
-      ruleSuite.ruleSets.map( rs => RuleSet(rs.id, rs.rules.sortBy(r => packId(r.id)).toVector)).toVector
+    ruleSuite.copy(
+      ruleSets = ruleSuite.ruleSets.map( rs => RuleSet(rs.id, rs.rules.sortBy(r => packId(r.id)).toVector)).toVector,
+      lambdaFunctions = ruleSuite.lambdaFunctions.toVector
     )
 
   /**
@@ -217,7 +280,7 @@ object Serializing {
    * @return
    */
   def toSeq(ruleSuiteMap: RuleSuiteMap): RuleSuiteMap =
-    ruleSuiteMap.mapValues(toSeq _).toMap
+    ruleSuiteMap.mapValues(toSeq).toMap
 
   /**
    * Loads a RuleSuite from a dataframe with integers ruleSuiteId, ruleSuiteVersion, ruleSetId, ruleSetVersion, ruleId, ruleVersion and an expression string ruleExpr
@@ -266,9 +329,9 @@ object Serializing {
       Some((ruleEngineSalience, ruleEngineId, ruleEngineVersion)))
 
   /**
-   * Loads a RuleSuite from a dataframe with integers ruleSuiteId, ruleSuiteVersion, ruleSetId, ruleSetVersion, ruleId, ruleVersion and an expression string ruleExpr
+   * Loads RuleRows from a dataframe with integers ruleSuiteId, ruleSuiteVersion, ruleSetId, ruleSetVersion, ruleId, ruleVersion and an expression string ruleExpr
    */
-  def ireadRulesFromDF(df: DataFrame,
+  def readRuleRowsFromDF(df: DataFrame,
                        ruleSuiteId: Column,
                        ruleSuiteVersion: Column,
                        ruleSetId: Column,
@@ -277,7 +340,7 @@ object Serializing {
                        ruleVersion: Column,
                        ruleExpr: Column,
                        ruleEngine: Option[(Column, Column, Column)] = None
-                      ): RuleSuiteMap = {
+                      ): Dataset[RuleRow] = {
 
     import df.sparkSession.implicits._
 
@@ -299,13 +362,43 @@ object Serializing {
         re._3.as("ruleEngineVersion")
       )).getOrElse(
         baseColumns ++ Seq(
-          expr("1234567890 as ruleEngineSalience"),
-          expr("0 as ruleEngineId"),
-          expr("0 as ruleEngineVersion")
+          expr(s"$notPresentSalience as ruleEngineSalience"),
+          expr(s"$notPresentOutputId as ruleEngineId"),
+          expr(s"$notPresentOutputVersion as ruleEngineVersion")
         )
       )
 
-    val ruleRows = df.select(ruleRowsColumns :_* ).as[RuleRow].toLocalIterator().asScala.toSeq
+    val ruleRows = df.select(ruleRowsColumns :_* ).as[RuleRow]
+    ruleRows
+  }
+
+  val notPresentSalience: Int = 1234567890
+  val notPresentOutputId: Int = Int.MinValue
+  val notPresentOutputVersion: Int = Int.MinValue
+
+    /**
+   * Loads a RuleSuite from a dataframe with integers ruleSuiteId, ruleSuiteVersion, ruleSetId, ruleSetVersion, ruleId, ruleVersion and an expression string ruleExpr
+   */
+  def ireadRulesFromDF(df: DataFrame,
+                       ruleSuiteId: Column,
+                       ruleSuiteVersion: Column,
+                       ruleSetId: Column,
+                       ruleSetVersion: Column,
+                       ruleId: Column,
+                       ruleVersion: Column,
+                       ruleExpr: Column,
+                       ruleEngine: Option[(Column, Column, Column)] = None
+                      ): RuleSuiteMap = {
+
+    val ruleRows = readRuleRowsFromDF(df,
+      ruleSuiteId,
+      ruleSuiteVersion,
+      ruleSetId,
+      ruleSetVersion,
+      ruleId,
+      ruleVersion,
+      ruleExpr,
+      ruleEngine).toLocalIterator().asScala.toSeq
 
     val r = ruleRows.groupBy(r => packId( Id(r.ruleSuiteId, r.ruleSuiteVersion) )).mapValues {
       suite =>
@@ -366,7 +459,7 @@ object Serializing {
       )
     }
 
-    val sess = SparkSession.getDefaultSession.get
+    val sess = SparkSession.active
     import sess.implicits._
 
     sess.createDataset(ruleRows)
@@ -383,7 +476,7 @@ object Serializing {
         LambdaFunctionRow(function.name, function.rule, function.id.id, function.id.version, ruleSuite.id.id, ruleSuite.id.version)
       }
 
-    val sess = SparkSession.getDefaultSession.get
+    val sess = SparkSession.active
     import sess.implicits._
 
     sess.createDataset(flattened)
@@ -401,7 +494,7 @@ object Serializing {
         OutputExpressionRow(oe.rule, oe.id.id, oe.id.version, ruleSuite.id.id, ruleSuite.id.version)
       })
 
-    val sess = SparkSession.getDefaultSession.get
+    val sess = SparkSession.active
     import sess.implicits._
 
     sess.createDataset(flattened)

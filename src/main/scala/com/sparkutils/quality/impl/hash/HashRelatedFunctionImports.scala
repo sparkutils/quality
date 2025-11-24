@@ -2,13 +2,14 @@ package com.sparkutils.quality.impl.hash
 
 import com.sparkutils.quality.impl.id.{GenericLongBasedIDExpression, model}
 import org.apache.spark.sql.Column
-import org.apache.spark.sql.ShimUtils.{column, expression}
+import org.apache.spark.sql.ShimUtils.{callFunction, column, expression}
+import org.apache.spark.sql.functions.lit
 import org.apache.spark.sql.shim.hash.DigestFactory
 
 trait HashRelatedFunctionImports {
 
-  protected def hashF(asStruct: Boolean, digestImpl: String, factory: String => DigestFactory, cols: Column*): Column =
-    column(HashFunctionsExpression(cols.map(expression(_)), digestImpl, asStruct, factory(digestImpl)))
+  protected def hashF(func: String, digestImpl: String, cols: Column*): Column =
+    callFunction(func, (Seq(lit(digestImpl)) ++ cols) :_*)
 
   /**
    * Converts columns into a digest via the MessageDigest digestImpl
@@ -18,7 +19,7 @@ trait HashRelatedFunctionImports {
    * @return array of long
    */
   def digest_to_longs(digestImpl: String, cols: Column*): Column =
-    hashF(false, digestImpl, MessageDigestFactory, cols: _*)
+    hashF("digest_to_longs", digestImpl, cols: _*)
 
   /**
    * Converts columns into a digest via the MessageDigest digestImpl
@@ -28,11 +29,10 @@ trait HashRelatedFunctionImports {
    * @return struct with fields i0, i1, i2 etc.
    */
   def digest_to_longs_struct(digestImpl: String, cols: Column*): Column =
-    hashF(true, digestImpl, MessageDigestFactory, cols: _*)
+    hashF("digest_to_longs_struct", digestImpl, cols: _*)
 
-  protected def fieldBasedIDF(prefix: String, digestImpl: String, factory: String => DigestFactory, cols: Column*): Column =
-    column(GenericLongBasedIDExpression(model.FieldBasedID,
-      HashFunctionsExpression(cols.map(expression(_)), digestImpl, true, factory(digestImpl)), prefix))
+  protected def fieldBasedIDF(func: String, prefix: String, digestImpl: String, cols: Column*) =
+    callFunction(func, (Seq(lit(prefix), lit(digestImpl)) ++ cols) :_*)
 
   /**
    * Creates an id from fields using MessageDigests
@@ -42,7 +42,20 @@ trait HashRelatedFunctionImports {
    * @return
    */
   def field_based_id(prefix: String, digestImpl: String, cols: Column*): Column =
-    fieldBasedIDF(prefix, digestImpl, MessageDigestFactory, cols: _*)
+    fieldBasedIDF("field_based_id", prefix, digestImpl, cols :_*)
+
+
+  /**
+   * Creates an id from fields using MessageDigests, in line with SQL naming please use field_based_id
+   *
+   * @param prefix
+   * @param digestImpl
+   * @param children
+   * @return
+   */
+  @deprecated(since = "0.1.0", message = "migrate to field_based_id")
+  def fieldBasedID(prefix: String, digestImpl: String, children: Column *): Column =
+    field_based_id(prefix, digestImpl, children:_*)
 
   /**
    * Creates an id from fields using ZeroAllocation LongTuple Factory (128-bit)
@@ -53,7 +66,7 @@ trait HashRelatedFunctionImports {
    * @return
    */
   def za_longs_field_based_id(prefix: String, digestImpl: String, cols: Column*): Column =
-    fieldBasedIDF(prefix, digestImpl, ZALongTupleHashFunctionFactory, cols: _*)
+    fieldBasedIDF("za_longs_field_based_id", prefix, digestImpl, cols :_*)
 
   /**
    * Creates an id from fields using ZeroAllocation LongHashFactory (64bit)
@@ -64,7 +77,7 @@ trait HashRelatedFunctionImports {
    * @return
    */
   def za_field_based_id(prefix: String, digestImpl: String, cols: Column*): Column =
-    fieldBasedIDF(prefix, digestImpl, ZALongHashFunctionFactory, cols: _*)
+    fieldBasedIDF("za_field_based_id", prefix, digestImpl, cols :_*)
 
   /**
    * Creates an id from fields using Guava Hashers
@@ -75,7 +88,7 @@ trait HashRelatedFunctionImports {
    * @return
    */
   def hash_field_based_id(prefix: String, digestImpl: String, cols: Column*): Column =
-    fieldBasedIDF(prefix, digestImpl, HashFunctionFactory(_), cols: _*)
+    fieldBasedIDF("hash_field_based_id", prefix, digestImpl, cols :_*)
 
   /**
    * Converts columns into a digest using Guava Hashers
@@ -85,7 +98,7 @@ trait HashRelatedFunctionImports {
    * @return array of long
    */
   def hash_with(digestImpl: String, cols: Column*): Column =
-    hashF(false, digestImpl, HashFunctionFactory(_), cols: _*)
+    hashF("hash_with", digestImpl, cols: _*)
 
   /**
    * Converts columns into a digest using Guava Hashers
@@ -95,7 +108,7 @@ trait HashRelatedFunctionImports {
    * @return struct with fields i0, i1, i2 etc.
    */
   def hash_with_struct(digestImpl: String, cols: Column*): Column =
-    hashF(true, digestImpl, HashFunctionFactory(_), cols: _*)
+    hashF("hash_with_struct", digestImpl, cols: _*)
 
   /**
    * Converts columns into a digest via ZeroAllocation LongHashFactory (64bit)
@@ -105,7 +118,7 @@ trait HashRelatedFunctionImports {
    * @return array of long
    */
   def za_hash_with(digestImpl: String, cols: Column*): Column =
-    hashF(false, digestImpl, ZALongHashFunctionFactory, cols: _*)
+    hashF("za_hash_with", digestImpl, cols: _*)
 
   /**
    * Converts columns into a digest via ZeroAllocation LongHashFactory (64bit)
@@ -115,7 +128,7 @@ trait HashRelatedFunctionImports {
    * @return struct with fields i0, i1, i2 etc.
    */
   def za_hash_with_struct(digestImpl: String, cols: Column*): Column =
-    hashF(true, digestImpl, ZALongHashFunctionFactory, cols: _*)
+    hashF("za_hash_with_struct", digestImpl, cols: _*)
 
   /**
    * Converts columns into a digest via ZeroAllocation LongTuple Factory (128-bit)
@@ -125,7 +138,7 @@ trait HashRelatedFunctionImports {
    * @return array of long
    */
   def za_hash_longs_with(digestImpl: String, cols: Column*): Column =
-    hashF(false, digestImpl, ZALongTupleHashFunctionFactory, cols: _*)
+    hashF("za_hash_longs_with", digestImpl, cols: _*)
 
   /**
    * Converts columns into a digest via ZeroAllocation LongTuple Factory (128-bit)
@@ -135,6 +148,6 @@ trait HashRelatedFunctionImports {
    * @return struct with fields i0, i1, i2 etc.
    */
   def za_hash_longs_with_struct(digestImpl: String, cols: Column*): Column =
-    hashF(true, digestImpl, ZALongTupleHashFunctionFactory, cols: _*)
+    hashF("za_hash_longs_with_struct", digestImpl, cols: _*)
 
 }

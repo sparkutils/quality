@@ -1,20 +1,25 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality.impl.util.RuleSuiteDocs
+
 import java.io.FileOutputStream
 import RuleSuiteDocs.RelativeWarningsAndErrors
 import com.sparkutils.quality.{ExpressionRule, Id, LambdaFunction, OutputExpression, Rule, RuleSet, RuleSuite, RunOnPassProcessor, validate}
+import com.sparkutils.qualityTests.classicOnly.ValidationTest
+import com.sparkutils.qualityTests.util.ClassicSharedTests
+import com.sparkutils.testing.TestUtils.debug
 import org.apache.commons.io.IOUtils
-import org.junit.Test
 
-class DocMarkdownTest extends TestUtils { // test utils to force spark session before register is called
+import java.util.concurrent.atomic.AtomicReference
+
+
+class DocMarkdownTest extends ClassicSharedTests with VariableTestShims { // test utils to force spark session before register is called
 
   /**
    * doesn't test anything but it's helpfully bootstrapped
    */
-  @Test
-  def testMDRuleDocs = {
-    com.sparkutils.quality.registerMapLookupsAndFunction(Map.empty)
+  test("testMDRuleDocs") {
+    registerMapLookupsAndFunction()
     // Id(6,1) is on a rule, outputexpression and a lambda to force correct called by resolution
     val output2 = RunOnPassProcessor(0, Id(6,1), OutputExpression("testCaller2(fielda, fieldb)"))
     val rule1 = Rule(Id(2,1), ExpressionRule("/** description @param fielda desc */ concat(fielda, fieldb)"), output2)
@@ -41,13 +46,13 @@ class DocMarkdownTest extends TestUtils { // test utils to force spark session b
     val relative = RelativeWarningsAndErrors("../sampleDocsValidation/", errors, warnings)
     val md = RuleSuiteDocs.createMarkdown(docs, rs, expr, "../../sqlfunctions/", Some(relative))
 
-    val docsf = new java.io.File(SparkTestUtils.docpath("sampleDocsOutput.md"))
+    val docsf = new java.io.File(QualityDocsPath.docpath("sampleDocsOutput.md"))
     docsf.getParentFile.mkdirs
     IOUtils.write(md, new FileOutputStream(docsf))
 
     debug(println(md))
 
-    val samplesf = new java.io.File(SparkTestUtils.docpath("sampleDocsValidation.md"))
+    val samplesf = new java.io.File(QualityDocsPath.docpath("sampleDocsValidation.md"))
     samplesf.getParentFile.mkdirs
     val emd = RuleSuiteDocs.createErrorAndWarningMarkdown(docs, rs, relative.copy( relativePath = "../sampleDocsOutput/"))
     IOUtils.write(emd, new FileOutputStream(samplesf))
@@ -55,4 +60,12 @@ class DocMarkdownTest extends TestUtils { // test utils to force spark session b
     debug(println(emd))
 
   }
+}
+
+object QualityDocsPath {
+
+  protected var tdocpath = new AtomicReference[String]("./docs/advanced")
+  def docDir = tdocpath.get
+  def docpath(suffix: String) = s"${tdocpath.get}/$suffix"
+
 }

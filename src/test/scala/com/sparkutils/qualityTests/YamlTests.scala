@@ -3,14 +3,15 @@ package com.sparkutils.qualityTests
 import com.sparkutils.quality._
 import com.sparkutils.quality.functions._
 import com.sparkutils.quality.impl.YamlDecoder
+import com.sparkutils.qualityTests.util.{RowTools, SharedConnectTests}
+import org.apache.spark.SparkException
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.DataType
-import org.junit.Test
 import org.scalatest.FunSuite
 
 import scala.language.postfixOps
 
-class YamlTests extends FunSuite with RowTools with TestUtils {
+class YamlTests extends SharedConnectTests with RowTools {
 
   def doSerDeTestMaps(original: String, ddl: String) = evalCodeGens {
     def serDe(renderOptions: Map[String, String]) {
@@ -46,38 +47,37 @@ class YamlTests extends FunSuite with RowTools with TestUtils {
     serDe(Map("useFullScalarType" -> "true"))
   }
 
-  @Test
-  def structsAsKeys: Unit =
+  test("structsAsKeys") {
     doSerDeTestMaps("map(named_struct('col1','group', 'col2','parts'), 1235, named_struct('col1','more','col2','parts'), 2666, named_struct('col1',null,'col2','parts'), null)",
       "map<struct<col1: String, col2: String>, long>")
+  }
 
-  @Test
-  def sequenceAsKeys: Unit =
+  test("sequenceAsKeys") {
     doSerDeTestMaps("map(array('col1','group', 'col2','parts'), 1235, array('col1','more','col2','parts'), 2666, array(null,'more',null,'parts'), 2654645666)",
       "map<array<String>, long>")
+  }
 
-  @Test
-  def structsAsValues: Unit =
+  test("structsAsValues") {
     doSerDeTestMaps("map(1235, named_struct('col1','group', 'col2','parts'), 2666, named_struct('col1','more','col2','parts'), 546456, null)",
       "map<long, struct<col1: String, col2: String>>")
+  }
 
-  @Test
-  def mapsAsValues: Unit =
+  test("mapsAsValues") {
     doSerDeTestMaps("map(named_struct('col1','group', 'col2','parts'), map(1235, null, 1234, 466), named_struct('col1','more','col2','parts'), map(1235, null, 1234, null), named_struct('col1',null,'col2','parts'), null)",
       "map<struct<col1: String, col2: String>, map<long,long>>")
+  }
 
-  @Test
-  def sequencesAsValues: Unit =
+  test("sequencesAsValues") {
     doSerDeTestMaps("map(array('col1','group', 'col2','parts'), array('col1','group', 'col2','parts'), array('col1','more','col2','parts'), array('col1','group', 'col2','parts'), array(null,'more',null,'parts'), null)",
       "map<array<String>, array<String>>")
+  }
 
-  @Test
-  def sequenceAsKeysDecimals: Unit =
+  test("sequenceAsKeysDecimals") {
     doSerDeTestMaps("map(array('col1','group', 'col2','parts'), cast( 1235.34452 as decimal(38,17)), array('col1','more','col2','parts'), cast( 2666.2345 as decimal(38,17)))",
       "map<array<String>, decimal(38,17)>")
+  }
 
-  @Test
-  def theRest: Unit = {
+  test("theRest") {
 
     def doSerDe(original: String, ddl: String) = {
       doSerDeTestMaps(original, ddl)
@@ -132,9 +132,9 @@ class YamlTests extends FunSuite with RowTools with TestUtils {
 
   val UseFullScalarType = "map('useFullScalarType', 'true')"
 
-  @Test
-  def decimalViaYaml: Unit = evalCodeGens {
-    import sparkSession.implicits._
+  test("decimalViaYaml") { evalCodeGens {
+    val s = sparkSession
+    import s.implicits._
     val str =
       sparkSession.sql(s"select to_yaml(cast(1234.50404 as decimal(30,10)), $UseFullScalarType) r").as[String].head
 
@@ -143,10 +143,9 @@ class YamlTests extends FunSuite with RowTools with TestUtils {
     val dec = BigDecimal(1234.50404).setScale(10).bigDecimal
     val obj = yaml.load[java.math.BigDecimal](str);
     assert(obj == dec)
-  }
+  } }
 
-  @Test
-  def sqlTest: Unit = evalCodeGens {
+  test("sqlTest") { evalCodeGens {
     def serDe(mapStr: String) {
       val df = sparkSession.sql("select array(1,2,3,4,5) og")
         .selectExpr("*", s"to_yaml(og$mapStr) y")
@@ -158,31 +157,33 @@ class YamlTests extends FunSuite with RowTools with TestUtils {
 
     serDe("")
     serDe(s", $UseFullScalarType")
-  }
+  } }
 
-  @Test
-  def nonLiteralMapEntriesTest: Unit = evalCodeGens {
+  test("nonLiteralMapEntriesTest") { evalCodeGens {
     try {
       sparkSession.sql("select array(1,2,3,4,5) og")
-        .selectExpr("*", s"to_yaml(og, map(og, 1)) y")
+        .selectExpr("*", s"to_yaml(og, map(og, 1)) y").count()
       fail("Should have thrown as og is not a literal")
     } catch {
       case t: QualityException => assert(t.getMessage.contains("Could not process a literal map with expression"))
+      case t: SparkException => assert(t.getMessage.contains("Could not process a literal map with expression"))
     }
     try {
       sparkSession.sql("select array(1,2,3,4,5) og")
-        .selectExpr("*", s"to_yaml(og, map(1, 'true')) y")
+        .selectExpr("*", s"to_yaml(og, map(1, 'true')) y").count()
       fail("Should have thrown as 1 is not a string literal")
     } catch {
       case t: QualityException => assert(t.getMessage.contains("Could not process a literal map with expression"))
+      case t: SparkException => assert(t.getMessage.contains("Could not process a literal map with expression"))
     }
     try {
       sparkSession.sql("select array(1,2,3,4,5) og")
-        .selectExpr("*", s"to_yaml(og, map('1', og)) y")
+        .selectExpr("*", s"to_yaml(og, map('1', og)) y").count()
       fail("Should have thrown as og is not a literal")
     } catch {
       case t: QualityException => assert(t.getMessage.contains("Could not process a literal map with expression"))
+      case t: SparkException => assert(t.getMessage.contains("Could not process a literal map with expression"))
     }
-  }
+  } }
 
 }

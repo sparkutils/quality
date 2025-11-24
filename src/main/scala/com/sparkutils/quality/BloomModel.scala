@@ -88,7 +88,7 @@ case class BloomModel(rootDir: String, fpp: Double, numBuckets: Int) extends Ser
   }
 
   /**
-   * Removes this bloom's files, this is advised only after you have processed or otherwise saved it's results.  It will remove everything under this bloomid
+   * Removes this bloom's files, this is advised only after you have processed or otherwise saved its results.  It will remove everything under this bloomid
    */
   def removeThisBloom(): Unit = {
     val file = new File(rootDir)

@@ -2,13 +2,13 @@ package com.sparkutils.qualityTests.mapLookup
 
 import com.sparkutils.quality._
 import functions.map_contains
-import com.sparkutils.qualityTests._
+import com.sparkutils.qualityTests.{VariableTestShims, _}
 import com.sparkutils.qualityTests.mapLookup.TradeTests.{ccyRate, countryCodeCCY, simpleTrades, tradeCols}
+import com.sparkutils.qualityTests.util.SharedConnectTests
 import org.apache.spark.sql.catalyst.expressions.GenericRowWithSchema
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.{IntegerType, StringType, StructField, StructType}
 import org.apache.spark.sql.{Column, SparkSession, functions}
-import org.junit.Test
 import org.scalatest.FunSuite
 
 case class Pair(a: Int, b: Int)
@@ -43,7 +43,7 @@ object TradeTests {
   val tradeCols = Seq("date", "product", "value", "ccy", "ccyrate", "country")
 }
 
-object MapLookupTest {
+object MapLookupTest extends VariableTestShims {
 
   val structType = StructType( Seq(
     StructField("funnycheck", IntegerType),
@@ -52,14 +52,15 @@ object MapLookupTest {
 
   def doTradeLookupTest(lookups: _root_.com.sparkutils.quality.MapLookups, sparkSession: SparkSession) = {
     registerMapLookupsAndFunction(lookups)
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
     val df = simpleTrades.toDF(tradeCols: _ *)
 
-    val res = df.select(col("*"), expr("mapLookup('ccyRate', ccy)").as("lookedUpCCYRate"),
-      expr("mapLookup('countryCode', country)").as("countrystuff"),
-      expr("mapLookup('countryCode', country).ccy").as("countrystuffccy")
+    val res = df.select(col("*"), expr(map_lookupSQL("ccyRate", "ccy")).as("lookedUpCCYRate"),
+      expr(map_lookupSQL("countryCode", "country")).as("countrystuff"),
+      expr(s"${map_lookupSQL("countryCode", "country")}.ccy").as("countrystuffccy")
     )
-    TestUtilsEnvironment.debug(res.show())
+    com.sparkutils.testing.TestUtils.debug(res.show())
 
     val countryLookup = countryCodeCCY.map(t => t._1 -> new GenericRowWithSchema(Array(t._2, t._3), structType)).toMap
     import scala.collection.JavaConverters._
@@ -89,12 +90,13 @@ object MapLookupTest {
 
 }
 
-class MapLookupTests extends FunSuite with TestUtils {
+class MapLookupTests extends SharedConnectTests with VariableTestShims  {
 
   import TradeTests._
 
   def getRef(): MapLookups = {
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
 
     mapLookupsFromDFs(Map(
       "countryCode" -> ( () => {
@@ -108,26 +110,25 @@ class MapLookupTests extends FunSuite with TestUtils {
     ))
   }
 
-  @Test
-  def lookupTest: Unit = evalCodeGensNoResolve {
+  test("lookupTest") { evalCodeGensNoResolve {
     val lookups = getRef()
     MapLookupTest.doTradeLookupTest(lookups, sparkSession)
-  }
+  } }
 
-  @Test
-  def setTest: Unit = evalCodeGensNoResolve {
+  test("setTest") { evalCodeGensNoResolve {
     val lookups = getRef()
     registerMapLookupsAndFunction(lookups)
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
     val df = wrongCountryTrade.toDF(tradeCols :_ *)
 
-    val res = df.select(col("*"), expr("mapContains('countryCode', country)").as("doesCountryExist"))
+    val res = df.select(col("*"), expr(map_containsSQL("countryCode","country")).as("doesCountryExist"))
     assert(!res.head.getAs[Boolean]("doesCountryExist"), "CHRISLAND should not exist")
-  }
+  } }
 
-  @Test
-  def emptyTest: Unit = evalCodeGensNoResolve {
-    import sparkSession.implicits._
+  test("emptyTest") { evalCodeGensNoResolve {
+    val s = sparkSession
+    import s.implicits._
 
     val lookups = mapLookupsFromDFs(Map(
       "empty" -> ( () => {
@@ -139,7 +140,7 @@ class MapLookupTests extends FunSuite with TestUtils {
     registerMapLookupsAndFunction(lookups)
     val df = wrongCountryTrade.toDF(tradeCols :_ *)
 
-    val res = df.select(col("*"), expr("mapContains('empty', country)").as("doesCountryExist")).
+    val res = df.select(col("*"), expr(map_containsSQL("empty","country")).as("doesCountryExist")).
       filter("doesCountryExist = false")
     assert(res.count == df.count,"all of the rows should be false" )
 
@@ -147,11 +148,11 @@ class MapLookupTests extends FunSuite with TestUtils {
     val res2 = df.select(col("*"), map_contains("empty", col("country"), lookups).as("doesCountryExist")).
       filter("doesCountryExist = false")
     assert(res2.count == df.count,"all of the rows should be false" )
-  }
+  } }
 
-  @Test
-  def multiKey: Unit = evalCodeGensNoResolve {
-    import sparkSession.implicits._
+  test("multiKey") { evalCodeGensNoResolve {
+    val s = sparkSession
+    import s.implicits._
 
     val lookups = mapLookupsFromDFs(Map(
       "multi" -> ( () => {
@@ -162,13 +163,16 @@ class MapLookupTests extends FunSuite with TestUtils {
 
     registerMapLookupsAndFunction(lookups)
 
-    val res = sparkSession.sql("select mapLookup('multi', struct('GB', 2)) res").as[String].collect()
+    val res = sparkSession.sql(s"select ${map_lookupSQL("multi", "struct('GB', 2)")} res").as[String].collect()
     assert(res.length == 1,"should have found a single match" )
     assert(res.head == "GBP", "should have got the pound")
-  }
 
-  @Test
-  def taxonomyLookup: Unit = forceInterpreted { funNRewrites {
+    val res2 = sparkSession.sql(s"select struct('GB', 2) key").select(map_lookup("multi", col("key"), lookups)).as[String].collect()
+    assert(res2.length == 1,"should have found a single match" )
+    assert(res2.head == "GBP", "should have got the pound")
+  } }
+
+  test("taxonomyLookup") { forceInterpreted { funNRewrites {
     val orchid = Seq("open","difficult","prized")
 
     // 1) if a hierarchy is not given whole term is null and default to input (null, null) key
@@ -181,7 +185,8 @@ class MapLookupTests extends FunSuite with TestUtils {
       Item("cars", "ferrari", scala.collection.immutable.Seq("fast","compensatory measure")),
       Item("cars", "skoda", scala.collection.immutable.Seq("outdated reputation", "drives doesn't it?"))
     )
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
     val datadf = data.toDS//("hierarchy","item","data")
 
     val lookups = mapLookupsFromDFs(Map(
@@ -193,7 +198,7 @@ class MapLookupTests extends FunSuite with TestUtils {
     registerMapLookupsAndFunction(lookups)
 
     registerLambdaFunctions(Seq(LambdaFunction("hierarchyLookup",
-      s"( hierarchy, item) -> if(item is null, array(), nvl(mapLookup('hierarchy', struct(hierarchy, item)), array(item)))",Id(0,1))))
+      s"( hierarchy, item) -> if(item is null, array(), nvl(${map_lookupSQL("hierarchy","struct(hierarchy, item)")}, array(item)))",Id(0,1))))
 
     def orNull(what: String) =
       if (what eq null) "null" else s"'$what'"
@@ -211,7 +216,7 @@ class MapLookupTests extends FunSuite with TestUtils {
     assert(testLookup("flowers", null) == Seq(), "Rule 4")
 
     // NB this only works as there is a struct (tuple) wrapping the fields so the lookup itself is non-null, although the values are null
-  } }
+  } } }
 }
 
 case class Item(hierarchy: String, item: String, attributes: scala.collection.immutable.Seq[String])

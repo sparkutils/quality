@@ -2,14 +2,14 @@ package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.HasRuleText
+import com.sparkutils.qualityTests.util.SharedConnectTests
+import com.sparkutils.testing.TestUtils.debug
 import impl.imports.RuleResultsImports.packId
 import impl.util.OutputExpressionRow
 import org.apache.spark.sql.functions._
-import org.junit.Test
-import org.scalatest.FunSuite
 import simpleVersioning._
 
-class VersionSerializingTest extends FunSuite with TestUtils {
+class VersionSerializingTest extends SharedConnectTests {
 
   /**
    * Verify versions with all combos.
@@ -17,8 +17,7 @@ class VersionSerializingTest extends FunSuite with TestUtils {
    * Lambdas are additive but will select the highest version (global or otherwise).
    * Output expressions are exact.
    */
-  @Test
-  def ruleEngineSuiteVersionedRoundTripsDF: Unit = evalCodeGens {
+  test("ruleEngineSuiteVersionedRoundTripsDF") { evalCodeGens {
     // literal description of what should be in the files - not the objects
     val (rsIdA1, rsIdA2, rsIdA3) = (Id(1,1), Id(1,2), Id(1,3))
     val rulesA1 = RuleSuite(rsIdA1, Seq(
@@ -97,7 +96,8 @@ class VersionSerializingTest extends FunSuite with TestUtils {
             null // just to keep the outputexpressions clean
         }.filterNot(_ eq null))
       val outputExpressionsDF = {
-        import sparkSession.implicits._
+        val s = sparkSession
+    import s.implicits._
         flattened.toDF
       }
       outputExpressionsDF
@@ -170,6 +170,6 @@ class VersionSerializingTest extends FunSuite with TestUtils {
     assertEq(rsIdA2, expectedA2)
     assertEq(rsIdA3, expectedA3)
 
-  }
+  } }
 
 }

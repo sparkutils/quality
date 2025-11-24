@@ -1,5 +1,6 @@
 package com.sparkutils.quality.impl.util
 
+import com.sparkutils.quality.impl.NamedStruct
 import com.sparkutils.quality.{RuleSuite, ruleFolderRunner}
 import com.sparkutils.shim.expressions.CreateNamedStruct1
 import org.apache.spark.sql.{Column, DataFrame, ShimUtils, Row => SRow}
@@ -28,36 +29,36 @@ protected[quality] object AddDataFunctions {
     val df = rdf.asInstanceOf[DataFrame]
     import org.apache.spark.sql.functions._
 
-    val fieldNames = fields.fold(identity, _.map(_._1))
+    val fieldNames = fields.fold(identity, _.map(_._1)).toSet
 
-    val theStruct = fields.fold( fields =>
-      struct(fields.head, fields.tail :_*),
-      pairs =>
-        ShimUtils.column(
-          CreateNamedStruct1(pairs.flatMap(p => Seq(lit(p._1), p._2)).map(ShimUtils.expression(_)))
-        )
+    val theStruct = fields.fold(
+      fields => struct(fields.head, fields.tail :_*),
+      pairs => NamedStruct(pairs)
     )
     val withFolder =
-      /* < 3.2 can't handle select
-      df.select(expr("*"), ruleFolderRunner(rules, theStruct, debugMode = debugMode, useType = useType,
-       compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval).as(foldFieldName)) */
       df.withColumn(foldFieldName, ruleFolderRunner(rules, theStruct, debugMode = debugMode, useType = useType,
         compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval))
+
+    val schema = withFolder.schema
+    val dfFields = schema.map(_.name)
 
     // create now as the schema will have the folder, which we may want to keep
     val namesInOrder =
       if (maintainOrder)
-        withFolder.schema.map(_.name)
+        dfFields
       else
         Seq()
     // lift the results
     val result =
       if (debugMode)
-        withFolder.drop(fieldNames : _*).selectExpr("*",
-          s"if(size($foldFieldName.result) == 0 or $foldFieldName.result is null, null, element_at($foldFieldName.result, -1)).result as $tempFoldDebugName"
-        ).selectExpr("*", s"$tempFoldDebugName.*").drop(tempFoldDebugName)
+        withFolder.selectExpr(
+          dfFields.filterNot(fieldNames) ++
+          fieldNames.map { name =>
+            s"if(size($foldFieldName.result) == 0 or $foldFieldName.result is null, null, element_at($foldFieldName.result, -1)).result.$name as $name"
+          } :_*
+        )
       else
-        withFolder.drop(fieldNames : _*).selectExpr("*", s"$foldFieldName.result.*" )
+        withFolder.selectExpr(dfFields.filterNot(fieldNames) :+ s"$foldFieldName.result.*" :_*)
 
     // bring back to top level in the correct order
     if (maintainOrder)

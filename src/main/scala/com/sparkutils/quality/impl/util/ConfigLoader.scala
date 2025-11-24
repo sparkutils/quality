@@ -90,7 +90,7 @@ protected[quality] object ConfigLoader {
           new Config( vr.name,
             vr.token.fold[Either[DataFrame,String]]( Right(vr.sql.get ) ){ token =>
               val df = loader.load(token)
-              Left(vr.filter.fold(df)( df.filter(_) ))
+              Left(vr.filter.fold(df)( df.filter ))
             }
           ), vr)
       }, rejects)

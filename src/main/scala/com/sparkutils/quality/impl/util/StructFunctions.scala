@@ -1,6 +1,7 @@
 package com.sparkutils.quality.impl.util
 
-import org.apache.spark.sql.{Column, QualitySparkUtils}
+import org.apache.spark.sql.functions.lit
+import org.apache.spark.sql.{Column, ShimUtils}
 
 trait StructFunctionsImport {
 
@@ -12,7 +13,7 @@ trait StructFunctionsImport {
    * @return a new copy of update with the changes applied
    */
   def update_field(update: Column, transformations: (String, Column)*): Column =
-    QualitySparkUtils.update_field(update, transformations :_*)
+    ShimUtils.callFunction("update_field", Seq(update) ++ transformations.flatMap(p => Seq(lit(p._1), p._2)) : _*)
 
   /**
    * Drops a field from a structure
@@ -21,5 +22,5 @@ trait StructFunctionsImport {
    * @return
    */
   def drop_field(update: Column, fieldNames: String*): Column =
-    QualitySparkUtils.drop_field(update, fieldNames :_*)
+    ShimUtils.callFunction("drop_field", Seq(update) ++ fieldNames.map(lit): _*)
 }

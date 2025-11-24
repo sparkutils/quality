@@ -1,15 +1,17 @@
 package com.sparkutils.quality.sparkless.impl
 
 import com.sparkutils.quality.impl.extension.FunNRewrite
+import com.sparkutils.quality.impl.util.EmbeddedTypeCorrection
 import com.sparkutils.quality.sparkless.impl.Processors.{NO_QUERY_PLANS, isCopyNeeded}
-import com.sparkutils.quality.{QualityException, enableOptimizations, registerQualityFunctions}
+import com.sparkutils.quality.{QualityException, enableOptimizations}
 import com.sparkutils.quality.sparkless.{Processor, ProcessorFactory}
 import org.apache.spark.sql.{DataFrame, Encoder, QualitySparkUtils, ShimUtils}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
-import org.apache.spark.sql.catalyst.expressions.{Expression, GenericInternalRow, MutableProjection, PlanExpression}
+import org.apache.spark.sql.catalyst.expressions.{MutableProjection, PlanExpression}
 import org.apache.spark.sql.catalyst.optimizer.ConstantFolding
-import org.apache.spark.sql.types.{ObjectType, StructType}
+import org.apache.spark.sql.types.ObjectType
+
+import scala.language.higherKinds
 
 object MutableProjectionProcessor {
 
@@ -17,20 +19,20 @@ object MutableProjectionProcessor {
    * Generic processor for encoders over a dataframe transformation
    * @param dataFrameFunction
    * @param compile
-   * @param toSize the number of input fields required for the deserializing of O
    * @tparam I
    * @tparam O
    * @return
    */
-  def processFactory[I: Encoder, O: Encoder](dataFrameFunction: DataFrame => DataFrame, toSize: Int, compile: Boolean = true, extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true): ProcessorFactory[I, O] = {
+  def processFactory[I: Encoder, O: Encoder](dataFrameFunction: DataFrame => DataFrame, embeddedTypeCorrection: EmbeddedTypeCorrection, compile: Boolean = true,
+                                             extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true): ProcessorFactory[I, O] = {
     if (enableQualityOptimisations) {
       enableOptimizations(Seq(FunNRewrite, ConstantFolding))
     }
 
     val iEnc = implicitly[Encoder[I]]
     val exprFrom = ShimUtils.expressionEncoder(iEnc).resolveAndBind().serializer
-    val exprTo = ShimUtils.expressionEncoder(implicitly[Encoder[O]]).resolveAndBind().deserializer
-    val exprs = QualitySparkUtils.resolveExpressions[I](iEnc, df => {
+
+    val (exprs, exprTo) = QualitySparkUtils.resolveExpressions[I, O](iEnc, embeddedTypeCorrection, df => {
       dataFrameFunction(extraProjection(df))
     })
 
@@ -63,31 +65,12 @@ object MutableProjectionProcessor {
             else
               exprs
 
-          val (resTypeIsStruct, resType) =
-            if (toSize == 1)
-              (exprsToUse.last.dataType.isInstanceOf[StructType],
-                exprsToUse.last.dataType.asInstanceOf[StructType])
-            else
-              (false, null)
-
           val processor = QualitySparkUtils.rowProcessor(exprsToUse, compile).asInstanceOf[MutableProjection]
-
-          // to feed the resulting enc
-          val interim = new GenericInternalRow(Array.ofDim[Any](toSize))
 
           override def apply(i: I): O = {
             val ti = enc(InternalRow(i))
             val r = processor(ti)
-            val ri =
-              if (toSize == 1 && resTypeIsStruct)
-                r.getStruct(exprs.length - 1, resType.length)
-              else {
-                for(i <- 0 until toSize) {
-                  interim.update(i, r.get((exprsToUse.length - toSize) + i, exprsToUse((exprsToUse.length - toSize) + i).dataType))
-                }
-                interim
-              }
-            dec(ri).get(0, ObjectType(classOf[Any])).asInstanceOf[O]
+            dec(r).get(0, ObjectType(classOf[Any])).asInstanceOf[O]
           }
 
           /**
@@ -98,7 +81,9 @@ object MutableProjectionProcessor {
           override def setPartition(partition: Int): Unit =
             processor.initialize(partition)
 
+          // $COVERAGE-OFF$
           override def close(): Unit = {}
+          // $COVERAGE-ON$
         }
     }
 

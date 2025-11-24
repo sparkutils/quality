@@ -2,20 +2,21 @@ package org.apache.spark.sql
 
 import com.sparkutils.quality.impl.util.DebugTime.debugTime
 import com.sparkutils.quality.impl.util.Params.formatParams
-import com.sparkutils.quality.impl.util.{PassThrough, PassThroughCompileEvals}
-import com.sparkutils.quality.impl.{RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
-import com.sparkutils.shim.expressions.{HigherOrderFunctionLike, PredicateHelperPlus}
+import com.sparkutils.quality.impl.util.{EmbeddedTypeCorrection, ForceNullable, PassThrough, PassThroughCompileEvals}
+import com.sparkutils.quality.impl.{LambdaFunction, RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
+import com.sparkutils.shim.expressions.{GetStructField3, HigherOrderFunctionLike, PredicateHelperPlus}
 import org.apache.spark.sql.ShimUtils.column
-import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCoercion}
+import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCoercion, UnresolvedAttribute, UnresolvedExtractValue}
 import org.apache.spark.sql.catalyst.encoders.{ExpressionEncoder, RowEncoder}
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, QualityExprUtils, GenerateMutableProjection}
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, EqualNullSafe, Expression, ExpressionSet, HigherOrderFunction, InterpretedMutableProjection, Literal, Projection, UpdateFields}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, GenerateMutableProjection, QualityExprUtils}
+import org.apache.spark.sql.catalyst.expressions.objects.NewInstance
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, EqualNullSafe, Expression, ExpressionSet, HigherOrderFunction, If, InterpretedMutableProjection, IsNull, Literal, Projection, UpdateFields}
 import org.apache.spark.sql.catalyst.optimizer._
 import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, LogicalPlan, Project, UnaryNode}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.qualityFunctions.FunN
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.qualityFunctions.{FunN, LambdaFunctions}
+import org.apache.spark.sql.types.{DataType, StructType}
 import org.apache.spark.util.Utils
 
 /**
@@ -179,8 +180,9 @@ object QualitySparkUtils {
    * @param dataFrameF
    * @return
    */
-  def resolveExpressions[T](encFrom: Encoder[T], dataFrameF: DataFrame => DataFrame): Seq[Expression] = {
-    val enc = ShimUtils.expressionEncoder(encFrom)
+  def resolveExpressions[T, R: Encoder](encFrom: Encoder[T], embeddedTypeCorrection: EmbeddedTypeCorrection,
+                                        dataFrameF: DataFrame => DataFrame): (Seq[Expression], Expression) = {
+    val enc = ShimUtils.expressionEncoder[T](encFrom)
 
     val plan = LocalRelation(enc.schema)
 
@@ -193,14 +195,26 @@ object QualitySparkUtils {
     val aplan =
       (optimizerBatches ++ SparkSession.getActiveSession.get.experimental.extraOptimizations).
         foldLeft(df.queryExecution.analyzed){
-        (p, b) =>
-          b.apply(p)
-      }
+          (p, b) =>
+            b.apply(p)
+        }
 
     // lookup the actual expressions
-    val res = debugTime("find underlying expressions") {
-      EvaluableExpressions(aplan).expressions
-    }
+    val res =
+      debugTime("find underlying expressions") {
+        EvaluableExpressions(aplan).expressions
+      }
+
+    val oEnc = implicitly[Encoder[R]]
+    // original enc has possbly incorrect paths
+    val oExprEnc = ShimUtils.expressionEncoder(oEnc)
+
+    val adjustedEnc = oExprEnc.copy(objDeserializer =
+      embeddedTypeCorrection.correctDeserializer(oExprEnc.objDeserializer, aplan)
+    )
+
+    val dec = adjustedEnc.resolveAndBind(
+      aplan.output, df.sparkSession.sessionState.analyzer)
 
     // folder introduces multiple projections, these are the ones we explicitly use
     val fres = debugTime("bindReferences") {
@@ -209,7 +223,7 @@ object QualitySparkUtils {
         map(BindReferences.bindReference(_, plan.output, allowFailures = true))
     }
 
-    fres
+    (fres, dec.deserializer)
   }
 
   /**
@@ -353,15 +367,16 @@ object QualitySparkUtils {
     }
     // special case as it's faster to do individual items it seems, 36816ms vs 48974ms
     expr match {
-      case r: RuleEngineRunnerBase[_] if r.child.isInstanceOf[PassThrough] =>
-        val nexprs = r.child.children.map(forExpr)
-        r.withNewChildren(Seq(r.child.withNewChildren(nexprs)))
-      case r: RuleFolderRunnerBase[_] if r.right.isInstanceOf[PassThrough]  =>
-        val nexprs = r.right.children.map(forExpr)
-        r.withNewChildren(Seq(r.left, r.right.withNewChildren(nexprs)))
-      case r: RuleRunnerBase[_] if r.child.isInstanceOf[PassThrough] =>
-        val nexprs = r.child.children.map(forExpr)
-        r.withNewChildren(Seq(PassThroughCompileEvals(nexprs)))
+      case r: RuleEngineRunnerBase[_] if r.children.head.isInstanceOf[PassThrough] =>
+        val nexprs = r.children.map(c => c.withNewChildren(Seq(forExpr(c.children.head))))
+        r.withNewChildren(nexprs)
+      case r: RuleFolderRunnerBase[_] if r.children(1).isInstanceOf[PassThrough] =>
+        val starter = r.children.head
+        val nexprs = r.children.tail.map(c => c.withNewChildren(Seq(forExpr(c.children.head))))
+        r.withNewChildren(starter +: nexprs)
+      case r: RuleRunnerBase[_] if r.children.head.isInstanceOf[PassThrough] =>
+        val nexprs = r.children.map(c => c.withNewChildren(Seq(forExpr(c.children.head))))
+        r.withNewChildren(nexprs)
       case _ => forExpr(expr)
     }
   }
@@ -436,4 +451,7 @@ object QualitySparkUtils {
         }
       }
     )
+
+  def registerLambdaFunctions(functions: Seq[LambdaFunction]): Unit =
+    LambdaFunctions.registerLambdaFunctions(functions)
 }

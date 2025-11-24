@@ -3,7 +3,7 @@ package com.sparkutils.manual
 import com.sparkutils.manual.ProcessorThroughputBenchmark.genRules
 import com.sparkutils.quality.sparkless.{ProcessFunctions, Processor}
 import com.sparkutils.quality.{ExpressionRule, Id, Rule, RuleSet, RuleSuite, RuleSuiteResult}
-import com.sparkutils.qualityTests.ResultHelper.longSchema
+import com.sparkutils.qualityTests.util.ResultHelper.longSchema
 import com.sparkutils.qualityTests.TestOn
 import org.apache.spark.sql.types.LongType
 import org.apache.spark.sql.{Row, SQLContext, SQLImplicits, ShimUtils, SparkSession}
@@ -29,7 +29,8 @@ object TestSparkless {
       config("spark.master", s"local[1]").
       config("spark.ui.enabled", false).getOrCreate()
 
-    import sparkSession._
+    val s = sparkSession
+    import s._
 
     val ruleSuite = RuleSuite(Id(1, 1), Seq(
       RuleSet(Id(50, 1), Seq(
@@ -69,7 +70,7 @@ object TestSparkless {
     object implicits extends SQLImplicits with Serializable {
       protected override def _sqlContext: SQLContext = ???
     }*/
-
+//TODO - make this work again?
     sparkSession.stop()
     // give it a chance to stop
     Thread.sleep(4000)

@@ -1,14 +1,14 @@
 package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality._
-import com.sparkutils.quality.impl.RuleLogicUtils
+import com.sparkutils.quality.impl.{RuleLogicUtils, ThreeOnlyNonFoldable}
 import com.sparkutils.shim.expressions.{CreateNamedStruct1, GetStructField3, MapObjects5}
 import frameless.TypedEncoder
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode, ExprValue, JavaCode, QualityExprUtils, VariableValue}
-import org.apache.spark.sql.catalyst.expressions.{Alias, BinaryExpression, BoundReference, Expression, If, IsNull, Literal, NamedExpression, Unevaluable, UnsafeArrayData}
+import org.apache.spark.sql.catalyst.expressions.{Alias, BinaryExpression, BoundReference, Expression, If, IsNull, Literal, NamedExpression, UnaryExpression, Unevaluable, UnsafeArrayData}
 import org.apache.spark.sql.catalyst.util.ArrayData
-import org.apache.spark.sql.types.{ArrayType, BooleanType, DataType, StructField, StructType}
+import org.apache.spark.sql.types.{ArrayType, BooleanType, DataType, MapType, StructField, StructType}
 
 import java.util.concurrent.atomic.AtomicBoolean
 import org.apache.spark.internal.Logging
@@ -17,6 +17,7 @@ import org.apache.spark.sql.{Encoder, ShimUtils, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.objects.{InitializeJavaBean, Invoke, MapObjects, NewInstance, UnresolvedMapObjects}
 
+import scala.annotation.{elidable, tailrec}
 import scala.reflect.ClassTag
 
 object DebugTime extends Logging {
@@ -40,21 +41,6 @@ trait PassThrough extends Expression {
   override def eval(input: InternalRow): Any = Literal(true).eval(input)
 
   override def dataType: DataType = BooleanType
-
-  // TODO #21 - migrate to withNewChildren when 2.4 is dropped
-  def withNewChilds(newChildren: IndexedSeq[Expression]): Expression
-}
-
-/**
- * Same as unevaluable but the queryplan runs.  This version requires compileEvals = true (rules are independent and
- * will not use Subexpression Elimination at eval time) and as such cannot be used with SubExprEvaluationRuntime
- * @param children
- */
-case class PassThroughCompileEvals(children: Seq[Expression]) extends PassThrough with CodegenFallback {
-
-  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
-
-  override def withNewChilds(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
 }
 
 /**
@@ -62,26 +48,42 @@ case class PassThroughCompileEvals(children: Seq[Expression]) extends PassThroug
  * rules / triggers and for any output expressions, it may take part in SubExprEvaluationRuntime
  * @param children
  */
-case class PassThroughEvalOnly(children: Seq[Expression]) extends PassThrough {
+case class PassThroughEvalOnly(children: Seq[Expression]) extends PassThrough with Unevaluable {
+
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
 
-  protected def doGenCode(ctx: org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev: org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = ???
-
-  override def withNewChilds(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
 }
 
 /**
- * Should not be used in queryplanning
+ * Same as unevaluable but the queryplan runs.  This version requires compileEvals = true (rules are independent and
+ * will not use Subexpression Elimination at eval time) and as such cannot be used with SubExprEvaluationRuntime
+ * @param children
+ */
+case class PassThroughCompileEvals(child: Expression) extends UnaryExpression with PassThrough with CodegenFallback {
+
+  protected def withNewChildInternal(newChild: Expression): Expression = copy(newChild)
+
+  override def nullable: Boolean = child.nullable
+
+  override def eval(input: InternalRow): Any = child.eval(input)
+
+  override def dataType: DataType = child.dataType
+}
+
+/**
+ * Should not be used in queryplanning  TODO verify if this still needs to be unevaluable, it did under spark 2.4
  * @param rules should be hidden from plans
  */
-case class NonPassThrough(rules: Seq[Expression]) extends Unevaluable {
+case class NonPassThrough(rule: Expression) extends UnaryExpression with ThreeOnlyNonFoldable with Unevaluable {
+
   override def nullable: Boolean = true
 
   override def dataType: DataType = BooleanType
 
-  override def children: Seq[Expression] = Seq(Literal(true))
+  override def child: Expression = Literal(true)
 
-  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = this
+  protected def withNewChildInternal(newChild: Expression): Expression = copy(newChild)
+
 }
 
 sealed trait LookupType {
@@ -189,34 +191,6 @@ case class TransientHolder[T](val initialise: () => T) extends Serializable {
   }
 }
 
-/**
- * Signifies that testing is being done, it should be ignored by users.
- */
-object Testing {
-  // horrible hack for testing, but at least attempt to make it performant
-  private val testingFlag = new AtomicBoolean(false)
-
-  /**
-   * Should not be used by users but currently (0.0.2) only forces re-evaluation of the quality.lambdaHandlers configuration rather than caching once.
-   */
-  protected[sparkutils] def setTesting() = {
-    testingFlag.set(true)
-  }
-
-  def testing = testingFlag.get
-
-  /**
-   * Should not be called by users of the library and is provided for testing support only
-   * @param thunk
-   */
-  def test(thunk: => Unit): Unit = try {
-    setTesting()
-    thunk
-  } finally {
-    testingFlag.set(false)
-  }
-}
-
 object Comparison {
 
   /**
@@ -295,26 +269,6 @@ object Arrays {
 }
 
 /**
- * With the introduction of the 4 runtime folder needs different
- * resolved behaviour on lazytyperef, as such these move here
- * from TestUtils
- */
-object SparkVersions {
-
-  lazy val sparkFullVersion = {
-    val pos = classOf[Expression].getPackage.getSpecificationVersion
-    if ((pos eq null) || pos == "0.0") // DBR is always null, Fabric 0.0
-      SparkSession.active.version
-    else
-      pos
-  }
-
-  lazy val sparkVersion = sparkFullVersion.split('.').take(2).mkString(".")
-
-  lazy val sparkMajorVersion = sparkFullVersion.split('.').head
-}
-
-/**
  * Frameless sets path in foldable encoders to nullable == false, but it really is nullable
  * Spark then just accesses the struct which is null.  This forces codegen only
  */
@@ -349,130 +303,6 @@ case class ForceNullable(child: Expression) extends Expression {
     copy(child = newChildren.head)
 }
 
-object Encoding {
-
-  /**
-   * Wraps a non Frameless encoder in a TypedEncoder, adjusting paths as needed.
-   *
-   * This is not intended for general use and is used by the ProcessFunctions.
-   *
-   * @param outputType
-   * @tparam T
-   * @return
-   */
-  def fromNormalEncoder[T: Encoder](outputType: DataType): TypedEncoder[T] = {
-    val oexpr = ShimUtils.expressionEncoder(implicitly[Encoder[T]])
-
-    implicit val cltag = oexpr.clsTag
-
-    new TypedEncoder[T] {
-
-      override def nullable: Boolean = true
-
-      override def jvmRepr: DataType = oexpr.deserializer.dataType
-
-      override def catalystRepr: DataType = {
-        val se = oexpr.serializer
-        if (se.length == 1)
-          se.head.dataType
-        else
-          StructType( // 2.4 only cast
-            se.map(n => StructField(n.asInstanceOf[NamedExpression].qualifiedName, n.dataType, n.nullable))
-          )
-      }
-
-      override def fromCatalyst(path: Expression): Expression = {
-        val de = oexpr.deserializer
-        val r =
-          de match {
-            case a: Alias =>
-              a.child match {
-                case m: UnresolvedMapObjects => a.withNewChildren(Seq( m.copy(child = path) ))
-                case a => a.transformUp {
-                  case _: GetColumnByOrdinal =>
-                    path
-                }
-              }
-            case m: UnresolvedMapObjects => m.copy(child = path)
-            case n: NewInstance =>
-              val o = outputType.asInstanceOf[StructType].zipWithIndex.map{case (e,i) => e.name -> i }.toMap
-
-              If(IsNull(ForceNullable(path)), Literal(null),
-                n.withNewChildren(n.children map {
-                  _.transform {
-                    case u: UnresolvedAttribute if o.contains(u.name) =>
-                      GetStructField3(path, o(u.name))
-                  }
-                })
-              )
-            case i: InitializeJavaBean =>
-              val o = outputType.asInstanceOf[StructType].zipWithIndex.map{case (e,i) => e.name -> i }.toMap
-
-              If(IsNull(ForceNullable(path)), Literal(null),
-                i.copy(setters =
-                  i.setters.map{ p =>
-                    (p._1, p._2.transform {
-                      case u: UnresolvedAttribute if o.contains(u.name) =>
-                        GetStructField3(path, o(u.name))
-                    })
-                  }
-                )
-              )
-            // all single fields from a struct
-            case i: Invoke =>
-              i.transformUp {
-                case _: GetColumnByOrdinal =>
-                  path
-              }
-            case a => a.transformUp {
-              case _: GetColumnByOrdinal =>
-                path
-            }
-          }
-        r
-
-      }
-
-      // only used by resolveAndBind
-      override def toCatalyst(path: Expression): Expression = {
-        val se = oexpr.serializer
-        if (se.length == 1)
-          se.head match {
-            case a: Alias =>
-              a.child match {
-                case m: MapObjects => a.withNewChildren(Seq( m.copy(inputData = path) ))
-                case a => a.transformUp {
-                  case b: BoundReference => path
-                }
-              }
-            case m: MapObjects => m.copy(inputData = path)
-            case a => a.transformUp {
-              case b: BoundReference => path
-            }
-          }
-        else {
-          val o = outputType.asInstanceOf[StructType]
-
-          val dealiased = se.map {
-            case a: Alias =>
-              a.name -> a.child.transformUp {
-                case b: BoundReference => path
-              }
-          }.toMap
-
-          CreateNamedStruct1(
-            o.fields.map(f => f.name -> dealiased(f.name)).flatMap {
-              case (name, e) =>
-                Seq[Expression](Literal(name), e)
-            }
-          )
-        }
-      }
-    }
-
-  }
-
-}
 
 /**
  * wrap subexprs so we can correctly identify the subquery post bindreferences
@@ -514,7 +344,6 @@ object Params {
   def formatParams(ctx: CodegenContext, a: Seq[ExprValue], callsKeepArrays: Boolean = false): (String, String) = {
     // filter out any top level arrays, the input is a set, so params need the same order
     val ordered = a.flatMap {
-      //case a: VariableValue if ExprUtils.isVariableMutableArray(ctx, a) => None
       case a: VariableValue => Some(a)
       case _ => None
     }
@@ -562,3 +391,30 @@ case class InputWrapper(left: Expression, right: Expression) extends BinaryExpre
   override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode =
     right.genCode(ctx)
 }
+/*
+object TypeUtils {
+
+  private def mapType(l: MapType, r: MapType) =
+    equivalent(l.keyType, r.keyType) && equivalent(l.valueType, r.valueType)
+
+  /**
+   * Compares struct fields without using nullability
+   * @param left
+   * @param right
+   * @return
+   */
+  @tailrec
+  def equivalent(left: DataType, right: DataType): Boolean =
+    (left, right) match {
+      case (l: StructType, r: StructType) if l.fields.length == r.fields.length =>
+        l.copy(fields = l.fields.map(f => f.copy(nullable = true))) ==
+          r.copy(fields = r.fields.map(f => f.copy(nullable = true)))
+      case (_: StructType, _: StructType) =>
+        false
+      case (l: ArrayType, r: ArrayType) =>
+        equivalent(l.elementType, r.elementType)
+      case (l: MapType, r: MapType) =>
+        mapType(l, r)
+      case _ => left == right
+    }
+} */

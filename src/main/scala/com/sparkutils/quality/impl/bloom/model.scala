@@ -83,7 +83,8 @@ case object SparkBloomFilterSerializer extends BloomSerializer[Array[Byte], com.
   import scala.language.implicitConversions
 
   implicit def enc(sparkSession: SparkSession): Encoder[SerType] = {
-    import sparkSession.implicits._
+    val s = sparkSession
+    import s.implicits._
     implicitly[Encoder[BloomRaw]]
   }
 
@@ -140,7 +141,7 @@ object Serializing {
       ser.toType(pair)
     }.toSeq
 
-    val sess = SparkSession.getDefaultSession.get
+    val sess = SparkSession.active
     implicit val enc = ser.enc(sess)
 
     sess.createDataset(blooms).asInstanceOf[Dataset[BloomSerializer[SerializedType, T]#SerType]]
@@ -159,7 +160,7 @@ object Serializing {
       config =>
         import config._
 
-        val df = source.fold(identity, SparkSession.active.sql(_))
+        val df = source.fold(identity, SparkSession.active.sql)
 
         val (lookup, fpp) =
           if (config.bigBloom) {

@@ -1,7 +1,7 @@
 package org.apache.spark.sql.qualityFunctions
 
 import com.sparkutils.quality.QualityException.qualityException
-import com.sparkutils.quality.impl.util.Testing
+import com.sparkutils.testing.Testing
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode}
@@ -168,7 +168,7 @@ object LambdaCompilationUtils {
         )
     }
 
-  private lazy val testing = {
+  private def testing = {
     Testing.testing
   }
   private lazy val cached = convertToCompilationHandlers()

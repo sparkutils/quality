@@ -144,7 +144,7 @@ val lookups = mapLookupsFromDFs(Map(
     val df = theMap.toDF("subcode", "isvalid")
     (df, column("subcode"), column("isvalid"))
   } )
-), LocalBroadcast(_))
+))
 
 registerMapLookupsAndFunction(lookups)
 
@@ -154,8 +154,6 @@ val rs = RuleSuite(Id(1,1), Seq(
   ))
 ))
 ```
-
-Note the use of LocalBroadcast, this implementation of Sparks Broadcast can be used without a SparkSession and just wraps the value.
 
 ## Performance
 
