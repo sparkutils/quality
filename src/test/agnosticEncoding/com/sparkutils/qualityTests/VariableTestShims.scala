@@ -18,7 +18,7 @@ trait VariableTestShims {
   }
 
   def map_lookupSQL(mapLookupName: String, lookupKey: String): String =
-    s"mapLookup('$mapLookupName', $lookupKey, ${currentLookups.name})"
+    s"mapLookup('$mapLookupName', $lookupKey, $currentLookups)"
 
   def map_lookup(mapLookupName: String, lookupKey: Column, mapLookups: MapLookups): Column =
     ogml(mapLookupName, lookupKey, mapLookups)
@@ -34,7 +34,7 @@ trait VariableTestShims {
     ogmc(mapLookupName, lookupKey, mapLookups)
 
   def map_containsSQL(mapLookupName: String, lookupKey: String): String =
-    s"mapContains('$mapLookupName', $lookupKey, ${currentLookups.name})"
+    s"mapContains('$mapLookupName', $lookupKey, $currentLookups)"
 
   val mapFactor = 10 // 200 is too large on connect
 

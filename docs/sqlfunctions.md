@@ -304,7 +304,7 @@ functions:
       
       On Spark 4 / DBR 17.3 and later this function uses Spark Variables and takes the form:
       >  map_lookup('mapid', expr, mapLookupsVar)
-      Where mapLookupsVar is the MapLookups.name / MapLookups.lookups column   
+      Where mapLookupsVar is the result of loadMaps   
     tags:
       - map
       - variable
@@ -315,7 +315,7 @@ functions:
 
       On Spark 4 / DBR 17.3 and later this function uses Spark Variables and  takes the form:
       >  map_contains('mapid', expr, mapLookupsVar)
-      Where mapLookupsVar is the MapLookups.name / MapLookups.lookups column
+      Where mapLookupsVar is the result of loadMaps
     tags:
       - map
       - variable
@@ -569,12 +569,12 @@ __Alternatives:__
 {%- endif %}
 {% if descs.tags and descs.tags|length > 0 %}
 <div class="list comma-list">
-
-Tags:
-
+<p>Tags:</p>
+<ul>
 {% for tag in descs.tags %}
-- {{ tag }}
+<li>{{ tag }}</li>
 {% endfor %}
+</ul>
 </div>
 {%- endif %}
 {% endfor %}
