@@ -14,7 +14,7 @@ trait ProcessDisableIfMissingImports extends VariableProcessIfMissing {
    * @param schema The names to validate against, if empty no attempt to process coalesceIfAttributeMissing will be made
    * @return
    */
-  def processIfAttributeMissing(ruleSuite: RuleSuite, schema: StructType = StructType(Seq())) =
+  def processIfAttributeMissing(ruleSuite: RuleSuite, schema: StructType = StructType(Seq())): RuleSuite =
     ProcessDisableIfMissing.processIfAttributeMissing(ruleSuite, schema)
 
   def processCoalesceIfAttributeMissing(expression: Expression, names: Set[String]): Expression =

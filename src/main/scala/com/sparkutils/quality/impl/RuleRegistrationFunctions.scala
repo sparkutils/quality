@@ -570,7 +570,7 @@ object RuleRegistrationFunctions {
       exp
     }, Set(1,2))
 
-    // additional functions for agg_expr and FunN
+    // additional functions for agg_expr and FunN, purposefully not documented
     register("qualityrefexpression", {
       case Seq(e) => RefExpression(parse(e))
       case _ => literalsNeeded
