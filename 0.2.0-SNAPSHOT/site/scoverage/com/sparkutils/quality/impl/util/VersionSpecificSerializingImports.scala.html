@@ -24,289 +24,288 @@
           <div class="tab-pane active" id="codegrid">
             <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality.impl.util
 </span>2 <span style=''>
-</span>3 <span style=''>import com.sparkutils.quality.impl.mapLookup.Lookups
-</span>4 <span style=''>import com.sparkutils.quality.{ExpressionRule, Id, LambdaFunction, OutputExpression, Rule, RuleSet, RuleSuite, RunOnPassProcessor}
-</span>5 <span style=''>import com.sparkutils.quality.impl.{LambdaFunction, NoOpRunOnPassProcessor, RuleSuiteHelpers, VariableHelper, VersionedId}
-</span>6 <span style=''>import com.sparkutils.quality.impl.util.Serializing.{notPresentOutputId, notPresentOutputVersion, notPresentSalience}
-</span>7 <span style=''>import com.sparkutils.quality.impl.util.VersionSpecificSerializingImports.uniqueName
-</span>8 <span style=''>import org.apache.spark.sql.{Dataset, Encoder, SparkSession}
-</span>9 <span style=''>import org.apache.spark.sql.functions.{col, collect_set, lit, named_struct, struct}
-</span>10 <span style=''>import org.apache.spark.sql.types.{ArrayType, BinaryType, DoubleType}
-</span>11 <span style=''>
-</span>12 <span style=''>import java.util.concurrent.atomic.AtomicInteger
-</span>13 <span style=''>
-</span>14 <span style=''>/**
-</span>15 <span style=''> * Raw model for Variable usage
-</span>16 <span style=''> *
-</span>17 <span style=''> * @param ruleRow
-</span>18 <span style=''> * @param outputExpressionRow
-</span>19 <span style=''> */
-</span>20 <span style=''>case class CombinedRuleRow(ruleRow: RuleRow, outputExpressionRow: Option[OutputExpressionRow])
-</span>21 <span style=''>
-</span>22 <span style=''>/**
-</span>23 <span style=''> * Raw model for Variable usage
-</span>24 <span style=''> * @param ruleRows
-</span>25 <span style=''> * @param lambdaFunctions
-</span>26 <span style=''> */
-</span>27 <span style=''>case class CombinedRuleSuiteRows(ruleSuiteId: Int, ruleSuiteVersion: Int, ruleRows: Seq[CombinedRuleRow], lambdaFunctions: Option[Seq[LambdaFunctionRow]], probablePass: Option[Double])
-</span>28 <span style=''>
-</span>29 <span style=''>object VersionSpecificSerializingImports {
-</span>30 <span style=''>
-</span>31 <span style=''>  private val nameCounter = </span><span style='background: #AEF1AE'>new AtomicInteger(0)</span><span style=''>
-</span>32 <span style=''>
-</span>33 <span style=''>  private val GENERATED_NAME_PREFIX = </span><span style='background: #AEF1AE'>&quot;QUALITY_RULE_SUITE_GENERATED_NAME_&quot;</span><span style=''>
-</span>34 <span style=''>
-</span>35 <span style=''>  // only for the current session, so regardless of on driver with static or connect client this works
-</span>36 <span style=''>  protected[quality] def uniqueName(): String = </span><span style='background: #AEF1AE'>GENERATED_NAME_PREFIX + nameCounter.incrementAndGet()</span><span style=''>
-</span>37 <span style=''>
-</span>38 <span style=''>}
-</span>39 <span style=''>
-</span>40 <span style=''>trait VersionSpecificSerializingImports {
-</span>41 <span style=''>
-</span>42 <span style=''>  private def icombine(ruleRows: Dataset[RuleRow], lambdaFunctionRows: Option[Dataset[LambdaFunctionRow]] = None,
-</span>43 <span style=''>              outputExpressionRows: Option[Dataset[OutputExpressionRow]] = None, probablePass: Option[Double] = None): Dataset[CombinedRuleSuiteRows] = {
-</span>44 <span style=''>
-</span>45 <span style=''>    import ruleRows.sparkSession.implicits._
-</span>46 <span style=''>
-</span>47 <span style=''>    val outputExpressionRowsT = </span><span style='background: #AEF1AE'>outputExpressionRows.flatMap(r =&gt; if (r.isEmpty) None else Some(r))</span><span style=''>
-</span>48 <span style=''>    val lambdaFunctionRowsT = </span><span style='background: #AEF1AE'>lambdaFunctionRows.flatMap(r =&gt; if (r.isEmpty) None else Some(r))</span><span style=''>
-</span>49 <span style=''>
-</span>50 <span style=''>    val rows = </span><span style='background: #AEF1AE'>outputExpressionRowsT.fold(ruleRows.select(
-</span>51 <span style=''></span><span style='background: #AEF1AE'>      struct(
-</span>52 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleSuiteId&quot;),
-</span>53 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleSuiteVersion&quot;),
-</span>54 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleSetId&quot;),
-</span>55 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleSetVersion&quot;),
-</span>56 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleId&quot;),
-</span>57 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleVersion&quot;),
-</span>58 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleExpr&quot;),
-</span>59 <span style=''></span><span style='background: #AEF1AE'>        lit(notPresentSalience).as(&quot;ruleEngineSalience&quot;),
-</span>60 <span style=''></span><span style='background: #AEF1AE'>        lit(notPresentOutputId).as(&quot;ruleEngineId&quot;),
-</span>61 <span style=''></span><span style='background: #AEF1AE'>        lit(notPresentOutputVersion).as(&quot;ruleEngineVersion&quot;)
-</span>62 <span style=''></span><span style='background: #AEF1AE'>      ).as(&quot;ruleRow&quot;), lit(null).cast(implicitly[org.apache.spark.sql.Encoder[OutputExpressionRow]].schema).as(&quot;outputExpressionRow&quot;)))(
-</span>63 <span style=''></span><span style='background: #AEF1AE'>        outputExpressionRows =&gt;
-</span>64 <span style=''></span><span style='background: #AEF1AE'>          // join on all fields, then apply
-</span>65 <span style=''></span><span style='background: #AEF1AE'>          ruleRows.join(outputExpressionRows.selectExpr(&quot;ruleExpr as outputRuleExpr&quot;,
-</span>66 <span style=''></span><span style='background: #AEF1AE'>            &quot;ruleSuiteId as oRuleSuiteId&quot;, &quot;ruleSuiteVersion as oRuleSuiteVersion&quot;, &quot;functionId&quot;, &quot;functionVersion&quot;
-</span>67 <span style=''></span><span style='background: #AEF1AE'>          ),
-</span>68 <span style=''></span><span style='background: #AEF1AE'>            ruleRows(&quot;ruleSuiteId&quot;) === col(&quot;oRuleSuiteId&quot;) &amp;&amp;
-</span>69 <span style=''></span><span style='background: #AEF1AE'>            ruleRows(&quot;ruleSuiteVersion&quot;) === col(&quot;oRuleSuiteVersion&quot;) &amp;&amp;
-</span>70 <span style=''></span><span style='background: #AEF1AE'>            ruleRows(&quot;ruleEngineId&quot;) === col(&quot;functionId&quot;) &amp;&amp;
-</span>71 <span style=''></span><span style='background: #AEF1AE'>            ruleRows(&quot;ruleEngineVersion&quot;) === col(&quot;functionVersion&quot;)
-</span>72 <span style=''></span><span style='background: #AEF1AE'>          ).select(
-</span>73 <span style=''></span><span style='background: #AEF1AE'>            struct(
-</span>74 <span style=''></span><span style='background: #AEF1AE'>              col(&quot;ruleSuiteId&quot;),
-</span>75 <span style=''></span><span style='background: #AEF1AE'>              col(&quot;ruleSuiteVersion&quot;),
-</span>76 <span style=''></span><span style='background: #AEF1AE'>              col(&quot;ruleSetId&quot;),
-</span>77 <span style=''></span><span style='background: #AEF1AE'>              col(&quot;ruleSetVersion&quot;),
-</span>78 <span style=''></span><span style='background: #AEF1AE'>              col(&quot;ruleId&quot;),
-</span>79 <span style=''></span><span style='background: #AEF1AE'>              col(&quot;ruleVersion&quot;),
-</span>80 <span style=''></span><span style='background: #AEF1AE'>              col(&quot;ruleExpr&quot;),
-</span>81 <span style=''></span><span style='background: #AEF1AE'>              col(&quot;ruleEngineSalience&quot;),
-</span>82 <span style=''></span><span style='background: #AEF1AE'>              col(&quot;ruleEngineId&quot;),
-</span>83 <span style=''></span><span style='background: #AEF1AE'>              col(&quot;ruleEngineVersion&quot;)
-</span>84 <span style=''></span><span style='background: #AEF1AE'>            ).as(&quot;ruleRow&quot;), struct(
-</span>85 <span style=''></span><span style='background: #AEF1AE'>              col(&quot;outputRuleExpr&quot;).as(&quot;ruleExpr&quot;),
-</span>86 <span style=''></span><span style='background: #AEF1AE'>              col(&quot;functionId&quot;),
-</span>87 <span style=''></span><span style='background: #AEF1AE'>              col(&quot;functionVersion&quot;),
-</span>88 <span style=''></span><span style='background: #AEF1AE'>              col(&quot;ruleSuiteId&quot;),
-</span>89 <span style=''></span><span style='background: #AEF1AE'>              col(&quot;ruleSuiteVersion&quot;)
-</span>90 <span style=''></span><span style='background: #AEF1AE'>            ).as(&quot;outputExpressionRow&quot;)
-</span>91 <span style=''></span><span style='background: #AEF1AE'>          )
-</span>92 <span style=''></span><span style='background: #AEF1AE'>      )</span><span style=''>
-</span>93 <span style=''>
-</span>94 <span style=''>    val probablePassLit = </span><span style='background: #AEF1AE'>probablePass.map(lit(_)).getOrElse(lit(null).cast(DoubleType)).as(&quot;probablePass&quot;)</span><span style=''>
-</span>95 <span style=''>
-</span>96 <span style=''>    val grouped = </span><span style='background: #AEF1AE'>rows.groupBy(&quot;ruleRow.ruleSuiteId&quot;, &quot;ruleRow.ruleSuiteVersion&quot;).agg(
-</span>97 <span style=''></span><span style='background: #AEF1AE'>      collect_set(struct(col(&quot;ruleRow&quot;), col(&quot;outputExpressionRow&quot;))).as(&quot;ruleRows&quot;))</span><span style=''>
-</span>98 <span style=''>    val suiteRows =
-</span>99 <span style=''>      </span><span style='background: #AEF1AE'>grouped.select(
-</span>100 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleSuiteId&quot;),
-</span>101 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleSuiteVersion&quot;),
-</span>102 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleRows&quot;),
-</span>103 <span style=''></span><span style='background: #AEF1AE'>        lit(null).cast(ArrayType(implicitly[Encoder[LambdaFunctionRow]].schema)).as(&quot;lambdaFunctions&quot;), // Using Seq in the implicit treats it as a valueclass of seq.
-</span>104 <span style=''></span><span style='background: #AEF1AE'>        probablePassLit
-</span>105 <span style=''></span><span style='background: #AEF1AE'>      )</span><span style=''>
-</span>106 <span style=''>
-</span>107 <span style=''>    </span><span style='background: #AEF1AE'>lambdaFunctionRowsT.fold(suiteRows){
-</span>108 <span style=''></span><span style='background: #AEF1AE'>      lambdas =&gt;
-</span>109 <span style=''></span><span style='background: #AEF1AE'>        val grouped = lambdas.groupBy(&quot;ruleSuiteId&quot;, &quot;ruleSuiteVersion&quot;).agg(collect_set(
-</span>110 <span style=''></span><span style='background: #AEF1AE'>          struct(
-</span>111 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;name&quot;),
-</span>112 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleExpr&quot;),
-</span>113 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;functionId&quot;),
-</span>114 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;functionVersion&quot;),
-</span>115 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleSuiteId&quot;),
-</span>116 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleSuiteVersion&quot;)
-</span>117 <span style=''></span><span style='background: #AEF1AE'>          )
-</span>118 <span style=''></span><span style='background: #AEF1AE'>        ).as(&quot;theLambdaFunctions&quot;)).select(col(&quot;ruleSuiteId&quot;).as(&quot;lRuleSuiteId&quot;),
-</span>119 <span style=''></span><span style='background: #AEF1AE'>          col(&quot;ruleSuiteVersion&quot;).as(&quot;lRuleSuiteVersion&quot;),
-</span>120 <span style=''></span><span style='background: #AEF1AE'>          col(&quot;theLambdaFunctions&quot;), probablePassLit)
-</span>121 <span style=''></span><span style='background: #AEF1AE'>       suiteRows.join(grouped, suiteRows(&quot;ruleSuiteId&quot;) === grouped(&quot;lRuleSuiteId&quot;) &amp;&amp;
-</span>122 <span style=''></span><span style='background: #AEF1AE'>         suiteRows(&quot;ruleSuiteVersion&quot;) === grouped(&quot;lRuleSuiteVersion&quot;)).
-</span>123 <span style=''></span><span style='background: #AEF1AE'>         select(
-</span>124 <span style=''></span><span style='background: #AEF1AE'>           col(&quot;ruleSuiteId&quot;),
-</span>125 <span style=''></span><span style='background: #AEF1AE'>           col(&quot;ruleSuiteVersion&quot;),
-</span>126 <span style=''></span><span style='background: #AEF1AE'>           col(&quot;ruleRows&quot;),
-</span>127 <span style=''></span><span style='background: #AEF1AE'>           col(&quot;theLambdaFunctions&quot;).as(&quot;lambdaFunctions&quot;),
-</span>128 <span style=''></span><span style='background: #AEF1AE'>           probablePassLit
-</span>129 <span style=''></span><span style='background: #AEF1AE'>         )
-</span>130 <span style=''></span><span style='background: #AEF1AE'>    }.as[CombinedRuleSuiteRows]</span><span style=''>
-</span>131 <span style=''>  }
-</span>132 <span style=''>
-</span>133 <span style=''>  /**
-</span>134 <span style=''>   * Combines ruleRows, lambdaFunctionRows and outputExpressionRows into CombinedRuleSuiteRows
-</span>135 <span style=''>   * @param ruleRows
-</span>136 <span style=''>   * @param lambdaFunctionRows
-</span>137 <span style=''>   * @param outputExpressionRows
-</span>138 <span style=''>   * @return
-</span>139 <span style=''>   */
-</span>140 <span style=''>  def combine(ruleRows: Dataset[RuleRow], lambdaFunctionRows: Dataset[LambdaFunctionRow],
-</span>141 <span style=''>              outputExpressionRows: Dataset[OutputExpressionRow]): Dataset[CombinedRuleSuiteRows] =
-</span>142 <span style=''>    </span><span style='background: #AEF1AE'>icombine(ruleRows = ruleRows, lambdaFunctionRows = Some(lambdaFunctionRows),
-</span>143 <span style=''></span><span style='background: #AEF1AE'>      outputExpressionRows = Some(outputExpressionRows))</span><span style=''>
-</span>144 <span style=''>
-</span>145 <span style=''>  /**
-</span>146 <span style=''>   * Combines ruleRows and lambdaFunctionRows into CombinedRuleSuiteRows
-</span>147 <span style=''>   * @param ruleRows
-</span>148 <span style=''>   * @param lambdaFunctionRows
-</span>149 <span style=''>   * @return
-</span>150 <span style=''>   */
-</span>151 <span style=''>  def combine(ruleRows: Dataset[RuleRow], lambdaFunctionRows: Dataset[LambdaFunctionRow]): Dataset[CombinedRuleSuiteRows] =
-</span>152 <span style=''>    </span><span style='background: #AEF1AE'>icombine(ruleRows = ruleRows, lambdaFunctionRows = Some(lambdaFunctionRows))</span><span style=''>
-</span>153 <span style=''>
-</span>154 <span style=''>  /**
-</span>155 <span style=''>   * Uses ruleRows to make CombinedRuleSuiteRows
-</span>156 <span style=''>   * @param ruleRows
-</span>157 <span style=''>   * @return
-</span>158 <span style=''>   */
-</span>159 <span style=''>  def combine(ruleRows: Dataset[RuleRow]): Dataset[CombinedRuleSuiteRows] =
-</span>160 <span style=''>    </span><span style='background: #AEF1AE'>icombine(ruleRows = ruleRows)</span><span style=''>
-</span>161 <span style=''>
-</span>162 <span style=''>  /**
-</span>163 <span style=''>   * Combines ruleRows, lambdaFunctionRows and outputExpressionRows into CombinedRuleSuiteRows, using probablePass
-</span>164 <span style=''>   * @param ruleRows
-</span>165 <span style=''>   * @param lambdaFunctionRows
-</span>166 <span style=''>   * @param outputExpressionRows
-</span>167 <span style=''>   * @param probablePass
-</span>168 <span style=''>   * @return
-</span>169 <span style=''>   */
-</span>170 <span style=''>  def combine(ruleRows: Dataset[RuleRow], lambdaFunctionRows: Dataset[LambdaFunctionRow],
-</span>171 <span style=''>              outputExpressionRows: Dataset[OutputExpressionRow], probablePass: Double): Dataset[CombinedRuleSuiteRows] =
-</span>172 <span style=''>    </span><span style='background: #F0ADAD'>icombine(ruleRows = ruleRows, lambdaFunctionRows = Some(lambdaFunctionRows),
-</span>173 <span style=''></span><span style='background: #F0ADAD'>      outputExpressionRows = Some(outputExpressionRows), probablePass = Some(probablePass))</span><span style=''>
-</span>174 <span style=''>
-</span>175 <span style=''>  /**
-</span>176 <span style=''>   * Combines ruleRows and lambdaFunctionRows into CombinedRuleSuiteRows, using probablePass
-</span>177 <span style=''>   * @param ruleRows
-</span>178 <span style=''>   * @param lambdaFunctionRows
-</span>179 <span style=''>   * @param probablePass
-</span>180 <span style=''>   * @return
-</span>181 <span style=''>   */
-</span>182 <span style=''>  def combine(ruleRows: Dataset[RuleRow], lambdaFunctionRows: Dataset[LambdaFunctionRow], probablePass: Double): Dataset[CombinedRuleSuiteRows] =
-</span>183 <span style=''>    </span><span style='background: #AEF1AE'>icombine(ruleRows = ruleRows, lambdaFunctionRows = Some(lambdaFunctionRows), probablePass = Some(probablePass))</span><span style=''>
-</span>184 <span style=''>
-</span>185 <span style=''>  /**
-</span>186 <span style=''>   * Converts ruleRows into CombinedRuleSuiteRows, using probablePass
-</span>187 <span style=''>   * @param ruleRows
-</span>188 <span style=''>   * @param probablePass
-</span>189 <span style=''>   * @return
-</span>190 <span style=''>   */
-</span>191 <span style=''>  def combine(ruleRows: Dataset[RuleRow], probablePass: Double): Dataset[CombinedRuleSuiteRows] =
-</span>192 <span style=''>    </span><span style='background: #AEF1AE'>icombine(ruleRows = ruleRows, probablePass = Some(probablePass))</span><span style=''>
-</span>193 <span style=''>
-</span>194 <span style=''>  /**
-</span>195 <span style=''>   * Returns a specific RuleSuite from available rule suites
-</span>196 <span style=''>   * @param ds
-</span>197 <span style=''>   * @param id
-</span>198 <span style=''>   * @return
-</span>199 <span style=''>   */
-</span>200 <span style=''>  def rule_suite(row: CombinedRuleSuiteRows): RuleSuite = {
-</span>201 <span style=''>    </span><span style='background: #AEF1AE'>RuleSuite(Id(row.ruleSuiteId, row.ruleSuiteVersion),
-</span>202 <span style=''></span><span style='background: #AEF1AE'>      row.ruleRows.groupBy(r =&gt; Id(r.ruleRow.ruleSetId, r.ruleRow.ruleSuiteVersion) ).map{
-</span>203 <span style=''></span><span style='background: #AEF1AE'>        p =&gt;
-</span>204 <span style=''></span><span style='background: #AEF1AE'>          RuleSet(p._1, p._2.map{ cr =&gt;
-</span>205 <span style=''></span><span style='background: #AEF1AE'>            Rule(Id(cr.ruleRow.ruleId, cr.ruleRow.ruleVersion), ExpressionRule(cr.ruleRow.ruleExpr),
-</span>206 <span style=''></span><span style='background: #AEF1AE'>              runOnPassProcessor =
-</span>207 <span style=''></span><span style='background: #AEF1AE'>                cr.outputExpressionRow.map(or =&gt; RunOnPassProcessor(cr.ruleRow.ruleEngineSalience,
-</span>208 <span style=''></span><span style='background: #AEF1AE'>                    Id(or.functionId, or.functionVersion), OutputExpression(or.ruleExpr))).
-</span>209 <span style=''></span><span style='background: #AEF1AE'>                  getOrElse(NoOpRunOnPassProcessor.noOp)
-</span>210 <span style=''></span><span style='background: #AEF1AE'>            )
-</span>211 <span style=''></span><span style='background: #AEF1AE'>          })
-</span>212 <span style=''></span><span style='background: #AEF1AE'>      }.toSeq, lambdaFunctions = row.lambdaFunctions.fold(Seq.empty[LambdaFunction]){_.map { lr =&gt;
-</span>213 <span style=''></span><span style='background: #AEF1AE'>        LambdaFunction(lr.name, lr.ruleExpr, Id(lr.functionId, lr.functionVersion))
-</span>214 <span style=''></span><span style='background: #AEF1AE'>      }})</span><span style=''>
-</span>215 <span style=''>  }
-</span>216 <span style=''>
-</span>217 <span style=''>  /**
-</span>218 <span style=''>   * Returns a specific RuleSuite from available rule suites
-</span>219 <span style=''>   * @param ds
-</span>220 <span style=''>   * @param id
-</span>221 <span style=''>   * @return
-</span>222 <span style=''>   */
-</span>223 <span style=''>  def rule_suite(ds: Dataset[CombinedRuleSuiteRows], id: VersionedId): Option[RuleSuite] = {
-</span>224 <span style=''>    val r = </span><span style='background: #AEF1AE'>ds.filter(col(&quot;ruleSuiteId&quot;) === id.id &amp;&amp; col(&quot;ruleSuiteVersion&quot;) === id.version)</span><span style=''>
-</span>225 <span style=''>    if (</span><span style='background: #AEF1AE'>r.isEmpty</span><span style=''>)
-</span>226 <span style=''>      </span><span style='background: #AEF1AE'>None</span><span style=''>
-</span>227 <span style=''>    else
-</span>228 <span style=''>      </span><span style='background: #AEF1AE'>Some(rule_suite(r.head()))</span><span style=''>
-</span>229 <span style=''>  }
-</span>230 <span style=''>
-</span>231 <span style=''>  /**
-</span>232 <span style=''>   * Registers the RuleSuite with a Spark Variable with a unique_id
-</span>233 <span style=''>   * @param ds
-</span>234 <span style=''>   * @param id
-</span>235 <span style=''>   * @return the variable name
-</span>236 <span style=''>   */
-</span>237 <span style=''>  def register_rule_suite_variable(ds: Dataset[CombinedRuleSuiteRows], id: VersionedId): String =
-</span>238 <span style=''>    </span><span style='background: #AEF1AE'>register_rule_suite_variable(ds, id, uniqueName())</span><span style=''>
-</span>239 <span style=''>
-</span>240 <span style=''>  /**
-</span>241 <span style=''>   * Registers the RuleSuite with a Spark Variable with the provided stable id
-</span>242 <span style=''>   * @param ds
-</span>243 <span style=''>   * @param id
-</span>244 <span style=''>   * @param stableName
-</span>245 <span style=''>   * @return stableName
-</span>246 <span style=''>   */
-</span>247 <span style=''>  def register_rule_suite_variable(ds: Dataset[CombinedRuleSuiteRows], id: VersionedId, stableName: String): String = {
-</span>248 <span style=''>    val r = </span><span style='background: #AEF1AE'>ds.filter(col(&quot;ruleSuiteId&quot;) === id.id &amp;&amp; col(&quot;ruleSuiteVersion&quot;) === id.version)</span><span style=''>
-</span>249 <span style=''>    val tv = </span><span style='background: #AEF1AE'>uniqueName()</span><span style=''>
-</span>250 <span style=''>    </span><span style='background: #AEF1AE'>r.createOrReplaceTempView(tv)</span><span style=''>
-</span>251 <span style=''>    val s = </span><span style='background: #AEF1AE'>SparkSession.active</span><span style=''>
-</span>252 <span style=''>    import s.implicits._
-</span>253 <span style=''>    val ddl = </span><span style='background: #AEF1AE'>implicitly[Encoder[CombinedRuleSuiteRows]].schema.toDDL</span><span style=''>
-</span>254 <span style=''>
-</span>255 <span style=''>    </span><span style='background: #AEF1AE'>VariableHelper.createVar(stableName, s&quot;struct&lt;$ddl&gt;&quot;,
-</span>256 <span style=''></span><span style='background: #AEF1AE'>      s&quot;(select first(struct(ruleSuiteId, ruleSuiteVersion, ruleRows, lambdaFunctions, probablePass)) from `$tv`)&quot;)</span><span style=''>
-</span>257 <span style=''>
-</span>258 <span style=''>    stableName
-</span>259 <span style=''>  }
-</span>260 <span style=''>
-</span>261 <span style=''>  /**
-</span>262 <span style=''>   * Registers a ruleSuite directly as an Spark Variable (with object stream encoding).
-</span>263 <span style=''>   * Where possible using the CombinedRuleSuiteRows should be preferred and manage the ruleSuites on the server.
-</span>264 <span style=''>   * @param ruleSuite
-</span>265 <span style=''>   * @param stableName
-</span>266 <span style=''>   * @return
-</span>267 <span style=''>   */
-</span>268 <span style=''>  def register_rule_suite(ruleSuite: RuleSuite, stableName: String): String = {
-</span>269 <span style=''>    val s = </span><span style='background: #AEF1AE'>SparkSession.active</span><span style=''>
-</span>270 <span style=''>    import s.implicits._
-</span>271 <span style=''>    val tv = </span><span style='background: #AEF1AE'>uniqueName()</span><span style=''>
-</span>272 <span style=''>    </span><span style='background: #AEF1AE'>s.sql(&quot;select 1&quot;).select(lit(RuleSuiteHelpers.serialize(ruleSuite)).as(&quot;rs&quot;)).createOrReplaceTempView(tv)</span><span style=''>
-</span>273 <span style=''>    </span><span style='background: #AEF1AE'>VariableHelper.createVar(stableName, BinaryType.sql,
-</span>274 <span style=''></span><span style='background: #AEF1AE'>      s&quot;(select first(rs) from `$tv`)&quot;)</span><span style=''>
-</span>275 <span style=''>
-</span>276 <span style=''>    stableName
-</span>277 <span style=''>  }
-</span>278 <span style=''>
-</span>279 <span style=''>  /**
-</span>280 <span style=''>   * Registers a ruleSuite directly as an Spark Variable (with object stream encoding)
-</span>281 <span style=''>   * @param ruleSuite
-</span>282 <span style=''>   * @return
-</span>283 <span style=''>   */
-</span>284 <span style=''>  def register_rule_suite(ruleSuite: RuleSuite): String = </span><span style='background: #AEF1AE'>register_rule_suite(ruleSuite, uniqueName())</span><span style=''>
-</span>285 <span style=''>}
+</span>3 <span style=''>import com.sparkutils.quality.{ExpressionRule, Id, LambdaFunction, OutputExpression, Rule, RuleSet, RuleSuite, RunOnPassProcessor}
+</span>4 <span style=''>import com.sparkutils.quality.impl.{LambdaFunction, NoOpRunOnPassProcessor, RuleSuiteHelpers, VariableHelper, VersionedId}
+</span>5 <span style=''>import com.sparkutils.quality.impl.util.Serializing.{notPresentOutputId, notPresentOutputVersion, notPresentSalience}
+</span>6 <span style=''>import com.sparkutils.quality.impl.util.VersionSpecificSerializingImports.uniqueName
+</span>7 <span style=''>import org.apache.spark.sql.{Dataset, Encoder, SparkSession}
+</span>8 <span style=''>import org.apache.spark.sql.functions.{col, collect_set, lit, struct}
+</span>9 <span style=''>import org.apache.spark.sql.types.{ArrayType, BinaryType, DoubleType}
+</span>10 <span style=''>
+</span>11 <span style=''>import java.util.concurrent.atomic.AtomicInteger
+</span>12 <span style=''>
+</span>13 <span style=''>/**
+</span>14 <span style=''> * Raw model for Variable usage
+</span>15 <span style=''> *
+</span>16 <span style=''> * @param ruleRow
+</span>17 <span style=''> * @param outputExpressionRow
+</span>18 <span style=''> */
+</span>19 <span style=''>case class CombinedRuleRow(ruleRow: RuleRow, outputExpressionRow: Option[OutputExpressionRow])
+</span>20 <span style=''>
+</span>21 <span style=''>/**
+</span>22 <span style=''> * Raw model for Variable usage
+</span>23 <span style=''> * @param ruleRows
+</span>24 <span style=''> * @param lambdaFunctions
+</span>25 <span style=''> */
+</span>26 <span style=''>case class CombinedRuleSuiteRows(ruleSuiteId: Int, ruleSuiteVersion: Int, ruleRows: Seq[CombinedRuleRow], lambdaFunctions: Option[Seq[LambdaFunctionRow]], probablePass: Option[Double])
+</span>27 <span style=''>
+</span>28 <span style=''>object VersionSpecificSerializingImports {
+</span>29 <span style=''>
+</span>30 <span style=''>  private val nameCounter = </span><span style='background: #AEF1AE'>new AtomicInteger(0)</span><span style=''>
+</span>31 <span style=''>
+</span>32 <span style=''>  private val GENERATED_NAME_PREFIX = </span><span style='background: #AEF1AE'>&quot;QUALITY_RULE_SUITE_GENERATED_NAME_&quot;</span><span style=''>
+</span>33 <span style=''>
+</span>34 <span style=''>  // only for the current session, so regardless of on driver with static or connect client this works
+</span>35 <span style=''>  protected[quality] def uniqueName(): String = </span><span style='background: #AEF1AE'>GENERATED_NAME_PREFIX + nameCounter.incrementAndGet()</span><span style=''>
+</span>36 <span style=''>
+</span>37 <span style=''>}
+</span>38 <span style=''>
+</span>39 <span style=''>trait VersionSpecificSerializingImports {
+</span>40 <span style=''>
+</span>41 <span style=''>  private def icombine(ruleRows: Dataset[RuleRow], lambdaFunctionRows: Option[Dataset[LambdaFunctionRow]] = None,
+</span>42 <span style=''>              outputExpressionRows: Option[Dataset[OutputExpressionRow]] = None, probablePass: Option[Double] = None): Dataset[CombinedRuleSuiteRows] = {
+</span>43 <span style=''>
+</span>44 <span style=''>    import ruleRows.sparkSession.implicits._
+</span>45 <span style=''>
+</span>46 <span style=''>    val outputExpressionRowsT = </span><span style='background: #AEF1AE'>outputExpressionRows.flatMap(r =&gt; if (r.isEmpty) None else Some(r))</span><span style=''>
+</span>47 <span style=''>    val lambdaFunctionRowsT = </span><span style='background: #AEF1AE'>lambdaFunctionRows.flatMap(r =&gt; if (r.isEmpty) None else Some(r))</span><span style=''>
+</span>48 <span style=''>
+</span>49 <span style=''>    val rows = </span><span style='background: #AEF1AE'>outputExpressionRowsT.fold(ruleRows.select(
+</span>50 <span style=''></span><span style='background: #AEF1AE'>      struct(
+</span>51 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleSuiteId&quot;),
+</span>52 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleSuiteVersion&quot;),
+</span>53 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleSetId&quot;),
+</span>54 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleSetVersion&quot;),
+</span>55 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleId&quot;),
+</span>56 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleVersion&quot;),
+</span>57 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleExpr&quot;),
+</span>58 <span style=''></span><span style='background: #AEF1AE'>        lit(notPresentSalience).as(&quot;ruleEngineSalience&quot;),
+</span>59 <span style=''></span><span style='background: #AEF1AE'>        lit(notPresentOutputId).as(&quot;ruleEngineId&quot;),
+</span>60 <span style=''></span><span style='background: #AEF1AE'>        lit(notPresentOutputVersion).as(&quot;ruleEngineVersion&quot;)
+</span>61 <span style=''></span><span style='background: #AEF1AE'>      ).as(&quot;ruleRow&quot;), lit(null).cast(implicitly[org.apache.spark.sql.Encoder[OutputExpressionRow]].schema).as(&quot;outputExpressionRow&quot;)))(
+</span>62 <span style=''></span><span style='background: #AEF1AE'>        outputExpressionRows =&gt;
+</span>63 <span style=''></span><span style='background: #AEF1AE'>          // join on all fields, then apply
+</span>64 <span style=''></span><span style='background: #AEF1AE'>          ruleRows.join(outputExpressionRows.selectExpr(&quot;ruleExpr as outputRuleExpr&quot;,
+</span>65 <span style=''></span><span style='background: #AEF1AE'>            &quot;ruleSuiteId as oRuleSuiteId&quot;, &quot;ruleSuiteVersion as oRuleSuiteVersion&quot;, &quot;functionId&quot;, &quot;functionVersion&quot;
+</span>66 <span style=''></span><span style='background: #AEF1AE'>          ),
+</span>67 <span style=''></span><span style='background: #AEF1AE'>            ruleRows(&quot;ruleSuiteId&quot;) === col(&quot;oRuleSuiteId&quot;) &amp;&amp;
+</span>68 <span style=''></span><span style='background: #AEF1AE'>            ruleRows(&quot;ruleSuiteVersion&quot;) === col(&quot;oRuleSuiteVersion&quot;) &amp;&amp;
+</span>69 <span style=''></span><span style='background: #AEF1AE'>            ruleRows(&quot;ruleEngineId&quot;) === col(&quot;functionId&quot;) &amp;&amp;
+</span>70 <span style=''></span><span style='background: #AEF1AE'>            ruleRows(&quot;ruleEngineVersion&quot;) === col(&quot;functionVersion&quot;)
+</span>71 <span style=''></span><span style='background: #AEF1AE'>          ).select(
+</span>72 <span style=''></span><span style='background: #AEF1AE'>            struct(
+</span>73 <span style=''></span><span style='background: #AEF1AE'>              col(&quot;ruleSuiteId&quot;),
+</span>74 <span style=''></span><span style='background: #AEF1AE'>              col(&quot;ruleSuiteVersion&quot;),
+</span>75 <span style=''></span><span style='background: #AEF1AE'>              col(&quot;ruleSetId&quot;),
+</span>76 <span style=''></span><span style='background: #AEF1AE'>              col(&quot;ruleSetVersion&quot;),
+</span>77 <span style=''></span><span style='background: #AEF1AE'>              col(&quot;ruleId&quot;),
+</span>78 <span style=''></span><span style='background: #AEF1AE'>              col(&quot;ruleVersion&quot;),
+</span>79 <span style=''></span><span style='background: #AEF1AE'>              col(&quot;ruleExpr&quot;),
+</span>80 <span style=''></span><span style='background: #AEF1AE'>              col(&quot;ruleEngineSalience&quot;),
+</span>81 <span style=''></span><span style='background: #AEF1AE'>              col(&quot;ruleEngineId&quot;),
+</span>82 <span style=''></span><span style='background: #AEF1AE'>              col(&quot;ruleEngineVersion&quot;)
+</span>83 <span style=''></span><span style='background: #AEF1AE'>            ).as(&quot;ruleRow&quot;), struct(
+</span>84 <span style=''></span><span style='background: #AEF1AE'>              col(&quot;outputRuleExpr&quot;).as(&quot;ruleExpr&quot;),
+</span>85 <span style=''></span><span style='background: #AEF1AE'>              col(&quot;functionId&quot;),
+</span>86 <span style=''></span><span style='background: #AEF1AE'>              col(&quot;functionVersion&quot;),
+</span>87 <span style=''></span><span style='background: #AEF1AE'>              col(&quot;ruleSuiteId&quot;),
+</span>88 <span style=''></span><span style='background: #AEF1AE'>              col(&quot;ruleSuiteVersion&quot;)
+</span>89 <span style=''></span><span style='background: #AEF1AE'>            ).as(&quot;outputExpressionRow&quot;)
+</span>90 <span style=''></span><span style='background: #AEF1AE'>          )
+</span>91 <span style=''></span><span style='background: #AEF1AE'>      )</span><span style=''>
+</span>92 <span style=''>
+</span>93 <span style=''>    val probablePassLit = </span><span style='background: #AEF1AE'>probablePass.map(lit(_)).getOrElse(lit(null).cast(DoubleType)).as(&quot;probablePass&quot;)</span><span style=''>
+</span>94 <span style=''>
+</span>95 <span style=''>    val grouped = </span><span style='background: #AEF1AE'>rows.groupBy(&quot;ruleRow.ruleSuiteId&quot;, &quot;ruleRow.ruleSuiteVersion&quot;).agg(
+</span>96 <span style=''></span><span style='background: #AEF1AE'>      collect_set(struct(col(&quot;ruleRow&quot;), col(&quot;outputExpressionRow&quot;))).as(&quot;ruleRows&quot;))</span><span style=''>
+</span>97 <span style=''>    val suiteRows =
+</span>98 <span style=''>      </span><span style='background: #AEF1AE'>grouped.select(
+</span>99 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleSuiteId&quot;),
+</span>100 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleSuiteVersion&quot;),
+</span>101 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleRows&quot;),
+</span>102 <span style=''></span><span style='background: #AEF1AE'>        lit(null).cast(ArrayType(implicitly[Encoder[LambdaFunctionRow]].schema)).as(&quot;lambdaFunctions&quot;), // Using Seq in the implicit treats it as a valueclass of seq.
+</span>103 <span style=''></span><span style='background: #AEF1AE'>        probablePassLit
+</span>104 <span style=''></span><span style='background: #AEF1AE'>      )</span><span style=''>
+</span>105 <span style=''>
+</span>106 <span style=''>    </span><span style='background: #AEF1AE'>lambdaFunctionRowsT.fold(suiteRows){
+</span>107 <span style=''></span><span style='background: #AEF1AE'>      lambdas =&gt;
+</span>108 <span style=''></span><span style='background: #AEF1AE'>        val grouped = lambdas.groupBy(&quot;ruleSuiteId&quot;, &quot;ruleSuiteVersion&quot;).agg(collect_set(
+</span>109 <span style=''></span><span style='background: #AEF1AE'>          struct(
+</span>110 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;name&quot;),
+</span>111 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleExpr&quot;),
+</span>112 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;functionId&quot;),
+</span>113 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;functionVersion&quot;),
+</span>114 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleSuiteId&quot;),
+</span>115 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleSuiteVersion&quot;)
+</span>116 <span style=''></span><span style='background: #AEF1AE'>          )
+</span>117 <span style=''></span><span style='background: #AEF1AE'>        ).as(&quot;theLambdaFunctions&quot;)).select(col(&quot;ruleSuiteId&quot;).as(&quot;lRuleSuiteId&quot;),
+</span>118 <span style=''></span><span style='background: #AEF1AE'>          col(&quot;ruleSuiteVersion&quot;).as(&quot;lRuleSuiteVersion&quot;),
+</span>119 <span style=''></span><span style='background: #AEF1AE'>          col(&quot;theLambdaFunctions&quot;), probablePassLit)
+</span>120 <span style=''></span><span style='background: #AEF1AE'>       suiteRows.join(grouped, suiteRows(&quot;ruleSuiteId&quot;) === grouped(&quot;lRuleSuiteId&quot;) &amp;&amp;
+</span>121 <span style=''></span><span style='background: #AEF1AE'>         suiteRows(&quot;ruleSuiteVersion&quot;) === grouped(&quot;lRuleSuiteVersion&quot;)).
+</span>122 <span style=''></span><span style='background: #AEF1AE'>         select(
+</span>123 <span style=''></span><span style='background: #AEF1AE'>           col(&quot;ruleSuiteId&quot;),
+</span>124 <span style=''></span><span style='background: #AEF1AE'>           col(&quot;ruleSuiteVersion&quot;),
+</span>125 <span style=''></span><span style='background: #AEF1AE'>           col(&quot;ruleRows&quot;),
+</span>126 <span style=''></span><span style='background: #AEF1AE'>           col(&quot;theLambdaFunctions&quot;).as(&quot;lambdaFunctions&quot;),
+</span>127 <span style=''></span><span style='background: #AEF1AE'>           probablePassLit
+</span>128 <span style=''></span><span style='background: #AEF1AE'>         )
+</span>129 <span style=''></span><span style='background: #AEF1AE'>    }.as[CombinedRuleSuiteRows]</span><span style=''>
+</span>130 <span style=''>  }
+</span>131 <span style=''>
+</span>132 <span style=''>  /**
+</span>133 <span style=''>   * Combines ruleRows, lambdaFunctionRows and outputExpressionRows into CombinedRuleSuiteRows
+</span>134 <span style=''>   * @param ruleRows
+</span>135 <span style=''>   * @param lambdaFunctionRows
+</span>136 <span style=''>   * @param outputExpressionRows
+</span>137 <span style=''>   * @return
+</span>138 <span style=''>   */
+</span>139 <span style=''>  def combine(ruleRows: Dataset[RuleRow], lambdaFunctionRows: Dataset[LambdaFunctionRow],
+</span>140 <span style=''>              outputExpressionRows: Dataset[OutputExpressionRow]): Dataset[CombinedRuleSuiteRows] =
+</span>141 <span style=''>    </span><span style='background: #AEF1AE'>icombine(ruleRows = ruleRows, lambdaFunctionRows = Some(lambdaFunctionRows),
+</span>142 <span style=''></span><span style='background: #AEF1AE'>      outputExpressionRows = Some(outputExpressionRows))</span><span style=''>
+</span>143 <span style=''>
+</span>144 <span style=''>  /**
+</span>145 <span style=''>   * Combines ruleRows and lambdaFunctionRows into CombinedRuleSuiteRows
+</span>146 <span style=''>   * @param ruleRows
+</span>147 <span style=''>   * @param lambdaFunctionRows
+</span>148 <span style=''>   * @return
+</span>149 <span style=''>   */
+</span>150 <span style=''>  def combine(ruleRows: Dataset[RuleRow], lambdaFunctionRows: Dataset[LambdaFunctionRow]): Dataset[CombinedRuleSuiteRows] =
+</span>151 <span style=''>    </span><span style='background: #AEF1AE'>icombine(ruleRows = ruleRows, lambdaFunctionRows = Some(lambdaFunctionRows))</span><span style=''>
+</span>152 <span style=''>
+</span>153 <span style=''>  /**
+</span>154 <span style=''>   * Uses ruleRows to make CombinedRuleSuiteRows
+</span>155 <span style=''>   * @param ruleRows
+</span>156 <span style=''>   * @return
+</span>157 <span style=''>   */
+</span>158 <span style=''>  def combine(ruleRows: Dataset[RuleRow]): Dataset[CombinedRuleSuiteRows] =
+</span>159 <span style=''>    </span><span style='background: #AEF1AE'>icombine(ruleRows = ruleRows)</span><span style=''>
+</span>160 <span style=''>
+</span>161 <span style=''>  /**
+</span>162 <span style=''>   * Combines ruleRows, lambdaFunctionRows and outputExpressionRows into CombinedRuleSuiteRows, using probablePass
+</span>163 <span style=''>   * @param ruleRows
+</span>164 <span style=''>   * @param lambdaFunctionRows
+</span>165 <span style=''>   * @param outputExpressionRows
+</span>166 <span style=''>   * @param probablePass
+</span>167 <span style=''>   * @return
+</span>168 <span style=''>   */
+</span>169 <span style=''>  def combine(ruleRows: Dataset[RuleRow], lambdaFunctionRows: Dataset[LambdaFunctionRow],
+</span>170 <span style=''>              outputExpressionRows: Dataset[OutputExpressionRow], probablePass: Double): Dataset[CombinedRuleSuiteRows] =
+</span>171 <span style=''>    </span><span style='background: #F0ADAD'>icombine(ruleRows = ruleRows, lambdaFunctionRows = Some(lambdaFunctionRows),
+</span>172 <span style=''></span><span style='background: #F0ADAD'>      outputExpressionRows = Some(outputExpressionRows), probablePass = Some(probablePass))</span><span style=''>
+</span>173 <span style=''>
+</span>174 <span style=''>  /**
+</span>175 <span style=''>   * Combines ruleRows and lambdaFunctionRows into CombinedRuleSuiteRows, using probablePass
+</span>176 <span style=''>   * @param ruleRows
+</span>177 <span style=''>   * @param lambdaFunctionRows
+</span>178 <span style=''>   * @param probablePass
+</span>179 <span style=''>   * @return
+</span>180 <span style=''>   */
+</span>181 <span style=''>  def combine(ruleRows: Dataset[RuleRow], lambdaFunctionRows: Dataset[LambdaFunctionRow], probablePass: Double): Dataset[CombinedRuleSuiteRows] =
+</span>182 <span style=''>    </span><span style='background: #AEF1AE'>icombine(ruleRows = ruleRows, lambdaFunctionRows = </span><span style='background: #F0ADAD'>Some(lambdaFunctionRows)</span><span style='background: #AEF1AE'>, probablePass = </span><span style='background: #F0ADAD'>Some(probablePass)</span><span style='background: #AEF1AE'>)</span><span style=''>
+</span>183 <span style=''>
+</span>184 <span style=''>  /**
+</span>185 <span style=''>   * Converts ruleRows into CombinedRuleSuiteRows, using probablePass
+</span>186 <span style=''>   * @param ruleRows
+</span>187 <span style=''>   * @param probablePass
+</span>188 <span style=''>   * @return
+</span>189 <span style=''>   */
+</span>190 <span style=''>  def combine(ruleRows: Dataset[RuleRow], probablePass: Double): Dataset[CombinedRuleSuiteRows] =
+</span>191 <span style=''>    </span><span style='background: #AEF1AE'>icombine(ruleRows = ruleRows, probablePass = Some(probablePass))</span><span style=''>
+</span>192 <span style=''>
+</span>193 <span style=''>  /**
+</span>194 <span style=''>   * Returns a specific RuleSuite from available rule suites
+</span>195 <span style=''>   * @param ds
+</span>196 <span style=''>   * @param id
+</span>197 <span style=''>   * @return
+</span>198 <span style=''>   */
+</span>199 <span style=''>  def rule_suite(row: CombinedRuleSuiteRows): RuleSuite = {
+</span>200 <span style=''>    </span><span style='background: #AEF1AE'>RuleSuite(Id(row.ruleSuiteId, row.ruleSuiteVersion),
+</span>201 <span style=''></span><span style='background: #AEF1AE'>      row.ruleRows.groupBy(r =&gt; Id(r.ruleRow.ruleSetId, r.ruleRow.ruleSuiteVersion) ).map{
+</span>202 <span style=''></span><span style='background: #AEF1AE'>        p =&gt;
+</span>203 <span style=''></span><span style='background: #AEF1AE'>          RuleSet(p._1, p._2.map{ cr =&gt;
+</span>204 <span style=''></span><span style='background: #AEF1AE'>            Rule(Id(cr.ruleRow.ruleId, cr.ruleRow.ruleVersion), ExpressionRule(cr.ruleRow.ruleExpr),
+</span>205 <span style=''></span><span style='background: #AEF1AE'>              runOnPassProcessor =
+</span>206 <span style=''></span><span style='background: #AEF1AE'>                cr.outputExpressionRow.map(or =&gt; RunOnPassProcessor(cr.ruleRow.ruleEngineSalience,
+</span>207 <span style=''></span><span style='background: #AEF1AE'>                    Id(or.functionId, or.functionVersion), OutputExpression(or.ruleExpr))).
+</span>208 <span style=''></span><span style='background: #AEF1AE'>                  getOrElse(NoOpRunOnPassProcessor.noOp)
+</span>209 <span style=''></span><span style='background: #AEF1AE'>            )
+</span>210 <span style=''></span><span style='background: #AEF1AE'>          })
+</span>211 <span style=''></span><span style='background: #AEF1AE'>      }.toSeq, lambdaFunctions = row.lambdaFunctions.fold(Seq.empty[LambdaFunction]){_.map { lr =&gt;
+</span>212 <span style=''></span><span style='background: #AEF1AE'>        LambdaFunction(lr.name, lr.ruleExpr, Id(lr.functionId, lr.functionVersion))
+</span>213 <span style=''></span><span style='background: #AEF1AE'>      }})</span><span style=''>
+</span>214 <span style=''>  }
+</span>215 <span style=''>
+</span>216 <span style=''>  /**
+</span>217 <span style=''>   * Returns a specific RuleSuite from available rule suites
+</span>218 <span style=''>   * @param ds
+</span>219 <span style=''>   * @param id
+</span>220 <span style=''>   * @return
+</span>221 <span style=''>   */
+</span>222 <span style=''>  def rule_suite(ds: Dataset[CombinedRuleSuiteRows], id: VersionedId): Option[RuleSuite] = {
+</span>223 <span style=''>    val r = </span><span style='background: #AEF1AE'>ds.filter(col(&quot;ruleSuiteId&quot;) === id.id &amp;&amp; col(&quot;ruleSuiteVersion&quot;) === id.version)</span><span style=''>
+</span>224 <span style=''>    if (</span><span style='background: #AEF1AE'>r.isEmpty</span><span style=''>)
+</span>225 <span style=''>      </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>226 <span style=''>    else
+</span>227 <span style=''>      </span><span style='background: #AEF1AE'>Some(rule_suite(r.head()))</span><span style=''>
+</span>228 <span style=''>  }
+</span>229 <span style=''>
+</span>230 <span style=''>  /**
+</span>231 <span style=''>   * Registers the RuleSuite with a Spark Variable with a unique_id
+</span>232 <span style=''>   * @param ds
+</span>233 <span style=''>   * @param id
+</span>234 <span style=''>   * @return the variable name
+</span>235 <span style=''>   */
+</span>236 <span style=''>  def register_rule_suite_variable(ds: Dataset[CombinedRuleSuiteRows], id: VersionedId): String =
+</span>237 <span style=''>    </span><span style='background: #AEF1AE'>register_rule_suite_variable(ds, id, uniqueName())</span><span style=''>
+</span>238 <span style=''>
+</span>239 <span style=''>  /**
+</span>240 <span style=''>   * Registers the RuleSuite with a Spark Variable with the provided stable id
+</span>241 <span style=''>   * @param ds
+</span>242 <span style=''>   * @param id
+</span>243 <span style=''>   * @param stableName
+</span>244 <span style=''>   * @return stableName
+</span>245 <span style=''>   */
+</span>246 <span style=''>  def register_rule_suite_variable(ds: Dataset[CombinedRuleSuiteRows], id: VersionedId, stableName: String): String = {
+</span>247 <span style=''>    val r = </span><span style='background: #AEF1AE'>ds.filter(col(&quot;ruleSuiteId&quot;) === id.id &amp;&amp; col(&quot;ruleSuiteVersion&quot;) === id.version)</span><span style=''>
+</span>248 <span style=''>    val tv = </span><span style='background: #AEF1AE'>uniqueName()</span><span style=''>
+</span>249 <span style=''>    </span><span style='background: #AEF1AE'>r.createOrReplaceTempView(tv)</span><span style=''>
+</span>250 <span style=''>    val s = </span><span style='background: #AEF1AE'>SparkSession.active</span><span style=''>
+</span>251 <span style=''>    import s.implicits._
+</span>252 <span style=''>    val ddl = </span><span style='background: #AEF1AE'>implicitly[Encoder[CombinedRuleSuiteRows]].schema.toDDL</span><span style=''>
+</span>253 <span style=''>
+</span>254 <span style=''>    </span><span style='background: #AEF1AE'>VariableHelper.createVar(stableName, s&quot;struct&lt;$ddl&gt;&quot;,
+</span>255 <span style=''></span><span style='background: #AEF1AE'>      s&quot;(select first(struct(ruleSuiteId, ruleSuiteVersion, ruleRows, lambdaFunctions, probablePass)) from `$tv`)&quot;)</span><span style=''>
+</span>256 <span style=''>
+</span>257 <span style=''>    stableName
+</span>258 <span style=''>  }
+</span>259 <span style=''>
+</span>260 <span style=''>  /**
+</span>261 <span style=''>   * Registers a ruleSuite directly as an Spark Variable (with object stream encoding).
+</span>262 <span style=''>   * Where possible using the CombinedRuleSuiteRows should be preferred and manage the ruleSuites on the server.
+</span>263 <span style=''>   * @param ruleSuite
+</span>264 <span style=''>   * @param stableName
+</span>265 <span style=''>   * @return
+</span>266 <span style=''>   */
+</span>267 <span style=''>  def register_rule_suite(ruleSuite: RuleSuite, stableName: String): String = {
+</span>268 <span style=''>    val s = </span><span style='background: #AEF1AE'>SparkSession.active</span><span style=''>
+</span>269 <span style=''>    import s.implicits._
+</span>270 <span style=''>    val tv = </span><span style='background: #AEF1AE'>uniqueName()</span><span style=''>
+</span>271 <span style=''>    </span><span style='background: #AEF1AE'>s.sql(&quot;select 1&quot;).select(lit(RuleSuiteHelpers.serialize(ruleSuite)).as(&quot;rs&quot;)).createOrReplaceTempView(tv)</span><span style=''>
+</span>272 <span style=''>    </span><span style='background: #AEF1AE'>VariableHelper.createVar(stableName, BinaryType.sql,
+</span>273 <span style=''></span><span style='background: #AEF1AE'>      s&quot;(select first(rs) from `$tv`)&quot;)</span><span style=''>
+</span>274 <span style=''>
+</span>275 <span style=''>    stableName
+</span>276 <span style=''>  }
+</span>277 <span style=''>
+</span>278 <span style=''>  /**
+</span>279 <span style=''>   * Registers a ruleSuite directly as an Spark Variable (with object stream encoding)
+</span>280 <span style=''>   * @param ruleSuite
+</span>281 <span style=''>   * @return
+</span>282 <span style=''>   */
+</span>283 <span style=''>  def register_rule_suite(ruleSuite: RuleSuite): String = </span><span style='background: #AEF1AE'>register_rule_suite(ruleSuite, uniqueName())</span><span style=''>
+</span>284 <span style=''>}
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -321,15 +320,15 @@
         <th>Code</th>
       </tr><tr>
         <td>
-          31
+          30
         </td>
         <td>
-          617
+          615
         </td>
         <td>
-          1348
+          1281
           -
-          1368
+          1301
         </td>
         <td>
           Apply
@@ -345,15 +344,15 @@
         </td>
       </tr><tr>
         <td>
-          33
+          32
         </td>
         <td>
-          618
+          616
         </td>
         <td>
-          1408
+          1341
           -
-          1444
+          1377
         </td>
         <td>
           Literal
@@ -369,15 +368,15 @@
         </td>
       </tr><tr>
         <td>
-          36
+          35
         </td>
         <td>
-          619
+          617
         </td>
         <td>
-          1621
+          1554
           -
-          1650
+          1583
         </td>
         <td>
           Apply
@@ -393,15 +392,15 @@
         </td>
       </tr><tr>
         <td>
-          36
+          35
         </td>
         <td>
-          620
+          618
         </td>
         <td>
-          1597
+          1530
           -
-          1650
+          1583
         </td>
         <td>
           Apply
@@ -417,15 +416,15 @@
         </td>
       </tr><tr>
         <td>
-          47
+          46
         </td>
         <td>
-          621
+          619
         </td>
         <td>
-          2083
+          2016
           -
-          2092
+          2025
         </td>
         <td>
           Select
@@ -441,15 +440,15 @@
         </td>
       </tr><tr>
         <td>
-          47
+          46
         </td>
         <td>
-          622
+          620
         </td>
         <td>
-          2094
+          2027
           -
-          2098
+          2031
         </td>
         <td>
           Select
@@ -465,15 +464,15 @@
         </td>
       </tr><tr>
         <td>
-          47
+          46
         </td>
         <td>
-          623
+          621
         </td>
         <td>
-          2094
+          2027
           -
-          2098
+          2031
         </td>
         <td>
           Block
@@ -489,15 +488,15 @@
         </td>
       </tr><tr>
         <td>
-          47
+          46
         </td>
         <td>
-          624
+          622
         </td>
         <td>
-          2104
+          2037
           -
-          2111
+          2044
         </td>
         <td>
           Apply
@@ -513,15 +512,15 @@
         </td>
       </tr><tr>
         <td>
-          47
+          46
         </td>
         <td>
-          625
+          623
         </td>
         <td>
-          2104
+          2037
           -
-          2111
+          2044
         </td>
         <td>
           Block
@@ -537,15 +536,15 @@
         </td>
       </tr><tr>
         <td>
-          47
+          46
         </td>
         <td>
-          626
+          624
         </td>
         <td>
-          2045
+          1978
           -
-          2112
+          2045
         </td>
         <td>
           Apply
@@ -564,15 +563,15 @@ else
         </td>
       </tr><tr>
         <td>
-          48
+          47
         </td>
         <td>
-          627
+          625
         </td>
         <td>
-          2179
+          2112
           -
-          2188
+          2121
         </td>
         <td>
           Select
@@ -588,15 +587,15 @@ else
         </td>
       </tr><tr>
         <td>
-          48
+          47
         </td>
         <td>
-          628
+          626
         </td>
         <td>
-          2190
+          2123
           -
-          2194
+          2127
         </td>
         <td>
           Select
@@ -612,15 +611,15 @@ else
         </td>
       </tr><tr>
         <td>
-          48
+          47
         </td>
         <td>
-          629
+          627
         </td>
         <td>
-          2190
+          2123
           -
-          2194
+          2127
         </td>
         <td>
           Block
@@ -636,15 +635,15 @@ else
         </td>
       </tr><tr>
         <td>
-          48
+          47
         </td>
         <td>
-          630
+          628
         </td>
         <td>
-          2200
+          2133
           -
-          2207
+          2140
         </td>
         <td>
           Apply
@@ -660,15 +659,15 @@ else
         </td>
       </tr><tr>
         <td>
-          48
+          47
         </td>
         <td>
-          631
+          629
         </td>
         <td>
-          2200
+          2133
           -
-          2207
+          2140
         </td>
         <td>
           Block
@@ -684,15 +683,15 @@ else
         </td>
       </tr><tr>
         <td>
-          48
+          47
         </td>
         <td>
-          632
+          630
         </td>
         <td>
-          2143
+          2076
           -
-          2208
+          2141
         </td>
         <td>
           Apply
@@ -711,15 +710,15 @@ else
         </td>
       </tr><tr>
         <td>
-          50
+          49
         </td>
         <td>
-          635
+          633
         </td>
         <td>
-          2252
+          2185
           -
-          2782
+          2715
         </td>
         <td>
           Apply
@@ -752,15 +751,15 @@ else
         </td>
       </tr><tr>
         <td>
-          62
+          61
         </td>
         <td>
-          633
+          631
         </td>
         <td>
-          2275
+          2208
           -
-          2669
+          2602
         </td>
         <td>
           Apply
@@ -776,15 +775,15 @@ else
         </td>
       </tr><tr>
         <td>
-          62
+          61
         </td>
         <td>
-          634
+          632
         </td>
         <td>
-          2671
+          2604
           -
-          2781
+          2714
         </td>
         <td>
           Apply
@@ -817,15 +816,15 @@ else
         </td>
       </tr><tr>
         <td>
-          62
+          61
         </td>
         <td>
-          652
+          650
         </td>
         <td>
-          2225
+          2158
           -
-          4025
+          3958
         </td>
         <td>
           Apply
@@ -858,15 +857,15 @@ else
         </td>
       </tr><tr>
         <td>
-          65
+          64
         </td>
         <td>
-          636
+          634
         </td>
         <td>
-          2885
+          2818
           -
-          3074
+          3007
         </td>
         <td>
           Apply
@@ -882,15 +881,15 @@ else
         </td>
       </tr><tr>
         <td>
-          68
+          67
         </td>
         <td>
-          637
+          635
         </td>
         <td>
-          3097
+          3030
           -
-          3110
+          3043
         </td>
         <td>
           Literal
@@ -906,15 +905,15 @@ else
         </td>
       </tr><tr>
         <td>
-          68
+          67
         </td>
         <td>
-          638
+          636
         </td>
         <td>
-          3116
+          3049
           -
-          3135
+          3068
         </td>
         <td>
           Apply
@@ -930,15 +929,15 @@ else
         </td>
       </tr><tr>
         <td>
-          69
+          68
         </td>
         <td>
-          639
+          637
         </td>
         <td>
-          3160
+          3093
           -
-          3178
+          3111
         </td>
         <td>
           Literal
@@ -954,15 +953,15 @@ else
         </td>
       </tr><tr>
         <td>
-          69
+          68
         </td>
         <td>
-          640
+          638
         </td>
         <td>
-          3184
+          3117
           -
-          3208
+          3141
         </td>
         <td>
           Apply
@@ -978,15 +977,15 @@ else
         </td>
       </tr><tr>
         <td>
-          69
+          68
         </td>
         <td>
-          641
+          639
         </td>
         <td>
-          3151
+          3084
           -
-          3208
+          3141
         </td>
         <td>
           Apply
@@ -1002,15 +1001,15 @@ else
         </td>
       </tr><tr>
         <td>
-          70
+          69
         </td>
         <td>
-          642
+          640
         </td>
         <td>
-          3233
+          3166
           -
-          3247
+          3180
         </td>
         <td>
           Literal
@@ -1026,15 +1025,15 @@ else
         </td>
       </tr><tr>
         <td>
-          70
+          69
         </td>
         <td>
-          643
+          641
         </td>
         <td>
-          3253
+          3186
           -
-          3270
+          3203
         </td>
         <td>
           Apply
@@ -1050,15 +1049,15 @@ else
         </td>
       </tr><tr>
         <td>
-          70
+          69
         </td>
         <td>
-          644
+          642
         </td>
         <td>
-          3224
+          3157
           -
-          3270
+          3203
         </td>
         <td>
           Apply
@@ -1074,15 +1073,15 @@ else
         </td>
       </tr><tr>
         <td>
-          70
+          69
         </td>
         <td>
-          648
+          646
         </td>
         <td>
-          3088
+          3021
           -
-          3342
+          3275
         </td>
         <td>
           Apply
@@ -1098,15 +1097,15 @@ else
         </td>
       </tr><tr>
         <td>
-          71
+          70
         </td>
         <td>
-          645
+          643
         </td>
         <td>
-          3295
+          3228
           -
-          3314
+          3247
         </td>
         <td>
           Literal
@@ -1122,15 +1121,15 @@ else
         </td>
       </tr><tr>
         <td>
-          71
+          70
         </td>
         <td>
-          646
+          644
         </td>
         <td>
-          3320
+          3253
           -
-          3342
+          3275
         </td>
         <td>
           Apply
@@ -1146,15 +1145,15 @@ else
         </td>
       </tr><tr>
         <td>
-          71
+          70
         </td>
         <td>
-          647
+          645
         </td>
         <td>
-          3286
+          3219
           -
-          3342
+          3275
         </td>
         <td>
           Apply
@@ -1170,15 +1169,15 @@ else
         </td>
       </tr><tr>
         <td>
-          72
+          71
         </td>
         <td>
-          651
+          649
         </td>
         <td>
-          2871
+          2804
           -
-          4017
+          3950
         </td>
         <td>
           Apply
@@ -1194,15 +1193,15 @@ else
         </td>
       </tr><tr>
         <td>
-          84
+          83
         </td>
         <td>
-          649
+          647
         </td>
         <td>
-          3375
+          3308
           -
-          3761
+          3694
         </td>
         <td>
           Apply
@@ -1218,15 +1217,15 @@ else
         </td>
       </tr><tr>
         <td>
-          90
+          89
         </td>
         <td>
-          650
+          648
         </td>
         <td>
-          3763
+          3696
           -
-          4005
+          3938
         </td>
         <td>
           Apply
@@ -1242,15 +1241,15 @@ else
         </td>
       </tr><tr>
         <td>
-          94
+          93
         </td>
         <td>
-          653
+          651
         </td>
         <td>
-          4053
+          3986
           -
-          4134
+          4067
         </td>
         <td>
           Apply
@@ -1266,15 +1265,15 @@ else
         </td>
       </tr><tr>
         <td>
-          96
+          95
         </td>
         <td>
-          654
+          652
         </td>
         <td>
-          4167
+          4100
           -
-          4188
+          4121
         </td>
         <td>
           Literal
@@ -1290,15 +1289,15 @@ else
         </td>
       </tr><tr>
         <td>
-          96
+          95
         </td>
         <td>
-          655
+          653
         </td>
         <td>
-          4190
+          4123
           -
-          4216
+          4149
         </td>
         <td>
           Literal
@@ -1314,15 +1313,15 @@ else
         </td>
       </tr><tr>
         <td>
-          96
+          95
         </td>
         <td>
-          657
+          655
         </td>
         <td>
-          4154
+          4087
           -
-          4308
+          4241
         </td>
         <td>
           Apply
@@ -1338,15 +1337,15 @@ else
         </td>
       </tr><tr>
         <td>
-          97
+          96
         </td>
         <td>
-          656
+          654
         </td>
         <td>
-          4229
+          4162
           -
-          4307
+          4240
         </td>
         <td>
           Apply
@@ -1362,15 +1361,15 @@ else
         </td>
       </tr><tr>
         <td>
-          99
+          98
         </td>
         <td>
-          662
+          660
         </td>
         <td>
-          4335
+          4268
           -
-          4635
+          4568
         </td>
         <td>
           Apply
@@ -1403,15 +1402,15 @@ else
         </td>
       </tr><tr>
         <td>
-          100
+          99
         </td>
         <td>
-          658
+          656
         </td>
         <td>
-          4359
+          4292
           -
-          4377
+          4310
         </td>
         <td>
           Apply
@@ -1427,15 +1426,15 @@ else
         </td>
       </tr><tr>
         <td>
-          101
+          100
         </td>
         <td>
-          659
+          657
         </td>
         <td>
-          4387
+          4320
           -
-          4410
+          4343
         </td>
         <td>
           Apply
@@ -1451,15 +1450,15 @@ else
         </td>
       </tr><tr>
         <td>
-          102
+          101
         </td>
         <td>
-          660
+          658
         </td>
         <td>
-          4420
+          4353
           -
-          4435
+          4368
         </td>
         <td>
           Apply
@@ -1475,15 +1474,15 @@ else
         </td>
       </tr><tr>
         <td>
-          103
+          102
         </td>
         <td>
-          661
+          659
         </td>
         <td>
-          4445
+          4378
           -
-          4539
+          4472
         </td>
         <td>
           Apply
@@ -1516,15 +1515,15 @@ else
         </td>
       </tr><tr>
         <td>
-          109
+          108
         </td>
         <td>
-          663
+          661
         </td>
         <td>
-          4733
+          4666
           -
-          4746
+          4679
         </td>
         <td>
           Literal
@@ -1540,15 +1539,15 @@ else
         </td>
       </tr><tr>
         <td>
-          109
+          108
         </td>
         <td>
-          664
+          662
         </td>
         <td>
-          4748
+          4681
           -
-          4766
+          4699
         </td>
         <td>
           Literal
@@ -1564,15 +1563,15 @@ else
         </td>
       </tr><tr>
         <td>
-          118
+          117
         </td>
         <td>
-          665
+          663
         </td>
         <td>
-          4772
+          4705
           -
-          5038
+          4971
         </td>
         <td>
           Apply
@@ -1588,15 +1587,15 @@ else
         </td>
       </tr><tr>
         <td>
-          118
+          117
         </td>
         <td>
-          666
+          664
         </td>
         <td>
-          5047
+          4980
           -
-          5084
+          5017
         </td>
         <td>
           Apply
@@ -1612,15 +1611,15 @@ else
         </td>
       </tr><tr>
         <td>
-          118
+          117
         </td>
         <td>
-          669
+          667
         </td>
         <td>
-          4717
+          4650
           -
-          5198
+          5131
         </td>
         <td>
           Apply
@@ -1636,15 +1635,15 @@ else
         </td>
       </tr><tr>
         <td>
-          119
+          118
         </td>
         <td>
-          667
+          665
         </td>
         <td>
-          5096
+          5029
           -
-          5143
+          5076
         </td>
         <td>
           Apply
@@ -1660,15 +1659,15 @@ else
         </td>
       </tr><tr>
         <td>
-          120
+          119
         </td>
         <td>
-          668
+          666
         </td>
         <td>
-          5155
+          5088
           -
-          5180
+          5113
         </td>
         <td>
           Apply
@@ -1684,15 +1683,15 @@ else
         </td>
       </tr><tr>
         <td>
-          121
+          120
         </td>
         <td>
-          670
+          668
         </td>
         <td>
-          5240
+          5173
           -
-          5253
+          5186
         </td>
         <td>
           Literal
@@ -1708,15 +1707,15 @@ else
         </td>
       </tr><tr>
         <td>
-          121
+          120
         </td>
         <td>
-          671
+          669
         </td>
         <td>
-          5259
+          5192
           -
-          5282
+          5215
         </td>
         <td>
           Apply
@@ -1732,15 +1731,15 @@ else
         </td>
       </tr><tr>
         <td>
-          121
+          120
         </td>
         <td>
-          675
+          673
         </td>
         <td>
-          5230
+          5163
           -
-          5357
+          5290
         </td>
         <td>
           Apply
@@ -1756,15 +1755,15 @@ else
         </td>
       </tr><tr>
         <td>
-          122
+          121
         </td>
         <td>
-          672
+          670
         </td>
         <td>
-          5305
+          5238
           -
-          5323
+          5256
         </td>
         <td>
           Literal
@@ -1780,15 +1779,15 @@ else
         </td>
       </tr><tr>
         <td>
-          122
+          121
         </td>
         <td>
-          673
+          671
         </td>
         <td>
-          5329
+          5262
           -
-          5357
+          5290
         </td>
         <td>
           Apply
@@ -1804,15 +1803,15 @@ else
         </td>
       </tr><tr>
         <td>
-          122
+          121
         </td>
         <td>
-          674
+          672
         </td>
         <td>
-          5295
+          5228
           -
-          5357
+          5290
         </td>
         <td>
           Apply
@@ -1828,15 +1827,15 @@ else
         </td>
       </tr><tr>
         <td>
-          123
+          122
         </td>
         <td>
-          680
+          678
         </td>
         <td>
-          5206
+          5139
           -
-          5569
+          5502
         </td>
         <td>
           Apply
@@ -1852,15 +1851,15 @@ else
         </td>
       </tr><tr>
         <td>
-          124
+          123
         </td>
         <td>
-          676
+          674
         </td>
         <td>
-          5388
+          5321
           -
-          5406
+          5339
         </td>
         <td>
           Apply
@@ -1876,15 +1875,15 @@ else
         </td>
       </tr><tr>
         <td>
-          125
+          124
         </td>
         <td>
-          677
+          675
         </td>
         <td>
-          5419
+          5352
           -
-          5442
+          5375
         </td>
         <td>
           Apply
@@ -1900,15 +1899,15 @@ else
         </td>
       </tr><tr>
         <td>
-          126
+          125
         </td>
         <td>
-          678
+          676
         </td>
         <td>
-          5455
+          5388
           -
-          5470
+          5403
         </td>
         <td>
           Apply
@@ -1924,15 +1923,15 @@ else
         </td>
       </tr><tr>
         <td>
-          127
+          126
         </td>
         <td>
-          679
+          677
         </td>
         <td>
-          5483
+          5416
           -
-          5530
+          5463
         </td>
         <td>
           Apply
@@ -1948,15 +1947,15 @@ else
         </td>
       </tr><tr>
         <td>
-          130
+          129
         </td>
         <td>
-          681
+          679
         </td>
         <td>
-          5578
+          5511
           -
-          5578
+          5511
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1989,15 +1988,15 @@ else
         </td>
       </tr><tr>
         <td>
-          130
+          129
         </td>
         <td>
-          682
+          680
         </td>
         <td>
-          4641
+          4574
           -
-          5601
+          5534
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2033,15 +2032,15 @@ else
         </td>
       </tr><tr>
         <td>
-          142
+          141
         </td>
         <td>
-          683
+          681
         </td>
         <td>
-          6057
+          5990
           -
-          6081
+          6014
         </td>
         <td>
           Apply
@@ -2057,15 +2056,15 @@ else
         </td>
       </tr><tr>
         <td>
-          142
+          141
         </td>
         <td>
-          685
+          683
         </td>
         <td>
-          6006
+          5939
           -
-          6139
+          6072
         </td>
         <td>
           Apply
@@ -2081,15 +2080,15 @@ else
         </td>
       </tr><tr>
         <td>
-          143
+          142
         </td>
         <td>
-          684
+          682
         </td>
         <td>
-          6112
+          6045
           -
-          6138
+          6071
         </td>
         <td>
           Apply
@@ -2105,15 +2104,15 @@ else
         </td>
       </tr><tr>
         <td>
-          152
+          151
         </td>
         <td>
-          686
+          684
         </td>
         <td>
-          6470
+          6403
           -
-          6494
+          6427
         </td>
         <td>
           Apply
@@ -2129,15 +2128,15 @@ else
         </td>
       </tr><tr>
         <td>
-          152
+          151
         </td>
         <td>
-          687
+          685
         </td>
         <td>
-          6419
+          6352
           -
-          6495
+          6428
         </td>
         <td>
           Apply
@@ -2153,15 +2152,15 @@ else
         </td>
       </tr><tr>
         <td>
-          160
+          159
         </td>
         <td>
-          688
+          686
         </td>
         <td>
-          6672
+          6605
           -
-          6701
+          6634
         </td>
         <td>
           Apply
@@ -2177,15 +2176,15 @@ else
         </td>
       </tr><tr>
         <td>
-          172
+          171
         </td>
         <td>
-          689
+          687
         </td>
         <td>
-          7220
+          7153
           -
-          7244
+          7177
         </td>
         <td>
           Apply
@@ -2201,15 +2200,15 @@ else
         </td>
       </tr><tr>
         <td>
-          172
+          171
         </td>
         <td>
-          692
+          690
         </td>
         <td>
-          7169
+          7102
           -
-          7337
+          7270
         </td>
         <td>
           Apply
@@ -2225,15 +2224,15 @@ else
         </td>
       </tr><tr>
         <td>
-          173
+          172
         </td>
         <td>
-          690
+          688
         </td>
         <td>
-          7275
+          7208
           -
-          7301
+          7234
         </td>
         <td>
           Apply
@@ -2249,15 +2248,15 @@ else
         </td>
       </tr><tr>
         <td>
-          173
+          172
         </td>
         <td>
-          691
+          689
         </td>
         <td>
-          7318
+          7251
           -
-          7336
+          7269
         </td>
         <td>
           Apply
@@ -2273,63 +2272,63 @@ else
         </td>
       </tr><tr>
         <td>
-          183
+          182
+        </td>
+        <td>
+          691
+        </td>
+        <td>
+          7668
+          -
+          7692
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[org.apache.spark.sql.Dataset[com.sparkutils.quality.impl.util.LambdaFunctionRow]](lambdaFunctionRows)
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          692
+        </td>
+        <td>
+          7709
+          -
+          7727
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Double](probablePass)
+        </td>
+      </tr><tr>
+        <td>
+          182
         </td>
         <td>
           693
         </td>
         <td>
-          7735
+          7617
           -
-          7759
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Some.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.Some.apply[org.apache.spark.sql.Dataset[com.sparkutils.quality.impl.util.LambdaFunctionRow]](lambdaFunctionRows)
-        </td>
-      </tr><tr>
-        <td>
-          183
-        </td>
-        <td>
-          694
-        </td>
-        <td>
-          7776
-          -
-          7794
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Some.apply
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          scala.Some.apply[Double](probablePass)
-        </td>
-      </tr><tr>
-        <td>
-          183
-        </td>
-        <td>
-          695
-        </td>
-        <td>
-          7684
-          -
-          7795
+          7728
         </td>
         <td>
           Apply
@@ -2345,15 +2344,15 @@ else
         </td>
       </tr><tr>
         <td>
-          192
+          191
         </td>
         <td>
-          696
+          694
         </td>
         <td>
-          8085
+          8018
           -
-          8103
+          8036
         </td>
         <td>
           Apply
@@ -2369,15 +2368,15 @@ else
         </td>
       </tr><tr>
         <td>
-          192
+          191
         </td>
         <td>
-          697
+          695
         </td>
         <td>
-          8040
+          7973
           -
-          8104
+          8037
         </td>
         <td>
           Apply
@@ -2393,15 +2392,15 @@ else
         </td>
       </tr><tr>
         <td>
-          201
+          200
         </td>
         <td>
-          698
+          696
         </td>
         <td>
-          8299
+          8232
           -
-          8314
+          8247
         </td>
         <td>
           Select
@@ -2417,15 +2416,15 @@ else
         </td>
       </tr><tr>
         <td>
-          201
+          200
         </td>
         <td>
-          699
+          697
         </td>
         <td>
-          8316
+          8249
           -
-          8336
+          8269
         </td>
         <td>
           Select
@@ -2441,15 +2440,15 @@ else
         </td>
       </tr><tr>
         <td>
-          201
+          200
         </td>
         <td>
-          700
+          698
         </td>
         <td>
-          8296
+          8229
           -
-          8337
+          8270
         </td>
         <td>
           Apply
@@ -2465,15 +2464,15 @@ else
         </td>
       </tr><tr>
         <td>
-          201
+          200
         </td>
         <td>
-          732
+          730
         </td>
         <td>
-          8286
+          8219
           -
-          9086
+          9019
         </td>
         <td>
           Apply
@@ -2489,15 +2488,15 @@ else
         </td>
       </tr><tr>
         <td>
-          202
+          201
         </td>
         <td>
-          701
+          699
         </td>
         <td>
-          8374
+          8307
           -
-          8393
+          8326
         </td>
         <td>
           Select
@@ -2513,15 +2512,15 @@ else
         </td>
       </tr><tr>
         <td>
-          202
+          201
         </td>
         <td>
-          702
+          700
         </td>
         <td>
-          8395
+          8328
           -
-          8421
+          8354
         </td>
         <td>
           Select
@@ -2537,15 +2536,15 @@ else
         </td>
       </tr><tr>
         <td>
-          202
+          201
         </td>
         <td>
-          703
+          701
         </td>
         <td>
-          8371
+          8304
           -
-          8422
+          8355
         </td>
         <td>
           Apply
@@ -2561,15 +2560,15 @@ else
         </td>
       </tr><tr>
         <td>
-          204
+          203
         </td>
         <td>
-          704
+          702
         </td>
         <td>
-          8461
+          8394
           -
-          8465
+          8398
         </td>
         <td>
           Select
@@ -2585,15 +2584,15 @@ else
         </td>
       </tr><tr>
         <td>
-          204
+          203
         </td>
         <td>
-          720
+          718
         </td>
         <td>
-          8467
+          8400
           -
-          8892
+          8825
         </td>
         <td>
           Apply
@@ -2609,15 +2608,15 @@ else
         </td>
       </tr><tr>
         <td>
-          204
+          203
         </td>
         <td>
-          721
+          719
         </td>
         <td>
-          8453
+          8386
           -
-          8893
+          8826
         </td>
         <td>
           Apply
@@ -2633,15 +2632,15 @@ else
         </td>
       </tr><tr>
         <td>
-          205
+          204
         </td>
         <td>
-          705
+          703
         </td>
         <td>
-          8503
+          8436
           -
-          8520
+          8453
         </td>
         <td>
           Select
@@ -2657,15 +2656,15 @@ else
         </td>
       </tr><tr>
         <td>
-          205
+          204
         </td>
         <td>
-          706
+          704
         </td>
         <td>
-          8522
+          8455
           -
-          8544
+          8477
         </td>
         <td>
           Select
@@ -2681,15 +2680,15 @@ else
         </td>
       </tr><tr>
         <td>
-          205
+          204
         </td>
         <td>
-          707
+          705
         </td>
         <td>
-          8500
+          8433
           -
-          8545
+          8478
         </td>
         <td>
           Apply
@@ -2705,15 +2704,15 @@ else
         </td>
       </tr><tr>
         <td>
-          205
+          204
         </td>
         <td>
-          708
+          706
         </td>
         <td>
-          8562
+          8495
           -
-          8581
+          8514
         </td>
         <td>
           Select
@@ -2729,15 +2728,15 @@ else
         </td>
       </tr><tr>
         <td>
-          205
+          204
         </td>
         <td>
-          709
+          707
         </td>
         <td>
-          8547
+          8480
           -
-          8582
+          8515
         </td>
         <td>
           Apply
@@ -2753,15 +2752,15 @@ else
         </td>
       </tr><tr>
         <td>
-          205
+          204
         </td>
         <td>
-          719
+          717
         </td>
         <td>
-          8495
+          8428
           -
-          8880
+          8813
         </td>
         <td>
           Apply
@@ -2777,15 +2776,15 @@ else
         </td>
       </tr><tr>
         <td>
-          207
+          206
         </td>
         <td>
-          710
+          708
         </td>
         <td>
-          8687
+          8620
           -
-          8716
+          8649
         </td>
         <td>
           Select
@@ -2801,15 +2800,15 @@ else
         </td>
       </tr><tr>
         <td>
-          207
+          206
         </td>
         <td>
-          716
+          714
         </td>
         <td>
-          8668
+          8601
           -
-          8807
+          8740
         </td>
         <td>
           Apply
@@ -2825,15 +2824,15 @@ else
         </td>
       </tr><tr>
         <td>
-          208
+          207
         </td>
         <td>
-          711
+          709
         </td>
         <td>
-          8741
+          8674
           -
-          8754
+          8687
         </td>
         <td>
           Select
@@ -2849,15 +2848,15 @@ else
         </td>
       </tr><tr>
         <td>
-          208
+          207
         </td>
         <td>
-          712
+          710
         </td>
         <td>
-          8756
+          8689
           -
-          8774
+          8707
         </td>
         <td>
           Select
@@ -2873,15 +2872,15 @@ else
         </td>
       </tr><tr>
         <td>
-          208
+          207
         </td>
         <td>
-          713
+          711
         </td>
         <td>
-          8738
+          8671
           -
-          8775
+          8708
         </td>
         <td>
           Apply
@@ -2897,15 +2896,15 @@ else
         </td>
       </tr><tr>
         <td>
-          208
+          207
         </td>
         <td>
-          714
+          712
         </td>
         <td>
-          8794
+          8727
           -
-          8805
+          8738
         </td>
         <td>
           Select
@@ -2921,15 +2920,15 @@ else
         </td>
       </tr><tr>
         <td>
-          208
+          207
         </td>
         <td>
-          715
+          713
         </td>
         <td>
-          8777
+          8710
           -
-          8806
+          8739
         </td>
         <td>
           Apply
@@ -2945,15 +2944,15 @@ else
         </td>
       </tr><tr>
         <td>
-          209
+          208
         </td>
         <td>
-          717
+          715
         </td>
         <td>
-          8838
+          8771
           -
-          8865
+          8798
         </td>
         <td>
           Select
@@ -2969,15 +2968,15 @@ else
         </td>
       </tr><tr>
         <td>
-          209
+          208
         </td>
         <td>
-          718
+          716
         </td>
         <td>
-          8635
+          8568
           -
-          8866
+          8799
         </td>
         <td>
           Apply
@@ -2993,15 +2992,15 @@ else
         </td>
       </tr><tr>
         <td>
-          212
+          211
         </td>
         <td>
-          722
+          720
         </td>
         <td>
-          8345
+          8278
           -
-          8907
+          8840
         </td>
         <td>
           Select
@@ -3017,15 +3016,15 @@ else
         </td>
       </tr><tr>
         <td>
-          212
+          211
         </td>
         <td>
-          723
+          721
         </td>
         <td>
-          8952
+          8885
           -
-          8977
+          8910
         </td>
         <td>
           TypeApply
@@ -3041,15 +3040,15 @@ else
         </td>
       </tr><tr>
         <td>
-          212
+          211
         </td>
         <td>
-          730
+          728
         </td>
         <td>
-          8979
+          8912
           -
-          9084
+          9017
         </td>
         <td>
           Apply
@@ -3065,15 +3064,15 @@ else
         </td>
       </tr><tr>
         <td>
-          212
+          211
         </td>
         <td>
-          731
+          729
         </td>
         <td>
-          8927
+          8860
           -
-          9085
+          9018
         </td>
         <td>
           Apply
@@ -3089,15 +3088,15 @@ else
         </td>
       </tr><tr>
         <td>
-          213
+          212
         </td>
         <td>
-          724
+          722
         </td>
         <td>
-          9016
+          8949
           -
-          9023
+          8956
         </td>
         <td>
           Select
@@ -3113,15 +3112,15 @@ else
         </td>
       </tr><tr>
         <td>
-          213
+          212
         </td>
         <td>
-          725
+          723
         </td>
         <td>
-          9025
+          8958
           -
-          9036
+          8969
         </td>
         <td>
           Select
@@ -3137,15 +3136,15 @@ else
         </td>
       </tr><tr>
         <td>
-          213
+          212
         </td>
         <td>
-          726
+          724
         </td>
         <td>
-          9041
+          8974
           -
-          9054
+          8987
         </td>
         <td>
           Select
@@ -3161,15 +3160,15 @@ else
         </td>
       </tr><tr>
         <td>
-          213
+          212
         </td>
         <td>
-          727
+          725
         </td>
         <td>
-          9056
+          8989
           -
-          9074
+          9007
         </td>
         <td>
           Select
@@ -3185,15 +3184,15 @@ else
         </td>
       </tr><tr>
         <td>
-          213
+          212
         </td>
         <td>
-          728
+          726
         </td>
         <td>
-          9038
+          8971
           -
-          9075
+          9008
         </td>
         <td>
           Apply
@@ -3209,15 +3208,15 @@ else
         </td>
       </tr><tr>
         <td>
-          213
+          212
         </td>
         <td>
-          729
+          727
         </td>
         <td>
-          9001
+          8934
           -
-          9076
+          9009
         </td>
         <td>
           Apply
@@ -3233,15 +3232,15 @@ else
         </td>
       </tr><tr>
         <td>
-          224
+          223
         </td>
         <td>
-          733
+          731
         </td>
         <td>
-          9327
+          9260
           -
-          9340
+          9273
         </td>
         <td>
           Literal
@@ -3257,15 +3256,15 @@ else
         </td>
       </tr><tr>
         <td>
-          224
+          223
         </td>
         <td>
-          734
+          732
         </td>
         <td>
-          9346
+          9279
           -
-          9351
+          9284
         </td>
         <td>
           Select
@@ -3281,15 +3280,15 @@ else
         </td>
       </tr><tr>
         <td>
-          224
+          223
         </td>
         <td>
-          735
+          733
         </td>
         <td>
-          9359
+          9292
           -
-          9377
+          9310
         </td>
         <td>
           Literal
@@ -3305,15 +3304,15 @@ else
         </td>
       </tr><tr>
         <td>
-          224
+          223
         </td>
         <td>
-          736
+          734
         </td>
         <td>
-          9383
+          9316
           -
-          9393
+          9326
         </td>
         <td>
           Select
@@ -3329,15 +3328,15 @@ else
         </td>
       </tr><tr>
         <td>
-          224
+          223
         </td>
         <td>
-          737
+          735
         </td>
         <td>
-          9355
+          9288
           -
-          9393
+          9326
         </td>
         <td>
           Apply
@@ -3353,15 +3352,15 @@ else
         </td>
       </tr><tr>
         <td>
-          224
+          223
         </td>
         <td>
-          738
+          736
         </td>
         <td>
-          9323
+          9256
           -
-          9393
+          9326
         </td>
         <td>
           Apply
@@ -3377,15 +3376,15 @@ else
         </td>
       </tr><tr>
         <td>
-          224
+          223
         </td>
         <td>
-          739
+          737
         </td>
         <td>
-          9313
+          9246
           -
-          9394
+          9327
         </td>
         <td>
           Apply
@@ -3401,15 +3400,15 @@ else
         </td>
       </tr><tr>
         <td>
-          225
+          224
         </td>
         <td>
-          740
+          738
         </td>
         <td>
-          9403
+          9336
           -
-          9412
+          9345
         </td>
         <td>
           Select
@@ -3425,15 +3424,15 @@ else
         </td>
       </tr><tr>
         <td>
-          226
+          225
         </td>
         <td>
-          741
+          739
         </td>
         <td>
-          9420
+          9353
           -
-          9424
+          9357
         </td>
         <td>
           Select
@@ -3449,15 +3448,15 @@ else
         </td>
       </tr><tr>
         <td>
-          226
+          225
         </td>
         <td>
-          742
+          740
         </td>
         <td>
-          9420
+          9353
           -
-          9424
+          9357
         </td>
         <td>
           Block
@@ -3473,15 +3472,15 @@ else
         </td>
       </tr><tr>
         <td>
-          228
+          227
         </td>
         <td>
-          743
+          741
         </td>
         <td>
-          9456
+          9389
           -
-          9464
+          9397
         </td>
         <td>
           Apply
@@ -3497,15 +3496,15 @@ else
         </td>
       </tr><tr>
         <td>
-          228
+          227
         </td>
         <td>
-          744
+          742
         </td>
         <td>
-          9445
+          9378
           -
-          9465
+          9398
         </td>
         <td>
           Apply
@@ -3521,15 +3520,15 @@ else
         </td>
       </tr><tr>
         <td>
-          228
+          227
         </td>
         <td>
-          745
+          743
         </td>
         <td>
-          9440
+          9373
           -
-          9466
+          9399
         </td>
         <td>
           Apply
@@ -3545,15 +3544,15 @@ else
         </td>
       </tr><tr>
         <td>
-          228
+          227
         </td>
         <td>
-          746
+          744
         </td>
         <td>
-          9440
+          9373
           -
-          9466
+          9399
         </td>
         <td>
           Block
@@ -3569,15 +3568,15 @@ else
         </td>
       </tr><tr>
         <td>
-          238
+          237
         </td>
         <td>
-          747
+          745
         </td>
         <td>
-          9752
+          9685
           -
-          9764
+          9697
         </td>
         <td>
           Apply
@@ -3593,15 +3592,15 @@ else
         </td>
       </tr><tr>
         <td>
-          238
+          237
         </td>
         <td>
-          748
+          746
         </td>
         <td>
-          9715
+          9648
           -
-          9765
+          9698
         </td>
         <td>
           Apply
@@ -3617,15 +3616,15 @@ else
         </td>
       </tr><tr>
         <td>
-          248
+          247
         </td>
         <td>
-          749
+          747
         </td>
         <td>
-          10081
+          10014
           -
-          10094
+          10027
         </td>
         <td>
           Literal
@@ -3641,15 +3640,15 @@ else
         </td>
       </tr><tr>
         <td>
-          248
+          247
         </td>
         <td>
-          750
+          748
         </td>
         <td>
-          10100
+          10033
           -
-          10105
+          10038
         </td>
         <td>
           Select
@@ -3665,15 +3664,15 @@ else
         </td>
       </tr><tr>
         <td>
-          248
+          247
         </td>
         <td>
-          751
+          749
         </td>
         <td>
-          10113
+          10046
           -
-          10131
+          10064
         </td>
         <td>
           Literal
@@ -3689,15 +3688,15 @@ else
         </td>
       </tr><tr>
         <td>
-          248
+          247
         </td>
         <td>
-          752
+          750
         </td>
         <td>
-          10137
+          10070
           -
-          10147
+          10080
         </td>
         <td>
           Select
@@ -3713,15 +3712,15 @@ else
         </td>
       </tr><tr>
         <td>
-          248
+          247
         </td>
         <td>
-          753
+          751
         </td>
         <td>
-          10109
+          10042
           -
-          10147
+          10080
         </td>
         <td>
           Apply
@@ -3737,15 +3736,15 @@ else
         </td>
       </tr><tr>
         <td>
-          248
+          247
         </td>
         <td>
-          754
+          752
         </td>
         <td>
-          10077
+          10010
           -
-          10147
+          10080
         </td>
         <td>
           Apply
@@ -3761,15 +3760,15 @@ else
         </td>
       </tr><tr>
         <td>
-          248
+          247
         </td>
         <td>
-          755
+          753
         </td>
         <td>
-          10067
+          10000
           -
-          10148
+          10081
         </td>
         <td>
           Apply
@@ -3785,15 +3784,15 @@ else
         </td>
       </tr><tr>
         <td>
-          249
+          248
         </td>
         <td>
-          756
+          754
         </td>
         <td>
-          10162
+          10095
           -
-          10174
+          10107
         </td>
         <td>
           Apply
@@ -3809,15 +3808,15 @@ else
         </td>
       </tr><tr>
         <td>
-          250
+          249
         </td>
         <td>
-          757
+          755
         </td>
         <td>
-          10179
+          10112
           -
-          10208
+          10141
         </td>
         <td>
           Apply
@@ -3833,15 +3832,15 @@ else
         </td>
       </tr><tr>
         <td>
-          251
+          250
         </td>
         <td>
-          758
+          756
         </td>
         <td>
-          10221
+          10154
           -
-          10240
+          10173
         </td>
         <td>
           Select
@@ -3857,15 +3856,15 @@ else
         </td>
       </tr><tr>
         <td>
-          253
+          252
         </td>
         <td>
-          759
+          757
         </td>
         <td>
-          10290
+          10223
           -
-          10290
+          10223
         </td>
         <td>
           ApplyToImplicitArgs
@@ -3898,15 +3897,15 @@ else
         </td>
       </tr><tr>
         <td>
-          253
+          252
         </td>
         <td>
-          760
+          758
         </td>
         <td>
-          10280
+          10213
           -
-          10335
+          10268
         </td>
         <td>
           Select
@@ -3939,15 +3938,15 @@ else
         </td>
       </tr><tr>
         <td>
-          255
+          254
         </td>
         <td>
-          761
+          759
         </td>
         <td>
-          10341
+          10274
           -
-          10510
+          10443
         </td>
         <td>
           Apply
@@ -3963,15 +3962,15 @@ else
         </td>
       </tr><tr>
         <td>
-          269
+          268
         </td>
         <td>
-          762
+          760
         </td>
         <td>
-          10895
+          10828
           -
-          10914
+          10847
         </td>
         <td>
           Select
@@ -3987,15 +3986,15 @@ else
         </td>
       </tr><tr>
         <td>
-          271
+          270
         </td>
         <td>
-          763
+          761
         </td>
         <td>
-          10953
+          10886
           -
-          10965
+          10898
         </td>
         <td>
           Apply
@@ -4011,15 +4010,15 @@ else
         </td>
       </tr><tr>
         <td>
-          272
+          271
         </td>
         <td>
-          764
+          762
         </td>
         <td>
-          10970
+          10903
           -
-          11075
+          11008
         </td>
         <td>
           Apply
@@ -4035,15 +4034,15 @@ else
         </td>
       </tr><tr>
         <td>
-          273
+          272
         </td>
         <td>
-          765
+          763
         </td>
         <td>
-          11117
+          11050
           -
-          11131
+          11064
         </td>
         <td>
           Select
@@ -4059,15 +4058,15 @@ else
         </td>
       </tr><tr>
         <td>
-          273
+          272
         </td>
         <td>
-          766
+          764
         </td>
         <td>
-          11080
+          11013
           -
-          11172
+          11105
         </td>
         <td>
           Apply
@@ -4083,15 +4082,15 @@ else
         </td>
       </tr><tr>
         <td>
-          284
+          283
         </td>
         <td>
-          767
+          765
         </td>
         <td>
-          11417
+          11350
           -
-          11429
+          11362
         </td>
         <td>
           Apply
@@ -4107,15 +4106,15 @@ else
         </td>
       </tr><tr>
         <td>
-          284
+          283
         </td>
         <td>
-          768
+          766
         </td>
         <td>
-          11386
+          11319
           -
-          11430
+          11363
         </td>
         <td>
           Apply
