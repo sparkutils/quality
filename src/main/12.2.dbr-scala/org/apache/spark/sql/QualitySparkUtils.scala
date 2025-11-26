@@ -19,7 +19,7 @@ import org.apache.spark.util.Utils
 /**
  * Set of utilities to reach in to private functions
  */
-object QualitySparkUtils {
+object ClassicQualitySparkUtils {
 
   /**
    * Spark >3.1 supports the very useful getLocalInputVariableValues, 2.4 needs the previous approach
@@ -331,6 +331,11 @@ object QualitySparkUtils {
         }
       }
     )
+
+
+}
+
+object QualitySparkUtils {
 
   def registerLambdaFunctions(functions: Seq[LambdaFunction]): Unit =
     LambdaFunctions.registerLambdaFunctions(functions)

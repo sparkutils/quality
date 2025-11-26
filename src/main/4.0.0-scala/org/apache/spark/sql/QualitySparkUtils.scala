@@ -23,7 +23,7 @@ import org.apache.spark.util.Utils
 /**
  * Set of utilities to reach in to private functions
  */
-object QualitySparkUtils {
+object ClassicQualitySparkUtils {
   /**
    * Spark >3.1 supports the very useful getLocalInputVariableValues, 2.4 needs the previous approach
    *
@@ -34,7 +34,7 @@ object QualitySparkUtils {
   def genParams(ctx: CodegenContext, child: Expression): (String, String, String) = {
     val (a, b) = CodeGenerator.getLocalInputVariableValues(ctx, child, QualityExprUtils.currentSubExprState(ctx))
 
-    val p = formatParams( ctx, a.toSeq )
+    val p = formatParams(ctx, a.toSeq)
 
     (p._1, p._2, b.map(_.code.code).mkString("\n"))
   }
@@ -60,6 +60,7 @@ object QualitySparkUtils {
   /**
    * Where resolveWith is not possible (e.g. 10.x DBRs) it is disabled here.
    * This is, in the 10.x DBR case, due to the class files for UnaryNode (FakePlan) being radically different and causing an IncompatibleClassChangeError: Implementing class
+   *
    * @param orig
    * @return
    */
@@ -91,7 +92,7 @@ object QualitySparkUtils {
 
   case class EvaluableExpressions(plan: LogicalPlan) extends PredicateHelperPlus {
     def expressions: Seq[Expression] = plan match {
-      case p: Project => p.expressions.map{
+      case p: Project => p.expressions.map {
         e => findRootExpression(e, plan).getOrElse(e)
       }
       case _ => plan.expressions
@@ -153,7 +154,7 @@ object QualitySparkUtils {
     // force an optimize
     val aplan =
       (optimizerBatches ++ SparkSession.getActiveSession.get.experimental.extraOptimizations).
-        foldLeft(df.queryExecution.analyzed){
+        foldLeft(df.queryExecution.analyzed) {
           (p, b) =>
             b.apply(p)
         }
@@ -195,7 +196,7 @@ object QualitySparkUtils {
     // force an optimize
     val aplan =
       (optimizerBatches ++ SparkSession.getActiveSession.get.experimental.extraOptimizations).
-        foldLeft(df.queryExecution.analyzed){
+        foldLeft(df.queryExecution.analyzed) {
           (p, b) =>
             b.apply(p)
         }
@@ -222,11 +223,12 @@ object QualitySparkUtils {
 
   /**
    * Creates a projection from InputRow to InputRow.
+   *
    * @param exprs expressions from resolveExpressions, already resolved without
    * @param compile
    * @return typically a mutable projection, callers must ensure partition is set and the target row is provided
    */
-  def rowProcessor(exprs: Seq[Expression], compile: Boolean = true): Projection  = {
+  def rowProcessor(exprs: Seq[Expression], compile: Boolean = true): Projection = {
     if (compile)
       GenerateMutableProjection.generate(exprs, SQLConf.get.subexpressionEliminationEnabled)
     else
@@ -299,7 +301,7 @@ object QualitySparkUtils {
     import analyzer._
 
     Batch("Resolution", fixedPoint,
-        new ResolveCatalogs(catalogManager) ::
+      new ResolveCatalogs(catalogManager) ::
         ResolveInsertInto ::
         ResolveRelations ::
         ResolvePartitionSpec ::
@@ -407,7 +409,6 @@ object QualitySparkUtils {
   }
 
 
-
   /**
    * Adds fields, in order, for each field path it's paired transformation is applied to the update column
    *
@@ -417,7 +418,7 @@ object QualitySparkUtils {
    */
   def update_field(update: Column, transformations: (String, Column)*): Column =
     column(
-      transformFields{
+      transformFields {
         transformations.foldRight(expression(update)) {
           case ((path, col), origin) =>
             UpdateFields.apply(origin, path, expression(col))
@@ -428,24 +429,56 @@ object QualitySparkUtils {
   protected def transformFields(exp: Expression): Expression =
     exp.transform { // simplify, normally done in optimizer UpdateFields
       case UpdateFields(UpdateFields(struct, fieldOps1), fieldOps2) =>
-        UpdateFields(struct, fieldOps1 ++ fieldOps2 )
+        UpdateFields(struct, fieldOps1 ++ fieldOps2)
     }
 
   /**
    * Drops a field from a structure
+   *
    * @param update
    * @param fieldNames may be nested
    * @return
    */
   def drop_field(update: Column, fieldNames: String*): Column =
     column(
-      transformFields{
+      transformFields {
         fieldNames.foldRight(expression(update)) {
           case (fieldName, origin) =>
             UpdateFields.apply(origin, fieldName)
         }
       }
     )
+
+}
+
+/*
+ When building 0.2.0 verify issues:
+
+   java.lang.VerifyError: Bad type on operand stack
+Exception Details:
+  Location:
+    org/apache/spark/sql/QualitySparkUtils$.$anonfun$execute$1(Lorg/apache/spark/sql/catalyst/plans/logical/LogicalPlan;Lorg/apache/spark/sql/catalyst/rules/Rule;)Lorg/apache/spark/sql/catalyst/plans/logical/LogicalPlan; @41: invokevirtual
+  Reason:
+    Type 'org/apache/spark/sql/catalyst/plans/logical/LogicalPlan' (current frame, stack[1]) is not assignable to 'org/apache/spark/sql/catalyst/trees/TreeNode'
+  Current Frame:
+    bci: @41
+    flags: { }
+    locals: { 'org/apache/spark/sql/catalyst/plans/logical/LogicalPlan', 'org/apache/spark/sql/catalyst/rules/Rule', top, 'scala/Tuple2', 'org/apache/spark/sql/catalyst/plans/logical/LogicalPlan', 'org/apache/spark/sql/catalyst/rules/Rule', long, long_2nd }
+    stack: { 'org/apache/spark/sql/catalyst/rules/Rule', 'org/apache/spark/sql/catalyst/plans/logical/LogicalPlan' }
+  Bytecode:
+    0000000: bb00 8e59 2a2b b700 9a4e 2dc6 0029 2db6
+    0000010: 0092 c000 f03a 042d b600 97c0 0393 3a05
+    0000020: b803 9637 0619 0519 04b6 0399 c000 f03a
+    0000030: 0819 08b0 a700 03bb 009c 592d b700 9fbf
+    0000040:
+  Stackmap Table:
+    append_frame(@52,Top,Object[#142])
+    same_frame(@55)
+  at com.sparkutils.quality.impl.imports.LambdaFunctionsImports.registerLambdaFunctions(LambdaFunctionsImports.scala:19)
+
+ were triggered on connect only clients as plan is no longer the same thing.  As such the split was introduced.
+ */
+object QualitySparkUtils {
 
   def registerLambdaFunctions(functions: Seq[LambdaFunction]): Unit =
     if (functions.nonEmpty)
@@ -464,5 +497,4 @@ object QualitySparkUtils {
       }
     else
       ()
-
 }

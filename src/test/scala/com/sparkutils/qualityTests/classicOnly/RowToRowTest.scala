@@ -11,7 +11,7 @@ import com.sparkutils.testing.{ClassicOnly, ConnectionType, Sessions, Testing}
 import org.apache.avro.SchemaBuilder
 import org.apache.avro.generic.{GenericData, GenericDatumWriter, GenericRecord}
 import org.apache.avro.io.EncoderFactory
-import org.apache.spark.sql.{Encoders, QualitySparkUtils, ShimUtils, SparkSession}
+import org.apache.spark.sql.{Encoders, ClassicQualitySparkUtils, ShimUtils, SparkSession}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode}
@@ -231,11 +231,11 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
       ))
     ))
 
-    val exprs = QualitySparkUtils.resolveExpressions(typ, taddOverallResultsAndDetailsF(rs))
-    val iprocessor = QualitySparkUtils.rowProcessor(exprs, inCodegen).asInstanceOf[MutableProjection]
+    val exprs = ClassicQualitySparkUtils.resolveExpressions(typ, taddOverallResultsAndDetailsF(rs))
+    val iprocessor = ClassicQualitySparkUtils.rowProcessor(exprs, inCodegen).asInstanceOf[MutableProjection]
     iprocessor.target(InternalRow(null, null, null, null, null))
     iprocessor.initialize(0)
-    val cprocessor = QualitySparkUtils.rowProcessor(exprs, inCodegen).asInstanceOf[MutableProjection]
+    val cprocessor = ClassicQualitySparkUtils.rowProcessor(exprs, inCodegen).asInstanceOf[MutableProjection]
     cprocessor.target(InternalRow(null, null, null, null, null))
     cprocessor.initialize(0)
 
@@ -246,7 +246,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
   } } } }
 
   test("encoder output projection") { not2_4 { not_Cluster { evalCodeGensNoResolve {
-    val enc = QualitySparkUtils.rowProcessor(Seq(ruleSuiteDeserializer), inCodegen).asInstanceOf[MutableProjection]
+    val enc = ClassicQualitySparkUtils.rowProcessor(Seq(ruleSuiteDeserializer), inCodegen).asInstanceOf[MutableProjection]
     enc.target(InternalRow(null))
 
     def map(seq: Seq[TestOn], projection: Projection, resi: Int): Seq[RuleSuiteResult] = seq.map{ s =>
@@ -261,11 +261,11 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
       ))
     ))
 
-    val exprs = QualitySparkUtils.resolveExpressions(typ, taddDataQualityF(rs))
-    val iprocessor = QualitySparkUtils.rowProcessor(exprs, false).asInstanceOf[MutableProjection]
+    val exprs = ClassicQualitySparkUtils.resolveExpressions(typ, taddDataQualityF(rs))
+    val iprocessor = ClassicQualitySparkUtils.rowProcessor(exprs, false).asInstanceOf[MutableProjection]
     iprocessor.target(InternalRow(null, null, null, null, null))
     iprocessor.initialize(0)
-    val cprocessor = QualitySparkUtils.rowProcessor(exprs, true).asInstanceOf[MutableProjection]
+    val cprocessor = ClassicQualitySparkUtils.rowProcessor(exprs, true).asInstanceOf[MutableProjection]
     cprocessor.target(InternalRow(null, null, null, null, null))
     cprocessor.initialize(0)
 

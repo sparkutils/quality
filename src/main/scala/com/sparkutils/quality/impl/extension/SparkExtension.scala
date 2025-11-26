@@ -72,7 +72,7 @@ class QualitySparkExtension extends ((SparkSessionExtensions) => Unit) with Logg
         ShimUtils.registerFunctionViaBuiltin _
       }
     com.sparkutils.quality.registerQualityFunctions(parseTypes, zero, add, mapCompare, writer,
-      registerFunction = func
+      registerFunction = func, fromExtension = true
     )
     extensions.injectParser(QualityFunctionParser(_,_))
 

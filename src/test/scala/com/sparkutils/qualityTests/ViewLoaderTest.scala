@@ -4,14 +4,15 @@ import com.sparkutils.quality.impl.views.{MissingViewAnalysisException, ViewConf
 import com.sparkutils.qualityTests.util.SharedConnectTests
 import com.sparkutils.testing.SparkVersions.sparkVersion
 import org.apache.spark.sql.functions.{col, expr}
-import org.apache.spark.sql.{DataFrame, ShimUtils}
+import org.apache.spark.sql.{DataFrame, ShimUtils, SparkSession}
+import org.scalatest.BeforeAndAfterEach
 
 class ViewLoaderTest extends SharedConnectTests {
 
   val loader = new DataFrameLoader {
     override def load(token: String): DataFrame = {
       val s = sparkSession
-    import s.implicits._
+      import s.implicits._
       token match {
         case "names" | "names2" => Seq(X2("rog","dodge"), X2("rog","nododge"), X2("rod","nojane"), X2("freddy", "jane")).toDF()
         case "ages" | "ages2" => Seq(X2("dodge",12), X2("nododge",45), X2("nojane", 50), X2("jane", 24)).toDF()
@@ -65,6 +66,8 @@ class ViewLoaderTest extends SharedConnectTests {
 
   test("testViewLoads") {
     val s = sparkSession
+    cleanup(s)
+
     import s.implicits._
 
     val (viewConfigs, _) = loadViewConfigs(loader, config.toDF(), expr("id.id"), expr("id.version"), Id(1,1),
@@ -195,12 +198,14 @@ class ViewLoaderTest extends SharedConnectTests {
     }
   }
 
+  def cleanup(session: SparkSession): Unit =
+    Set("joined", "names", "nameLess", "ages", "bad", "names2", "ages2").foreach {
+      session.catalog.dropTempView
+    }
+
   override def afterAll(): Unit = {
-    forEachSession(currentSessionsHolder.getSessions, session =>
-      Set("joined", "names", "nameLess", "ages", "bad", "names2", "ages2").foreach {
-        session.catalog.dropTempView
-      }
-    )
+    super.afterAll()
+    forEachSession(currentSessionsHolder.getSessions, cleanup)
   }
 }
 

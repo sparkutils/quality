@@ -7,7 +7,7 @@ import com.sparkutils.quality.impl.util.EmbeddedTypeCorrection
 import com.sparkutils.quality.sparkless.{Processor, ProcessorFactory}
 import com.sparkutils.testing.Testing
 import org.apache.spark.broadcast.Broadcast
-import org.apache.spark.sql.{DataFrame, Encoder, QualitySparkUtils, ShimUtils}
+import org.apache.spark.sql.{DataFrame, Encoder, ClassicQualitySparkUtils, ShimUtils}
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
 import org.apache.spark.sql.catalyst.expressions.{BoundReference, Expression, HigherOrderFunction, PlanExpression}
 import org.apache.spark.sql.catalyst.optimizer.ConstantFolding
@@ -148,7 +148,7 @@ object Processors {
       }
 
       val iEnc = implicitly[Encoder[I]]
-      val (exprsToUse, exprTo) = QualitySparkUtils.resolveExpressions[I, O](iEnc, embeddedTypeCorrection, df => {
+      val (exprsToUse, exprTo) = ClassicQualitySparkUtils.resolveExpressions[I, O](iEnc, embeddedTypeCorrection, df => {
         dataFrameFunction(extraProjection(df))
       })
 

@@ -3,7 +3,7 @@ package com.sparkutils.quality.impl.aggregates
 import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.impl.RuleRegistrationFunctions.{defaultAdd, defaultZero}
 import eu.timepit.refined.boolean.False
-import org.apache.spark.sql.QualitySparkUtils
+import org.apache.spark.sql.ClassicQualitySparkUtils
 import org.apache.spark.sql.ShimUtils.cast
 import org.apache.spark.sql.catalyst.dsl.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate.DeclarativeAggregate

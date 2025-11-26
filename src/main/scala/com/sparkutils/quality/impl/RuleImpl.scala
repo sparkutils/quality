@@ -4,6 +4,8 @@ import com.sparkutils.quality
 import com.sparkutils.quality.impl.ExpressionCompiler.withExpressionCompiler
 import com.sparkutils.quality.impl.util.{Serializing, SubQueryWrapper}
 import com.sparkutils.quality._
+import com.sparkutils.quality.impl.util.Serializing.toSeq
+
 import org.apache.spark.sql.ShimUtils.newParser
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedFunction}
@@ -11,10 +13,10 @@ import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFo
 import org.apache.spark.sql.catalyst.expressions.{Expression, ScalarSubquery, SubqueryExpression, UnresolvedNamedLambdaVariable, LambdaFunction => SparkLambdaFunction}
 import org.apache.spark.sql.qualityFunctions.{FunN, RefExpressionLazyType}
 import org.apache.spark.sql.types.{DataType, Decimal}
-import org.apache.spark.sql.{ShimUtils, SparkSession}
+import org.apache.spark.sql.SparkSession
 import org.apache.spark.unsafe.types.UTF8String
 
-import java.io.{ByteArrayInputStream, ByteArrayOutputStream, ObjectInputStream, ObjectOutputStream}
+import java.io.{ByteArrayInputStream, ByteArrayOutputStream, ObjectInputStream, ObjectOutputStream, ObjectStreamClass}
 import scala.collection.mutable
 
 /**
@@ -213,7 +215,7 @@ trait HasRuleText extends HasExpr {
   // doesn't need to be serialized, done by RuleRunners
   @volatile
   private[quality] var exprI: Expression = _
-  private[quality] def expression(): Expression = {
+  protected[quality] def expression(): Expression = {
     if (exprI eq null) {
       exprI = RuleLogicUtils.expr(rule)
     }
@@ -235,6 +237,8 @@ trait HasRuleText extends HasExpr {
 @SerialVersionUID(1L)
 case class ExpressionRuleExpr( rule: String, override val expr: Expression ) extends ExprLogic with HasRuleText {
   override def reset(): Unit = super[HasRuleText].reset()
+
+  override protected[quality] def expression(): Expression = expr // ignore resets - allows process_if_att.., the ruletext remains with coalesce, the expr is corrected
 }
 
 object ExpressionCompiler {
@@ -619,8 +623,16 @@ case class LazyRuleSuiteResultDetailsProxyImpl(_ruleSuiteResultDetails: RuleSuit
 
 
 object RuleSuiteHelpers {
+  def getSparkClassLoader: ClassLoader = classOf[SparkSession].getClassLoader
+
+  def getContextOrSparkClassLoader: ClassLoader =
+    Option(Thread.currentThread().getContextClassLoader).getOrElse(getSparkClassLoader)
+
   protected[quality] def deserialize(in: Array[Byte]): RuleSuite = {
-    val os = new ObjectInputStream(new ByteArrayInputStream(in))
+    val os = new ObjectInputStream(new ByteArrayInputStream(in)) {
+      override def resolveClass(desc: ObjectStreamClass): Class[_] =
+        Class.forName(desc.getName, false, getContextOrSparkClassLoader)
+    }
     val suite = os.readObject()
     os.close()
     suite.asInstanceOf[RuleSuite]
@@ -629,7 +641,8 @@ object RuleSuiteHelpers {
   protected[quality] def serialize(ruleSuite: RuleSuite): Array[Byte] = {
     val bos = new ByteArrayOutputStream()
     val os = new ObjectOutputStream(bos)
-    os.writeObject(ruleSuite)
+    // get rid of List's Vectors are serializable
+    os.writeObject(toSeq(ruleSuite))
     val res = bos.toByteArray
     os.close()
     res

@@ -17,7 +17,7 @@ Write rules using simple SQL or create re-usable functions via SQL Lambdas.
 
 Your rules are just versioned data, store them wherever convenient, use them by simply defining a column.
 
-* :new:{.pulseABit} Spark 4 Connect support
+* :new:{.pulseABit} Spark 4 [Connect support](getting_started/connect/)
 
 Rules are evaluated lazily during Spark actions, such as writing a row, with results saved in a single predictable column.
 

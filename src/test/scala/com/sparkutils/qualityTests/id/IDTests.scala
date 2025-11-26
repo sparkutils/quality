@@ -8,9 +8,9 @@ import com.sparkutils.quality.impl.rng.RandomLongs
 import com.sparkutils.quality.impl.util.BytePackingUtils
 import com.sparkutils.qualityTests._
 import com.sparkutils.qualityTests.util.{RowTools, SharedConnectTests}
-import com.sparkutils.testing.SparkTestUtils.{enumToScala, ouputDir}
+import com.sparkutils.testing.SparkTestUtils.ouputDir
 import com.sparkutils.testing.{ClassicOnly, ConnectionType, Sessions}
-import com.sparkutils.testing.TestUtils.{anyCauseHas, debug}
+import com.sparkutils.testing.TestUtils.{anyCauseHas, debug, enumToScala}
 import org.apache.commons.rng.simple.RandomSource
 import org.apache.spark.sql.ShimUtils.expression
 import org.apache.spark.sql.functions._

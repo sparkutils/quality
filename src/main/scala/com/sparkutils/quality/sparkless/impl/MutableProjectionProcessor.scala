@@ -5,7 +5,7 @@ import com.sparkutils.quality.impl.util.EmbeddedTypeCorrection
 import com.sparkutils.quality.sparkless.impl.Processors.{NO_QUERY_PLANS, isCopyNeeded}
 import com.sparkutils.quality.{QualityException, enableOptimizations}
 import com.sparkutils.quality.sparkless.{Processor, ProcessorFactory}
-import org.apache.spark.sql.{DataFrame, Encoder, QualitySparkUtils, ShimUtils}
+import org.apache.spark.sql.{DataFrame, Encoder, ClassicQualitySparkUtils, ShimUtils}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{MutableProjection, PlanExpression}
 import org.apache.spark.sql.catalyst.optimizer.ConstantFolding
@@ -32,7 +32,7 @@ object MutableProjectionProcessor {
     val iEnc = implicitly[Encoder[I]]
     val exprFrom = ShimUtils.expressionEncoder(iEnc).resolveAndBind().serializer
 
-    val (exprs, exprTo) = QualitySparkUtils.resolveExpressions[I, O](iEnc, embeddedTypeCorrection, df => {
+    val (exprs, exprTo) = ClassicQualitySparkUtils.resolveExpressions[I, O](iEnc, embeddedTypeCorrection, df => {
       dataFrameFunction(extraProjection(df))
     })
 
@@ -55,9 +55,9 @@ object MutableProjectionProcessor {
       override def instance: Processor[I, O] =
         new Processor[I, O] {
 
-          val enc = QualitySparkUtils.rowProcessor(exprFrom, compile).asInstanceOf[MutableProjection]
+          val enc = ClassicQualitySparkUtils.rowProcessor(exprFrom, compile).asInstanceOf[MutableProjection]
 
-          val dec = QualitySparkUtils.rowProcessor(Seq(exprTo), compile).asInstanceOf[MutableProjection]
+          val dec = ClassicQualitySparkUtils.rowProcessor(Seq(exprTo), compile).asInstanceOf[MutableProjection]
 
           val exprsToUse =
             if (copyNeeded)
@@ -65,7 +65,7 @@ object MutableProjectionProcessor {
             else
               exprs
 
-          val processor = QualitySparkUtils.rowProcessor(exprsToUse, compile).asInstanceOf[MutableProjection]
+          val processor = ClassicQualitySparkUtils.rowProcessor(exprsToUse, compile).asInstanceOf[MutableProjection]
 
           override def apply(i: I): O = {
             val ti = enc(InternalRow(i))

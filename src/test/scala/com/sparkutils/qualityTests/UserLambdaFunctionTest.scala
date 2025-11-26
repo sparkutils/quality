@@ -6,7 +6,7 @@ import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions._
 import com.sparkutils.qualityTests.mapLookup.TradeTests._
 import com.sparkutils.qualityTests.util.SharedConnectTests
-import com.sparkutils.testing.SparkTestUtils
+import com.sparkutils.testing.{SparkTestUtils, TestUtils}
 import com.sparkutils.testing.TestUtils.debug
 import org.apache.spark.sql.ShimUtils.expression
 
@@ -407,7 +407,7 @@ class UserLambdaFunctionTest extends SharedConnectTests {
   } } }
 
   test("testPlaceHolderNullableOverrides") { classicOnly { evalCodeGensNoResolve { funNRewrites {
-    val resolve = SparkTestUtils.resolveBuiltinOrTempFunction(sparkSession) _
+    val resolve = TestUtils.resolveBuiltinOrTempFunction(sparkSession) _
     // as these cannot be tested as part of runtimes with aggregate bug resolve is used to directly test
     val actualDefaultCall = resolve("_", Seq(expression(lit("int")))).get
     assert(actualDefaultCall.nullable)

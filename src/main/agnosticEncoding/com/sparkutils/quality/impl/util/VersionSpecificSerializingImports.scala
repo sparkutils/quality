@@ -1,13 +1,12 @@
 package com.sparkutils.quality.impl.util
 
-import com.sparkutils.quality.impl.mapLookup.Lookups
 import com.sparkutils.quality.{ExpressionRule, Id, LambdaFunction, OutputExpression, Rule, RuleSet, RuleSuite, RunOnPassProcessor}
-import com.sparkutils.quality.impl.{LambdaFunction, NoOpRunOnPassProcessor, VariableHelper, VersionedId}
+import com.sparkutils.quality.impl.{LambdaFunction, NoOpRunOnPassProcessor, RuleSuiteHelpers, VariableHelper, VersionedId}
 import com.sparkutils.quality.impl.util.Serializing.{notPresentOutputId, notPresentOutputVersion, notPresentSalience}
 import com.sparkutils.quality.impl.util.VersionSpecificSerializingImports.uniqueName
 import org.apache.spark.sql.{Dataset, Encoder, SparkSession}
-import org.apache.spark.sql.functions.{col, collect_set, lit, named_struct, struct}
-import org.apache.spark.sql.types.ArrayType
+import org.apache.spark.sql.functions.{col, collect_set, lit, struct}
+import org.apache.spark.sql.types.{ArrayType, BinaryType, DoubleType}
 
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -24,7 +23,7 @@ case class CombinedRuleRow(ruleRow: RuleRow, outputExpressionRow: Option[OutputE
  * @param ruleRows
  * @param lambdaFunctions
  */
-case class CombinedRuleSuiteRows(ruleSuiteId: Int, ruleSuiteVersion: Int, ruleRows: Seq[CombinedRuleRow], lambdaFunctions: Option[Seq[LambdaFunctionRow]])
+case class CombinedRuleSuiteRows(ruleSuiteId: Int, ruleSuiteVersion: Int, ruleRows: Seq[CombinedRuleRow], lambdaFunctions: Option[Seq[LambdaFunctionRow]], probablePass: Option[Double])
 
 object VersionSpecificSerializingImports {
 
@@ -33,14 +32,14 @@ object VersionSpecificSerializingImports {
   private val GENERATED_NAME_PREFIX = "QUALITY_RULE_SUITE_GENERATED_NAME_"
 
   // only for the current session, so regardless of on driver with static or connect client this works
-  private def uniqueName() = GENERATED_NAME_PREFIX + nameCounter.incrementAndGet()
+  protected[quality] def uniqueName(): String = GENERATED_NAME_PREFIX + nameCounter.incrementAndGet()
 
 }
 
 trait VersionSpecificSerializingImports {
 
   private def icombine(ruleRows: Dataset[RuleRow], lambdaFunctionRows: Option[Dataset[LambdaFunctionRow]] = None,
-              outputExpressionRows: Option[Dataset[OutputExpressionRow]] = None): Dataset[CombinedRuleSuiteRows] = {
+              outputExpressionRows: Option[Dataset[OutputExpressionRow]] = None, probablePass: Option[Double] = None): Dataset[CombinedRuleSuiteRows] = {
 
     import ruleRows.sparkSession.implicits._
 
@@ -91,6 +90,8 @@ trait VersionSpecificSerializingImports {
           )
       )
 
+    val probablePassLit = probablePass.map(lit(_)).getOrElse(lit(null).cast(DoubleType)).as("probablePass")
+
     val grouped = rows.groupBy("ruleRow.ruleSuiteId", "ruleRow.ruleSuiteVersion").agg(
       collect_set(struct(col("ruleRow"), col("outputExpressionRow"))).as("ruleRows"))
     val suiteRows =
@@ -98,7 +99,8 @@ trait VersionSpecificSerializingImports {
         col("ruleSuiteId"),
         col("ruleSuiteVersion"),
         col("ruleRows"),
-        lit(null).cast(ArrayType(implicitly[Encoder[LambdaFunctionRow]].schema)).as("lambdaFunctions") // Using Seq in the implicit treats it as a valueclass of seq.
+        lit(null).cast(ArrayType(implicitly[Encoder[LambdaFunctionRow]].schema)).as("lambdaFunctions"), // Using Seq in the implicit treats it as a valueclass of seq.
+        probablePassLit
       )
 
     lambdaFunctionRowsT.fold(suiteRows){
@@ -112,21 +114,23 @@ trait VersionSpecificSerializingImports {
             col("ruleSuiteId"),
             col("ruleSuiteVersion")
           )
-        ).as("theLambdaFunctions")).selectExpr("ruleSuiteId as lRuleSuiteId", "ruleSuiteVersion as lRuleSuiteVersion",
-          "theLambdaFunctions")
+        ).as("theLambdaFunctions")).select(col("ruleSuiteId").as("lRuleSuiteId"),
+          col("ruleSuiteVersion").as("lRuleSuiteVersion"),
+          col("theLambdaFunctions"), probablePassLit)
        suiteRows.join(grouped, suiteRows("ruleSuiteId") === grouped("lRuleSuiteId") &&
          suiteRows("ruleSuiteVersion") === grouped("lRuleSuiteVersion")).
          select(
            col("ruleSuiteId"),
            col("ruleSuiteVersion"),
            col("ruleRows"),
-           col("theLambdaFunctions").as("lambdaFunctions")
+           col("theLambdaFunctions").as("lambdaFunctions"),
+           probablePassLit
          )
     }.as[CombinedRuleSuiteRows]
   }
 
   /**
-   * Combines
+   * Combines ruleRows, lambdaFunctionRows and outputExpressionRows into CombinedRuleSuiteRows
    * @param ruleRows
    * @param lambdaFunctionRows
    * @param outputExpressionRows
@@ -138,24 +142,53 @@ trait VersionSpecificSerializingImports {
       outputExpressionRows = Some(outputExpressionRows))
 
   /**
-   * Combines
+   * Combines ruleRows and lambdaFunctionRows into CombinedRuleSuiteRows
    * @param ruleRows
    * @param lambdaFunctionRows
-   * @param outputExpressionRows
    * @return
    */
   def combine(ruleRows: Dataset[RuleRow], lambdaFunctionRows: Dataset[LambdaFunctionRow]): Dataset[CombinedRuleSuiteRows] =
     icombine(ruleRows = ruleRows, lambdaFunctionRows = Some(lambdaFunctionRows))
 
   /**
-   * Combines
+   * Uses ruleRows to make CombinedRuleSuiteRows
    * @param ruleRows
-   * @param lambdaFunctionRows
-   * @param outputExpressionRows
    * @return
    */
   def combine(ruleRows: Dataset[RuleRow]): Dataset[CombinedRuleSuiteRows] =
     icombine(ruleRows = ruleRows)
+
+  /**
+   * Combines ruleRows, lambdaFunctionRows and outputExpressionRows into CombinedRuleSuiteRows, using probablePass
+   * @param ruleRows
+   * @param lambdaFunctionRows
+   * @param outputExpressionRows
+   * @param probablePass
+   * @return
+   */
+  def combine(ruleRows: Dataset[RuleRow], lambdaFunctionRows: Dataset[LambdaFunctionRow],
+              outputExpressionRows: Dataset[OutputExpressionRow], probablePass: Double): Dataset[CombinedRuleSuiteRows] =
+    icombine(ruleRows = ruleRows, lambdaFunctionRows = Some(lambdaFunctionRows),
+      outputExpressionRows = Some(outputExpressionRows), probablePass = Some(probablePass))
+
+  /**
+   * Combines ruleRows and lambdaFunctionRows into CombinedRuleSuiteRows, using probablePass
+   * @param ruleRows
+   * @param lambdaFunctionRows
+   * @param probablePass
+   * @return
+   */
+  def combine(ruleRows: Dataset[RuleRow], lambdaFunctionRows: Dataset[LambdaFunctionRow], probablePass: Double): Dataset[CombinedRuleSuiteRows] =
+    icombine(ruleRows = ruleRows, lambdaFunctionRows = Some(lambdaFunctionRows), probablePass = Some(probablePass))
+
+  /**
+   * Converts ruleRows into CombinedRuleSuiteRows, using probablePass
+   * @param ruleRows
+   * @param probablePass
+   * @return
+   */
+  def combine(ruleRows: Dataset[RuleRow], probablePass: Double): Dataset[CombinedRuleSuiteRows] =
+    icombine(ruleRows = ruleRows, probablePass = Some(probablePass))
 
   /**
    * Returns a specific RuleSuite from available rule suites
@@ -219,10 +252,35 @@ trait VersionSpecificSerializingImports {
     val ddl = implicitly[Encoder[CombinedRuleSuiteRows]].schema.toDDL
 
     VariableHelper.createVar(stableName, s"struct<$ddl>",
-      s"(select first(struct(ruleSuiteId, ruleSuiteVersion, ruleRows, lambdaFunctions)) from `$tv`)")
+      s"(select first(struct(ruleSuiteId, ruleSuiteVersion, ruleRows, lambdaFunctions, probablePass)) from `$tv`)")
 
     stableName
   }
+
+  /**
+   * Registers a ruleSuite directly as an Spark Variable (with object stream encoding).
+   * Where possible using the CombinedRuleSuiteRows should be preferred and manage the ruleSuites on the server.
+   * @param ruleSuite
+   * @param stableName
+   * @return
+   */
+  def register_rule_suite(ruleSuite: RuleSuite, stableName: String): String = {
+    val s = SparkSession.active
+    import s.implicits._
+    val tv = uniqueName()
+    s.sql("select 1").select(lit(RuleSuiteHelpers.serialize(ruleSuite)).as("rs")).createOrReplaceTempView(tv)
+    VariableHelper.createVar(stableName, BinaryType.sql,
+      s"(select first(rs) from `$tv`)")
+
+    stableName
+  }
+
+  /**
+   * Registers a ruleSuite directly as an Spark Variable (with object stream encoding)
+   * @param ruleSuite
+   * @return
+   */
+  def register_rule_suite(ruleSuite: RuleSuite): String = register_rule_suite(ruleSuite, uniqueName())
 }
 
 

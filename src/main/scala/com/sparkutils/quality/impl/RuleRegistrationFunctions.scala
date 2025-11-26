@@ -2,7 +2,9 @@ package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.functions._
+import com.sparkutils.quality.impl.ReWriteConstants.INC_REWRITE_GENEXP_ERR_MSG
 import com.sparkutils.quality.impl.RuleSuiteHelpers.deserialize
+import com.sparkutils.quality.impl.VariableProcessIfMissing.registerProcessIfAttributeMissingForAgnostic
 import com.sparkutils.quality.impl.aggregates.AggregateExpressions
 import com.sparkutils.quality.impl.bloom.{BucketedArrayParquetAggregator, ParquetAggregator}
 import com.sparkutils.quality.impl.hash.{HashFunctionFactory, HashFunctionsExpression, MessageDigestFactory, ZALongHashFunctionFactory, ZALongTupleHashFunctionFactory}
@@ -22,7 +24,7 @@ import org.apache.spark.sql.qualityFunctions.LambdaFunctions.processTopCallFun
 import org.apache.spark.sql.qualityFunctions._
 import org.apache.spark.sql.shim.hash.DigestFactory
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.{QualitySparkUtils, ShimUtils, SparkSession, functions}
+import org.apache.spark.sql.{ClassicQualitySparkUtils, ShimUtils, SparkSession, functions}
 import org.apache.spark.unsafe.types.UTF8String
 
 object RuleRegistrationFunctions {
@@ -130,8 +132,6 @@ object RuleRegistrationFunctions {
       case _: Throwable => None
     }
 
-  val INC_REWRITE_GENEXP_ERR_MSG: String = "inc('DDL', generic expression) is not supported in NO_REWRITE mode, use inc(generic expression) without NO_REWRITE mode enabled"
-
   // #12 - use underscore names but keep the old camel case approach around for compat
   def registerWithChecks(registerFunction: (String, Seq[Expression] => Expression) => Unit, name: String, argsf: Seq[Expression] => Expression, paramNumbers: Set[Int] = Set.empty, minimum: Int = -1) = {
     val create =
@@ -169,7 +169,7 @@ object RuleRegistrationFunctions {
                                mapCompare: DataType => Option[(Any, Any) => Int] = (dataType: DataType) => utils.defaultMapCompare(dataType),
                                writer: String => Unit = println,
                                registerFunction: (String, Seq[Expression] => Expression) => Unit =
-                                ShimUtils.registerFunction(SparkSession.active)
+                                (n, f) => ShimUtils.registerFunction(SparkSession.active)(n,f)
                               ) : Unit = {
 
     def register(name: String, argsf: Seq[Expression] => Expression, paramNumbers: Set[Int] = Set.empty, minimum: Int = -1) =
@@ -546,10 +546,10 @@ object RuleRegistrationFunctions {
 
     // 3.0.1 adds this #37 drops 3.0.0 and we can remove the c+p from 3.4.1 needed due to #36
     register("update_field", exps => {
-      expression(QualitySparkUtils.update_field(column(exps.head), ( exps.tail.grouped(2).map(p => getString(p.head, 0) -> column(p.last)).toSeq): _*))
+      expression(ClassicQualitySparkUtils.update_field(column(exps.head), ( exps.tail.grouped(2).map(p => getString(p.head, 0) -> column(p.last)).toSeq): _*))
     }, minimum = 3)
     register("drop_field", exps => {
-      expression(QualitySparkUtils.drop_field(column(exps.head), exps.tail.zipWithIndex.map{case (p, i) => getString(p, i+1)} : _*))
+      expression(ClassicQualitySparkUtils.drop_field(column(exps.head), exps.tail.zipWithIndex.map{case (p, i) => getString(p, i+1)} : _*))
     }, minimum = 2)
 
     def msgAndExpr(msgDefault: String, exps: Seq[Expression]) = exps match {
@@ -569,7 +569,7 @@ object RuleRegistrationFunctions {
       exp
     }, Set(1,2))
 
-    // additional functions for agg_expr and FunN
+    // additional functions for agg_expr and FunN, purposefully not documented
     register("qualityrefexpression", {
       case Seq(e) => RefExpression(parse(e))
       case _ => literalsNeeded
@@ -661,6 +661,17 @@ object RuleRegistrationFunctions {
         ))
     }, Set(2, 3, 4, 9))
 
+    // coalesce support
+    registerProcessIfAttributeMissingForAgnostic(registerFunction)
   }
+
+}
+
+/**
+ * Safe to use with connect
+ */
+object ReWriteConstants {
+
+  val INC_REWRITE_GENEXP_ERR_MSG: String = "inc('DDL', generic expression) is not supported in NO_REWRITE mode, use inc(generic expression) without NO_REWRITE mode enabled"
 
 }

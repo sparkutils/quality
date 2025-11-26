@@ -10,7 +10,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.Block._
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
 import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression, ExpressionDescription, Literal}
 import org.apache.spark.sql.types.{DataType, DoubleType, StringType}
-import org.apache.spark.sql.{Column, QualitySparkUtils, ShimUtils}
+import org.apache.spark.sql.{Column, ClassicQualitySparkUtils, ShimUtils}
 import org.apache.spark.unsafe.types.UTF8String
 
 object BloomFilterLookup {

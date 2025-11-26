@@ -1,6 +1,6 @@
 package com.sparkutils.quality.impl.extension
 
-import org.apache.spark.sql.QualitySparkUtils
+import org.apache.spark.sql.ClassicQualitySparkUtils
 import org.apache.spark.sql.catalyst.expressions.{Expression, LambdaFunction, NamedLambdaVariable}
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.catalyst.rules.Rule
@@ -24,7 +24,7 @@ import org.apache.spark.sql.qualityFunctions.LambdaCompilationUtils.compilationH
 object FunNRewrite extends Rule[LogicalPlan] {
 
   override def apply(plan: LogicalPlan): LogicalPlan =
-    QualitySparkUtils.funNRewrite(plan, {
+    ClassicQualitySparkUtils.funNRewrite(plan, {
       case f: FunN if !f.usedAsLambda &&
         // if a direct child is a rewrite HoF then we shouldn't disable compilation by ripping it out (#83)
         !f.children.exists( t => t.collect{

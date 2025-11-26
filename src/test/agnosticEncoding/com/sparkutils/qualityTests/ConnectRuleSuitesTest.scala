@@ -2,13 +2,16 @@ package com.sparkutils.qualityTests
 
 import com.sparkutils.qualityTests.util.SharedConnectTests
 import com.sparkutils.quality._
-import com.sparkutils.quality.impl.{NoOpRunOnPassProcessor, RuleSuiteHelpers}
+import com.sparkutils.quality.functions.flatten_results
+import com.sparkutils.quality.impl.{NoOpRunOnPassProcessor, RuleError, RuleSuiteHelpers, RunOnPassProcessorImpl}
 import com.sparkutils.quality.impl.RuleLogicUtils.mapRules
+import com.sparkutils.quality.impl.VariableProcessIfMissing.process_if_attribute_missing_name
 import com.sparkutils.quality.impl.util.{CombinedRuleSuiteRows, LambdaFunctionRow}
 import com.sparkutils.qualityTests.RuleEngineTest.{rulesRaw, testData}
-import com.sparkutils.testing.TestUtils.debug
+import com.sparkutils.testing.TestUtils.{anyCauseHas, debug}
 import org.apache.spark.sql.ShimUtils
-import org.apache.spark.sql.functions.col
+import org.apache.spark.sql.functions.{col, explode, flatten}
+import org.apache.spark.sql.types.{IntegerType, StructField, StructType}
 import org.scalatest.Matchers
 
 class ConnectRuleSuitesTest extends SharedConnectTests with Matchers {
@@ -146,5 +149,89 @@ class ConnectRuleSuitesTest extends SharedConnectTests with Matchers {
     // did the field replace work
     assert(res(5).result.contains(Seq(NewPosting("fromWithField", "4201", "eqotc", 6000), NewPosting("to", "other_account1", "eqotc", 60))))
 
+  }
+
+  /**
+   * Below from replaceWith test, the rest of the functionality is covered there
+   */
+  val struct = StructType(Seq(
+    StructField("fielda", IntegerType)
+  ))
+
+  val names = namesFromSchema(struct)
+
+  def doExpressionReplaceWith(ruleText: String, expected: String, rsf: RuleSuite => RuleSuite = identity) : Unit = {
+    val orule = Rule(Id(2,1), ExpressionRule(ruleText))
+    val rs = rsf(RuleSuite(Id(0,1), Seq(RuleSet(Id(1,1), Seq(orule)))))
+
+    val cur = register_rule_suite(rs, "testRS")
+    val nrs = process_if_attribute_missing(col(cur), struct, cur)
+
+    val r = sparkSession.sql("select 2 fielda").selectExpr(s"dq_rule_runner($nrs) rr").
+      select(explode(flatten_results(col("rr"))).as("expl")).selectExpr("expl.*").
+      filter(s"ruleResult = $expected()").count()
+    r shouldBe 1
+  }
+
+  test("testRuleDisableCoalesce") {
+    val ruleText = "fieldb > 1"
+    doExpressionReplaceWith(s"coalesceIfAttributesMissingDisable($ruleText)", "disabled_rule")
+  }
+
+  test("testRuleReplaceCoalesce") {
+    val ruleText = "fieldb > 1"
+    doExpressionReplaceWith(s"coalesceIfAttributesMissing($ruleText, false)", "failed")
+  }
+
+  test("testRuleNoReplaceCoalesce") {
+    val ruleText = "fielda > 1"
+    doExpressionReplaceWith(s"coalesceIfAttributesMissing($ruleText, 42)", "passed")
+  }
+
+  test("test process if with recursive rule") {
+    val ruleText = "process_if_attribute_missing(testRS)"
+    val caught =
+      intercept[Exception] { // Result type: IndexOutOfBoundsException
+        doExpressionReplaceWith(s"coalesceIfAttributesMissing($ruleText, 42)", "passed")
+      }
+
+    recursiveCheck(caught, "trigger rule")
+  }
+
+  test("test process if with recursive outputExpression") {
+    val ruleText = "fielda > 1"
+    val outputRule = "process_if_attribute_missing(testRS)"
+    val caught =
+      intercept[Exception] { // Result type: IndexOutOfBoundsException
+        doExpressionReplaceWith(s"coalesceIfAttributesMissing($ruleText, 42)", "passed",
+          mapRules(_){
+            rule => rule.copy(runOnPassProcessor = RunOnPassProcessorImpl(11, Id(13,13), outputRule, OutputExpression(outputRule)))
+          }
+        )
+      }
+
+    recursiveCheck(caught, "output expression")
+  }
+
+  test("test process if with recursive lambda") {
+    val ruleText = "fielda > 1"
+    val outputRule = "process_if_attribute_missing(testRS)"
+    val caught =
+      intercept[Exception] { // Result type: IndexOutOfBoundsException
+        doExpressionReplaceWith(s"coalesceIfAttributesMissing($ruleText, 42)", "passed",
+          _.copy(lambdaFunctions = Seq(LambdaFunction("lam", outputRule, Id(13,13))))
+        )
+      }
+
+    recursiveCheck(caught, "lambda function")
+  }
+
+  private def recursiveCheck(caught: Exception, typ: String) = {
+    anyCauseHas(caught, {
+      case q: Exception if // connect doesn't nest exceptions, they get put in the message
+        q.getMessage.contains(s"$process_if_attribute_missing_name should not be used") ||
+          q.getMessage.contains(typ) => true
+      case _ => false
+    }) shouldBe true
   }
 }

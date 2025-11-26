@@ -1,8 +1,8 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality.{Id, LambdaFunction, registerLambdaFunctions}
-import com.sparkutils.quality.impl.RuleRegistrationFunctions.INC_REWRITE_GENEXP_ERR_MSG
 import com.sparkutils.quality.functions._
+import com.sparkutils.quality.impl.ReWriteConstants.INC_REWRITE_GENEXP_ERR_MSG
 import com.sparkutils.quality.impl.aggregates.ResultsExpression
 import com.sparkutils.qualityTests.mapLookup.TradeTests._
 import com.sparkutils.qualityTests.util.SharedConnectTests

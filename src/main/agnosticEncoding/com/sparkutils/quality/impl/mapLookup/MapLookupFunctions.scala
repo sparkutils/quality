@@ -5,20 +5,14 @@ import com.sparkutils.quality.impl.RuleRegistrationFunctions.{getString, literal
 import com.sparkutils.quality.impl.VariableHelper
 import com.sparkutils.quality.impl.util.{Config, ConfigFactory}
 import com.sparkutils.shim.expressions.GetStructField3
-import com.sparkutils.shim.toCatalyst
-import org.apache.spark.sql.catalyst.expressions.{Expression, IsNotNull, Literal, VariableReference}
-import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, MapData}
-import org.apache.spark.sql.functions.{col, expr, named_struct}
+import org.apache.spark.sql.catalyst.expressions.{Expression, IsNotNull, VariableReference}
+import org.apache.spark.sql.functions.{col, expr}
 import org.apache.spark.sql.types.{DataType, MapType, StructField, StructType}
 import org.apache.spark.sql._
-import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.catalog.VariableDefinition
 
 import java.util.concurrent.atomic.AtomicInteger
 import scala.collection.JavaConverters._
 import scala.collection.Map
-
-case class Lookups(name: String, lookups: Column)
 
 object MapLookupFunctions {
 
@@ -32,7 +26,7 @@ object MapLookupFunctions {
   /**
    * Used as a param to load the map lookups - note the type of the broadcast is always Map[AnyRef, AnyRef]
    */
-  type MapLookups = Lookups
+  type MapLookups = String
 
   type MapCreator = () => (DataFrame, Column, Column)
 
@@ -104,14 +98,14 @@ object MapLookupFunctions {
   def mapLookupsFromDFs(creators: Map[String, MapCreator]): MapLookups =
     mapLookupsFromDFs(creators, uniqueName())
 
-  private def buildStruct(strs: Seq[(String, String, DataType)], name: String): Lookups = {
+  private def buildStruct(strs: Seq[(String, String, DataType)], name: String): MapLookups = {
     val struct = "named_struct("+strs.map(_._2).mkString("\n,")+")"
     val ddl = StructType(strs.map{ s =>
       StructField(s._1, s._3)
     }).toDDL
     // Defaults can't have subqueries
     VariableHelper.createVar(name, s"struct<$ddl>", struct)
-    Lookups(name, col(name))
+    name
   }
 
   private val MAP_NAME = "QualityMapLookup_Temp_"
