@@ -20,6 +20,7 @@ trait RuleRunnerFunctionsImport {
    * @param add override the "add" function for aggExpr types (defaults to defaultAdd(dataType))
    * @param writer override the printCode and printExpr print writing function (defaults to println)
    * @param registerFunction function to register the sql extensions
+   * @param fromExtension only the SparkExtension should set this to true
    */
   def registerQualityFunctions(parseTypes: String => Option[DataType] = defaultParseTypes,
                                zero: DataType => Option[Any] = defaultZero,
@@ -27,14 +28,17 @@ trait RuleRunnerFunctionsImport {
                                mapCompare: DataType => Option[(Any, Any) => Int] = (dataType: DataType) => utils.defaultMapCompare(dataType),
                                writer: String => Unit = println,
                                registerFunction: (String, Seq[Expression] => Expression) => Unit =
-                                 (n, f) => ShimUtils.registerFunction(SparkSession.active)(n,f)
+                                 (n, f) => ShimUtils.registerFunction(SparkSession.active)(n,f), fromExtension: Boolean = false
                        ) =
-    RuleRegistrationFunctions.registerQualityFunctions(parseTypes,
-      zero,
-      add,
-      mapCompare,
-      writer,
-      registerFunction)
+    if (fromExtension || ShimUtils.isClassic(SparkSession.active))
+      RuleRegistrationFunctions.registerQualityFunctions(parseTypes,
+        zero,
+        add,
+        mapCompare,
+        writer,
+        registerFunction)
+    else
+      ()
 
   /**
    * Enables the FunNRewrite optimisation. Where a user configured LambdaFunction does not have nested

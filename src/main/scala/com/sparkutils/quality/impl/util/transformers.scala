@@ -4,7 +4,7 @@ import com.sparkutils.quality.impl.NamedStruct
 import com.sparkutils.quality.{RuleSuite, ruleFolderRunner}
 import com.sparkutils.shim.expressions.CreateNamedStruct1
 import org.apache.spark.sql.{Column, DataFrame, ShimUtils, Row => SRow}
-import org.apache.spark.sql.QualitySparkUtils.DatasetBase
+import org.apache.spark.sql.ClassicQualitySparkUtils.DatasetBase
 import org.apache.spark.sql.types.StructType
 
 protected[quality] object AddDataFunctions {

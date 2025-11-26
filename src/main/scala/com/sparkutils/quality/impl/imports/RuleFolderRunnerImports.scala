@@ -9,7 +9,7 @@ import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.functions.lit
 import org.apache.spark.sql.qualityFunctions.{FunN, RefExpressionLazyType}
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.{Column, DataFrame, QualitySparkUtils, ShimUtils}
+import org.apache.spark.sql.{Column, DataFrame, ClassicQualitySparkUtils, ShimUtils}
 
 import java.util.concurrent.atomic.AtomicReference
 
@@ -110,8 +110,8 @@ trait RuleFolderRunnerImports {
           expressionOffsets = indexes, dataRef, forceTriggerEval)
 
     column(
-      QualitySparkUtils.resolveWithOverride(resolveWith).map { df =>
-        val resolved = QualitySparkUtils.resolveExpression(df, runner)
+      ClassicQualitySparkUtils.resolveWithOverride(resolveWith).map { df =>
+        val resolved = ClassicQualitySparkUtils.resolveExpression(df, runner)
 
         resolved.withNewChildren(resolved.children.map{
           // replace the expr

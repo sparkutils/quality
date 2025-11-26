@@ -222,7 +222,7 @@ In order to use the query optimisations within normal job / calculator writing y
 
 The extension also enables the FunNRewrite optimisation (as of 0.1.3.1 and Spark 3.2 and higher) which expands user functions allowing sub expression elimination.
 
-### Configuring on Databricks runtimes
+### Configuring on Databricks classic runtimes
 
 In order to register the extensions on Databricks runtimes you need to additionally create a cluster init script much like:
 
@@ -249,7 +249,15 @@ new PrintWriter(scriptName) {write(script); close}
 
 You must still register the Spark config extension attribute, but also make sure the Init script has the same path as the file you created in the above snippet.
 
-## 2.4 Support requires 2.4.6 or Janino 3.0.16
+!!! important "Dos2Unix"
+    If you are using Windows as your dev env, you will probably have to ensure your line endings are unix, so using git-portable and dos2unix before uploading your file if your are not generating it.
 
-Due to [Janino #90](https://github.com/janino-compiler/janino/issues/90) using 2.4.5 directly will bring in 3.0.9 janino which can cause VerifyErrors, use 2.4.6 if you can't use a 3.x Spark.
+### Configuring on Databricks shared runtimes
 
+Supported from DBR 17.3 and Quality 0.2.0 only you must enable init scripts in the UC metastore for a volume.  For example:
+
+```bash
+#!/bin/bash
+
+cp /Volumes/databricks_ws/schema/jars/quality_testshade_17.3.dbr_4.0_2.13-0.2.0.jar /databricks/jars/quality_testshade_17.3-0.2.0.jar
+```

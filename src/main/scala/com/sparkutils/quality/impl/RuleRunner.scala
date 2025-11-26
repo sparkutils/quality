@@ -8,7 +8,7 @@ import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
 import types.ruleSuiteResultType
 import com.sparkutils.quality.impl.imports.RuleRunnerImports
 import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals}
-import org.apache.spark.sql.QualitySparkUtils.genParams
+import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
 import org.apache.spark.sql.ShimUtils.column
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
@@ -17,7 +17,7 @@ import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression}
 import org.apache.spark.sql.catalyst.util.ArrayBasedMapData
 import org.apache.spark.sql.functions.lit
 import org.apache.spark.sql.types.DataType
-import org.apache.spark.sql.{Column, DataFrame, QualitySparkUtils, ShimUtils}
+import org.apache.spark.sql.{Column, DataFrame, ClassicQualitySparkUtils, ShimUtils}
 
 import scala.reflect.ClassTag
 
@@ -75,8 +75,8 @@ protected[quality] object RuleRunnerImpl {
           compileEvals, variablesPerFunc, variableFuncGroup)
 
     column(
-      QualitySparkUtils.resolveWithOverride(resolveWith).map { df =>
-        val resolved = QualitySparkUtils.resolveExpression(df, runner)
+      ClassicQualitySparkUtils.resolveWithOverride(resolveWith).map { df =>
+        val resolved = ClassicQualitySparkUtils.resolveExpression(df, runner)
 
         resolved.withNewChildren(resolved.children.map{
           // replace the expr

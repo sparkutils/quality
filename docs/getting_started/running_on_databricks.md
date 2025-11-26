@@ -56,6 +56,24 @@ Supported as of 0.1.3.1.
 
 17.3, in addition to Spark 4 usage, introduced a binary incompatible change to NamedExpressions not present in the OSS codebase. 
 
+### Using Lakeguard / Shared clusters with 0.2.0
+
+In order to use shared clusters you must still use cluster libraries for your client code, but you must also register spark [session extensions](index.md#configuring-on-databricks-shared-runtimes).
+
+As this mode is purely connect, no ClassicOnly functions will be usable, so if running the test pack - ensure you use:
+
+```scala
+System.setProperty("SPARKUTILS_DISABLE_CLASSIC_TESTS","true")
+```
+
+#### Known Issues
+
+* Logging INFO with map operations, despite these being implemented by Quality, you can ignore these
+> INFO Log4jUsageLogger: sparkThrowable=1.0, tags=List(errorClass=UNSUPPORTED_FEATURE.SET_OPERATION_ON_MAP_TYPE), blob=null
+> INFO Log4jUsageLogger: sparkThrowable=1.0, tags=List(errorClass=DATATYPE_MISMATCH.INVALID_ORDERING_TYPE), blob=null
+* Any use of Spark Classic / catalyst internals on a shared cluster can trigger very wierd issues such as verify or implementationchanged errors.  The Quality test pack can be used as a guide here (a connect safe library is pending).
+* A number of stacks will seemingly show before running your code in the notebooks, this seems unrelated to Quality.
+
 ## Testing out Quality via Notebooks
 
 You can use the appropriate runtime quality_testshade artefact jar (e.g. [DBR 11.3](https://s01.oss.sonatype.org/content/repositories/releases/com/sparkutils/quality_testshade_11.3.dbr_3.3_2.12/)) from maven to upload into your workspace / notebook env (or add via maven).  When using Databricks make sure to use the appropriate _Version.dbr builds.
@@ -66,8 +84,13 @@ Then using:
 import com.sparkutils.qualityTests.QualityTestRunner
 import com.sparkutils.testing.SparkTestUtils
 
-// uncomment to disable connect test usage on DBR 17.3
+// uncomment to disable connect test usage on runtimes that support it, like DBR 17.3
 // System.setProperty("SPARKUTILS_DISABLE_CONNECT_TESTS","true")
+
+// uncomment to disable classic test usage on runtimes that support connect, DBR 17.3
+// a good use case is when using a UC shared cluster with init script / spark session extensions enabled, where
+// classic doesn't actually exist
+// System.setProperty("SPARKUTILS_DISABLE_CLASSIC_TESTS","true")
 
 // for running on azure set the configuration for both classic and connect client
 val keyMap = Map(s"fs.azure.account.key.${srv_path}${dfs}" -> accountKey)

@@ -4,7 +4,7 @@ import com.sparkutils.quality.{RuleSuite, ruleEngineRunner}
 import com.sparkutils.quality.functions.strip_result_ddl
 import com.sparkutils.quality.impl.util.AddDataFunctions.ifoldAndReplaceFields
 import com.sparkutils.quality.impl.{ExpressionRunner, RuleEngineRunnerImpl, RuleRunnerImpl}
-import org.apache.spark.sql.QualitySparkUtils.DatasetBase
+import org.apache.spark.sql.ClassicQualitySparkUtils.DatasetBase
 import org.apache.spark.sql.{Column, DataFrame, Row => SRow}
 import org.apache.spark.sql.types.{DataType, StructType}
 

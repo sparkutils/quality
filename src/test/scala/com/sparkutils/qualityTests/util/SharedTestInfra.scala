@@ -5,7 +5,7 @@ import com.sparkutils.quality.{RuleSuite, ruleRunner}
 import com.sparkutils.testing.SparkTestUtils.{connectMemory, scoverageClassPathsConfig, useDebugConnectLogs}
 import com.sparkutils.testing._
 import com.sparkutils.testing.sessionStrategies.{GlobalSession, SharedSessions}
-import org.apache.spark.sql.QualitySparkUtils.DatasetBase
+import org.apache.spark.sql.ClassicQualitySparkUtils.DatasetBase
 import org.apache.spark.sql.{Dataset, Row}
 import org.scalatest.{BeforeAndAfterAll, FunSuite}
 
