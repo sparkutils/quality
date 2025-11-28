@@ -11,7 +11,7 @@
     </tr>
     </table>
 
-## Run complex data quality rules using simple SQL in a batch or streaming Spark application at scale.
+## Run complex data quality and transformation rules using simple SQL in a batch or streaming Spark application at scale.
 
 Write rules using simple SQL or create re-usable functions via SQL Lambdas.
 
