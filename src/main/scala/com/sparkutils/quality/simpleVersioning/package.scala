@@ -2,9 +2,9 @@ package com.sparkutils.quality
 
 import com.sparkutils.quality.impl.util.RuleModel.RuleSuiteMap
 import com.sparkutils.quality.impl.LambdaFunction
-import com.sparkutils.quality.impl.util.{OutputExpressionRow, Serializing}
+import com.sparkutils.quality.impl.util.{OutputExpressionRow, RuleRow, Serializing}
 import org.apache.spark.sql.types.IntegerType
-import org.apache.spark.sql.{Column, DataFrame}
+import org.apache.spark.sql.{Column, DataFrame, Dataset}
 import org.apache.spark.sql.functions.col
 
 import scala.collection.immutable.TreeMap
@@ -19,6 +19,7 @@ package object simpleVersioning {
 
   /**
    * Reads the rules table and builds complete rule versions by adding together all changes below that rulesuiteVersion
+   *
    * @param df
    * @param ruleSuiteId
    * @param ruleSuiteVersion
@@ -32,18 +33,18 @@ package object simpleVersioning {
    * @param ruleEngineVersion
    * @return
    */
-  def readVersionedRulesFromDF(df: DataFrame,
-                              ruleSuiteId: Column,
-                              ruleSuiteVersion: Column,
-                              ruleSetId: Column,
-                              ruleSetVersion: Column,
-                              ruleId: Column,
-                              ruleVersion: Column,
-                              ruleExpr: Column,
-                              ruleEngineSalience: Column,
-                              ruleEngineId: Column,
-                              ruleEngineVersion: Column
-                             ): RuleSuiteMap = {
+  def readVersionedRuleRowsFromDF(df: DataFrame,
+                                  ruleSuiteId: Column,
+                                  ruleSuiteVersion: Column,
+                                  ruleSetId: Column,
+                                  ruleSetVersion: Column,
+                                  ruleId: Column,
+                                  ruleVersion: Column,
+                                  ruleExpr: Column,
+                                  ruleEngineSalience: Column,
+                                  ruleEngineId: Column,
+                                  ruleEngineVersion: Column
+                                 ): DataFrame = {
     df.select(
       ruleSuiteId.as("ruleSuiteId").cast(IntegerType),
       ruleSuiteVersion.as("ruleSuiteVersion").cast(IntegerType),
@@ -76,8 +77,47 @@ package object simpleVersioning {
           )
           and l0.ruleExpr != "DELETED"
        """)
+    versionedRules
+  }
 
-    readRulesFromDF(versionedRules,
+  /**
+   * Reads the rules table and builds complete rule versions by adding together all changes below that rulesuiteVersion
+   * @param df
+   * @param ruleSuiteId
+   * @param ruleSuiteVersion
+   * @param ruleSetId
+   * @param ruleSetVersion
+   * @param ruleId
+   * @param ruleVersion
+   * @param ruleExpr
+   * @param ruleEngineSalience
+   * @param ruleEngineId
+   * @param ruleEngineVersion
+   * @return
+   */
+  def readVersionedRulesFromDF(df: DataFrame,
+                               ruleSuiteId: Column,
+                               ruleSuiteVersion: Column,
+                               ruleSetId: Column,
+                               ruleSetVersion: Column,
+                               ruleId: Column,
+                               ruleVersion: Column,
+                               ruleExpr: Column,
+                               ruleEngineSalience: Column,
+                               ruleEngineId: Column,
+                               ruleEngineVersion: Column
+                              ): RuleSuiteMap =
+    readRulesFromDF(readVersionedRuleRowsFromDF(df: DataFrame,
+      ruleSuiteId: Column,
+      ruleSuiteVersion: Column,
+      ruleSetId: Column,
+      ruleSetVersion: Column,
+      ruleId: Column,
+      ruleVersion: Column,
+      ruleExpr: Column,
+      ruleEngineSalience: Column,
+      ruleEngineId: Column,
+      ruleEngineVersion: Column),
       col("ruleSuiteId"),
       col("ruleSuiteVersion"),
       col("ruleSetId"),
@@ -89,6 +129,39 @@ package object simpleVersioning {
       col("ruleEngineId"),
       col("ruleEngineVersion")
     )
+
+  /**
+   * Reads the lambda table and builds lambda versions by adding together all changes below that rulesuiteVersion
+   * @param lambdaFunctionDF
+   * @param lambdaFunctionName
+   * @param lambdaFunctionExpression
+   * @param lambdaFunctionId
+   * @param lambdaFunctionVersion
+   * @param lambdaFunctionRuleSuiteId
+   * @param lambdaFunctionRuleSuiteVersion
+   * @return
+   */
+  def readVersionedLambdaRowsFromDF(lambdaFunctionDF: DataFrame,
+                                lambdaFunctionName: Column,
+                                lambdaFunctionExpression: Column,
+                                lambdaFunctionId: Column,
+                                lambdaFunctionVersion: Column,
+                                lambdaFunctionRuleSuiteId: Column,
+                                lambdaFunctionRuleSuiteVersion: Column
+                              ): DataFrame = {
+    lambdaFunctionDF.select(
+      lambdaFunctionName.as("name"),
+      lambdaFunctionExpression.as("ruleExpr"),
+      lambdaFunctionId.as("functionId").cast(IntegerType),
+      lambdaFunctionVersion.as("functionVersion").cast(IntegerType),
+      lambdaFunctionRuleSuiteId.as("ruleSuiteId").cast(IntegerType),
+      lambdaFunctionRuleSuiteVersion.as("ruleSuiteVersion").cast(IntegerType)
+    ).createOrReplaceTempView("lambdas")
+
+    val versionedLambdas = lambdaFunctionDF.sparkSession.sql(
+      lambdaOutputSQL("lambdas", "name, "))
+
+    versionedLambdas
   }
 
   /**
@@ -103,26 +176,20 @@ package object simpleVersioning {
    * @return
    */
   def readVersionedLambdasFromDF(lambdaFunctionDF: DataFrame,
-                                lambdaFunctionName: Column,
-                                lambdaFunctionExpression: Column,
-                                lambdaFunctionId: Column,
-                                lambdaFunctionVersion: Column,
-                                lambdaFunctionRuleSuiteId: Column,
-                                lambdaFunctionRuleSuiteVersion: Column
-                              ): Map[Id, Seq[LambdaFunction]] = {
-    lambdaFunctionDF.select(
-      lambdaFunctionName.as("name"),
-      lambdaFunctionExpression.as("ruleExpr"),
-      lambdaFunctionId.as("functionId").cast(IntegerType),
-      lambdaFunctionVersion.as("functionVersion").cast(IntegerType),
-      lambdaFunctionRuleSuiteId.as("ruleSuiteId").cast(IntegerType),
-      lambdaFunctionRuleSuiteVersion.as("ruleSuiteVersion").cast(IntegerType)
-    ).createOrReplaceTempView("lambdas")
-
-    val versionedLambdas = lambdaFunctionDF.sparkSession.sql(
-      lambdaOutputSQL("lambdas", "name, "))
-
-    readLambdasFromDF(versionedLambdas,
+                                 lambdaFunctionName: Column,
+                                 lambdaFunctionExpression: Column,
+                                 lambdaFunctionId: Column,
+                                 lambdaFunctionVersion: Column,
+                                 lambdaFunctionRuleSuiteId: Column,
+                                 lambdaFunctionRuleSuiteVersion: Column
+                                ): Map[Id, Seq[LambdaFunction]] =
+    readLambdasFromDF(readVersionedLambdaRowsFromDF(lambdaFunctionDF: DataFrame,
+      lambdaFunctionName: Column,
+      lambdaFunctionExpression: Column,
+      lambdaFunctionId: Column,
+      lambdaFunctionVersion: Column,
+      lambdaFunctionRuleSuiteId: Column,
+      lambdaFunctionRuleSuiteVersion: Column),
       col("name"),
       col("ruleExpr"),
       col("functionId"),
@@ -130,7 +197,6 @@ package object simpleVersioning {
       col("ruleSuiteId"),
       col("ruleSuiteVersion")
     )
-  }
 
   protected[quality] def lambdaOutputSQL(tableName: String, extra: String ="") =
       s"""
@@ -152,6 +218,7 @@ package object simpleVersioning {
 
   /**
    * Reads the output expression table and builds output expression versions by adding together all changes below that rulesuiteVersion
+   *
    * @param outputExpressionDF
    * @param outputExpression
    * @param outputExpressionId
@@ -160,13 +227,13 @@ package object simpleVersioning {
    * @param outputExpressionRuleSuiteVersion
    * @return
    */
-  def readVersionedOutputExpressionsFromDF(outputExpressionDF: DataFrame,
-                outputExpression: Column,
-                outputExpressionId: Column,
-                outputExpressionVersion: Column,
-                outputExpressionRuleSuiteId: Column,
-                outputExpressionRuleSuiteVersion: Column
-              ): Map[Id, Seq[OutputExpressionRow]] = {
+  def readVersionedOutputExpressionRowsFromDF(outputExpressionDF: DataFrame,
+                                              outputExpression: Column,
+                                              outputExpressionId: Column,
+                                              outputExpressionVersion: Column,
+                                              outputExpressionRuleSuiteId: Column,
+                                              outputExpressionRuleSuiteVersion: Column
+                                             ): DataFrame = {
     outputExpressionDF.select(
       outputExpression.as("ruleExpr"),
       outputExpressionId.as("functionId").cast(IntegerType),
@@ -178,13 +245,38 @@ package object simpleVersioning {
     val versionedOutputs = outputExpressionDF.sparkSession.sql(
       lambdaOutputSQL("outputExpressions"))
 
-    readOutputExpressionsFromDF(versionedOutputs,
+    versionedOutputs
+  }
+
+  /**
+   * Reads the output expression table and builds output expression versions by adding together all changes below that rulesuiteVersion
+   * @param outputExpressionDF
+   * @param outputExpression
+   * @param outputExpressionId
+   * @param outputExpressionVersion
+   * @param outputExpressionRuleSuiteId
+   * @param outputExpressionRuleSuiteVersion
+   * @return
+   */
+  def readVersionedOutputExpressionsFromDF(outputExpressionDF: DataFrame,
+                                           outputExpression: Column,
+                                           outputExpressionId: Column,
+                                           outputExpressionVersion: Column,
+                                           outputExpressionRuleSuiteId: Column,
+                                           outputExpressionRuleSuiteVersion: Column
+                                          ): Map[Id, Seq[OutputExpressionRow]] =
+    readOutputExpressionsFromDF(readVersionedOutputExpressionRowsFromDF(outputExpressionDF: DataFrame,
+      outputExpression: Column,
+      outputExpressionId: Column,
+      outputExpressionVersion: Column,
+      outputExpressionRuleSuiteId: Column,
+      outputExpressionRuleSuiteVersion: Column
+      ),
       col("ruleExpr"),
       col("functionId"),
       col("functionVersion"),
       col("ruleSuiteId"),
       col("ruleSuiteVersion"))
-  }
 
   protected[quality] case class SameOrNextVersionLower[T](map: Map[Id, Seq[T]]) extends Function1[Id, Option[Seq[T]]] {
     implicit val ordering: Ordering[Id] =

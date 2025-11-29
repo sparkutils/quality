@@ -5,7 +5,7 @@ import com.sparkutils.quality.impl.{LambdaFunction, NoOpRunOnPassProcessor, Rule
 import com.sparkutils.quality.impl.util.Serializing.{notPresentOutputId, notPresentOutputVersion, notPresentSalience}
 import com.sparkutils.quality.impl.util.VersionSpecificSerializingImports.uniqueName
 import org.apache.spark.sql.{Dataset, Encoder, SparkSession}
-import org.apache.spark.sql.functions.{col, collect_set, lit, struct}
+import org.apache.spark.sql.functions.{col, collect_set, expr, lit, struct}
 import org.apache.spark.sql.types.{ArrayType, BinaryType, DoubleType}
 
 import java.util.concurrent.atomic.AtomicInteger
@@ -37,14 +37,33 @@ object VersionSpecificSerializingImports {
 }
 
 trait VersionSpecificSerializingImports {
+  // todo simpleVersioning needs to be done as well
 
+  /**
+   *
+   * @param ruleRows
+   * @param lambdaFunctionRows
+   * @param outputExpressionRows
+   * @param probablePass
+   * @param globalLambdaSuites each suite present is also integrated with every ruleSuite used in ruleRows - use filters to restrict the namespace being polluted
+   * @param globalOutputExpressionSuites each suite is applied / available to each suite found in the ruleRows, with functionId and functionVersion as joins
+   * @return
+   */
   private def icombine(ruleRows: Dataset[RuleRow], lambdaFunctionRows: Option[Dataset[LambdaFunctionRow]] = None,
-              outputExpressionRows: Option[Dataset[OutputExpressionRow]] = None, probablePass: Option[Double] = None): Dataset[CombinedRuleSuiteRows] = {
+              outputExpressionRows: Option[Dataset[OutputExpressionRow]] = None, probablePass: Option[Double] = None,
+              globalLambdaSuites: Option[Dataset[Id]] = None, globalOutputExpressionSuites: Option[Dataset[Id]] = None): Dataset[CombinedRuleSuiteRows] = {
 
     import ruleRows.sparkSession.implicits._
 
     val outputExpressionRowsT = outputExpressionRows.flatMap(r => if (r.isEmpty) None else Some(r))
     val lambdaFunctionRowsT = lambdaFunctionRows.flatMap(r => if (r.isEmpty) None else Some(r))
+
+    val lun = uniqueName()
+    val oun = uniqueName()
+    globalLambdaSuites.fold(ruleRows.sparkSession.createDataset[Id](Seq.empty))(identity).
+      createOrReplaceTempView(lun)
+    globalOutputExpressionSuites.fold(ruleRows.sparkSession.createDataset[Id](Seq.empty))(identity).
+      createOrReplaceTempView(oun)
 
     val rows = outputExpressionRowsT.fold(ruleRows.select(
       struct(
@@ -64,8 +83,15 @@ trait VersionSpecificSerializingImports {
           ruleRows.join(outputExpressionRows.selectExpr("ruleExpr as outputRuleExpr",
             "ruleSuiteId as oRuleSuiteId", "ruleSuiteVersion as oRuleSuiteVersion", "functionId", "functionVersion"
           ),
-            ruleRows("ruleSuiteId") === col("oRuleSuiteId") &&
-            ruleRows("ruleSuiteVersion") === col("oRuleSuiteVersion") &&
+            ((ruleRows("ruleSuiteId") === col("oRuleSuiteId") &&
+            ruleRows("ruleSuiteVersion") === col("oRuleSuiteVersion")) ||
+              // it's global
+              expr(
+                s"""(exists (
+                      select 0 from $oun goes
+                      where goes.id = oRuleSuiteId and goes.version = oRuleSuiteVersion
+                    ))
+                   """) ) &&
             ruleRows("ruleEngineId") === col("functionId") &&
             ruleRows("ruleEngineVersion") === col("functionVersion")
           ).select(
@@ -117,8 +143,17 @@ trait VersionSpecificSerializingImports {
         ).as("theLambdaFunctions")).select(col("ruleSuiteId").as("lRuleSuiteId"),
           col("ruleSuiteVersion").as("lRuleSuiteVersion"),
           col("theLambdaFunctions"), probablePassLit)
-       suiteRows.join(grouped, suiteRows("ruleSuiteId") === grouped("lRuleSuiteId") &&
-         suiteRows("ruleSuiteVersion") === grouped("lRuleSuiteVersion")).
+       suiteRows.join(grouped,
+           (suiteRows("ruleSuiteId") === grouped("lRuleSuiteId") &&
+             suiteRows("ruleSuiteVersion") === grouped("lRuleSuiteVersion") ) ||
+             // it's global
+             expr(
+               s"""(exists (
+                      select 0 from $lun gls
+                      where gls.id = lRuleSuiteId and gls.version = lRuleSuiteVersion
+                    ))
+                   """)
+         ).
          select(
            col("ruleSuiteId"),
            col("ruleSuiteVersion"),
@@ -170,6 +205,55 @@ trait VersionSpecificSerializingImports {
               outputExpressionRows: Dataset[OutputExpressionRow], probablePass: Double): Dataset[CombinedRuleSuiteRows] =
     icombine(ruleRows = ruleRows, lambdaFunctionRows = Some(lambdaFunctionRows),
       outputExpressionRows = Some(outputExpressionRows), probablePass = Some(probablePass))
+
+  /**
+   * Combines ruleRows, lambdaFunctionRows and outputExpressionRows into CombinedRuleSuiteRows, using probablePass
+   * @param ruleRows
+   * @param lambdaFunctionRows
+   * @param outputExpressionRows
+   * @param probablePass
+   * @return
+   */
+  def combine(ruleRows: Dataset[RuleRow], lambdaFunctionRows: Dataset[LambdaFunctionRow],
+              outputExpressionRows: Dataset[OutputExpressionRow], probablePass: Double,
+              globalLambdaSuites: Dataset[Id], globalOutputExpressionSuites: Dataset[Id]): Dataset[CombinedRuleSuiteRows] =
+    icombine(ruleRows = ruleRows, lambdaFunctionRows = Some(lambdaFunctionRows),
+      outputExpressionRows = Some(outputExpressionRows), probablePass = Some(probablePass),
+      globalLambdaSuites = Some(globalLambdaSuites), globalOutputExpressionSuites = Some(globalOutputExpressionSuites)
+    )
+
+
+  /**
+   * Combines ruleRows, lambdaFunctionRows and outputExpressionRows into CombinedRuleSuiteRows, using probablePass
+   * @param ruleRows
+   * @param lambdaFunctionRows
+   * @param outputExpressionRows
+   * @param probablePass
+   * @return
+   */
+  def combine(ruleRows: Dataset[RuleRow], lambdaFunctionRows: Dataset[LambdaFunctionRow],
+              outputExpressionRows: Dataset[OutputExpressionRow],
+              globalLambdaSuites: Dataset[Id], globalOutputExpressionSuites: Dataset[Id]): Dataset[CombinedRuleSuiteRows] =
+    icombine(ruleRows = ruleRows, lambdaFunctionRows = Some(lambdaFunctionRows),
+      outputExpressionRows = Some(outputExpressionRows),
+      globalLambdaSuites = Some(globalLambdaSuites), globalOutputExpressionSuites = Some(globalOutputExpressionSuites)
+    )
+
+  /**
+   * Combines ruleRows, lambdaFunctionRows and outputExpressionRows into CombinedRuleSuiteRows, using probablePass
+   * @param ruleRows
+   * @param lambdaFunctionRows
+   * @param outputExpressionRows
+   * @param probablePass
+   * @return
+   */
+  def combine(ruleRows: Dataset[RuleRow], lambdaFunctionRows: Dataset[LambdaFunctionRow],
+              outputExpressionRows: Dataset[OutputExpressionRow], probablePass: Double,
+              globalLambdaSuites: Dataset[Id]): Dataset[CombinedRuleSuiteRows] =
+    icombine(ruleRows = ruleRows, lambdaFunctionRows = Some(lambdaFunctionRows),
+      outputExpressionRows = Some(outputExpressionRows), probablePass = Some(probablePass),
+      globalLambdaSuites = Some(globalLambdaSuites)
+    )
 
   /**
    * Combines ruleRows and lambdaFunctionRows into CombinedRuleSuiteRows, using probablePass

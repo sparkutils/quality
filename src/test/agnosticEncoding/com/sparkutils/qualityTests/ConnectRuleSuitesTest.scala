@@ -9,7 +9,7 @@ import com.sparkutils.quality.impl.VariableProcessIfMissing.process_if_attribute
 import com.sparkutils.quality.impl.util.{CombinedRuleSuiteRows, LambdaFunctionRow}
 import com.sparkutils.qualityTests.RuleEngineTest.{rulesRaw, testData}
 import com.sparkutils.testing.TestUtils.{anyCauseHas, debug}
-import org.apache.spark.sql.ShimUtils
+import org.apache.spark.sql.{Dataset, ShimUtils}
 import org.apache.spark.sql.functions.{col, explode, flatten}
 import org.apache.spark.sql.types.{IntegerType, StructField, StructType}
 import org.scalatest.Matchers
@@ -71,6 +71,25 @@ class ConnectRuleSuitesTest extends SharedConnectTests with Matchers {
     val conbinedRuleSuiteRows = combine(ruleRows, sparkSession.emptyDataset[LambdaFunctionRow], outRows)
     val oRS = rule_suite(conbinedRuleSuiteRows, rsId)
     oRS contains stripped
+  }
+
+  test("global libraries should properly integrate") {
+    val s = sparkSession
+    import s.implicits._
+
+    val ruleRows = toDS(rules)
+    // bump all the rulesuite ids out of whack, so they no longer align
+    val lambdas = toLambdaDS(rules).collect().zipWithIndex.
+      map{ case (l,i) => l.copy(ruleSuiteVersion = l.ruleSuiteVersion + i + 1, ruleSuiteId = l.ruleSuiteId + i + 1) }.toSeq
+    val outRows = toOutputExpressionDS(rules).collect().zipWithIndex.
+      map{ case (l,i) => l.copy(ruleSuiteVersion = l.ruleSuiteVersion + i + 1, ruleSuiteId = l.ruleSuiteId + i + 1) }.toSeq
+
+    // force them back in as global ids
+    val conbinedRuleSuiteRows = combine(ruleRows, lambdas.toDS(), outRows.toDS(),
+      globalLambdaSuites = lambdas.map(l => Id(l.ruleSuiteId,l.ruleSuiteVersion)).toDS(),
+      globalOutputExpressionSuites = outRows.map(l => Id(l.ruleSuiteId,l.ruleSuiteVersion)).toDS())
+    val oRS = rule_suite(conbinedRuleSuiteRows, rsId)
+    oRS contains rules
   }
 
   test("full rule suites should be combinable") {
