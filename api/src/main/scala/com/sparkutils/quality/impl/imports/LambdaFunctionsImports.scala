@@ -1,9 +1,7 @@
 package com.sparkutils.quality.impl.imports
 
-import com.sparkutils.quality.Id
-import com.sparkutils.quality.impl.LambdaFunction
-import org.apache.spark.sql.{ClassicQualitySparkUtils, QualitySparkUtils}
-import org.apache.spark.sql.qualityFunctions.LambdaFunctions
+import com.sparkutils.quality.{Id, LambdaFunction}
+import com.sparkutils.quality.impl.QualitySparkUtils
 
 trait LambdaFunctionsImports {
   /**

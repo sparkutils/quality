@@ -1,12 +1,12 @@
 package com.sparkutils.quality.impl.imports
 
 import com.sparkutils.quality.RuleSuite
-import com.sparkutils.quality.impl.imports.ResolveUtil.checkResolveMakesSenseOrClassic
-import com.sparkutils.quality.impl.{PackId, RuleRunnerImpl}
+import com.sparkutils.quality.impl.RuleSuiteHelpers
 import org.apache.spark.sql.ShimUtils.callFunction
 import org.apache.spark.sql.catalyst.expressions.Literal
+import org.apache.spark.sql.functions.lit
 import org.apache.spark.sql.types.IntegerType
-import org.apache.spark.sql.{Column, DataFrame}
+import org.apache.spark.sql.{Column, DataFrame, ShimUtils}
 import org.apache.spark.unsafe.types.UTF8String
 
 trait RuleRunnerImports {
@@ -23,10 +23,7 @@ trait RuleRunnerImports {
    * @return A Column representing the Quality DQ expression built from this ruleSuite
    */
   def ruleRunner(ruleSuite: RuleSuite, compileEvals: Boolean = true, resolveWith: Option[DataFrame] = None, variablesPerFunc: Int = 40, variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false): Column =
-    if (checkResolveMakesSenseOrClassic(resolveWith))
-      RuleRunnerImpl.ruleRunnerImplClassic(ruleSuite, compileEvals, resolveWith, variablesPerFunc, variableFuncGroup, forceRunnerEval)
-    else
-      RuleRunnerImpl.ruleRunnerImpl(ruleSuite, compileEvals, variablesPerFunc, variableFuncGroup, forceRunnerEval)
+    ShimUtils.callFunction("dq_rule_runner", lit(RuleSuiteHelpers.serialize(ruleSuite)), lit(compileEvals), lit(variablesPerFunc), lit(variableFuncGroup), lit(forceRunnerEval))
 
   /**
    * The integer value for soft failed dq rules
@@ -54,9 +51,6 @@ object RuleResultsImports {
 
   val strLitA = (str: Any) =>
     UTF8String.fromString(str.asInstanceOf[String])
-
-  val packId = PackId.packId _
-  val unpackId = PackId.unpack _
 
   val SoftFailedInt = -1
   val DisabledRuleInt = -2

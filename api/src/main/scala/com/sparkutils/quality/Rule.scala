@@ -1,88 +1,51 @@
 package com.sparkutils.quality
 
-import com.sparkutils.quality.impl._
-import com.sparkutils.quality.impl.util.VariablesLookup
-import com.sparkutils.shim.expressions.Names.toName
-import org.apache.spark.internal.Logging
-import org.apache.spark.sql.ClassicQualitySparkUtils
-import org.apache.spark.sql.ShimUtils.arguments
-import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedFunction}
-import org.apache.spark.sql.catalyst.expressions.{EqualTo, Literal}
+import com.sparkutils.quality.impl.util.Serializing
+
+/**
+ * base for storage of rule or ruleset ids, must be a trait to force frameless to use lookup and stop any
+ * accidental auto product treatment
+ */
+trait VersionedId extends Serializable {
+  val id, version: Int
+}
+
+trait HasRuleText extends Serializable {
+  val rule: String
+}
+
+case class LambdaFunction(name: String, id: Id, rule: String) extends HasRuleText {
+}
 
 /**
   * A versioned rule ID - note the name is never persisted in results, the id and version are sufficient to retrieve the name
   * @param id a unique ID to identify this rule
   * @param version the version of the rule - again tied to ID
   */
+@SerialVersionUID(1L)
 case class Id(id: Int, version: Int) extends VersionedId
-
-object LambdaFunction {
-  def apply(name: String, rule: String, id: Id): LambdaFunction = LambdaFunctionImpl(name, rule, id)
-}
 
 /**
  * The result of serializing or loading rules
  * @param rule
  */
-case class ExpressionRule( rule: String ) extends ExprLogic with HasRuleText {
-  override def reset(): Unit = super[HasRuleText].reset()
-}
+@SerialVersionUID(1L)
+case class ExpressionRule( rule: String ) extends HasRuleText
 
 /**
  * Used as a result of serializing
  * @param rule
  */
-case class OutputExpression( rule: String ) extends OutputExprLogic with HasRuleText with Logging {
-  protected[quality] override def expression() = {
-    val parsed = RuleLogicUtils.expr(rule)
-    // output expressions can be:
-    // 1. simple expressions for ruleEngine
-    // 2. single argument lambda's returning the same type as the arg for folder
-    // 3. as of 0.0.2 #8 set( attribute = valueExpression, attribute = valueExpression) converted to the form of 2 with an updateField call
-    parsed match {
-      case uf: UnresolvedFunction if toName(uf) == "set" =>
-        // case 3
-        val args = arguments(uf)
-        val paired =
-          args.flatMap {
-            case EqualTo(name: UnresolvedAttribute, right) =>
-              // updateField takes paired args of field names to expression
-              Some(Seq(Literal(name.name), right))
-            case a =>
-              logInfo(s"Attempt to convert set OutputExpression argument $a failed as types do not match expected EqualTo(attribute, expression), will default to full expression")
-              None
-          }
+@SerialVersionUID(1L)
+case class OutputExpression( rule: String ) extends HasRuleText
 
-        if (paired.size != args.size)
-          // one of the args didn't match type
-          parsed
-        else
-          // need to keep first arg
-          UpdateFolderExpression.withArgsAndSubstitutedLambdaVariable(paired.flatten)
-      case _ =>
-        // for everything else (1+2) it's already good enough
-        parsed
-    }
-  }
+@SerialVersionUID(1L)
+case class RunOnPassProcessor(salience: Int, id: Id, rule: String) extends HasRuleText with Serializable
 
-  override def reset(): Unit = super[HasRuleText].reset()
+object NoOpRunOnPassProcessor {
+  val noOpId = Id(Serializing.notPresentOutputId, Serializing.notPresentOutputVersion)
+  val noOp = RunOnPassProcessor(Serializing.notPresentSalience, noOpId, "")
 }
-
-object RunOnPassProcessor {
-  /**
-   * Creates a RunOnPassProcesser using a given OutputExpression
-   *
-   * @param salience
-   * @param id
-   * @param e
-   * @return
-   */
-  def apply(salience: Int, id: Id, e: OutputExpression) =
-    RunOnPassProcessorImpl(salience, id, e.rule, e)
-
-}
-
-// TODO all interface for connect must be serialisableid providing so version compat on client/server comms works.
 
 /**
   * A rule to run over a row
@@ -90,7 +53,7 @@ object RunOnPassProcessor {
   * @param expression
   */
 @SerialVersionUID(1L)
-case class Rule(id: Id, expression: RuleLogic, runOnPassProcessor: RunOnPassProcessor = NoOpRunOnPassProcessor.noOp) extends Serializable
+case class Rule(id: Id, expression: ExpressionRule, runOnPassProcessor: RunOnPassProcessor = NoOpRunOnPassProcessor.noOp) extends Serializable
 
 @SerialVersionUID(1L)
 case class RuleSet(id: Id, rules: Seq[Rule]) extends Serializable

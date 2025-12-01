@@ -1,6 +1,5 @@
 package com.sparkutils.quality
 
-import com.sparkutils.quality.impl.VersionedId
 import com.sparkutils.quality.impl.util.Optional
 
 import scala.collection.JavaConverters._
@@ -25,11 +24,6 @@ case object DisabledRule extends RuleResult
   * @param percentage
   */
 case class Probability(percentage: Double) extends RuleResult
-
-/**
- * Packs a rule result with a RunOnPassProcessor processor
- */
-case class RuleResultWithProcessor(ruleResult: RuleResult, runOnPassProcessor: impl.RunOnPassProcessor) extends RuleResult
 
 /**
   * Probability is evaluated at over probablePass percent, defaults to 80% 0.8.

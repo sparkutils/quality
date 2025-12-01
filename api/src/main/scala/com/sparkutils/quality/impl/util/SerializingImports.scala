@@ -2,7 +2,7 @@ package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality.impl.util.RuleModel.RuleSuiteMap
 import com.sparkutils.quality._
-import com.sparkutils.quality.impl.LambdaFunction
+import com.sparkutils.quality.LambdaFunction
 import com.sparkutils.quality.impl.util.Serializing.{iIntegrateLambdas, iIntegrateOutputExpressions, ireadRulesFromDF}
 import org.apache.spark.sql.{Column, DataFrame, Dataset}
 

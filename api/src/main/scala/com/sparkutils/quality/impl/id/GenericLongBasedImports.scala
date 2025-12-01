@@ -1,12 +1,9 @@
 package com.sparkutils.quality.impl.id
 
-import com.sparkutils.quality.impl.hash.{HashFunctionFactory, HashFunctionsExpression, MessageDigestFactory}
-import com.sparkutils.quality.impl.rng.RandLongsWithJump
 import org.apache.commons.rng.simple.RandomSource
-import org.apache.spark.sql.{Column, ShimUtils}
-import org.apache.spark.sql.ShimUtils.{callFunction, column, expression}
+import org.apache.spark.sql.Column
+import org.apache.spark.sql.ShimUtils.callFunction
 import org.apache.spark.sql.functions.lit
-import org.apache.spark.sql.shim.hash.DigestFactory
 
 trait GenericLongBasedImports {
   /**

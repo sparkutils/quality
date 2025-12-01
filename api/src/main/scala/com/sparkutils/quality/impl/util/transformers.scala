@@ -2,9 +2,7 @@ package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality.impl.NamedStruct
 import com.sparkutils.quality.{RuleSuite, ruleFolderRunner}
-import com.sparkutils.shim.expressions.CreateNamedStruct1
-import org.apache.spark.sql.{Column, DataFrame, ShimUtils, Row => SRow}
-import org.apache.spark.sql.ClassicQualitySparkUtils.DatasetBase
+import org.apache.spark.sql.{Column, DataFrame, Dataset, Row => SRow}
 import org.apache.spark.sql.types.StructType
 
 protected[quality] object AddDataFunctions {
@@ -21,7 +19,7 @@ protected[quality] object AddDataFunctions {
    * @param useType In the case you must use select and can't use withColumn you may provide a type directly to stop the NPE
    * @return
    */
-  def ifoldAndReplaceFields[P[R] >: DatasetBase[R]](rules: RuleSuite, fields: Either[Seq[String], Seq[(String, Column)]], foldFieldName: String = "foldedFields",
+  def ifoldAndReplaceFields[P[R] >: Dataset[R]](rules: RuleSuite, fields: Either[Seq[String], Seq[(String, Column)]], foldFieldName: String = "foldedFields",
                            debugMode: Boolean = false, maintainOrder: Boolean = true, useType: Option[StructType] = None,
                            compileEvals: Boolean = false, forceRunnerEval: Boolean = false,
                            forceTriggerEval: Boolean = false, alias: String = "main"): P[SRow] => P[SRow] = rdf => {

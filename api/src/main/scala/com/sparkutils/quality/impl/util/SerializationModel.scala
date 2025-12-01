@@ -1,7 +1,6 @@
 package com.sparkutils.quality.impl.util
 
-import com.sparkutils.quality.{ExpressionRule, Id, Rule, RuleSet, RuleSuite}
-import com.sparkutils.quality.impl.VersionedId
+import com.sparkutils.quality.{ExpressionRule, Id, Rule, RuleSet, RuleSuite, VersionedId}
 import org.apache.spark.sql.DataFrame
 
 object RuleModel {

@@ -10,26 +10,6 @@ import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionDescript
 import org.apache.spark.sql.catalyst.util.MapData
 import org.apache.spark.sql.types.DataType
 
-
-object MapLookup {
-  /**
-   * For withColumn / select usage, the map generation and lookup expressions must be of the same type
-   */
-  def apply(mapLookupName: Column, lookupKey: Column, mapLookups: MapLookups): Column = {
-    column(apply(expression(mapLookupName), expression(lookupKey), mapLookups))
-  }
-
-  def apply(mapLookupName: Expression, lookupKey: Expression, mapLookups: MapLookups): MapLookupExpression = {
-    val id = RuleRegistrationFunctions.getString(mapLookupName) // Must be hard coded, can't give a dynamic data type otherwise it will fail at runtime not analysis
-    val (bv, dt) = mapLookups.getOrElse(id, mapDoesNotExist(id))
-
-    MapLookupExpression(id, lookupKey, SparkSession.active.sparkContext.broadcast(bv), dt)
-  }
-
-  private[mapLookup] def mapDoesNotExist(map: String) = qualityException(s"The map: $map, does not exist in the provided MapLookups")
-
-}
-
 /**
  * Returns a value when the lookup is present with the correct value type, or Null when not throws if the table is not present
  * @param mapId the name of the map entry / dataframe the lookupmap belongs to
