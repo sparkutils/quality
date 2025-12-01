@@ -3,10 +3,29 @@ Starting with 0.2.0 and Spark 4 Quality leverages the new unified connect and cl
 This also opens the door for usage from any Spark Connect supporting language as the integration surface is much lower:
 
 ```scala
-// pre 0.2.0 serializing functions
+// versioned reads
+def readVersionedRuleRowsFromDF(df: DataFrame, ruleSuiteId: Column,....): DataFrame
+def readVersionedLambdaRowsFromDF(lambdaFunctionDF: DataFrame, lambdaFunctionName: Column,....): DataFrame
+def readVersionedOutputExpressionRowsFromDF(outputExpressionDF: DataFrame, outputExpression: Column,....): DataFrame
+// combine and register functions, which can use either simple or versioned reads 
 def combine(ruleRows: Dataset[RuleRow], lambdaFunctionRows: Dataset[LambdaFunctionRow],
-  outputExpressionRows: Dataset[OutputExpressionRow], probablePass: Double): Dataset[CombinedRuleSuiteRows]
+  outputExpressionRows: Dataset[OutputExpressionRow], probablePass: Double,
+  globalLambdaSuites: Option[Dataset[Id]] = None, globalOutputExpressionSuites: Option[Dataset[Id]] = None): Dataset[CombinedRuleSuiteRows]
 def register_rule_suite_variable(ds: Dataset[CombinedRuleSuiteRows], id: VersionedId, stableName: String): String
+```
+
+with each function running on the server and connect using simple commands on views/tables, after any necessary renames etc.:
+
+```sql
+-- versioned reads
+QUALITY VERSIONED RULES FROM DF viewName;
+QUALITY VERSIONED LAMBDAS FROM DF viewName;
+QUALITY VERSIONED OUTPUT EXPRESSIONS FROM DF viewName;
+-- combine
+QUALITY COMBINE RULESUITES ruleRowsName, lambdaFunctionRowsName | `None`,
+  outputExpressionRowsName | `None`, probablePass Double | `None`,
+  globalLambdaSuitesName | `None`, globalOutputExpressionSuitesName | `None`
+QUALITY REGISTER RULE SUITE combinedRowsName, ruleSuiteId Int, ruleSuiteVersion Int, stableName  
 ```
 
 The loading and serialising functions register ruleSuites as Spark SQL Variables (via [DECLARE VARIABLE](https://spark.apache.org/docs/latest/sql-ref-syntax-ddl-declare-variable.html)/[SET VARIABLE](https://spark.apache.org/docs/latest/sql-ref-syntax-aux-set-var.html)) with all actual ruleSuite handling taking place on the server. 
