@@ -79,11 +79,11 @@ trait AddDataFunctionsImports {
    * @return
    */
   def foldAndReplaceFields[P[R] >: DatasetBase[R]](rules: RuleSuite, fields: Seq[String], foldFieldName: String = "foldedFields",
-      debugMode: Boolean = false, tempFoldDebugName: String = "tempFOLDDEBUG",
-      maintainOrder: Boolean = true, compileEvals: Boolean = false, forceRunnerEval: Boolean = false,
-      forceTriggerEval: Boolean = false, alias: String = "main"): P[SRow] => P[SRow] =
+                                                   debugMode: Boolean = false, @deprecated(message = "tempFoldDebugName is no longer used and will be removed in 0.3.0", since = "0.2.0") tempFoldDebugName: String = "tempFOLDDEBUG",
+                                                   maintainOrder: Boolean = true, compileEvals: Boolean = false, forceRunnerEval: Boolean = false,
+                                                   forceTriggerEval: Boolean = false, alias: String = "main"): P[SRow] => P[SRow] =
     ifoldAndReplaceFields(rules, Left(fields), foldFieldName,
-      debugMode, tempFoldDebugName, maintainOrder, compileEvals = compileEvals,
+      debugMode, maintainOrder, compileEvals = compileEvals,
       forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval, alias = alias)
 
   /**
@@ -98,11 +98,11 @@ trait AddDataFunctionsImports {
    * @return
    */
   def foldAndReplaceFieldPairs[P[R] >: DatasetBase[R]](rules: RuleSuite, fields: Seq[(String, Column)], foldFieldName: String = "foldedFields",
-                                                   debugMode: Boolean = false, tempFoldDebugName: String = "tempFOLDDEBUG",
+                                                   debugMode: Boolean = false, @deprecated(message = "tempFoldDebugName is no longer used and will be removed in 0.3.0", since = "0.2.0") tempFoldDebugName: String = "tempFOLDDEBUG",
                                                    maintainOrder: Boolean = true, compileEvals: Boolean = false, forceRunnerEval: Boolean = false,
                                                    forceTriggerEval: Boolean = false, alias: String = "main"): P[SRow] => P[SRow] =
     ifoldAndReplaceFields(rules, Right(fields), foldFieldName,
-      debugMode, tempFoldDebugName, maintainOrder, compileEvals = compileEvals,
+      debugMode, maintainOrder, compileEvals = compileEvals,
       forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval, alias = alias)
 
   /**
@@ -120,11 +120,11 @@ trait AddDataFunctionsImports {
    * @return
    */
   def foldAndReplaceFieldsWithStruct[P[R] >: DatasetBase[R]](rules: RuleSuite, struct: StructType, foldFieldName: String = "foldedFields",
-      debugMode: Boolean = false, tempFoldDebugName: String = "tempFOLDDEBUG",
+      debugMode: Boolean = false, @deprecated(message = "tempFoldDebugName is no longer used and will be removed in 0.3.0", since = "0.2.0") tempFoldDebugName: String = "tempFOLDDEBUG",
       maintainOrder: Boolean = true, compileEvals: Boolean = false,
       forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false, alias: String = "main"): P[SRow] => P[SRow] =
     AddDataFunctions.ifoldAndReplaceFields(rules, Left(struct.fields.map(_.name)), foldFieldName,
-      debugMode, tempFoldDebugName, maintainOrder, useType = Some(struct), compileEvals = compileEvals,
+      debugMode, maintainOrder, useType = Some(struct), compileEvals = compileEvals,
       forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval, alias = alias)
 
   /**
@@ -143,11 +143,11 @@ trait AddDataFunctionsImports {
    * @return
    */
   def foldAndReplaceFieldPairsWithStruct[P[R] >: DatasetBase[R]](rules: RuleSuite, fields: Seq[(String, Column)], struct: StructType, foldFieldName: String = "foldedFields",
-                                                             debugMode: Boolean = false, tempFoldDebugName: String = "tempFOLDDEBUG",
+                                                             debugMode: Boolean = false, @deprecated(message = "tempFoldDebugName is no longer used and will be removed in 0.3.0", since = "0.2.0") tempFoldDebugName: String = "tempFOLDDEBUG",
                                                              maintainOrder: Boolean = true, compileEvals: Boolean = false,
                                                              forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false, alias: String = "main"): P[SRow] => P[SRow] =
     AddDataFunctions.ifoldAndReplaceFields(rules, Right(fields), foldFieldName,
-      debugMode, tempFoldDebugName, maintainOrder, useType = Some(struct), compileEvals = compileEvals,
+      debugMode, maintainOrder, useType = Some(struct), compileEvals = compileEvals,
       forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval, alias = alias)
 
   /**

@@ -22,8 +22,7 @@ protected[quality] object AddDataFunctions {
    * @return
    */
   def ifoldAndReplaceFields[P[R] >: DatasetBase[R]](rules: RuleSuite, fields: Either[Seq[String], Seq[(String, Column)]], foldFieldName: String = "foldedFields",
-                           debugMode: Boolean = false, tempFoldDebugName: String = "tempFOLDDEBUG",
-                           maintainOrder: Boolean = true, useType: Option[StructType] = None,
+                           debugMode: Boolean = false, maintainOrder: Boolean = true, useType: Option[StructType] = None,
                            compileEvals: Boolean = false, forceRunnerEval: Boolean = false,
                            forceTriggerEval: Boolean = false, alias: String = "main"): P[SRow] => P[SRow] = rdf => {
     val df = rdf.asInstanceOf[DataFrame]
