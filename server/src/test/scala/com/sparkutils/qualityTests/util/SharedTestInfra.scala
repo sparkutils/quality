@@ -30,7 +30,7 @@ trait ClassicSharedTests extends FunSuite with TestUtilsBase with SharedSessions
   override def connectServerLoggingLevel = "DEBUG"
 
   override def sparkConnectServerConfig(): Map[String, String] =
-    super.sparkConnectServerConfig() + //  useDebugConnectLogs +
+    super.sparkConnectServerConfig() +  // useDebugConnectLogs +
       scoverageClassPathsConfig + connectMemory("4g") +
       (("spark.sql.extensions", classOf[QualitySparkExtension].getName)) +
       (("javax.jdo.option.ConnectionURL", "jdbc:derby:;databaseName=connect_metastore_db;create=true")) +

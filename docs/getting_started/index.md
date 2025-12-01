@@ -10,18 +10,20 @@ tags:
 Quality, as of 0.2.0, is delivered via 3 jars:
 
 * quality - effectively the same as Quality pre 0.2.0
-* quality_interface - the basic interface for quality, included by the normal quality library  
+* quality_api - the basic interface for quality, included by the normal quality library  
 * quality_testshade - the test shaded uber package for testing and exploration
 
-Existing users can continue to depend on the quality jar.  Connect users on Spark 4 however can also make remote calls.
+Existing users can continue to depend on the quality jar.  Connect users on Spark 4 however can also make remote calls by just depending on quality_api.
+
+Bloom filter functions are no longer imported by default and are only present in the full quality jar.
 
 ### Spark 4, Connect and Remote Calls
 
-The quality_interface jars can be used as a remote interface to Quality functionality running as a [SparkSessionExtension](#using-the-sql-functions-on-spark-thrift-hive-servers).
+The quality_api jars can be used as a remote interface to Quality functionality running as a [SparkSessionExtension](#using-the-sql-functions-on-spark-thrift-hive-servers).
 
-The new quality_interface jar provides a very thin and stable interface that simply forwards execution to the SparkSessionExtension on the driver and acts as an example of what other language support should provide.
+The new quality_api jar provides a very thin and stable interface that simply forwards execution to the SparkSessionExtension on the driver and acts as an example of what other language support should provide.
 
-In this pattern the 'client' application only needs to depend on the quality_interface jar, allowing the exact Quality implementation 'server' to be upgraded.  Under Spark 4:
+In this pattern the 'client' application only needs to depend on the quality_api jar, allowing the exact Quality implementation 'server' to be upgraded.  Under Spark 4:
 
 - spark.sql.artifact.isolation.enabled and 
 - spark.sql.artifact.isolation.alwaysApplyClassloader 
