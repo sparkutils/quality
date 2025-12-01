@@ -334,9 +334,3 @@ object ClassicQualitySparkUtils {
 
 
 }
-
-object QualitySparkUtils {
-
-  def registerLambdaFunctions(functions: Seq[LambdaFunction]): Unit =
-    LambdaFunctions.registerLambdaFunctions(functions)
-}

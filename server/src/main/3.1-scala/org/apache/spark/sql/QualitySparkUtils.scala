@@ -447,13 +447,6 @@ object ClassicQualitySparkUtils {
 
 }
 
-object QualitySparkUtils {
-
-
-  def registerLambdaFunctions(functions: Seq[LambdaFunction]): Unit =
-    LambdaFunctions.registerLambdaFunctions(functions)
-}
-
 object QualityStructFunctions {
 
   /* Below is lifted from 3.4.1 complexTypeCreator.  The 3.1.3 version does not support testSimpleProductionRulesReplaceDebug and ..DebugSet cases due to
