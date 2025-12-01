@@ -2,11 +2,11 @@ package com.sparkutils.quality.impl.bloom
 
 import com.sparkutils.quality.impl.RuleRegistrationFunctions.registerWithChecks
 import com.sparkutils.quality.impl.bloom.parquet.{BucketedFilesRoot, FileRoot}
-import com.sparkutils.quality.{DataFrameLoader, Id, RuleSuite}
+import com.sparkutils.quality.{ClassicOnly, DataFrameLoader, Id, RuleSuite}
 import com.sparkutils.quality.impl.util.ConfigLoader
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.ShimUtils.{column, expression}
-import org.apache.spark.sql.{Column, DataFrame, ClassicQualitySparkUtils, ShimUtils, SparkSession}
+import org.apache.spark.sql.{ClassicQualitySparkUtils, Column, DataFrame, ShimUtils, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.{Expression, Literal}
 import org.apache.spark.sql.functions.lit
 
@@ -16,6 +16,7 @@ trait BloomFilterRegistration {
    * Registers this bloom map and associates the probabilityIn sql expression against it
    * @param bloomFilterMap
    */
+  @ClassicOnly
   def registerBloomMapAndFunction(bloomFilterMap: Broadcast[BloomExpressionLookup.BloomFilterMap]) {
     val funcReg = SparkSession.getActiveSession.get.sessionState.functionRegistry
     def register(name: String, argsf: Seq[Expression] => Expression, paramNumbers: Set[Int] = Set.empty, minimum: Int = -1) =
@@ -37,7 +38,8 @@ trait BloomFilterLookupFunctionImport {
    * @param bloomMap
    * @return
    */
-  @deprecated(since="0.1.0", message="Please migrate to bloom_lookup")
+  @deprecated(since="0.1.0", message="Please migrate to bloom_lookup, bloomFilterLookup will be removed in 0.2.0")
+  @ClassicOnly
   def bloomFilterLookup(lookupValue: Column, bloomFilterName: Column, bloomMap: Broadcast[BloomExpressionLookup.BloomFilterMap]): Column =
     BloomFilterLookup(lookupValue, bloomFilterName, bloomMap)
 
@@ -49,6 +51,7 @@ trait BloomFilterLookupFunctionImport {
    * @param bloomMap
    * @return
    */
+  @ClassicOnly
   def probability_in(lookupValue: Column, filterName: String, bloomMap: Broadcast[BloomExpressionLookup.BloomFilterMap]): Column =
     BloomFilterLookup(lookupValue, lit(filterName), bloomMap)
 }
@@ -61,6 +64,7 @@ trait BloomFilterLookupImports {
    * @param ruleSuite a ruleSuite full of expressions to check
    * @return The bloom id's used, for unresolved expression trees this may contain blooms which are not present in the bloom map
    */
+  @ClassicOnly
   def getBlooms(ruleSuite: RuleSuite): Seq[String] = BloomFilterLookup.getBlooms(ruleSuite)
 
   import Serializing.{factory, bloomRowEncoder}
@@ -142,6 +146,7 @@ trait BloomExpressionFunctions {
    * @param expectedFPP
    * @return
    */
+  @ClassicOnly
   def small_bloom(bloomOver: Column, expectedNumberOfRows: Column, expectedFPP: Column): Column =
     column( new ParquetAggregator(expression(bloomOver), expression(expectedNumberOfRows), expression(expectedFPP))
       .toAggregateExpression())
@@ -156,6 +161,7 @@ trait BloomExpressionFunctions {
    * @param expectedFPP
    * @return
    */
+  @ClassicOnly
   def small_bloom(bloomOver: Column, expectedNumberOfRows: Long, expectedFPP: Double): Column =
     small_bloom(bloomOver, lit(expectedNumberOfRows), lit(expectedFPP))
 
@@ -171,6 +177,7 @@ trait BloomExpressionFunctions {
    * @param bucketedFilesRoot - provide this to override the default file root for the underlying arrays - defaults to a temporary file location or /dbfs/ on Databricks.  The config property sparkutils.quality.bloom.root can also be used to set for all blooms in a cluster.
    * @return
    */
+  @ClassicOnly
   def big_bloom(bloomOver: Column, expectedNumberOfRows: Column, expectedFPP: Column, id: Column = lit(java.util.UUID.randomUUID().toString), bucketedFilesRoot: BucketedFilesRoot = BucketedFilesRoot(FileRoot(com.sparkutils.quality.bloomFileLocation))): Column =
     column( BucketedArrayParquetAggregator(expression(bloomOver), expression(expectedNumberOfRows), expression(expectedFPP), expression(id), bucketedFilesRoot = bucketedFilesRoot )
       .toAggregateExpression())
@@ -186,6 +193,7 @@ trait BloomExpressionFunctions {
    * @param expectedFPP
    * @return
    */
+  @ClassicOnly
   def big_bloom(bloomOver: Column, expectedNumberOfRows: Long, expectedFPP: Double): Column =
     big_bloom(bloomOver, lit(expectedNumberOfRows), lit(expectedFPP))
 
@@ -200,6 +208,7 @@ trait BloomExpressionFunctions {
    * @param id                - the id of this bloom used to separate from other big_blooms - defaults to a uuid
    * @return
    */
+  @ClassicOnly
   def big_bloom(bloomOver: Column, expectedNumberOfRows: Long, expectedFPP: Double, id: String): Column =
     big_bloom(bloomOver, lit(expectedNumberOfRows), lit(expectedFPP), lit(id))
 
@@ -215,6 +224,7 @@ trait BloomExpressionFunctions {
    * @param bucketedFilesRoot - provide this to override the default file root for the underlying arrays - defaults to a temporary file location or /dbfs/ on Databricks.  The config property sparkutils.quality.bloom.root can also be used to set for all blooms in a cluster.
    * @return
    */
+  @ClassicOnly
   def big_bloom(bloomOver: Column, expectedNumberOfRows: Long, expectedFPP: Double, id: String, bucketedFilesRoot: BucketedFilesRoot): Column =
     big_bloom(bloomOver, lit(expectedNumberOfRows), lit(expectedFPP), lit(id), bucketedFilesRoot)
 

@@ -12,6 +12,8 @@ def combine(ruleRows: Dataset[RuleRow], lambdaFunctionRows: Dataset[LambdaFuncti
   outputExpressionRows: Dataset[OutputExpressionRow], probablePass: Double,
   globalLambdaSuites: Option[Dataset[Id]] = None, globalOutputExpressionSuites: Option[Dataset[Id]] = None): Dataset[CombinedRuleSuiteRows]
 def register_rule_suite_variable(ds: Dataset[CombinedRuleSuiteRows], id: VersionedId, stableName: String): String
+// version specific for lambdas
+QualitySparkUtils.registerLambdaFunctions(functions: Seq[LambdaFunction])
 ```
 
 with each function running on the server and connect using simple commands on views/tables, after any necessary renames etc.:
@@ -25,7 +27,11 @@ QUALITY VERSIONED OUTPUT EXPRESSIONS FROM DF viewName;
 QUALITY COMBINE RULESUITES ruleRowsName, lambdaFunctionRowsName | `None`,
   outputExpressionRowsName | `None`, probablePass Double | `None`,
   globalLambdaSuitesName | `None`, globalOutputExpressionSuitesName | `None`
-QUALITY REGISTER RULE SUITE combinedRowsName, ruleSuiteId Int, ruleSuiteVersion Int, stableName  
+QUALITY REGISTER RULE SUITE combinedRowsName, ruleSuiteId Int, ruleSuiteVersion Int, stableName
+-- lambdas
+CREATE QUALITY FUNCTION simplename _WITH_IMPL_ simpleExpression _END_OF_USER_FUNCTION_ 
+    singleParamName _WITH_IMPL_ p1 -> simpleExpression _END_OF_USER_FUNCTION_
+    multiParamsName _WITH_IMPL_ (p1, p2) -> simpleExpression _END_OF_USER_FUNCTION_
 ```
 
 The loading and serialising functions register ruleSuites as Spark SQL Variables (via [DECLARE VARIABLE](https://spark.apache.org/docs/latest/sql-ref-syntax-ddl-declare-variable.html)/[SET VARIABLE](https://spark.apache.org/docs/latest/sql-ref-syntax-aux-set-var.html)) with all actual ruleSuite handling taking place on the server. 

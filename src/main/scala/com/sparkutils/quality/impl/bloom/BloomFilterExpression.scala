@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl.bloom
 
 import com.sparkutils.quality.QualityException.qualityException
-import com.sparkutils.quality.{BloomFilterMap, RuleSuite}
+import com.sparkutils.quality.{BloomFilterMap, ClassicOnly, RuleSuite}
 import com.sparkutils.quality.impl.{RuleRegistrationFunctions, RuleRunnerUtils}
 import com.sparkutils.shim.expressions.{NullIntolerant, UnresolvedFunction4}
 import org.apache.spark.broadcast.Broadcast
@@ -10,7 +10,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.Block._
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
 import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression, ExpressionDescription, Literal}
 import org.apache.spark.sql.types.{DataType, DoubleType, StringType}
-import org.apache.spark.sql.{Column, ClassicQualitySparkUtils, ShimUtils}
+import org.apache.spark.sql.{ClassicQualitySparkUtils, Column, ShimUtils}
 import org.apache.spark.unsafe.types.UTF8String
 
 object BloomFilterLookup {
@@ -21,6 +21,7 @@ object BloomFilterLookup {
    * @param ruleSuite a ruleSuite full of expressions to check
    * @return The bloom id's used, for unresolved expression trees this may contain blooms which are not present in the bloom map
    */
+  @ClassicOnly
   def getBlooms(ruleSuite: RuleSuite): Seq[String]  = {
     // parsing is different than plan..
     val flattened = RuleRunnerUtils.flattenExpressions(ruleSuite)
@@ -34,6 +35,7 @@ object BloomFilterLookup {
   /**
     * For withColumn / select usage, the bloomfilters generation and test expressions must be of the same type
     */
+  @ClassicOnly
   def apply(bloomFilterName: Column, lookupValue: Column, bloomMap: Broadcast[BloomFilterMap]): Column =
     column(BloomFilterLookupExpression(expression(bloomFilterName), expression(lookupValue), bloomMap))
 
@@ -47,6 +49,7 @@ object BloomFilterLookup {
    * @param expression a single Expression, can be a complex tree or simple direct probabilityIn or rowid
    * @return The bloom id's used, for unresolved expression trees this may contain blooms which are not present in the bloom map
    */
+  @ClassicOnly
   def getBlooms(expression: Expression): Seq[String] = {
     val res = Seq.empty
 

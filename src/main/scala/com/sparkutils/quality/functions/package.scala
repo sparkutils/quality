@@ -5,15 +5,12 @@ import com.sparkutils.quality.impl.bloom.{BloomExpressionFunctions, BloomFilterL
 import com.sparkutils.quality.impl.hash.HashRelatedFunctionImports
 import com.sparkutils.quality.impl.id.{GenericLongBasedImports, GuaranteedUniqueIDImports}
 import com.sparkutils.quality.impl.imports._
-import com.sparkutils.quality.impl.longPair.AsUUID
 import com.sparkutils.quality.impl.mapLookup.MapLookupFunctionImports
 import com.sparkutils.quality.impl.rng.RngFunctionImports
 import com.sparkutils.quality.impl.util.{ComparableMapsImports, StructFunctionsImport}
 import com.sparkutils.quality.impl.yaml.YamlFunctionImports
-import org.apache.spark.sql.ShimUtils.{callFunction, column}
-import org.apache.spark.sql.{Column, ShimUtils}
-import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
-import org.apache.spark.sql.catalyst.expressions.{And, EqualTo}
+import org.apache.spark.sql.ShimUtils.callFunction
+import org.apache.spark.sql.Column
 import org.apache.spark.sql.functions.lit
 
 /**

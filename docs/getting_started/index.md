@@ -5,18 +5,28 @@ tags:
    - beginner
 ---
 
-## Migrating from 0.0.3 to 0.1.0
+## Migrating from 0.1.x to 0.2.0
 
-The quality package has been trimmed down to common functionality only.  DSL / Column based functions and types have moved to specific packages similar to implicits:
+Quality, as of 0.2.0, is delivered via 3 jars:
 
-```scala
-import com.sparkutils.quality._
-import functions._
-import types._
-import implicits._
-```  
+* quality - effectively the same as Quality pre 0.2.0
+* quality_interface - the basic interface for quality, included by the normal quality library  
+* quality_testshade - the test shaded uber package for testing and exploration
 
-The functions package aims to have an equivalent column dsl function for each bit of sql based functionality.  The notable exception to this is the lambda, callFun and _() functions, for which you are better off using your languages normal support for abstraction.  A number of the functions have been, due to naming choice, deprecated they will be removed in 0.2.0.   
+Existing users can continue to depend on the quality jar.  Connect users on Spark 4 however can also make remote calls.
+
+### Spark 4, Connect and Remote Calls
+
+The quality_interface jars can be used as a remote interface to Quality functionality running as a [SparkSessionExtension](#using-the-sql-functions-on-spark-thrift-hive-servers).
+
+The new quality_interface jar provides a very thin and stable interface that simply forwards execution to the SparkSessionExtension on the driver and acts as an example of what other language support should provide.
+
+In this pattern the 'client' application only needs to depend on the quality_interface jar, allowing the exact Quality implementation 'server' to be upgraded.  Under Spark 4:
+
+- spark.sql.artifact.isolation.enabled and 
+- spark.sql.artifact.isolation.alwaysApplyClassloader 
+ 
+allow multiple client applications to exist and safely share the server. Databricks provides this via shared clusters and [Lakeguard](https://docs.databricks.com/aws/en/compute/lakeguard) provides the same isolation.
 
 ## Building The Library
 
