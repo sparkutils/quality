@@ -199,22 +199,22 @@ package object simpleVersioning {
     )
 
   protected[quality] def lambdaOutputSQL(tableName: String, extra: String ="") =
-      s"""
-       select $extra ruleExpr, functionId, functionVersion,
-        versions.ruleSuiteId, versions.ruleSuiteVersion -- force the versions to be bumped to latest ruleSuiteVersions
-        from
-         (select distinct ruleSuiteId, ruleSuiteVersion from $tableName) versions join
-         $tableName l0 on l0.ruleSuiteId = versions.ruleSuiteId and l0.ruleSuiteVersion <= versions.ruleSuiteVersion
-         where
-          not exists (
-            select 0 from $tableName l1
-            where l1.ruleSuiteId = l0.ruleSuiteId and
-             l1.functionId = l0.functionId and
-             l1.ruleSuiteVersion <= versions.ruleSuiteVersion
-             and l1.functionVersion > l0.functionVersion
-          )
-          and l0.ruleExpr != "DELETED"
-       """
+    s"""
+     select $extra ruleExpr, functionId, functionVersion,
+      versions.ruleSuiteId, versions.ruleSuiteVersion -- force the versions to be bumped to latest ruleSuiteVersions
+      from
+       (select distinct ruleSuiteId, ruleSuiteVersion from $tableName) versions join
+       $tableName l0 on l0.ruleSuiteId = versions.ruleSuiteId and l0.ruleSuiteVersion <= versions.ruleSuiteVersion
+       where
+        not exists (
+          select 0 from $tableName l1
+          where l1.ruleSuiteId = l0.ruleSuiteId and
+           l1.functionId = l0.functionId and
+           l1.ruleSuiteVersion <= versions.ruleSuiteVersion
+           and l1.functionVersion > l0.functionVersion
+        )
+        and l0.ruleExpr != "DELETED"
+     """
 
   /**
    * Reads the output expression table and builds output expression versions by adding together all changes below that rulesuiteVersion

@@ -81,10 +81,10 @@ trait AddDataFunctionsImports {
   def foldAndReplaceFields[P[R] >: DatasetBase[R]](rules: RuleSuite, fields: Seq[String], foldFieldName: String = "foldedFields",
       debugMode: Boolean = false, tempFoldDebugName: String = "tempFOLDDEBUG",
       maintainOrder: Boolean = true, compileEvals: Boolean = false, forceRunnerEval: Boolean = false,
-      forceTriggerEval: Boolean = false): P[SRow] => P[SRow] =
+      forceTriggerEval: Boolean = false, alias: String = "main"): P[SRow] => P[SRow] =
     ifoldAndReplaceFields(rules, Left(fields), foldFieldName,
       debugMode, tempFoldDebugName, maintainOrder, compileEvals = compileEvals,
-      forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval)
+      forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval, alias = alias)
 
   /**
    * Leverages the foldRunner to replace fields, the input fields pairs are used to create a structure that the rules fold over.
@@ -100,10 +100,10 @@ trait AddDataFunctionsImports {
   def foldAndReplaceFieldPairs[P[R] >: DatasetBase[R]](rules: RuleSuite, fields: Seq[(String, Column)], foldFieldName: String = "foldedFields",
                                                    debugMode: Boolean = false, tempFoldDebugName: String = "tempFOLDDEBUG",
                                                    maintainOrder: Boolean = true, compileEvals: Boolean = false, forceRunnerEval: Boolean = false,
-                                                   forceTriggerEval: Boolean = false): P[SRow] => P[SRow] =
+                                                   forceTriggerEval: Boolean = false, alias: String = "main"): P[SRow] => P[SRow] =
     ifoldAndReplaceFields(rules, Right(fields), foldFieldName,
       debugMode, tempFoldDebugName, maintainOrder, compileEvals = compileEvals,
-      forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval)
+      forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval, alias = alias)
 
   /**
    * Leverages the foldRunner to replace fields, the input fields are used to create a structure that the rules fold over.
@@ -122,10 +122,10 @@ trait AddDataFunctionsImports {
   def foldAndReplaceFieldsWithStruct[P[R] >: DatasetBase[R]](rules: RuleSuite, struct: StructType, foldFieldName: String = "foldedFields",
       debugMode: Boolean = false, tempFoldDebugName: String = "tempFOLDDEBUG",
       maintainOrder: Boolean = true, compileEvals: Boolean = false,
-      forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false): P[SRow] => P[SRow] =
+      forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false, alias: String = "main"): P[SRow] => P[SRow] =
     AddDataFunctions.ifoldAndReplaceFields(rules, Left(struct.fields.map(_.name)), foldFieldName,
       debugMode, tempFoldDebugName, maintainOrder, useType = Some(struct), compileEvals = compileEvals,
-      forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval)
+      forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval, alias = alias)
 
   /**
    * Leverages the foldRunner to replace fields, the input field pairs are used to create a structure that the rules fold over,
@@ -145,10 +145,10 @@ trait AddDataFunctionsImports {
   def foldAndReplaceFieldPairsWithStruct[P[R] >: DatasetBase[R]](rules: RuleSuite, fields: Seq[(String, Column)], struct: StructType, foldFieldName: String = "foldedFields",
                                                              debugMode: Boolean = false, tempFoldDebugName: String = "tempFOLDDEBUG",
                                                              maintainOrder: Boolean = true, compileEvals: Boolean = false,
-                                                             forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false): P[SRow] => P[SRow] =
+                                                             forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false, alias: String = "main"): P[SRow] => P[SRow] =
     AddDataFunctions.ifoldAndReplaceFields(rules, Right(fields), foldFieldName,
       debugMode, tempFoldDebugName, maintainOrder, useType = Some(struct), compileEvals = compileEvals,
-      forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval)
+      forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval, alias = alias)
 
   /**
    * Leverages the ruleRunner to produce an new output structure, the outputType defines the output structure generated.

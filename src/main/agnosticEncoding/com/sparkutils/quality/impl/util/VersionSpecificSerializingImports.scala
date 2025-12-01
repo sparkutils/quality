@@ -38,6 +38,8 @@ object VersionSpecificSerializingImports {
 
 trait VersionSpecificSerializingImports {
   // todo simpleVersioning needs to be done as well
+  // todo the ClassicOnly / ConnectFriendly annotations?  Does it make sense if there is a split connect jar?  The same
+  // would work in classic though
 
   /**
    *
@@ -342,7 +344,7 @@ trait VersionSpecificSerializingImports {
   }
 
   /**
-   * Registers a ruleSuite directly as an Spark Variable (with object stream encoding).
+   * Registers a ruleSuite directly as a Spark Variable (with object stream encoding).
    * Where possible using the CombinedRuleSuiteRows should be preferred and manage the ruleSuites on the server.
    * @param ruleSuite
    * @param stableName

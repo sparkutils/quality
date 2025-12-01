@@ -102,15 +102,11 @@ The full list of supported runtimes is below:
 
 | Spark Version | sparkShortVersion | qualityRuntime | scalaCompatVersion |
 |---------------|-------------------|----------------|--------------------|
-| 2.4.6         | 2.4               |                | 2.11               | 
 | 3.0.3         | 3.0               |                | 2.12               | 
 | 3.1.3         | 3.1               |                | 2.12               | 
-| 3.1.3         | 3.1               | 9.1.dbr_       | 2.12               | 
 | 3.2.0         | 3.2               |                | 2.12               | 
 | 3.2.1         | 3.2               | 3.2.1.oss_     | 2.12               | 
-| 3.2.1         | 3.2               | 10.4.dbr_      | 2.12               | 
 | 3.3.2         | 3.3               | 3.3.2.oss_     | 2.12               | 
-| 3.3.2         | 3.3               | 11.3.dbr_      | 2.12               |
 | 3.3.2         | 3.3               | 12.2.dbr_      | 2.12               |
 | 3.3.2         | 3.3               | 13.1.dbr_      | 2.12               |
 | 3.4.1         | 3.4               | 3.4.1.oss_     | 2.12               |
@@ -125,8 +121,6 @@ The full list of supported runtimes is below:
 | 4.0.0         | 4.0               | 17.3.dbr_      | 2.13               |
 
 Fabric 1.3 uses the 3.5.0.oss_ runtime, other Fabric runtimes may run on their equivalent OSS version.
-
-2.4, 9.1.dbr, 10.4.dbr and 11.3.dbr support is deprecated and will be removed in 0.1.4 version.  3.1.2 support is replaced by 3.1.3 due to interpreted encoder issues. 
 
 !!! note "Databricks 13.x support"
     13.0 also works on the 12.2.dbr_ build as of 10th May 2023, despite the Spark version difference.
@@ -186,10 +180,9 @@ The known combinations requiring this approach is below:
 
 | Spark Version | sparkShortVersion | qualityTestPrefix | qualityDatabricksPrefix | scalaCompatVersion |
 |---------------|-------------------|-------------------|-------------------------|--------------------|
-| 3.2.1         | 3.2               | 3.2.1.oss_        | 10.4.dbr_               | 2.12               | 
-| 3.3.0         | 3.3               | 3.3.0.oss_        | 11.3.dbr_               | 2.12               | 
 | 3.3.2         | 3.3               | 3.3.2.oss_        | 12.2.dbr_               | 2.12               | 
 | 3.4.1         | 3.4               | 3.4.1.oss_        | 13.1.dbr_               | 2.12               | 
+| 3.4.1         | 3.4               | 3.4.1.oss_        | 13.3.dbr_               | 2.12               | 
 | 3.5.0         | 3.5               | 3.5.0.oss_        | 14.0.dbr_               | 2.12               | 
 | 3.5.0         | 3.5               | 3.5.0.oss_        | 14.3.dbr_               | 2.12               | 
 | 3.5.0         | 3.5               | 3.5.0.oss_        | 15.4.dbr_               | 2.12               |
@@ -206,9 +199,6 @@ spark.sql.extensions=com.sparkutils.quality.impl.extension.QualitySparkExtension
 
 when starting your cluster, with the appropriate compatible Quality runtime jars - the test Shade jar can also be used -, will automatically register the additional SQL functions from Quality.
 
-!!! note "Spark 2.4 runtimes are not supported"
-    2.4 is not supported as Spark doesn't provide for SQL extensions in this version.
-      
 !!! note "Pure SQL only"    
     Lambdas, blooms and map's cannot be constructed via pure sql, so the functionality of these on Thrift/Hive servers is limited. 
 
