@@ -1,7 +1,7 @@
 package com.sparkutils.qualityTests.bloom
 
 import com.sparkutils.quality._
-import functions._
+import classicFunctions._
 import com.sparkutils.qualityTests._
 import com.sparkutils.qualityTests.util.ClassicSharedTests
 import com.sparkutils.testing.TestUtils.{anyCauseHas, debug}

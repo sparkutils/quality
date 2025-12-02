@@ -1,17 +1,7 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality.QualityException.qualityException
-import com.sparkutils.quality.impl.RuleRegistrationFunctions.getBinary
-import com.sparkutils.quality.impl.RuleSuiteHelpers.deserialize
-import com.sparkutils.quality.impl.util.CombinedRuleSuiteRows
-import com.sparkutils.quality.{GeneralExpressionsResult, RuleEngineResult, RuleFolderResult, RuleSuite, RuleSuiteResult, rule_suite}
-import frameless.TypedEncoder
-import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.encoders.{AgnosticEncoder, ExpressionEncoder}
-import org.apache.spark.sql.catalyst.expressions.{Expression, Literal, VariableReference}
-import org.apache.spark.sql.functions.{lit, named_struct, struct}
-import org.apache.spark.sql.{Column, Encoder, Row, ShimUtils, SparkSession}
-import org.apache.spark.sql.types.{BinaryType, DataType, StructType}
+import com.sparkutils.quality.{GeneralExpressionResult, GeneralExpressionsResult, GeneralExpressionsResultNoDDL, RuleEngineResult, RuleFolderResult, RuleSuite, RuleSuiteResult, RuleSuiteResultDetails, rule_suite}
+import org.apache.spark.sql.{Encoder, SparkSession}
 import shapeless.{HList, LabelledGeneric, Lazy}
 import shapeless.ops.hlist.IsHCons
 
@@ -22,25 +12,25 @@ trait EncodersImplicits extends Serializable {
   import IntEncoders._
   import IdEncoders._
 
-  implicit val ruleSuiteResultTypedEnc = TypedEncoder[RuleSuiteResult]
+  implicit val ruleSuiteResultTypedEnc: TypedEncoder[RuleSuiteResult] = TypedEncoder[RuleSuiteResult]
 
-  implicit val ruleSuiteResultExpEnc = TypedExpressionEncoder[RuleSuiteResult]
+  implicit val ruleSuiteResultExpEnc: Encoder[RuleSuiteResult] = TypedExpressionEncoder[RuleSuiteResult]
 
-  implicit val ruleSuiteResultDetailsTypedEnc = TypedEncoder[com.sparkutils.quality.RuleSuiteResultDetails]
+  implicit val ruleSuiteResultDetailsTypedEnc: TypedEncoder[RuleSuiteResultDetails] = TypedEncoder[com.sparkutils.quality.RuleSuiteResultDetails]
 
-  implicit val ruleSuiteResultDetailsExpEnc = TypedExpressionEncoder[com.sparkutils.quality.RuleSuiteResultDetails]
+  implicit val ruleSuiteResultDetailsExpEnc: Encoder[RuleSuiteResultDetails] = TypedExpressionEncoder[com.sparkutils.quality.RuleSuiteResultDetails]
 
-  implicit def generalExpressionsResultTypedEnc[R: TypedEncoder] = TypedEncoder[com.sparkutils.quality.GeneralExpressionsResult[R]]
+  implicit def generalExpressionsResultTypedEnc[R: TypedEncoder]: TypedEncoder[GeneralExpressionsResult[R]] = TypedEncoder[com.sparkutils.quality.GeneralExpressionsResult[R]]
 
-  implicit def generalExpressionsResultExpEnc[R](implicit ev: TypedEncoder[GeneralExpressionsResult[R]]) = TypedExpressionEncoder[com.sparkutils.quality.GeneralExpressionsResult[R]]
+  implicit def generalExpressionsResultExpEnc[R](implicit ev: TypedEncoder[GeneralExpressionsResult[R]]): Encoder[GeneralExpressionsResult[R]] = TypedExpressionEncoder[com.sparkutils.quality.GeneralExpressionsResult[R]]
 
-  implicit val generalExpressionResultTypedEnc = TypedEncoder[com.sparkutils.quality.GeneralExpressionResult]
+  implicit val generalExpressionResultTypedEnc: TypedEncoder[GeneralExpressionResult] = TypedEncoder[com.sparkutils.quality.GeneralExpressionResult]
 
-  implicit val generalExpressionResultExpEnc = TypedExpressionEncoder[com.sparkutils.quality.GeneralExpressionResult]
+  implicit val generalExpressionResultExpEnc: Encoder[GeneralExpressionResult] = TypedExpressionEncoder[com.sparkutils.quality.GeneralExpressionResult]
 
-  implicit val generalExpressionsResultNoDDLTypedEnc = TypedEncoder[com.sparkutils.quality.GeneralExpressionsResultNoDDL]
+  implicit val generalExpressionsResultNoDDLTypedEnc: TypedEncoder[GeneralExpressionsResultNoDDL] = TypedEncoder[com.sparkutils.quality.GeneralExpressionsResultNoDDL]
 
-  implicit val generalExpressionsResultNoDDLExpEnc = TypedExpressionEncoder[com.sparkutils.quality.GeneralExpressionsResultNoDDL]
+  implicit val generalExpressionsResultNoDDLExpEnc: Encoder[GeneralExpressionsResultNoDDL] = TypedExpressionEncoder[com.sparkutils.quality.GeneralExpressionsResultNoDDL]
 
   implicit def ruleEngineResultTypedEnc[T: TypedEncoder, G <: HList, H <: HList](implicit
                                                                                  i0: LabelledGeneric.Aux[RuleEngineResult[T], G],

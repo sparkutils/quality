@@ -1,11 +1,13 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality.RuleSuite
+import com.sparkutils.quality
+import com.sparkutils.quality.RunOnPassProcessor.RunOnPassProcessorImpl
+import com.sparkutils.quality.impl.imports.RuleResultsImports.{DisabledRuleInt, FailedInt, PassedInt}
+import com.sparkutils.quality.{DisabledRule, Failed, Id, OutputExpression, Passed, Probability, RuleResult, RuleResultWithProcessor, RuleSuite, RunOnPassProcessor, SoftFailed, SoftFailedInt}
 import com.sparkutils.quality.impl.util.Serializing.toSeq
 import org.apache.spark.sql.SparkSession
 
 import java.io.{ByteArrayInputStream, ByteArrayOutputStream, ObjectInputStream, ObjectOutputStream, ObjectStreamClass}
-
 
 object RuleSuiteHelpers {
   def getSparkClassLoader: ClassLoader = classOf[SparkSession].getClassLoader
@@ -32,4 +34,27 @@ object RuleSuiteHelpers {
     os.close()
     res
   }
+
+  def ruleResultToInt(ruleResult: RuleResult): Int =
+    ruleResult match {
+      case Failed => FailedInt
+      case SoftFailed => SoftFailedInt
+      case DisabledRule => DisabledRuleInt
+      case Passed => PassedInt
+      case Probability(percentage) => (percentage * PassedInt).toInt
+      case RuleResultWithProcessor(res, _) => ruleResultToInt(res)
+    }
+
+}
+
+case class HolderUsedInsteadIfImpl(id: Id) extends
+  RuntimeException(s"An OutputExpression $id has either not been correctly linked in your rules or you have not called withExpr.")
+
+@SerialVersionUID(1L)
+case class RunOnPassProcessorHolder(salience: Int, id: Id) extends RunOnPassProcessor with Serializable {
+
+  lazy val rule: String = throw HolderUsedInsteadIfImpl(id)
+
+  override def withExpr(expr: quality.OutputExpression): RunOnPassProcessor =
+    RunOnPassProcessorImpl(salience, id, expr.rule)
 }

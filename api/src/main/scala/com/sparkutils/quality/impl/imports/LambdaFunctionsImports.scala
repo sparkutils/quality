@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl.imports
 
-import com.sparkutils.quality.{Id, LambdaFunction}
 import com.sparkutils.quality.impl.QualitySparkUtils
+import com.sparkutils.quality.{Id, LambdaFunction}
 
 trait LambdaFunctionsImports {
   /**

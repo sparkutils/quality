@@ -85,13 +85,6 @@ object Encoders extends EncodersImplicits {
 
 }
 
-object NamedStruct {
-  def apply(pairs: Seq[(String, Column)]): Column =
-    ShimUtils.column(
-      CreateNamedStruct1(pairs.flatMap(p => Seq(lit(p._1), p._2)).map(ShimUtils.expression))
-    )
-}
-
 /**
  * Ignores extra output expressions
  */

@@ -1,7 +1,7 @@
 package com.sparkutils.qualityTests.id
 
 import com.sparkutils.quality._
-import functions._
+import classicFunctions._
 import com.sparkutils.quality.impl.id._
 import com.sparkutils.quality.impl.id.model.{ProvidedID, RandomID}
 import com.sparkutils.quality.impl.rng.RandomLongs

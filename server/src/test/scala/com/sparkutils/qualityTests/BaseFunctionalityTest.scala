@@ -4,7 +4,7 @@ import com.sparkutils.manual.RowId
 import com.sparkutils.quality
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.YamlDecoder
-import functions._
+import classicFunctions._
 import types._
 import impl.imports.RuleResultsImports.packId
 import com.sparkutils.quality.impl.util.{Arrays, PrintCode}

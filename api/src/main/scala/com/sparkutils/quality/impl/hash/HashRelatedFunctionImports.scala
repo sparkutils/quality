@@ -51,7 +51,7 @@ trait HashRelatedFunctionImports {
    * @param children
    * @return
    */
-  @deprecated(since = "0.1.0", message = "migrate to field_based_id")
+  @deprecated(message = "migrate to field_based_id", since = "0.1.0")
   def fieldBasedID(prefix: String, digestImpl: String, children: Column *): Column =
     field_based_id(prefix, digestImpl, children:_*)
 

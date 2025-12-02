@@ -1,9 +1,10 @@
 package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality.impl.util.RuleModel.RuleSuiteMap
-import com.sparkutils.quality.impl.{LambdaFunction, NoOpRunOnPassProcessor, RuleRunnerUtils, RunOnPassProcessor, RunOnPassProcessorHolder, VersionedId}
-import com.sparkutils.quality.impl.imports.RuleResultsImports.packId
+import com.sparkutils.quality.{LambdaFunction, NoOpRunOnPassProcessor, RunOnPassProcessor, VersionedId}
+import com.sparkutils.quality.impl.PackId.packId
 import com.sparkutils.quality._
+import com.sparkutils.quality.impl.{RuleSuiteHelpers, RunOnPassProcessorHolder}
 import org.apache.spark.sql._
 import org.apache.spark.sql.functions.expr
 
@@ -15,7 +16,7 @@ import cats.implicits._
 
 object Serializing {
 
-  def ruleResultToInt(ruleResult: RuleResult): Int = RuleRunnerUtils.ruleResultToInt(ruleResult)
+  def ruleResultToInt(ruleResult: RuleResult): Int = RuleSuiteHelpers.ruleResultToInt(ruleResult)
 
   def flatten(ruleSuiteResult: RuleSuiteResult): Iterable[RuleResultRow] =
     ruleSuiteResult.ruleSetResults.flatMap{
@@ -437,7 +438,7 @@ object Serializing {
       ruleSuite.ruleSets.flatMap { ruleSet =>
         ruleSet.rules.map(rule =>
           (ruleSuite.id, ruleSet.id, rule.id, rule.expression match {
-            case ExpressionRule(expr) => expr
+            case e: ExpressionRule => e.rule
             case _ => "1=1"
           }, rule.runOnPassProcessor.salience,
             rule.runOnPassProcessor.id.id,

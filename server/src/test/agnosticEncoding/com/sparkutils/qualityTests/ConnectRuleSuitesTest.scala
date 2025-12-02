@@ -2,7 +2,7 @@ package com.sparkutils.qualityTests
 
 import com.sparkutils.qualityTests.util.SharedConnectTests
 import com.sparkutils.quality._
-import com.sparkutils.quality.functions.flatten_results
+import classicFunctions.flatten_results
 import com.sparkutils.quality.impl.{NoOpRunOnPassProcessor, RuleError, RuleSuiteHelpers, RunOnPassProcessorImpl}
 import com.sparkutils.quality.impl.RuleLogicUtils.mapRules
 import com.sparkutils.quality.impl.VariableProcessIfMissing.process_if_attribute_missing_name

@@ -1,7 +1,7 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
-import com.sparkutils.quality.functions._
+import classicFunctions._
 import com.sparkutils.quality.impl.YamlDecoder
 import com.sparkutils.qualityTests.util.{RowTools, SharedConnectTests}
 import org.apache.spark.SparkException

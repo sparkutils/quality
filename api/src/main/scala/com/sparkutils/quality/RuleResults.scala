@@ -4,7 +4,7 @@ import com.sparkutils.quality.impl.util.Optional
 
 import scala.collection.JavaConverters._
 
-sealed trait RuleResult extends Serializable
+trait RuleResult extends Serializable
 
 case object Failed extends RuleResult
 case object Passed extends RuleResult
@@ -26,12 +26,9 @@ case object DisabledRule extends RuleResult
 case class Probability(percentage: Double) extends RuleResult
 
 /**
-  * Probability is evaluated at over probablePass percent, defaults to 80% 0.8.
-  * Passed until any failure occurs
-  */
-case class OverallResult(probablePass: Double = 0.8, currentResult: RuleResult = Passed) {
-  def process(ruleResult: RuleResult): OverallResult = copy(currentResult = impl.OverallResultHelper.inplace(ruleResult, currentResult, probablePass))
-}
+ * Packs a rule result with a RunOnPassProcessor processor
+ */
+case class RuleResultWithProcessor(ruleResult: RuleResult, runOnPassProcessor: RunOnPassProcessor) extends RuleResult
 
 /**
   * Result collection for a number of rules

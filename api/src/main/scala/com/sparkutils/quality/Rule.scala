@@ -1,5 +1,6 @@
 package com.sparkutils.quality
 
+import com.sparkutils.quality.RunOnPassProcessor.RunOnPassProcessorImpl
 import com.sparkutils.quality.impl.util.Serializing
 
 /**
@@ -14,7 +15,20 @@ trait HasRuleText extends Serializable {
   val rule: String
 }
 
-case class LambdaFunction(name: String, id: Id, rule: String) extends HasRuleText {
+/**
+ * A user defined SQL function
+ */
+trait LambdaFunction extends HasRuleText {
+  val name: String
+  val id: Id
+}
+
+object LambdaFunction {
+  @SerialVersionUID(1L)
+  protected[quality] case class LambdaFunctionImpl(name: String, rule: String, id: Id) extends LambdaFunction
+
+  def apply(name: String, rule: String, id: Id): LambdaFunction =
+    LambdaFunctionImpl(name, rule, id)
 }
 
 /**
@@ -26,25 +40,59 @@ case class LambdaFunction(name: String, id: Id, rule: String) extends HasRuleTex
 case class Id(id: Int, version: Int) extends VersionedId
 
 /**
- * The result of serializing or loading rules
- * @param rule
+ * A trigger rule
  */
-@SerialVersionUID(1L)
-case class ExpressionRule( rule: String ) extends HasRuleText
+trait ExpressionRule extends HasRuleText
+
+object ExpressionRule {
+  @SerialVersionUID(1L)
+  case class ExpressionRuleImpl( rule: String ) extends ExpressionRule
+
+  def apply(rule: String): ExpressionRule = ExpressionRuleImpl(rule)
+}
 
 /**
  * Used as a result of serializing
- * @param rule
  */
-@SerialVersionUID(1L)
-case class OutputExpression( rule: String ) extends HasRuleText
+trait OutputExpression extends HasRuleText
 
-@SerialVersionUID(1L)
-case class RunOnPassProcessor(salience: Int, id: Id, rule: String) extends HasRuleText with Serializable
+object OutputExpression {
+  @SerialVersionUID(1L)
+  case class OutputExpressionImpl( rule: String ) extends OutputExpression
+
+  def apply(rule: String): OutputExpression = OutputExpressionImpl(rule)
+}
+
+/**
+ * Configuration of what should be evaluated when a trigger passes and salience matches
+ */
+trait RunOnPassProcessor extends HasRuleText {
+  val salience: Int
+  val id: Id
+  def withExpr(e: OutputExpression): RunOnPassProcessor
+}
+
+object RunOnPassProcessor {
+  @SerialVersionUID(1L)
+  case class RunOnPassProcessorImpl(salience: Int, id: Id, rule: String) extends RunOnPassProcessor with Serializable {
+    override def withExpr(e: OutputExpression): RunOnPassProcessor = copy(rule = e.rule)
+  }
+
+  /**
+   * Creates a RunOnPassProcesser using a given OutputExpression
+   *
+   * @param salience
+   * @param id
+   * @param e
+   * @return
+   */
+  def apply(salience: Int, id: Id, e: OutputExpression) =
+    RunOnPassProcessorImpl(salience, id, e.rule)
+}
 
 object NoOpRunOnPassProcessor {
   val noOpId = Id(Serializing.notPresentOutputId, Serializing.notPresentOutputVersion)
-  val noOp = RunOnPassProcessor(Serializing.notPresentSalience, noOpId, "")
+  val noOp = RunOnPassProcessorImpl(Serializing.notPresentSalience, noOpId, "")
 }
 
 /**

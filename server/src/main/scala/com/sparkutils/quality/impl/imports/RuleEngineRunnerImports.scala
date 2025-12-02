@@ -6,7 +6,7 @@ import org.apache.spark.sql.functions.lit
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.{Column, DataFrame, ShimUtils}
 
-trait RuleEngineRunnerImports {
+trait ClassicRuleEngineRunnerImports {
 
   /**
    * Creates a column that runs the RuleSuite.  This also forces registering the lambda functions used by that RuleSuite

@@ -1,5 +1,6 @@
 package com.sparkutils.quality.impl
 
+import com.sparkutils.quality.LambdaFunction
 import com.sparkutils.quality.impl.extension.QualityFunctionParser.{CREATE_FUNCTION_PREFIX, DIVIDER, WITH_TOKEN}
 import org.apache.spark.sql.qualityFunctions.LambdaFunctions
 import org.apache.spark.sql.{SparkSession, classic}

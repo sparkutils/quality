@@ -1,7 +1,7 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
-import com.sparkutils.quality.functions._
+import classicFunctions._
 import com.sparkutils.quality.impl.{LambdaFunctionImpl, YamlDecoder}
 import com.sparkutils.quality.impl.extension.QualityFunctionParser.{CREATE_FUNCTION_PREFIX, WITH_TOKEN}
 import com.sparkutils.qualityTests.util.SharedConnectTests

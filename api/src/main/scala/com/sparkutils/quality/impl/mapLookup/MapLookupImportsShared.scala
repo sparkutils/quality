@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl.mapLookup
 
 import com.sparkutils.quality.impl.mapLookup.MapLookupFunctions.{MapCreator, MapLookups}
-import com.sparkutils.quality.{DataFrameLoader, Id}
+import com.sparkutils.quality.{DataFrameLoader, Id, MapLookups}
 import com.sparkutils.quality.impl.util.ConfigLoader
 import org.apache.spark.sql.functions.lit
 import org.apache.spark.sql.{Column, DataFrame}
@@ -14,9 +14,6 @@ trait MapLookupImportsShared {
   type MapLookups = MapLookupFunctions.MapLookups
 
   type MapCreator = MapLookupFunctions.MapCreator
-
-  def registerMapLookupsAndFunction(mapLookups: MapLookups) =
-    MapLookupFunctions.registerMapLookupsAndFunction(mapLookups)
 
   /**
    * Loads maps to broadcast, each individual dataframe may have different associated expressions

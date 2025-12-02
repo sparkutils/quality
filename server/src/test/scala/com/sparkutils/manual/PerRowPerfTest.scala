@@ -1,7 +1,7 @@
 package com.sparkutils.manual
 
 import com.sparkutils.quality._
-import com.sparkutils.quality.functions.rng_bytes
+import classicFunctions.rng_bytes
 import com.sparkutils.quality.impl.RuleLogicUtils.mapRules
 import com.sparkutils.quality.impl.rng.RandomBytes
 import com.sparkutils.quality.types._

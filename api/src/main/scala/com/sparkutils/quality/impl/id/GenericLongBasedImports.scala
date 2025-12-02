@@ -23,7 +23,7 @@ trait GenericLongBasedImports {
    * @param prefix
    * @return
    */
-  @deprecated(since = "0.1.0", message = "migrate to provided_id, providedID will be removed in 0.3.0")
+  @deprecated(message = "migrate to provided_id, providedID will be removed in 0.3.0", since = "0.1.0")
   def providedID(prefix: String, child: Column): Column =
     provided_id(prefix, child)
 

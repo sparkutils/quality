@@ -1,7 +1,7 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
-import com.sparkutils.quality.functions.{flatten_rule_results, unpack_id_triple}
+import classicFunctions.{flatten_rule_results, unpack_id_triple}
 import com.sparkutils.quality.impl.extension.FunNRewrite
 import com.sparkutils.quality.impl.{RuleEngineRunner, RunOnPassProcessor}
 import com.sparkutils.qualityTests.RuleEngineTest.{rulesRaw, testData}

@@ -1,7 +1,7 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality.{MapLookups, registerMapLookupsAndFunction => ogRegMaps}
-import com.sparkutils.quality.functions.{map_lookup => ogml, map_contains => ogmc}
+import com.sparkutils.quality.classicFunctions.{map_lookup => ogml, map_contains => ogmc}
 import org.apache.spark.sql.Column
 import org.apache.spark.sql.functions.lit
 

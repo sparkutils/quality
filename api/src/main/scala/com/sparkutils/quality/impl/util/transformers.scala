@@ -1,9 +1,18 @@
 package com.sparkutils.quality.impl.util
 
-import com.sparkutils.quality.impl.NamedStruct
 import com.sparkutils.quality.{RuleSuite, ruleFolderRunner}
-import org.apache.spark.sql.{Column, DataFrame, Dataset, Row => SRow}
+import org.apache.spark.sql.functions.lit
+import org.apache.spark.sql.{Column, DataFrame, Dataset, ShimUtils, Row => SRow}
 import org.apache.spark.sql.types.StructType
+
+import scala.language.higherKinds
+
+object NamedStruct {
+  def apply(pairs: Seq[(String, Column)]): Column =
+    ShimUtils.callFunction("named_struct",
+      pairs.flatMap(p => Seq(lit(p._1), p._2)) :_*
+    )
+}
 
 protected[quality] object AddDataFunctions {
 

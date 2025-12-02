@@ -1,8 +1,8 @@
 package com.sparkutils.qualityTests.mapLookup
 
 import com.sparkutils.quality._
-import functions.map_contains
-import com.sparkutils.qualityTests.{VariableTestShims, _}
+import classicFunctions.map_contains
+import com.sparkutils.qualityTests._
 import com.sparkutils.qualityTests.mapLookup.TradeTests.{ccyRate, countryCodeCCY, simpleTrades, tradeCols}
 import com.sparkutils.qualityTests.util.SharedConnectTests
 import org.apache.spark.sql.catalyst.expressions.GenericRowWithSchema

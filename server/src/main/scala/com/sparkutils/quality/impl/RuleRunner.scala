@@ -21,26 +21,6 @@ import org.apache.spark.sql.{Column, DataFrame, ClassicQualitySparkUtils, ShimUt
 
 import scala.reflect.ClassTag
 
-object PackId {
-
-  def packId(anyId: Any) = {
-    val r = anyId.asInstanceOf[Id]
-    ((r.id.toLong) << 32) | (r.version & 0xffffffffL)
-  }
-
-  def unpack(a: Any): Id =
-    if (a == null)
-      a.asInstanceOf[Id]
-    else
-      unpack(a.asInstanceOf[Long])
-
-  def unpack(a: Long) = {
-    val id = a >> 32
-    val version = a.toInt
-    Id(id.toInt, version) // lookup goes here
-  }
-}
-
 protected[quality] object RuleRunnerImpl {
 
   /**
@@ -100,20 +80,10 @@ protected[quality] object RuleRunnerImpl {
   def ruleRunnerImpl(ruleSuite: RuleSuite, compileEvals: Boolean = false,
                      variablesPerFunc: Int = 40, variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false): Column =
     ShimUtils.callFunction("dq_rule_runner", lit(RuleSuiteHelpers.serialize(ruleSuite)), lit(compileEvals), lit(variablesPerFunc), lit(variableFuncGroup), lit(forceRunnerEval))
-
+// TODO remove this?
 }
 
 private[quality] object RuleRunnerUtils extends RuleRunnerImports {
-
-  def ruleResultToInt(ruleResult: RuleResult): Int =
-    ruleResult match {
-      case Failed => FailedInt
-      case SoftFailed => SoftFailedInt
-      case DisabledRule => DisabledRuleInt
-      case Passed => PassedInt
-      case Probability(percentage) => (percentage * PassedInt).toInt
-      case RuleResultWithProcessor(res, _) => ruleResultToInt(res)
-    }
 
   def flattenExpressions(ruleSuite: RuleSuite): Seq[Expression] =
     ruleSuite.ruleSets.flatMap(ruleSet => ruleSet.rules.map(rule =>

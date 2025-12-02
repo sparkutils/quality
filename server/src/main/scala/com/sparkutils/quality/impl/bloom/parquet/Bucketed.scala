@@ -1,6 +1,6 @@
 package com.sparkutils.quality.impl.bloom.parquet
 
-import com.sparkutils.quality.functions.big_bloom
+import com.sparkutils.quality.classicFunctions.big_bloom
 import com.sparkutils.quality.impl.util.{BytePackingUtils, TSLocal, TransientHolder}
 
 import java.io._

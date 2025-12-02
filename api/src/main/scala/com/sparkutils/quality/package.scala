@@ -1,5 +1,6 @@
 package com.sparkutils
 
+import com.sparkutils.quality.impl.VariableProcessIfMissing
 import com.sparkutils.quality.impl.imports._
 import com.sparkutils.quality.impl.mapLookup.MapLookupImportsShared
 import com.sparkutils.quality.impl.util.{AddDataFunctionsImports, SerializingImports, VersionSpecificSerializingImports}
@@ -12,7 +13,7 @@ import org.apache.spark.sql.internal.SQLConf
 package object quality extends RuleRunnerImports with Serializable with MapLookupImportsShared with SerializingImports
   with AddDataFunctionsImports with LambdaFunctionsImports with RuleEngineRunnerImports
   with RuleFolderRunnerImports with ViewLoading with ExpressionRunnerImports
-  with VersionSpecificSerializingImports  {
+  with VersionSpecificSerializingImports with VariableProcessIfMissing {
   // NB it must inherit Serializable due to the nested types and sparks serialization
 
   /**

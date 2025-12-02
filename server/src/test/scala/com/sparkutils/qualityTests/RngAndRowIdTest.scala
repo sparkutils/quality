@@ -1,6 +1,6 @@
 package com.sparkutils.qualityTests
 
-import com.sparkutils.quality.functions.{long_pair, long_pair_from_uuid, rng_bytes, rng_uuid, unique_id}
+import com.sparkutils.quality.classicFunctions.{long_pair, long_pair_from_uuid, rng_bytes, rng_uuid, unique_id}
 import com.sparkutils.quality.impl.rng.RandomLongs
 import com.sparkutils.qualityTests.util.SharedConnectTests
 import org.apache.spark.sql.functions.{col, expr}

@@ -4,6 +4,7 @@ import com.sparkutils.quality.impl.util.VariablesLookup.Identifiers
 import com.sparkutils.quality.impl.util.RuleSuiteDocs.{IdTrEither, LambdaId, OutputExpressionId, RuleId}
 import com.sparkutils.quality.impl.util.{Docs, DocsParser, ExpressionLookup, RuleSuiteDocs, VariablesLookup, WithDocs}
 import com.sparkutils.quality._
+import com.sparkutils.quality.impl.views.ViewLoader.defaultViewLookup
 import com.sparkutils.shim.ShowParams
 import com.sparkutils.shim.expressions.Names.toName
 import org.apache.spark.sql.catalyst.analysis.UnresolvedRelation
@@ -131,9 +132,6 @@ object Validation {
   val unknownSOEId = Id(Int.MinValue,Int.MinValue)
   val dataFrameSyntaxErrorId = Id(Int.MinValue+1,Int.MinValue+1)
 
-  protected[quality] val defaultViewLookup: String => Boolean =
-    SparkSession.active.catalog.tableExists(_)
-
   protected[sparkutils] val emptyDocs = Docs()
 
   /**
@@ -151,7 +149,7 @@ object Validation {
    */
   def validate(schemaOrFrame: Either[StructType, DataFrame], ruleSuite: RuleSuite, showParams: ShowParams = ShowParams(),
                runnerFunction: Option[DataFrame => Column] = None, qualityName: String = "Quality",
-               recursiveLambdasSOEIsOk: Boolean = false, transformBeforeShow: DataFrame => DataFrame = identity, viewLookup: String => Boolean = Validation.defaultViewLookup):
+               recursiveLambdasSOEIsOk: Boolean = false, transformBeforeShow: DataFrame => DataFrame = identity, viewLookup: String => Boolean = defaultViewLookup):
                 (Set[RuleError], Set[RuleWarning], String, RuleSuiteDocs, Map[IdTrEither, ExpressionLookup]) = {
     val schema = schemaOrFrame.fold(identity, _.schema)
 

@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.QualityException.qualityException
-import com.sparkutils.quality.functions._
+import com.sparkutils.quality.classicFunctions._
 import com.sparkutils.quality.impl.ReWriteConstants.INC_REWRITE_GENEXP_ERR_MSG
 import com.sparkutils.quality.impl.RuleSuiteHelpers.deserialize
 import com.sparkutils.quality.impl.VariableProcessIfMissing.registerProcessIfAttributeMissingForAgnostic
@@ -10,7 +10,7 @@ import com.sparkutils.quality.impl.bloom.{BucketedArrayParquetAggregator, Parque
 import com.sparkutils.quality.impl.hash.{HashFunctionFactory, HashFunctionsExpression, MessageDigestFactory, ZALongHashFunctionFactory, ZALongTupleHashFunctionFactory}
 import com.sparkutils.quality.impl.id.{AsBase64Fields, AsBase64Struct, GenericLongBasedIDExpression, GuaranteedUniqueID, GuaranteedUniqueIdIDExpression, IDFromBase64, IDToRawIDDataType, SizeOfIDString, model}
 import com.sparkutils.quality.impl.longPair.{AsUUID, LongPairExpression, PrefixedToLongPair}
-import com.sparkutils.quality.impl.mapLookup.MapLookupFunctions.registerMapLookupsForAgnostic
+import com.sparkutils.quality.impl.mapLookup.MapLookupFunctionsImpl.registerMapLookupsForAgnostic
 import com.sparkutils.quality.impl.rng.{RandLongsWithJump, RandomBytes, RandomLongs}
 import com.sparkutils.quality.impl.util.{ComparableMapConverter, ComparableMapReverser, InputWrapper, PrintCode}
 import com.sparkutils.quality.impl.yaml.{YamlDecoderExpr, YamlEncoderExpr}
@@ -646,7 +646,7 @@ object RuleRegistrationFunctions {
 
     register("rule_folder_runner", {
       case Seq(OfRuleOutputSuite(rs), starter) =>
-        expression(ruleFolderRunnerClassic(rs, column(starter)))
+        expression(com.sparkutils.quality.classicFunctions.ruleFolderRunnerClassic(rs, column(starter)))
       case Seq(OfRuleOutputSuite(rs), starter, dt) =>
         expression(ruleFolderRunnerClassic(rs, column(starter),
           useType = defaultParseTypes(getString(dt, 2)).map(_.asInstanceOf[StructType])))

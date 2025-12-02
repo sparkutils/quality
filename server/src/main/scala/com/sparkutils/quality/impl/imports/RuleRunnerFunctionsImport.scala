@@ -9,7 +9,7 @@ import org.apache.spark.sql.qualityFunctions.utils
 import org.apache.spark.sql.types.DataType
 import org.apache.spark.sql.{ShimUtils, SparkSession}
 
-trait RuleRunnerFunctionsImport {
+trait ClassicRuleRunnerFunctionsImport {
 
   import RuleRegistrationFunctions._
 

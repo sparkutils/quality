@@ -3,14 +3,15 @@ package com.sparkutils.quality.impl
 import com.sparkutils.quality
 import com.sparkutils.quality.impl.ExpressionCompiler.withExpressionCompiler
 import com.sparkutils.quality.impl.util.{Serializing, SubQueryWrapper}
-import com.sparkutils.quality._
+import com.sparkutils.quality.{HasRuleText, _}
 import com.sparkutils.quality.impl.util.Serializing.toSeq
-
-import org.apache.spark.sql.ShimUtils.newParser
+import com.sparkutils.shim.expressions.Names.toName
+import org.apache.spark.internal.Logging
+import org.apache.spark.sql.ShimUtils.{arguments, newParser}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedFunction}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext}
-import org.apache.spark.sql.catalyst.expressions.{Expression, ScalarSubquery, SubqueryExpression, UnresolvedNamedLambdaVariable, LambdaFunction => SparkLambdaFunction}
+import org.apache.spark.sql.catalyst.expressions.{EqualTo, Expression, Literal, ScalarSubquery, SubqueryExpression, UnresolvedNamedLambdaVariable, LambdaFunction => SparkLambdaFunction}
 import org.apache.spark.sql.qualityFunctions.{FunN, RefExpressionLazyType}
 import org.apache.spark.sql.types.{DataType, Decimal}
 import org.apache.spark.sql.SparkSession
@@ -20,11 +21,51 @@ import java.io.{ByteArrayInputStream, ByteArrayOutputStream, ObjectInputStream, 
 import scala.collection.mutable
 
 /**
-  * base for storage of rule or ruleset ids, must be a trait to force frameless to use lookup and stop any
-  * accidental auto product treatment
-  */
-trait VersionedId extends Serializable {
-  val id, version: Int
+ * The result of serializing or loading rules
+ * @param rule
+ */
+case class ExpressionRule( rule: String ) extends quality.ExpressionRule with ExprLogic with HasRuleText {
+  override def reset(): Unit = super[HasRuleText].reset()
+}
+
+/**
+ * Used as a result of serializing
+ * @param rule
+ */
+case class OutputExpression( rule: String ) extends quality.OutputExpression with OutputExprLogic with HasRuleText with Logging {
+  protected[quality] override def expression() = {
+    val parsed = RuleLogicUtils.expr(rule)
+    // output expressions can be:
+    // 1. simple expressions for ruleEngine
+    // 2. single argument lambda's returning the same type as the arg for folder
+    // 3. as of 0.0.2 #8 set( attribute = valueExpression, attribute = valueExpression) converted to the form of 2 with an updateField call
+    parsed match {
+      case uf: UnresolvedFunction if toName(uf) == "set" =>
+        // case 3
+        val args = arguments(uf)
+        val paired =
+          args.flatMap {
+            case EqualTo(name: UnresolvedAttribute, right) =>
+              // updateField takes paired args of field names to expression
+              Some(Seq(Literal(name.name), right))
+            case a =>
+              logInfo(s"Attempt to convert set OutputExpression argument $a failed as types do not match expected EqualTo(attribute, expression), will default to full expression")
+              None
+          }
+
+        if (paired.size != args.size)
+          // one of the args didn't match type
+          parsed
+        else
+          // need to keep first arg
+          UpdateFolderExpression.withArgsAndSubstitutedLambdaVariable(paired.flatten)
+      case _ =>
+        // for everything else (1+2) it's already good enough
+        parsed
+    }
+  }
+
+  override def reset(): Unit = super[HasRuleText].reset()
 }
 
 // requires a unique name, otherwise janino can't find the function
@@ -52,8 +93,19 @@ object RuleLogicUtils {
    * @return
    */
   def cleanExprs(ruleSuite: RuleSuite) = {
-    ruleSuite.lambdaFunctions.foreach(_.reset())
-    mapRules(ruleSuite){f => f.expression.reset(); f.runOnPassProcessor.returnIfPassed.reset(); f}
+    ruleSuite.lambdaFunctions.foreach{
+      case h: RuleLogic => h.reset()
+    }
+    mapRules(ruleSuite){
+      f =>
+        f.expression match {
+          case h: RuleLogic => h.reset();
+        }
+        f.runOnPassProcessor match {
+          case r: RunOnPassProcessor => r.returnIfPassed.reset()
+        }
+        f
+    }
   }
 
   /**
@@ -209,8 +261,7 @@ trait ExprLogic extends RuleLogic with HasExpr {
     expr.eval(internalRow)
 }
 
-trait HasRuleText extends HasExpr {
-  val rule: String
+trait HasRuleText extends HasExpr with quality.HasRuleText {
 
   // doesn't need to be serialized, done by RuleRunners
   @volatile
@@ -324,6 +375,8 @@ trait OutputExprLogic extends HasExpr {
   def reset(): Unit = {}
 }
 
+// TODO convert api into ExprLogics !!!!
+
 object UpdateFolderExpression {
   val currentResult = "currentResult"
 
@@ -365,7 +418,7 @@ case class OutputExpressionWrapper( expr: Expression, compileEval: Boolean = tru
       super.eval(internalRow)
 }
 
-trait RunOnPassProcessor extends Serializable {
+trait RunOnPassProcessor extends quality.RunOnPassProcessor with Serializable {
   def salience: Int
   def id: Id
   def rule: String
@@ -385,10 +438,9 @@ case class RunOnPassProcessorImpl(salience: Int, id: Id, rule: String, returnIfP
 
   def withExpr(expr: OutputExprLogic): RunOnPassProcessor =
     copy(returnIfPassed = expr)
-}
 
-case class HolderUsedInsteadIfImpl(id: Id) extends
-  RuntimeException(s"An OutputExpression $id has either not been correctly linked in your rules or you have not called withExpr.")
+  override def withExpr(e: quality.OutputExpression): quality.RunOnPassProcessor = copy(returnIfPassed = OutputExpression(e.rule)))
+}
 
 /**
  * Until output expressions are re-integrated this will throw unimplemented
@@ -398,12 +450,15 @@ case class HolderUsedInsteadIfImpl(id: Id) extends
 @SerialVersionUID(1L)
 case class RunOnPassProcessorHolder(salience: Int, id: Id) extends RunOnPassProcessor with Serializable {
   def returnIfPassed: OutputExprLogic = throw HolderUsedInsteadIfImpl(id)
-  def rule: String = throw HolderUsedInsteadIfImpl(id)
-  override def withExpr(expr: OutputExpression): RunOnPassProcessor =
-    RunOnPassProcessorImpl(salience, id, expr.rule, expr)
+  lazy val rule: String = throw HolderUsedInsteadIfImpl(id)
+  override def withExpr(expr: quality.OutputExpression): RunOnPassProcessor =
+    RunOnPassProcessorImpl(salience, id, expr.rule, OutputExpression(expr.rule))
 
   // should not be called
   def withExpr(expr: OutputExprLogic): RunOnPassProcessor = throw HolderUsedInsteadIfImpl(id)
+
+  override def withExpr(expr: OutputExpression): RunOnPassProcessor =
+    RunOnPassProcessorImpl(salience, id, expr.rule, expr)
 }
 
 object NoOpRunOnPassProcessor {
@@ -418,7 +473,9 @@ object RuleSuiteFunctions {
     val rawRuleSets =
       ruleSets.map { rs =>
         val ruleSetRawRes = rs.rules.map { r =>
-          val ruleResult = r.expression.eval(internalRow)
+          val ruleResult = r.expression match {
+            case r: ExpressionRule => r.eval(internalRow)
+          }
           r.id -> ruleResult
         }
         val overall = ruleSetRawRes.foldLeft(quality.OverallResult(probablePass)){
@@ -454,9 +511,13 @@ object RuleSuiteFunctions {
     val rawRuleSets =
       ruleSets.map { rs =>
         val ruleSetRawRes = rs.rules.map { r =>
-          val ruleResult = r.expression.eval(internalRow)
+          val ruleResult = r.expression match {
+            case r: ExpressionRule => r.eval(internalRow)
+          }
 
-          val onPass = ((id, rs.id, r.id), r.runOnPassProcessor.salience, r.runOnPassProcessor.returnIfPassed)
+          val onPass = ((id, rs.id, r.id), r.runOnPassProcessor.salience, r.runOnPassProcessor match {
+            case r: RunOnPassProcessor => r.returnIfPassed
+          })
           // only add passed
           if (ruleResult == Passed){
             if (debugMode)
@@ -525,9 +586,13 @@ object RuleSuiteFunctions {
     val rawRuleSets =
       ruleSets.map { rs =>
         val ruleSetRawRes = rs.rules.map { r =>
-          val ruleResult = r.expression.eval(inputRow)
+          val ruleResult = r.expression match {
+            case r: ExpressionRule => r.eval(inputRow)
+          }
 
-          val onPass = ((id, rs.id, r.id), r.runOnPassProcessor.salience, r.runOnPassProcessor.returnIfPassed)
+          val onPass = ((id, rs.id, r.id), r.runOnPassProcessor.salience, r.runOnPassProcessor match {
+            case r: RunOnPassProcessor => r.returnIfPassed
+          })
           // only add passed
           if (ruleResult == Passed){
             runOnPassProcessors += (onPass)
@@ -592,7 +657,9 @@ object RuleSuiteFunctions {
     val rawRuleSets =
       ruleSets.map { rs =>
         val ruleSetRawRes: Seq[(VersionedId, Any)] = rs.rules.map { r =>
-          val ruleResult = r.expression.internalEval(internalRow)
+          val ruleResult = r.expression match {
+            case e: ExprLogic => e.internalEval(internalRow)
+          }
           r.id -> (
             if (dataType == quality.types.expressionResultTypeYaml) {
               // it's a cast to string

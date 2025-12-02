@@ -1,7 +1,7 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
-import com.sparkutils.quality.functions.flatten_folder_results
+import classicFunctions.flatten_folder_results
 import com.sparkutils.quality.impl.RunOnPassProcessor
 import com.sparkutils.qualityTests.util.SharedConnectTests
 import frameless.TypedExpressionEncoder
