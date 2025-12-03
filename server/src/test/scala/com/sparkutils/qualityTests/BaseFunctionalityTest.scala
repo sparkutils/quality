@@ -24,7 +24,7 @@ import scala.language.postfixOps
 
 class BaseFunctionalityTest extends SharedConnectTests with RowTools {
 
-  ignore("flattenResultsTest") { evalCodeGensNoResolve {
+  test("flattenResultsTest") { evalCodeGensNoResolve {
     val rules = genRules(27, 27)
     val rulecount = rules.ruleSets.map( s => s.rules.size).sum
 
@@ -44,7 +44,7 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
   } }
 
   // TODO coalesce etc.
-  ignore("flattenResultsWithMissingTest") { classicOnly { evalCodeGensNoResolve {
+  test("flattenResultsWithMissingTest") { classicOnly { evalCodeGensNoResolve {
     val rules = genRules(27, 27)
     val rulecount = rules.ruleSets.map( s => s.rules.size).sum
 
@@ -129,7 +129,7 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
     })
   }}
 
-  ignore("typeCheckFlatten") { evalCodeGens {
+  test("typeCheckFlatten") { evalCodeGens {
     doTypeCheck("flattenResults(1)", Seq("cannot resolve", "overallResult","however, 1 is of int type"))
   }}
 

@@ -1,11 +1,13 @@
 package com.sparkutils.quality.impl
 
+import com.sparkutils.quality
 import com.sparkutils.quality.impl.util.VariablesLookup.Identifiers
 import com.sparkutils.quality.impl.util.RuleSuiteDocs.{IdTrEither, LambdaId, OutputExpressionId, RuleId}
 import com.sparkutils.quality.impl.util.{Docs, DocsParser, ExpressionLookup, RuleSuiteDocs, VariablesLookup, WithDocs}
 import com.sparkutils.quality.impl.HasRuleText
 import com.sparkutils.quality._
 import com.sparkutils.quality.classicFunctions.namesFromSchema
+import com.sparkutils.quality.impl.ExpressionRuleExpr.ExpressionRuleOps
 import com.sparkutils.quality.impl.LambdaFunctionImpl.LambdaFunctionOps
 import com.sparkutils.quality.impl.RunOnPassProcessorImpl.RunOnPassProcessorImplOps
 import com.sparkutils.quality.impl.views.ViewLoader.defaultViewLookup
@@ -224,9 +226,9 @@ object Validation {
     val ruleErrors =
       ruleSuite.ruleSets.flatMap { rs =>
         rs.rules.flatMap { r =>
-          rules += addDocs(r.id, r, r.expression.asInstanceOf[HasRuleText[_]])
+          rules += addDocs(r.id, r, r.expression.toImpl.asInstanceOf[HasRuleText[_]])
 
-          val (ruleErrors, exprLookup) = doRule(r.id, r.expression.asInstanceOf[HasExpr].expr, false, viewLookup)
+          val (ruleErrors, exprLookup) = doRule(r.id, r.expression.toImpl.expr, false, viewLookup)
           exprLookups += RuleId(r.id) -> exprLookup
 
           val outputErrors =

@@ -1,13 +1,12 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality.{GeneralExpressionResult, GeneralExpressionsResult, GeneralExpressionsResultNoDDL, RuleEngineResult, RuleFolderResult, RuleResult, RuleSetResult, RuleSuite, RuleSuiteResult, RuleSuiteResultDetails, VersionedId, rule_suite}
+import com.sparkutils.quality.{GeneralExpressionResult, GeneralExpressionsResult, GeneralExpressionsResultNoDDL, RuleEngineResult, RuleFolderResult, RuleResult, RuleSetResult, RuleSuiteResult, RuleSuiteResultDetails, VersionedId}
 import frameless.TypedEncoder
 import org.apache.spark.sql.catalyst.encoders.AgnosticEncoder
 import org.apache.spark.sql.types.{DataType, StructType}
 import org.apache.spark.sql.{Encoder, Row, ShimUtils, SparkSession}
 import shapeless.{HList, LabelledGeneric, Lazy}
 import shapeless.ops.hlist.IsHCons
-import shapeless.{::, HNil}
 
 import scala.reflect.ClassTag
 
@@ -16,25 +15,11 @@ trait EncodersImplicits extends Serializable {
   import IntEncoders._
   import IdEncoders._
 
-  implicit val _1 = TypedEncoder[VersionedId]
-  implicit val _2 = TypedEncoder[RuleResult]
-  implicit val _3 = TypedEncoder[RuleSetResult]
-  implicit val _4 = TypedEncoder[Map[VersionedId, RuleSetResult]]
-
-  implicit val _5 = RecordFieldEncoder[VersionedId]
-  implicit val _6 = RecordFieldEncoder[RuleResult]
-  implicit val _7 = RecordFieldEncoder[RuleSetResult]
-  implicit val _8 = RecordFieldEncoder[Map[VersionedId, RuleSetResult]]
-
-//  type RRES_TYPE = VersionedId :: RuleResult :: Map[VersionedId, RuleSetResult] :: HNil
-
-  val ruleSuiteResultTypedEnc22: TypedEncoder[RuleSuiteResult] = TypedEncoder[RuleSuiteResult]
-
-  implicit val ruleSuiteResultTypedEnc: TypedEncoder[RuleSuiteResult] = TypedEncoder[RuleSuiteResult]
+  implicit val ruleSuiteResultTypedEnc = TypedEncoder[RuleSuiteResult]
 
   implicit val ruleSuiteResultExpEnc: Encoder[RuleSuiteResult] = TypedExpressionEncoder[RuleSuiteResult]
 
-  implicit val ruleSuiteResultDetailsTypedEnc: TypedEncoder[RuleSuiteResultDetails] = TypedEncoder[com.sparkutils.quality.RuleSuiteResultDetails]
+  implicit val ruleSuiteResultDetailsTypedEnc = TypedEncoder[com.sparkutils.quality.RuleSuiteResultDetails]
 
   implicit val ruleSuiteResultDetailsExpEnc: Encoder[RuleSuiteResultDetails] = TypedExpressionEncoder[com.sparkutils.quality.RuleSuiteResultDetails]
 
@@ -42,11 +27,11 @@ trait EncodersImplicits extends Serializable {
 
   implicit def generalExpressionsResultExpEnc[R](implicit ev: TypedEncoder[GeneralExpressionsResult[R]]): Encoder[GeneralExpressionsResult[R]] = TypedExpressionEncoder[com.sparkutils.quality.GeneralExpressionsResult[R]]
 
-  implicit val generalExpressionResultTypedEnc: TypedEncoder[GeneralExpressionResult] = TypedEncoder[com.sparkutils.quality.GeneralExpressionResult]
+  implicit val generalExpressionResultTypedEnc = TypedEncoder[com.sparkutils.quality.GeneralExpressionResult]
 
   implicit val generalExpressionResultExpEnc: Encoder[GeneralExpressionResult] = TypedExpressionEncoder[com.sparkutils.quality.GeneralExpressionResult]
 
-  implicit val generalExpressionsResultNoDDLTypedEnc: TypedEncoder[GeneralExpressionsResultNoDDL] = TypedEncoder[com.sparkutils.quality.GeneralExpressionsResultNoDDL]
+  implicit val generalExpressionsResultNoDDLTypedEnc = TypedEncoder[com.sparkutils.quality.GeneralExpressionsResultNoDDL]
 
   implicit val generalExpressionsResultNoDDLExpEnc: Encoder[GeneralExpressionsResultNoDDL] = TypedExpressionEncoder[com.sparkutils.quality.GeneralExpressionsResultNoDDL]
 
