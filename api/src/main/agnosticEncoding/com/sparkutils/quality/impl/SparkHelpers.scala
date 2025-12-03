@@ -7,9 +7,9 @@ import org.apache.spark.sql.types.{DataType, StructType}
 import org.apache.spark.sql.{Encoder, Row, ShimUtils, SparkSession}
 import shapeless.{HList, LabelledGeneric, Lazy}
 import shapeless.ops.hlist.IsHCons
+import shapeless.{::, HNil}
 
 import scala.reflect.ClassTag
-case class RuleSuiteResult2(/*id: VersionedId , , ruleSetResults: Map[VersionedId, RuleSetResult] overallResult: RuleResult*/) extends Serializable {}
 
 trait EncodersImplicits extends Serializable {
   import frameless._
@@ -21,7 +21,14 @@ trait EncodersImplicits extends Serializable {
   implicit val _3 = TypedEncoder[RuleSetResult]
   implicit val _4 = TypedEncoder[Map[VersionedId, RuleSetResult]]
 
-  implicit val ruleSuiteResultTypedEnc2: TypedEncoder[RuleSuiteResult2] = TypedEncoder[RuleSuiteResult2]
+  implicit val _5 = RecordFieldEncoder[VersionedId]
+  implicit val _6 = RecordFieldEncoder[RuleResult]
+  implicit val _7 = RecordFieldEncoder[RuleSetResult]
+  implicit val _8 = RecordFieldEncoder[Map[VersionedId, RuleSetResult]]
+
+//  type RRES_TYPE = VersionedId :: RuleResult :: Map[VersionedId, RuleSetResult] :: HNil
+
+  val ruleSuiteResultTypedEnc22: TypedEncoder[RuleSuiteResult] = TypedEncoder[RuleSuiteResult]
 
   implicit val ruleSuiteResultTypedEnc: TypedEncoder[RuleSuiteResult] = TypedEncoder[RuleSuiteResult]
 
