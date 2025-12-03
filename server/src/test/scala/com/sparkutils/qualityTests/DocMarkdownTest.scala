@@ -4,12 +4,14 @@ import com.sparkutils.quality.impl.util.RuleSuiteDocs
 
 import java.io.FileOutputStream
 import RuleSuiteDocs.RelativeWarningsAndErrors
-import com.sparkutils.quality.{ExpressionRule, Id, LambdaFunction, OutputExpression, Rule, RuleSet, RuleSuite, RunOnPassProcessor, validate}
+import com.sparkutils.quality.classicFunctions.validate
+import com.sparkutils.quality.{ExpressionRule, Id, LambdaFunction, OutputExpression, Rule, RuleSet, RuleSuite, RunOnPassProcessor}
 import com.sparkutils.qualityTests.classicOnly.ValidationTest
 import com.sparkutils.qualityTests.util.ClassicSharedTests
 import com.sparkutils.testing.TestUtils.debug
 import org.apache.commons.io.IOUtils
 
+import java.nio.charset.Charset
 import java.util.concurrent.atomic.AtomicReference
 
 
@@ -48,14 +50,14 @@ class DocMarkdownTest extends ClassicSharedTests with VariableTestShims { // tes
 
     val docsf = new java.io.File(QualityDocsPath.docpath("sampleDocsOutput.md"))
     docsf.getParentFile.mkdirs
-    IOUtils.write(md, new FileOutputStream(docsf))
+    IOUtils.write(md, new FileOutputStream(docsf), Charset.defaultCharset())
 
     debug(println(md))
 
     val samplesf = new java.io.File(QualityDocsPath.docpath("sampleDocsValidation.md"))
     samplesf.getParentFile.mkdirs
     val emd = RuleSuiteDocs.createErrorAndWarningMarkdown(docs, rs, relative.copy( relativePath = "../sampleDocsOutput/"))
-    IOUtils.write(emd, new FileOutputStream(samplesf))
+    IOUtils.write(emd, new FileOutputStream(samplesf), Charset.defaultCharset())
 
     debug(println(emd))
 

@@ -3,10 +3,11 @@ package com.sparkutils.qualityTests
 import com.sparkutils.manual.RowId
 import com.sparkutils.quality
 import com.sparkutils.quality._
+import com.sparkutils.quality.classicFunctions.{processIfAttributeMissing, registerQualityFunctions, validate}
 import com.sparkutils.quality.impl.YamlDecoder
-import classicFunctions._
+import functions._
 import types._
-import impl.imports.RuleResultsImports.packId
+import impl.PackId.packId
 import com.sparkutils.quality.impl.util.{Arrays, PrintCode}
 import org.apache.spark.sql.catalyst.util.ArrayData
 import org.apache.spark.sql.functions._
@@ -36,7 +37,7 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
 
     val exploded = df.select(expr("*"), expr("explode(flattenResults(DataQuality))").as("struct")).select("struct.*")
     val exploded2 = df.select(expr("*"), explode(flatten_results(col("DataQuality"))).as("struct")).select("struct.*")
-    assert(exploded.union(exploded2).distinct().count == exploded.distinct().count)
+    assert(exploded.union(exploded2).distinct().count() == exploded.distinct().count())
 
     // verify fields are there
     assert(!exploded.select("ruleSuiteId", "ruleSuiteVersion", "ruleSuiteResult", "ruleSetResult", "ruleSetId", "ruleSetVersion", "ruleId", "ruleVersion", "ruleResult").isEmpty, "Flattened fields should be present")
@@ -78,14 +79,14 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
   test("verifyResultExprDSL") {  evalCodeGens {
     assert(sparkSession.range(1).selectExpr("passed() p", "soft_failed() s", "disabled_rule() d", "failed() f")
       .select(expr("*"), passed as "p1", soft_failed as "s1", disabled_rule as "d1", failed as "f1")
-      .filter("p1 = p and s1 = s and d1 = d and f1 = f").count == 1)
+      .filter("p1 = p and s1 = s and d1 = d and f1 = f").count() == 1)
   }}
 
   test("longPairEqual") { evalCodeGens {
     val s = sparkSession
     import s.implicits._
     val (seq, ceq) = sparkSession.range(1).selectExpr("120 a_lower", "304 a_higher", "120 b_lower", "304 b_higher").
-      select(expr("long_pair_equal('a','b') seq"), long_pair_equal("a","b") as "ceq").as[(Boolean, Boolean)].head
+      select(expr("long_pair_equal('a','b') seq"), long_pair_equal("a","b") as "ceq").as[(Boolean, Boolean)].head()
 
     assert(ceq)
     assert(seq)
@@ -114,7 +115,7 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
 
     val s = sparkSession
     import s.implicits._
-    val unpackCheck = df.selectExpr("g", "g2").as[((Int, Int), (Int, Int))].head
+    val unpackCheck = df.selectExpr("g", "g2").as[((Int, Int), (Int, Int))].head()
     assert(unpackCheck._1 == unpackCheck._2)
 
     df.drop("g2").write.mode(SaveMode.Overwrite).parquet(outputDir + "/simpleExprs")
@@ -157,7 +158,7 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
     var failed = false
     try {
       val exploded = df.select(expr)
-      exploded.count
+      exploded.count()
       failed = true
     } catch {
       case t: Throwable =>
@@ -277,7 +278,7 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
     registerQualityFunctions(writer = {Holder.res = _})
 
     import Holder.res
-    assert(2 == sparkSession.sql(s"select $expr(plus(1, 1)) as res").as[Long].head)
+    assert(2 == sparkSession.sql(s"select $expr(plus(1, 1)) as res").as[Long].head())
 
     def assertAdd() = if (addTest ne null) {
       assert(res.contains(addTest))
@@ -289,7 +290,7 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
       assert(res.isEmpty)
     assertAdd()
 
-    assert(2 == sparkSession.sql(s"select $expr('$custom', plus(1, 1)) as res").as[Long].head)
+    assert(2 == sparkSession.sql(s"select $expr('$custom', plus(1, 1)) as res").as[Long].head())
 
     if (customTest ne null)
       assert(res.indexOf(customTest) == 0)
@@ -310,7 +311,7 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
 
     // should fail
     try {
-      (df union df2 distinct).head//show
+      (df union df2).distinct().head()//show
       fail("Is assumed to fail as spark doesn't order maps")
     } catch {
       case t: Throwable =>
@@ -322,10 +323,10 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
     val comparable2 = df2.select(expr("*"), comparable_maps(col("DataQuality")).as("compDQ")).drop("DataQuality")
 
     //comparable.show
-    val unioned = comparable union comparable2 distinct
+    val unioned = (comparable union comparable2).distinct()
 
-    unioned.head
-    assert(unioned.count == df.count)
+    unioned.head()
+    assert(unioned.count() == df.count())
   }}
 
   test("testComparableResultsDifferentKeysAndMapValue") { evalCodeGensNoResolve {
@@ -338,7 +339,7 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
 
       // should fail
       try {
-        (df union df2 distinct).head
+        (df union df2).distinct().head()
         fail("Is assumed to fail as spark doesn't order maps")
       } catch {
         case t: Throwable =>
@@ -355,15 +356,15 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
       val comparable2 = df2.select(comparable_maps(col("value")).as("v"))
 
       //comparable.show
-      val unioned = comparable union comparable2 distinct
+      val unioned = (comparable union comparable2).distinct()
 
-      unioned.head
+      unioned.head() // called for side effect
       if (thereCanBeOnlyOne)
-        assert(unioned.count == 1)
+        assert(unioned.count() == 1)
       else
-        assert(unioned.count == df.count)
+        assert(unioned.count() == df.count())
 
-      debug(unioned.sort("v").show)
+      debug(unioned.sort("v").show())
     }
 
     // arrays
@@ -408,7 +409,7 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
 
     // should fail
     try {
-      (ds1 union ds2 distinct).head
+      (ds1 union ds2).distinct().head()
       fail("Is assumed to fail as spark doesn't order maps")
     } catch {
       case t: Throwable =>
@@ -416,30 +417,30 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
     }
 
     // can't resolve DataQuality here, manages quite nicely on it's own
-    val comparable = ds1.toDF.selectExpr("comparableMaps(seq) comp").drop("seq")
-    val comparable2 = ds2.toDF.selectExpr("comparableMaps(seq) comp").drop("seq")
+    val comparable = ds1.toDF().selectExpr("comparableMaps(seq) comp").drop("seq")
+    val comparable2 = ds2.toDF().selectExpr("comparableMaps(seq) comp").drop("seq")
 
     //comparable.show
-    val unioned = comparable union comparable2 distinct
+    val unioned = (comparable union comparable2).distinct()
 
-    unioned.head
-    assert(unioned.count == 1) // because all 4 are identical
+    unioned.head()
+    assert(unioned.count() == 1) // because all 4 are identical
   }}
 
   test("testCompareWithArraysOrderingAndReverse") { evalCodeGensNoResolve {
     // verifies it works in a sort
 
     val map = Map(1 -> 1, 2 -> 2, 3 -> 3, 4 -> 4)
-    val maps = (0 to 4).map(i => map.mapValues(_ * i))
+    val maps = (0 to 4).map(i => map.view.mapValues(_ * i))
 
     val s = sparkSession
     import s.implicits._
     val ds = maps.reverse.map(m => MapArray(Seq(m.toMap))).toDS()
-    ds.head
+    ds.head()
 
     // should fail
     try {
-      ds.sort("seq").head
+      ds.sort("seq").head()
       fail("Is assumed to fail as spark doesn't order maps")
     } catch {
       case t: Throwable =>
@@ -447,10 +448,10 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
     }
 
     // can't resolve DataQuality here, manages quite nicely on it's own
-    val comparable = ds.toDF.selectExpr("comparableMaps(seq) seq")
+    val comparable = ds.toDF().selectExpr("comparableMaps(seq) seq")
 
     val sorted = comparable.sort("seq").selectExpr("reverseComparableMaps(seq) seq").as[MapArray]
-    sorted.head
+    sorted.head()
     sorted.collect().zipWithIndex.foreach{
       case (map,index) =>
         assert(map.seq(0) == maps(index).toMap) // because all 4 are identical
@@ -466,16 +467,16 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
   test("testCompareWithStructsReverseAndNested") { evalCodeGensNoResolve {
 
     val map = Map(1 -> 1, 2 -> 2, 3 -> 3, 4 -> 4)
-    val maps = (0 to 4).map(i => map.mapValues(_ * i))
+    val maps = (0 to 4).map(i => map.view.mapValues(_ * i))
 
     val s = sparkSession
     import s.implicits._
     val ds = maps.reverse.map(m => NestedMapStruct(NestedStruct(m.head._1, Map( m.head._1 -> MapArray(Seq(m.toMap)))))).toDS()
-    ds.head
+    ds.head()
 
     // should fail
     try {
-      ds.sort("nested").head
+      ds.sort("nested").head()
       fail("Is assumed to fail as spark doesn't order maps")
     } catch {
       case t: Throwable =>
@@ -483,10 +484,10 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
     }
 
     // can't resolve DataQuality here, manages quite nicely on it's own
-    val comparable = ds.toDF.selectExpr("comparableMaps(nested) seq")
+    val comparable = ds.toDF().selectExpr("comparableMaps(nested) seq")
 
     val sorted = comparable.sort("seq").selectExpr("reverseComparableMaps(seq) nested").as[NestedMapStruct]
-    sorted.head
+    sorted.head()
     sorted.collect().zipWithIndex.foreach {
       case (struct, index) =>
         assert(struct.nested.nested.head._2.seq(0) == maps(index).toMap) // because all 4 are identical
@@ -607,7 +608,7 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
 
     import quality.implicits._
 
-    val processed = taddDataQuality(sparkSession.range(1000).toDF, rowrs).select(expressionRunner(rs, renderOptions = Map("useFullScalarType" -> "true")))
+    val processed = taddDataQuality(sparkSession.range(1000).toDF(), rowrs).select(expressionRunner(rs, renderOptions = Map("useFullScalarType" -> "true")))
 
     val firstId = Id(30,3)
     val firstRes = "!!java.lang.Long '499500'\n"
@@ -623,13 +624,13 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
     val gres =
       processed.selectExpr("rule_result(expressionResults, pack_ints(10,2), pack_ints(20,1), pack_ints(31,3)) rr")
         .selectExpr("rr.*")
-        .as[GeneralExpressionResult].head
+        .as[GeneralExpressionResult].head()
 
     assert(gres == GeneralExpressionResult("!!java.lang.Long '500'\n", "BIGINT"))
 
     val stripped = processed.selectExpr("strip_result_ddl(expressionResults) rr")
     val stripped2 = processed.select(strip_result_ddl(col("expressionResults")) as "rr")
-    assert(stripped.select(comparable_maps(col("rr"))).union( stripped2.select(comparable_maps(col("rr"))) ).distinct.count == 1)
+    assert(stripped.select(comparable_maps(col("rr"))).union( stripped2.select(comparable_maps(col("rr"))) ).distinct().count() == 1)
 
     val strippedRes = stripped.selectExpr("rr.*").as[GeneralExpressionsResultNoDDL].head()
     assert(strippedRes == GeneralExpressionsResultNoDDL(Id(10, 2), Map(Id(20, 1) -> Map(
@@ -641,7 +642,7 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
       val s = sparkSession
       import s.implicits._
       stripped.select(rule_result(col("rr"), pack_ints(10,2), pack_ints(20,1), pack_ints(Id(31,3))))
-        .as[String].head
+        .as[String].head()
     }
 
     assert(strippedGres == "!!java.lang.Long '500'\n")
@@ -675,7 +676,7 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
     import s.implicits._
     val gres =
       processed.selectExpr("rule_result(expressionResults, pack_ints(10,2), pack_ints(20,1), pack_ints(31,3)) rr")
-        .as[String].head
+        .as[String].head()
     assert(gres == "b")
   }}
 
@@ -710,7 +711,7 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
 
   test("checkMinimumLengthWorks") {
     try {
-      sparkSession.range(1).selectExpr("hash_with()").head
+      sparkSession.range(1).selectExpr("hash_with()").head()
       fail("should have thrown")
     } catch {
       case t: Throwable if t.getMessage.contains("A minimum of 2 parameters is required") =>
@@ -842,7 +843,7 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
     val res = rdf.selectExpr("dq.*").as[RuleSuiteResult].collect()
     assert(res.forall(_.overallResult == Passed))
     res.forall(_.ruleSetResults.head._2.overallResult == Passed)
-    val sres = res.map(_.ruleSetResults.head._2.ruleResults.values.groupBy(identity).mapValues(_.size).toMap).toSeq
+    val sres = res.map(_.ruleSetResults.head._2.ruleResults.values.groupBy(identity).view.mapValues(_.size).toMap).toSeq
     assert(sres == Seq(
       Map(Passed -> 7, SoftFailed -> 1),
       Map(Passed -> 7, SoftFailed -> 1),

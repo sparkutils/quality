@@ -6,9 +6,10 @@ import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenExpressions
 import com.sparkutils.quality.impl.RuleRunnerUtils.{genRuleSuiteTerm, packTheId}
 import com.sparkutils.quality._
-import com.sparkutils.quality.impl.imports.{RuleEngineRunnerImports, RuleResultsImports}
-import RuleResultsImports.packId
+import com.sparkutils.quality.impl.imports.RuleEngineRunnerImports
+import PackId.packId
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
+import com.sparkutils.quality.impl.RunOnPassProcessorImpl.RunOnPassProcessorImplOps
 import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals, PassThroughEvalOnly}
 import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
 import org.apache.spark.sql.catalyst.InternalRow
@@ -17,7 +18,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, Codegen
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression}
 import org.apache.spark.sql.catalyst.util.GenericArrayData
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.{Column, DataFrame, ClassicQualitySparkUtils, ShimUtils}
+import org.apache.spark.sql.{ClassicQualitySparkUtils, Column, DataFrame, ShimUtils}
 
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
@@ -100,7 +101,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
         val idx = outputs.getOrElse(rule.runOnPassProcessor.id, {
             val expr = rule.runOnPassProcessor match {
               case NoOpRunOnPassProcessor.noOp => qualityException(s"You cannot use a RuleEngine, RuleFolder or ExpressionRunner if any of the rules do not have RunOnPassProcessors set ruleSet ${ruleSet.id}, rule ${rule.id}}")
-              case r: RunOnPassProcessor => r.returnIfPassed.expr
+              case r: RunOnPassProcessor => r.toImpl.returnIfPassed.expr
             }
             outputs.put(rule.runOnPassProcessor.id, pos)
 
@@ -163,7 +164,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
             val (nexpr, index) = itr.next()
             val outexpr = expr(offset + expressionOffsets(index))
             rule.copy(expression = f(nexpr), runOnPassProcessor =
-              rule.runOnPassProcessor.withExpr(OutputExpressionWrapper(processorExpression(outexpr), compileEvals)))
+              rule.runOnPassProcessor.toImpl.withExpr(OutputExpressionWrapper(processorExpression(outexpr), compileEvals)))
           }
         ))
     ))

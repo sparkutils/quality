@@ -37,7 +37,7 @@ trait RngImpl extends Product {
    *
    * @param seed if 0 is used then definedSeed is used in addition to a default random long
    */
-  def reSeed(seed: Long) {
+  def reSeed(seed: Long): Unit = {
     val defSeed = source.createSeed()
 
     rng = RandomSource.create(source, defSeed).asInstanceOf[Provider]

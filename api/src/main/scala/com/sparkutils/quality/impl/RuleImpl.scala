@@ -3,7 +3,7 @@ package com.sparkutils.quality.impl
 import com.sparkutils.quality
 import com.sparkutils.quality.RunOnPassProcessor.RunOnPassProcessorImpl
 import com.sparkutils.quality.impl.imports.RuleResultsImports.{DisabledRuleInt, FailedInt, PassedInt}
-import com.sparkutils.quality.{DisabledRule, Failed, Id, OutputExpression, Passed, Probability, RuleResult, RuleResultWithProcessor, RuleSuite, RunOnPassProcessor, SoftFailed, SoftFailedInt}
+import com.sparkutils.quality.{DisabledRule, Failed, HasRuleText, Id, OutputExpression, Passed, Probability, RuleResult, RuleResultWithProcessor, RuleSuite, RunOnPassProcessor, SoftFailed, SoftFailedInt}
 import com.sparkutils.quality.impl.util.Serializing.toSeq
 import org.apache.spark.sql.SparkSession
 
@@ -54,7 +54,11 @@ case class HolderUsedInsteadIfImpl(id: Id) extends
 case class RunOnPassProcessorHolder(salience: Int, id: Id) extends RunOnPassProcessor with Serializable {
 
   lazy val rule: String = throw HolderUsedInsteadIfImpl(id)
+  lazy val returnIfPassed: OutputExpression = throw HolderUsedInsteadIfImpl(id)
 
   override def withExpr(expr: quality.OutputExpression): RunOnPassProcessor =
-    RunOnPassProcessorImpl(salience, id, expr.rule)
+    RunOnPassProcessorImpl(salience, id, expr match {
+      case h: HasRuleText => h.rule
+      case _ => ""
+    }, expr)
 }

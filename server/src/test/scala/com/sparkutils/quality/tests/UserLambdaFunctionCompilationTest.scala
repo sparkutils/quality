@@ -70,7 +70,7 @@ class UserLambdaFunctionCompilationTest extends ClassicSharedTests with BeforeAn
     val s = sparkSession
     import s.implicits._
     val df = sparkSession.sql("select top(1,2)")
-    assert(df.as[Integer].collect.head == 2)
+    assert(df.as[Integer].collect().head == 2)
   }
 
   test("runDisabledCompilation") { evalCodeGens {
@@ -97,7 +97,7 @@ class UserLambdaFunctionCompilationTest extends ClassicSharedTests with BeforeAn
     val s = sparkSession
     import s.implicits._
     val df = sparkSession.sql("select element_at(top(array(1,2)), 1)")
-    assert(df.as[Integer].collect.head == 2)
+    assert(df.as[Integer].collect().head == 2)
   }
 
   test("withDefaultHoF") { evalCodeGens {

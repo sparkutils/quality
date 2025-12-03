@@ -4,6 +4,7 @@ import com.sparkutils.quality.impl.{RuleError, RuleWarning, Validation}
 import com.sparkutils.quality.impl.util.RuleSuiteDocs.IdTrEither
 import com.sparkutils.quality.RuleSuite
 import com.sparkutils.quality.impl.util.{ExpressionLookup, RuleSuiteDocs}
+import com.sparkutils.quality.impl.views.ViewLoader
 import com.sparkutils.shim.ShowParams
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.{Column, DataFrame}
@@ -41,7 +42,7 @@ trait ValidationImports {
    * @param ruleSuite
    * @return A set of errors and the output from the dataframe when a runnerFunction is specified
    */
-  def validate_Lookup(frame: DataFrame, ruleSuite: RuleSuite, viewLookup: String => Boolean = Validation.defaultViewLookup): (Set[RuleError], Set[RuleWarning]) = {
+  def validate_Lookup(frame: DataFrame, ruleSuite: RuleSuite, viewLookup: String => Boolean = ViewLoader.defaultViewLookup): (Set[RuleError], Set[RuleWarning]) = {
     val (err, warns, out, docs, exp) = validate(Right(frame), ruleSuite, viewLookup = viewLookup)
     (err, warns)
   }
@@ -121,7 +122,7 @@ trait ValidationImports {
    */
   def validate(schemaOrFrame: Either[StructType, DataFrame], ruleSuite: RuleSuite, showParams: ShowParams = ShowParams(),
                runnerFunction: Option[DataFrame => Column] = None, qualityName: String = "Quality",
-               recursiveLambdasSOEIsOk: Boolean = false, transformBeforeShow: DataFrame => DataFrame = identity, viewLookup: String => Boolean = Validation.defaultViewLookup):
+               recursiveLambdasSOEIsOk: Boolean = false, transformBeforeShow: DataFrame => DataFrame = identity, viewLookup: String => Boolean = ViewLoader.defaultViewLookup):
   (Set[RuleError], Set[RuleWarning], String, RuleSuiteDocs, Map[IdTrEither, ExpressionLookup]) = Validation.validate(
     schemaOrFrame, ruleSuite, showParams, runnerFunction, qualityName,
     recursiveLambdasSOEIsOk, transformBeforeShow, viewLookup

@@ -1,11 +1,15 @@
 package com.sparkutils.qualityTests.classicOnly
 
 import com.sparkutils.quality.impl.Validation.emptyDocs
-import com.sparkutils.quality.impl.imports.RuleResultsImports.packId
 import com.sparkutils.quality.impl.util.RuleSuiteDocs.{LambdaId, OutputExpressionId, RuleId}
 import com.sparkutils.quality.impl.util.{Docs, RuleSuiteDocs, WithDocs}
+import com.sparkutils.quality.{ExpressionRule, Id, LambdaFunction, OutputExpression, Rule, RuleSet, RuleSuite, RunOnPassProcessor}
 import com.sparkutils.quality.impl._
-import com.sparkutils.quality.{LambdaFunction, RunOnPassProcessor, _}
+import com.sparkutils.quality.classicFunctions._
+import com.sparkutils.quality.impl.LambdaFunctionImpl.LambdaFunctionOps
+import com.sparkutils.quality.impl.PackId.packId
+import com.sparkutils.quality.impl.RunOnPassProcessorImpl.RunOnPassProcessorImplOps
+import com.sparkutils.quality.impl.{HasId, RuleError}
 import com.sparkutils.qualityTests.VariableTestShims
 import com.sparkutils.qualityTests.util.ClassicSharedTests
 import com.sparkutils.testing.TestUtils.debug
@@ -383,12 +387,12 @@ class ValidationTest extends ClassicSharedTests with VariableTestShims {
         rule3.id -> WithDocs(rule3, emptyDocs),
         rule4.id -> WithDocs(rule4, emptyDocs)
       ),
-      outputExpressions = Map(Id(1002,1) -> WithDocs(output1, Docs("description 2", Map("fielda" -> "desc 2"))),
-        output2.id -> WithDocs(output2, emptyDocs)
+      outputExpressions = Map(Id(1002,1) -> WithDocs(output1.toImpl, Docs("description 2", Map("fielda" -> "desc 2"))),
+        output2.id -> WithDocs(output2.toImpl, emptyDocs)
       ),
-      lambdas = Map(Id(6,1) -> WithDocs(lambda1, Docs("lambda description", Map("fielda" -> "lambda desc"))),
-        lambda2.id -> WithDocs(lambda2, emptyDocs),
-        Id(8,1) -> WithDocs(lambda3,Docs("lambda description only"))
+      lambdas = Map(Id(6,1) -> WithDocs(lambda1.parsed, Docs("lambda description", Map("fielda" -> "lambda desc"))),
+        lambda2.id -> WithDocs(lambda2.parsed, emptyDocs),
+        Id(8,1) -> WithDocs(lambda3.parsed,Docs("lambda description only"))
     )))
   }
 

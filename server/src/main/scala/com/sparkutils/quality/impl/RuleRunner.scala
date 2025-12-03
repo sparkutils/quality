@@ -2,11 +2,12 @@ package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.impl.RuleLogicUtils.mapRules
 import com.sparkutils.quality.impl.RuleRunnerUtils.flattenExpressions
-import com.sparkutils.quality.impl.imports.RuleResultsImports.packId
+import com.sparkutils.quality.impl.PackId.packId
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
 import types.ruleSuiteResultType
 import com.sparkutils.quality.impl.imports.RuleRunnerImports
+import com.sparkutils.quality.impl.util.Serializing.ruleResultToInt
 import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals}
 import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
 import org.apache.spark.sql.ShimUtils.column
@@ -17,7 +18,7 @@ import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression}
 import org.apache.spark.sql.catalyst.util.ArrayBasedMapData
 import org.apache.spark.sql.functions.lit
 import org.apache.spark.sql.types.DataType
-import org.apache.spark.sql.{Column, DataFrame, ClassicQualitySparkUtils, ShimUtils}
+import org.apache.spark.sql.{ClassicQualitySparkUtils, Column, DataFrame, ShimUtils}
 
 import scala.reflect.ClassTag
 

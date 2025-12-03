@@ -1,7 +1,6 @@
 package com.sparkutils.quality
 
 import com.sparkutils.quality.RunOnPassProcessor.RunOnPassProcessorImpl
-import com.sparkutils.quality.impl.util.Serializing
 
 /**
  * base for storage of rule or ruleset ids, must be a trait to force frameless to use lookup and stop any
@@ -42,11 +41,11 @@ case class Id(id: Int, version: Int) extends VersionedId
 /**
  * A trigger rule
  */
-trait ExpressionRule extends HasRuleText
+trait ExpressionRule
 
 object ExpressionRule {
   @SerialVersionUID(1L)
-  case class ExpressionRuleImpl( rule: String ) extends ExpressionRule
+  case class ExpressionRuleImpl( rule: String ) extends ExpressionRule with HasRuleText
 
   def apply(rule: String): ExpressionRule = ExpressionRuleImpl(rule)
 }
@@ -54,11 +53,11 @@ object ExpressionRule {
 /**
  * Used as a result of serializing
  */
-trait OutputExpression extends HasRuleText
+trait OutputExpression
 
 object OutputExpression {
   @SerialVersionUID(1L)
-  case class OutputExpressionImpl( rule: String ) extends OutputExpression
+  case class OutputExpressionImpl( rule: String ) extends OutputExpression with HasRuleText
 
   def apply(rule: String): OutputExpression = OutputExpressionImpl(rule)
 }
@@ -69,13 +68,14 @@ object OutputExpression {
 trait RunOnPassProcessor extends HasRuleText {
   val salience: Int
   val id: Id
+  val returnIfPassed: OutputExpression
   def withExpr(e: OutputExpression): RunOnPassProcessor
 }
 
 object RunOnPassProcessor {
   @SerialVersionUID(1L)
-  case class RunOnPassProcessorImpl(salience: Int, id: Id, rule: String) extends RunOnPassProcessor with Serializable {
-    override def withExpr(e: OutputExpression): RunOnPassProcessor = copy(rule = e.rule)
+  case class RunOnPassProcessorImpl(salience: Int, id: Id, rule: String, returnIfPassed: OutputExpression) extends RunOnPassProcessor with Serializable {
+    override def withExpr(e: OutputExpression): RunOnPassProcessor = copy(returnIfPassed = e)
   }
 
   /**
@@ -87,12 +87,20 @@ object RunOnPassProcessor {
    * @return
    */
   def apply(salience: Int, id: Id, e: OutputExpression) =
-    RunOnPassProcessorImpl(salience, id, e.rule)
+    RunOnPassProcessorImpl(salience, id, e match {
+      case h: HasRuleText => h.rule
+      case _ => ""
+    }, e)
 }
 
 object NoOpRunOnPassProcessor {
-  val noOpId = Id(Serializing.notPresentOutputId, Serializing.notPresentOutputVersion)
-  val noOp = RunOnPassProcessorImpl(Serializing.notPresentSalience, noOpId, "")
+
+  val notPresentSalience: Int = 1234567890
+  val notPresentOutputId: Int = Int.MinValue
+  val notPresentOutputVersion: Int = Int.MinValue
+
+  val noOpId = Id(notPresentOutputId, notPresentOutputVersion)
+  val noOp = RunOnPassProcessorImpl(notPresentSalience, noOpId, "", OutputExpression(""))
 }
 
 /**

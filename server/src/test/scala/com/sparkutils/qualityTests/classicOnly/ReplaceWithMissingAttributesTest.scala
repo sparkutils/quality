@@ -1,6 +1,8 @@
 package com.sparkutils.qualityTests.classicOnly
 
 import com.sparkutils.quality._
+import classicFunctions._
+import com.sparkutils.quality.impl.LambdaFunctionImpl.LambdaFunctionOps
 import com.sparkutils.quality.impl.{RuleError, RuleLogicUtils}
 import com.sparkutils.qualityTests.util.ClassicSharedTests
 import org.apache.spark.sql.types.{IntegerType, StructField, StructType}
@@ -83,7 +85,7 @@ class ReplaceWithMissingAttributesTest extends ClassicSharedTests {
 
     val nrs = processIfAttributeMissing(rs, struct)
 
-    val rule = nrs.lambdaFunctions.head.expr
+    val rule = nrs.lambdaFunctions.head.parsed.expr
     val func = RuleLogicUtils.expr(expected)
     assert(func == rule)
     assert(empty(errors))

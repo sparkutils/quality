@@ -22,7 +22,7 @@ object MapLookupFunctions {
   /**
    * Used as a param to load the map lookups - note the type of the broadcast is always Map[AnyRef, AnyRef]
    */
-  type MapLookups = String
+  type MapLookups = MapTypes.MapLookups
 
   type MapCreator = () => (DataFrame, Column, Column)
 

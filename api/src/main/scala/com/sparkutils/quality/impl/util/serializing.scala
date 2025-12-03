@@ -363,19 +363,15 @@ object Serializing {
         re._3.as("ruleEngineVersion")
       )).getOrElse(
         baseColumns ++ Seq(
-          expr(s"$notPresentSalience as ruleEngineSalience"),
-          expr(s"$notPresentOutputId as ruleEngineId"),
-          expr(s"$notPresentOutputVersion as ruleEngineVersion")
+          expr(s"${NoOpRunOnPassProcessor.notPresentSalience} as ruleEngineSalience"),
+          expr(s"${NoOpRunOnPassProcessor.notPresentOutputId} as ruleEngineId"),
+          expr(s"${NoOpRunOnPassProcessor.notPresentOutputVersion} as ruleEngineVersion")
         )
       )
 
     val ruleRows = df.select(ruleRowsColumns :_* ).as[RuleRow]
     ruleRows
   }
-
-  val notPresentSalience: Int = 1234567890
-  val notPresentOutputId: Int = Int.MinValue
-  val notPresentOutputVersion: Int = Int.MinValue
 
     /**
    * Loads a RuleSuite from a dataframe with integers ruleSuiteId, ruleSuiteVersion, ruleSetId, ruleSetVersion, ruleId, ruleVersion and an expression string ruleExpr
@@ -438,7 +434,7 @@ object Serializing {
       ruleSuite.ruleSets.flatMap { ruleSet =>
         ruleSet.rules.map(rule =>
           (ruleSuite.id, ruleSet.id, rule.id, rule.expression match {
-            case e: ExpressionRule => e.rule
+            case e: HasRuleText => e.rule
             case _ => "1=1"
           }, rule.runOnPassProcessor.salience,
             rule.runOnPassProcessor.id.id,

@@ -5,7 +5,6 @@ import com.sparkutils.shim.toCatalyst
 import org.apache.spark.sql._
 import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, MapData}
 import org.apache.spark.sql.functions.expr
-import org.apache.spark.sql.types.DataType
 
 import scala.collection.JavaConverters._
 import scala.collection.Map
@@ -15,7 +14,7 @@ object MapLookupFunctions {
   /**
    * Used as a param to load the map lookups - note the type of the broadcast is always Map[AnyRef, AnyRef]
    */
-  type MapLookups = Map[String, (MapData, DataType)]
+  type MapLookups = MapTypes.MapLookups
 
   type MapCreator = () => (DataFrame, Column, Column)
 

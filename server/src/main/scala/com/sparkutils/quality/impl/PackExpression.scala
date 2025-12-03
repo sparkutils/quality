@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.Id
-import com.sparkutils.quality.impl.imports.RuleResultsImports.packId
+import com.sparkutils.quality.impl.PackId.packId
 import com.sparkutils.shim.expressions.NullIntolerant
 import org.apache.spark.sql.ShimUtils.{column, expression}
 import org.apache.spark.sql.catalyst.InternalRow

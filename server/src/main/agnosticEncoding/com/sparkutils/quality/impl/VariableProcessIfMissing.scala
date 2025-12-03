@@ -2,12 +2,12 @@ package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.impl.RuleRegistrationFunctions.{defaultParseTypes, getString}
-import com.sparkutils.quality.{Id, RuleSuite}
+import com.sparkutils.quality.{Id, NoOpRunOnPassProcessor, RuleSuite}
 import org.apache.spark.sql.catalyst.expressions.{Expression, Literal}
 import org.apache.spark.sql.ShimUtils
 import org.apache.spark.sql.types.{BinaryType, StructType}
 
-object VariableProcessIfMissing {
+object VariableProcessIfMissingFunctions {
 
   val process_if_attribute_missing_name = "process_if_attribute_missing"
 
@@ -46,11 +46,11 @@ object VariableProcessIfMissing {
         checkNestedCallsInSuite(ruleSuite)
 
         // call for side effect
-        com.sparkutils.quality.validate(s, ruleSuite)
+        com.sparkutils.quality.classicFunctions.validate(s, ruleSuite)
 
         // the resulting rulesuite will have the corrected unresolved expressions already available,
         // the raw sql remains untouched
-        val r = com.sparkutils.quality.processIfAttributeMissing(ruleSuite, s)
+        val r = com.sparkutils.quality.classicFunctions.processIfAttributeMissing(ruleSuite, s)
 
         ShimUtils.createVariable(getString(name, 2), Literal.create(RuleSuiteHelpers.serialize(r), BinaryType), true)
     })

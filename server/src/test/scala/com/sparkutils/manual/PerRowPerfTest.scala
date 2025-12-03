@@ -1,7 +1,8 @@
 package com.sparkutils.manual
 
 import com.sparkutils.quality._
-import classicFunctions.rng_bytes
+import com.sparkutils.quality.classicFunctions.registerQualityFunctions
+import com.sparkutils.quality.functions.rng_bytes
 import com.sparkutils.quality.impl.RuleLogicUtils.mapRules
 import com.sparkutils.quality.impl.rng.RandomBytes
 import com.sparkutils.quality.types._
@@ -62,7 +63,7 @@ object WriteRowPerfTest extends Bench.OfflineReport with RowTools {
     val ndf = func(params._1, params._2, df)
     if (memory) {
       val sum =
-      ndf.toLocalIterator().asScala.map { r => val i = r.fieldIndex("DataQuality"); r.get(i); r.getLong(1) }.sum // get will probably be dumped, but hopefully not
+       ndf.toLocalIterator().asScala.map { r => val i = r.fieldIndex("DataQuality"); r.get(i); r.getLong(1) }.sum // get will probably be dumped, but hopefully not
       sum
     } else {
       val path = SparkTestUtils.path("writePerfTest")
@@ -343,7 +344,7 @@ object IDJoinPerfTest extends Bench.OfflineReport with RowTools {
     val df = func(ids, evens)
 
     // enough to force for file store
-    df.count
+    df.count()
   }
 
 

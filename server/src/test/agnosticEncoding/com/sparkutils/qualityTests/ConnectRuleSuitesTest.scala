@@ -2,10 +2,11 @@ package com.sparkutils.qualityTests
 
 import com.sparkutils.qualityTests.util.SharedConnectTests
 import com.sparkutils.quality._
-import classicFunctions.flatten_results
-import com.sparkutils.quality.impl.{NoOpRunOnPassProcessor, RuleError, RuleSuiteHelpers, RunOnPassProcessorImpl}
+import com.sparkutils.quality.classicFunctions.namesFromSchema
+import com.sparkutils.quality.functions.flatten_results
+import com.sparkutils.quality.impl.{RuleError, RuleSuiteHelpers, RunOnPassProcessorImpl}
 import com.sparkutils.quality.impl.RuleLogicUtils.mapRules
-import com.sparkutils.quality.impl.VariableProcessIfMissing.process_if_attribute_missing_name
+import com.sparkutils.quality.impl.VariableProcessIfMissingFunctions.process_if_attribute_missing_name
 import com.sparkutils.quality.impl.util.{CombinedRuleSuiteRows, LambdaFunctionRow}
 import com.sparkutils.qualityTests.RuleEngineTest.{rulesRaw, testData}
 import com.sparkutils.testing.TestUtils.{anyCauseHas, debug}
@@ -152,7 +153,7 @@ class ConnectRuleSuitesTest extends SharedConnectTests with Matchers {
       ShimUtils.callFunction("rule_engine_runner", col(name))
     )
     //outdf.show
-    debug(outdf.select("together.*").show)
+    debug(outdf.select("together.*").show())
     val res = outdf.select("together.*").as[RuleEngineResult[Seq[NewPosting]]].collect()
 
     // this row will fail as the 0.6 doesn't class as a pass for the output expression - regardless of overall status
@@ -224,7 +225,7 @@ class ConnectRuleSuitesTest extends SharedConnectTests with Matchers {
       intercept[Exception] { // Result type: IndexOutOfBoundsException
         doExpressionReplaceWith(s"coalesceIfAttributesMissing($ruleText, 42)", "passed",
           mapRules(_){
-            rule => rule.copy(runOnPassProcessor = RunOnPassProcessorImpl(11, Id(13,13), outputRule, OutputExpression(outputRule)))
+            rule => rule.copy(runOnPassProcessor = RunOnPassProcessorImpl(11, Id(13,13), outputRule, impl.OutputExpression(outputRule)))
           }
         )
       }

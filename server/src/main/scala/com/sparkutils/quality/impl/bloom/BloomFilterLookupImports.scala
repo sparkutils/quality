@@ -17,7 +17,7 @@ trait BloomFilterRegistration {
    * @param bloomFilterMap
    */
   @ClassicOnly
-  def registerBloomMapAndFunction(bloomFilterMap: Broadcast[BloomExpressionLookup.BloomFilterMap]) {
+  def registerBloomMapAndFunction(bloomFilterMap: Broadcast[BloomExpressionLookup.BloomFilterMap]): Unit = {
     val funcReg = SparkSession.getActiveSession.get.sessionState.functionRegistry
     def register(name: String, argsf: Seq[Expression] => Expression, paramNumbers: Set[Int] = Set.empty, minimum: Int = -1) =
       registerWithChecks(ShimUtils.registerFunction(funcReg), name, argsf, paramNumbers, minimum)
@@ -178,7 +178,7 @@ trait BloomExpressionFunctions {
    * @return
    */
   @ClassicOnly
-  def big_bloom(bloomOver: Column, expectedNumberOfRows: Column, expectedFPP: Column, id: Column = lit(java.util.UUID.randomUUID().toString), bucketedFilesRoot: BucketedFilesRoot = BucketedFilesRoot(FileRoot(com.sparkutils.quality.bloomFileLocation))): Column =
+  def big_bloom(bloomOver: Column, expectedNumberOfRows: Column, expectedFPP: Column, id: Column = lit(java.util.UUID.randomUUID().toString), bucketedFilesRoot: BucketedFilesRoot = BucketedFilesRoot(FileRoot(com.sparkutils.quality.classicFunctions.bloomFileLocation))): Column =
     column( BucketedArrayParquetAggregator(expression(bloomOver), expression(expectedNumberOfRows), expression(expectedFPP), expression(id), bucketedFilesRoot = bucketedFilesRoot )
       .toAggregateExpression())
 

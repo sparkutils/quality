@@ -2,9 +2,10 @@ package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.HasRuleText
+import com.sparkutils.quality.impl.PackId.packId
 import com.sparkutils.qualityTests.util.SharedConnectTests
 import com.sparkutils.testing.TestUtils.debug
-import impl.imports.RuleResultsImports.packId
+import eu.timepit.refined.internal.Adjacent.integralAdjacent
 import impl.util.OutputExpressionRow
 import org.apache.spark.sql.functions._
 import simpleVersioning._
@@ -98,7 +99,7 @@ class VersionSerializingTest extends SharedConnectTests {
       val outputExpressionsDF = {
         val s = sparkSession
     import s.implicits._
-        flattened.toDF
+        flattened.toDF()
       }
       outputExpressionsDF
     }
@@ -153,7 +154,7 @@ class VersionSerializingTest extends SharedConnectTests {
     val rereadWithLambdas = integrateVersionedLambdas(rereadWithoutLambdas, lambdas)
     val (reread, missingOutputExpressions) = integrateVersionedOutputExpressions(rereadWithLambdas, outputExpressions)
 
-    def assertEq(id: Id, expected: RuleSuite) {
+    def assertEq(id: Id, expected: RuleSuite): Unit = {
       val reRules = reread.getOrElse(id, fail("Could not read the rule back"))
 
       def toOrdered(ruleSuite: RuleSuite): RuleSuite = {

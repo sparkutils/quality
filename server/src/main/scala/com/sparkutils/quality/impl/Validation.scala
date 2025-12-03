@@ -4,6 +4,9 @@ import com.sparkutils.quality.impl.util.VariablesLookup.Identifiers
 import com.sparkutils.quality.impl.util.RuleSuiteDocs.{IdTrEither, LambdaId, OutputExpressionId, RuleId}
 import com.sparkutils.quality.impl.util.{Docs, DocsParser, ExpressionLookup, RuleSuiteDocs, VariablesLookup, WithDocs}
 import com.sparkutils.quality._
+import com.sparkutils.quality.classicFunctions.namesFromSchema
+import com.sparkutils.quality.impl.LambdaFunctionImpl.LambdaFunctionOps
+import com.sparkutils.quality.impl.RunOnPassProcessorImpl.RunOnPassProcessorImplOps
 import com.sparkutils.quality.impl.views.ViewLoader.defaultViewLookup
 import com.sparkutils.shim.ShowParams
 import com.sparkutils.shim.expressions.Names.toName
@@ -202,7 +205,7 @@ object Validation {
     val doRule = validateRule(lambdaLookups, names) _
 
     var rules = Map.empty[Id, WithDocs[Rule]]
-    var outputExpressions = Map.empty[Id, WithDocs[RunOnPassProcessor]]
+    var outputExpressions = Map.empty[Id, WithDocs[impl.RunOnPassProcessor]]
     var exprLookups = Map.empty[IdTrEither, ExpressionLookup]
 
     val docsWarnings = mutable.Set[RuleWarning]()
@@ -227,9 +230,9 @@ object Validation {
 
           val outputErrors =
             if (r.runOnPassProcessor != NoOpRunOnPassProcessor.noOp) {
-              outputExpressions += addDocs(r.runOnPassProcessor.id, r.runOnPassProcessor, r.runOnPassProcessor.returnIfPassed.asInstanceOf[OutputExpression])
+              outputExpressions += addDocs[impl.RunOnPassProcessor](r.runOnPassProcessor.id, r.runOnPassProcessor.toImpl, r.runOnPassProcessor.returnIfPassed.asInstanceOf[HasRuleText])
 
-              val (oErrors, oExprLookup) = doRule(r.runOnPassProcessor.id, r.runOnPassProcessor.returnIfPassed.expr, true, viewLookup)
+              val (oErrors, oExprLookup) = doRule(r.runOnPassProcessor.id, r.runOnPassProcessor.toImpl.returnIfPassed.expr, true, viewLookup)
               exprLookups += OutputExpressionId(r.runOnPassProcessor.id) -> oExprLookup
               oErrors
             } else
@@ -244,14 +247,14 @@ object Validation {
 
   protected def validateLambdas(ruleSuite: RuleSuite, recursiveLambdasSOEIsOk: Boolean, names: Set[String], viewLookup: String => Boolean): Either[(Set[RuleError], Set[RuleWarning], String, RuleSuiteDocs, Map[IdTrEither, ExpressionLookup]),
     (Seq[(String, Either[(Id, Expression), LambdaSyntaxError])], Map[String, Map[Id, Set[String]]],
-      Set[Id], Set[LambdaSparkFunctionNameError], Set[LambdaMultipleImplementationWithSameArityError], Set[LambdaNameError], Map[Id, WithDocs[LambdaFunction]], Set[RuleWarning], Map[IdTrEither, ExpressionLookup], Set[LambdaViewError])] = {
+      Set[Id], Set[LambdaSparkFunctionNameError], Set[LambdaMultipleImplementationWithSameArityError], Set[LambdaNameError], Map[Id, WithDocs[impl.LambdaFunction]], Set[RuleWarning], Map[IdTrEither, ExpressionLookup], Set[LambdaViewError])] = {
 
-    var lambdas = Map.empty[Id, WithDocs[LambdaFunction]]
+    var lambdas = Map.empty[Id, WithDocs[impl.LambdaFunction]]
     val docsWarnings = mutable.Set[RuleWarning]()
 
     val viewErrors = ruleSuite.lambdaFunctions.flatMap { f =>
       try {
-        subQueryErrors(viewLookup, f.expr, LambdaViewError(_, f.id))
+        subQueryErrors(viewLookup, f.parsed.expr, LambdaViewError(_, f.id))
       } catch {
         // Might be a parser error, skip to let the below code pick it up
         case _: Throwable => Set.empty[LambdaViewError]
@@ -261,7 +264,8 @@ object Validation {
     val (lambdaLeftExpressions, lambdaSyntaxErrors) = ruleSuite.lambdaFunctions.map { f =>
       (f.name,
         try {
-          val expr = f.expr
+          val parsed = f.parsed
+          val expr = parsed.expr
           val ret = Left((f.id, expr))
 
           val args =
@@ -271,7 +275,7 @@ object Validation {
             }
 
           DocsParser.parse(f.rule).map { parseddocs =>
-            lambdas += f.id -> WithDocs(f, parseddocs)
+            lambdas += f.id -> WithDocs(parsed, parseddocs)
 
             parseddocs.params.keySet.foreach { name =>
               if (!args.contains(name)) {
@@ -279,7 +283,7 @@ object Validation {
               }
             }
           }.getOrElse {
-            lambdas += f.id -> WithDocs(f, emptyDocs)
+            lambdas += f.id -> WithDocs(parsed, emptyDocs)
           }
 
           ret

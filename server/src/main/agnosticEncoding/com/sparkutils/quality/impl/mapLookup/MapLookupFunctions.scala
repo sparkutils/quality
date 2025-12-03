@@ -1,10 +1,14 @@
 package com.sparkutils.quality.impl.mapLookup
 
+import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.MapLookups
 import com.sparkutils.quality.impl.RuleRegistrationFunctions.registerWithChecks
 import org.apache.spark.sql.catalyst.expressions.{Expression, IsNotNull}
-import org.apache.spark.sql._
+import com.sparkutils.quality.impl.RuleRegistrationFunctions.{getString, literalsNeeded}
+import com.sparkutils.shim.expressions.GetStructField3
 
+import org.apache.spark.sql.catalyst.expressions.VariableReference
+import org.apache.spark.sql.types.{MapType, StructType}
 
 object MapLookupFunctionsImpl {
 

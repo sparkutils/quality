@@ -69,7 +69,7 @@ object BucketedCreator {
       else
         dataFrame
 
-    val interim = df.select( big_bloom(bloomOn, expectedSize, fpp, bloomId) ).head.getAs[Array[Byte]](0)
+    val interim = df.select( big_bloom(bloomOn, expectedSize, fpp, bloomId) ).head().getAs[Array[Byte]](0)
     val bloom = BloomModel.deserialize(interim)
     bloom.cleanupOthers()
     bloom
@@ -95,7 +95,7 @@ object BucketedCreator {
     fl.getAbsolutePath
   }
 
-  implicit val toLocalFiles = new ToSerializedType[Array[Array[Byte]], BucketedFilesRoot] {
+  implicit val toLocalFiles: ToSerializedType[Array[Array[Byte]], BucketedFilesRoot] = new ToSerializedType[Array[Array[Byte]], BucketedFilesRoot] {
     def serializeBuckets(filters: Seq[BlockSplitBloomFilterImpl], fpp: Double, numBuckets: Int, hint: BucketedFilesRoot): Array[Byte] = {
       // verify there is no file, get id until it's done
       var id: String = null
@@ -223,7 +223,7 @@ case class ThreadBucketedLookup(arrays: Array[Array[Byte]], hashImpl: BloomHash)
 
   override def mightContain(value: Any): Boolean = {
     val h = hashImpl.hash(value)
-    filters.get.apply(Bucketed.whichBloom(h, arrays.length)).findHash(h)
+    filters.get().apply(Bucketed.whichBloom(h, arrays.length)).findHash(h)
   }
 }
 
@@ -288,7 +288,7 @@ case class ThreadBucketedMappedLookup(bucketedFiles: BloomModel, hashImpl: Bloom
 
   override def mightContain(value: Any): Boolean = {
     val h = hashImpl.hash(value)
-    filters.get.apply(Bucketed.whichBloom(h, bucketedFiles.numBuckets)).findHash(h)
+    filters.get().apply(Bucketed.whichBloom(h, bucketedFiles.numBuckets)).findHash(h)
   }
 }
 

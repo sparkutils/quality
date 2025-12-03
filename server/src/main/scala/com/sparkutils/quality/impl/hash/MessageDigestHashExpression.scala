@@ -55,10 +55,10 @@ case class MessageDigestFactory(impl: String) extends DigestFactory {
   private val ts = TSLocal[MessageDigest]{
     () => MessageDigest.getInstance(impl)
   }
-  override def fresh: Digest = MessageDigestProxy( ts.get )
+  override def fresh: Digest = MessageDigestProxy( ts.get() )
 
   override def length: Int =
-    (ts.get.getDigestLength + 7) / 8 // next whole long size up
+    (ts.get().getDigestLength + 7) / 8 // next whole long size up
 }
 /*
 case class MessageDigestLongs(children: Seq[Expression], digestImpl: String, asStruct: Boolean) extends HashLongsExpression {

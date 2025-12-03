@@ -1567,7 +1567,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
       defaultIfPassed = Some(allGood)
     )
 
-    def testProcessor(processor: Processor[TestOn, (RuleResult, LazyRuleSuiteResultDetails)]) {
+    def testProcessor(processor: Processor[TestOn, (RuleResult, LazyRuleSuiteResultDetails)]): Unit = {
       val res = map(testData, processor)
       res.map(_._1) shouldBe Seq.fill(6)(Passed)
       res.map(_._2.ruleSuiteResultDetails) shouldBe Seq.fill(6)(allGood)
@@ -1710,7 +1710,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     val s = sparkSession
     import s.implicits._
 
-    testData.toDS.createOrReplaceTempView("testData")
+    testData.toDS().createOrReplaceTempView("testData")
 
     val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
       Rule(Id(30, 3), ExpressionRule("select max(account) from testData t where t.account = account")),

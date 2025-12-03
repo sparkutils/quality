@@ -1,14 +1,8 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
-import classicFunctions._
-import com.sparkutils.quality.impl.{LambdaFunctionImpl, YamlDecoder}
-import com.sparkutils.quality.impl.extension.QualityFunctionParser.{CREATE_FUNCTION_PREFIX, WITH_TOKEN}
+import com.sparkutils.quality.impl.LambdaFunctionImpl
 import com.sparkutils.qualityTests.util.SharedConnectTests
-import com.sparkutils.testing.{ConnectOnly, ConnectionType, UseBoth}
-import org.apache.spark.SparkException
-import org.apache.spark.sql.functions._
-import org.apache.spark.sql.types.DataType
 import org.scalatest.Matchers
 
 import scala.language.postfixOps

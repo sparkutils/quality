@@ -1,5 +1,6 @@
 package com.sparkutils.quality.impl
 
+import com.sparkutils.quality.impl.LambdaFunctionImpl.LambdaFunctionOps
 import com.sparkutils.quality.impl.RuleLogicUtils.mapRules
 import com.sparkutils.quality.impl.util.VariablesLookup.fieldsFromExpression
 import com.sparkutils.quality.impl.imports.RuleResultsImports.DisabledRuleExpr
@@ -12,7 +13,6 @@ import org.apache.spark.sql.catalyst.expressions.{Expression, Literal, LambdaFun
 import org.apache.spark.sql.types.{NullType, StructType}
 
 
-
 object ProcessDisableIfMissing extends RuleRunnerImports {
   /**
    * Processes a given RuleSuite to replace any coalesceIfMissingAttributes.  This may be called before validate / docs but
@@ -22,7 +22,7 @@ object ProcessDisableIfMissing extends RuleRunnerImports {
    * @param schema The names to validate against, if empty no attempt to process coalesceIfAttributeMissing will be made
    * @return
    */
-  def processIfAttributeMissing(ruleSuite: RuleSuite, schema: StructType = StructType(Seq())) = {
+  def processIfAttributeMissing(ruleSuite: RuleSuite, schema: StructType = StructType(Seq())): RuleSuite = {
     val names = LookupIdFunctions.namesFromSchema(schema)
 
     val lambdas = ruleSuite.lambdaFunctions.map(lf => ProcessDisableIfMissing.processIfMissingLambdaCoalesce(lf.parsed, names))
@@ -117,15 +117,15 @@ object ProcessDisableIfMissing extends RuleRunnerImports {
   protected[quality] def processCoalesceIfAttributeMissing(rule: Rule, names: Set[String]): Rule =
     rule match {
       // rule and output
-      case Rule(id, ExpressionRule(rule: String),
-        iorule @ RunOnPassProcessorImpl(_, _, _, OutputExpression(oruleExpr: String))) if oruleExpr.nonEmpty =>
-        Rule(id, ExpressionRuleExpr(rule, processCoalesceIfAttributeMissing(RuleLogicUtils.expr(rule), names)),
-          iorule.copy(returnIfPassed = OutputExpressionExpr(oruleExpr,
-            processCoalesceIfAttributeMissing(RuleLogicUtils.expr(oruleExpr), names))))
+      case Rule(id, e: HasRuleText,
+        iorule @ RunOnPassProcessorImpl(_, _, _, o: HasRuleText)) if o.rule.nonEmpty =>
+        Rule(id, ExpressionRuleExpr(e.rule, processCoalesceIfAttributeMissing(RuleLogicUtils.expr(e.rule), names)),
+          iorule.copy(returnIfPassed = OutputExpressionExpr(o.rule,
+            processCoalesceIfAttributeMissing(RuleLogicUtils.expr(o.rule), names))))
 
       // just a rule
-      case orule @ Rule(_, ExpressionRule(rule: String), _) =>
-        orule.copy( expression = ExpressionRuleExpr(rule, processCoalesceIfAttributeMissing(RuleLogicUtils.expr(rule), names)))
+      case orule @ Rule(_, e: HasRuleText, _) =>
+        orule.copy( expression = ExpressionRuleExpr(e.rule, processCoalesceIfAttributeMissing(RuleLogicUtils.expr(e.rule), names)))
 
       case _ => rule
     }

@@ -1,7 +1,7 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
-import classicFunctions._
+import functions._
 import com.sparkutils.quality.impl.YamlDecoder
 import com.sparkutils.qualityTests.util.{RowTools, SharedConnectTests}
 import org.apache.spark.SparkException
@@ -14,7 +14,7 @@ import scala.language.postfixOps
 class YamlTests extends SharedConnectTests with RowTools {
 
   def doSerDeTestMaps(original: String, ddl: String) = evalCodeGens {
-    def serDe(renderOptions: Map[String, String]) {
+    def serDe(renderOptions: Map[String, String]): Unit = {
       val df = sparkSession.sql(s"select $original bits")
         .select(col("bits"), to_yaml(col("bits"), renderOptions).as("converted"))
         .select(expr("*"), from_yaml(col("converted"), DataType.fromDDL(ddl)).as("deconverted"))
@@ -22,7 +22,7 @@ class YamlTests extends SharedConnectTests with RowTools {
       val r = df.select(col("bits").as("og"), comparable_maps(col("bits")).as("bits"), col("converted"), col("deconverted").as("og_deconverted"), comparable_maps(col("deconverted")).as("deconverted"))
       val filtered = r.filter("deconverted = bits or deconverted is null and bits is null")
       //r.show
-      assert(filtered.count == 1)
+      assert(filtered.count() == 1)
     }
 
     serDe(Map.empty)
@@ -32,7 +32,7 @@ class YamlTests extends SharedConnectTests with RowTools {
   // CalendarInterval not supported in = / ordering so we need special testing for that
 
   def doSerDeTestGuess(original: String, ddl: String) = evalCodeGens {
-    def serDe(renderOptions: Map[String, String]) {
+    def serDe(renderOptions: Map[String, String]): Unit =  {
       val df = sparkSession.sql(s"select $original bits")
         .select(col("bits"), to_yaml(col("bits"), renderOptions).as("converted"))
         .select(expr("*"), from_yaml(col("converted"), DataType.fromDDL(ddl)).as("deconverted"))
@@ -40,7 +40,7 @@ class YamlTests extends SharedConnectTests with RowTools {
       val filtered = df.selectExpr("*", "cast(bits as string) bitsStr", "cast(deconverted as string) deconvertedStr")
         .filter("deconvertedStr = bitsStr or deconvertedStr is null and bitsStr is null")
       //filtered.show
-      assert(filtered.count == 1)
+      assert(filtered.count() == 1)
     }
 
     serDe(Map.empty)
@@ -136,7 +136,7 @@ class YamlTests extends SharedConnectTests with RowTools {
     val s = sparkSession
     import s.implicits._
     val str =
-      sparkSession.sql(s"select to_yaml(cast(1234.50404 as decimal(30,10)), $UseFullScalarType) r").as[String].head
+      sparkSession.sql(s"select to_yaml(cast(1234.50404 as decimal(30,10)), $UseFullScalarType) r").as[String].head()
 
     val yaml = YamlDecoder.yaml
 
@@ -146,13 +146,13 @@ class YamlTests extends SharedConnectTests with RowTools {
   } }
 
   test("sqlTest") { evalCodeGens {
-    def serDe(mapStr: String) {
+    def serDe(mapStr: String): Unit = {
       val df = sparkSession.sql("select array(1,2,3,4,5) og")
         .selectExpr("*", s"to_yaml(og$mapStr) y")
         .selectExpr("*", "from_yaml(y, 'array<int>') f")
         .filter("f == og")
       //df.show
-      assert(df.count == 1)
+      assert(df.count() == 1)
     }
 
     serDe("")

@@ -1,5 +1,6 @@
 package com.sparkutils.qualityTests.util
 
+import com.sparkutils.quality.classicFunctions.registerQualityFunctions
 import com.sparkutils.quality.impl.extension.{FunNRewrite, QualitySparkExtension}
 import com.sparkutils.quality.{RuleSuite, ruleRunner}
 import com.sparkutils.testing.SparkTestUtils.{connectMemory, scoverageClassPathsConfig, useDebugConnectLogs}
@@ -23,7 +24,7 @@ trait ClassicSharedTests extends FunSuite with TestUtilsBase with SharedSessions
     cleanupOutput()
 
     withClassicAsActive({
-      com.sparkutils.quality.registerQualityFunctions()
+      registerQualityFunctions()
     })
   }
 

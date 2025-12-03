@@ -22,7 +22,7 @@ trait Jumpable extends RngImpl {
    *
    * @param seed used only when the rng has not yet been created, otherwise branch will be used
    */
-  override def reSeedOrBranch(seed: Long) {
+  override def reSeedOrBranch(seed: Long): Unit = {
     if (isNull)
       reSeed(seed)
     else

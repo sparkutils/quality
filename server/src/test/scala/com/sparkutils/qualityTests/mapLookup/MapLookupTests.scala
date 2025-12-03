@@ -123,7 +123,7 @@ class MapLookupTests extends SharedConnectTests with VariableTestShims  {
     val df = wrongCountryTrade.toDF(tradeCols :_ *)
 
     val res = df.select(col("*"), expr(map_containsSQL("countryCode","country")).as("doesCountryExist"))
-    assert(!res.head.getAs[Boolean]("doesCountryExist"), "CHRISLAND should not exist")
+    assert(!res.head().getAs[Boolean]("doesCountryExist"), "CHRISLAND should not exist")
   } }
 
   test("emptyTest") { evalCodeGensNoResolve {
@@ -142,12 +142,12 @@ class MapLookupTests extends SharedConnectTests with VariableTestShims  {
 
     val res = df.select(col("*"), expr(map_containsSQL("empty","country")).as("doesCountryExist")).
       filter("doesCountryExist = false")
-    assert(res.count == df.count,"all of the rows should be false" )
+    assert(res.count() == df.count(),"all of the rows should be false" )
 
     // tests both map_contains and lookup
     val res2 = df.select(col("*"), map_contains("empty", col("country"), lookups).as("doesCountryExist")).
       filter("doesCountryExist = false")
-    assert(res2.count == df.count,"all of the rows should be false" )
+    assert(res2.count() == df.count(),"all of the rows should be false" )
   } }
 
   test("multiKey") { evalCodeGensNoResolve {
@@ -187,7 +187,7 @@ class MapLookupTests extends SharedConnectTests with VariableTestShims  {
     )
     val s = sparkSession
     import s.implicits._
-    val datadf = data.toDS//("hierarchy","item","data")
+    val datadf = data.toDS()//("hierarchy","item","data")
 
     val lookups = mapLookupsFromDFs(Map(
       "hierarchy" -> ( () => {

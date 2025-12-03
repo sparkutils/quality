@@ -24,7 +24,7 @@ object SparkBuilderHelper {
 
     val sc = SparkContext.getActive.get
     val se = SparkEnv.get
-    SparkContext.clearActiveContext
+    SparkContext.clearActiveContext()
 
     val conf = {
       val c = new SparkConf()
@@ -47,7 +47,7 @@ object SparkBuilderHelper {
 
     }
     val newSC = sccc.newInstance(conf)
-    val tsparkSession = SparkSession.builder().sparkContext(newSC.asInstanceOf[SparkContext]).create
+    val tsparkSession = SparkSession.builder().sparkContext(newSC.asInstanceOf[SparkContext]).create()
 
     SparkSession.setActiveSession(tsparkSession)
     tsparkSession.sparkContext.setLogLevel("ERROR")

@@ -3,7 +3,7 @@ package com.sparkutils.quality.impl
 import com.sparkutils.quality
 import com.sparkutils.quality.impl.ExpressionCompiler.withExpressionCompiler
 import com.sparkutils.quality.impl.util.{Serializing, SubQueryWrapper}
-import com.sparkutils.quality.{HasRuleText, _}
+import com.sparkutils.quality._
 import com.sparkutils.quality.impl.util.Serializing.toSeq
 import com.sparkutils.shim.expressions.Names.toName
 import org.apache.spark.internal.Logging
@@ -113,7 +113,7 @@ object RuleLogicUtils {
    * @param rule
    * @return
    */
-  def expr(rule: String) = {
+  def expr(rule: String): Expression = {
     val parser = SparkSession.getActiveSession.map(_.sessionState.sqlParser).getOrElse {
       newParser()
     }
@@ -220,7 +220,7 @@ object RuleLogicUtils {
  * Lambda functions are for re-use across rules. (param: Type, paramN: Type) -> logicResult .
  *
  */
-trait LambdaFunction extends HasRuleText with HasExpr {
+trait LambdaFunction extends com.sparkutils.quality.LambdaFunction with HasRuleText with HasExpr {
   val name: String
   val id: Id
   def parsed: LambdaFunctionParsed
@@ -233,12 +233,23 @@ case class LambdaFunctionImpl(name: String, rule: String, id: Id) extends Lambda
   def parsed: LambdaFunctionParsed = LambdaFunctionParsed(name, rule, id, expr)
 }
 
+object LambdaFunctionImpl {
+  implicit class LambdaFunctionOps(qualityLambda: quality.LambdaFunction) {
+    def parsed: LambdaFunctionParsed = qualityLambda match {
+      case l: LambdaFunctionImpl => l.parsed
+      case p: LambdaFunctionParsed => p
+      case l: quality.LambdaFunction =>
+        LambdaFunctionImpl(qualityLambda.name, qualityLambda.rule, qualityLambda.id).parsed
+    }
+  }
+}
+
 @SerialVersionUID(1L)
 case class LambdaFunctionParsed(name: String, rule: String, id: Id, override val expr: Expression) extends LambdaFunction {
   def parsed: LambdaFunctionParsed = this
 }
 
-trait RuleLogic extends Serializable {
+trait RuleLogic extends quality.ExpressionRule with Serializable {
   def internalEval(internalRow: InternalRow): Any
 
   def eval(internalRow: InternalRow): RuleResult = {
@@ -256,7 +267,7 @@ trait HasExpr {
   def expr: Expression
 }
 
-trait ExprLogic extends RuleLogic with HasExpr {
+trait ExprLogic extends quality.ExpressionRule with RuleLogic with HasExpr {
   override def internalEval(internalRow: org.apache.spark.sql.catalyst.InternalRow) =
     expr.eval(internalRow)
 }
@@ -365,7 +376,7 @@ case class ExpressionWrapper( expr: Expression, compileEval: Boolean = true) ext
   }
 }
 
-trait OutputExprLogic extends HasExpr {
+trait OutputExprLogic extends quality.OutputExpression with HasExpr {
   def eval(internalRow: org.apache.spark.sql.catalyst.InternalRow) =
     expr.eval(internalRow)
 
@@ -419,10 +430,7 @@ case class OutputExpressionWrapper( expr: Expression, compileEval: Boolean = tru
 }
 
 trait RunOnPassProcessor extends quality.RunOnPassProcessor with Serializable {
-  def salience: Int
-  def id: Id
-  def rule: String
-  def returnIfPassed: OutputExprLogic
+  override val returnIfPassed: OutputExprLogic
   def withExpr(expr: OutputExpression): RunOnPassProcessor
   def withExpr(expr: OutputExprLogic): RunOnPassProcessor
 }
@@ -439,7 +447,22 @@ case class RunOnPassProcessorImpl(salience: Int, id: Id, rule: String, returnIfP
   def withExpr(expr: OutputExprLogic): RunOnPassProcessor =
     copy(returnIfPassed = expr)
 
-  override def withExpr(e: quality.OutputExpression): quality.RunOnPassProcessor = copy(returnIfPassed = OutputExpression(e.rule)))
+  override def withExpr(e: quality.OutputExpression): quality.RunOnPassProcessor = copy(returnIfPassed =
+    e match {
+      case o: OutputExprLogic => o
+      case h: HasRuleText => OutputExpression(h.rule)
+    }
+  )
+}
+
+object RunOnPassProcessorImpl {
+  implicit class RunOnPassProcessorImplOps(runOnPassProcessor: quality.RunOnPassProcessor) {
+    def toImpl: RunOnPassProcessor = runOnPassProcessor match {
+      case r: RunOnPassProcessorImpl => r
+      case h: RunOnPassProcessorHolder => h
+      case q: quality.RunOnPassProcessor => RunOnPassProcessorImpl(q.salience, q.id, q.rule, OutputExpression(q.rule))
+    }
+  }
 }
 
 /**
@@ -449,21 +472,20 @@ case class RunOnPassProcessorImpl(salience: Int, id: Id, rule: String, returnIfP
  */
 @SerialVersionUID(1L)
 case class RunOnPassProcessorHolder(salience: Int, id: Id) extends RunOnPassProcessor with Serializable {
-  def returnIfPassed: OutputExprLogic = throw HolderUsedInsteadIfImpl(id)
+  lazy val returnIfPassed: OutputExprLogic = throw HolderUsedInsteadIfImpl(id)
   lazy val rule: String = throw HolderUsedInsteadIfImpl(id)
+
   override def withExpr(expr: quality.OutputExpression): RunOnPassProcessor =
-    RunOnPassProcessorImpl(salience, id, expr.rule, OutputExpression(expr.rule))
+    expr match {
+      case o: OutputExpression => withExpr(o)
+      case o: HasRuleText => RunOnPassProcessorImpl(salience, id, o.rule, OutputExpression(o.rule))
+  }
 
   // should not be called
   def withExpr(expr: OutputExprLogic): RunOnPassProcessor = throw HolderUsedInsteadIfImpl(id)
 
   override def withExpr(expr: OutputExpression): RunOnPassProcessor =
     RunOnPassProcessorImpl(salience, id, expr.rule, expr)
-}
-
-object NoOpRunOnPassProcessor {
-  val noOpId = Id(Serializing.notPresentOutputId, Serializing.notPresentOutputVersion)
-  val noOp = RunOnPassProcessorImpl(Serializing.notPresentSalience, noOpId, "", OutputExpression(""))
 }
 
 object RuleSuiteFunctions {
@@ -631,7 +653,7 @@ object RuleSuiteFunctions {
       }
 
       seq :+ (salience, if (debugMode)
-        row.copy
+        row.copy()
       else
         row)
     }

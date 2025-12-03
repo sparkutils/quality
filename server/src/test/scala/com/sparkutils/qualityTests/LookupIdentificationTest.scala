@@ -1,5 +1,6 @@
 package com.sparkutils.qualityTests
 
+import com.sparkutils.quality.classicFunctions.{identifyLookups, registerQualityFunctions}
 import com.sparkutils.quality.impl.util.{BloomLookupType, MapLookupType}
 import com.sparkutils.qualityTests.util.ClassicSharedTests
 import org.scalatest.FunSuite

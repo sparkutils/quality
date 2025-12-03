@@ -4,7 +4,7 @@ import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.classicFunctions._
 import com.sparkutils.quality.impl.ReWriteConstants.INC_REWRITE_GENEXP_ERR_MSG
 import com.sparkutils.quality.impl.RuleSuiteHelpers.deserialize
-import com.sparkutils.quality.impl.VariableProcessIfMissing.registerProcessIfAttributeMissingForAgnostic
+import com.sparkutils.quality.impl.VariableProcessIfMissingFunctions.registerProcessIfAttributeMissingForAgnostic
 import com.sparkutils.quality.impl.aggregates.AggregateExpressions
 import com.sparkutils.quality.impl.bloom.{BucketedArrayParquetAggregator, ParquetAggregator}
 import com.sparkutils.quality.impl.hash.{HashFunctionFactory, HashFunctionsExpression, MessageDigestFactory, ZALongHashFunctionFactory, ZALongTupleHashFunctionFactory}

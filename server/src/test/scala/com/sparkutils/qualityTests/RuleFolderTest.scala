@@ -1,8 +1,7 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
-import classicFunctions.flatten_folder_results
-import com.sparkutils.quality.impl.RunOnPassProcessor
+import functions.flatten_folder_results
 import com.sparkutils.qualityTests.util.SharedConnectTests
 import frameless.TypedExpressionEncoder
 import org.apache.spark.sql.DataFrame
@@ -150,7 +149,7 @@ class RuleFolderTest extends SharedConnectTests {
     val s = sparkSession
     import s.implicits._
 
-    com.sparkutils.testing.TestUtils.debug(outdf.show)
+    com.sparkutils.testing.TestUtils.debug(outdf.show())
 
     val res = outdf.filter("subcode is not null").as[TestOn].collect()
 
@@ -277,7 +276,7 @@ class RuleFolderTest extends SharedConnectTests {
 
     val outdfi = outdfit.selectExpr("explode(flattenFolderResults(together)) as expl")
     val outdfi2 = outdfit.select(explode(flatten_folder_results(col("together"))) as "expl")
-    assert(outdfi.union(outdfi2).distinct().count == outdfi.distinct().count)
+    assert(outdfi.union(outdfi2).distinct().count() == outdfi.distinct().count())
 
 
     //println("outdfi show")
@@ -310,12 +309,12 @@ class RuleFolderTest extends SharedConnectTests {
   } }
 
   test("testSetSyntaxButNoEqualTo") { classicOnly {
-    val bad = OutputExpression("set('lit')").expr
+    val bad = impl.OutputExpression("set('lit')").expr
     assert(bad.children.head.getClass == Literal("lit").getClass)
   } }
 
   test("testSetSyntaxEqualToButNoAttribute") { classicOnly {
-    val bad = OutputExpression("set( 1 = 'lit' )").expr
+    val bad = impl.OutputExpression("set( 1 = 'lit' )").expr
     assert(bad.children.head.children.head.getClass == Literal("lit").getClass)
   } }
 }

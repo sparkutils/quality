@@ -1,7 +1,8 @@
 package com.sparkutils.qualityTests.id
 
 import com.sparkutils.quality._
-import classicFunctions._
+import com.sparkutils.quality.classicFunctions.registerQualityFunctions
+import functions._
 import com.sparkutils.quality.impl.id._
 import com.sparkutils.quality.impl.id.model.{ProvidedID, RandomID}
 import com.sparkutils.quality.impl.rng.RandomLongs
@@ -136,7 +137,7 @@ class IDTests extends SharedConnectTests with VariableTestShims {
     import java.net._
 
     val nonNulls = enumToScala(NetworkInterface.getNetworkInterfaces) map (_.getHardwareAddress) filter (_ != null)
-    val hardwareAddress: Array[Byte] = nonNulls.next
+    val hardwareAddress: Array[Byte] = nonNulls.next()
 
     assert(model.localMAC.zip(hardwareAddress).forall(p => p._1 == p._2), "Should have identical local mac")
 
@@ -171,7 +172,7 @@ class IDTests extends SharedConnectTests with VariableTestShims {
     registerQualityFunctions()
 
     def testRes(rngExploded: DataFrame): Unit = {
-      debug(rngExploded.show)
+      debug(rngExploded.show())
       assert(rngExploded.schema.fields.map(_.name).toSeq
         == Seq("id", "rng_id_base", "rng_id_i0", "rng_id_i1"), "Column names incorrect")
     }
@@ -190,7 +191,7 @@ class IDTests extends SharedConnectTests with VariableTestShims {
     registerQualityFunctions()
 
     def testRes(rngExploded: DataFrame): Unit = {
-      debug(rngExploded.show)
+      debug(rngExploded.show())
       assert(rngExploded.schema.fields.map(_.name).toSeq
         == Seq("id", "rng_id_base", "rng_id_i0", "rng_id_i1"), "Column names incorrect")
     }
@@ -264,7 +265,7 @@ class IDTests extends SharedConnectTests with VariableTestShims {
     import s.implicits._
 
     def testRes(md5Exploded: DataFrame): Unit = {
-      debug(md5Exploded.show)
+      debug(md5Exploded.show())
       val slice = Seq("id", "md5_id_base") ++ (0 until longCount).map(i => s"md5_id_i$i")
       assert(md5Exploded.schema.fields.map(_.name).toSeq
         .containsSlice(slice), "Column names incorrect")
@@ -279,17 +280,17 @@ class IDTests extends SharedConnectTests with VariableTestShims {
     val md5Res = df.selectExpr("*", s"$digestFun('$digestImpl', f1, f2, f3) as digest" ).withColumn("md5_id", provided_id("md5_id", $"digest")).selectExpr("id","md5_id.*")
     testRes(md5Res)
 
-    assert(md5Exploded.union(md5Res).distinct.count == md5Exploded.count, "should be able to diff these to the same count...")
+    assert(md5Exploded.union(md5Res).distinct().count() == md5Exploded.count(), "should be able to diff these to the same count...")
 
     val sqlDirect = df.selectExpr("*", s"$fieldBasedId('md5_id', '$digestImpl', f1, f2, f3) as digest" ).selectExpr("id","digest.*")
     testRes(sqlDirect)
 
-    assert(md5Exploded.union(sqlDirect).distinct.count == md5Exploded.count, "should be able to diff these to the same count sqldirect...")
+    assert(md5Exploded.union(sqlDirect).distinct().count() == md5Exploded.count(), "should be able to diff these to the same count sqldirect...")
 
     val sqlExp = df.selectExpr("*", s"providedID('md5_id', $digestFun('$digestImpl', f1, f2, f3)) as md5_id").selectExpr("id","md5_id.*")
     testRes(sqlExp)
 
-    assert(md5Exploded.union(sqlExp).distinct.count == md5Exploded.count, "should be able to diff these to the same count sqlExp...")
+    assert(md5Exploded.union(sqlExp).distinct().count() == md5Exploded.count(), "should be able to diff these to the same count sqlExp...")
 
   }
 
@@ -300,7 +301,7 @@ class IDTests extends SharedConnectTests with VariableTestShims {
     import s.implicits._
 
     def testRes(md5Exploded: DataFrame): Unit = {
-      debug(md5Exploded.show)
+      debug(md5Exploded.show())
       assert(md5Exploded.schema.fields.map(_.name).toSeq
         .containsSlice( Seq("id", "md5_id_base", "md5_id_i0", "md5_id_i1")), "Column names incorrect")
     }
@@ -323,7 +324,7 @@ class IDTests extends SharedConnectTests with VariableTestShims {
 
     val df = sparkSession.range(0, idRange)
     val uniqueExploded = df.withColumn("unique_id", unique_id("unique_id")).selectExpr("id","unique_id.*")
-    debug(uniqueExploded.show)
+    debug(uniqueExploded.show())
     assert(uniqueExploded.schema.fields.map(_.name).toSeq
       == Seq("id", "unique_id_base", "unique_id_i0", "unique_id_i1"), "Column names incorrect")
 
@@ -331,22 +332,22 @@ class IDTests extends SharedConnectTests with VariableTestShims {
       model.base64(160, row.getAs[Int]("unique_id_base"),
         Array(row.getAs[Long]("unique_id_i0"), row.getAs[Long]("unique_id_i1")))
 
-    val rowSample164 = getBase64(uniqueExploded.head)
+    val rowSample164 = getBase64(uniqueExploded.head())
     val gen = model.parseID(rowSample164).asInstanceOf[GuaranteedUniqueID]
 
     Thread.sleep(1)
 
-    val rowSample264 = getBase64(uniqueExploded.head)
+    val rowSample264 = getBase64(uniqueExploded.head())
     val gen2 = model.parseID(rowSample264).asInstanceOf[GuaranteedUniqueID]
 
     assert(gen.ms != gen2.ms, "Separate actions need separate ms")
 
     val uniqueExplodedSQL = df.selectExpr("*", "uniqueid('unique_id') as unique_id").selectExpr("id","unique_id.*")
-    debug(uniqueExplodedSQL.show)
+    debug(uniqueExplodedSQL.show())
     assert(uniqueExplodedSQL.schema.fields.map(_.name).toSeq
       == Seq("id", "unique_id_base", "unique_id_i0", "unique_id_i1"), "Column names incorrect")
 
-    val sqlHead = getBase64(uniqueExplodedSQL.head)
+    val sqlHead = getBase64(uniqueExplodedSQL.head())
     val sqlID = model.parseID(sqlHead).asInstanceOf[GuaranteedUniqueID]
     assert(sqlID.mac.zip( gen.mac ).forall(p => p._1 == p._2), "Should have had the same mac if the right algo was used")
     assert(sqlID.base == gen.base, "Should have had the same base if the right algo was used")
@@ -363,14 +364,14 @@ class IDTests extends SharedConnectTests with VariableTestShims {
     // TODO verify if this works on 4.1
     val cached = sparkSession.read.parquet(ouputDir + "uniqueidequal")
 
-    val count = uniqueExploded.count
+    val count = uniqueExploded.count()
 
     val renamed = cached.selectExpr("unique_id_base as unid_base", "unique_id_i0 as unid_i0", "unique_id_i1 as unid_i1")
-    val after = renamed.join(cached, expr("idEqual('unique_id', 'unid')")).count
+    val after = renamed.join(cached, expr("idEqual('unique_id', 'unid')")).count()
     assert(after == count, "idEqual should have joined them fully")
 
     val renamedf = cached.selectExpr("unique_id_base as unid_base", "unique_id_i0 as unid_i0", "unique_id_i1 as unid_i1")
-    val afterf = renamed.join(cached, id_equal("unique_id", "unid")).count
+    val afterf = renamed.join(cached, id_equal("unique_id", "unid")).count()
     assert(afterf == count, "idEqual should have joined them fully")
 
   } }
@@ -439,7 +440,7 @@ class IDTests extends SharedConnectTests with VariableTestShims {
     val uuidExploded = df.selectExpr("uuid() as uuid").selectExpr("*", "providedId('pre', longPairFromUUID(uuid)) as pid").
       selectExpr("pid","uuid","rngUUID(prefixedToLongPair('pre', pid)) as rere")
 
-    uuidExploded.toLocalIterator.asScala.foreach {
+    uuidExploded.toLocalIterator().asScala.foreach {
       row =>
         assert(row.getString(1) == row.getString(2))//uuid should be rere
     }

@@ -90,7 +90,7 @@ trait MapLookupFunctionImports {
    * @return
    */
   def map_lookup(mapLookupName: String, lookupKey: Column, mapLookups: MapLookups): Column =
-    MapLookup(lit(mapLookupName), lookupKey, mapLookups)
+    com.sparkutils.quality.impl.mapLookup.MapLookup(lit(mapLookupName), lookupKey, mapLookups)
 
   /**
    * Tests if there is a stored value from a map via the name mapLookupName and 'key' lookupKey.  Implementation is map_lookup.isNotNull

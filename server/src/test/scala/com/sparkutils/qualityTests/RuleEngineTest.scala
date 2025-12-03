@@ -1,9 +1,9 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
-import classicFunctions.{flatten_rule_results, unpack_id_triple}
+import com.sparkutils.quality.functions.{flatten_rule_results, unpack_id_triple}
 import com.sparkutils.quality.impl.extension.FunNRewrite
-import com.sparkutils.quality.impl.{RuleEngineRunner, RunOnPassProcessor}
+import com.sparkutils.quality.impl.RuleEngineRunner
 import com.sparkutils.qualityTests.RuleEngineTest.{rulesRaw, testData}
 import com.sparkutils.qualityTests.util.SharedConnectTests
 import com.sparkutils.testing.TestUtils.debug
@@ -97,7 +97,7 @@ class RuleEngineTest extends SharedConnectTests {
 
     val outdf = testDataDF.withColumn("together", rer(testDataDF))
     //outdf.show
-    debug(outdf.select("together.*").show)
+    debug(outdf.select("together.*").show())
     val res = outdf.select("together.*").as[RuleEngineResult[Seq[NewPosting]]].collect()
 
     // this row will fail as the 0.6 doesn't class as a pass for the output expression - regardless of overall status
@@ -156,19 +156,19 @@ class RuleEngineTest extends SharedConnectTests {
     val interimT = testDataDF.withColumn("together", rer(testDataDF)).cache()
     val outdfi = interimT.selectExpr("explode(flattenRuleResults(together)) as expl")
     val outdfi2 = interimT.select(explode(flatten_rule_results(col("together"))) as "expl")
-    assert(outdfi.union(outdfi2).distinct().count == outdfi.distinct().count)
+    assert(outdfi.union(outdfi2).distinct().count() == outdfi.distinct().count())
 
     debug {
       println("outdfi show")
 
-      outdfi.show
-      outdfi.printSchema
+      outdfi.show()
+      outdfi.printSchema()
     }
 
     val interim = outdfi.selectExpr("expl.result")
     debug {
-      interim.printSchema
-      interim.show
+      interim.printSchema()
+      interim.show()
     }
 
     val res = interim.as[Seq[Posting]].collect()
@@ -195,7 +195,7 @@ class RuleEngineTest extends SharedConnectTests {
     import frameless._
 
     val outdf = testDataDF.withColumn("together", rer(testDataDF)).selectExpr("*", "together.result")
-    debug( outdf.show )
+    debug( outdf.show() )
 
     val res = outdf.select("result").as[Option[Seq[Posting]]](TypedExpressionEncoder[Option[Seq[Posting]]]).collect()
     val just4201 = Seq(Posting("from", "another_account"), Posting("to","4201"))
@@ -206,12 +206,12 @@ class RuleEngineTest extends SharedConnectTests {
     // prove unpackIdTriple works
     val srulec = outdf.select(unpack_id_triple(col("together.salientRule")) as "salientRule").selectExpr("salientRule.*")
     val srule = outdf.selectExpr("unpackIdTriple(together.salientRule) as salientRule").selectExpr("salientRule.*")
-    assert(srule.union(srulec).distinct().count == srule.distinct.count)
+    assert(srule.union(srulec).distinct().count() == srule.distinct().count())
 
     // need Option for the int's because they may be null.
     val sruleres = srule.select("ruleSuiteId","ruleSuiteVersion","ruleSetId","ruleSetVersion","ruleId","ruleVersion").
       as[(Option[Int],Option[Int],Option[Int],Option[Int],Option[Int],Option[Int])](
-        TypedExpressionEncoder[(Option[Int],Option[Int],Option[Int],Option[Int],Option[Int],Option[Int])]).collect
+        TypedExpressionEncoder[(Option[Int],Option[Int],Option[Int],Option[Int],Option[Int],Option[Int])]).collect()
     assert(sruleres(0) == (Some(1),Some(1),Some(50),Some(1),Some(100),Some(1)))
     // prove it's all nulls here i.e. salientRule is null if no rule matched
     val nulls = (None,None,None,None,None,None)
@@ -237,8 +237,8 @@ class RuleEngineTest extends SharedConnectTests {
 
     val outdf = testDataDF.withColumn("together", rer(testDataDF)).selectExpr("*", "together.result")
     debug {
-      outdf.show
-      outdf.printSchema
+      outdf.show()
+      outdf.printSchema()
     }
 
     val res = outdf.select("result").as[Option[Seq[(Int, Seq[Posting])]]](TypedExpressionEncoder[Option[Seq[(Int, Seq[Posting])]]]).collect()
@@ -261,7 +261,7 @@ class RuleEngineTest extends SharedConnectTests {
 
     val so = toOutputExpressionDS(rs)
 
-    val ruleMapWithoutOE = readRulesFromDF(ds.toDF,
+    val ruleMapWithoutOE = readRulesFromDF(ds.toDF(),
       col("ruleSuiteId"),
       col("ruleSuiteVersion"),
       col("ruleSetId"),
@@ -383,7 +383,7 @@ class RuleEngineTest extends SharedConnectTests {
       ), Seq(LambdaFunction("genMax", sub(), Id(2404,1))))
       val testDF = seq.toDF("i")
       testDF.collect()
-      def testRes(resdf: DataFrame) {
+      def testRes(resdf: DataFrame): Unit = {
         try {
           val res = resdf.selectExpr("ruleEngine.result").as[Option[Int]].collect()
           assert(res.count(_.isEmpty) == 1)

@@ -1,10 +1,11 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
+import com.sparkutils.quality.classicFunctions.registerQualityFunctions
+import com.sparkutils.quality.impl.PackId.packId
 import com.sparkutils.qualityTests.util.{RowTools, SharedConnectTests}
 import com.sparkutils.testing.TestUtils.debug
 import types._
-import impl.imports.RuleResultsImports.packId
 import impl.util.OutputExpressionRow
 import org.apache.spark.sql.SaveMode
 import org.apache.spark.sql.functions._
@@ -29,7 +30,7 @@ class RoundTripTest extends SharedConnectTests with RowTools {
     //newenc.schema.printTreeString()
     val ds = df.select("DataQuality.*").as[RuleSuiteResult]
     // it's sufficient to run the results for this test, if it can't be encoded it will throw on count
-    assert(ds.count == writeRows + 1)
+    assert(ds.count() == writeRows + 1)
   } }
 
   test("ruleEvalToOverallAndDetailsAndEncodeBack") { evalCodeGens {
@@ -41,11 +42,11 @@ class RoundTripTest extends SharedConnectTests with RowTools {
 
     val ds = df.select("DQ_Details.*").as[RuleSuiteResultDetails]
     // it's sufficient to run the results for this test, if it can't be encoded it will throw on count
-    assert(ds.count == writeRows + 1)
+    assert(ds.count() == writeRows + 1)
 
     val dso = df.select("DQ_overallResult")
     // it's sufficient to run the results for this test, if it can't be encoded it will throw on count
-    assert(dso.count == writeRows + 1)
+    assert(dso.count() == writeRows + 1)
   } }
 
   test("ruleEvalToStructAndEncodeBackWithUserType") { evalCodeGens {
@@ -60,9 +61,9 @@ class RoundTripTest extends SharedConnectTests with RowTools {
 
     //newenc.schema.printTreeString()
     val ds = df.selectExpr("named_struct('left_lower', `1`, 'left_higher', `2`)","DataQuality").as[(TestIdLeft, RuleSuiteResult)]
-    debug(ds.show)
+    debug(ds.show())
     // it's sufficient to run the results for this test, if it can't be encoded it will throw on count
-    assert(ds.count == writeRows + 1)
+    assert(ds.count() == writeRows + 1)
   } }
 
   // translate into expr's instead of the default
@@ -80,10 +81,10 @@ class RoundTripTest extends SharedConnectTests with RowTools {
     val rere = taddDataQuality( df.sparkSession.read.parquet(outputDir+"/ruleRes"), rules )
     // won't work with code gen as it's reducing columns
 //    rere.select(explode(col("DataQuality.ruleSetResults"))).show()
-    rere.select(col("*"), explode(col("DataQuality.ruleSetResults"))).head
+    rere.select(col("*"), explode(col("DataQuality.ruleSetResults"))).head()
 
     // it's sufficient to run the results for this test, if it can't be encoded it will throw on count
-    assert(rere.count == writeRows + 1)
+    assert(rere.count() == writeRows + 1)
   } }
 
   /**
@@ -191,7 +192,7 @@ class RoundTripTest extends SharedConnectTests with RowTools {
     val outputExpressionsDF = {
       val s = sparkSession
     import s.implicits._
-      flattened.toDF
+      flattened.toDF()
     }
     debug(outputExpressionsDF.show())
 

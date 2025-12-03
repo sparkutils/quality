@@ -1,6 +1,7 @@
 package com.sparkutils.qualityTests.classicOnly
 
 import com.globalmentor.apache.hadoop.fs.BareLocalFileSystem
+import com.sparkutils.quality.classicFunctions.registerQualityFunctions
 import com.sparkutils.quality.impl.extension.QualitySparkExtension.disableRulesConf
 import com.sparkutils.quality.impl.extension._
 import com.sparkutils.qualityTests.util.ClassicSharedTests
@@ -139,7 +140,7 @@ abstract class ExtensionTestBase extends ClassicSharedTests  {
   test("testForceFunctionInjection") { when_not_disabled { not2_4 {
     not_Cluster { // will never work on 2.4 and Databricks has a fixed session
       // need to clear the existing quality functions out first
-      com.sparkutils.quality.registerQualityFunctions(
+      registerQualityFunctions(
         registerFunction = (str: String, f: Seq[Expression] => Expression) => FunctionRegistry.builtin.dropFunction(FunctionIdentifier(str))
       )
 
@@ -165,7 +166,7 @@ abstract class ExtensionTestBase extends ClassicSharedTests  {
   // pretty much only for databricks
   def wrapWithExistingSession(thunk: SparkSession => Unit): Unit = {
     val tsparkSession = sparkSession
-    com.sparkutils.quality.registerQualityFunctions()
+    registerQualityFunctions()
 
     thunk(tsparkSession)
   }
@@ -207,7 +208,7 @@ abstract class ExtensionTestBase extends ClassicSharedTests  {
     }
 
     // if this is not read from file a LocalRelation will be used and there is no Filter to be pushed down
-    therows.toDS.selectExpr(s"lower as ${prefix}lower", s"higher as ${prefix}higher", s"asString as ${prefix}asString").write.mode("overwrite").format(format).save(outputDir + s"/${format}_${prefix}asymfilter")
+    therows.toDS().selectExpr(s"lower as ${prefix}lower", s"higher as ${prefix}higher", s"asString as ${prefix}asString").write.mode("overwrite").format(format).save(outputDir + s"/${format}_${prefix}asymfilter")
 
     val reread = tsparkSession.read.format(format).load(outputDir + s"/${format}_${prefix}asymfilter")
     val withcontext = reread.selectExpr("*", s"as_uuid(${prefix}lower, ${prefix}higher) as ${prefix}context")
@@ -415,7 +416,7 @@ abstract class ExtensionTestBase extends ClassicSharedTests  {
     }
 
     // if this is not read from file a LocalRelation will be used and there is no Filter to be pushed down
-    therows.toDS.selectExpr(s"base as ${prefix}base", s"i0 as ${prefix}i0", s"i1 as ${prefix}i1").write.mode("overwrite").format(format).save(outputDir + s"/${format}_${prefix}asymfilter")
+    therows.toDS().selectExpr(s"base as ${prefix}base", s"i0 as ${prefix}i0", s"i1 as ${prefix}i1").write.mode("overwrite").format(format).save(outputDir + s"/${format}_${prefix}asymfilter")
 
     val reread = tsparkSession.read.format(format).load(outputDir + s"/${format}_${prefix}asymfilter")
     val withcontext = reread.selectExpr("*", select)

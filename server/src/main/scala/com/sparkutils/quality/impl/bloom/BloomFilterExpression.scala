@@ -1,8 +1,9 @@
 package com.sparkutils.quality.impl.bloom
 
 import com.sparkutils.quality.QualityException.qualityException
-import com.sparkutils.quality.{BloomFilterMap, ClassicOnly, RuleSuite}
-import com.sparkutils.quality.impl.{RuleRegistrationFunctions, RuleRunnerUtils}
+import com.sparkutils.quality.classicFunctions.BloomFilterMap
+import com.sparkutils.quality.{ClassicOnly, RuleSuite}
+import com.sparkutils.quality.impl.RuleRunnerUtils
 import com.sparkutils.shim.expressions.{NullIntolerant, UnresolvedFunction4}
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.ShimUtils.{column, expression}
@@ -10,7 +11,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.Block._
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
 import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression, ExpressionDescription, Literal}
 import org.apache.spark.sql.types.{DataType, DoubleType, StringType}
-import org.apache.spark.sql.{ClassicQualitySparkUtils, Column, ShimUtils}
+import org.apache.spark.sql.{Column, ShimUtils}
 import org.apache.spark.unsafe.types.UTF8String
 
 object BloomFilterLookup {

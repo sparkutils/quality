@@ -12,8 +12,24 @@ import com.sparkutils.quality.impl.util.{LookupIdFunctionsImports, SerializingIm
 package object classicFunctions extends BloomFilterLookupFunctionImport
   with ClassicRuleRunnerImports with BloomExpressionFunctions with RuleFolderRunnerImports
   with MapLookupFunctionImports with BloomFilterTypes with BucketedCreatorFunctionImports with ClassicRuleRunnerFunctionsImport
-  with BloomFilterRegistration with RuleRunnerImports with Serializable with MapLookupImportsShared with LookupIdFunctionsImports
+  with BloomFilterRegistration with Serializable with MapLookupImportsShared with LookupIdFunctionsImports
   with BloomFilterLookupImports with BlockSplitBloomFilterImports with SerializingImports with LambdaFunctionsImports
   with ClassicRuleEngineRunnerImports with ValidationImports with ProcessDisableIfMissingImports {
+
+  /**
+   * Creates a bloom filter from an array of bytes using the default Parquet bloom filter implementation
+   * @param bytes
+   * @return
+   */
+  def bloomLookup(bytes: Array[Byte]): BloomLookup =
+    com.sparkutils.quality.impl.bloom.parquet.ThreadSafeBloomLookupImpl(bytes)
+
+  /**
+   * Creates a very large bloom filter from multiple buckets of 2gb arrays backed by the default Parquet implementation
+   * @param bucketedFiles
+   * @return
+   */
+  def bloomLookup(bucketedFiles: BloomModel): BloomLookup =
+    com.sparkutils.quality.impl.bloom.parquet.ThreadSafeBucketedBloomLookup(bucketedFiles)
 
 }

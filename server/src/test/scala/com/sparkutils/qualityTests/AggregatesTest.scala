@@ -1,7 +1,8 @@
 package com.sparkutils.qualityTests
 
+import com.sparkutils.quality.classicFunctions.registerQualityFunctions
 import com.sparkutils.quality.{Id, LambdaFunction, registerLambdaFunctions}
-import com.sparkutils.quality.classicFunctions._
+import com.sparkutils.quality.functions._
 import com.sparkutils.quality.impl.ReWriteConstants.INC_REWRITE_GENEXP_ERR_MSG
 import com.sparkutils.quality.impl.aggregates.ResultsExpression
 import com.sparkutils.qualityTests.mapLookup.TradeTests._
@@ -61,7 +62,7 @@ class AggregatesTest extends SharedConnectTests with VariableTestShims {
     import s.implicits._
 
     // register the various Quality sql functions as used below
-    com.sparkutils.quality.registerQualityFunctions()
+    registerQualityFunctions()
     val data = phoneData.toDS()
 
     def uniqueSub(additionalGroup: String, resultsExpression: ResultsExpression): Column =
@@ -114,7 +115,7 @@ class AggregatesTest extends SharedConnectTests with VariableTestShims {
     import s.implicits._
 
     // register the various Quality sql functions as used below
-    com.sparkutils.quality.registerQualityFunctions()
+    registerQualityFunctions()
     val data = phoneData.toDS()
 
     val pureSQL =
@@ -131,7 +132,7 @@ class AggregatesTest extends SharedConnectTests with VariableTestShims {
           functions.count("*").alias("unique_count")
         )
 
-    debug( pureSQL.show )
+    debug( pureSQL.show() )
 
     def uniqueSub(additionalGroup: String, resultsExpression: ResultsExpression): Column =
       agg_expr(MapType(
@@ -164,10 +165,10 @@ class AggregatesTest extends SharedConnectTests with VariableTestShims {
         pairs(hrPair, _._2, "mobile") ++
         pairs(hrPair, _._3, "mobile_type") ++
         pairs(hrPair, _._4, "sim_type")
-      }.toSeq.toDS.toDF("hr", "key", "value", "total_count", "unique_count")
+      }.toSeq.toDS().toDF("hr", "key", "value", "total_count", "unique_count")
 
-    reformattedSUM.count shouldBe pureSQL.count
-    reformattedSUM.union(pureSQL).distinct().count shouldBe pureSQL.count
+    reformattedSUM.count() shouldBe pureSQL.count()
+    reformattedSUM.union(pureSQL).distinct().count() shouldBe pureSQL.count()
   } }
 
   // should see lots of the number in the map, was untested under 0.4's
@@ -281,7 +282,7 @@ class AggregatesTest extends SharedConnectTests with VariableTestShims {
   def doMapCountAggr[T](summed: DataFrame)(group : Trade => T): Unit = {
     val res = summed.head().getAs[Map[T, Long]]("mapCountExpr")
 
-    val expected = simpleTrades.groupBy(group).mapValues( t => t.size)
+    val expected = simpleTrades.groupBy(group).view.mapValues( t => t.size)
 
 //    val expected = Map("1/12/2020, ETC" -> 2, "1/12/2020, OTC" -> 6)
     assert(expected.toMap == res, "expected the counts to match")
@@ -318,8 +319,8 @@ class AggregatesTest extends SharedConnectTests with VariableTestShims {
   def doMapSumAggr[T: ToDouble](summed: DataFrame): Unit = {
     val i = implicitly[ToDouble[T]]
     import i._
-    val res = summed.head().getAs[Map[String, T]]("mapSumExpr").mapValues(toDouble)
-    val expected = simpleTrades.groupBy(t => t._1 + ", " + t._2).mapValues( t => t.map( p => if (p._4 == "CHF") p._3.toDouble else p._3 * p._5).sum)
+    val res = summed.head().getAs[Map[String, T]]("mapSumExpr").view.mapValues(toDouble)
+    val expected = simpleTrades.groupBy(t => t._1 + ", " + t._2).view.mapValues( t => t.map( p => if (p._4 == "CHF") p._3.toDouble else p._3 * p._5).sum)
 
     // val expected = Map("1/12/2020, ETC" -> 3.4, "1/12/2020, OTC" -> 46.4)
     assert(expected.toMap == res.toMap, "expected the math to match")

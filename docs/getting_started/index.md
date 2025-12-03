@@ -15,13 +15,22 @@ Quality, as of 0.2.0, is delivered via 3 jars:
 
 Existing users should continue to depend on the quality jar.  Connect users on Spark 4 / DBR 17.3 however can also make remote calls by just depending on quality_api.
 
-Bloom filter functions are no longer imported by default and are only present in the full quality jar as are Processors, documentation and validation.  In order to use the functions and related data types that are not supported in the api use classicFunctions:
+The following functional areas are only present in the full quality jar:
+
+- registerQualityFunctions, 
+- Bloom filters, as are 
+- Processors, 
+- documentation functions, 
+- validation functions
+- and a number of classic only utility functions.  
+ 
+In order to use the functions and related data types that are not supported in the connect compatible api use classicFunctions:
 
 ```scala
 import com.sparkutils.quality.classicFunctions._ 
 ```
 
-The classicFunctions rule, engine, folder and expression runner functions will use connect where required and classic where possible.
+The classicFunctions rule, engine, folder and expression runner functions will use connect where required and classic where possible.  Functions which are only possible to use with classic are annotated with ClassicOnly.
 
 ### Spark 4, Connect and Remote Calls
 

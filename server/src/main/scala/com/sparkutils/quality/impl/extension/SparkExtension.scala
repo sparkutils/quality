@@ -71,7 +71,7 @@ class QualitySparkExtension extends ((SparkSessionExtensions) => Unit) with Logg
         attemptLogInfo("registering quality functions via builtin function registry - whilst you can use these in global views the extension must always be present")
         ShimUtils.registerFunctionViaBuiltin _
       }
-    com.sparkutils.quality.registerQualityFunctions(parseTypes, zero, add, mapCompare, writer,
+    com.sparkutils.quality.classicFunctions.registerQualityFunctions(parseTypes, zero, add, mapCompare, writer,
       registerFunction = func, fromExtension = true
     )
     extensions.injectParser(QualityFunctionParser(_,_))

@@ -33,11 +33,11 @@ isNull is:
 ${code.isNull.code}
 
 full context up to this point is:
-${ctx.declareMutableStates}
-${ctx.declareAddedFunctions}
-${ctx.emitExtraCode}
-${ctx.initMutableStates}
-${ctx.initPartition}
+${ctx.declareMutableStates()}
+${ctx.declareAddedFunctions()}
+${ctx.emitExtraCode()}
+${ctx.initMutableStates()}
+${ctx.initPartition()}
 """
     writer(theCode)
     code
