@@ -3,6 +3,7 @@ package com.sparkutils.quality.impl
 import com.sparkutils.quality.impl.util.VariablesLookup.Identifiers
 import com.sparkutils.quality.impl.util.RuleSuiteDocs.{IdTrEither, LambdaId, OutputExpressionId, RuleId}
 import com.sparkutils.quality.impl.util.{Docs, DocsParser, ExpressionLookup, RuleSuiteDocs, VariablesLookup, WithDocs}
+import com.sparkutils.quality.impl.HasRuleText
 import com.sparkutils.quality._
 import com.sparkutils.quality.classicFunctions.namesFromSchema
 import com.sparkutils.quality.impl.LambdaFunctionImpl.LambdaFunctionOps

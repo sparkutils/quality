@@ -1,10 +1,8 @@
 package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.{GeneralExpressionsResult, RuleEngineResult, RuleFolderResult, RuleSuiteResult}
-import frameless.TypedEncoder
-import org.apache.spark.sql.catalyst.encoders.AgnosticEncoder
-import org.apache.spark.sql.types.{DataType, StructType}
-import org.apache.spark.sql.{Encoder, Row, ShimUtils}
+
+import org.apache.spark.sql.Encoder
 import shapeless.{HList, LabelledGeneric, Lazy}
 import shapeless.ops.hlist.IsHCons
 

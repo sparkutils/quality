@@ -1,5 +1,6 @@
 package com.sparkutils.quality.impl
 
+import com.sparkutils.quality
 import com.sparkutils.quality.impl.RuleLogicUtils.mapRules
 import com.sparkutils.quality.impl.RuleRunnerUtils.flattenExpressions
 import com.sparkutils.quality.impl.PackId.packId
@@ -91,7 +92,7 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
     ruleSuite.ruleSets.flatMap(ruleSet => ruleSet.rules.map(rule =>
       rule.expression match {
         case r: ExprLogic => r.expr// only ExprLogic are possible here
-        case r: ExpressionRule => r.toImpl.expr
+        case r: quality.ExpressionRule => r.toImpl.expr
       }))
 
   def reincorporateExpressions(ruleSuite: RuleSuite, expr: Seq[Expression], compileEvals: Boolean = true): RuleSuite =
