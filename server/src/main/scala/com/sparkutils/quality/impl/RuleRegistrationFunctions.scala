@@ -14,7 +14,7 @@ import com.sparkutils.quality.impl.mapLookup.MapLookupFunctionsImpl.registerMapL
 import com.sparkutils.quality.impl.rng.{RandLongsWithJump, RandomBytes, RandomLongs}
 import com.sparkutils.quality.impl.util.{ComparableMapConverter, ComparableMapReverser, InputWrapper, PrintCode}
 import com.sparkutils.quality.impl.yaml.{YamlDecoderExpr, YamlEncoderExpr}
-import com.sparkutils.quality.{QualityException, impl, ruleFolderRunnerClassic}
+import com.sparkutils.quality.{QualityException, impl}
 import org.apache.commons.rng.simple.RandomSource
 import org.apache.spark.sql.ShimUtils.{add, column, expression}
 import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute

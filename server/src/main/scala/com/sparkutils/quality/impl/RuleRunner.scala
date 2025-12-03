@@ -162,12 +162,12 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
       packId(ruleSuiteResult.id),
       ruleResultToInt(ruleSuiteResult.overallResult),
       ArrayBasedMapData(
-        ruleSuiteResult.ruleSetResults, packId, (a: Any) => {
+        ruleSuiteResult.ruleSetResults, packId _, (a: Any) => {
           val v = a.asInstanceOf[RuleSetResult]
           InternalRow(
             ruleResultToInt(v.overallResult),
             ArrayBasedMapData(
-              v.ruleResults, packId, (a: Any) => ruleResultToInt(a.asInstanceOf[RuleResult])
+              v.ruleResults, packId _, (a: Any) => ruleResultToInt(a.asInstanceOf[RuleResult])
             )
           )
         }

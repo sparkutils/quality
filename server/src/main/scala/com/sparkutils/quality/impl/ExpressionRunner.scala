@@ -70,10 +70,10 @@ private[quality] object ExpressionRunnerUtils {
     InternalRow(
       packId(ruleSuiteResult.id),
       ArrayBasedMapData(
-        ruleSuiteResult.ruleSetResults, packId, (a: Any) => {
+        ruleSuiteResult.ruleSetResults, packId _, (a: Any) => {
           val v = a.asInstanceOf[Map[VersionedId, GeneralExpressionResult]]
           ArrayBasedMapData(
-            v, packId, (a: Any) => a match {
+            v, packId _, (a: Any) => a match {
               case r: GeneralExpressionResult =>
                 InternalRow(UTF8String.fromString( r.ruleResult ), UTF8String.fromString( r.resultDDL) )
               case s: String =>  UTF8String.fromString( s )

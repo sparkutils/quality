@@ -428,7 +428,7 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
     // verifies it works in a sort
 
     val map = Map(1 -> 1, 2 -> 2, 3 -> 3, 4 -> 4)
-    val maps = (0 to 4).map(i => map.view.mapValues(_ * i))
+    val maps = (0 to 4).map(i => map.mapValues(_ * i))
 
     val s = sparkSession
     import s.implicits._
@@ -464,7 +464,7 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
   test("testCompareWithStructsReverseAndNested") { evalCodeGensNoResolve {
 
     val map = Map(1 -> 1, 2 -> 2, 3 -> 3, 4 -> 4)
-    val maps = (0 to 4).map(i => map.view.mapValues(_ * i))
+    val maps = (0 to 4).map(i => map.mapValues(_ * i))
 
     val s = sparkSession
     import s.implicits._
@@ -840,7 +840,7 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
     val res = rdf.selectExpr("dq.*").as[RuleSuiteResult].collect()
     assert(res.forall(_.overallResult == Passed))
     res.forall(_.ruleSetResults.head._2.overallResult == Passed)
-    val sres = res.map(_.ruleSetResults.head._2.ruleResults.values.groupBy(identity).view.mapValues(_.size).toMap).toSeq
+    val sres = res.map(_.ruleSetResults.head._2.ruleResults.values.groupBy(identity).mapValues(_.size).toMap).toSeq
     assert(sres == Seq(
       Map(Passed -> 7, SoftFailed -> 1),
       Map(Passed -> 7, SoftFailed -> 1),

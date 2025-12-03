@@ -282,7 +282,7 @@ class AggregatesTest extends SharedConnectTests with VariableTestShims {
   def doMapCountAggr[T](summed: DataFrame)(group : Trade => T): Unit = {
     val res = summed.head().getAs[Map[T, Long]]("mapCountExpr")
 
-    val expected = simpleTrades.groupBy(group).view.mapValues( t => t.size)
+    val expected = simpleTrades.groupBy(group).mapValues( t => t.size)
 
 //    val expected = Map("1/12/2020, ETC" -> 2, "1/12/2020, OTC" -> 6)
     assert(expected.toMap == res, "expected the counts to match")
@@ -319,8 +319,8 @@ class AggregatesTest extends SharedConnectTests with VariableTestShims {
   def doMapSumAggr[T: ToDouble](summed: DataFrame): Unit = {
     val i = implicitly[ToDouble[T]]
     import i._
-    val res = summed.head().getAs[Map[String, T]]("mapSumExpr").view.mapValues(toDouble)
-    val expected = simpleTrades.groupBy(t => t._1 + ", " + t._2).view.mapValues( t => t.map( p => if (p._4 == "CHF") p._3.toDouble else p._3 * p._5).sum)
+    val res = summed.head().getAs[Map[String, T]]("mapSumExpr").mapValues(toDouble)
+    val expected = simpleTrades.groupBy(t => t._1 + ", " + t._2).mapValues( t => t.map( p => if (p._4 == "CHF") p._3.toDouble else p._3 * p._5).sum)
 
     // val expected = Map("1/12/2020, ETC" -> 3.4, "1/12/2020, OTC" -> 46.4)
     assert(expected.toMap == res.toMap, "expected the math to match")
