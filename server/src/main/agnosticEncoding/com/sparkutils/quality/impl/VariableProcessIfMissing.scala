@@ -22,7 +22,7 @@ object VariableProcessIfMissingFunctions {
     // unlike classic rulesuite calls these will still have rule text
     ruleSuite.ruleSets.foreach(ruleSet => ruleSet.rules.map { rule =>
       rule.expression match {
-        case h: HasRuleText =>
+        case h: HasRuleText[_] =>
           checkRuleSuiteHasProcess(h.rule, rule.id, "trigger rule")
       }
       if (rule.runOnPassProcessor ne NoOpRunOnPassProcessor.noOp) {

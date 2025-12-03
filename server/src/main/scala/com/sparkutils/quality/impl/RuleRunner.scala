@@ -4,6 +4,7 @@ import com.sparkutils.quality.impl.RuleLogicUtils.mapRules
 import com.sparkutils.quality.impl.RuleRunnerUtils.flattenExpressions
 import com.sparkutils.quality.impl.PackId.packId
 import com.sparkutils.quality._
+import com.sparkutils.quality.impl.ExpressionRuleExpr.ExpressionRuleOps
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
 import types.ruleSuiteResultType
 import com.sparkutils.quality.impl.imports.RuleRunnerImports
@@ -90,12 +91,13 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
     ruleSuite.ruleSets.flatMap(ruleSet => ruleSet.rules.map(rule =>
       rule.expression match {
         case r: ExprLogic => r.expr// only ExprLogic are possible here
+        case r: ExpressionRule => r.toImpl.expr
       }))
 
   def reincorporateExpressions(ruleSuite: RuleSuite, expr: Seq[Expression], compileEvals: Boolean = true): RuleSuite =
     reincorporateExpressionsF(ruleSuite, expr, (expr: Expression) => ExpressionWrapper(expr, compileEvals))
 
-  def reincorporateExpressionsF[T](ruleSuite: RuleSuite, expr: Seq[T], f: T => RuleLogic): RuleSuite = {
+  def reincorporateExpressionsF[T](ruleSuite: RuleSuite, expr: Seq[T], f: T => RuleLogic[_]): RuleSuite = {
     val itr = expr.iterator
     mapRules(ruleSuite) { rule =>
       rule.copy(expression = f(itr.next()))

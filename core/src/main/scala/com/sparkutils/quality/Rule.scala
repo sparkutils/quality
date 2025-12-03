@@ -6,7 +6,7 @@ import com.sparkutils.quality.RunOnPassProcessor.RunOnPassProcessorImpl
  * base for storage of rule or ruleset ids, must be a trait to force frameless to use lookup and stop any
  * accidental auto product treatment
  */
-trait VersionedId extends Serializable {
+sealed trait VersionedId extends Serializable {
   val id, version: Int
 }
 

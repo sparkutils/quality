@@ -117,14 +117,14 @@ object ProcessDisableIfMissing extends RuleRunnerImports {
   protected[quality] def processCoalesceIfAttributeMissing(rule: Rule, names: Set[String]): Rule =
     rule match {
       // rule and output
-      case Rule(id, e: HasRuleText,
-        iorule @ RunOnPassProcessorImpl(_, _, _, o: HasRuleText)) if o.rule.nonEmpty =>
+      case Rule(id, e: HasRuleText[_],
+        iorule @ RunOnPassProcessorImpl(_, _, _, o: HasRuleText[_])) if o.rule.nonEmpty =>
         Rule(id, ExpressionRuleExpr(e.rule, processCoalesceIfAttributeMissing(RuleLogicUtils.expr(e.rule), names)),
           iorule.copy(returnIfPassed = OutputExpressionExpr(o.rule,
             processCoalesceIfAttributeMissing(RuleLogicUtils.expr(o.rule), names))))
 
       // just a rule
-      case orule @ Rule(_, e: HasRuleText, _) =>
+      case orule @ Rule(_, e: HasRuleText[_], _) =>
         orule.copy( expression = ExpressionRuleExpr(e.rule, processCoalesceIfAttributeMissing(RuleLogicUtils.expr(e.rule), names)))
 
       case _ => rule

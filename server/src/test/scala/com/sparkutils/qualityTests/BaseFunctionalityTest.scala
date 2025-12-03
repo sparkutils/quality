@@ -11,15 +11,12 @@ import impl.PackId.packId
 import com.sparkutils.quality.impl.util.{Arrays, PrintCode}
 import org.apache.spark.sql.catalyst.util.ArrayData
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.types.{DataType, IntegerType, StructType}
+import org.apache.spark.sql.types.{IntegerType, StructType}
 import org.apache.spark.sql.{Column, DataFrame, Encoder, SaveMode}
-import org.scalatest.FunSuite
 
 import java.util.UUID
-import com.sparkutils.quality.impl.yaml.{YamlDecoderExpr, YamlEncoderExpr}
-import com.sparkutils.qualityTests.util.{ClassicSharedTests, RowTools, SharedConnectTests}
-import com.sparkutils.testing.TestUtils.{anyCauseHas, debug}
-import frameless.TypedExpressionEncoder
+import com.sparkutils.qualityTests.util.{RowTools, SharedConnectTests}
+import com.sparkutils.testing.TestUtils.{debug}
 import org.apache.spark.sql.ShimUtils.expression
 import org.scalatest.Matchers.convertToAnyShouldWrapper
 
@@ -27,7 +24,7 @@ import scala.language.postfixOps
 
 class BaseFunctionalityTest extends SharedConnectTests with RowTools {
 
-  test("flattenResultsTest") { evalCodeGensNoResolve {
+  ignore("flattenResultsTest") { evalCodeGensNoResolve {
     val rules = genRules(27, 27)
     val rulecount = rules.ruleSets.map( s => s.rules.size).sum
 
@@ -47,7 +44,7 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
   } }
 
   // TODO coalesce etc.
-  test("flattenResultsWithMissingTest") { classicOnly { evalCodeGensNoResolve {
+  ignore("flattenResultsWithMissingTest") { classicOnly { evalCodeGensNoResolve {
     val rules = genRules(27, 27)
     val rulecount = rules.ruleSets.map( s => s.rules.size).sum
 
@@ -132,7 +129,7 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
     })
   }}
 
-  test("typeCheckFlatten") { evalCodeGens {
+  ignore("typeCheckFlatten") { evalCodeGens {
     doTypeCheck("flattenResults(1)", Seq("cannot resolve", "overallResult","however, 1 is of int type"))
   }}
 

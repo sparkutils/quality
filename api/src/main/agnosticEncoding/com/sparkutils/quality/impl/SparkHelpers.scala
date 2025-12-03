@@ -1,16 +1,27 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality.{GeneralExpressionResult, GeneralExpressionsResult, GeneralExpressionsResultNoDDL, RuleEngineResult, RuleFolderResult, RuleSuite, RuleSuiteResult, RuleSuiteResultDetails, rule_suite}
-import org.apache.spark.sql.{Encoder, SparkSession}
+import com.sparkutils.quality.{GeneralExpressionResult, GeneralExpressionsResult, GeneralExpressionsResultNoDDL, RuleEngineResult, RuleFolderResult, RuleResult, RuleSetResult, RuleSuite, RuleSuiteResult, RuleSuiteResultDetails, VersionedId, rule_suite}
+import frameless.TypedEncoder
+import org.apache.spark.sql.catalyst.encoders.AgnosticEncoder
+import org.apache.spark.sql.types.{DataType, StructType}
+import org.apache.spark.sql.{Encoder, Row, ShimUtils, SparkSession}
 import shapeless.{HList, LabelledGeneric, Lazy}
 import shapeless.ops.hlist.IsHCons
 
 import scala.reflect.ClassTag
+case class RuleSuiteResult2(/*id: VersionedId , , ruleSetResults: Map[VersionedId, RuleSetResult] overallResult: RuleResult*/) extends Serializable {}
 
 trait EncodersImplicits extends Serializable {
   import frameless._
   import IntEncoders._
   import IdEncoders._
+
+  implicit val _1 = TypedEncoder[VersionedId]
+  implicit val _2 = TypedEncoder[RuleResult]
+  implicit val _3 = TypedEncoder[RuleSetResult]
+  implicit val _4 = TypedEncoder[Map[VersionedId, RuleSetResult]]
+
+  implicit val ruleSuiteResultTypedEnc2: TypedEncoder[RuleSuiteResult2] = TypedEncoder[RuleSuiteResult2]
 
   implicit val ruleSuiteResultTypedEnc: TypedEncoder[RuleSuiteResult] = TypedEncoder[RuleSuiteResult]
 
@@ -74,4 +85,15 @@ object VariableHelper {
     val setCommand = s"set var `$stableName` = $expr;"
     SparkSession.active.sql(setCommand)
   }
+}
+
+object Encoders extends EncodersImplicits {
+
+  def rowTypedEnc(rowType: DataType): TypedEncoder[Row] =
+    new TypedEncoder[Row]()(ClassTag(classOf[Row])) {
+      override def nullable: Boolean = agnosticEncoder.nullable
+
+      override val agnosticEncoder: AgnosticEncoder[Row] = ShimUtils.rowEncoder(rowType.asInstanceOf[StructType])
+    }
+
 }

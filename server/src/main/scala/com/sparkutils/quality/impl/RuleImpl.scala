@@ -4,10 +4,12 @@ import com.sparkutils.quality
 import com.sparkutils.quality.impl.ExpressionCompiler.withExpressionCompiler
 import com.sparkutils.quality.impl.util.{Serializing, SubQueryWrapper}
 import com.sparkutils.quality._
+import com.sparkutils.quality.impl.ExpressionRuleExpr.ExpressionRuleOps
+import com.sparkutils.quality.impl.RunOnPassProcessorImpl.RunOnPassProcessorImplOps
 import com.sparkutils.quality.impl.util.Serializing.toSeq
 import com.sparkutils.shim.expressions.Names.toName
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.ShimUtils.{arguments, newParser}
+import org.apache.spark.sql.ShimUtils.{arguments, expression, newParser}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedFunction}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext}
@@ -24,15 +26,15 @@ import scala.collection.mutable
  * The result of serializing or loading rules
  * @param rule
  */
-case class ExpressionRule( rule: String ) extends quality.ExpressionRule with ExprLogic with HasRuleText {
-  override def reset(): Unit = super[HasRuleText].reset()
+case class ExpressionRule( rule: String ) extends quality.ExpressionRule with ExprLogic with HasRuleText[ExpressionRule] {
+  override def reset(): ExpressionRule = super[HasRuleText].reset()
 }
 
 /**
  * Used as a result of serializing
  * @param rule
  */
-case class OutputExpression( rule: String ) extends quality.OutputExpression with OutputExprLogic with HasRuleText with Logging {
+case class OutputExpression( rule: String ) extends quality.OutputExpression with OutputExprLogic with HasRuleText[OutputExpression] with Logging {
   protected[quality] override def expression() = {
     val parsed = RuleLogicUtils.expr(rule)
     // output expressions can be:
@@ -65,7 +67,7 @@ case class OutputExpression( rule: String ) extends quality.OutputExpression wit
     }
   }
 
-  override def reset(): Unit = super[HasRuleText].reset()
+  override def reset(): OutputExpression = super[HasRuleText].reset()
 }
 
 // requires a unique name, otherwise janino can't find the function
@@ -94,17 +96,14 @@ object RuleLogicUtils {
    */
   def cleanExprs(ruleSuite: RuleSuite) = {
     ruleSuite.lambdaFunctions.foreach{
-      case h: RuleLogic => h.reset()
+      case h: RuleLogic[_] => h.reset()
     }
     mapRules(ruleSuite){
       f =>
-        f.expression match {
-          case h: RuleLogic => h.reset();
-        }
-        f.runOnPassProcessor match {
-          case r: RunOnPassProcessor => r.returnIfPassed.reset()
-        }
-        f
+        val e = f.expression.toImpl.reset()
+        val r = f.runOnPassProcessor.toImpl
+        r.returnIfPassed.reset()
+        f.copy(expression = e, runOnPassProcessor = r)
     }
   }
 
@@ -220,7 +219,7 @@ object RuleLogicUtils {
  * Lambda functions are for re-use across rules. (param: Type, paramN: Type) -> logicResult .
  *
  */
-trait LambdaFunction extends com.sparkutils.quality.LambdaFunction with HasRuleText with HasExpr {
+trait LambdaFunction extends com.sparkutils.quality.LambdaFunction with HasRuleText[LambdaFunction] with HasExpr {
   val name: String
   val id: Id
   def parsed: LambdaFunctionParsed
@@ -249,7 +248,7 @@ case class LambdaFunctionParsed(name: String, rule: String, id: Id, override val
   def parsed: LambdaFunctionParsed = this
 }
 
-trait RuleLogic extends quality.ExpressionRule with Serializable {
+trait RuleLogic[T <: RuleLogic[T]] extends quality.ExpressionRule with Serializable {
   def internalEval(internalRow: InternalRow): Any
 
   def eval(internalRow: InternalRow): RuleResult = {
@@ -260,19 +259,19 @@ trait RuleLogic extends quality.ExpressionRule with Serializable {
   /**
    * Allows implementations to clear out underlying expressions
    */
-  def reset(): Unit = {}
+  def reset(): T = this.asInstanceOf[T]
 }
 
 trait HasExpr {
   def expr: Expression
 }
 
-trait ExprLogic extends quality.ExpressionRule with RuleLogic with HasExpr {
+trait ExprLogic extends quality.ExpressionRule with RuleLogic[ExprLogic] with HasExpr {
   override def internalEval(internalRow: org.apache.spark.sql.catalyst.InternalRow) =
     expr.eval(internalRow)
 }
 
-trait HasRuleText extends HasExpr with quality.HasRuleText {
+trait HasRuleText[T <: HasRuleText[T]] extends HasExpr with quality.HasRuleText {
 
   // doesn't need to be serialized, done by RuleRunners
   @volatile
@@ -284,8 +283,9 @@ trait HasRuleText extends HasExpr with quality.HasRuleText {
     exprI
   }
 
-  def reset(): Unit = {
+  def reset(): T = {
     exprI = null
+    this.asInstanceOf[T]
   }
 
   override def expr = expression()
@@ -297,10 +297,20 @@ trait HasRuleText extends HasExpr with quality.HasRuleText {
  * @param expr
  */
 @SerialVersionUID(1L)
-case class ExpressionRuleExpr( rule: String, override val expr: Expression ) extends ExprLogic with HasRuleText {
-  override def reset(): Unit = super[HasRuleText].reset()
+case class ExpressionRuleExpr( rule: String, override val expr: Expression ) extends ExprLogic with HasRuleText[ExpressionRuleExpr] {
+  override def reset(): ExpressionRuleExpr = super[HasRuleText].reset()
 
   override protected[quality] def expression(): Expression = expr // ignore resets - allows process_if_att.., the ruletext remains with coalesce, the expr is corrected
+}
+
+object ExpressionRuleExpr {
+  implicit class ExpressionRuleOps(qualityExpression: quality.ExpressionRule) {
+    def toImpl: ExprLogic =
+      qualityExpression match {
+        case e: ExprLogic => e
+        case e: quality.HasRuleText => ExpressionRuleExpr(e.rule, RuleLogicUtils.expr(e.rule))
+      }
+  }
 }
 
 object ExpressionCompiler {
@@ -383,7 +393,7 @@ trait OutputExprLogic extends quality.OutputExpression with HasExpr {
   /**
    * Allows clearing of expressions
    */
-  def reset(): Unit = {}
+  def reset(): OutputExprLogic = this
 }
 
 // TODO convert api into ExprLogics !!!!
@@ -417,8 +427,8 @@ object UpdateFolderExpression {
  * @param expr
  */
 @SerialVersionUID(1L)
-case class OutputExpressionExpr( rule: String, override val expr: Expression) extends OutputExprLogic with HasRuleText {
-  override def reset(): Unit = super[HasRuleText].reset()
+case class OutputExpressionExpr( rule: String, override val expr: Expression) extends OutputExprLogic with HasRuleText[OutputExpressionExpr] {
+  override def reset(): OutputExpressionExpr = super[HasRuleText].reset()
 }
 
 case class OutputExpressionWrapper( expr: Expression, compileEval: Boolean = true) extends OutputExprLogic with ExpressionCompiler {
@@ -450,7 +460,7 @@ case class RunOnPassProcessorImpl(salience: Int, id: Id, rule: String, returnIfP
   override def withExpr(e: quality.OutputExpression): quality.RunOnPassProcessor = copy(returnIfPassed =
     e match {
       case o: OutputExprLogic => o
-      case h: HasRuleText => OutputExpression(h.rule)
+      case h: HasRuleText[_] => OutputExpression(h.rule)
     }
   )
 }
@@ -478,7 +488,7 @@ case class RunOnPassProcessorHolder(salience: Int, id: Id) extends RunOnPassProc
   override def withExpr(expr: quality.OutputExpression): RunOnPassProcessor =
     expr match {
       case o: OutputExpression => withExpr(o)
-      case o: HasRuleText => RunOnPassProcessorImpl(salience, id, o.rule, OutputExpression(o.rule))
+      case o: HasRuleText[_] => RunOnPassProcessorImpl(salience, id, o.rule, OutputExpression(o.rule))
   }
 
   // should not be called
@@ -495,9 +505,7 @@ object RuleSuiteFunctions {
     val rawRuleSets =
       ruleSets.map { rs =>
         val ruleSetRawRes = rs.rules.map { r =>
-          val ruleResult = r.expression match {
-            case r: ExpressionRule => r.eval(internalRow)
-          }
+          val ruleResult = r.expression.toImpl.eval(internalRow)
           r.id -> ruleResult
         }
         val overall = ruleSetRawRes.foldLeft(quality.OverallResult(probablePass)){
@@ -533,9 +541,7 @@ object RuleSuiteFunctions {
     val rawRuleSets =
       ruleSets.map { rs =>
         val ruleSetRawRes = rs.rules.map { r =>
-          val ruleResult = r.expression match {
-            case r: ExpressionRule => r.eval(internalRow)
-          }
+          val ruleResult = r.expression.toImpl.eval(internalRow)
 
           val onPass = ((id, rs.id, r.id), r.runOnPassProcessor.salience, r.runOnPassProcessor match {
             case r: RunOnPassProcessor => r.returnIfPassed
@@ -608,9 +614,7 @@ object RuleSuiteFunctions {
     val rawRuleSets =
       ruleSets.map { rs =>
         val ruleSetRawRes = rs.rules.map { r =>
-          val ruleResult = r.expression match {
-            case r: ExpressionRule => r.eval(inputRow)
-          }
+          val ruleResult = r.expression.toImpl.eval(inputRow)
 
           val onPass = ((id, rs.id, r.id), r.runOnPassProcessor.salience, r.runOnPassProcessor match {
             case r: RunOnPassProcessor => r.returnIfPassed
@@ -708,32 +712,4 @@ case class LazyRuleSuiteResultDetailsProxyImpl(_ruleSuiteResultDetails: RuleSuit
   extends LazyRuleSuiteResultDetails with Serializable {
 
   override def ruleSuiteResultDetails: RuleSuiteResultDetails = _ruleSuiteResultDetails
-}
-
-
-object RuleSuiteHelpers {
-  def getSparkClassLoader: ClassLoader = classOf[SparkSession].getClassLoader
-
-  def getContextOrSparkClassLoader: ClassLoader =
-    Option(Thread.currentThread().getContextClassLoader).getOrElse(getSparkClassLoader)
-
-  protected[quality] def deserialize(in: Array[Byte]): RuleSuite = {
-    val os = new ObjectInputStream(new ByteArrayInputStream(in)) {
-      override def resolveClass(desc: ObjectStreamClass): Class[_] =
-        Class.forName(desc.getName, false, getContextOrSparkClassLoader)
-    }
-    val suite = os.readObject()
-    os.close()
-    suite.asInstanceOf[RuleSuite]
-  }
-
-  protected[quality] def serialize(ruleSuite: RuleSuite): Array[Byte] = {
-    val bos = new ByteArrayOutputStream()
-    val os = new ObjectOutputStream(bos)
-    // get rid of List's Vectors are serializable
-    os.writeObject(toSeq(ruleSuite))
-    val res = bos.toByteArray
-    os.close()
-    res
-  }
 }

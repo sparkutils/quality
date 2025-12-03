@@ -2,7 +2,8 @@ package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.LambdaFunction
 import com.sparkutils.quality.impl.extension.QualityFunctionParserConstants.{CREATE_FUNCTION_PREFIX, DIVIDER, WITH_TOKEN}
-import org.apache.spark.sql.{SparkSession, classic}
+import com.sparkutils.quality.impl.qualityFunctions.LambdaFunctions
+import org.apache.spark.sql.{ShimUtils, SparkSession}
 
 /*
  When building 0.2.0 verify issues:
@@ -36,6 +37,8 @@ object QualitySparkUtils {
   def registerLambdaFunctions(functions: Seq[LambdaFunction]): Unit =
     if (functions.nonEmpty)
       SparkSession.active match {
+        case s if ShimUtils.isClassic(s) =>
+          LambdaFunctions.registerLambdaFunctions(functions)
         case s =>
           val command = s"$CREATE_FUNCTION_PREFIX\n" +
             functions.map {

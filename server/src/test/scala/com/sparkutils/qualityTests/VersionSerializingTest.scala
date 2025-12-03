@@ -91,14 +91,14 @@ class VersionSerializingTest extends SharedConnectTests {
       val flattened =
         ruleSuite.ruleSets.flatMap(rs => rs.rules.map { rule =>
           val oe = rule.runOnPassProcessor
-          if (rule.expression.asInstanceOf[HasRuleText].rule != "DELETED")
+          if (rule.expression.asInstanceOf[HasRuleText[_]].rule != "DELETED")
             OutputExpressionRow(oe.rule, oe.id.id, oe.id.version, ruleSuite.id.id, ruleSuite.id.version)
           else
             null // just to keep the outputexpressions clean
         }.filterNot(_ eq null))
       val outputExpressionsDF = {
         val s = sparkSession
-    import s.implicits._
+        import s.implicits._
         flattened.toDF()
       }
       outputExpressionsDF

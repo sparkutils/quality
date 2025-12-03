@@ -26,10 +26,10 @@ object RuleSuiteDocs {
   def RuleId(id: Id): IdTrEither = Tr3(id)
 
   protected def genRule(any: AnyRef, id: IdTrEither, expressionLookups: Map[IdTrEither, ExpressionLookup], idGen: (String, Id) => String, rsd: RuleSuiteDocs, extraFunctionListClass: String, qualityDocLink: String) =
-    if (any.isInstanceOf[HasRuleText])
+    if (any.isInstanceOf[HasRuleText[_]])
       s"""
 ```sql
-${DocsParser.stripComments(any.asInstanceOf[HasRuleText].rule)}
+${DocsParser.stripComments(any.asInstanceOf[HasRuleText[_]].rule)}
 ```
 ${
         expressionLookups.get(id).fold("") { expr =>
@@ -93,10 +93,10 @@ ${
     } else ""
 
   protected def genRuleNoStripping(any: AnyRef) =
-    if (any.isInstanceOf[HasRuleText])
+    if (any.isInstanceOf[HasRuleText[_]])
       s"""
 ```sql
-${any.asInstanceOf[HasRuleText].rule}
+${any.asInstanceOf[HasRuleText[_]].rule}
 ```
 """
     else ""

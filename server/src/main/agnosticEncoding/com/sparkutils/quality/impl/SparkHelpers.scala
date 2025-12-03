@@ -14,17 +14,6 @@ import org.apache.spark.sql.{Column, Encoder, Row, ShimUtils, SparkSession}
 import org.apache.spark.sql.types.{BinaryType, DataType, StructType}
 import scala.reflect.ClassTag
 
-object Encoders extends EncodersImplicits {
-
-  def rowTypedEnc(rowType: DataType): TypedEncoder[Row] =
-    new TypedEncoder[Row]()(ClassTag(classOf[Row])) {
-      override def nullable: Boolean = agnosticEncoder.nullable
-
-      override val agnosticEncoder: AgnosticEncoder[Row] = ShimUtils.rowEncoder(rowType.asInstanceOf[StructType])
-    }
-
-}
-
 object NamedStruct {
   def apply(pairs: Seq[(String, Column)]): Column =
     named_struct(pairs.flatMap(p => Seq(lit(p._1), p._2)):_*)
