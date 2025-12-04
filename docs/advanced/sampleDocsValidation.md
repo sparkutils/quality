@@ -3,9 +3,9 @@
 ## Errors Summary
 |Type|Count|
 |---|---:|
-      | __SparkFunctionNameError__ Name nonExistentFunction is missing | 1 |
+      | __RuleNameError__ Name nonExistentFielda is missing | 1 |
 | __RuleNameError__ Name nonExistentFieldb is missing | 1 |
-| __RuleNameError__ Name nonExistentFielda is missing | 1 |
+| __SparkFunctionNameError__ Name nonExistentFunction is missing | 1 |
 
 ## Warnings Summary
 |Type|Count|
@@ -32,6 +32,12 @@ __SparkFunctionNameError__ Name nonExistentFunction is missing occurred when pro
 
 ## Warnings Identified for RuleSuite - Id 0, 1 <a name="ruleSuiteWarnings_0_1"></a>
 
+### Id 2, 1 <a name="Warnings_0_1"></a>
+
+__NonLambdaDocParameters__ Parameter documentation is present on a non lambda expression, occurred when processing id Id(2,1) against <a href="../sampleDocsOutput/#rule_2_1">expression</a>
+
+
+
 ### Id 1002, 1 <a name="Warnings_0_1"></a>
 
 __NonLambdaDocParameters__ Parameter documentation is present on a non lambda expression, occurred when processing id Id(1002,1) against <a href="../sampleDocsOutput/#outputExpression_1002_1">expression</a>
@@ -39,12 +45,6 @@ __NonLambdaDocParameters__ Parameter documentation is present on a non lambda ex
 ```sql
 /** description 2 @param fielda desc 2 */ concat(fielda, fieldb)
 ```
-
-
-
-### Id 2, 1 <a name="Warnings_0_1"></a>
-
-__NonLambdaDocParameters__ Parameter documentation is present on a non lambda expression, occurred when processing id Id(2,1) against <a href="../sampleDocsOutput/#rule_2_1">expression</a>
 
 
 

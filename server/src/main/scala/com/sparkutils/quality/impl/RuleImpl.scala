@@ -237,7 +237,7 @@ object LambdaFunctionImpl {
     def parsed: LambdaFunctionParsed = qualityLambda match {
       case l: LambdaFunctionImpl => l.parsed
       case p: LambdaFunctionParsed => p
-      case l: quality.LambdaFunction =>
+      case _ =>
         LambdaFunctionImpl(qualityLambda.name, qualityLambda.rule, qualityLambda.id).parsed
     }
   }

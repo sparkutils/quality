@@ -8,6 +8,7 @@ import com.sparkutils.quality.impl.RuleRunnerUtils.{genRuleSuiteTerm, packTheId}
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.imports.RuleEngineRunnerImports
 import PackId.packId
+import com.sparkutils.quality
 import com.sparkutils.quality.impl.ExpressionRuleExpr.ExpressionRuleOps
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
 import com.sparkutils.quality.impl.RunOnPassProcessorImpl.RunOnPassProcessorImplOps
@@ -99,7 +100,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
         val idx = outputs.getOrElse(rule.runOnPassProcessor.id, {
             val expr = rule.runOnPassProcessor match {
               case NoOpRunOnPassProcessor.noOp => qualityException(s"You cannot use a RuleEngine, RuleFolder or ExpressionRunner if any of the rules do not have RunOnPassProcessors set ruleSet ${ruleSet.id}, rule ${rule.id}}")
-              case r: RunOnPassProcessor => r.toImpl.returnIfPassed.expr
+              case r: quality.RunOnPassProcessor => r.toImpl.returnIfPassed.expr
             }
             outputs.put(rule.runOnPassProcessor.id, pos)
 
