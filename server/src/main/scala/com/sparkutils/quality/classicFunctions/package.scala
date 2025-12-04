@@ -10,7 +10,7 @@ import com.sparkutils.quality.impl.util.{LookupIdFunctionsImports, SerializingIm
  * Collection of the Quality Spark Expressions for use in select( Column * )
  */
 package object classicFunctions extends BloomFilterLookupFunctionImport
-  with ClassicRuleRunnerImports with BloomExpressionFunctions with RuleFolderRunnerImports
+  with ClassicRuleRunnerImports with BloomExpressionFunctions with ClassicRuleFolderRunnerImports
   with MapLookupFunctionImports with BloomFilterTypes with BucketedCreatorFunctionImports with ClassicRuleRunnerFunctionsImport
   with BloomFilterRegistration with Serializable with MapLookupImportsShared with LookupIdFunctionsImports
   with BloomFilterLookupImports with BlockSplitBloomFilterImports with SerializingImports with LambdaFunctionsImports

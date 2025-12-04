@@ -2,7 +2,7 @@ package com.sparkutils.quality.impl
 
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
-import com.sparkutils.quality.impl.imports.RuleFolderRunnerImports
+import com.sparkutils.quality.impl.imports.ClassicRuleFolderRunnerImports
 import com.sparkutils.quality.impl.util.PassThroughEvalOnly
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
@@ -14,7 +14,7 @@ import org.apache.spark.sql.types._
 import java.util.concurrent.atomic.AtomicReference
 import scala.reflect.ClassTag
 
-private[quality] object RuleFolderRunnerUtils extends RuleFolderRunnerImports {
+private[quality] object RuleFolderRunnerUtils extends ClassicRuleFolderRunnerImports {
 
   /**
    * Needs sorting in salience order for output processing but NOT for result's.

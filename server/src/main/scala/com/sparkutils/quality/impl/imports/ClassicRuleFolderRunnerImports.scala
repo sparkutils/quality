@@ -13,7 +13,7 @@ import org.apache.spark.sql.{Column, DataFrame, ClassicQualitySparkUtils, ShimUt
 
 import java.util.concurrent.atomic.AtomicReference
 
-trait RuleFolderRunnerImports {
+trait ClassicRuleFolderRunnerImports {
   /**
    * Creates a column that runs the folding RuleSuite.  This also forces registering the lambda functions used by that RuleSuite.
    *
