@@ -119,7 +119,7 @@ object ProcessDisableIfMissing extends RuleRunnerImports {
     rule match {
       // rule and output
       case Rule(id, e: quality.HasRuleText,
-        iorule @ RunOnPassProcessorImpl(_, _, _, o: quality.HasRuleText)) if o.rule.nonEmpty =>
+        iorule @ quality.RunOnPassProcessor.RunOnPassProcessorImpl(_, _, _, o: quality.HasRuleText)) if o.rule.nonEmpty =>
         Rule(id, ExpressionRuleExpr(e.rule, processCoalesceIfAttributeMissing(RuleLogicUtils.expr(e.rule), names)),
           iorule.copy(returnIfPassed = OutputExpressionExpr(o.rule,
             processCoalesceIfAttributeMissing(RuleLogicUtils.expr(o.rule), names))))
@@ -128,6 +128,7 @@ object ProcessDisableIfMissing extends RuleRunnerImports {
       case orule @ Rule(_, e: quality.HasRuleText, _) =>
         orule.copy( expression = ExpressionRuleExpr(e.rule, processCoalesceIfAttributeMissing(RuleLogicUtils.expr(e.rule), names)))
 
-      case _ => rule
+      case _ =>
+        rule
     }
 }

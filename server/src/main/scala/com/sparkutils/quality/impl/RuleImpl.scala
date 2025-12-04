@@ -33,6 +33,7 @@ case class ExpressionRule( rule: String ) extends quality.ExpressionRule with Ex
  * @param rule
  */
 case class OutputExpression( rule: String ) extends quality.OutputExpression with OutputExprLogic with HasRuleText[OutputExpression] with Logging {
+
   protected[quality] override def expression() = {
     val parsed = RuleLogicUtils.expr(rule)
     // output expressions can be:
@@ -459,7 +460,7 @@ case class RunOnPassProcessorImpl(salience: Int, id: Id, rule: String, returnIfP
   override def withExpr(e: quality.OutputExpression): quality.RunOnPassProcessor = copy(returnIfPassed =
     e match {
       case o: OutputExprLogic => o
-      case h: HasRuleText[_] => OutputExpression(h.rule)
+      case h: quality.HasRuleText => OutputExpression(h.rule)
     }
   )
 }
@@ -468,33 +469,9 @@ object RunOnPassProcessorImpl {
   implicit class RunOnPassProcessorImplOps(runOnPassProcessor: quality.RunOnPassProcessor) {
     def toImpl: RunOnPassProcessor = runOnPassProcessor match {
       case r: RunOnPassProcessorImpl => r
-      case h: RunOnPassProcessorHolder => h
       case q: quality.RunOnPassProcessor => RunOnPassProcessorImpl(q.salience, q.id, q.rule, OutputExpression(q.rule))
     }
   }
-}
-
-/**
- * Until output expressions are re-integrated this will throw unimplemented
- * @param salience
- * @param id
- */
-@SerialVersionUID(1L)
-case class RunOnPassProcessorHolder(salience: Int, id: Id) extends RunOnPassProcessor with Serializable {
-  lazy val returnIfPassed: OutputExprLogic = throw HolderUsedInsteadIfImpl(id)
-  lazy val rule: String = throw HolderUsedInsteadIfImpl(id)
-
-  override def withExpr(expr: quality.OutputExpression): RunOnPassProcessor =
-    expr match {
-      case o: OutputExpression => withExpr(o)
-      case o: quality.HasRuleText => RunOnPassProcessorImpl(salience, id, o.rule, OutputExpression(o.rule))
-    }
-
-  // should not be called
-  def withExpr(expr: OutputExprLogic): RunOnPassProcessor = throw HolderUsedInsteadIfImpl(id)
-
-  override def withExpr(expr: OutputExpression): RunOnPassProcessor =
-    RunOnPassProcessorImpl(salience, id, expr.rule, expr)
 }
 
 object RuleSuiteFunctions {

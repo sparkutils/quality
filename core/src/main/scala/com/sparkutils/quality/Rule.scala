@@ -86,7 +86,7 @@ object RunOnPassProcessor {
    * @param e
    * @return
    */
-  def apply(salience: Int, id: Id, e: OutputExpression) =
+  def apply(salience: Int, id: Id, e: OutputExpression): RunOnPassProcessor =
     RunOnPassProcessorImpl(salience, id, e match {
       case h: HasRuleText => h.rule
       case _ => ""

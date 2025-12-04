@@ -1,7 +1,10 @@
 package com.sparkutils.qualityTests
 
+import com.sparkutils.quality
+import com.sparkutils.quality.OutputExpression.OutputExpressionImpl
 import com.sparkutils.quality._
 import com.sparkutils.quality.classicFunctions.registerQualityFunctions
+import com.sparkutils.quality.impl.{OutputExpressionExpr, RunOnPassProcessorImpl}
 import com.sparkutils.quality.impl.PackId.packId
 import com.sparkutils.qualityTests.util.{RowTools, SharedConnectTests}
 import com.sparkutils.testing.TestUtils.debug
@@ -9,8 +12,9 @@ import types._
 import impl.util.OutputExpressionRow
 import org.apache.spark.sql.SaveMode
 import org.apache.spark.sql.functions._
+import org.scalatest.Matchers
 
-class RoundTripTest extends SharedConnectTests with RowTools {
+class RoundTripTest extends SharedConnectTests with RowTools with Matchers {
 
   test("verifyPacking") {
     import implicits._
@@ -191,7 +195,7 @@ class RoundTripTest extends SharedConnectTests with RowTools {
       })
     val outputExpressionsDF = {
       val s = sparkSession
-    import s.implicits._
+      import s.implicits._
       flattened.toDF()
     }
     debug(outputExpressionsDF.show())
@@ -244,7 +248,7 @@ class RoundTripTest extends SharedConnectTests with RowTools {
       )
     }
 
-    assert(toOrdered(rules) == toOrdered(reRules), "The rules were not identical")
+    toOrdered(rules) should equal(toOrdered(reRules))
   } } }
 
 }
