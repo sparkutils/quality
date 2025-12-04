@@ -5,19 +5,11 @@ import com.sparkutils.quality.impl.RuleRegistrationFunctions.getBinary
 import com.sparkutils.quality.impl.RuleSuiteHelpers.deserialize
 import com.sparkutils.quality.impl.util.CombinedRuleSuiteRows
 import com.sparkutils.quality.{RuleSuite, rule_suite}
-import frameless.TypedEncoder
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.encoders.{AgnosticEncoder, ExpressionEncoder}
+import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder
 import org.apache.spark.sql.catalyst.expressions.{Literal, VariableReference}
-import org.apache.spark.sql.functions.{lit, named_struct}
-import org.apache.spark.sql.{Column, Encoder, Row, ShimUtils, SparkSession}
-import org.apache.spark.sql.types.{BinaryType, DataType, StructType}
-import scala.reflect.ClassTag
-
-object NamedStruct {
-  def apply(pairs: Seq[(String, Column)]): Column =
-    named_struct(pairs.flatMap(p => Seq(lit(p._1), p._2)):_*)
-}
+import org.apache.spark.sql.{Encoder, ShimUtils, SparkSession}
+import org.apache.spark.sql.types.{BinaryType,  StructType}
 
 /**
  * Ignores extra output expressions
