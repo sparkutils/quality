@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl.imports
 
 import com.sparkutils.quality.RuleSuite
-import com.sparkutils.quality.impl.RuleSuiteHelpers
+import com.sparkutils.quality.impl.{RuleSuiteHelpers, Runners}
 import org.apache.spark.sql.functions.lit
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.{Column, DataFrame, ShimUtils}
@@ -29,8 +29,11 @@ trait RuleFolderRunnerImports {
                        debugMode: Boolean = false, resolveWith: Option[DataFrame] = None, variablesPerFunc: Int = 40,
                        variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false, useType: Option[StructType] = None,
                        forceTriggerEval: Boolean = false): Column =
-    ShimUtils.callFunction("rule_folder_runner", lit(RuleSuiteHelpers.serialize(ruleSuite)),
-      startingStruct, lit(compileEvals), lit(debugMode), lit(variablesPerFunc),
-      lit(variableFuncGroup), lit(forceRunnerEval), lit(useType.map(_.sql).getOrElse("")), lit(forceTriggerEval)
+    Runners.ruleFolderRunner(ruleSuite, startingStruct, compileEvals, debugMode, resolveWith,
+      variablesPerFunc, variableFuncGroup, forceRunnerEval, useType, forceTriggerEval).getOrElse(
+      ShimUtils.callFunction("rule_folder_runner", lit(RuleSuiteHelpers.serialize(ruleSuite)),
+        startingStruct, lit(compileEvals), lit(debugMode), lit(variablesPerFunc),
+        lit(variableFuncGroup), lit(forceRunnerEval), lit(useType.map(_.sql).getOrElse("")), lit(forceTriggerEval)
+      )
     )
 }

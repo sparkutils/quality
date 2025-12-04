@@ -8,6 +8,7 @@ import com.sparkutils.quality.impl.RuleRunnerUtils.{genRuleSuiteTerm, packTheId}
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.imports.RuleEngineRunnerImports
 import PackId.packId
+import com.sparkutils.quality.impl.ExpressionRuleExpr.ExpressionRuleOps
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
 import com.sparkutils.quality.impl.RunOnPassProcessorImpl.RunOnPassProcessorImplOps
 import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals, PassThroughEvalOnly}
@@ -93,10 +94,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
 
     val expressions =
       ruleSuite.ruleSets.flatMap( ruleSet => ruleSet.rules.map(rule => {
-        val expr =
-          rule.expression match {
-            case r: ExprLogic => r.expr// only ExprLogic are possible here
-          }
+        val expr = rule.expression.toImpl.expr
 
         val idx = outputs.getOrElse(rule.runOnPassProcessor.id, {
             val expr = rule.runOnPassProcessor match {
@@ -255,7 +253,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
     def codeGen(exp: Expression, idx: Int, funName: String) = {
       val (evalPre, eval) =
         if (forceTriggerEval)
-          ("", s"$utilsName.ruleResultToInt($childrenFuncTerm[$idx].eval($i))")
+          ("", s"com.sparkutils.quality.impl.RuleSuiteHelpers.ruleResultToInt($childrenFuncTerm[$idx].eval($i))")
         else {
           val eval = exp.genCode(ctx)
 

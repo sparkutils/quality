@@ -2,14 +2,13 @@ package com.sparkutils.quality.impl
 
 import com.sparkutils.quality
 import com.sparkutils.quality.impl.ExpressionCompiler.withExpressionCompiler
-import com.sparkutils.quality.impl.util.{Serializing, SubQueryWrapper}
+import com.sparkutils.quality.impl.util.SubQueryWrapper
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.ExpressionRuleExpr.ExpressionRuleOps
 import com.sparkutils.quality.impl.RunOnPassProcessorImpl.RunOnPassProcessorImplOps
-import com.sparkutils.quality.impl.util.Serializing.toSeq
 import com.sparkutils.shim.expressions.Names.toName
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.ShimUtils.{arguments, expression, newParser}
+import org.apache.spark.sql.ShimUtils.{arguments, newParser}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedFunction}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext}
@@ -19,7 +18,6 @@ import org.apache.spark.sql.types.{DataType, Decimal}
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.unsafe.types.UTF8String
 
-import java.io.{ByteArrayInputStream, ByteArrayOutputStream, ObjectInputStream, ObjectOutputStream, ObjectStreamClass}
 import scala.collection.mutable
 
 /**
@@ -97,6 +95,7 @@ object RuleLogicUtils {
   def cleanExprs(ruleSuite: RuleSuite) = {
     ruleSuite.lambdaFunctions.foreach{
       case h: RuleLogic[_] => h.reset()
+      case _ => ()
     }
     mapRules(ruleSuite){
       f =>
@@ -308,7 +307,7 @@ object ExpressionRuleExpr {
     def toImpl: ExprLogic =
       qualityExpression match {
         case e: ExprLogic => e
-        case e: quality.HasRuleText => ExpressionRuleExpr(e.rule, RuleLogicUtils.expr(e.rule))
+        case e: quality.HasRuleText => ExpressionRule(e.rule)
       }
   }
 }
@@ -488,8 +487,8 @@ case class RunOnPassProcessorHolder(salience: Int, id: Id) extends RunOnPassProc
   override def withExpr(expr: quality.OutputExpression): RunOnPassProcessor =
     expr match {
       case o: OutputExpression => withExpr(o)
-      case o: HasRuleText[_] => RunOnPassProcessorImpl(salience, id, o.rule, OutputExpression(o.rule))
-  }
+      case o: quality.HasRuleText => RunOnPassProcessorImpl(salience, id, o.rule, OutputExpression(o.rule))
+    }
 
   // should not be called
   def withExpr(expr: OutputExprLogic): RunOnPassProcessor = throw HolderUsedInsteadIfImpl(id)

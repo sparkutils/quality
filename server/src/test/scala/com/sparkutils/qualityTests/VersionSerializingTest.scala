@@ -1,5 +1,6 @@
 package com.sparkutils.qualityTests
 
+import com.sparkutils.quality
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.HasRuleText
 import com.sparkutils.quality.impl.PackId.packId
@@ -91,7 +92,7 @@ class VersionSerializingTest extends SharedConnectTests {
       val flattened =
         ruleSuite.ruleSets.flatMap(rs => rs.rules.map { rule =>
           val oe = rule.runOnPassProcessor
-          if (rule.expression.asInstanceOf[HasRuleText[_]].rule != "DELETED")
+          if (rule.expression.asInstanceOf[quality.HasRuleText].rule != "DELETED")
             OutputExpressionRow(oe.rule, oe.id.id, oe.id.version, ruleSuite.id.id, ruleSuite.id.version)
           else
             null // just to keep the outputexpressions clean

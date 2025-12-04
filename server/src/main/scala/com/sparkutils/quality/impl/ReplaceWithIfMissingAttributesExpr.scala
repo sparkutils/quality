@@ -1,5 +1,6 @@
 package com.sparkutils.quality.impl
 
+import com.sparkutils.quality
 import com.sparkutils.quality.impl.LambdaFunctionImpl.LambdaFunctionOps
 import com.sparkutils.quality.impl.RuleLogicUtils.mapRules
 import com.sparkutils.quality.impl.util.VariablesLookup.fieldsFromExpression
@@ -117,14 +118,14 @@ object ProcessDisableIfMissing extends RuleRunnerImports {
   protected[quality] def processCoalesceIfAttributeMissing(rule: Rule, names: Set[String]): Rule =
     rule match {
       // rule and output
-      case Rule(id, e: HasRuleText[_],
-        iorule @ RunOnPassProcessorImpl(_, _, _, o: HasRuleText[_])) if o.rule.nonEmpty =>
+      case Rule(id, e: quality.HasRuleText,
+        iorule @ RunOnPassProcessorImpl(_, _, _, o: quality.HasRuleText)) if o.rule.nonEmpty =>
         Rule(id, ExpressionRuleExpr(e.rule, processCoalesceIfAttributeMissing(RuleLogicUtils.expr(e.rule), names)),
           iorule.copy(returnIfPassed = OutputExpressionExpr(o.rule,
             processCoalesceIfAttributeMissing(RuleLogicUtils.expr(o.rule), names))))
 
       // just a rule
-      case orule @ Rule(_, e: HasRuleText[_], _) =>
+      case orule @ Rule(_, e: quality.HasRuleText, _) =>
         orule.copy( expression = ExpressionRuleExpr(e.rule, processCoalesceIfAttributeMissing(RuleLogicUtils.expr(e.rule), names)))
 
       case _ => rule

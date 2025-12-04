@@ -213,7 +213,7 @@ object Validation {
 
     val docsWarnings = mutable.Set[RuleWarning]()
 
-    def addDocs[T](id: Id, rule: T, expressionRule: HasRuleText[_]): (Id, WithDocs[T]) =
+    def addDocs[T](id: Id, rule: T, expressionRule: quality.HasRuleText): (Id, WithDocs[T]) =
       DocsParser.parse(expressionRule.rule).map { parseddocs =>
         val res = id -> WithDocs(rule, parseddocs)
         if (parseddocs.params.nonEmpty) {
@@ -233,7 +233,7 @@ object Validation {
 
           val outputErrors =
             if (r.runOnPassProcessor != NoOpRunOnPassProcessor.noOp) {
-              outputExpressions += addDocs[impl.RunOnPassProcessor](r.runOnPassProcessor.id, r.runOnPassProcessor.toImpl, r.runOnPassProcessor.returnIfPassed.asInstanceOf[HasRuleText[_]])
+              outputExpressions += addDocs[impl.RunOnPassProcessor](r.runOnPassProcessor.id, r.runOnPassProcessor.toImpl, r.runOnPassProcessor.returnIfPassed.asInstanceOf[quality.HasRuleText])
 
               val (oErrors, oExprLookup) = doRule(r.runOnPassProcessor.id, r.runOnPassProcessor.toImpl.returnIfPassed.expr, true, viewLookup)
               exprLookups += OutputExpressionId(r.runOnPassProcessor.id) -> oExprLookup

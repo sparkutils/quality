@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl.imports
 
 import com.sparkutils.quality.RuleSuite
-import com.sparkutils.quality.impl.RuleSuiteHelpers
+import com.sparkutils.quality.impl.{RuleSuiteHelpers, Runners}
 import org.apache.spark.sql.ShimUtils.callFunction
 import org.apache.spark.sql.catalyst.expressions.Literal
 import org.apache.spark.sql.functions.lit
@@ -23,7 +23,9 @@ trait RuleRunnerImports {
    * @return A Column representing the Quality DQ expression built from this ruleSuite
    */
   def ruleRunner(ruleSuite: RuleSuite, compileEvals: Boolean = true, resolveWith: Option[DataFrame] = None, variablesPerFunc: Int = 40, variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false): Column =
-    ShimUtils.callFunction("dq_rule_runner", lit(RuleSuiteHelpers.serialize(ruleSuite)), lit(compileEvals), lit(variablesPerFunc), lit(variableFuncGroup), lit(forceRunnerEval))
+    Runners.ruleRunner(ruleSuite, compileEvals, resolveWith, variablesPerFunc, variableFuncGroup, forceRunnerEval).getOrElse(
+      ShimUtils.callFunction("dq_rule_runner", lit(RuleSuiteHelpers.serialize(ruleSuite)), lit(compileEvals), lit(variablesPerFunc), lit(variableFuncGroup), lit(forceRunnerEval))
+    )
 
   /**
    * The integer value for soft failed dq rules

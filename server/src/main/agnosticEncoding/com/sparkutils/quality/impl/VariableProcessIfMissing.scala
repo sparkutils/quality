@@ -1,5 +1,6 @@
 package com.sparkutils.quality.impl
 
+import com.sparkutils.quality
 import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.impl.RuleRegistrationFunctions.{defaultParseTypes, getString}
 import com.sparkutils.quality.{Id, NoOpRunOnPassProcessor, RuleSuite}
@@ -22,7 +23,7 @@ object VariableProcessIfMissingFunctions {
     // unlike classic rulesuite calls these will still have rule text
     ruleSuite.ruleSets.foreach(ruleSet => ruleSet.rules.map { rule =>
       rule.expression match {
-        case h: HasRuleText[_] =>
+        case h: quality.HasRuleText =>
           checkRuleSuiteHasProcess(h.rule, rule.id, "trigger rule")
       }
       if (rule.runOnPassProcessor ne NoOpRunOnPassProcessor.noOp) {
