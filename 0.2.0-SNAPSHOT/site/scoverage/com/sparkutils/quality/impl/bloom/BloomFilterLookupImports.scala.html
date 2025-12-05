@@ -26,11 +26,11 @@
 </span>2 <span style=''>
 </span>3 <span style=''>import com.sparkutils.quality.impl.RuleRegistrationFunctions.registerWithChecks
 </span>4 <span style=''>import com.sparkutils.quality.impl.bloom.parquet.{BucketedFilesRoot, FileRoot}
-</span>5 <span style=''>import com.sparkutils.quality.{DataFrameLoader, Id, RuleSuite}
+</span>5 <span style=''>import com.sparkutils.quality.{ClassicOnly, DataFrameLoader, Id, RuleSuite}
 </span>6 <span style=''>import com.sparkutils.quality.impl.util.ConfigLoader
 </span>7 <span style=''>import org.apache.spark.broadcast.Broadcast
 </span>8 <span style=''>import org.apache.spark.sql.ShimUtils.{column, expression}
-</span>9 <span style=''>import org.apache.spark.sql.{Column, DataFrame, ClassicQualitySparkUtils, ShimUtils, SparkSession}
+</span>9 <span style=''>import org.apache.spark.sql.{ClassicQualitySparkUtils, Column, DataFrame, ShimUtils, SparkSession}
 </span>10 <span style=''>import org.apache.spark.sql.catalyst.expressions.{Expression, Literal}
 </span>11 <span style=''>import org.apache.spark.sql.functions.lit
 </span>12 <span style=''>
@@ -40,209 +40,219 @@
 </span>16 <span style=''>   * Registers this bloom map and associates the probabilityIn sql expression against it
 </span>17 <span style=''>   * @param bloomFilterMap
 </span>18 <span style=''>   */
-</span>19 <span style=''>  def registerBloomMapAndFunction(bloomFilterMap: Broadcast[BloomExpressionLookup.BloomFilterMap]) {
-</span>20 <span style=''>    val funcReg = </span><span style='background: #AEF1AE'>SparkSession.getActiveSession.get.sessionState.functionRegistry</span><span style=''>
-</span>21 <span style=''>    def register(name: String, argsf: Seq[Expression] =&gt; Expression, paramNumbers: Set[Int] = Set.empty, minimum: Int = -1) =
-</span>22 <span style=''>      </span><span style='background: #AEF1AE'>registerWithChecks(ShimUtils.registerFunction(funcReg), name, argsf, paramNumbers, minimum)</span><span style=''>
-</span>23 <span style=''>
-</span>24 <span style=''>    val f = (exps: Seq[Expression]) =&gt; </span><span style='background: #AEF1AE'>BloomFilterLookupExpression(exps(0), exps(1), bloomFilterMap)</span><span style=''>
-</span>25 <span style=''>    </span><span style='background: #AEF1AE'>register(&quot;probability_In&quot;, f, Set(2))</span><span style=''>
-</span>26 <span style=''>  }
-</span>27 <span style=''>
-</span>28 <span style=''>}
-</span>29 <span style=''>
-</span>30 <span style=''>trait BloomFilterLookupFunctionImport {
-</span>31 <span style=''>
-</span>32 <span style=''>  /**
-</span>33 <span style=''>   * Lookup the value against a bloom filter from bloomMap with name bloomFilterName.  In line with the sql functions please migrate to probability_in
-</span>34 <span style=''>   *
-</span>35 <span style=''>   * @param bloomFilterName
-</span>36 <span style=''>   * @param lookupValue
-</span>37 <span style=''>   * @param bloomMap
-</span>38 <span style=''>   * @return
-</span>39 <span style=''>   */
-</span>40 <span style=''>  @deprecated(since=&quot;0.1.0&quot;, message=&quot;Please migrate to bloom_lookup&quot;)
-</span>41 <span style=''>  def bloomFilterLookup(lookupValue: Column, bloomFilterName: Column, bloomMap: Broadcast[BloomExpressionLookup.BloomFilterMap]): Column =
-</span>42 <span style=''>    </span><span style='background: #AEF1AE'>BloomFilterLookup(lookupValue, bloomFilterName, bloomMap)</span><span style=''>
-</span>43 <span style=''>
-</span>44 <span style=''>  /**
-</span>45 <span style=''>   * Lookup the value against a bloom filter from bloomMap with name filterName.
-</span>46 <span style=''>   *
-</span>47 <span style=''>   * @param filterName
-</span>48 <span style=''>   * @param lookupValue
-</span>49 <span style=''>   * @param bloomMap
-</span>50 <span style=''>   * @return
-</span>51 <span style=''>   */
-</span>52 <span style=''>  def probability_in(lookupValue: Column, filterName: String, bloomMap: Broadcast[BloomExpressionLookup.BloomFilterMap]): Column =
-</span>53 <span style=''>    </span><span style='background: #AEF1AE'>BloomFilterLookup(lookupValue, lit(filterName), bloomMap)</span><span style=''>
-</span>54 <span style=''>}
-</span>55 <span style=''>
-</span>56 <span style=''>trait BloomFilterLookupImports {
-</span>57 <span style=''>
-</span>58 <span style=''>  /**
-</span>59 <span style=''>   * Identifies bloom ids before (or after) resolving for a given ruleSuite, use to know which bloom filters need to be loaded
-</span>60 <span style=''>   *
-</span>61 <span style=''>   * @param ruleSuite a ruleSuite full of expressions to check
-</span>62 <span style=''>   * @return The bloom id's used, for unresolved expression trees this may contain blooms which are not present in the bloom map
-</span>63 <span style=''>   */
-</span>64 <span style=''>  def getBlooms(ruleSuite: RuleSuite): Seq[String] = </span><span style='background: #AEF1AE'>BloomFilterLookup.getBlooms(ruleSuite)</span><span style=''>
-</span>65 <span style=''>
-</span>66 <span style=''>  import Serializing.{factory, bloomRowEncoder}
-</span>67 <span style=''>
-</span>68 <span style=''>  /**
-</span>69 <span style=''>   * Loads map configurations from a given DataFrame for ruleSuiteId.  Wherever token is present loader will be called and the filter optionally applied.
-</span>70 <span style=''>   * @return A tuple of MapConfig's and the names of rows which had unexpected content (either token or sql must be present)
-</span>71 <span style=''>   */
-</span>72 <span style=''>  def loadBloomConfigs(loader: DataFrameLoader, viewDF: DataFrame,
-</span>73 <span style=''>                     ruleSuiteIdColumn: Column,
-</span>74 <span style=''>                     ruleSuiteVersionColumn: Column,
-</span>75 <span style=''>                     ruleSuiteId: Id,
-</span>76 <span style=''>                     name: Column,
-</span>77 <span style=''>                     token: Column,
-</span>78 <span style=''>                     filter: Column,
-</span>79 <span style=''>                     sql: Column,
-</span>80 <span style=''>                     bigBloom: Column,
-</span>81 <span style=''>                     value: Column,
-</span>82 <span style=''>                     numberOfElements: Column,
-</span>83 <span style=''>                     expectedFPP: Column
-</span>84 <span style=''>                    ): (Seq[BloomConfig], Set[String]) =
-</span>85 <span style=''>    </span><span style='background: #AEF1AE'>ConfigLoader.loadConfigs[BloomConfig, BloomRow](
-</span>86 <span style=''></span><span style='background: #AEF1AE'>      loader, viewDF,
-</span>87 <span style=''></span><span style='background: #AEF1AE'>      ruleSuiteIdColumn,
-</span>88 <span style=''></span><span style='background: #AEF1AE'>      ruleSuiteVersionColumn,
-</span>89 <span style=''></span><span style='background: #AEF1AE'>      ruleSuiteId,
-</span>90 <span style=''></span><span style='background: #AEF1AE'>      name,
-</span>91 <span style=''></span><span style='background: #AEF1AE'>      token,
-</span>92 <span style=''></span><span style='background: #AEF1AE'>      filter,
-</span>93 <span style=''></span><span style='background: #AEF1AE'>      sql,
-</span>94 <span style=''></span><span style='background: #AEF1AE'>      bigBloom,
-</span>95 <span style=''></span><span style='background: #AEF1AE'>      value,
-</span>96 <span style=''></span><span style='background: #AEF1AE'>      numberOfElements,
-</span>97 <span style=''></span><span style='background: #AEF1AE'>      expectedFPP
-</span>98 <span style=''></span><span style='background: #AEF1AE'>    )</span><span style=''>
-</span>99 <span style=''>
-</span>100 <span style=''>  /**
-</span>101 <span style=''>   * Loads map configurations from a given DataFrame.  Wherever token is present loader will be called and the filter optionally applied.
-</span>102 <span style=''>   * @return A tuple of MapConfig's and the names of rows which had unexpected content (either token or sql must be present)
-</span>103 <span style=''>   */
-</span>104 <span style=''>  def loadBloomConfigs(loader: DataFrameLoader, viewDF: DataFrame,
-</span>105 <span style=''>                     name: Column,
-</span>106 <span style=''>                     token: Column,
-</span>107 <span style=''>                     filter: Column,
-</span>108 <span style=''>                     sql: Column,
-</span>109 <span style=''>                     bigBloom: Column,
-</span>110 <span style=''>                     value: Column,
-</span>111 <span style=''>                     numberOfElements: Column,
-</span>112 <span style=''>                     expectedFPP: Column
-</span>113 <span style=''>                    ): (Seq[BloomConfig], Set[String]) =
-</span>114 <span style=''>    </span><span style='background: #AEF1AE'>ConfigLoader.loadConfigs[BloomConfig, BloomRow](
-</span>115 <span style=''></span><span style='background: #AEF1AE'>      loader, viewDF,
-</span>116 <span style=''></span><span style='background: #AEF1AE'>      name,
-</span>117 <span style=''></span><span style='background: #AEF1AE'>      token,
-</span>118 <span style=''></span><span style='background: #AEF1AE'>      filter,
-</span>119 <span style=''></span><span style='background: #AEF1AE'>      sql,
-</span>120 <span style=''></span><span style='background: #AEF1AE'>      bigBloom,
-</span>121 <span style=''></span><span style='background: #AEF1AE'>      value,
-</span>122 <span style=''></span><span style='background: #AEF1AE'>      numberOfElements,
-</span>123 <span style=''></span><span style='background: #AEF1AE'>      expectedFPP
-</span>124 <span style=''></span><span style='background: #AEF1AE'>    )</span><span style=''>
-</span>125 <span style=''>
-</span>126 <span style=''>  /**
-</span>127 <span style=''>   * Loads bloom maps ready to register from configuration
-</span>128 <span style=''>   * @param configs
-</span>129 <span style=''>   * @return
-</span>130 <span style=''>   */
-</span>131 <span style=''>  def loadBlooms(configs: Seq[BloomConfig]): BloomExpressionLookup.BloomFilterMap = </span><span style='background: #AEF1AE'>Serializing.loadBlooms(configs)</span><span style=''>
-</span>132 <span style=''>}
-</span>133 <span style=''>
-</span>134 <span style=''>trait BloomExpressionFunctions {
-</span>135 <span style=''>  /**
-</span>136 <span style=''>   * Creates a bloom over the bloomOver expression, with an expected number of rows and fpp to build.
-</span>137 <span style=''>   *
-</span>138 <span style=''>   * This bloom fit's in a single byte array, as such it's limited to the number of elements it can fit it and still maintain the fpp, use big_bloom where the item counts are high and fpp must hold.
-</span>139 <span style=''>   *
-</span>140 <span style=''>   * @param bloomOver
-</span>141 <span style=''>   * @param expectedNumberOfRows
-</span>142 <span style=''>   * @param expectedFPP
-</span>143 <span style=''>   * @return
-</span>144 <span style=''>   */
-</span>145 <span style=''>  def small_bloom(bloomOver: Column, expectedNumberOfRows: Column, expectedFPP: Column): Column =
-</span>146 <span style=''>    </span><span style='background: #AEF1AE'>column( new ParquetAggregator(expression(bloomOver), expression(expectedNumberOfRows), expression(expectedFPP))
-</span>147 <span style=''></span><span style='background: #AEF1AE'>      .toAggregateExpression())</span><span style=''>
-</span>148 <span style=''>
-</span>149 <span style=''>  /**
-</span>150 <span style=''>   * Creates a bloom over the bloomOver expression, with an expected number of rows and fpp to build.
-</span>151 <span style=''>   *
-</span>152 <span style=''>   * This bloom fit's in a single byte array, as such it's limited to the number of elements it can fit it and still maintain the fpp, use big_bloom where the item counts are high and fpp must hold.
-</span>153 <span style=''>   *
-</span>154 <span style=''>   * @param bloomOver
-</span>155 <span style=''>   * @param expectedNumberOfRows
-</span>156 <span style=''>   * @param expectedFPP
-</span>157 <span style=''>   * @return
-</span>158 <span style=''>   */
-</span>159 <span style=''>  def small_bloom(bloomOver: Column, expectedNumberOfRows: Long, expectedFPP: Double): Column =
-</span>160 <span style=''>    </span><span style='background: #AEF1AE'>small_bloom(bloomOver, lit(expectedNumberOfRows), lit(expectedFPP))</span><span style=''>
-</span>161 <span style=''>
-</span>162 <span style=''>  /**
-</span>163 <span style=''>   * Creates a bloom over the bloomOver expression, with an expected number of rows and fpp to build.
-</span>164 <span style=''>   *
-</span>165 <span style=''>   * This bloom is an array of byte arrays, with the underlying arrays stored on file, as such it is only limited by file system size.
-</span>166 <span style=''>   *
-</span>167 <span style=''>   * @param bloomOver
-</span>168 <span style=''>   * @param expectedNumberOfRows
-</span>169 <span style=''>   * @param expectedFPP
-</span>170 <span style=''>   * @param id - the id of this bloom used to separate from other big_blooms - defaults to a uuid, this cannot refer to a row column or expression
-</span>171 <span style=''>   * @param bucketedFilesRoot - provide this to override the default file root for the underlying arrays - defaults to a temporary file location or /dbfs/ on Databricks.  The config property sparkutils.quality.bloom.root can also be used to set for all blooms in a cluster.
-</span>172 <span style=''>   * @return
-</span>173 <span style=''>   */
-</span>174 <span style=''>  def big_bloom(bloomOver: Column, expectedNumberOfRows: Column, expectedFPP: Column, id: Column = lit(java.util.UUID.randomUUID().toString), bucketedFilesRoot: BucketedFilesRoot = BucketedFilesRoot(FileRoot(com.sparkutils.quality.bloomFileLocation))): Column =
-</span>175 <span style=''>    </span><span style='background: #AEF1AE'>column( BucketedArrayParquetAggregator(expression(bloomOver), expression(expectedNumberOfRows), expression(expectedFPP), expression(id), bucketedFilesRoot = bucketedFilesRoot )
-</span>176 <span style=''></span><span style='background: #AEF1AE'>      .toAggregateExpression())</span><span style=''>
-</span>177 <span style=''>
-</span>178 <span style=''>
-</span>179 <span style=''>  /**
-</span>180 <span style=''>   * Creates a bloom over the bloomOver expression, with an expected number of rows and fpp to build.
-</span>181 <span style=''>   *
-</span>182 <span style=''>   * This bloom is an array of byte arrays, with the underlying arrays stored on file, as such it is only limited by file system size.
-</span>183 <span style=''>   *
-</span>184 <span style=''>   * @param bloomOver
-</span>185 <span style=''>   * @param expectedNumberOfRows
-</span>186 <span style=''>   * @param expectedFPP
-</span>187 <span style=''>   * @return
-</span>188 <span style=''>   */
-</span>189 <span style=''>  def big_bloom(bloomOver: Column, expectedNumberOfRows: Long, expectedFPP: Double): Column =
-</span>190 <span style=''>    </span><span style='background: #AEF1AE'>big_bloom(bloomOver, lit(expectedNumberOfRows), lit(expectedFPP))</span><span style=''>
-</span>191 <span style=''>
-</span>192 <span style=''>  /**
-</span>193 <span style=''>   * Creates a bloom over the bloomOver expression, with an expected number of rows and fpp to build.
-</span>194 <span style=''>   *
-</span>195 <span style=''>   * This bloom is an array of byte arrays, with the underlying arrays stored on file, as such it is only limited by file system size.
-</span>196 <span style=''>   *
-</span>197 <span style=''>   * @param bloomOver
-</span>198 <span style=''>   * @param expectedNumberOfRows
-</span>199 <span style=''>   * @param expectedFPP
-</span>200 <span style=''>   * @param id                - the id of this bloom used to separate from other big_blooms - defaults to a uuid
-</span>201 <span style=''>   * @return
-</span>202 <span style=''>   */
-</span>203 <span style=''>  def big_bloom(bloomOver: Column, expectedNumberOfRows: Long, expectedFPP: Double, id: String): Column =
-</span>204 <span style=''>    </span><span style='background: #AEF1AE'>big_bloom(bloomOver, lit(expectedNumberOfRows), lit(expectedFPP), lit(id))</span><span style=''>
-</span>205 <span style=''>
-</span>206 <span style=''>  /**
-</span>207 <span style=''>   * Creates a bloom over the bloomOver expression, with an expected number of rows and fpp to build.
-</span>208 <span style=''>   *
-</span>209 <span style=''>   * This bloom is an array of byte arrays, with the underlying arrays stored on file, as such it is only limited by file system size.
-</span>210 <span style=''>   *
-</span>211 <span style=''>   * @param bloomOver
-</span>212 <span style=''>   * @param expectedNumberOfRows
-</span>213 <span style=''>   * @param expectedFPP
-</span>214 <span style=''>   * @param id                - the id of this bloom used to separate from other big_blooms - defaults to a uuid
-</span>215 <span style=''>   * @param bucketedFilesRoot - provide this to override the default file root for the underlying arrays - defaults to a temporary file location or /dbfs/ on Databricks.  The config property sparkutils.quality.bloom.root can also be used to set for all blooms in a cluster.
-</span>216 <span style=''>   * @return
-</span>217 <span style=''>   */
-</span>218 <span style=''>  def big_bloom(bloomOver: Column, expectedNumberOfRows: Long, expectedFPP: Double, id: String, bucketedFilesRoot: BucketedFilesRoot): Column =
-</span>219 <span style=''>    </span><span style='background: #AEF1AE'>big_bloom(bloomOver, lit(expectedNumberOfRows), lit(expectedFPP), lit(id), bucketedFilesRoot)</span><span style=''>
-</span>220 <span style=''>
-</span>221 <span style=''>}
+</span>19 <span style=''>  @ClassicOnly
+</span>20 <span style=''>  def registerBloomMapAndFunction(bloomFilterMap: Broadcast[BloomExpressionLookup.BloomFilterMap]): Unit = {
+</span>21 <span style=''>    val funcReg = </span><span style='background: #AEF1AE'>SparkSession.getActiveSession.get.sessionState.functionRegistry</span><span style=''>
+</span>22 <span style=''>    def register(name: String, argsf: Seq[Expression] =&gt; Expression, paramNumbers: Set[Int] = Set.empty, minimum: Int = -1) =
+</span>23 <span style=''>      </span><span style='background: #AEF1AE'>registerWithChecks(ShimUtils.registerFunction(funcReg), name, argsf, paramNumbers, minimum)</span><span style=''>
+</span>24 <span style=''>
+</span>25 <span style=''>    val f = (exps: Seq[Expression]) =&gt; </span><span style='background: #AEF1AE'>BloomFilterLookupExpression(exps(0), exps(1), bloomFilterMap)</span><span style=''>
+</span>26 <span style=''>    </span><span style='background: #AEF1AE'>register(&quot;probability_In&quot;, f, Set(2))</span><span style=''>
+</span>27 <span style=''>  }
+</span>28 <span style=''>
+</span>29 <span style=''>}
+</span>30 <span style=''>
+</span>31 <span style=''>trait BloomFilterLookupFunctionImport {
+</span>32 <span style=''>
+</span>33 <span style=''>  /**
+</span>34 <span style=''>   * Lookup the value against a bloom filter from bloomMap with name bloomFilterName.  In line with the sql functions please migrate to probability_in
+</span>35 <span style=''>   *
+</span>36 <span style=''>   * @param bloomFilterName
+</span>37 <span style=''>   * @param lookupValue
+</span>38 <span style=''>   * @param bloomMap
+</span>39 <span style=''>   * @return
+</span>40 <span style=''>   */
+</span>41 <span style=''>  @deprecated(since=&quot;0.1.0&quot;, message=&quot;Please migrate to bloom_lookup, bloomFilterLookup will be removed in 0.2.0&quot;)
+</span>42 <span style=''>  @ClassicOnly
+</span>43 <span style=''>  def bloomFilterLookup(lookupValue: Column, bloomFilterName: Column, bloomMap: Broadcast[BloomExpressionLookup.BloomFilterMap]): Column =
+</span>44 <span style=''>    </span><span style='background: #F0ADAD'>BloomFilterLookup(lookupValue, bloomFilterName, bloomMap)</span><span style=''>
+</span>45 <span style=''>
+</span>46 <span style=''>  /**
+</span>47 <span style=''>   * Lookup the value against a bloom filter from bloomMap with name filterName.
+</span>48 <span style=''>   *
+</span>49 <span style=''>   * @param filterName
+</span>50 <span style=''>   * @param lookupValue
+</span>51 <span style=''>   * @param bloomMap
+</span>52 <span style=''>   * @return
+</span>53 <span style=''>   */
+</span>54 <span style=''>  @ClassicOnly
+</span>55 <span style=''>  def probability_in(lookupValue: Column, filterName: String, bloomMap: Broadcast[BloomExpressionLookup.BloomFilterMap]): Column =
+</span>56 <span style=''>    </span><span style='background: #AEF1AE'>BloomFilterLookup(lookupValue, lit(filterName), bloomMap)</span><span style=''>
+</span>57 <span style=''>}
+</span>58 <span style=''>
+</span>59 <span style=''>trait BloomFilterLookupImports {
+</span>60 <span style=''>
+</span>61 <span style=''>  /**
+</span>62 <span style=''>   * Identifies bloom ids before (or after) resolving for a given ruleSuite, use to know which bloom filters need to be loaded
+</span>63 <span style=''>   *
+</span>64 <span style=''>   * @param ruleSuite a ruleSuite full of expressions to check
+</span>65 <span style=''>   * @return The bloom id's used, for unresolved expression trees this may contain blooms which are not present in the bloom map
+</span>66 <span style=''>   */
+</span>67 <span style=''>  @ClassicOnly
+</span>68 <span style=''>  def getBlooms(ruleSuite: RuleSuite): Seq[String] = </span><span style='background: #AEF1AE'>BloomFilterLookup.getBlooms(ruleSuite)</span><span style=''>
+</span>69 <span style=''>
+</span>70 <span style=''>  import Serializing.{factory, bloomRowEncoder}
+</span>71 <span style=''>
+</span>72 <span style=''>  /**
+</span>73 <span style=''>   * Loads map configurations from a given DataFrame for ruleSuiteId.  Wherever token is present loader will be called and the filter optionally applied.
+</span>74 <span style=''>   * @return A tuple of MapConfig's and the names of rows which had unexpected content (either token or sql must be present)
+</span>75 <span style=''>   */
+</span>76 <span style=''>  def loadBloomConfigs(loader: DataFrameLoader, viewDF: DataFrame,
+</span>77 <span style=''>                     ruleSuiteIdColumn: Column,
+</span>78 <span style=''>                     ruleSuiteVersionColumn: Column,
+</span>79 <span style=''>                     ruleSuiteId: Id,
+</span>80 <span style=''>                     name: Column,
+</span>81 <span style=''>                     token: Column,
+</span>82 <span style=''>                     filter: Column,
+</span>83 <span style=''>                     sql: Column,
+</span>84 <span style=''>                     bigBloom: Column,
+</span>85 <span style=''>                     value: Column,
+</span>86 <span style=''>                     numberOfElements: Column,
+</span>87 <span style=''>                     expectedFPP: Column
+</span>88 <span style=''>                    ): (Seq[BloomConfig], Set[String]) =
+</span>89 <span style=''>    </span><span style='background: #AEF1AE'>ConfigLoader.loadConfigs[BloomConfig, BloomRow](
+</span>90 <span style=''></span><span style='background: #AEF1AE'>      loader, viewDF,
+</span>91 <span style=''></span><span style='background: #AEF1AE'>      ruleSuiteIdColumn,
+</span>92 <span style=''></span><span style='background: #AEF1AE'>      ruleSuiteVersionColumn,
+</span>93 <span style=''></span><span style='background: #AEF1AE'>      ruleSuiteId,
+</span>94 <span style=''></span><span style='background: #AEF1AE'>      name,
+</span>95 <span style=''></span><span style='background: #AEF1AE'>      token,
+</span>96 <span style=''></span><span style='background: #AEF1AE'>      filter,
+</span>97 <span style=''></span><span style='background: #AEF1AE'>      sql,
+</span>98 <span style=''></span><span style='background: #AEF1AE'>      bigBloom,
+</span>99 <span style=''></span><span style='background: #AEF1AE'>      value,
+</span>100 <span style=''></span><span style='background: #AEF1AE'>      numberOfElements,
+</span>101 <span style=''></span><span style='background: #AEF1AE'>      expectedFPP
+</span>102 <span style=''></span><span style='background: #AEF1AE'>    )</span><span style=''>
+</span>103 <span style=''>
+</span>104 <span style=''>  /**
+</span>105 <span style=''>   * Loads map configurations from a given DataFrame.  Wherever token is present loader will be called and the filter optionally applied.
+</span>106 <span style=''>   * @return A tuple of MapConfig's and the names of rows which had unexpected content (either token or sql must be present)
+</span>107 <span style=''>   */
+</span>108 <span style=''>  def loadBloomConfigs(loader: DataFrameLoader, viewDF: DataFrame,
+</span>109 <span style=''>                     name: Column,
+</span>110 <span style=''>                     token: Column,
+</span>111 <span style=''>                     filter: Column,
+</span>112 <span style=''>                     sql: Column,
+</span>113 <span style=''>                     bigBloom: Column,
+</span>114 <span style=''>                     value: Column,
+</span>115 <span style=''>                     numberOfElements: Column,
+</span>116 <span style=''>                     expectedFPP: Column
+</span>117 <span style=''>                    ): (Seq[BloomConfig], Set[String]) =
+</span>118 <span style=''>    </span><span style='background: #AEF1AE'>ConfigLoader.loadConfigs[BloomConfig, BloomRow](
+</span>119 <span style=''></span><span style='background: #AEF1AE'>      loader, viewDF,
+</span>120 <span style=''></span><span style='background: #AEF1AE'>      name,
+</span>121 <span style=''></span><span style='background: #AEF1AE'>      token,
+</span>122 <span style=''></span><span style='background: #AEF1AE'>      filter,
+</span>123 <span style=''></span><span style='background: #AEF1AE'>      sql,
+</span>124 <span style=''></span><span style='background: #AEF1AE'>      bigBloom,
+</span>125 <span style=''></span><span style='background: #AEF1AE'>      value,
+</span>126 <span style=''></span><span style='background: #AEF1AE'>      numberOfElements,
+</span>127 <span style=''></span><span style='background: #AEF1AE'>      expectedFPP
+</span>128 <span style=''></span><span style='background: #AEF1AE'>    )</span><span style=''>
+</span>129 <span style=''>
+</span>130 <span style=''>  /**
+</span>131 <span style=''>   * Loads bloom maps ready to register from configuration
+</span>132 <span style=''>   * @param configs
+</span>133 <span style=''>   * @return
+</span>134 <span style=''>   */
+</span>135 <span style=''>  def loadBlooms(configs: Seq[BloomConfig]): BloomExpressionLookup.BloomFilterMap = </span><span style='background: #AEF1AE'>Serializing.loadBlooms(configs)</span><span style=''>
+</span>136 <span style=''>}
+</span>137 <span style=''>
+</span>138 <span style=''>trait BloomExpressionFunctions {
+</span>139 <span style=''>  /**
+</span>140 <span style=''>   * Creates a bloom over the bloomOver expression, with an expected number of rows and fpp to build.
+</span>141 <span style=''>   *
+</span>142 <span style=''>   * This bloom fit's in a single byte array, as such it's limited to the number of elements it can fit it and still maintain the fpp, use big_bloom where the item counts are high and fpp must hold.
+</span>143 <span style=''>   *
+</span>144 <span style=''>   * @param bloomOver
+</span>145 <span style=''>   * @param expectedNumberOfRows
+</span>146 <span style=''>   * @param expectedFPP
+</span>147 <span style=''>   * @return
+</span>148 <span style=''>   */
+</span>149 <span style=''>  @ClassicOnly
+</span>150 <span style=''>  def small_bloom(bloomOver: Column, expectedNumberOfRows: Column, expectedFPP: Column): Column =
+</span>151 <span style=''>    </span><span style='background: #AEF1AE'>column( new ParquetAggregator(expression(bloomOver), expression(expectedNumberOfRows), expression(expectedFPP))
+</span>152 <span style=''></span><span style='background: #AEF1AE'>      .toAggregateExpression())</span><span style=''>
+</span>153 <span style=''>
+</span>154 <span style=''>  /**
+</span>155 <span style=''>   * Creates a bloom over the bloomOver expression, with an expected number of rows and fpp to build.
+</span>156 <span style=''>   *
+</span>157 <span style=''>   * This bloom fit's in a single byte array, as such it's limited to the number of elements it can fit it and still maintain the fpp, use big_bloom where the item counts are high and fpp must hold.
+</span>158 <span style=''>   *
+</span>159 <span style=''>   * @param bloomOver
+</span>160 <span style=''>   * @param expectedNumberOfRows
+</span>161 <span style=''>   * @param expectedFPP
+</span>162 <span style=''>   * @return
+</span>163 <span style=''>   */
+</span>164 <span style=''>  @ClassicOnly
+</span>165 <span style=''>  def small_bloom(bloomOver: Column, expectedNumberOfRows: Long, expectedFPP: Double): Column =
+</span>166 <span style=''>    </span><span style='background: #AEF1AE'>small_bloom(bloomOver, lit(expectedNumberOfRows), lit(expectedFPP))</span><span style=''>
+</span>167 <span style=''>
+</span>168 <span style=''>  /**
+</span>169 <span style=''>   * Creates a bloom over the bloomOver expression, with an expected number of rows and fpp to build.
+</span>170 <span style=''>   *
+</span>171 <span style=''>   * This bloom is an array of byte arrays, with the underlying arrays stored on file, as such it is only limited by file system size.
+</span>172 <span style=''>   *
+</span>173 <span style=''>   * @param bloomOver
+</span>174 <span style=''>   * @param expectedNumberOfRows
+</span>175 <span style=''>   * @param expectedFPP
+</span>176 <span style=''>   * @param id - the id of this bloom used to separate from other big_blooms - defaults to a uuid, this cannot refer to a row column or expression
+</span>177 <span style=''>   * @param bucketedFilesRoot - provide this to override the default file root for the underlying arrays - defaults to a temporary file location or /dbfs/ on Databricks.  The config property sparkutils.quality.bloom.root can also be used to set for all blooms in a cluster.
+</span>178 <span style=''>   * @return
+</span>179 <span style=''>   */
+</span>180 <span style=''>  @ClassicOnly
+</span>181 <span style=''>  def big_bloom(bloomOver: Column, expectedNumberOfRows: Column, expectedFPP: Column, id: Column = lit(java.util.UUID.randomUUID().toString), bucketedFilesRoot: BucketedFilesRoot = BucketedFilesRoot(FileRoot(com.sparkutils.quality.classicFunctions.bloomFileLocation))): Column =
+</span>182 <span style=''>    </span><span style='background: #AEF1AE'>column( BucketedArrayParquetAggregator(expression(bloomOver), expression(expectedNumberOfRows), expression(expectedFPP), expression(id), bucketedFilesRoot = bucketedFilesRoot )
+</span>183 <span style=''></span><span style='background: #AEF1AE'>      .toAggregateExpression())</span><span style=''>
+</span>184 <span style=''>
+</span>185 <span style=''>
+</span>186 <span style=''>  /**
+</span>187 <span style=''>   * Creates a bloom over the bloomOver expression, with an expected number of rows and fpp to build.
+</span>188 <span style=''>   *
+</span>189 <span style=''>   * This bloom is an array of byte arrays, with the underlying arrays stored on file, as such it is only limited by file system size.
+</span>190 <span style=''>   *
+</span>191 <span style=''>   * @param bloomOver
+</span>192 <span style=''>   * @param expectedNumberOfRows
+</span>193 <span style=''>   * @param expectedFPP
+</span>194 <span style=''>   * @return
+</span>195 <span style=''>   */
+</span>196 <span style=''>  @ClassicOnly
+</span>197 <span style=''>  def big_bloom(bloomOver: Column, expectedNumberOfRows: Long, expectedFPP: Double): Column =
+</span>198 <span style=''>    </span><span style='background: #F0ADAD'>big_bloom(bloomOver, lit(expectedNumberOfRows), lit(expectedFPP))</span><span style=''>
+</span>199 <span style=''>
+</span>200 <span style=''>  /**
+</span>201 <span style=''>   * Creates a bloom over the bloomOver expression, with an expected number of rows and fpp to build.
+</span>202 <span style=''>   *
+</span>203 <span style=''>   * This bloom is an array of byte arrays, with the underlying arrays stored on file, as such it is only limited by file system size.
+</span>204 <span style=''>   *
+</span>205 <span style=''>   * @param bloomOver
+</span>206 <span style=''>   * @param expectedNumberOfRows
+</span>207 <span style=''>   * @param expectedFPP
+</span>208 <span style=''>   * @param id                - the id of this bloom used to separate from other big_blooms - defaults to a uuid
+</span>209 <span style=''>   * @return
+</span>210 <span style=''>   */
+</span>211 <span style=''>  @ClassicOnly
+</span>212 <span style=''>  def big_bloom(bloomOver: Column, expectedNumberOfRows: Long, expectedFPP: Double, id: String): Column =
+</span>213 <span style=''>    </span><span style='background: #AEF1AE'>big_bloom(bloomOver, lit(expectedNumberOfRows), lit(expectedFPP), lit(id))</span><span style=''>
+</span>214 <span style=''>
+</span>215 <span style=''>  /**
+</span>216 <span style=''>   * Creates a bloom over the bloomOver expression, with an expected number of rows and fpp to build.
+</span>217 <span style=''>   *
+</span>218 <span style=''>   * This bloom is an array of byte arrays, with the underlying arrays stored on file, as such it is only limited by file system size.
+</span>219 <span style=''>   *
+</span>220 <span style=''>   * @param bloomOver
+</span>221 <span style=''>   * @param expectedNumberOfRows
+</span>222 <span style=''>   * @param expectedFPP
+</span>223 <span style=''>   * @param id                - the id of this bloom used to separate from other big_blooms - defaults to a uuid
+</span>224 <span style=''>   * @param bucketedFilesRoot - provide this to override the default file root for the underlying arrays - defaults to a temporary file location or /dbfs/ on Databricks.  The config property sparkutils.quality.bloom.root can also be used to set for all blooms in a cluster.
+</span>225 <span style=''>   * @return
+</span>226 <span style=''>   */
+</span>227 <span style=''>  @ClassicOnly
+</span>228 <span style=''>  def big_bloom(bloomOver: Column, expectedNumberOfRows: Long, expectedFPP: Double, id: String, bucketedFilesRoot: BucketedFilesRoot): Column =
+</span>229 <span style=''>    </span><span style='background: #F0ADAD'>big_bloom(bloomOver, lit(expectedNumberOfRows), lit(expectedFPP), lit(id), bucketedFilesRoot)</span><span style=''>
+</span>230 <span style=''>
+</span>231 <span style=''>}
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -257,15 +267,15 @@
         <th>Code</th>
       </tr><tr>
         <td>
-          20
+          21
         </td>
         <td>
-          4693
+          5709
         </td>
         <td>
-          914
+          950
           -
-          977
+          1013
         </td>
         <td>
           Select
@@ -281,15 +291,15 @@
         </td>
       </tr><tr>
         <td>
-          22
+          23
         </td>
         <td>
-          4694
+          5710
         </td>
         <td>
-          1129
+          1165
           -
-          1164
+          1200
         </td>
         <td>
           Apply
@@ -305,15 +315,15 @@
         </td>
       </tr><tr>
         <td>
-          22
+          23
         </td>
         <td>
-          4695
+          5711
         </td>
         <td>
-          1110
+          1146
           -
-          1201
+          1237
         </td>
         <td>
           Apply
@@ -329,15 +339,15 @@
         </td>
       </tr><tr>
         <td>
-          24
+          25
         </td>
         <td>
-          4696
+          5712
         </td>
         <td>
-          1270
+          1306
           -
-          1277
+          1313
         </td>
         <td>
           Apply
@@ -353,15 +363,15 @@
         </td>
       </tr><tr>
         <td>
-          24
+          25
         </td>
         <td>
-          4697
+          5713
         </td>
         <td>
-          1279
+          1315
           -
-          1286
+          1322
         </td>
         <td>
           Apply
@@ -377,15 +387,15 @@
         </td>
       </tr><tr>
         <td>
-          24
+          25
         </td>
         <td>
-          4698
+          5714
         </td>
         <td>
-          1242
+          1278
           -
-          1303
+          1339
         </td>
         <td>
           Apply
@@ -401,15 +411,15 @@
         </td>
       </tr><tr>
         <td>
-          25
+          26
         </td>
         <td>
-          4699
+          5715
         </td>
         <td>
-          1317
+          1353
           -
-          1333
+          1369
         </td>
         <td>
           Literal
@@ -425,15 +435,15 @@
         </td>
       </tr><tr>
         <td>
-          25
+          26
         </td>
         <td>
-          4700
+          5716
         </td>
         <td>
-          1338
+          1374
           -
-          1344
+          1380
         </td>
         <td>
           Apply
@@ -449,15 +459,15 @@
         </td>
       </tr><tr>
         <td>
-          25
+          26
         </td>
         <td>
-          4701
+          5717
         </td>
         <td>
-          1308
+          1344
           -
-          1345
+          1381
         </td>
         <td>
           Apply
@@ -473,15 +483,15 @@
         </td>
       </tr><tr>
         <td>
-          42
+          44
         </td>
         <td>
-          4702
+          5718
         </td>
         <td>
-          1863
+          1958
           -
-          1920
+          2015
         </td>
         <td>
           Apply
@@ -492,20 +502,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           BloomFilterLookup.apply(lookupValue, bloomFilterName, bloomMap)
         </td>
       </tr><tr>
         <td>
-          53
+          56
         </td>
         <td>
-          4703
+          5719
         </td>
         <td>
-          2267
+          2377
           -
-          2282
+          2392
         </td>
         <td>
           Apply
@@ -521,15 +531,15 @@
         </td>
       </tr><tr>
         <td>
-          53
+          56
         </td>
         <td>
-          4704
+          5720
         </td>
         <td>
-          2236
+          2346
           -
-          2293
+          2403
         </td>
         <td>
           Apply
@@ -545,15 +555,15 @@
         </td>
       </tr><tr>
         <td>
-          64
+          68
         </td>
         <td>
-          4705
+          5721
         </td>
         <td>
-          2720
+          2845
           -
-          2758
+          2883
         </td>
         <td>
           Apply
@@ -569,15 +579,15 @@
         </td>
       </tr><tr>
         <td>
-          85
+          89
         </td>
         <td>
-          4706
+          5722
         </td>
         <td>
-          3719
+          3844
           -
-          3719
+          3844
         </td>
         <td>
           Select
@@ -593,15 +603,15 @@
         </td>
       </tr><tr>
         <td>
-          85
+          89
         </td>
         <td>
-          4707
+          5723
         </td>
         <td>
-          3719
+          3844
           -
-          3719
+          3844
         </td>
         <td>
           Select
@@ -617,15 +627,15 @@
         </td>
       </tr><tr>
         <td>
-          85
+          89
         </td>
         <td>
-          4708
+          5724
         </td>
         <td>
-          3672
+          3797
           -
-          3943
+          4068
         </td>
         <td>
           ApplyToImplicitArgs
@@ -641,15 +651,15 @@
         </td>
       </tr><tr>
         <td>
-          114
+          118
         </td>
         <td>
-          4709
+          5725
         </td>
         <td>
-          4700
+          4825
           -
-          4700
+          4825
         </td>
         <td>
           Select
@@ -665,15 +675,15 @@
         </td>
       </tr><tr>
         <td>
-          114
+          118
         </td>
         <td>
-          4710
+          5726
         </td>
         <td>
-          4700
+          4825
           -
-          4700
+          4825
         </td>
         <td>
           Select
@@ -689,15 +699,15 @@
         </td>
       </tr><tr>
         <td>
-          114
+          118
         </td>
         <td>
-          4711
+          5727
         </td>
         <td>
-          4653
+          4778
           -
-          4850
+          4975
         </td>
         <td>
           ApplyToImplicitArgs
@@ -713,15 +723,15 @@
         </td>
       </tr><tr>
         <td>
-          131
+          135
         </td>
         <td>
-          4712
+          5728
         </td>
         <td>
-          5040
+          5165
           -
-          5071
+          5196
         </td>
         <td>
           Apply
@@ -737,15 +747,15 @@
         </td>
       </tr><tr>
         <td>
-          146
+          151
         </td>
         <td>
-          4714
+          5730
         </td>
         <td>
-          5625
+          5765
           -
-          5768
+          5908
         </td>
         <td>
           Apply
@@ -761,15 +771,15 @@
         </td>
       </tr><tr>
         <td>
-          147
+          152
         </td>
         <td>
-          4713
+          5729
         </td>
         <td>
-          5633
+          5773
           -
-          5767
+          5907
         </td>
         <td>
           Apply
@@ -785,15 +795,15 @@
         </td>
       </tr><tr>
         <td>
-          160
+          166
         </td>
         <td>
-          4715
+          5731
         </td>
         <td>
-          6308
+          6463
           -
-          6333
+          6488
         </td>
         <td>
           Apply
@@ -809,15 +819,15 @@
         </td>
       </tr><tr>
         <td>
-          160
+          166
         </td>
         <td>
-          4716
+          5732
         </td>
         <td>
-          6335
+          6490
           -
-          6351
+          6506
         </td>
         <td>
           Apply
@@ -833,15 +843,15 @@
         </td>
       </tr><tr>
         <td>
-          160
+          166
         </td>
         <td>
-          4717
+          5733
         </td>
         <td>
-          6285
+          6440
           -
-          6352
+          6507
         </td>
         <td>
           Apply
@@ -857,15 +867,15 @@
         </td>
       </tr><tr>
         <td>
-          175
+          182
         </td>
         <td>
-          4719
+          5735
         </td>
         <td>
-          7392
+          7579
           -
-          7600
+          7787
         </td>
         <td>
           Apply
@@ -890,15 +900,15 @@
         </td>
       </tr><tr>
         <td>
-          176
+          183
         </td>
         <td>
-          4718
+          5734
         </td>
         <td>
-          7400
+          7587
           -
-          7599
+          7786
         </td>
         <td>
           Apply
@@ -923,15 +933,15 @@
         </td>
       </tr><tr>
         <td>
-          190
+          198
         </td>
         <td>
-          4720
+          5736
         </td>
         <td>
-          8073
+          8275
           -
-          8098
+          8300
         </td>
         <td>
           Apply
@@ -942,20 +952,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           org.apache.spark.sql.functions.lit(expectedNumberOfRows)
         </td>
       </tr><tr>
         <td>
-          190
+          198
         </td>
         <td>
-          4721
+          5737
         </td>
         <td>
-          8100
+          8302
           -
-          8116
+          8318
         </td>
         <td>
           Apply
@@ -966,20 +976,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           org.apache.spark.sql.functions.lit(expectedFPP)
         </td>
       </tr><tr>
         <td>
-          190
+          198
         </td>
         <td>
-          4722
+          5738
         </td>
         <td>
-          8052
+          8254
           -
-          8117
+          8319
         </td>
         <td>
           Apply
@@ -990,20 +1000,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           BloomExpressionFunctions.this.big_bloom(bloomOver, org.apache.spark.sql.functions.lit(expectedNumberOfRows), org.apache.spark.sql.functions.lit(expectedFPP), BloomExpressionFunctions.this.big_bloom$default$4, BloomExpressionFunctions.this.big_bloom$default$5)
         </td>
       </tr><tr>
         <td>
-          204
+          213
         </td>
         <td>
-          4723
+          5739
         </td>
         <td>
-          8714
+          8931
           -
-          8739
+          8956
         </td>
         <td>
           Apply
@@ -1019,15 +1029,15 @@
         </td>
       </tr><tr>
         <td>
-          204
+          213
         </td>
         <td>
-          4724
+          5740
         </td>
         <td>
-          8741
+          8958
           -
-          8757
+          8974
         </td>
         <td>
           Apply
@@ -1043,15 +1053,15 @@
         </td>
       </tr><tr>
         <td>
-          204
+          213
         </td>
         <td>
-          4725
+          5741
         </td>
         <td>
-          8759
+          8976
           -
-          8766
+          8983
         </td>
         <td>
           Apply
@@ -1067,15 +1077,15 @@
         </td>
       </tr><tr>
         <td>
-          204
+          213
         </td>
         <td>
-          4726
+          5742
         </td>
         <td>
-          8693
+          8910
           -
-          8767
+          8984
         </td>
         <td>
           Apply
@@ -1091,15 +1101,15 @@
         </td>
       </tr><tr>
         <td>
-          219
+          229
         </td>
         <td>
-          4727
+          5743
         </td>
         <td>
-          9676
+          9908
           -
-          9701
+          9933
         </td>
         <td>
           Apply
@@ -1110,20 +1120,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           org.apache.spark.sql.functions.lit(expectedNumberOfRows)
         </td>
       </tr><tr>
         <td>
-          219
+          229
         </td>
         <td>
-          4728
+          5744
         </td>
         <td>
-          9703
+          9935
           -
-          9719
+          9951
         </td>
         <td>
           Apply
@@ -1134,20 +1144,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           org.apache.spark.sql.functions.lit(expectedFPP)
         </td>
       </tr><tr>
         <td>
-          219
+          229
         </td>
         <td>
-          4729
+          5745
         </td>
         <td>
-          9721
+          9953
           -
-          9728
+          9960
         </td>
         <td>
           Apply
@@ -1158,20 +1168,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           org.apache.spark.sql.functions.lit(id)
         </td>
       </tr><tr>
         <td>
-          219
+          229
         </td>
         <td>
-          4730
+          5746
         </td>
         <td>
-          9655
+          9887
           -
-          9748
+          9980
         </td>
         <td>
           Apply
@@ -1182,7 +1192,7 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           BloomExpressionFunctions.this.big_bloom(bloomOver, org.apache.spark.sql.functions.lit(expectedNumberOfRows), org.apache.spark.sql.functions.lit(expectedFPP), org.apache.spark.sql.functions.lit(id), bucketedFilesRoot)
         </td>
       </tr>

@@ -24,127 +24,129 @@
           <div class="tab-pane active" id="codegrid">
             <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality.impl.views
 </span>2 <span style=''>
-</span>3 <span style=''>import com.sparkutils.quality.impl.Validation
-</span>4 <span style=''>import com.sparkutils.quality.impl.util.{Config, ConfigFactory, Row}
-</span>5 <span style=''>import org.apache.spark.sql._
-</span>6 <span style=''>
-</span>7 <span style=''>import scala.collection.mutable
-</span>8 <span style=''>
-</span>9 <span style=''>/**
-</span>10 <span style=''> * Represents a configuration row for view loading
-</span>11 <span style=''> * @param name the view name, this will be used to manage dependencies
-</span>12 <span style=''> * @param source either a loaded DataFrame or an sql to run against the catalog
-</span>13 <span style=''> */
-</span>14 <span style=''>case class ViewConfig(override val name: String, override val source: Either[DataFrame, String]) extends Config(name, source)
-</span>15 <span style=''>
-</span>16 <span style=''>/**
-</span>17 <span style=''> * Underlying row information converted into a ViewConfig with the following logic:
-</span>18 <span style=''> *
-</span>19 <span style=''> * a) if token is specified sql is ignored
-</span>20 <span style=''> * b) if token is null sql is used
-</span>21 <span style=''> * c) if both are null the row will not be used
-</span>22 <span style=''> */
-</span>23 <span style=''>private[views] case class ViewRow(override val name: String, override val token: Option[String],
-</span>24 <span style=''>                                  override val filter: Option[String], override val sql: Option[String])
-</span>25 <span style=''>  extends Row(name, token, filter, sql)
-</span>26 <span style=''>
-</span>27 <span style=''>/**
-</span>28 <span style=''> * For which a given view doesn't exist, but it's not one of the view configs
-</span>29 <span style=''> */
-</span>30 <span style=''>case class MissingViewAnalysisException(cause: Exception, message: String, viewName: String, sql: String, missingRelationNames: Set[String] ) extends RuntimeException(cause)
-</span>31 <span style=''>
-</span>32 <span style=''>/**
-</span>33 <span style=''> * A parser exception or similar occurred
-</span>34 <span style=''> */
-</span>35 <span style=''>case class ViewLoaderAnalysisException(cause: Exception, message: String, viewName: String, sql: String ) extends RuntimeException(cause)
-</span>36 <span style=''>
-</span>37 <span style=''>case class ViewLoadResults( replaced: Set[String], failedToLoadDueToCycles: Boolean, notLoadedViews: Set[String])
-</span>38 <span style=''>
-</span>39 <span style=''>object ViewLoader {
-</span>40 <span style=''>
-</span>41 <span style=''>  implicit val factory =
-</span>42 <span style=''>    </span><span style='background: #AEF1AE'>new</span><span style=''> ConfigFactory[ViewConfig, ViewRow] {
-</span>43 <span style=''>      override def create(base: Config, row: ViewRow): ViewConfig =
-</span>44 <span style=''>        </span><span style='background: #AEF1AE'>ViewConfig(base.name, base.source)</span><span style=''>
-</span>45 <span style=''>    }
-</span>46 <span style=''>
-</span>47 <span style=''>  implicit val viewRowEncoder: Encoder[ViewRow] = </span><span style='background: #AEF1AE'>Encoders.product[ViewRow]</span><span style=''>
-</span>48 <span style=''>
-</span>49 <span style=''>  /**
-</span>50 <span style=''>   * Attempts to load all the views present in the config.  If a view is already registered in that name it will be replaced.
-</span>51 <span style=''>   * @param viewConfigs
-</span>52 <span style=''>   * @return the names of views which have been replaced
-</span>53 <span style=''>   */
-</span>54 <span style=''>  def loadViews(viewConfigs: Seq[ViewConfig]): ViewLoadResults = {
-</span>55 <span style=''>
-</span>56 <span style=''>    // assume some will not load, attempt count is used to stop cycles, 2x should be enough
-</span>57 <span style=''>    var attemptCount = </span><span style='background: #AEF1AE'>0</span><span style=''>
-</span>58 <span style=''>    var done = </span><span style='background: #AEF1AE'>false</span><span style=''>
-</span>59 <span style=''>    var leftToProcess = </span><span style='background: #AEF1AE'>viewConfigs.map(t =&gt; t.name -&gt; t).toMap</span><span style=''>
-</span>60 <span style=''>
-</span>61 <span style=''>    val replaced = </span><span style='background: #AEF1AE'>mutable.Set.empty[String]</span><span style=''>
-</span>62 <span style=''>    // if we are missing a relation and the name is declared try to load that first
-</span>63 <span style=''>    var mapOf = leftToProcess
-</span>64 <span style=''>    var processed = </span><span style='background: #AEF1AE'>mutable.Set.empty[String]</span><span style=''>
-</span>65 <span style=''>
-</span>66 <span style=''>    def processView(viewPair: ViewConfig): Unit =
-</span>67 <span style=''>      if (</span><span style='background: #AEF1AE'>attemptCount &lt; (viewConfigs.size * 2)</span><span style=''>) {
-</span>68 <span style=''>        </span><span style='background: #AEF1AE'>try {
-</span>69 <span style=''></span><span style='background: #AEF1AE'>          val (name, config) = (viewPair.name, viewPair)
-</span>70 <span style=''></span><span style='background: #AEF1AE'>          if (Validation.defaultViewLookup(name)) {
-</span>71 <span style=''></span><span style='background: #AEF1AE'>            replaced += name
-</span>72 <span style=''></span><span style='background: #AEF1AE'>          }
-</span>73 <span style=''></span><span style='background: #AEF1AE'>
-</span>74 <span style=''></span><span style='background: #AEF1AE'>          config.source.fold(identity, SparkSession.active.sql)
-</span>75 <span style=''></span><span style='background: #AEF1AE'>           .toDF.createOrReplaceTempView(name)
-</span>76 <span style=''></span><span style='background: #AEF1AE'>
-</span>77 <span style=''></span><span style='background: #AEF1AE'>          // it worked, remove it
-</span>78 <span style=''></span><span style='background: #AEF1AE'>          leftToProcess = leftToProcess - name
-</span>79 <span style=''></span><span style='background: #AEF1AE'>          processed = processed + name
-</span>80 <span style=''></span><span style='background: #AEF1AE'>        } catch {
-</span>81 <span style=''></span><span style='background: #AEF1AE'>          // 3.5 introduced two different exceptions, ParserException and ExtendedAnalysisException
-</span>82 <span style=''></span><span style='background: #AEF1AE'>          // AnalysisException no longer has the plan
-</span>83 <span style=''></span><span style='background: #AEF1AE'>          case e: Exception =&gt;
-</span>84 <span style=''></span><span style='background: #AEF1AE'>            val res = ShimUtils.tableOrViewNotFound(e).getOrElse(throw e)
-</span>85 <span style=''></span><span style='background: #AEF1AE'>            val sql = viewPair.source.right.getOrElse(&quot;&quot;)
-</span>86 <span style=''></span><span style='background: #AEF1AE'>
-</span>87 <span style=''></span><span style='background: #AEF1AE'>            res.fold(a =&gt; throw ViewLoaderAnalysisException(a, s&quot;AnalysisException for view ${viewPair.name}: $sql&quot;, viewPair.name, sql),
-</span>88 <span style=''></span><span style='background: #AEF1AE'>              views =&gt; {
-</span>89 <span style=''></span><span style='background: #AEF1AE'>                val missingNames =
-</span>90 <span style=''></span><span style='background: #AEF1AE'>                  views.flatMap { name =&gt;
-</span>91 <span style=''></span><span style='background: #AEF1AE'>                    val lookupName =
-</span>92 <span style=''></span><span style='background: #AEF1AE'>                      if (mapOf.contains(name))
-</span>93 <span style=''></span><span style='background: #AEF1AE'>                        name
-</span>94 <span style=''></span><span style='background: #AEF1AE'>                      else
-</span>95 <span style=''></span><span style='background: #AEF1AE'>                        s&quot;`$name`&quot;
-</span>96 <span style=''></span><span style='background: #AEF1AE'>
-</span>97 <span style=''></span><span style='background: #AEF1AE'>                    if (mapOf.contains(lookupName)) { // quoted must also be in the view name if it's got minus' etc., on Spark &lt; 3.2 this will be incorrectly unquoted
-</span>98 <span style=''></span><span style='background: #AEF1AE'>                      attemptCount += 1
-</span>99 <span style=''></span><span style='background: #AEF1AE'>                      processView(mapOf(lookupName))
-</span>100 <span style=''></span><span style='background: #AEF1AE'>                      None
-</span>101 <span style=''></span><span style='background: #AEF1AE'>                    } else // not one we can actually do anything about
-</span>102 <span style=''></span><span style='background: #AEF1AE'>                      Some(name)
-</span>103 <span style=''></span><span style='background: #AEF1AE'>                  }
-</span>104 <span style=''></span><span style='background: #AEF1AE'>                if (!missingNames.isEmpty) {
-</span>105 <span style=''></span><span style='background: #AEF1AE'>                  throw MissingViewAnalysisException(e, s&quot;Missing relations for view ${viewPair.name}: $missingNames used in sql $sql&quot;, viewPair.name, sql, missingNames)
-</span>106 <span style=''></span><span style='background: #AEF1AE'>                }
-</span>107 <span style=''></span><span style='background: #AEF1AE'>              }
-</span>108 <span style=''></span><span style='background: #AEF1AE'>            )
-</span>109 <span style=''></span><span style='background: #AEF1AE'>        }</span><span style=''>
-</span>110 <span style=''>      }
-</span>111 <span style=''>
-</span>112 <span style=''>    </span><span style='background: #AEF1AE'>while((attemptCount &lt; (viewConfigs.size * 2)) &amp;&amp; !done){
-</span>113 <span style=''></span><span style='background: #AEF1AE'>      attemptCount += 1
-</span>114 <span style=''></span><span style='background: #AEF1AE'>      leftToProcess.headOption.fold {
-</span>115 <span style=''></span><span style='background: #AEF1AE'>        done = true;
-</span>116 <span style=''></span><span style='background: #AEF1AE'>      } { p =&gt;
-</span>117 <span style=''></span><span style='background: #AEF1AE'>        processView(p._2)
-</span>118 <span style=''></span><span style='background: #AEF1AE'>      }
-</span>119 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
-</span>120 <span style=''>    </span><span style='background: #AEF1AE'>ViewLoadResults(replaced.toSet, !done, leftToProcess.keySet)</span><span style=''>
-</span>121 <span style=''>  }
-</span>122 <span style=''>
-</span>123 <span style=''>}
+</span>3 <span style=''>import com.sparkutils.quality.impl.util.{Config, ConfigFactory, Row}
+</span>4 <span style=''>import org.apache.spark.sql._
+</span>5 <span style=''>
+</span>6 <span style=''>import scala.collection.mutable
+</span>7 <span style=''>
+</span>8 <span style=''>/**
+</span>9 <span style=''> * Represents a configuration row for view loading
+</span>10 <span style=''> * @param name the view name, this will be used to manage dependencies
+</span>11 <span style=''> * @param source either a loaded DataFrame or an sql to run against the catalog
+</span>12 <span style=''> */
+</span>13 <span style=''>case class ViewConfig(override val name: String, override val source: Either[DataFrame, String]) extends Config(name, source)
+</span>14 <span style=''>
+</span>15 <span style=''>/**
+</span>16 <span style=''> * Underlying row information converted into a ViewConfig with the following logic:
+</span>17 <span style=''> *
+</span>18 <span style=''> * a) if token is specified sql is ignored
+</span>19 <span style=''> * b) if token is null sql is used
+</span>20 <span style=''> * c) if both are null the row will not be used
+</span>21 <span style=''> */
+</span>22 <span style=''>private[views] case class ViewRow(override val name: String, override val token: Option[String],
+</span>23 <span style=''>                                  override val filter: Option[String], override val sql: Option[String])
+</span>24 <span style=''>  extends Row(name, token, filter, sql)
+</span>25 <span style=''>
+</span>26 <span style=''>/**
+</span>27 <span style=''> * For which a given view doesn't exist, but it's not one of the view configs
+</span>28 <span style=''> */
+</span>29 <span style=''>case class MissingViewAnalysisException(cause: Exception, message: String, viewName: String, sql: String, missingRelationNames: Set[String] ) extends RuntimeException(cause)
+</span>30 <span style=''>
+</span>31 <span style=''>/**
+</span>32 <span style=''> * A parser exception or similar occurred
+</span>33 <span style=''> */
+</span>34 <span style=''>case class ViewLoaderAnalysisException(cause: Exception, message: String, viewName: String, sql: String ) extends RuntimeException(cause)
+</span>35 <span style=''>
+</span>36 <span style=''>case class ViewLoadResults( replaced: Set[String], failedToLoadDueToCycles: Boolean, notLoadedViews: Set[String])
+</span>37 <span style=''>
+</span>38 <span style=''>object ViewLoader {
+</span>39 <span style=''>
+</span>40 <span style=''>  implicit val factory: ConfigFactory[ViewConfig, ViewRow] =
+</span>41 <span style=''>    </span><span style='background: #AEF1AE'>new</span><span style=''> ConfigFactory[ViewConfig, ViewRow] {
+</span>42 <span style=''>      override def create(base: Config, row: ViewRow): ViewConfig =
+</span>43 <span style=''>        </span><span style='background: #AEF1AE'>ViewConfig(base.name, base.source)</span><span style=''>
+</span>44 <span style=''>    }
+</span>45 <span style=''>
+</span>46 <span style=''>  implicit val viewRowEncoder: Encoder[ViewRow] = </span><span style='background: #AEF1AE'>Encoders.product[ViewRow]</span><span style=''>
+</span>47 <span style=''>
+</span>48 <span style=''>  protected[quality] val defaultViewLookup: String =&gt; Boolean =
+</span>49 <span style=''>    </span><span style='background: #AEF1AE'>SparkSession.active.catalog.tableExists(_)</span><span style=''>
+</span>50 <span style=''>
+</span>51 <span style=''>  /**
+</span>52 <span style=''>   * Attempts to load all the views present in the config.  If a view is already registered in that name it will be replaced.
+</span>53 <span style=''>   * @param viewConfigs
+</span>54 <span style=''>   * @return the names of views which have been replaced
+</span>55 <span style=''>   */
+</span>56 <span style=''>  def loadViews(viewConfigs: Seq[ViewConfig]): ViewLoadResults = {
+</span>57 <span style=''>
+</span>58 <span style=''>    // assume some will not load, attempt count is used to stop cycles, 2x should be enough
+</span>59 <span style=''>    var attemptCount = </span><span style='background: #AEF1AE'>0</span><span style=''>
+</span>60 <span style=''>    var done = </span><span style='background: #AEF1AE'>false</span><span style=''>
+</span>61 <span style=''>    var leftToProcess = </span><span style='background: #AEF1AE'>viewConfigs.map(t =&gt; t.name -&gt; t).toMap</span><span style=''>
+</span>62 <span style=''>
+</span>63 <span style=''>    val replaced = </span><span style='background: #AEF1AE'>mutable.Set.empty[String]</span><span style=''>
+</span>64 <span style=''>    // if we are missing a relation and the name is declared try to load that first
+</span>65 <span style=''>    var mapOf = leftToProcess
+</span>66 <span style=''>    var processed = </span><span style='background: #AEF1AE'>mutable.Set.empty[String]</span><span style=''>
+</span>67 <span style=''>
+</span>68 <span style=''>    def processView(viewPair: ViewConfig): Unit =
+</span>69 <span style=''>      if (</span><span style='background: #AEF1AE'>attemptCount &lt; (viewConfigs.size * 2)</span><span style=''>) {
+</span>70 <span style=''>        </span><span style='background: #AEF1AE'>try {
+</span>71 <span style=''></span><span style='background: #AEF1AE'>          val (name, config) = (viewPair.name, viewPair)
+</span>72 <span style=''></span><span style='background: #AEF1AE'>          if (defaultViewLookup(name)) {
+</span>73 <span style=''></span><span style='background: #AEF1AE'>            replaced += name
+</span>74 <span style=''></span><span style='background: #AEF1AE'>          }
+</span>75 <span style=''></span><span style='background: #AEF1AE'>
+</span>76 <span style=''></span><span style='background: #AEF1AE'>          config.source.fold(identity, SparkSession.active.sql)
+</span>77 <span style=''></span><span style='background: #AEF1AE'>           .toDF().createOrReplaceTempView(name)
+</span>78 <span style=''></span><span style='background: #AEF1AE'>
+</span>79 <span style=''></span><span style='background: #AEF1AE'>          // it worked, remove it
+</span>80 <span style=''></span><span style='background: #AEF1AE'>          leftToProcess = leftToProcess - name
+</span>81 <span style=''></span><span style='background: #AEF1AE'>          processed = processed + name
+</span>82 <span style=''></span><span style='background: #AEF1AE'>        } catch {
+</span>83 <span style=''></span><span style='background: #AEF1AE'>          // 3.5 introduced two different exceptions, ParserException and ExtendedAnalysisException
+</span>84 <span style=''></span><span style='background: #AEF1AE'>          // AnalysisException no longer has the plan
+</span>85 <span style=''></span><span style='background: #AEF1AE'>          case e: Exception =&gt;
+</span>86 <span style=''></span><span style='background: #AEF1AE'>            val res = ShimUtils.tableOrViewNotFound(e).getOrElse(</span><span style='background: #F0ADAD'>throw e</span><span style='background: #AEF1AE'>)
+</span>87 <span style=''></span><span style='background: #AEF1AE'>            val sql = viewPair.source.right.getOrElse(&quot;&quot;)
+</span>88 <span style=''></span><span style='background: #AEF1AE'>
+</span>89 <span style=''></span><span style='background: #AEF1AE'>            res.fold(a =&gt; throw ViewLoaderAnalysisException(a, s&quot;AnalysisException for view ${viewPair.name}: $sql&quot;, viewPair.name, sql),
+</span>90 <span style=''></span><span style='background: #AEF1AE'>              views =&gt; {
+</span>91 <span style=''></span><span style='background: #AEF1AE'>                val missingNames =
+</span>92 <span style=''></span><span style='background: #AEF1AE'>                  views.flatMap { name =&gt;
+</span>93 <span style=''></span><span style='background: #AEF1AE'>                    val lookupName =
+</span>94 <span style=''></span><span style='background: #AEF1AE'>                      if (mapOf.contains(name))
+</span>95 <span style=''></span><span style='background: #AEF1AE'>                        name
+</span>96 <span style=''></span><span style='background: #AEF1AE'>                      else
+</span>97 <span style=''></span><span style='background: #AEF1AE'>                        s&quot;`$name`&quot;
+</span>98 <span style=''></span><span style='background: #AEF1AE'>
+</span>99 <span style=''></span><span style='background: #AEF1AE'>                    if (mapOf.contains(lookupName)) { // quoted must also be in the view name if it's got minus' etc., on Spark &lt; 3.2 this will be incorrectly unquoted
+</span>100 <span style=''></span><span style='background: #AEF1AE'>                      attemptCount += 1
+</span>101 <span style=''></span><span style='background: #AEF1AE'>                      processView(mapOf(lookupName))
+</span>102 <span style=''></span><span style='background: #AEF1AE'>                      None
+</span>103 <span style=''></span><span style='background: #AEF1AE'>                    } else // not one we can actually do anything about
+</span>104 <span style=''></span><span style='background: #AEF1AE'>                      Some(name)
+</span>105 <span style=''></span><span style='background: #AEF1AE'>                  }
+</span>106 <span style=''></span><span style='background: #AEF1AE'>                if (!missingNames.isEmpty) {
+</span>107 <span style=''></span><span style='background: #AEF1AE'>                  throw MissingViewAnalysisException(e, s&quot;Missing relations for view ${viewPair.name}: $missingNames used in sql $sql&quot;, viewPair.name, sql, missingNames)
+</span>108 <span style=''></span><span style='background: #AEF1AE'>                }
+</span>109 <span style=''></span><span style='background: #AEF1AE'>              }
+</span>110 <span style=''></span><span style='background: #AEF1AE'>            )
+</span>111 <span style=''></span><span style='background: #AEF1AE'>        }</span><span style=''>
+</span>112 <span style=''>      }
+</span>113 <span style=''>
+</span>114 <span style=''>    </span><span style='background: #AEF1AE'>while((attemptCount &lt; (viewConfigs.size * 2)) &amp;&amp; !done){
+</span>115 <span style=''></span><span style='background: #AEF1AE'>      attemptCount += 1
+</span>116 <span style=''></span><span style='background: #AEF1AE'>      leftToProcess.headOption.fold {
+</span>117 <span style=''></span><span style='background: #AEF1AE'>        done = true;
+</span>118 <span style=''></span><span style='background: #AEF1AE'>      } { p =&gt;
+</span>119 <span style=''></span><span style='background: #AEF1AE'>        processView(p._2)
+</span>120 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>121 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>122 <span style=''>    </span><span style='background: #AEF1AE'>ViewLoadResults(replaced.toSet, !done, leftToProcess.keySet)</span><span style=''>
+</span>123 <span style=''>  }
+</span>124 <span style=''>
+</span>125 <span style=''>}
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -159,15 +161,15 @@
         <th>Code</th>
       </tr><tr>
         <td>
-          42
+          41
         </td>
         <td>
-          8288
+          1482
         </td>
         <td>
-          1638
+          1628
           -
-          1641
+          1631
         </td>
         <td>
           Apply
@@ -183,15 +185,15 @@
         </td>
       </tr><tr>
         <td>
-          44
+          43
         </td>
         <td>
-          8285
+          1479
         </td>
         <td>
-          1766
+          1756
           -
-          1775
+          1765
         </td>
         <td>
           Select
@@ -207,15 +209,15 @@
         </td>
       </tr><tr>
         <td>
-          44
+          43
         </td>
         <td>
-          8286
+          1480
         </td>
         <td>
-          1777
+          1767
           -
-          1788
+          1778
         </td>
         <td>
           Select
@@ -231,15 +233,15 @@
         </td>
       </tr><tr>
         <td>
-          44
+          43
         </td>
         <td>
-          8287
+          1481
         </td>
         <td>
-          1755
+          1745
           -
-          1789
+          1779
         </td>
         <td>
           Apply
@@ -255,15 +257,15 @@
         </td>
       </tr><tr>
         <td>
-          47
+          46
         </td>
         <td>
-          8289
+          1483
         </td>
         <td>
-          1847
+          1837
           -
-          1872
+          1862
         </td>
         <td>
           ApplyToImplicitArgs
@@ -296,15 +298,39 @@
         </td>
       </tr><tr>
         <td>
-          57
+          49
         </td>
         <td>
-          8290
+          1484
         </td>
         <td>
-          2276
+          1932
           -
-          2277
+          1974
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalog.Catalog.tableExists
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.SparkSession.active.catalog.tableExists(x$1)
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          1485
+        </td>
+        <td>
+          2378
+          -
+          2379
         </td>
         <td>
           Literal
@@ -320,15 +346,15 @@
         </td>
       </tr><tr>
         <td>
-          58
+          60
         </td>
         <td>
-          8291
+          1486
         </td>
         <td>
-          2293
+          2395
           -
-          2298
+          2400
         </td>
         <td>
           Literal
@@ -344,15 +370,15 @@
         </td>
       </tr><tr>
         <td>
-          59
+          61
         </td>
         <td>
-          8292
+          1487
         </td>
         <td>
-          2344
+          2446
           -
-          2355
+          2457
         </td>
         <td>
           Apply
@@ -368,15 +394,15 @@
         </td>
       </tr><tr>
         <td>
-          59
+          61
         </td>
         <td>
-          8293
+          1488
         </td>
         <td>
-          2357
+          2459
           -
-          2357
+          2459
         </td>
         <td>
           TypeApply
@@ -392,15 +418,15 @@
         </td>
       </tr><tr>
         <td>
-          59
+          61
         </td>
         <td>
-          8294
+          1489
         </td>
         <td>
-          2323
+          2425
           -
-          2362
+          2464
         </td>
         <td>
           ApplyToImplicitArgs
@@ -416,15 +442,15 @@
         </td>
       </tr><tr>
         <td>
-          61
+          63
         </td>
         <td>
-          8295
+          1490
         </td>
         <td>
-          2383
+          2485
           -
-          2408
+          2510
         </td>
         <td>
           TypeApply
@@ -440,15 +466,15 @@
         </td>
       </tr><tr>
         <td>
-          64
+          66
         </td>
         <td>
-          8296
+          1491
         </td>
         <td>
-          2543
+          2645
           -
-          2568
+          2670
         </td>
         <td>
           TypeApply
@@ -464,15 +490,15 @@
         </td>
       </tr><tr>
         <td>
-          67
+          69
         </td>
         <td>
-          8297
+          1492
         </td>
         <td>
-          2646
+          2748
           -
-          2666
+          2768
         </td>
         <td>
           Apply
@@ -488,15 +514,15 @@
         </td>
       </tr><tr>
         <td>
-          67
+          69
         </td>
         <td>
-          8298
+          1493
         </td>
         <td>
-          2630
+          2732
           -
-          2667
+          2769
         </td>
         <td>
           Apply
@@ -512,15 +538,15 @@
         </td>
       </tr><tr>
         <td>
-          67
+          69
         </td>
         <td>
-          8338
+          1533
         </td>
         <td>
-          2626
+          2728
           -
-          2626
+          2728
         </td>
         <td>
           Literal
@@ -536,15 +562,15 @@
         </td>
       </tr><tr>
         <td>
-          67
+          69
         </td>
         <td>
-          8339
+          1534
         </td>
         <td>
-          2626
+          2728
           -
-          2626
+          2728
         </td>
         <td>
           Block
@@ -560,15 +586,15 @@
         </td>
       </tr><tr>
         <td>
-          68
+          70
         </td>
         <td>
-          8313
+          1508
         </td>
         <td>
-          2683
+          2785
           -
-          3077
+          3170
         </td>
         <td>
           Block
@@ -581,12 +607,12 @@
         </td>
         <td style="background: #AEF1AE">
           {
-  &lt;synthetic&gt; &lt;artifact&gt; private[this] val x$1: (String, com.sparkutils.quality.impl.views.ViewConfig) = (scala.Tuple2.apply[String, com.sparkutils.quality.impl.views.ViewConfig](viewPair.name, viewPair): (String, com.sparkutils.quality.impl.views.ViewConfig) @unchecked) match {
+  &lt;synthetic&gt; &lt;artifact&gt; private[this] val x$2: (String, com.sparkutils.quality.impl.views.ViewConfig) = (scala.Tuple2.apply[String, com.sparkutils.quality.impl.views.ViewConfig](viewPair.name, viewPair): (String, com.sparkutils.quality.impl.views.ViewConfig) @unchecked) match {
     case (_1: String, _2: com.sparkutils.quality.impl.views.ViewConfig): (String, com.sparkutils.quality.impl.views.ViewConfig)((name @ _), (config @ _)) =&gt; scala.Tuple2.apply[String, com.sparkutils.quality.impl.views.ViewConfig](name, config)
   };
-  val name: String = x$1._1;
-  val config: com.sparkutils.quality.impl.views.ViewConfig = x$1._2;
-  if (com.sparkutils.quality.impl.Validation.defaultViewLookup.apply(name))
+  val name: String = x$2._1;
+  val config: com.sparkutils.quality.impl.views.ViewConfig = x$2._2;
+  if (ViewLoader.this.defaultViewLookup.apply(name))
     replaced.+=(name)
   else
     ();
@@ -600,15 +626,15 @@
         </td>
       </tr><tr>
         <td>
-          68
+          70
         </td>
         <td>
-          8337
+          1532
         </td>
         <td>
-          2679
+          2781
           -
-          4506
+          4599
         </td>
         <td>
           Try
@@ -621,12 +647,12 @@
         </td>
         <td style="background: #AEF1AE">
           try {
-  &lt;synthetic&gt; &lt;artifact&gt; private[this] val x$1: (String, com.sparkutils.quality.impl.views.ViewConfig) = (scala.Tuple2.apply[String, com.sparkutils.quality.impl.views.ViewConfig](viewPair.name, viewPair): (String, com.sparkutils.quality.impl.views.ViewConfig) @unchecked) match {
+  &lt;synthetic&gt; &lt;artifact&gt; private[this] val x$2: (String, com.sparkutils.quality.impl.views.ViewConfig) = (scala.Tuple2.apply[String, com.sparkutils.quality.impl.views.ViewConfig](viewPair.name, viewPair): (String, com.sparkutils.quality.impl.views.ViewConfig) @unchecked) match {
     case (_1: String, _2: com.sparkutils.quality.impl.views.ViewConfig): (String, com.sparkutils.quality.impl.views.ViewConfig)((name @ _), (config @ _)) =&gt; scala.Tuple2.apply[String, com.sparkutils.quality.impl.views.ViewConfig](name, config)
   };
-  val name: String = x$1._1;
-  val config: com.sparkutils.quality.impl.views.ViewConfig = x$1._2;
-  if (com.sparkutils.quality.impl.Validation.defaultViewLookup.apply(name))
+  val name: String = x$2._1;
+  val config: com.sparkutils.quality.impl.views.ViewConfig = x$2._2;
+  if (ViewLoader.this.defaultViewLookup.apply(name))
     replaced.+=(name)
   else
     ();
@@ -665,15 +691,15 @@
         </td>
       </tr><tr>
         <td>
-          69
+          71
         </td>
         <td>
-          8299
+          1494
         </td>
         <td>
-          2717
+          2819
           -
-          2730
+          2832
         </td>
         <td>
           Select
@@ -689,15 +715,15 @@
         </td>
       </tr><tr>
         <td>
-          69
+          71
         </td>
         <td>
-          8300
+          1495
         </td>
         <td>
-          2716
+          2818
           -
-          2741
+          2843
         </td>
         <td>
           Apply
@@ -713,15 +739,15 @@
         </td>
       </tr><tr>
         <td>
-          69
+          71
         </td>
         <td>
-          8301
+          1496
         </td>
         <td>
-          2699
+          2801
           -
-          2713
+          2815
         </td>
         <td>
           Apply
@@ -737,15 +763,15 @@
         </td>
       </tr><tr>
         <td>
-          69
+          71
         </td>
         <td>
-          8302
+          1497
         </td>
         <td>
-          2699
+          2801
           -
-          2713
+          2815
         </td>
         <td>
           Block
@@ -761,15 +787,15 @@
         </td>
       </tr><tr>
         <td>
-          69
+          71
         </td>
         <td>
-          8303
+          1498
         </td>
         <td>
-          2700
+          2802
           -
-          2700
+          2802
         </td>
         <td>
           Select
@@ -781,19 +807,19 @@
           
         </td>
         <td style="background: #AEF1AE">
-          x$1._1
+          x$2._1
         </td>
       </tr><tr>
         <td>
-          69
+          71
         </td>
         <td>
-          8304
+          1499
         </td>
         <td>
-          2706
+          2808
           -
-          2706
+          2808
         </td>
         <td>
           Select
@@ -805,19 +831,19 @@
           
         </td>
         <td style="background: #AEF1AE">
-          x$1._2
+          x$2._2
         </td>
       </tr><tr>
         <td>
-          70
+          72
         </td>
         <td>
-          8305
+          1500
         </td>
         <td>
-          2756
+          2858
           -
-          2790
+          2881
         </td>
         <td>
           Apply
@@ -829,19 +855,19 @@
           
         </td>
         <td style="background: #AEF1AE">
-          com.sparkutils.quality.impl.Validation.defaultViewLookup.apply(name)
+          ViewLoader.this.defaultViewLookup.apply(name)
         </td>
       </tr><tr>
         <td>
-          70
+          72
         </td>
         <td>
-          8308
+          1503
         </td>
         <td>
-          2752
+          2854
           -
-          2752
+          2854
         </td>
         <td>
           Literal
@@ -857,15 +883,15 @@
         </td>
       </tr><tr>
         <td>
-          70
+          72
         </td>
         <td>
-          8309
+          1504
         </td>
         <td>
-          2752
+          2854
           -
-          2752
+          2854
         </td>
         <td>
           Block
@@ -881,15 +907,15 @@
         </td>
       </tr><tr>
         <td>
-          71
+          73
         </td>
         <td>
-          8306
+          1501
         </td>
         <td>
-          2806
+          2897
           -
-          2822
+          2913
         </td>
         <td>
           Apply
@@ -905,15 +931,15 @@
         </td>
       </tr><tr>
         <td>
-          71
+          73
         </td>
         <td>
-          8307
+          1502
         </td>
         <td>
-          2806
+          2897
           -
-          2822
+          2913
         </td>
         <td>
           Block
@@ -929,15 +955,15 @@
         </td>
       </tr><tr>
         <td>
-          75
+          77
         </td>
         <td>
-          8310
+          1505
         </td>
         <td>
-          2846
+          2937
           -
-          2946
+          3039
         </td>
         <td>
           Apply
@@ -956,15 +982,15 @@
         </td>
       </tr><tr>
         <td>
-          78
+          80
         </td>
         <td>
-          8311
+          1506
         </td>
         <td>
-          3008
+          3101
           -
-          3028
+          3121
         </td>
         <td>
           Apply
@@ -980,15 +1006,15 @@
         </td>
       </tr><tr>
         <td>
-          79
+          81
         </td>
         <td>
-          8312
+          1507
         </td>
         <td>
-          3051
+          3144
           -
-          3067
+          3160
         </td>
         <td>
           Apply
@@ -1004,15 +1030,15 @@
         </td>
       </tr><tr>
         <td>
-          83
+          85
         </td>
         <td>
-          8336
+          1531
         </td>
         <td>
-          3268
+          3361
           -
-          4496
+          4589
         </td>
         <td>
           Block
@@ -1051,15 +1077,15 @@
         </td>
       </tr><tr>
         <td>
-          84
+          86
         </td>
         <td>
-          8314
+          1509
         </td>
         <td>
-          3336
+          3429
           -
-          3343
+          3436
         </td>
         <td>
           Throw
@@ -1070,20 +1096,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           throw e
         </td>
       </tr><tr>
         <td>
-          84
+          86
         </td>
         <td>
-          8315
+          1510
         </td>
         <td>
-          3293
+          3386
           -
-          3344
+          3437
         </td>
         <td>
           Apply
@@ -1099,15 +1125,15 @@
         </td>
       </tr><tr>
         <td>
-          85
+          87
         </td>
         <td>
-          8316
+          1511
         </td>
         <td>
-          3367
+          3460
           -
-          3402
+          3495
         </td>
         <td>
           Apply
@@ -1123,15 +1149,15 @@
         </td>
       </tr><tr>
         <td>
-          87
+          89
         </td>
         <td>
-          8317
+          1512
         </td>
         <td>
-          3430
+          3523
           -
-          3540
+          3633
         </td>
         <td>
           Throw
@@ -1147,15 +1173,15 @@
         </td>
       </tr><tr>
         <td>
-          87
+          89
         </td>
         <td>
-          8335
+          1530
         </td>
         <td>
-          3416
+          3509
           -
-          4496
+          4589
         </td>
         <td>
           Apply
@@ -1190,15 +1216,15 @@
         </td>
       </tr><tr>
         <td>
-          90
+          92
         </td>
         <td>
-          8329
+          1524
         </td>
         <td>
-          3620
+          3713
           -
-          4233
+          4326
         </td>
         <td>
           Apply
@@ -1227,15 +1253,15 @@
         </td>
       </tr><tr>
         <td>
-          92
+          94
         </td>
         <td>
-          8318
+          1513
         </td>
         <td>
-          3707
+          3800
           -
-          3727
+          3820
         </td>
         <td>
           Apply
@@ -1251,15 +1277,15 @@
         </td>
       </tr><tr>
         <td>
-          93
+          95
         </td>
         <td>
-          8319
+          1514
         </td>
         <td>
-          3753
+          3846
           -
-          3757
+          3850
         </td>
         <td>
           Ident
@@ -1275,15 +1301,15 @@
         </td>
       </tr><tr>
         <td>
-          95
+          97
         </td>
         <td>
-          8320
+          1515
         </td>
         <td>
-          3817
+          3910
           -
-          3817
+          3910
         </td>
         <td>
           Apply
@@ -1299,15 +1325,15 @@
         </td>
       </tr><tr>
         <td>
-          97
+          99
         </td>
         <td>
-          8321
+          1516
         </td>
         <td>
-          3845
+          3938
           -
-          3871
+          3964
         </td>
         <td>
           Apply
@@ -1323,15 +1349,15 @@
         </td>
       </tr><tr>
         <td>
-          97
+          99
         </td>
         <td>
-          8326
+          1521
         </td>
         <td>
-          3873
+          3966
           -
-          4130
+          4223
         </td>
         <td>
           Block
@@ -1351,15 +1377,15 @@
         </td>
       </tr><tr>
         <td>
-          98
+          100
         </td>
         <td>
-          8322
+          1517
         </td>
         <td>
-          4011
+          4104
           -
-          4028
+          4121
         </td>
         <td>
           Apply
@@ -1375,15 +1401,15 @@
         </td>
       </tr><tr>
         <td>
-          99
+          101
         </td>
         <td>
-          8323
+          1518
         </td>
         <td>
-          4063
+          4156
           -
-          4080
+          4173
         </td>
         <td>
           Apply
@@ -1399,15 +1425,15 @@
         </td>
       </tr><tr>
         <td>
-          99
+          101
         </td>
         <td>
-          8324
+          1519
         </td>
         <td>
-          4051
+          4144
           -
-          4081
+          4174
         </td>
         <td>
           Apply
@@ -1423,15 +1449,15 @@
         </td>
       </tr><tr>
         <td>
-          100
+          102
         </td>
         <td>
-          8325
+          1520
         </td>
         <td>
-          4104
+          4197
           -
-          4108
+          4201
         </td>
         <td>
           Select
@@ -1447,15 +1473,15 @@
         </td>
       </tr><tr>
         <td>
-          102
+          104
         </td>
         <td>
-          8327
+          1522
         </td>
         <td>
-          4203
+          4296
           -
-          4213
+          4306
         </td>
         <td>
           Apply
@@ -1471,15 +1497,15 @@
         </td>
       </tr><tr>
         <td>
-          102
+          104
         </td>
         <td>
-          8328
+          1523
         </td>
         <td>
-          4203
+          4296
           -
-          4213
+          4306
         </td>
         <td>
           Block
@@ -1495,15 +1521,15 @@
         </td>
       </tr><tr>
         <td>
-          104
+          106
         </td>
         <td>
-          8330
+          1525
         </td>
         <td>
-          4254
+          4347
           -
-          4275
+          4368
         </td>
         <td>
           Select
@@ -1519,15 +1545,15 @@
         </td>
       </tr><tr>
         <td>
-          104
+          106
         </td>
         <td>
-          8333
+          1528
         </td>
         <td>
-          4250
+          4343
           -
-          4250
+          4343
         </td>
         <td>
           Literal
@@ -1543,15 +1569,15 @@
         </td>
       </tr><tr>
         <td>
-          104
+          106
         </td>
         <td>
-          8334
+          1529
         </td>
         <td>
-          4250
+          4343
           -
-          4250
+          4343
         </td>
         <td>
           Block
@@ -1567,15 +1593,15 @@
         </td>
       </tr><tr>
         <td>
-          105
+          107
         </td>
         <td>
-          8331
+          1526
         </td>
         <td>
-          4297
+          4390
           -
-          4448
+          4541
         </td>
         <td>
           Throw
@@ -1591,15 +1617,15 @@
         </td>
       </tr><tr>
         <td>
-          105
+          107
         </td>
         <td>
-          8332
+          1527
         </td>
         <td>
-          4297
+          4390
           -
-          4448
+          4541
         </td>
         <td>
           Block
@@ -1615,15 +1641,15 @@
         </td>
       </tr><tr>
         <td>
-          112
+          114
         </td>
         <td>
-          8340
+          1535
         </td>
         <td>
-          4543
+          4636
           -
-          4563
+          4656
         </td>
         <td>
           Apply
@@ -1639,15 +1665,15 @@
         </td>
       </tr><tr>
         <td>
-          112
+          114
         </td>
         <td>
-          8341
+          1536
         </td>
         <td>
-          4569
+          4662
           -
-          4574
+          4667
         </td>
         <td>
           Select
@@ -1663,15 +1689,15 @@
         </td>
       </tr><tr>
         <td>
-          112
+          114
         </td>
         <td>
-          8342
+          1537
         </td>
         <td>
-          4526
+          4619
           -
-          4574
+          4667
         </td>
         <td>
           Apply
@@ -1687,15 +1713,15 @@
         </td>
       </tr><tr>
         <td>
-          112
+          114
         </td>
         <td>
-          8348
+          1543
         </td>
         <td>
-          4575
+          4668
           -
-          4575
+          4668
         </td>
         <td>
           Apply
@@ -1711,15 +1737,15 @@
         </td>
       </tr><tr>
         <td>
-          112
+          114
         </td>
         <td>
-          8349
+          1544
         </td>
         <td>
-          4520
+          4613
           -
-          4714
+          4807
         </td>
         <td>
           Block
@@ -1741,15 +1767,15 @@
         </td>
       </tr><tr>
         <td>
-          112
+          114
         </td>
         <td>
-          8350
+          1545
         </td>
         <td>
-          4520
+          4613
           -
-          4520
+          4613
         </td>
         <td>
           Literal
@@ -1765,15 +1791,15 @@
         </td>
       </tr><tr>
         <td>
-          112
+          114
         </td>
         <td>
-          8351
+          1546
         </td>
         <td>
-          4520
+          4613
           -
-          4520
+          4613
         </td>
         <td>
           Block
@@ -1789,15 +1815,15 @@
         </td>
       </tr><tr>
         <td>
-          113
+          115
         </td>
         <td>
-          8343
+          1538
         </td>
         <td>
-          4583
+          4676
           -
-          4600
+          4693
         </td>
         <td>
           Apply
@@ -1813,15 +1839,15 @@
         </td>
       </tr><tr>
         <td>
-          115
+          117
         </td>
         <td>
-          8344
+          1539
         </td>
         <td>
-          4654
+          4747
           -
-          4658
+          4751
         </td>
         <td>
           Literal
@@ -1837,15 +1863,15 @@
         </td>
       </tr><tr>
         <td>
-          116
+          118
         </td>
         <td>
-          8347
+          1542
         </td>
         <td>
-          4607
+          4700
           -
-          4708
+          4801
         </td>
         <td>
           Apply
@@ -1861,15 +1887,15 @@
         </td>
       </tr><tr>
         <td>
-          117
+          119
         </td>
         <td>
-          8345
+          1540
         </td>
         <td>
-          4695
+          4788
           -
-          4699
+          4792
         </td>
         <td>
           Select
@@ -1885,15 +1911,15 @@
         </td>
       </tr><tr>
         <td>
-          117
+          119
         </td>
         <td>
-          8346
+          1541
         </td>
         <td>
-          4683
+          4776
           -
-          4700
+          4793
         </td>
         <td>
           Apply
@@ -1909,15 +1935,15 @@
         </td>
       </tr><tr>
         <td>
-          120
+          122
         </td>
         <td>
-          8352
+          1547
         </td>
         <td>
-          4735
+          4828
           -
-          4749
+          4842
         </td>
         <td>
           TypeApply
@@ -1933,15 +1959,15 @@
         </td>
       </tr><tr>
         <td>
-          120
+          122
         </td>
         <td>
-          8353
+          1548
         </td>
         <td>
-          4751
+          4844
           -
-          4756
+          4849
         </td>
         <td>
           Select
@@ -1957,15 +1983,15 @@
         </td>
       </tr><tr>
         <td>
-          120
+          122
         </td>
         <td>
-          8354
+          1549
         </td>
         <td>
-          4758
+          4851
           -
-          4778
+          4871
         </td>
         <td>
           Select
@@ -1981,15 +2007,15 @@
         </td>
       </tr><tr>
         <td>
-          120
+          122
         </td>
         <td>
-          8355
+          1550
         </td>
         <td>
-          4719
+          4812
           -
-          4779
+          4872
         </td>
         <td>
           Apply

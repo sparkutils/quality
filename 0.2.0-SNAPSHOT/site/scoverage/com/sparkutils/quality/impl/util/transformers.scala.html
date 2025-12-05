@@ -24,74 +24,80 @@
           <div class="tab-pane active" id="codegrid">
             <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality.impl.util
 </span>2 <span style=''>
-</span>3 <span style=''>import com.sparkutils.quality.impl.NamedStruct
-</span>4 <span style=''>import com.sparkutils.quality.{RuleSuite, ruleFolderRunner}
-</span>5 <span style=''>import com.sparkutils.shim.expressions.CreateNamedStruct1
-</span>6 <span style=''>import org.apache.spark.sql.{Column, DataFrame, ShimUtils, Row =&gt; SRow}
-</span>7 <span style=''>import org.apache.spark.sql.ClassicQualitySparkUtils.DatasetBase
-</span>8 <span style=''>import org.apache.spark.sql.types.StructType
+</span>3 <span style=''>import com.sparkutils.quality.{RuleSuite, ruleFolderRunner}
+</span>4 <span style=''>import org.apache.spark.sql.functions.lit
+</span>5 <span style=''>import org.apache.spark.sql.{Column, DataFrame, Dataset, ShimUtils, Row =&gt; SRow}
+</span>6 <span style=''>import org.apache.spark.sql.types.StructType
+</span>7 <span style=''>
+</span>8 <span style=''>import scala.language.higherKinds
 </span>9 <span style=''>
-</span>10 <span style=''>protected[quality] object AddDataFunctions {
-</span>11 <span style=''>
-</span>12 <span style=''>  /**
-</span>13 <span style=''>   * Leverages the foldRunner to replace fields, the input fields are used to create a structure that the rules fold over.
-</span>14 <span style=''>   * The fields are then dropped from the original Dataframe and added back from the resulting structure.
-</span>15 <span style=''>   *
-</span>16 <span style=''>   * NOTE: The field order and types of the original DF will be maintained only when maintainOrder is true.  As it requires access to the schema it may incur extra work.
-</span>17 <span style=''>   *
-</span>18 <span style=''>   * @param rules
-</span>19 <span style=''>   * @param debugMode when true the last results are taken for the replaced fields
-</span>20 <span style=''>   * @param maintainOrder when true the schema is used to replace fields in the correct location, when false they are simply appended
-</span>21 <span style=''>   * @param useType In the case you must use select and can't use withColumn you may provide a type directly to stop the NPE
-</span>22 <span style=''>   * @return
-</span>23 <span style=''>   */
-</span>24 <span style=''>  def ifoldAndReplaceFields[P[R] &gt;: DatasetBase[R]](rules: RuleSuite, fields: Either[Seq[String], Seq[(String, Column)]], foldFieldName: String = &quot;foldedFields&quot;,
-</span>25 <span style=''>                           debugMode: Boolean = false, tempFoldDebugName: String = &quot;tempFOLDDEBUG&quot;,
-</span>26 <span style=''>                           maintainOrder: Boolean = true, useType: Option[StructType] = None,
-</span>27 <span style=''>                           compileEvals: Boolean = false, forceRunnerEval: Boolean = false,
-</span>28 <span style=''>                           forceTriggerEval: Boolean = false): P[SRow] =&gt; P[SRow] = rdf =&gt; </span><span style='background: #AEF1AE'>{
-</span>29 <span style=''></span><span style='background: #AEF1AE'>    val df = rdf.asInstanceOf[DataFrame]
-</span>30 <span style=''></span><span style='background: #AEF1AE'>    import org.apache.spark.sql.functions._
-</span>31 <span style=''></span><span style='background: #AEF1AE'>
-</span>32 <span style=''></span><span style='background: #AEF1AE'>    val fieldNames = fields.fold(identity, _.map(_._1)).toSet
-</span>33 <span style=''></span><span style='background: #AEF1AE'>
-</span>34 <span style=''></span><span style='background: #AEF1AE'>    val theStruct = fields.fold(
-</span>35 <span style=''></span><span style='background: #AEF1AE'>      fields =&gt; struct(fields.head, fields.tail :_*),
-</span>36 <span style=''></span><span style='background: #AEF1AE'>      pairs =&gt; NamedStruct(pairs)
-</span>37 <span style=''></span><span style='background: #AEF1AE'>    )
-</span>38 <span style=''></span><span style='background: #AEF1AE'>    val withFolder =
-</span>39 <span style=''></span><span style='background: #AEF1AE'>      df.withColumn(foldFieldName, ruleFolderRunner(rules, theStruct, debugMode = debugMode, useType = useType,
-</span>40 <span style=''></span><span style='background: #AEF1AE'>        compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval))
-</span>41 <span style=''></span><span style='background: #AEF1AE'>
-</span>42 <span style=''></span><span style='background: #AEF1AE'>    val schema = withFolder.schema
-</span>43 <span style=''></span><span style='background: #AEF1AE'>    val dfFields = schema.map(_.name)
-</span>44 <span style=''></span><span style='background: #AEF1AE'>
-</span>45 <span style=''></span><span style='background: #AEF1AE'>    // create now as the schema will have the folder, which we may want to keep
-</span>46 <span style=''></span><span style='background: #AEF1AE'>    val namesInOrder =
-</span>47 <span style=''></span><span style='background: #AEF1AE'>      if (maintainOrder)
-</span>48 <span style=''></span><span style='background: #AEF1AE'>        dfFields
-</span>49 <span style=''></span><span style='background: #AEF1AE'>      else
-</span>50 <span style=''></span><span style='background: #AEF1AE'>        Seq()
-</span>51 <span style=''></span><span style='background: #AEF1AE'>    // lift the results
-</span>52 <span style=''></span><span style='background: #AEF1AE'>    val result =
-</span>53 <span style=''></span><span style='background: #AEF1AE'>      if (debugMode)
-</span>54 <span style=''></span><span style='background: #AEF1AE'>        withFolder.selectExpr(
-</span>55 <span style=''></span><span style='background: #AEF1AE'>          dfFields.filterNot(fieldNames) ++
-</span>56 <span style=''></span><span style='background: #AEF1AE'>          fieldNames.map { name =&gt;
-</span>57 <span style=''></span><span style='background: #AEF1AE'>            s&quot;if(size($foldFieldName.result) == 0 or $foldFieldName.result is null, null, element_at($foldFieldName.result, -1)).result.$name as $name&quot;
-</span>58 <span style=''></span><span style='background: #AEF1AE'>          } :_*
-</span>59 <span style=''></span><span style='background: #AEF1AE'>        )
-</span>60 <span style=''></span><span style='background: #AEF1AE'>      else
-</span>61 <span style=''></span><span style='background: #AEF1AE'>        withFolder.selectExpr(dfFields.filterNot(fieldNames) :+ s&quot;$foldFieldName.result.*&quot; :_*)
-</span>62 <span style=''></span><span style='background: #AEF1AE'>
-</span>63 <span style=''></span><span style='background: #AEF1AE'>    // bring back to top level in the correct order
-</span>64 <span style=''></span><span style='background: #AEF1AE'>    if (maintainOrder)
-</span>65 <span style=''></span><span style='background: #AEF1AE'>      result.select(namesInOrder.head, namesInOrder.tail :_*)
-</span>66 <span style=''></span><span style='background: #AEF1AE'>    else
-</span>67 <span style=''></span><span style='background: #AEF1AE'>      result
-</span>68 <span style=''></span><span style='background: #AEF1AE'>  }.asInstanceOf[P[SRow]]</span><span style=''>
-</span>69 <span style=''>
-</span>70 <span style=''>}
+</span>10 <span style=''>object NamedStruct {
+</span>11 <span style=''>  def apply(pairs: Seq[(String, Column)]): Column =
+</span>12 <span style=''>    </span><span style='background: #AEF1AE'>ShimUtils.callFunction(&quot;named_struct&quot;,
+</span>13 <span style=''></span><span style='background: #AEF1AE'>      pairs.flatMap(p =&gt; Seq(lit(p._1), p._2)) :_*
+</span>14 <span style=''></span><span style='background: #AEF1AE'>    )</span><span style=''>
+</span>15 <span style=''>}
+</span>16 <span style=''>
+</span>17 <span style=''>protected[quality] object AddDataFunctions {
+</span>18 <span style=''>
+</span>19 <span style=''>  /**
+</span>20 <span style=''>   * Leverages the foldRunner to replace fields, the input fields are used to create a structure that the rules fold over.
+</span>21 <span style=''>   * The fields are then dropped from the original Dataframe and added back from the resulting structure.
+</span>22 <span style=''>   *
+</span>23 <span style=''>   * NOTE: The field order and types of the original DF will be maintained only when maintainOrder is true.  As it requires access to the schema it may incur extra work.
+</span>24 <span style=''>   *
+</span>25 <span style=''>   * @param rules
+</span>26 <span style=''>   * @param debugMode when true the last results are taken for the replaced fields
+</span>27 <span style=''>   * @param maintainOrder when true the schema is used to replace fields in the correct location, when false they are simply appended
+</span>28 <span style=''>   * @param useType In the case you must use select and can't use withColumn you may provide a type directly to stop the NPE
+</span>29 <span style=''>   * @return
+</span>30 <span style=''>   */
+</span>31 <span style=''>  def ifoldAndReplaceFields[P[R] &gt;: Dataset[R]](rules: RuleSuite, fields: Either[Seq[String], Seq[(String, Column)]], foldFieldName: String = &quot;foldedFields&quot;,
+</span>32 <span style=''>                           debugMode: Boolean = false, maintainOrder: Boolean = true, useType: Option[StructType] = None,
+</span>33 <span style=''>                           compileEvals: Boolean = false, forceRunnerEval: Boolean = false,
+</span>34 <span style=''>                           forceTriggerEval: Boolean = false, alias: String = &quot;main&quot;): P[SRow] =&gt; P[SRow] = rdf =&gt; </span><span style='background: #AEF1AE'>{
+</span>35 <span style=''></span><span style='background: #AEF1AE'>    val df = rdf.asInstanceOf[DataFrame]
+</span>36 <span style=''></span><span style='background: #AEF1AE'>    import org.apache.spark.sql.functions._
+</span>37 <span style=''></span><span style='background: #AEF1AE'>
+</span>38 <span style=''></span><span style='background: #AEF1AE'>    val fieldNames = fields.fold(identity, _.map(_._1)).toSet
+</span>39 <span style=''></span><span style='background: #AEF1AE'>
+</span>40 <span style=''></span><span style='background: #AEF1AE'>    val theStruct = fields.fold(
+</span>41 <span style=''></span><span style='background: #AEF1AE'>      fields =&gt; struct(fields.head, fields.tail :_*),
+</span>42 <span style=''></span><span style='background: #AEF1AE'>      pairs =&gt; NamedStruct(pairs)
+</span>43 <span style=''></span><span style='background: #AEF1AE'>    )
+</span>44 <span style=''></span><span style='background: #AEF1AE'>    val withFolder =
+</span>45 <span style=''></span><span style='background: #AEF1AE'>      df.as(alias).withColumn(foldFieldName, ruleFolderRunner(rules, theStruct, debugMode = debugMode, useType = useType,
+</span>46 <span style=''></span><span style='background: #AEF1AE'>        compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval))
+</span>47 <span style=''></span><span style='background: #AEF1AE'>
+</span>48 <span style=''></span><span style='background: #AEF1AE'>    val schema = withFolder.schema
+</span>49 <span style=''></span><span style='background: #AEF1AE'>    val dfFields = schema.map(_.name)
+</span>50 <span style=''></span><span style='background: #AEF1AE'>
+</span>51 <span style=''></span><span style='background: #AEF1AE'>    // create now as the schema will have the folder, which we may want to keep
+</span>52 <span style=''></span><span style='background: #AEF1AE'>    val namesInOrder =
+</span>53 <span style=''></span><span style='background: #AEF1AE'>      if (maintainOrder)
+</span>54 <span style=''></span><span style='background: #AEF1AE'>        dfFields
+</span>55 <span style=''></span><span style='background: #AEF1AE'>      else
+</span>56 <span style=''></span><span style='background: #AEF1AE'>        Seq()
+</span>57 <span style=''></span><span style='background: #AEF1AE'>    // lift the results
+</span>58 <span style=''></span><span style='background: #AEF1AE'>    val result =
+</span>59 <span style=''></span><span style='background: #AEF1AE'>      if (debugMode)
+</span>60 <span style=''></span><span style='background: #AEF1AE'>        withFolder.selectExpr(
+</span>61 <span style=''></span><span style='background: #AEF1AE'>          dfFields.filterNot(fieldNames) ++
+</span>62 <span style=''></span><span style='background: #AEF1AE'>          fieldNames.map { name =&gt;
+</span>63 <span style=''></span><span style='background: #AEF1AE'>            s&quot;if(size($foldFieldName.result) == 0 or $foldFieldName.result is null, null, element_at($foldFieldName.result, -1)).result.$name as $name&quot;
+</span>64 <span style=''></span><span style='background: #AEF1AE'>          } :_*
+</span>65 <span style=''></span><span style='background: #AEF1AE'>        )
+</span>66 <span style=''></span><span style='background: #AEF1AE'>      else
+</span>67 <span style=''></span><span style='background: #AEF1AE'>        withFolder.selectExpr(dfFields.filterNot(fieldNames) :+ s&quot;$foldFieldName.result.*&quot; :_*)
+</span>68 <span style=''></span><span style='background: #AEF1AE'>
+</span>69 <span style=''></span><span style='background: #AEF1AE'>    // bring back to top level in the correct order
+</span>70 <span style=''></span><span style='background: #AEF1AE'>    if (maintainOrder)
+</span>71 <span style=''></span><span style='background: #AEF1AE'>      result.select(namesInOrder.head, namesInOrder.tail :_*)
+</span>72 <span style=''></span><span style='background: #AEF1AE'>    else
+</span>73 <span style=''></span><span style='background: #AEF1AE'>      result
+</span>74 <span style=''></span><span style='background: #AEF1AE'>  }.asInstanceOf[P[SRow]]</span><span style=''>
+</span>75 <span style=''>
+</span>76 <span style=''>}
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -106,15 +112,183 @@
         <th>Code</th>
       </tr><tr>
         <td>
-          29
+          12
         </td>
         <td>
-          8247
+          1434
         </td>
         <td>
-          1784
+          406
           -
-          1811
+          420
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;named_struct&quot;
+        </td>
+      </tr><tr>
+        <td>
+          12
+        </td>
+        <td>
+          1440
+        </td>
+        <td>
+          383
+          -
+          478
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.ShimUtils.callFunction
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.ShimUtils.callFunction(&quot;named_struct&quot;, (pairs.flatMap[org.apache.spark.sql.Column](((p: (String, org.apache.spark.sql.Column)) =&gt; scala.`package`.Seq.apply[org.apache.spark.sql.Column](org.apache.spark.sql.functions.lit(p._1), p._2))): _*))
+        </td>
+      </tr><tr>
+        <td>
+          13
+        </td>
+        <td>
+          1435
+        </td>
+        <td>
+          455
+          -
+          459
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          p._1
+        </td>
+      </tr><tr>
+        <td>
+          13
+        </td>
+        <td>
+          1436
+        </td>
+        <td>
+          451
+          -
+          460
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.functions.lit
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.functions.lit(p._1)
+        </td>
+      </tr><tr>
+        <td>
+          13
+        </td>
+        <td>
+          1437
+        </td>
+        <td>
+          462
+          -
+          466
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          p._2
+        </td>
+      </tr><tr>
+        <td>
+          13
+        </td>
+        <td>
+          1438
+        </td>
+        <td>
+          447
+          -
+          467
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqFactory.Delegate.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.`package`.Seq.apply[org.apache.spark.sql.Column](org.apache.spark.sql.functions.lit(p._1), p._2)
+        </td>
+      </tr><tr>
+        <td>
+          13
+        </td>
+        <td>
+          1439
+        </td>
+        <td>
+          428
+          -
+          468
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOps.flatMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          pairs.flatMap[org.apache.spark.sql.Column](((p: (String, org.apache.spark.sql.Column)) =&gt; scala.`package`.Seq.apply[org.apache.spark.sql.Column](org.apache.spark.sql.functions.lit(p._1), p._2)))
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          1441
+        </td>
+        <td>
+          1824
+          -
+          1851
         </td>
         <td>
           TypeApply
@@ -130,15 +304,15 @@
         </td>
       </tr><tr>
         <td>
-          32
+          38
         </td>
         <td>
-          8248
+          1442
         </td>
         <td>
-          1890
+          1930
           -
-          1898
+          1938
         </td>
         <td>
           Apply
@@ -154,15 +328,15 @@
         </td>
       </tr><tr>
         <td>
-          32
+          38
         </td>
         <td>
-          8249
+          1443
         </td>
         <td>
-          1906
+          1946
           -
-          1910
+          1950
         </td>
         <td>
           Select
@@ -178,15 +352,15 @@
         </td>
       </tr><tr>
         <td>
-          32
+          38
         </td>
         <td>
-          8250
+          1444
         </td>
         <td>
-          1900
+          1940
           -
-          1911
+          1951
         </td>
         <td>
           Apply
@@ -202,15 +376,15 @@
         </td>
       </tr><tr>
         <td>
-          32
+          38
         </td>
         <td>
-          8251
+          1445
         </td>
         <td>
-          1878
-          -
           1918
+          -
+          1958
         </td>
         <td>
           TypeApply
@@ -226,15 +400,15 @@
         </td>
       </tr><tr>
         <td>
-          34
+          40
         </td>
         <td>
-          8256
+          1450
         </td>
         <td>
-          1940
+          1980
           -
-          2046
+          2086
         </td>
         <td>
           Apply
@@ -246,19 +420,19 @@
           
         </td>
         <td style="background: #AEF1AE">
-          fields.fold[org.apache.spark.sql.Column](((fields: Seq[String]) =&gt; org.apache.spark.sql.functions.struct(fields.head, (fields.tail: _*))), ((pairs: Seq[(String, org.apache.spark.sql.Column)]) =&gt; com.sparkutils.quality.impl.NamedStruct.apply(pairs)))
+          fields.fold[org.apache.spark.sql.Column](((fields: Seq[String]) =&gt; org.apache.spark.sql.functions.struct(fields.head, (fields.tail: _*))), ((pairs: Seq[(String, org.apache.spark.sql.Column)]) =&gt; NamedStruct.apply(pairs)))
         </td>
       </tr><tr>
         <td>
-          35
+          41
         </td>
         <td>
-          8252
+          1446
         </td>
         <td>
-          1976
+          2016
           -
-          1987
+          2027
         </td>
         <td>
           Select
@@ -274,15 +448,15 @@
         </td>
       </tr><tr>
         <td>
-          35
+          41
         </td>
         <td>
-          8253
+          1447
         </td>
         <td>
-          1989
+          2029
           -
-          2000
+          2040
         </td>
         <td>
           Select
@@ -298,15 +472,15 @@
         </td>
       </tr><tr>
         <td>
-          35
+          41
         </td>
         <td>
-          8254
+          1448
         </td>
         <td>
-          1969
+          2009
           -
-          2005
+          2045
         </td>
         <td>
           Apply
@@ -322,39 +496,39 @@
         </td>
       </tr><tr>
         <td>
-          36
+          42
         </td>
         <td>
-          8255
+          1449
         </td>
         <td>
-          2022
+          2062
           -
-          2040
+          2080
         </td>
         <td>
           Apply
         </td>
         <td>
-          com.sparkutils.quality.impl.NamedStruct.apply
+          com.sparkutils.quality.impl.util.NamedStruct.apply
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          com.sparkutils.quality.impl.NamedStruct.apply(pairs)
+          NamedStruct.apply(pairs)
         </td>
       </tr><tr>
         <td>
-          39
+          45
         </td>
         <td>
-          8257
+          1451
         </td>
         <td>
-          2103
+          2153
           -
-          2288
+          2338
         </td>
         <td>
           Apply
@@ -370,15 +544,15 @@
         </td>
       </tr><tr>
         <td>
-          39
+          45
         </td>
         <td>
-          8258
+          1452
         </td>
         <td>
-          2074
+          2114
           -
-          2289
+          2339
         </td>
         <td>
           Apply
@@ -390,7 +564,7 @@
           
         </td>
         <td style="background: #AEF1AE">
-          df.withColumn(foldFieldName, {
+          df.as(alias).withColumn(foldFieldName, {
   &lt;artifact&gt; val x$1: com.sparkutils.quality.RuleSuite = rules;
   &lt;artifact&gt; val x$2: org.apache.spark.sql.Column = theStruct;
   &lt;artifact&gt; val x$3: Boolean = debugMode;
@@ -406,15 +580,15 @@
         </td>
       </tr><tr>
         <td>
-          42
+          48
         </td>
         <td>
-          8259
+          1453
         </td>
         <td>
-          2308
+          2358
           -
-          2325
+          2375
         </td>
         <td>
           Select
@@ -430,15 +604,15 @@
         </td>
       </tr><tr>
         <td>
-          43
+          49
         </td>
         <td>
-          8260
+          1454
         </td>
         <td>
-          2356
+          2406
           -
-          2362
+          2412
         </td>
         <td>
           Select
@@ -454,15 +628,15 @@
         </td>
       </tr><tr>
         <td>
-          43
+          49
         </td>
         <td>
-          8261
+          1455
         </td>
         <td>
-          2345
+          2395
           -
-          2363
+          2413
         </td>
         <td>
           Apply
@@ -478,15 +652,15 @@
         </td>
       </tr><tr>
         <td>
-          48
+          54
         </td>
         <td>
-          8262
+          1456
         </td>
         <td>
-          2501
+          2551
           -
-          2509
+          2559
         </td>
         <td>
           Ident
@@ -502,15 +676,15 @@
         </td>
       </tr><tr>
         <td>
-          50
+          56
         </td>
         <td>
-          8263
+          1457
         </td>
         <td>
-          2529
+          2579
           -
-          2534
+          2584
         </td>
         <td>
           Apply
@@ -526,15 +700,15 @@
         </td>
       </tr><tr>
         <td>
-          50
+          56
         </td>
         <td>
-          8264
+          1458
         </td>
         <td>
-          2529
+          2579
           -
-          2534
+          2584
         </td>
         <td>
           Block
@@ -550,15 +724,15 @@
         </td>
       </tr><tr>
         <td>
-          54
+          60
         </td>
         <td>
-          8267
+          1461
         </td>
         <td>
-          2605
+          2655
           -
-          2884
+          2934
         </td>
         <td>
           Apply
@@ -574,15 +748,15 @@
         </td>
       </tr><tr>
         <td>
-          54
+          60
         </td>
         <td>
-          8268
+          1462
         </td>
         <td>
-          2605
+          2655
           -
-          2884
+          2934
         </td>
         <td>
           Block
@@ -598,15 +772,15 @@
         </td>
       </tr><tr>
         <td>
-          55
+          61
         </td>
         <td>
-          8266
+          1460
         </td>
         <td>
-          2638
+          2688
           -
-          2870
+          2920
         </td>
         <td>
           Apply
@@ -622,15 +796,15 @@
         </td>
       </tr><tr>
         <td>
-          56
+          62
         </td>
         <td>
-          8265
+          1459
         </td>
         <td>
-          2682
+          2732
           -
-          2870
+          2920
         </td>
         <td>
           Apply
@@ -646,15 +820,15 @@
         </td>
       </tr><tr>
         <td>
-          61
+          67
         </td>
         <td>
-          8269
+          1463
         </td>
         <td>
-          2926
+          2976
           -
-          2986
+          3036
         </td>
         <td>
           Apply
@@ -670,15 +844,15 @@
         </td>
       </tr><tr>
         <td>
-          61
+          67
         </td>
         <td>
-          8270
+          1464
         </td>
         <td>
-          2904
+          2954
           -
-          2991
+          3041
         </td>
         <td>
           Apply
@@ -694,15 +868,15 @@
         </td>
       </tr><tr>
         <td>
-          61
+          67
         </td>
         <td>
-          8271
+          1465
         </td>
         <td>
-          2904
+          2954
           -
-          2991
+          3041
         </td>
         <td>
           Block
@@ -718,15 +892,15 @@
         </td>
       </tr><tr>
         <td>
-          65
+          71
         </td>
         <td>
-          8272
+          1466
         </td>
         <td>
-          3088
+          3138
           -
-          3105
+          3155
         </td>
         <td>
           Select
@@ -742,15 +916,15 @@
         </td>
       </tr><tr>
         <td>
-          65
+          71
         </td>
         <td>
-          8273
+          1467
         </td>
         <td>
-          3107
+          3157
           -
-          3124
+          3174
         </td>
         <td>
           Select
@@ -766,15 +940,15 @@
         </td>
       </tr><tr>
         <td>
-          65
+          71
         </td>
         <td>
-          8274
+          1468
         </td>
         <td>
-          3074
+          3124
           -
-          3129
+          3179
         </td>
         <td>
           Apply
@@ -790,15 +964,15 @@
         </td>
       </tr><tr>
         <td>
-          65
+          71
         </td>
         <td>
-          8275
+          1469
         </td>
         <td>
-          3074
+          3124
           -
-          3129
+          3179
         </td>
         <td>
           Block
@@ -814,15 +988,15 @@
         </td>
       </tr><tr>
         <td>
-          67
+          73
         </td>
         <td>
-          8276
+          1470
         </td>
         <td>
-          3145
+          3195
           -
-          3151
+          3201
         </td>
         <td>
           Ident
@@ -838,15 +1012,15 @@
         </td>
       </tr><tr>
         <td>
-          68
+          74
         </td>
         <td>
-          8277
+          1471
         </td>
         <td>
-          1769
+          1809
           -
-          3177
+          3227
         </td>
         <td>
           TypeApply
@@ -862,8 +1036,8 @@
   val df: org.apache.spark.sql.DataFrame = rdf.asInstanceOf[org.apache.spark.sql.DataFrame];
   import org.apache.spark.sql.functions._;
   val fieldNames: scala.collection.immutable.Set[String] = fields.fold[Seq[String]](((x: Seq[String]) =&gt; scala.Predef.identity[Seq[String]](x)), ((x$1: Seq[(String, org.apache.spark.sql.Column)]) =&gt; x$1.map[String](((x$2: (String, org.apache.spark.sql.Column)) =&gt; x$2._1)))).toSet[String];
-  val theStruct: org.apache.spark.sql.Column = fields.fold[org.apache.spark.sql.Column](((fields: Seq[String]) =&gt; org.apache.spark.sql.functions.struct(fields.head, (fields.tail: _*))), ((pairs: Seq[(String, org.apache.spark.sql.Column)]) =&gt; com.sparkutils.quality.impl.NamedStruct.apply(pairs)));
-  val withFolder: org.apache.spark.sql.DataFrame = df.withColumn(foldFieldName, {
+  val theStruct: org.apache.spark.sql.Column = fields.fold[org.apache.spark.sql.Column](((fields: Seq[String]) =&gt; org.apache.spark.sql.functions.struct(fields.head, (fields.tail: _*))), ((pairs: Seq[(String, org.apache.spark.sql.Column)]) =&gt; NamedStruct.apply(pairs)));
+  val withFolder: org.apache.spark.sql.DataFrame = df.as(alias).withColumn(foldFieldName, {
     &lt;artifact&gt; val x$1: com.sparkutils.quality.RuleSuite = rules;
     &lt;artifact&gt; val x$2: org.apache.spark.sql.Column = theStruct;
     &lt;artifact&gt; val x$3: Boolean = debugMode;
