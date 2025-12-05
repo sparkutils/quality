@@ -1,7 +1,6 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality.Id
-import com.sparkutils.quality.classicFunctions.registerQualityFunctions
 import com.sparkutils.quality.impl.YamlDecoder
 import com.sparkutils.quality.impl.util.{Arrays, PrintCode}
 import com.sparkutils.quality.types.ruleSuiteResultType
@@ -71,7 +70,7 @@ class BaseFunctionalityClassicTest extends SharedConnectTests with RowTools with
     val plus = LambdaFunction("plus", "(a, b) -> a + b", Id(3, 2)) // force compile with codegen
     registerLambdaFunctions(Seq(plus))
     Holder.res = ""
-    registerQualityFunctions(writer = {
+    classicFunctions.registerQualityFunctions(writer = {
       Holder.res = _
     })
 

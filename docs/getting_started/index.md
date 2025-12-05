@@ -18,7 +18,6 @@ Existing users should continue to depend on the quality jar.  Connect users on S
 
 The following functional areas are only present in the full quality jar:
 
-- registerQualityFunctions, 
 - Bloom filters, as are 
 - Processors, 
 - documentation functions, 
@@ -32,6 +31,10 @@ import com.sparkutils.quality.classicFunctions._
 ```
 
 The classicFunctions rule, engine, folder and expression runner functions will use connect where required and classic where possible.  Functions which are only possible to use with classic are annotated with ClassicOnly.
+
+??? note "registerQualityFunctions has no params?"
+    com.sparkutils.quality.registerQualityFunctions no longer takes parameters.  On classic, non quality_api, it forwards to the com.sparkutils.quality.classicFunction.registerQualityFunctions's default implementation.
+    When using quality_api via connect it's a no-op, as the functions exist on the server.    
 
 ### Spark 4, Connect and Remote Calls
 

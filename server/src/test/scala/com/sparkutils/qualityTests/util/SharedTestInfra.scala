@@ -1,9 +1,9 @@
 package com.sparkutils.qualityTests.util
 
-import com.sparkutils.quality.classicFunctions.registerQualityFunctions
-import com.sparkutils.quality.impl.extension.{FunNRewrite, QualitySparkExtension}
+import com.sparkutils.quality
+import com.sparkutils.quality.impl.extension.FunNRewrite
 import com.sparkutils.quality.{RuleSuite, ruleRunner}
-import com.sparkutils.testing.SparkTestUtils.{connectMemory, scoverageClassPathsConfig, useDebugConnectLogs}
+import com.sparkutils.testing.SparkTestUtils.{connectMemory, scoverageClassPathsConfig}
 import com.sparkutils.testing._
 import com.sparkutils.testing.markers.ConnectSafe
 import com.sparkutils.testing.sessionStrategies.{GlobalSession, SharedSessions}
@@ -16,18 +16,6 @@ trait ClassicSharedTests extends FunSuite with TestUtilsBase with SharedSessions
   override val currentSessionsHolder: SessionsStateHolder = GlobalSession
 
   override val runWith: ConnectionType = ClassicOnly
-
-  override def beforeAll(): Unit = {
-    // no-op to force it to be created
-    forceLoad
-    super.beforeAll()
-
-    cleanupOutput()
-
-    withClassicAsActive({
-      registerQualityFunctions()
-    })
-  }
 
   /**
    * enable funN rewrites, runs the test twice, once under the optimisation, once without
@@ -58,6 +46,18 @@ trait SharedConnectTests extends SharedPureConnectTests with ClassicSharedTests 
 }
 
 trait SharedPureConnectTests extends FunSuite with TestUtilsBase with SharedSessions with ConnectSafe {
+
+  override def beforeAll(): Unit = {
+    // no-op to force it to be created
+    forceLoad
+    super.beforeAll()
+
+    cleanupOutput()
+
+    withClassicAsActive({
+      quality.registerQualityFunctions()
+    })
+  }
 
   override val currentSessionsHolder: SessionsStateHolder = GlobalSession
 

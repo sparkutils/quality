@@ -36,5 +36,12 @@ package object quality extends RuleRunnerImports with Serializable with MapLooku
     case _: Throwable => default
   }
 
+  /**
+   * Simplified registerQualityFunctions, use classicFunction import when the other features are needed.
+   *
+   * Must be called before using any functions like Passed, Failed or Probability(X) when using classic, a no-op when
+   * using connect with the SparkSessionExtension
+   */
+  def registerQualityFunctions(): Unit = RegistrationFunction.registerQualityFunctions()
 }
 
