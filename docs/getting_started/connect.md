@@ -103,3 +103,6 @@ Essentially it's:
 
 - blooms, these are memory intensive by default but may be targeted for later releases if demand is raised, 
 - sparkless is, of course, distinctly Spark `Classic` in nature
+- resolveWith
+- validation, documentation
+- enableFunRewrites (they are enabled, by default, on the extension side)
