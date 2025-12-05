@@ -1,10 +1,10 @@
 package com.sparkutils.quality.impl
 
 import com.sparkutils.quality
+import com.sparkutils.quality.RuleSuite.mapRules
 import com.sparkutils.quality.impl.LambdaFunctionImpl.LambdaFunctionOps
-import com.sparkutils.quality.impl.RuleLogicUtils.mapRules
+import com.sparkutils.quality.impl.imports.ClassicRuleResultsImports.DisabledRuleExpr
 import com.sparkutils.quality.impl.util.VariablesLookup.fieldsFromExpression
-import com.sparkutils.quality.impl.imports.RuleResultsImports.DisabledRuleExpr
 import com.sparkutils.quality.impl.imports.RuleRunnerImports
 import com.sparkutils.quality.impl.util.LookupIdFunctions
 import com.sparkutils.quality.{ExpressionRule, OutputExpression, Rule, RuleSuite}

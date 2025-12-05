@@ -1,12 +1,8 @@
 package com.sparkutils.qualityTests
 
-import com.sparkutils.quality
-import com.sparkutils.quality.OutputExpression.OutputExpressionImpl
 import com.sparkutils.quality._
-import com.sparkutils.quality.classicFunctions.registerQualityFunctions
-import com.sparkutils.quality.impl.{OutputExpressionExpr, RunOnPassProcessorImpl}
 import com.sparkutils.quality.impl.PackId.packId
-import com.sparkutils.qualityTests.util.{RowTools, SharedConnectTests}
+import com.sparkutils.qualityTests.util.{RowTools, SharedPureConnectTests}
 import com.sparkutils.testing.TestUtils.debug
 import types._
 import impl.util.OutputExpressionRow
@@ -14,7 +10,7 @@ import org.apache.spark.sql.SaveMode
 import org.apache.spark.sql.functions._
 import org.scalatest.Matchers
 
-class RoundTripTest extends SharedConnectTests with RowTools with Matchers {
+class RoundTripTest extends SharedPureConnectTests with RowTools with Matchers {
 
   test("verifyPacking") {
     import implicits._
@@ -77,7 +73,6 @@ class RoundTripTest extends SharedConnectTests with RowTools with Matchers {
    * Disk writing forces compilation
    */
   test("ruleEvalAndBackViaDisk") { evalCodeGens {
-    registerQualityFunctions()
     val rules = genRules(27, 27)
     val df = dataFrameLong(writeRows, 27, ruleSuiteResultType, null)
 

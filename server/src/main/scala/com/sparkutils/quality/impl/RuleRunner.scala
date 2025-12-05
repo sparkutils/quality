@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl
 
 import com.sparkutils.quality
-import com.sparkutils.quality.impl.RuleLogicUtils.mapRules
+import com.sparkutils.quality.RuleSuite.mapRules
 import com.sparkutils.quality.impl.RuleRunnerUtils.flattenExpressions
 import com.sparkutils.quality.impl.PackId.packId
 import com.sparkutils.quality._

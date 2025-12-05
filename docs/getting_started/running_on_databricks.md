@@ -58,13 +58,16 @@ Supported as of 0.1.3.1.
 
 ### Using Lakeguard / Shared clusters with 0.2.0
 
-In order to use shared clusters you must still use cluster libraries for your client code, but you must also register spark [session extensions](index.md#configuring-on-databricks-shared-runtimes).
+In order to use shared clusters you must still use quality libraries for your client code, but you must also register spark [session extensions](index.md#configuring-on-databricks-shared-runtimes).
 
 As this mode is purely connect, no ClassicOnly functions will be usable, so if running the test pack - ensure you use:
 
 ```scala
 System.setProperty("SPARKUTILS_DISABLE_CLASSIC_TESTS","true")
 ```
+
+You can use either the quality_connect_testshade or quality_testshade to test or experiment in workbooks in this setup.
+The quality_connect_testshade only packages the quality_api so runs fully only via Spark 4 Connect apis, moreover - as it doesn't require server side code you can use the oss shade.
 
 #### Known Issues
 

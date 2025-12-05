@@ -4,10 +4,18 @@ import com.sparkutils.quality._
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions._
 import com.sparkutils.qualityTests.mapLookup.TradeTests._
-import com.sparkutils.qualityTests.util.SharedConnectTests
-import com.sparkutils.testing.{SparkTestUtils, TestUtils}
+import com.sparkutils.qualityTests.util.{ClassicSharedTests, SharedConnectTests}
+import com.sparkutils.testing.TestUtils
 import com.sparkutils.testing.TestUtils.debug
 import org.apache.spark.sql.ShimUtils.expression
+
+trait UserLambdaFunctionTestBase extends SharedConnectTests {
+
+}
+
+class ClassicUserLambdaFunctionTest extends ClassicSharedTests {
+
+}
 
 class UserLambdaFunctionTest extends SharedConnectTests {
   test("nullInParam") { evalCodeGensNoResolve { funNRewrites {

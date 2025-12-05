@@ -132,3 +132,21 @@ case class RuleSuite(id: Id, ruleSets: Seq[RuleSet], lambdaFunctions: Seq[Lambda
   def withProbablePass(probablePass: Double) = copy(probablePass = probablePass)
 
 }
+
+object RuleSuite {
+  /**
+   * Maps a given ruleSuite calling f for each rule allowing transformations
+   *
+   * @param ruleSuite
+   * @param f
+   * @return
+   */
+  def mapRules(ruleSuite: RuleSuite)(f: Rule => Rule) =
+    ruleSuite.copy(ruleSets = ruleSuite.ruleSets.map(
+      ruleSet =>
+        ruleSet.copy(rules = ruleSet.rules.map(
+          rule =>
+            f(rule)
+        ))
+    ))
+}

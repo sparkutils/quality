@@ -1,17 +1,16 @@
 package com.sparkutils.qualityTests
 
-import org.apache.spark.sql.{Column, ShimUtils, SparkSession}
+import com.sparkutils.quality.RuleSuite.mapRules
+import org.apache.spark.sql.{Column, ShimUtils}
 import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
-import org.scalatest.FunSuite
 import com.sparkutils.quality.{LambdaFunction, _}
 import com.sparkutils.quality.impl.ExpressionRunner
-import com.sparkutils.quality.impl.RuleLogicUtils.mapRules
 import com.sparkutils.qualityTests.util.ClassicSharedTests
 import com.sparkutils.shim.expressions.NullIntolerant
 import org.apache.spark.sql
 import org.apache.spark.sql.catalyst.util.TypeUtils
-import org.apache.spark.sql.types.{BooleanType, DataType, IntegerType}
+import org.apache.spark.sql.types.{BooleanType, DataType}
 import org.scalatest.Matchers.convertToAnyShouldWrapper
 
 import java.util.concurrent.atomic.AtomicInteger

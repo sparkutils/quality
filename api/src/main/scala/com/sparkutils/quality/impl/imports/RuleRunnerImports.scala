@@ -3,11 +3,8 @@ package com.sparkutils.quality.impl.imports
 import com.sparkutils.quality.RuleSuite
 import com.sparkutils.quality.impl.{RuleSuiteHelpers, Runners}
 import org.apache.spark.sql.ShimUtils.callFunction
-import org.apache.spark.sql.catalyst.expressions.Literal
 import org.apache.spark.sql.functions.lit
-import org.apache.spark.sql.types.IntegerType
 import org.apache.spark.sql.{Column, DataFrame, ShimUtils}
-import org.apache.spark.unsafe.types.UTF8String
 
 trait RuleRunnerImports {
 
@@ -48,21 +45,10 @@ trait RuleRunnerImports {
 
 object RuleResultsImports {
 
-  def strLit(str: String) =
-    UTF8String.fromString(str)
-
-  val strLitA = (str: Any) =>
-    UTF8String.fromString(str.asInstanceOf[String])
-
   val SoftFailedInt = -1
   val DisabledRuleInt = -2
   val PassedInt = 100000
   val FailedInt = 0
-
-  val SoftFailedExpr = Literal(SoftFailedInt, IntegerType)
-  val DisabledRuleExpr = Literal(DisabledRuleInt, IntegerType)
-  val PassedExpr = Literal(PassedInt, IntegerType)
-  val FailedExpr = Literal(FailedInt, IntegerType)
 
 }
 

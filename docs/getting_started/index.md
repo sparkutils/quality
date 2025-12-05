@@ -7,11 +7,12 @@ tags:
 
 ## Migrating from 0.1.x to 0.2.0
 
-Quality, as of 0.2.0, is delivered via 3 jars:
+Quality, as of 0.2.0, is delivered via 4 jars:
 
 * quality - effectively the same as Quality pre 0.2.0
 * quality_api - the basic interface for quality, included by the normal quality library  
-* quality_testshade - the test shaded uber package for testing and exploration
+* quality_testshade - the test shaded uber package for testing and exploration (this shade both the quality and quality_api jars)
+* quality_connect_testshade - the connect test shaded uber package for testing and exploration with Spark 4 / DBR 17.3 server extensions.  (this only shades the quality_api jar) 
 
 Existing users should continue to depend on the quality jar.  Connect users on Spark 4 / DBR 17.3 however can also make remote calls by just depending on quality_api.
 

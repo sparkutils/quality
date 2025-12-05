@@ -4,7 +4,7 @@ import com.sparkutils.quality._
 import classicFunctions.map_contains
 import com.sparkutils.qualityTests._
 import com.sparkutils.qualityTests.mapLookup.TradeTests.{ccyRate, countryCodeCCY, simpleTrades, tradeCols}
-import com.sparkutils.qualityTests.util.SharedConnectTests
+import com.sparkutils.qualityTests.util.{ClassicSharedTests, SharedConnectTests, SharedPureConnectTests}
 import org.apache.spark.sql.catalyst.expressions.GenericRowWithSchema
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.{IntegerType, StringType, StructField, StructType}
@@ -90,7 +90,64 @@ object MapLookupTest extends VariableTestShims {
 
 }
 
-class MapLookupTests extends SharedConnectTests with VariableTestShims  {
+trait TaxonomyLookupTest extends SharedPureConnectTests with VariableTestShims{
+
+  def doTaxonomyLookup(): Unit = {
+    val orchid = Seq("open","difficult","prized")
+
+    // 1) if a hierarchy is not given whole term is null and default to input (null, null) key
+    // 2) if the hierarchy is not null then it forms the first part of the key with item the second part
+    // 3) if any key lookup fails the original item should be returned
+    // 4) if the item itself is null the return empty attributes
+    val data = Seq(
+      Item("flowers", "orchid", scala.collection.immutable.Seq("open","difficult","prized")),
+      Item("flowers", "dandelion", scala.collection.immutable.Seq("weed")),
+      Item("cars", "ferrari", scala.collection.immutable.Seq("fast","compensatory measure")),
+      Item("cars", "skoda", scala.collection.immutable.Seq("outdated reputation", "drives doesn't it?"))
+    )
+    val s = sparkSession
+    import s.implicits._
+    val datadf = data.toDS()//("hierarchy","item","data")
+
+    val lookups = mapLookupsFromDFs(Map(
+      "hierarchy" -> ( () => {
+        (datadf.toDF(), functions.expr("struct(hierarchy, item)"), functions.expr("attributes"))// functions.expr("data"))
+      } )
+    ))
+
+    registerMapLookupsAndFunction(lookups)
+
+    registerLambdaFunctions(Seq(LambdaFunction("hierarchyLookup",
+      s"( hierarchy, item) -> if(item is null, array(), nvl(${map_lookupSQL("hierarchy","struct(hierarchy, item)")}, array(item)))",Id(0,1))))
+
+    def orNull(what: String) =
+      if (what eq null) "null" else s"'$what'"
+
+    def testLookup(hierarchy: String, item: String): Seq[String] = {
+      val res = sparkSession.sql(s"select hierarchyLookup(${orNull(hierarchy)}, ${orNull(item)}) res").as[Seq[String]].collect()
+      assert(res.length == 1, "should have found a single match only")
+      res.head
+    }
+
+    assert(testLookup(null, "concorde") == Seq("concorde"), "Rule 1, category is null doesn't exist")
+    assert(testLookup("planes", "concorde") == Seq("concorde"), "Rule 1, category doesn't exist")
+    assert(testLookup("flowers", "rose") == Seq("rose"), "Rule 2, category exists but item doesn't")
+    assert(testLookup("flowers", "orchid") == orchid, "Rule 1, category exists but item doesn't")
+    assert(testLookup("flowers", null) == Seq(), "Rule 4")
+
+    // NB this only works as there is a struct (tuple) wrapping the fields so the lookup itself is non-null, although the values are null
+
+  }
+
+}
+
+class ClassicMapLookupTests extends ClassicSharedTests with VariableTestShims with TaxonomyLookupTest {
+  test("taxonomyLookup") { forceInterpreted { funNRewrites {
+    doTaxonomyLookup()
+  } } }
+}
+
+class MapLookupTests extends SharedPureConnectTests with VariableTestShims with TaxonomyLookupTest {
 
   import TradeTests._
 
@@ -172,51 +229,10 @@ class MapLookupTests extends SharedConnectTests with VariableTestShims  {
     assert(res2.head == "GBP", "should have got the pound")
   } }
 
-  test("taxonomyLookup") { forceInterpreted { funNRewrites {
-    val orchid = Seq("open","difficult","prized")
+  test("taxonomyLookup") {
+    doTaxonomyLookup()
+  }
 
-    // 1) if a hierarchy is not given whole term is null and default to input (null, null) key
-    // 2) if the hierarchy is not null then it forms the first part of the key with item the second part
-    // 3) if any key lookup fails the original item should be returned
-    // 4) if the item itself is null the return empty attributes
-    val data = Seq(
-      Item("flowers", "orchid", scala.collection.immutable.Seq("open","difficult","prized")),
-      Item("flowers", "dandelion", scala.collection.immutable.Seq("weed")),
-      Item("cars", "ferrari", scala.collection.immutable.Seq("fast","compensatory measure")),
-      Item("cars", "skoda", scala.collection.immutable.Seq("outdated reputation", "drives doesn't it?"))
-    )
-    val s = sparkSession
-    import s.implicits._
-    val datadf = data.toDS()//("hierarchy","item","data")
-
-    val lookups = mapLookupsFromDFs(Map(
-      "hierarchy" -> ( () => {
-        (datadf.toDF(), functions.expr("struct(hierarchy, item)"), functions.expr("attributes"))// functions.expr("data"))
-      } )
-    ))
-
-    registerMapLookupsAndFunction(lookups)
-
-    registerLambdaFunctions(Seq(LambdaFunction("hierarchyLookup",
-      s"( hierarchy, item) -> if(item is null, array(), nvl(${map_lookupSQL("hierarchy","struct(hierarchy, item)")}, array(item)))",Id(0,1))))
-
-    def orNull(what: String) =
-      if (what eq null) "null" else s"'$what'"
-
-    def testLookup(hierarchy: String, item: String): Seq[String] = {
-      val res = sparkSession.sql(s"select hierarchyLookup(${orNull(hierarchy)}, ${orNull(item)}) res").as[Seq[String]].collect()
-      assert(res.length == 1, "should have found a single match only")
-      res.head
-    }
-
-    assert(testLookup(null, "concorde") == Seq("concorde"), "Rule 1, category is null doesn't exist")
-    assert(testLookup("planes", "concorde") == Seq("concorde"), "Rule 1, category doesn't exist")
-    assert(testLookup("flowers", "rose") == Seq("rose"), "Rule 2, category exists but item doesn't")
-    assert(testLookup("flowers", "orchid") == orchid, "Rule 1, category exists but item doesn't")
-    assert(testLookup("flowers", null) == Seq(), "Rule 4")
-
-    // NB this only works as there is a struct (tuple) wrapping the fields so the lookup itself is non-null, although the values are null
-  } } }
 }
 
 case class Item(hierarchy: String, item: String, attributes: scala.collection.immutable.Seq[String])

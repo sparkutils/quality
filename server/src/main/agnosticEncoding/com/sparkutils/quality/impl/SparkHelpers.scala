@@ -26,7 +26,6 @@ object OfRuleSuite {
   private[quality] var combinedRowType: StructType = _
   private[quality] var encoder: ExpressionEncoder[CombinedRuleSuiteRows] = _
 
-  // TODO need to test this on databricks ASAP
   def unapply(expression: Any): Option[RuleSuite] = {
     if (combinedRowType eq null) {
       val s = SparkSession.active

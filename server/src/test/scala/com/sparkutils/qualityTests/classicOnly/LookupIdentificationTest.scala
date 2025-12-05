@@ -1,4 +1,4 @@
-package com.sparkutils.qualityTests
+package com.sparkutils.qualityTests.classicOnly
 
 import com.sparkutils.quality.classicFunctions.{identifyLookups, registerQualityFunctions}
 import com.sparkutils.quality.impl.util.{BloomLookupType, MapLookupType}

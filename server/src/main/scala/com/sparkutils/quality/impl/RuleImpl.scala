@@ -1,6 +1,7 @@
 package com.sparkutils.quality.impl
 
 import com.sparkutils.quality
+import com.sparkutils.quality.RuleSuite.mapRules
 import com.sparkutils.quality.impl.ExpressionCompiler.withExpressionCompiler
 import com.sparkutils.quality.impl.util.SubQueryWrapper
 import com.sparkutils.quality._
@@ -71,21 +72,6 @@ case class OutputExpression( rule: String ) extends quality.OutputExpression wit
 
 // requires a unique name, otherwise janino can't find the function
 object RuleLogicUtils {
-
-  /**
-   * Maps a given ruleSuite calling f for each rule allowing transformations
-   * @param ruleSuite
-   * @param f
-   * @return
-   */
-  def mapRules(ruleSuite: RuleSuite)(f: Rule => Rule) =
-    ruleSuite.copy(ruleSets = ruleSuite.ruleSets.map(
-      ruleSet =>
-        ruleSet.copy( rules = ruleSet.rules.map(
-          rule =>
-            f(rule)
-        ))
-    ))
 
   /**
    * Removes all parsed Expressions.  Subqueries, supported under 3.4 oss / 12.2 dbr v0.0.2, are not serializable until

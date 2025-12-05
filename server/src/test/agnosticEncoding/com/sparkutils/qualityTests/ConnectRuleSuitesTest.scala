@@ -1,21 +1,18 @@
 package com.sparkutils.qualityTests
 
-import com.sparkutils.qualityTests.util.SharedConnectTests
+import com.sparkutils.quality.RuleSuite.mapRules
+import com.sparkutils.qualityTests.util.SharedPureConnectTests
 import com.sparkutils.quality._
-import com.sparkutils.quality.classicFunctions.namesFromSchema
 import com.sparkutils.quality.functions.flatten_results
-import com.sparkutils.quality.impl.{RuleError, RuleSuiteHelpers, RunOnPassProcessorImpl}
-import com.sparkutils.quality.impl.RuleLogicUtils.mapRules
-import com.sparkutils.quality.impl.VariableProcessIfMissingFunctions.process_if_attribute_missing_name
 import com.sparkutils.quality.impl.util.{CombinedRuleSuiteRows, LambdaFunctionRow}
 import com.sparkutils.qualityTests.RuleEngineTest.{rulesRaw, testData}
 import com.sparkutils.testing.TestUtils.{anyCauseHas, debug}
-import org.apache.spark.sql.{Dataset, ShimUtils}
-import org.apache.spark.sql.functions.{col, explode, flatten}
+import org.apache.spark.sql.ShimUtils
+import org.apache.spark.sql.functions.{col, explode}
 import org.apache.spark.sql.types.{IntegerType, StructField, StructType}
 import org.scalatest.Matchers
 
-class ConnectRuleSuitesTest extends SharedConnectTests with Matchers {
+class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
 
   val rsId = Id(1,1)
   val rules = RuleSuite(rsId, Seq(
@@ -178,8 +175,6 @@ class ConnectRuleSuitesTest extends SharedConnectTests with Matchers {
     StructField("fielda", IntegerType)
   ))
 
-  val names = namesFromSchema(struct)
-
   def doExpressionReplaceWith(ruleText: String, expected: String, rsf: RuleSuite => RuleSuite = identity) : Unit = {
     val orule = Rule(Id(2,1), ExpressionRule(ruleText))
     val rs = rsf(RuleSuite(Id(0,1), Seq(RuleSet(Id(1,1), Seq(orule)))))
@@ -225,7 +220,7 @@ class ConnectRuleSuitesTest extends SharedConnectTests with Matchers {
       intercept[Exception] { // Result type: IndexOutOfBoundsException
         doExpressionReplaceWith(s"coalesceIfAttributesMissing($ruleText, 42)", "passed",
           mapRules(_){
-            rule => rule.copy(runOnPassProcessor = RunOnPassProcessorImpl(11, Id(13,13), outputRule, impl.OutputExpression(outputRule)))
+            rule => rule.copy(runOnPassProcessor = RunOnPassProcessor(11, Id(13,13), OutputExpression(outputRule)))
           }
         )
       }
@@ -249,7 +244,7 @@ class ConnectRuleSuitesTest extends SharedConnectTests with Matchers {
   private def recursiveCheck(caught: Exception, typ: String) = {
     anyCauseHas(caught, {
       case q: Exception if // connect doesn't nest exceptions, they get put in the message
-        q.getMessage.contains(s"$process_if_attribute_missing_name should not be used") ||
+        q.getMessage.contains(s"process_if_attribute_missing should not be used") ||
           q.getMessage.contains(typ) => true
       case _ => false
     }) shouldBe true

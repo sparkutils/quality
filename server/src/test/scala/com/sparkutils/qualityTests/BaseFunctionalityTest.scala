@@ -3,26 +3,134 @@ package com.sparkutils.qualityTests
 import com.sparkutils.manual.RowId
 import com.sparkutils.quality
 import com.sparkutils.quality._
-import com.sparkutils.quality.classicFunctions.{processIfAttributeMissing, registerQualityFunctions, validate}
+import com.sparkutils.quality.classicFunctions.{processIfAttributeMissing, validate}
 import com.sparkutils.quality.impl.YamlDecoder
 import functions._
 import types._
 import impl.PackId.packId
-import com.sparkutils.quality.impl.util.{Arrays, PrintCode}
-import org.apache.spark.sql.catalyst.util.ArrayData
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.types.{IntegerType, StructType}
+import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.{Column, DataFrame, Encoder, SaveMode}
 
 import java.util.UUID
-import com.sparkutils.qualityTests.util.{RowTools, SharedConnectTests}
-import com.sparkutils.testing.TestUtils.{debug}
-import org.apache.spark.sql.ShimUtils.expression
+import com.sparkutils.qualityTests.util.{RowTools, SharedPureConnectTests}
+import com.sparkutils.testing.TestUtils.debug
 import org.scalatest.Matchers.convertToAnyShouldWrapper
 
 import scala.language.postfixOps
 
-class BaseFunctionalityTest extends SharedConnectTests with RowTools {
+trait BaseFunctionalityShared extends SharedPureConnectTests with RowTools {
+
+  def doTheRuleResultTest(df: DataFrame, toWrite: Int): Unit = {
+    val s = sparkSession
+    import s.implicits._
+
+    // using a lambda to ensure it works to reduce code duplication
+    val l = LambdaFunction("dq_rule_result", "(a, b) -> rule_result(DataQuality, pack_ints(1,1), a, b)", Id(0,0))
+    registerLambdaFunctions(Seq(l))
+
+    // count_if not on 2.4
+    def count_if(cond: String) = s"aggExpr($cond, inc(), returnSum())"
+
+    val theRule = df.selectExpr(
+      count_if("dq_rule_result(pack_ints(52,1), pack_ints(100,1)) == passed()"),
+      count_if("rule_result(DataQuality, pack_ints(100, 1), pack_ints(52,1), pack_ints(100,1)) == passed()"),
+      count_if("dq_rule_result(pack_ints(152,1), pack_ints(100,1)) == passed()"),
+      count_if("dq_rule_result(pack_ints(52,1), pack_ints(10000,1)) == passed()"),
+      count_if("dq_rule_result(pack_ints(52,1), null) == passed()")
+    )
+    val (shouldBeHalfPassed, shouldNotBeFoundSuite, shouldNotBeFoundSet, shouldNotBeFoundRule, hasNulls) = theRule.as[(Long, Long, Long, Long, Long)].head()
+    assert(shouldBeHalfPassed == ((toWrite / 2) + 1))
+
+    assert(shouldNotBeFoundSuite == 0)
+    assert(shouldNotBeFoundSet == 0)
+    assert(shouldNotBeFoundRule == 0)
+    assert(hasNulls == 0)
+  }
+
+  def doTestRuleResult(): Unit = {
+    val rules = genRules(27, 27)
+
+    val toWrite = 1400 // writeRows
+
+    val df = taddDataQuality(dataFrameLong(toWrite, 27, ruleSuiteResultType, null), rules)
+
+    doTheRuleResultTest(df, toWrite)
+  }
+
+  def doTestRuleResultDetails(): Unit = {
+    val rules = genRules(27, 27)
+
+    val toWrite = 1400 // writeRows
+
+    val df = taddDataQuality(dataFrameLong(toWrite, 27, ruleSuiteResultType, null), rules)
+
+    doTheRuleResultTest(df.selectExpr("rule_Suite_Result_Details(DataQuality) DataQuality"), toWrite)
+    doTheRuleResultTest(df.select(rule_suite_result_details(col("DataQuality")) as "DataQuality"), toWrite)
+  }
+
+  def doTestExpressionsWithAggregate(): Unit = {
+    val rowrs = RuleSuite(Id(11, 2), Seq(RuleSet(Id(21, 1), Seq(
+      Rule(Id(40, 3), ExpressionRule("iseven(id)"))
+    ))), lambdaFunctions = Seq(LambdaFunction("iseven", "p -> p % 2 = 0", Id(1020, 2))))
+
+    val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+      Rule(Id(30, 3), ExpressionRule("sum(id)")),
+      Rule(Id(31, 3), ExpressionRule("aggExpr(rule_result(DataQuality, pack_ints(11,2), pack_ints(21,1), pack_ints(40,3)) == passed(), inc(), returnSum())"))
+    ))))
+
+    import quality.implicits._
+
+    val processed = taddDataQuality(sparkSession.range(1000).toDF(), rowrs).select(expressionRunner(rs, renderOptions = Map("useFullScalarType" -> "true")))
+
+    val firstId = Id(30,3)
+    val firstRes = "!!java.lang.Long '499500'\n"
+    val res = processed.selectExpr("expressionResults.*").as[GeneralExpressionsResult[GeneralExpressionResult]].head()
+    assert(res == GeneralExpressionsResult[GeneralExpressionResult](Id(10, 2), Map(Id(20, 1) -> Map(
+      firstId -> GeneralExpressionResult(firstRes, "BIGINT"),
+      Id(31, 3) -> GeneralExpressionResult("!!java.lang.Long '500'\n", "BIGINT")
+    ))))
+
+    // just to test the forwarder for code compat
+    assert(res.ruleSetResults.head._2(firstId).ruleResult == firstRes)
+
+    val gres =
+      processed.selectExpr("rule_result(expressionResults, pack_ints(10,2), pack_ints(20,1), pack_ints(31,3)) rr")
+        .selectExpr("rr.*")
+        .as[GeneralExpressionResult].head()
+
+    assert(gres == GeneralExpressionResult("!!java.lang.Long '500'\n", "BIGINT"))
+
+    val stripped = processed.selectExpr("strip_result_ddl(expressionResults) rr")
+    val stripped2 = processed.select(strip_result_ddl(col("expressionResults")) as "rr")
+    assert(stripped.select(comparable_maps(col("rr"))).union( stripped2.select(comparable_maps(col("rr"))) ).distinct().count() == 1)
+
+    val strippedRes = stripped.selectExpr("rr.*").as[GeneralExpressionsResultNoDDL].head()
+    assert(strippedRes == GeneralExpressionsResultNoDDL(Id(10, 2), Map(Id(20, 1) -> Map(
+      Id(30, 3) -> "!!java.lang.Long '499500'\n",
+      Id(31, 3) -> "!!java.lang.Long '500'\n")
+    )))
+
+    val strippedGres = {
+      val s = sparkSession
+      import s.implicits._
+      stripped.select(rule_result(col("rr"), pack_ints(10,2), pack_ints(20,1), pack_ints(Id(31,3))))
+        .as[String].head()
+    }
+
+    assert(strippedGres == "!!java.lang.Long '500'\n")
+
+    val yaml = YamlDecoder.yaml
+
+    val obj = yaml.load[Long](res.ruleSetResults(Id(20,1))(Id(30,3)).ruleResult);
+    assert(obj == 499500L)
+  }
+
+}
+
+
+
+class BaseFunctionalityTest extends SharedPureConnectTests with RowTools with BaseFunctionalityShared {
 
   test("flattenResultsTest") { evalCodeGensNoResolve {
     val rules = genRules(27, 27)
@@ -237,66 +345,6 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
     assert(res2.head._2 == res.head.details)
   }
 
-  test("testPrintExpr") { classicOnly { funNRewrites {
-    doTestPrint("Expression toStr is ->", "my message is", "my message is", "plus(1, 1, lambda", "printExpr")
-  }} }
-
-  // 2.4 doesn't support forceInterpreted so we can't test that it _doesn't_ compile, databricks is cluster based so we'll not be able to capture it without dumping to files
-  test("testPrintCode") { classicOnly { not_Cluster{ v3_2_and_above {
-
-    val s = sparkSession
-    import s.implicits._
-
-    // using eval we shouldn't get output
-    forceInterpreted {  {
-      doTestPrint(null, "my message is", null, null, "printCode")
-    } }
-
-    // should generate output for code gen
-    forceCodeGen {
-      doTestPrint(PrintCode(expression(lit(""))).msg, "my message is", "my message is", "private int FunN_0(InternalRow i)", "printCode")
-    }
-
-    // irrespective of version we are outputting the lambda variables
-    forceCodeGen {
-      justfunNRewrite {
-        doTestPrint(PrintCode(expression(lit(""))).msg, "my message is", "my message is", "LambdaVariable - b", "printCode")
-      }
-    }
-  }}}}
-
-  def doTestPrint(default: String, custom: String, customTest: String, addTest: String, expr: String): Unit = {
-    import com.sparkutils.quality._
-    val s = sparkSession
-    import s.implicits._
-    val plus = LambdaFunction("plus", "(a, b) -> a + b", Id(3,2)) // force compile with codegen
-    registerLambdaFunctions(Seq(plus))
-    Holder.res = ""
-    registerQualityFunctions(writer = {Holder.res = _})
-
-    import Holder.res
-    assert(2 == sparkSession.sql(s"select $expr(plus(1, 1)) as res").as[Long].head())
-
-    def assertAdd() = if (addTest ne null) {
-      assert(res.contains(addTest))
-    }
-
-    if (default ne null)
-      assert(res.indexOf(default) == 0)
-    else
-      assert(res.isEmpty)
-    assertAdd()
-
-    assert(2 == sparkSession.sql(s"select $expr('$custom', plus(1, 1)) as res").as[Long].head())
-
-    if (customTest ne null)
-      assert(res.indexOf(customTest) == 0)
-    else
-      assert(res.isEmpty)
-
-    assertAdd()
-  }
-
   test("testComparableResults") { evalCodeGensNoResolve {
     val rules = genRules(27, 27)
     val rulecount = rules.ruleSets.map( s => s.rules.size).sum
@@ -493,16 +541,6 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
 
   }}
 
-  test("mapArrays") {
-    val ar = ArrayData.toArrayData(Seq(0,1,2,3,4)) // Force GenericArrayData instead of UnsafeArrayData
-    val nar = Arrays.mapArray(ar, IntegerType, _.asInstanceOf[Integer] + 1)
-    assert((0 until 5).forall(i => nar(i) == i + 1))
-
-    // verify with simple toArray
-    val nar2 = Arrays.toArray(ar, IntegerType)
-    assert((0 until 5).forall(i => nar2(i) == i))
-  }
-
   test("scalarSubqueryAsTrigger") { evalCodeGensNoResolve {
     v3_4_and_above {
       // assert that using a join to test with is fine even when nested
@@ -545,110 +583,17 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
     case e: Throwable if e.getMessage.contains("counts are 1, 0, 2") => ()
   }}
 
-  test("testRuleResult") {  evalCodeGensNoResolve { funNRewrites {
-    val rules = genRules(27, 27)
-
-    val toWrite = 1400 // writeRows
-
-    val df = taddDataQuality(dataFrameLong(toWrite, 27, ruleSuiteResultType, null), rules)
-
-    doTheRuleResultTest(df, toWrite)
-  } }}
-
-  test("testRuleResultDetails") { evalCodeGensNoResolve { funNRewrites {
-    val rules = genRules(27, 27)
-
-    val toWrite = 1400 // writeRows
-
-    val df = taddDataQuality(dataFrameLong(toWrite, 27, ruleSuiteResultType, null), rules)
-
-    doTheRuleResultTest(df.selectExpr("rule_Suite_Result_Details(DataQuality) DataQuality"), toWrite)
-    doTheRuleResultTest(df.select(rule_suite_result_details(col("DataQuality")) as "DataQuality"), toWrite)
-  } } }
-
-  def doTheRuleResultTest(df: DataFrame, toWrite: Int): Unit = {
-    val s = sparkSession
-    import s.implicits._
-
-    // using a lambda to ensure it works to reduce code duplication
-    val l = LambdaFunction("dq_rule_result", "(a, b) -> rule_result(DataQuality, pack_ints(1,1), a, b)", Id(0,0))
-    registerLambdaFunctions(Seq(l))
-
-    // count_if not on 2.4
-    def count_if(cond: String) = s"aggExpr($cond, inc(), returnSum())"
-
-    val theRule = df.selectExpr(
-      count_if("dq_rule_result(pack_ints(52,1), pack_ints(100,1)) == passed()"),
-      count_if("rule_result(DataQuality, pack_ints(100, 1), pack_ints(52,1), pack_ints(100,1)) == passed()"),
-      count_if("dq_rule_result(pack_ints(152,1), pack_ints(100,1)) == passed()"),
-      count_if("dq_rule_result(pack_ints(52,1), pack_ints(10000,1)) == passed()"),
-      count_if("dq_rule_result(pack_ints(52,1), null) == passed()")
-    )
-    val (shouldBeHalfPassed, shouldNotBeFoundSuite, shouldNotBeFoundSet, shouldNotBeFoundRule, hasNulls) = theRule.as[(Long, Long, Long, Long, Long)].head()
-    assert(shouldBeHalfPassed == ((toWrite / 2) + 1))
-
-    assert(shouldNotBeFoundSuite == 0)
-    assert(shouldNotBeFoundSet == 0)
-    assert(shouldNotBeFoundRule == 0)
-    assert(hasNulls == 0)
+  test("testRuleResult") {
+    doTestRuleResult()
   }
 
-  test("testExpressionsWithAggregate") { evalCodeGensNoResolve { funNRewrites {
-    val rowrs = RuleSuite(Id(11, 2), Seq(RuleSet(Id(21, 1), Seq(
-      Rule(Id(40, 3), ExpressionRule("iseven(id)"))
-    ))), lambdaFunctions = Seq(LambdaFunction("iseven", "p -> p % 2 = 0", Id(1020, 2))))
+  test("testRuleResultDetails") {
+    doTestRuleResultDetails()
+  }
 
-    val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
-      Rule(Id(30, 3), ExpressionRule("sum(id)")),
-      Rule(Id(31, 3), ExpressionRule("aggExpr(rule_result(DataQuality, pack_ints(11,2), pack_ints(21,1), pack_ints(40,3)) == passed(), inc(), returnSum())"))
-    ))))
-
-    import quality.implicits._
-
-    val processed = taddDataQuality(sparkSession.range(1000).toDF(), rowrs).select(expressionRunner(rs, renderOptions = Map("useFullScalarType" -> "true")))
-
-    val firstId = Id(30,3)
-    val firstRes = "!!java.lang.Long '499500'\n"
-    val res = processed.selectExpr("expressionResults.*").as[GeneralExpressionsResult[GeneralExpressionResult]].head()
-    assert(res == GeneralExpressionsResult[GeneralExpressionResult](Id(10, 2), Map(Id(20, 1) -> Map(
-      firstId -> GeneralExpressionResult(firstRes, "BIGINT"),
-      Id(31, 3) -> GeneralExpressionResult("!!java.lang.Long '500'\n", "BIGINT")
-    ))))
-
-    // just to test the forwarder for code compat
-    assert(res.ruleSetResults.head._2(firstId).ruleResult == firstRes)
-
-    val gres =
-      processed.selectExpr("rule_result(expressionResults, pack_ints(10,2), pack_ints(20,1), pack_ints(31,3)) rr")
-        .selectExpr("rr.*")
-        .as[GeneralExpressionResult].head()
-
-    assert(gres == GeneralExpressionResult("!!java.lang.Long '500'\n", "BIGINT"))
-
-    val stripped = processed.selectExpr("strip_result_ddl(expressionResults) rr")
-    val stripped2 = processed.select(strip_result_ddl(col("expressionResults")) as "rr")
-    assert(stripped.select(comparable_maps(col("rr"))).union( stripped2.select(comparable_maps(col("rr"))) ).distinct().count() == 1)
-
-    val strippedRes = stripped.selectExpr("rr.*").as[GeneralExpressionsResultNoDDL].head()
-    assert(strippedRes == GeneralExpressionsResultNoDDL(Id(10, 2), Map(Id(20, 1) -> Map(
-      Id(30, 3) -> "!!java.lang.Long '499500'\n",
-      Id(31, 3) -> "!!java.lang.Long '500'\n")
-    )))
-
-    val strippedGres = {
-      val s = sparkSession
-      import s.implicits._
-      stripped.select(rule_result(col("rr"), pack_ints(10,2), pack_ints(20,1), pack_ints(Id(31,3))))
-        .as[String].head()
-    }
-
-    assert(strippedGres == "!!java.lang.Long '500'\n")
-
-    val yaml = YamlDecoder.yaml
-
-    val obj = yaml.load[Long](res.ruleSetResults(Id(20,1))(Id(30,3)).ruleResult);
-    assert(obj == 499500L)
-  } }}
+  test("testExpressionsWithAggregate") {
+    doTestExpressionsWithAggregate()
+  }
 
   test("testExpressionsWithFields") { evalCodeGensNoResolve {
     val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(

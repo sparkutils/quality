@@ -1,16 +1,15 @@
-package com.sparkutils.qualityTests
+package com.sparkutils.qualityTests.classicOnly
 
-import com.sparkutils.quality.impl.util.RuleSuiteDocs
-
-import java.io.FileOutputStream
-import RuleSuiteDocs.RelativeWarningsAndErrors
 import com.sparkutils.quality.classicFunctions.validate
-import com.sparkutils.quality.{ExpressionRule, Id, LambdaFunction, OutputExpression, Rule, RuleSet, RuleSuite, RunOnPassProcessor}
-import com.sparkutils.qualityTests.classicOnly.ValidationTest
+import com.sparkutils.quality.impl.util.RuleSuiteDocs
+import com.sparkutils.quality.impl.util.RuleSuiteDocs.RelativeWarningsAndErrors
+import com.sparkutils.quality._
+import com.sparkutils.qualityTests.VariableTestShims
 import com.sparkutils.qualityTests.util.ClassicSharedTests
 import com.sparkutils.testing.TestUtils.debug
 import org.apache.commons.io.IOUtils
 
+import java.io.FileOutputStream
 import java.nio.charset.Charset
 import java.util.concurrent.atomic.AtomicReference
 

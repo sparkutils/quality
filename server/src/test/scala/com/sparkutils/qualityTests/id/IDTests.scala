@@ -5,17 +5,14 @@ import com.sparkutils.quality.classicFunctions.registerQualityFunctions
 import functions._
 import com.sparkutils.quality.impl.id._
 import com.sparkutils.quality.impl.id.model.{ProvidedID, RandomID}
-import com.sparkutils.quality.impl.rng.RandomLongs
 import com.sparkutils.quality.impl.util.BytePackingUtils
 import com.sparkutils.qualityTests._
-import com.sparkutils.qualityTests.util.{RowTools, SharedConnectTests}
+import com.sparkutils.qualityTests.util.{RowTools, SharedPureConnectTests}
 import com.sparkutils.testing.SparkTestUtils.ouputDir
 import com.sparkutils.testing.{ClassicOnly, ConnectionType, Sessions}
 import com.sparkutils.testing.TestUtils.{anyCauseHas, debug, enumToScala}
-import org.apache.commons.rng.simple.RandomSource
-import org.apache.spark.sql.ShimUtils.expression
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.{Column, DataFrame, Row, ShimUtils}
+import org.apache.spark.sql.{Column, DataFrame, Row}
 import org.scalameter.api.{Bench, Gen}
 
 import java.security.{MessageDigest, Provider}
@@ -23,7 +20,7 @@ import java.util.Base64
 import scala.collection.JavaConverters
 import scala.jdk.CollectionConverters._
 
-class IDTests extends SharedConnectTests with VariableTestShims {
+class IDTests extends SharedPureConnectTests with VariableTestShims {
 
   test("rountTripRandom") { doRoundTripGenericLongBasedID(model.RandomID) }
   test("rountTripProvided") { doRoundTripGenericLongBasedID(model.ProvidedID) }
@@ -185,25 +182,6 @@ class IDTests extends SharedConnectTests with VariableTestShims {
     val rngExplodedSQL = df.selectExpr("*", "rngid('rng_id') as rng_id").selectExpr("id","rng_id.*")
     testRes(rngExplodedSQL)
   } }
-
-  test("testRNGIDGenNonJump") { classicOnly{ evalCodeGensNoResolve {
-    import com.sparkutils.quality._
-    registerQualityFunctions()
-
-    def testRes(rngExploded: DataFrame): Unit = {
-      debug(rngExploded.show())
-      assert(rngExploded.schema.fields.map(_.name).toSeq
-        == Seq("id", "rng_id_base", "rng_id_i0", "rng_id_i1"), "Column names incorrect")
-    }
-
-    def nonJump(prefix: String) =
-      ShimUtils.column(GenericLongBasedIDExpression(model.RandomID,
-        expression(RandomLongs(RandomSource.KISS)), prefix))
-
-    val df = sparkSession.range(0, idRange)
-    val rngExploded = df.withColumn("rng_id", nonJump("rng_id")).selectExpr("id","rng_id.*")
-    testRes(rngExploded)
-  } } }
 
   test("testSHA256IDGen") { evalCodeGensNoResolve  {
     doFieldGenTest("SHA-256", "digestToLongsStruct", longCount = 4)
