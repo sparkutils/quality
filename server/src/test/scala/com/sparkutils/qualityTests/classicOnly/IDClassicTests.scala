@@ -9,7 +9,7 @@ import com.sparkutils.testing.TestUtils.debug
 import org.apache.commons.rng.simple.RandomSource
 import org.apache.spark.sql.{DataFrame, ShimUtils}
 
-class ClassicIDTests extends ClassicSharedTests with VariableTestShims {
+class IDClassicTests extends ClassicSharedTests with VariableTestShims {
 
   import org.apache.spark.sql.ShimUtils.expression
 

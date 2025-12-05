@@ -1,11 +1,10 @@
-package com.sparkutils.qualityTests.classicOnly
+package com.sparkutils.qualityTests
 
 import com.sparkutils.quality.impl
-import com.sparkutils.qualityTests.RuleFolderTestBase
-import com.sparkutils.qualityTests.util.ClassicSharedTests
+import com.sparkutils.qualityTests.util.{ClassicSharedTests, SharedConnectTests}
 import org.apache.spark.sql.catalyst.expressions.Literal
 
-class ClassicRuleFolderTest extends ClassicSharedTests with RuleFolderTestBase {
+class RuleFolderClassicTest extends SharedConnectTests with RuleFolderTestBase {
 
   override def doTestFlattenResults(useSetSyntax: Boolean): Unit = funNRewrites {
     super.doTestFlattenResults(useSetSyntax)

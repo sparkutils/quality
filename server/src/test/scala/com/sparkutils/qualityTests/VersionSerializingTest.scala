@@ -2,16 +2,15 @@ package com.sparkutils.qualityTests
 
 import com.sparkutils.quality
 import com.sparkutils.quality._
-import com.sparkutils.quality.impl.HasRuleText
 import com.sparkutils.quality.impl.PackId.packId
-import com.sparkutils.qualityTests.util.SharedConnectTests
+import com.sparkutils.qualityTests.util.SharedPureConnectTests
 import com.sparkutils.testing.TestUtils.debug
 import eu.timepit.refined.internal.Adjacent.integralAdjacent
 import impl.util.OutputExpressionRow
 import org.apache.spark.sql.functions._
 import simpleVersioning._
 
-class VersionSerializingTest extends SharedConnectTests {
+class VersionSerializingTest extends SharedPureConnectTests {
 
   /**
    * Verify versions with all combos.
@@ -153,7 +152,7 @@ class VersionSerializingTest extends SharedConnectTests {
     )
 
     val rereadWithLambdas = integrateVersionedLambdas(rereadWithoutLambdas, lambdas)
-    val (reread, missingOutputExpressions) = integrateVersionedOutputExpressions(rereadWithLambdas, outputExpressions)
+    val (reread, _) = integrateVersionedOutputExpressions(rereadWithLambdas, outputExpressions)
 
     def assertEq(id: Id, expected: RuleSuite): Unit = {
       val reRules = reread.getOrElse(id, fail("Could not read the rule back"))

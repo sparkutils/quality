@@ -1,16 +1,19 @@
-package com.sparkutils.qualityTests.classicOnly
+package com.sparkutils.qualityTests
 
-import cats.syntax.writer
+import com.sparkutils.quality.Id
 import com.sparkutils.quality.classicFunctions.registerQualityFunctions
+import com.sparkutils.quality.impl.YamlDecoder
 import com.sparkutils.quality.impl.util.{Arrays, PrintCode}
-import com.sparkutils.qualityTests.util.{ClassicSharedTests, RowTools}
-import com.sparkutils.qualityTests.{BaseFunctionalityShared, Holder}
+import com.sparkutils.quality.types.ruleSuiteResultType
+import com.sparkutils.qualityTests.util.{ClassicSharedTests, RowTools, SharedConnectTests}
+import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.ShimUtils.expression
 import org.apache.spark.sql.catalyst.util.ArrayData
 import org.apache.spark.sql.functions.lit
 import org.apache.spark.sql.types.IntegerType
+import org.scalatest.Matchers
 
-class ClassicBaseFunctionalityTest extends ClassicSharedTests with RowTools with BaseFunctionalityShared {
+class BaseFunctionalityClassicTest extends SharedConnectTests with RowTools with BaseFunctionalityShared with Matchers {
 
   test("mapArrays") {
     val ar = ArrayData.toArrayData(Seq(0,1,2,3,4)) // Force GenericArrayData instead of UnsafeArrayData
@@ -115,9 +118,36 @@ class ClassicBaseFunctionalityTest extends ClassicSharedTests with RowTools with
   test("testExpressionsWithAggregate") {
     evalCodeGensNoResolve {
       funNRewrites {
-        doTestExpressionsWithAggregate()
+        val res = doTestExpressionsWithAggregate()
+
+        val yaml = YamlDecoder.yaml
+
+        val obj = yaml.load[Long](res.ruleSetResults(Id(20,1))(Id(30,3)).ruleResult);
+        assert(obj == 499500L)
       }
     }
   }
 
+  test("Resolve should work correctly") {
+    val rules = genRules(27, 27)
+
+    val toWrite = 1 // writeRows
+
+    var df: DataFrame = null
+    classicOnly {
+      evalCodeGens {
+        df = taddDataQuality(dataFrameLong(toWrite, 27, ruleSuiteResultType, null), rules)
+      }
+    }
+    connectOnly {
+      try {
+        doWithResolve {
+          df = taddDataQuality(dataFrameLong(toWrite, 27, ruleSuiteResultType, null), rules)
+        }
+        fail("resolveWith isn't possible with connect so this should have thrown")
+      } catch {
+        case t: Throwable => t.getMessage.contains("resolveWith is being used with Connect, this is not a valid combination") shouldBe true
+      }
+    }
+  }
 }

@@ -1,15 +1,14 @@
-package com.sparkutils.qualityTests.classicOnly
+package com.sparkutils.qualityTests
 
 import com.sparkutils.quality.functions.{agg_expr, inc, return_sum}
 import com.sparkutils.quality.impl.ReWriteConstants.INC_REWRITE_GENEXP_ERR_MSG
 import com.sparkutils.quality.{Id, LambdaFunction, registerLambdaFunctions}
-import com.sparkutils.qualityTests.AggregatesTestBase
-import com.sparkutils.qualityTests.util.ClassicSharedTests
+import com.sparkutils.qualityTests.util.{ClassicSharedTests, SharedConnectTests}
 import com.sparkutils.testing.SparkVersions.sparkVersion
 import org.apache.spark.sql.functions.expr
 import org.apache.spark.sql.types.DecimalType
 
-class ClassicAggregatesTest extends ClassicSharedTests with AggregatesTestBase {
+class AggregatesClassicTest extends SharedConnectTests with AggregatesTestBase {
   test("decimalPrecisionHofTest") {
     funNRewrites {
       val sf = LambdaFunction("myinc", "entry -> entry + dec", Id(0, 3))

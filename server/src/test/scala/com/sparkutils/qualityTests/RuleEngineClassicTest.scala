@@ -1,17 +1,16 @@
-package com.sparkutils.qualityTests.classicOnly
+package com.sparkutils.qualityTests
 
+import com.sparkutils.quality._
 import com.sparkutils.quality.impl.RuleEngineRunner
 import com.sparkutils.quality.impl.extension.FunNRewrite
-import com.sparkutils.quality._
-import com.sparkutils.qualityTests.RuleEngineTestBase
-import com.sparkutils.qualityTests.util.ClassicSharedTests
+import com.sparkutils.qualityTests.util.{ClassicSharedTests, SharedConnectTests}
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.ShimUtils.expression
 import org.apache.spark.sql.functions.col
 
 import java.io.{ByteArrayOutputStream, ObjectOutputStream}
 
-class ClassicRuleEngineTest extends ClassicSharedTests with RuleEngineTestBase {
+class RuleEngineClassicTest extends SharedConnectTests with RuleEngineTestBase {
 
   override def doTestProbabilityRules(overallResult: OverallResult): Unit = funNRewrites {
     super.doTestProbabilityRules(overallResult)

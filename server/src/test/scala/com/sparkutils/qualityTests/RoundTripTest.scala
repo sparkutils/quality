@@ -10,86 +10,12 @@ import org.apache.spark.sql.SaveMode
 import org.apache.spark.sql.functions._
 import org.scalatest.Matchers
 
-class RoundTripTest extends SharedPureConnectTests with RowTools with Matchers {
-
-  test("verifyPacking") {
-    import implicits._
-    val ruleId = Id(123,50483)
-    val ruleTo = versionedIdTo(ruleId)
-    val ruleFrom = versionedIdTo.invert(ruleTo)
-    assert(ruleId == ruleFrom, "RuleId did not round trip" )
-  }
-
-  test("ruleEvalToStructAndEncodeBack") { evalCodeGens {
-    val rules = genRules(27, 27)
-    val df = taddDataQuality(dataFrameLong(writeRows, 27, ruleSuiteResultType, null), rules, compileEvals = false) // false for coverage public needs checking
-
-    import implicits._
-
-    //implicit val newenc = implicitly[Encoder[RuleSuiteResult]]
-    //newenc.schema.printTreeString()
-    val ds = df.select("DataQuality.*").as[RuleSuiteResult]
-    // it's sufficient to run the results for this test, if it can't be encoded it will throw on count
-    assert(ds.count() == writeRows + 1)
-  } }
-
-  test("ruleEvalToOverallAndDetailsAndEncodeBack") { evalCodeGens {
-    val rules = genRules(27, 27)
-    val df = dataFrameLong(writeRows, 27, ruleSuiteResultType, null).
-      transform(taddOverallResultsAndDetailsF(rules))
-
-    import implicits._
-
-    val ds = df.select("DQ_Details.*").as[RuleSuiteResultDetails]
-    // it's sufficient to run the results for this test, if it can't be encoded it will throw on count
-    assert(ds.count() == writeRows + 1)
-
-    val dso = df.select("DQ_overallResult")
-    // it's sufficient to run the results for this test, if it can't be encoded it will throw on count
-    assert(dso.count() == writeRows + 1)
-  } }
-
-  test("ruleEvalToStructAndEncodeBackWithUserType") { evalCodeGens {
-    val rules = genRules(27, 27)
-    val df = taddDataQuality(dataFrameLong(writeRows, 27, ruleSuiteResultType, null), rules)
-
-    import frameless._
-
-    import com.sparkutils.quality.implicits._
-
-    implicit val enc = TypedExpressionEncoder[(TestIdLeft, RuleSuiteResult)]
-
-    //newenc.schema.printTreeString()
-    val ds = df.selectExpr("named_struct('left_lower', `1`, 'left_higher', `2`)","DataQuality").as[(TestIdLeft, RuleSuiteResult)]
-    debug(ds.show())
-    // it's sufficient to run the results for this test, if it can't be encoded it will throw on count
-    assert(ds.count() == writeRows + 1)
-  } }
-
-  // translate into expr's instead of the default
-  ///   counter expr, expr to aggregate, evaluation expr of counter and aggregate
-
-  /**
-   * Disk writing forces compilation
-   */
-  test("ruleEvalAndBackViaDisk") { evalCodeGens {
-    val rules = genRules(27, 27)
-    val df = dataFrameLong(writeRows, 27, ruleSuiteResultType, null)
-
-    df.write.mode(SaveMode.Overwrite).parquet(outputDir+"/ruleRes")
-    val rere = taddDataQuality( df.sparkSession.read.parquet(outputDir+"/ruleRes"), rules )
-    // won't work with code gen as it's reducing columns
-//    rere.select(explode(col("DataQuality.ruleSetResults"))).show()
-    rere.select(col("*"), explode(col("DataQuality.ruleSetResults"))).head()
-
-    // it's sufficient to run the results for this test, if it can't be encoded it will throw on count
-    assert(rere.count() == writeRows + 1)
-  } }
+trait RoundTripTestBase extends SharedPureConnectTests with RowTools with Matchers {
 
   /**
    * Verify roundtripping of storage
    */
-  test("ruleSuiteRoundTrippingToDF") { evalCodeGens {  funNRewrites {
+  def doRuleSuiteRoundTrippingToDF(): Unit = {
     val rsId = Id(1,1)
     val rules = RuleSuite(rsId, Seq(
       RuleSet(Id(50, 1), Seq(
@@ -150,12 +76,12 @@ class RoundTripTest extends SharedPureConnectTests with RowTools with Matchers {
     }
 
     assert(toOrdered(rules) == toOrdered(reRules), "The rules were not identical")
-  } } }
+  }
 
   /**
    * Verify roundtripping of storage
    */
-  test("ruleEngineSuiteRoundTrippingToDF") { evalCodeGens { funNRewrites {
+  def doRuleEngineSuiteRoundTrippingToDF(): Unit = {
     val rsId = Id(1,1)
     val rules = RuleSuite(rsId, Seq(
       RuleSet(Id(50, 1), Seq(
@@ -244,6 +170,98 @@ class RoundTripTest extends SharedPureConnectTests with RowTools with Matchers {
     }
 
     toOrdered(rules) should equal(toOrdered(reRules))
-  } } }
+  }
+
+}
+
+class RoundTripTest extends SharedPureConnectTests with RowTools with Matchers with RoundTripTestBase {
+
+  test("verifyPacking") {
+    import implicits._
+    val ruleId = Id(123,50483)
+    val ruleTo = versionedIdTo(ruleId)
+    val ruleFrom = versionedIdTo.invert(ruleTo)
+    assert(ruleId == ruleFrom, "RuleId did not round trip" )
+  }
+
+  test("ruleEvalToStructAndEncodeBack") { evalCodeGens {
+    val rules = genRules(27, 27)
+    val df = taddDataQuality(dataFrameLong(writeRows, 27, ruleSuiteResultType, null), rules, compileEvals = false) // false for coverage public needs checking
+
+    import implicits._
+
+    //implicit val newenc = implicitly[Encoder[RuleSuiteResult]]
+    //newenc.schema.printTreeString()
+    val ds = df.select("DataQuality.*").as[RuleSuiteResult]
+    // it's sufficient to run the results for this test, if it can't be encoded it will throw on count
+    assert(ds.count() == writeRows + 1)
+  } }
+
+  test("ruleEvalToOverallAndDetailsAndEncodeBack") { evalCodeGens {
+    val rules = genRules(27, 27)
+    val df = dataFrameLong(writeRows, 27, ruleSuiteResultType, null).
+      transform(taddOverallResultsAndDetailsF(rules))
+
+    import implicits._
+
+    val ds = df.select("DQ_Details.*").as[RuleSuiteResultDetails]
+    // it's sufficient to run the results for this test, if it can't be encoded it will throw on count
+    assert(ds.count() == writeRows + 1)
+
+    val dso = df.select("DQ_overallResult")
+    // it's sufficient to run the results for this test, if it can't be encoded it will throw on count
+    assert(dso.count() == writeRows + 1)
+  } }
+
+  test("ruleEvalToStructAndEncodeBackWithUserType") { evalCodeGens {
+    val rules = genRules(27, 27)
+    val df = taddDataQuality(dataFrameLong(writeRows, 27, ruleSuiteResultType, null), rules)
+
+    import frameless._
+
+    import com.sparkutils.quality.implicits._
+
+    implicit val enc = TypedExpressionEncoder[(TestIdLeft, RuleSuiteResult)]
+
+    //newenc.schema.printTreeString()
+    val ds = df.selectExpr("named_struct('left_lower', `1`, 'left_higher', `2`)","DataQuality").as[(TestIdLeft, RuleSuiteResult)]
+    debug(ds.show())
+    // it's sufficient to run the results for this test, if it can't be encoded it will throw on count
+    assert(ds.count() == writeRows + 1)
+  } }
+
+  // translate into expr's instead of the default
+  ///   counter expr, expr to aggregate, evaluation expr of counter and aggregate
+
+  /**
+   * Disk writing forces compilation
+   */
+  test("ruleEvalAndBackViaDisk") { evalCodeGens {
+    val rules = genRules(27, 27)
+    val df = dataFrameLong(writeRows, 27, ruleSuiteResultType, null)
+
+    df.write.mode(SaveMode.Overwrite).parquet(outputDir+"/ruleRes")
+    val rere = taddDataQuality( df.sparkSession.read.parquet(outputDir+"/ruleRes"), rules )
+    // won't work with code gen as it's reducing columns
+//    rere.select(explode(col("DataQuality.ruleSetResults"))).show()
+    rere.select(col("*"), explode(col("DataQuality.ruleSetResults"))).head()
+
+    // it's sufficient to run the results for this test, if it can't be encoded it will throw on count
+    assert(rere.count() == writeRows + 1)
+  } }
+
+  /**
+   * Verify roundtripping of storage
+   */
+  test("ruleSuiteRoundTrippingToDF") {
+    doRuleSuiteRoundTrippingToDF()
+  }
+
+  /**
+   * Verify roundtripping of storage
+   */
+  test("ruleEngineSuiteRoundTrippingToDF") {
+    doRuleEngineSuiteRoundTrippingToDF()
+  }
 
 }

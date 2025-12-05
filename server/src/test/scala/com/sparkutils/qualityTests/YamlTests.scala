@@ -1,15 +1,20 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
+import com.sparkutils.qualityTests.YamlTests.UseFullScalarType
 import functions._
-import com.sparkutils.quality.impl.YamlDecoder
-import com.sparkutils.qualityTests.util.{RowTools, SharedConnectTests}
+import com.sparkutils.qualityTests.util.{ RowTools, SharedConnectTests}
 import org.apache.spark.SparkException
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.DataType
-import org.scalatest.FunSuite
 
 import scala.language.postfixOps
+
+object YamlTests {
+
+  val UseFullScalarType = "map('useFullScalarType', 'true')"
+
+}
 
 class YamlTests extends SharedConnectTests with RowTools {
 
@@ -129,21 +134,6 @@ class YamlTests extends SharedConnectTests with RowTools {
       doSerDe("localtimestamp()", "TIMESTAMP_NTZ")
     }
   }
-
-  val UseFullScalarType = "map('useFullScalarType', 'true')"
-
-  test("decimalViaYaml") { evalCodeGens {
-    val s = sparkSession
-    import s.implicits._
-    val str =
-      sparkSession.sql(s"select to_yaml(cast(1234.50404 as decimal(30,10)), $UseFullScalarType) r").as[String].head()
-
-    val yaml = YamlDecoder.yaml
-
-    val dec = BigDecimal(1234.50404).setScale(10).bigDecimal
-    val obj = yaml.load[java.math.BigDecimal](str);
-    assert(obj == dec)
-  } }
 
   test("sqlTest") { evalCodeGens {
     def serDe(mapStr: String): Unit = {

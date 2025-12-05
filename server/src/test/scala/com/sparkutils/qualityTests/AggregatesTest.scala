@@ -1,6 +1,5 @@
 package com.sparkutils.qualityTests
 
-import com.sparkutils.quality.classicFunctions.registerQualityFunctions
 import com.sparkutils.quality.functions._
 import com.sparkutils.quality.impl.aggregates.ResultsExpression
 import com.sparkutils.qualityTests.mapLookup.TradeTests._
@@ -61,7 +60,6 @@ class AggregatesTest extends SharedPureConnectTests with VariableTestShims with 
       import s.implicits._
 
       // register the various Quality sql functions as used below
-      registerQualityFunctions()
       val data = phoneData.toDS()
 
       def uniqueSub(additionalGroup: String, resultsExpression: ResultsExpression): Column =
@@ -116,7 +114,6 @@ class AggregatesTest extends SharedPureConnectTests with VariableTestShims with 
       import s.implicits._
 
       // register the various Quality sql functions as used below
-      registerQualityFunctions()
       val data = phoneData.toDS()
 
       val pureSQL =

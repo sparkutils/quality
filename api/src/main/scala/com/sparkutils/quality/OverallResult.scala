@@ -1,8 +1,14 @@
-package com.sparkutils.quality.impl
-
-import com.sparkutils.quality.{DisabledRule, DisabledRuleInt, Failed, FailedInt, Passed, PassedInt, Probability, RuleResult, RuleResultWithProcessor, SoftFailed, SoftFailedInt}
+package com.sparkutils.quality
 
 import scala.annotation.tailrec
+
+/**
+ * Probability is evaluated at over probablePass percent, defaults to 80% 0.8.
+ * Passed until any failure occurs
+ */
+case class OverallResult(probablePass: Double = 0.8, currentResult: RuleResult = Passed) {
+  def process(ruleResult: RuleResult): OverallResult = copy(currentResult = OverallResultHelper.inplace(ruleResult, currentResult, probablePass))
+}
 
 protected[quality] object OverallResultHelper {
   @tailrec

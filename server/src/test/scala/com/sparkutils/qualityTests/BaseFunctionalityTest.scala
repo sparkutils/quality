@@ -69,7 +69,7 @@ trait BaseFunctionalityShared extends SharedPureConnectTests with RowTools {
     doTheRuleResultTest(df.select(rule_suite_result_details(col("DataQuality")) as "DataQuality"), toWrite)
   }
 
-  def doTestExpressionsWithAggregate(): Unit = {
+  def doTestExpressionsWithAggregate(): GeneralExpressionsResult[GeneralExpressionResult] = {
     val rowrs = RuleSuite(Id(11, 2), Seq(RuleSet(Id(21, 1), Seq(
       Rule(Id(40, 3), ExpressionRule("iseven(id)"))
     ))), lambdaFunctions = Seq(LambdaFunction("iseven", "p -> p % 2 = 0", Id(1020, 2))))
@@ -119,11 +119,7 @@ trait BaseFunctionalityShared extends SharedPureConnectTests with RowTools {
     }
 
     assert(strippedGres == "!!java.lang.Long '500'\n")
-
-    val yaml = YamlDecoder.yaml
-
-    val obj = yaml.load[Long](res.ruleSetResults(Id(20,1))(Id(30,3)).ruleResult);
-    assert(obj == 499500L)
+    res
   }
 
 }
@@ -794,29 +790,6 @@ class BaseFunctionalityTest extends SharedPureConnectTests with RowTools with Ba
     ))
   } } }
 
-  test("Resolve should work correctly") {
-    val rules = genRules(27, 27)
-
-    val toWrite = 1 // writeRows
-
-    var df: DataFrame = null
-    classicOnly {
-      evalCodeGens {
-        df = taddDataQuality(dataFrameLong(toWrite, 27, ruleSuiteResultType, null), rules)
-      }
-    }
-    connectOnly {
-      try {
-        doWithResolve {
-          df = taddDataQuality(dataFrameLong(toWrite, 27, ruleSuiteResultType, null), rules)
-        }
-        fail("resolveWith isn't possible with connect so this should have thrown")
-      } catch {
-        case t: Throwable => t.getMessage.contains("resolveWith is being used with Connect, this is not a valid combination") shouldBe true
-          df = taddDataQuality(dataFrameLong(toWrite, 27, ruleSuiteResultType, null), rules)
-      }
-    }
-  }
 }
 
 object Holder {

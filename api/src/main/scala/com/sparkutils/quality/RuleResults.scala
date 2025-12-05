@@ -4,7 +4,7 @@ import com.sparkutils.quality.impl.util.Optional
 
 import scala.collection.JavaConverters._
 
-trait RuleResult extends Serializable
+sealed trait RuleResult extends Serializable
 
 case object Failed extends RuleResult
 case object Passed extends RuleResult

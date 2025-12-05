@@ -1,13 +1,12 @@
 package com.sparkutils.qualityTests
 import com.sparkutils.quality.{DataFrameLoader, Id, loadViewConfigs, loadViews}
 import com.sparkutils.quality.impl.views.{MissingViewAnalysisException, ViewConfig, ViewLoaderAnalysisException}
-import com.sparkutils.qualityTests.util.SharedConnectTests
+import com.sparkutils.qualityTests.util.SharedPureConnectTests
 import com.sparkutils.testing.SparkVersions.sparkVersion
 import org.apache.spark.sql.functions.{col, expr}
 import org.apache.spark.sql.{DataFrame, ShimUtils, SparkSession}
-import org.scalatest.BeforeAndAfterEach
 
-class ViewLoaderTest extends SharedConnectTests {
+class ViewLoaderTest extends SharedPureConnectTests {
 
   val loader = new DataFrameLoader {
     override def load(token: String): DataFrame = {

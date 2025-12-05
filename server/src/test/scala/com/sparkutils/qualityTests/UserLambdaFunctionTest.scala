@@ -4,21 +4,12 @@ import com.sparkutils.quality._
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions._
 import com.sparkutils.qualityTests.mapLookup.TradeTests._
-import com.sparkutils.qualityTests.util.{ClassicSharedTests, SharedConnectTests}
-import com.sparkutils.testing.TestUtils
+import com.sparkutils.qualityTests.util.SharedPureConnectTests
+
 import com.sparkutils.testing.TestUtils.debug
-import org.apache.spark.sql.ShimUtils.expression
 
-trait UserLambdaFunctionTestBase extends SharedConnectTests {
-
-}
-
-class ClassicUserLambdaFunctionTest extends ClassicSharedTests {
-
-}
-
-class UserLambdaFunctionTest extends SharedConnectTests {
-  test("nullInParam") { evalCodeGensNoResolve { funNRewrites {
+trait UserLambdaFunctionTestBase extends SharedPureConnectTests {
+  def doNullInParam(): Unit = {
     val funs = Seq(
       LambdaFunction("posting_string_to_date",
         """(RULE_NO,TRANSACTION_CURRENCY_AMOUNT) -> named_struct('RULE_NO', RULE_NO,'TRANSACTION_AMOUNT', CAST(TRANSACTION_CURRENCY_AMOUNT AS DECIMAL(38,18)))""".stripMargin, Id(5, 2)),
@@ -34,9 +25,9 @@ class UserLambdaFunctionTest extends SharedConnectTests {
 
     ndf.head()
 
-  } } }
+  }
 
-  test("lambdaRuleTest") { evalCodeGensNoResolve { funNRewrites {
+  def doLambdaRuleTest(): Unit = {
 
     val s = sparkSession
     import s.implicits._
@@ -48,9 +39,9 @@ class UserLambdaFunctionTest extends SharedConnectTests {
     val ndf = df.withColumn("newcalc", expr("multValCCY(value, ccyrate)"))
 
     doTest(ndf)
-  } } }
+  }
 
-  test("lambdaNoParamsRuleTest") { evalCodeGensNoResolve { funNRewrites {
+  def doLambdaNoParamsRuleTest(): Unit = {
 
     val s = sparkSession
     import s.implicits._
@@ -62,14 +53,14 @@ class UserLambdaFunctionTest extends SharedConnectTests {
     val ndf = df.withColumn("newcalc", expr("multValCCY()"))
 
     doTest(ndf)
-  } } }
+  }
 
   def doTest(ndf: DataFrame): Unit = {
     debug {ndf.show()}
     ndf.collect().foreach{r => assert(r.getAs[Double]("newcalc") == r.getAs[Int]("value") * r.getAs[Double]("ccyrate")) }
   }
 
-  test("lambdaMultiParamLengthExpandedTest") { evalCodeGensNoResolve { funNRewrites {
+  def doLambdaMultiParamLengthExpandedTest():Unit = {
 
     val s = sparkSession
     import s.implicits._
@@ -84,9 +75,9 @@ class UserLambdaFunctionTest extends SharedConnectTests {
     doTest(df.withColumn("newcalc", expr("multValCCY()")))
     doTest(df.withColumn("newcalc", expr("multValCCY(value)")))
     doTest(df.withColumn("newcalc", expr("multValCCY(value, ccyrate)")))
-  } } }
+  }
 
-  test("lambdaMultiParamLengthSelfReferenceTest") { evalCodeGensNoResolve { funNRewrites {
+  def doLambdaMultiParamLengthSelfReferenceTest(): Unit = {
 
     val s = sparkSession
     import s.implicits._
@@ -101,9 +92,9 @@ class UserLambdaFunctionTest extends SharedConnectTests {
     doTest(df.withColumn("newcalc", expr("multValCCY()")))
     doTest(df.withColumn("newcalc", expr("multValCCY(value)")))
     doTest(df.withColumn("newcalc", expr("multValCCY(value, ccyrate)")))
-  } } }
+  }
 
-  test("lambdaMultiParamDupeLengthTest") { evalCodeGensNoResolve { funNRewrites {
+  def doLambdaMultiParamDupeLengthTest(): Unit = {
 
     val s = sparkSession
     import s.implicits._
@@ -116,9 +107,9 @@ class UserLambdaFunctionTest extends SharedConnectTests {
     } catch {
       case e: Exception => assert(e.getMessage.contains("Lambda function multValCCY has 2 implementations with 2 arguments: "))
     }
-  } } }
+  }
 
-  test("lambdaMissing0LengthTest") { evalCodeGensNoResolve { funNRewrites {
+  def doLambdaMissing0LengthTest(): Unit = {
 
     val s = sparkSession
     import s.implicits._
@@ -132,9 +123,9 @@ class UserLambdaFunctionTest extends SharedConnectTests {
     } catch {
       case e: Exception => assert(e.getMessage.contains("0 arguments requested for multValCCY but no implementation with this argument count exists"))
     }
-  } } }
+  }
 
-  test("nestedLambdaRuleTest") { evalCodeGensNoResolve { funNRewrites {
+  def doNestedLambdaRuleTest(): Unit = {
 
     val s = sparkSession
     import s.implicits._
@@ -148,14 +139,14 @@ class UserLambdaFunctionTest extends SharedConnectTests {
 
     debug(ndf.show())
     ndf.collect().foreach{r => assert( r.getAs[Double]("newcalc") == (if (r.getAs[String]("ccy") == "CHF")
-        (r.getAs[Int]("value") * r.getAs[Double]("ccyrate")) + r.getAs[Int]("value")
-      else
-        r.getAs[Int]("value")
+      (r.getAs[Int]("value") * r.getAs[Double]("ccyrate")) + r.getAs[Int]("value")
+    else
+      r.getAs[Int]("value")
       )
     ) }
-  } } }
+  }
 
-  test("globalLambdasTest") { funNRewrites {
+  def doGlobalLambdasTest(): Unit = {
     val rs = Map( (Id(0,1): VersionedId )-> RuleSuite(Id(0,1), Seq(RuleSet(Id(1,1), Seq(
       Rule(Id(2,1), ExpressionRule("fielda > fieldb"), RunOnPassProcessor(0, Id(100,1), OutputExpression("fielda > b"))),
       Rule(Id(3,1), ExpressionRule("fielda > fieldb"), RunOnPassProcessor(0, Id(100,1), OutputExpression("fielda >> fieldb"))),
@@ -178,13 +169,13 @@ class UserLambdaFunctionTest extends SharedConnectTests {
     val withGlobalThatDoesntExist = integrateLambdas(rs, lambdas(Id(-2,-2)), Some(Id(-1,-1))).head
     assert(!withGlobalThatDoesntExist._2.lambdaFunctions.exists(l => l.name == "I_AM_GLOBAL"))
 
-  } }
+  }
 
   /**
    * test's functions as params to lambdas, partial application cases are also
    * tested in the AggregatesTest - impl needs interpreted as the type of FunForward really isn't long
    */
-  test("hofTest") { evalCodeGensNoResolve { funNRewrites {
+  def doHofTest(): Unit = {
     val mult = LambdaFunction("mult", "(theValue, ccy) -> theValue * ccy", Id(1,2))
     val plus = LambdaFunction("plus", "(theValue, ccy) -> theValue + ccy", Id(3,2))
     val user = LambdaFunction("use", "(func, a, b) -> callFun(func, a, b)", Id(2,2))
@@ -222,9 +213,9 @@ class UserLambdaFunctionTest extends SharedConnectTests {
     // nested partial
     assert(2 == sparkSession.sql("select deep1(mult(1, _('int')), 2) as res").as[Int].head())
     assert(3 == sparkSession.sql("select deep1(plus(1, _('int')), 2) as res").as[Int].head())
-  } } }
+  }
 
-  test("deepPartialTest") { evalCodeGensNoResolve { funNRewrites {
+  def doDeepPartialTest(): Unit = {
     val plus2 = LambdaFunction("plus", "(a, b) -> a + b", Id(3,2))
     val plus3 = LambdaFunction("plus", "(a, b, c) -> plus(plus(a, b), c)", Id(3,2))
     val papplyt = LambdaFunction("papplyt", "(func, a, b, c) -> callFun(callFun(func, _(), _(), c), a, b)", Id(2,2))
@@ -235,9 +226,9 @@ class UserLambdaFunctionTest extends SharedConnectTests {
 
     assert(6L == { val sql = sparkSession.sql("select papplyt(plus(_(), _(), _()), 1L, 2L, 3L) as res")
       sql.as[Long].head()})
-  } } }
+  }
 
-  test("returnLambdaTest") { evalCodeGensNoResolve { funNRewrites {
+  def doReturnLambdaTest(): Unit = {
     val plus2 = LambdaFunction("plus", "(a, b) -> a + b", Id(3,2))
     val plus3 = LambdaFunction("plus", "(a, b, c) -> plus(plus(a, b), c)", Id(3,2))
     val retLambda = LambdaFunction("retLambda", "(a, b) -> plus(a, b, _())", Id(2,2))
@@ -248,7 +239,7 @@ class UserLambdaFunctionTest extends SharedConnectTests {
 
     assert(6L == { val sql = sparkSession.sql("select callFun(retLambda(1L, 2L), 3L) as res")
       sql.as[Long].head()})
-  } } }
+  }
 
   def doHOFLambdaDropin() = {
     val plus = LambdaFunction("plus", "(theValue, ccy) -> theValue + ccy", Id(1,2))
@@ -270,13 +261,11 @@ class UserLambdaFunctionTest extends SharedConnectTests {
     assert(6 == sparkSession.sql("SELECT hof(plus(_('int'), _('int'))) as res").as[Int].head())
   }
 
-  test("testHOFLambdaDropin") { evalCodeGensNoResolve {  funNRewrites { doHOFLambdaDropin() } } }
-
   /**
    * Although Dropin tests aggregate and combinations to prove overall behaviour, in light of the issue detected in DBRs
    * this tests all the other in built hofs.  Examples taken from the usage guide annotations
    */
-  test("testHOFDropins") { evalCodeGensNoResolve { funNRewrites {
+  def doTestHOFDropins(): Unit = {
     val plus = LambdaFunction("plus", "(a, b) -> a + b", Id(1, 2))
     val times = LambdaFunction("times", "(a, b) -> a * b", Id(2, 2))
     val sort1 = LambdaFunction("sort1", "(lefty, righty) -> case when lefty < righty then -1 when lefty > righty then 1 else 0 end", Id(3, 2))
@@ -398,12 +387,12 @@ class UserLambdaFunctionTest extends SharedConnectTests {
     }
 
 
-  //> SELECT _FUNC_(array(1, 2), array(3, 4), (x, y) -> x + y);
+    //> SELECT _FUNC_(array(1, 2), array(3, 4), (x, y) -> x + y);
     //       [4,6]
     assert(Seq(4,6) == sparkSession.sql("SELECT zip_With(array(1, 2), array(3, 4), _lambda_(plus(_('int'), _('int')))) as res").as[Seq[Int]].head())
-  } } }
+  }
 
-  test("testHOFFunForwardDropin") { evalCodeGensNoResolve { funNRewrites {
+  def doTestHOFFunForwardDropin(): Unit = {
     val plus = LambdaFunction("plus", "(a, b, c) -> a + b", Id(1, 2))
     val funF = LambdaFunction("funf", "f -> aggregate(array(1, 2, 3), 0, _lambda_(f) )", Id(1, 2)) // ignore the params but keep the shape
     registerLambdaFunctions(Seq(plus, funF))
@@ -411,36 +400,9 @@ class UserLambdaFunctionTest extends SharedConnectTests {
     val s = sparkSession
     import s.implicits._
     assert(9 == sparkSession.sql("SELECT funf(plus(_('int'), 3, _('int'))) as res").as[Int].head())
-  } } }
+  }
 
-  test("testPlaceHolderNullableOverrides") { classicOnly { evalCodeGensNoResolve { funNRewrites {
-    val resolve = TestUtils.resolveBuiltinOrTempFunction(sparkSession) _
-    // as these cannot be tested as part of runtimes with aggregate bug resolve is used to directly test
-    val actualDefaultCall = resolve("_", Seq(expression(lit("int")))).get
-    assert(actualDefaultCall.nullable)
-    val actualOverriddenCall = resolve("_", Seq(expression(lit("int")), expression(lit(false)))).get
-    assert(!actualOverriddenCall.nullable)
-
-    // this one is actually passed around as a lambda so it cannot be re-written.
-    val plus = LambdaFunction("plus", "(a, b) -> a + b", Id(1,2))
-    // this isn't actually tested for false or true as the top level binding overrides it, but it's tested to prove coverage
-    val test = LambdaFunction("plusTest", "(f, a) -> callFun(callFun(f, _('long', false), 1), a)", Id(3,2))
-    val test2 = LambdaFunction("plusTest2", "(f, a) -> callFun(callFun(f, _('long'), 1), a)", Id(3,2))
-    registerLambdaFunctions(Seq(plus, test, test2))
-
-    var shouldBeNull = sparkSession.sql("select plusTest(plus(_(), _()), null)").head()
-    assert(shouldBeNull.isNullAt(0))
-    shouldBeNull = sparkSession.sql("select plusTest(plus(_(), _('int', false)), null)").head()
-    assert(shouldBeNull.isNullAt(0))
-    val control = sparkSession.sql("select plusTest(plus(_(), _()), 1L)").head()
-    assert(!control.isNullAt(0))
-    assert(control.get(0) == 2)
-    val control2 = sparkSession.sql("select plusTest2(plus(_(), _()), 1L)").head()
-    assert(!control2.isNullAt(0))
-    assert(control2.get(0) == 2)
-  } } } }
-
-  test("testCallFunForward") { evalCodeGensNoResolve { funNRewrites {
+  def doTestCallFunForward(): Unit = {
     val plus = LambdaFunction("plus", "(a, b) -> a + b", Id(1,2))
     val opargs = LambdaFunction("opargs", "(op, a, b) -> callFun(op, a, b)", Id(1,2))
     // this is utter nonsense -
@@ -450,5 +412,83 @@ class UserLambdaFunctionTest extends SharedConnectTests {
     val control = sparkSession.sql("select plusTest(opargs(plus(_(), _()), _(), _()), 1L)").head()
     assert(!control.isNullAt(0))
     assert(control.get(0) == 2)
-  } } }
+  }
+
+}
+
+
+
+class UserLambdaFunctionTest extends UserLambdaFunctionTestBase {
+
+  test("nullInParam") {
+    doNullInParam()
+  }
+
+  test("lambdaRuleTest") {
+    doLambdaRuleTest()
+  }
+
+  test("lambdaNoParamsRuleTest") {
+    doLambdaNoParamsRuleTest()
+  }
+
+  test("lambdaMultiParamLengthExpandedTest") {
+    doLambdaMultiParamLengthExpandedTest()
+  }
+
+  test("lambdaMultiParamLengthSelfReferenceTest") {
+    doLambdaMultiParamLengthSelfReferenceTest()
+  }
+
+  test("lambdaMultiParamDupeLengthTest") {
+    doLambdaMultiParamDupeLengthTest()
+  }
+
+  test("lambdaMissing0LengthTest") {
+    doLambdaMissing0LengthTest()
+  }
+
+  test("nestedLambdaRuleTest") {
+    doNestedLambdaRuleTest()
+  }
+
+  test("globalLambdasTest") {
+    doGlobalLambdasTest()
+  }
+
+  /**
+   * test's functions as params to lambdas, partial application cases are also
+   * tested in the AggregatesTest - impl needs interpreted as the type of FunForward really isn't long
+   */
+  test("hofTest") {
+    doHofTest()
+  }
+
+  test("deepPartialTest") {
+    doDeepPartialTest()
+  }
+
+  test("returnLambdaTest") {
+    doReturnLambdaTest()
+  }
+
+  test("testHOFLambdaDropin") {
+    doHOFLambdaDropin()
+  }
+
+  /**
+   * Although Dropin tests aggregate and combinations to prove overall behaviour, in light of the issue detected in DBRs
+   * this tests all the other in built hofs.  Examples taken from the usage guide annotations
+   */
+  test("HOFDropins") {
+    doTestHOFDropins()
+  }
+
+  test("HOFFunForwardDropin") {
+    doTestHOFFunForwardDropin()
+  }
+
+  test("CallFunForward") {
+    doTestCallFunForward()
+  }
 }
