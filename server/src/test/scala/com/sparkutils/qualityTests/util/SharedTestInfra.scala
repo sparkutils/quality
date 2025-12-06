@@ -5,7 +5,7 @@ import com.sparkutils.quality.impl.extension.FunNRewrite
 import com.sparkutils.quality.{RuleSuite, ruleRunner}
 import com.sparkutils.testing.SparkTestUtils.{connectMemory, scoverageClassPathsConfig}
 import com.sparkutils.testing._
-import com.sparkutils.testing.markers.ConnectSafe
+import com.sparkutils.testing.markers.{ConnectSafe, DontRunOnPureConnect}
 import com.sparkutils.testing.sessionStrategies.{GlobalSession, SharedSessions}
 import org.apache.spark.sql.ClassicQualitySparkUtils.DatasetBase
 import org.apache.spark.sql.{Dataset, Row}
@@ -41,7 +41,7 @@ trait ClassicSharedTests extends FunSuite with TestUtilsBase with SharedSessions
 }
 
 
-trait SharedConnectTests extends SharedPureConnectTests with ClassicSharedTests {
+trait SharedConnectTests extends SharedPureConnectTests with ClassicSharedTests with DontRunOnPureConnect {
 
 }
 

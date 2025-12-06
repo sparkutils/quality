@@ -6,7 +6,8 @@ import scala.annotation.tailrec
  * Probability is evaluated at over probablePass percent, defaults to 80% 0.8.
  * Passed until any failure occurs
  */
-case class OverallResult(probablePass: Double = 0.8, currentResult: RuleResult = Passed) {
+@SerialVersionUID(1L)
+case class OverallResult(probablePass: Double = 0.8, currentResult: RuleResult = Passed) extends Serializable {
   def process(ruleResult: RuleResult): OverallResult = copy(currentResult = OverallResultHelper.inplace(ruleResult, currentResult, probablePass))
 }
 

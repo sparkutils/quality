@@ -42,12 +42,12 @@ The quality_api jars can be used as a remote interface to Quality functionality 
 
 The new quality_api jar provides a very thin and stable interface that simply forwards execution to the SparkSessionExtension on the driver and acts as an example of what other language support should provide.
 
-In this pattern the 'client' application only needs to depend on the quality_api jar, allowing the exact Quality implementation 'server' to be upgraded.  Under Spark 4:
+In this pattern the 'client' application only needs to depend on the quality_api jar, allowing the exact Quality implementation 'server' to be upgraded.  Under OSS Spark 4:
 
 - spark.sql.artifact.isolation.enabled and 
 - spark.sql.artifact.isolation.alwaysApplyClassloader 
  
-allow multiple client applications to exist and safely share the server. Databricks provides this via shared clusters and [Lakeguard](https://docs.databricks.com/aws/en/compute/lakeguard) provides the same isolation.
+allow multiple client applications to exist and safely share the server, enabled by default when using the Spark Connect server or  "spark.api.mode=connect". Databricks Shared Compute clusters with [Lakeguard](https://docs.databricks.com/aws/en/compute/lakeguard) provide the same isolation.
 
 ## Building The Library
 
@@ -139,29 +139,20 @@ The full list of supported runtimes is below:
 | 3.2.1         | 3.2               | 3.2.1.oss_     | 2.12               | 
 | 3.3.2         | 3.3               | 3.3.2.oss_     | 2.12               | 
 | 3.3.2         | 3.3               | 12.2.dbr_      | 2.12               |
-| 3.3.2         | 3.3               | 13.1.dbr_      | 2.12               |
 | 3.4.1         | 3.4               | 3.4.1.oss_     | 2.12               |
-| 3.4.1         | 3.4               | 13.1.dbr_      | 2.12               |
 | 3.4.1         | 3.4               | 13.3.dbr_      | 2.12               |
 | 3.5.0         | 3.5               | 3.5.0.oss_     | 2.12               |
-| 3.5.0         | 3.5               | 14.0.dbr_      | 2.12               |
 | 3.5.0         | 3.5               | 14.3.dbr_      | 2.12               |
 | 3.5.0         | 3.5               | 15.4.dbr_      | 2.12               |
 | 3.5.0         | 3.5               | 16.4.dbr_      | 2.12               |
 | 4.0.0         | 4.0               | 4.0.0.oss_     | 2.13               |
 | 4.0.0         | 4.0               | 17.3.dbr_      | 2.13               |
+| 4.0.0         | 4.0               | api_4.0.0.oss_ | 2.13               |
+| 4.0.0         | 4.0               | api_17.3.dbr_  | 2.13               |
 
 Fabric 1.3 uses the 3.5.0.oss_ runtime, other Fabric runtimes may run on their equivalent OSS version.
 
-!!! note "Databricks 13.x support"
-    13.0 also works on the 12.2.dbr_ build as of 10th May 2023, despite the Spark version difference.
-    13.1 requires its own version as it backports 3.5 functionality.  The 13.1.dbr quality runtime build also works on 13.2 DBR. 
-    13.3 LTS has its own runtime
-
-!!! warning "Databricks 14.x support"
-    Due to back-porting of SPARK-44913 frameless 0.16.0 (the 3.5.0 release) is not binary compatible with 14.2 and above which has back-ported this 4.0 interface change.
-    Similarly, 4.0 / 14.2 introduces a change in resolution so a new runtime version is required upon a potential fix for 44913 in frameless.
-    As such 14.3 has its own runtime
+Introduced in 0.2.0 is support for Spark Connect driven development, via the quality_api jar (shown above for 4.0.0), this includes Databricks Shared Compute support but requires [Session extensions](#using-the-sql-functions-on-spark-thrift-hive-servers).  
 
 !!! warning "0.1.3 Requires com.sparkutils.frameless for newer releases"
     Quality 0.1.3 uses [com.sparkutils.frameless](https://github.com/sparkutils/frameless) for the 3.5, 13.3 and 14.x releases together with the [shim project](https://github.com/sparkutils/shim), allowing quicker releases of Databricks runtime supports going forward.
@@ -212,13 +203,13 @@ The known combinations requiring this approach is below:
 | Spark Version | sparkShortVersion | qualityTestPrefix | qualityDatabricksPrefix | scalaCompatVersion |
 |---------------|-------------------|-------------------|-------------------------|--------------------|
 | 3.3.2         | 3.3               | 3.3.2.oss_        | 12.2.dbr_               | 2.12               | 
-| 3.4.1         | 3.4               | 3.4.1.oss_        | 13.1.dbr_               | 2.12               | 
 | 3.4.1         | 3.4               | 3.4.1.oss_        | 13.3.dbr_               | 2.12               | 
-| 3.5.0         | 3.5               | 3.5.0.oss_        | 14.0.dbr_               | 2.12               | 
 | 3.5.0         | 3.5               | 3.5.0.oss_        | 14.3.dbr_               | 2.12               | 
 | 3.5.0         | 3.5               | 3.5.0.oss_        | 15.4.dbr_               | 2.12               |
 | 3.5.0         | 3.5               | 3.5.0.oss_        | 16.4.dbr_               | 2.12               |
 | 4.0.0         | 4.0               | 4.0.0.oss_        | 17.3.dbr_               | 2.13               |
+
+See [Connect](connect.md#how-to-build-applications-against-connect-with-an-extension) for quality_api based information (Spark 4 onwards).
 
 ## Using the SQL functions on Spark Thrift (Hive) servers
 
