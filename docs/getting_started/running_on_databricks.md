@@ -73,7 +73,7 @@ Supported as of 0.1.3.1.
 
 17.3, in addition to Spark 4 usage, introduced a binary incompatible change to NamedExpressions not present in the OSS codebase.
 
-The following test combinations are supported:
+The following test combinations are supported as of 0.2.0:
 
 | Compute Type   | Cluster Library                     | Extension              | Connect Via quality_api | Full Pre 0.2.0 Functionality | QualityTestRunner Test Count               |
 |----------------|-------------------------------------|------------------------|-------------------------|------------------------------|--------------------------------------------| 
