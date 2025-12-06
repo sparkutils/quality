@@ -5,20 +5,49 @@ tags:
    - beginner
 ---
 
-## Migrating from 0.0.3 to 0.1.0
+## Migrating from 0.1.x to 0.2.0
 
-The quality package has been trimmed down to common functionality only.  DSL / Column based functions and types have moved to specific packages similar to implicits:
+Quality, as of 0.2.0, is delivered via 4 jars:
+
+* quality - effectively the same as Quality pre 0.2.0
+* quality_api - the basic interface for quality, included by the normal quality library  
+* quality_testshade - the test shaded uber package for testing and exploration (this shade both the quality and quality_api jars)
+* quality_connect_testshade - the connect test shaded uber package for testing and exploration with Spark 4 / DBR 17.3 server extensions.  (this only shades the quality_api jar) 
+
+Existing users should continue to depend on the quality jar.  Connect users on Spark 4 / DBR 17.3 however can also make remote calls by just depending on quality_api.
+
+The following functional areas are only present in the full quality jar:
+
+- Bloom filters, as are 
+- Processors, 
+- documentation functions, 
+- validation functions
+- and a number of classic only utility functions.  
+ 
+In order to use the functions and related data types that are not supported in the connect compatible api use classicFunctions:
 
 ```scala
-import com.sparkutils.quality._
-import functions._
-import types._
-import implicits._
-```  
+import com.sparkutils.quality.classicFunctions._ 
+```
 
-The functions package aims to have an equivalent column dsl function for each bit of sql based functionality.  The notable exception to this is the lambda, callFun and _() functions, for which you are better off using your languages normal support for abstraction.  A number of the functions have been, due to naming choice, deprecated they will be removed in 0.2.0.   
+The classicFunctions rule, engine, folder and expression runner functions will use connect where required and classic where possible.  Functions which are only possible to use with classic are annotated with ClassicOnly.
 
-Spark 2.4 support is, as of this release, deprecated but not removed, future 0.1.x versions will continue to support but 0.2.0 will remove it entirely. 
+??? note "registerQualityFunctions has no params?"
+    com.sparkutils.quality.registerQualityFunctions no longer takes parameters.  On classic, non quality_api, it forwards to the com.sparkutils.quality.classicFunction.registerQualityFunctions's default implementation.
+    When using quality_api via connect it's a no-op, as the functions exist on the server.    
+
+### Spark 4, Connect and Remote Calls
+
+The quality_api jars can be used as a remote interface to Quality functionality running as a [SparkSessionExtension](#using-the-sql-functions-on-spark-thrift-hive-servers).
+
+The new quality_api jar provides a very thin and stable interface that simply forwards execution to the SparkSessionExtension on the driver and acts as an example of what other language support should provide.
+
+In this pattern the 'client' application only needs to depend on the quality_api jar, allowing the exact Quality implementation 'server' to be upgraded.  Under OSS Spark 4:
+
+- spark.sql.artifact.isolation.enabled and 
+- spark.sql.artifact.isolation.alwaysApplyClassloader 
+ 
+allow multiple client applications to exist and safely share the server, enabled by default when using the Spark Connect server or  "spark.api.mode=connect". Databricks Shared Compute clusters with [Lakeguard](https://docs.databricks.com/aws/en/compute/lakeguard) provide the same isolation.
 
 ## Building The Library
 
@@ -87,7 +116,7 @@ quality_RUNTIME_SPARKCOMPATVERSION_SCALACOMPATVERSION-VERSION.jar
 e.g.
 
 ```
-quality_3.4.1.oss_3.4_2.12-0.1.3.jar
+quality_4.0.0.oss_4.0_2.13-0.1.3.1.jar
 ```
 
 The build poms generate those variables via maven profiles, but you are advised to use properties to configure e.g. for Maven:
@@ -104,40 +133,26 @@ The full list of supported runtimes is below:
 
 | Spark Version | sparkShortVersion | qualityRuntime | scalaCompatVersion |
 |---------------|-------------------|----------------|--------------------|
-| 2.4.6         | 2.4               |                | 2.11               | 
 | 3.0.3         | 3.0               |                | 2.12               | 
 | 3.1.3         | 3.1               |                | 2.12               | 
-| 3.1.3         | 3.1               | 9.1.dbr_       | 2.12               | 
 | 3.2.0         | 3.2               |                | 2.12               | 
 | 3.2.1         | 3.2               | 3.2.1.oss_     | 2.12               | 
-| 3.2.1         | 3.2               | 10.4.dbr_      | 2.12               | 
 | 3.3.2         | 3.3               | 3.3.2.oss_     | 2.12               | 
-| 3.3.2         | 3.3               | 11.3.dbr_      | 2.12               |
 | 3.3.2         | 3.3               | 12.2.dbr_      | 2.12               |
-| 3.3.2         | 3.3               | 13.1.dbr_      | 2.12               |
 | 3.4.1         | 3.4               | 3.4.1.oss_     | 2.12               |
-| 3.4.1         | 3.4               | 13.1.dbr_      | 2.12               |
 | 3.4.1         | 3.4               | 13.3.dbr_      | 2.12               |
 | 3.5.0         | 3.5               | 3.5.0.oss_     | 2.12               |
-| 3.5.0         | 3.5               | 14.0.dbr_      | 2.12               |
 | 3.5.0         | 3.5               | 14.3.dbr_      | 2.12               |
+| 3.5.0         | 3.5               | 15.4.dbr_      | 2.12               |
+| 3.5.0         | 3.5               | 16.4.dbr_      | 2.12               |
 | 4.0.0         | 4.0               | 4.0.0.oss_     | 2.13               |
-| 4.0.0         | 4.0               | 17.0.dbr_      | 2.13               |
+| 4.0.0         | 4.0               | 17.3.dbr_      | 2.13               |
+| 4.0.0         | 4.0               | api_4.0.0.oss_ | 2.13               |
+| 4.0.0         | 4.0               | api_17.3.dbr_  | 2.13               |
 
+Fabric 1.3 uses the 3.5.0.oss_ runtime, other Fabric runtimes may run on their equivalent OSS version.
 
-Fabric 1.3 uses the 3.5.0.oss_ runtime, other Fabric runtimes may run on their equivalent OSS version.  Databricks 15.4 LTS is compatible with the 14.3.dbr_ runtime.
-
-2.4 support is deprecated and will be removed in a future version.  3.1.2 support is replaced by 3.1.3 due to interpreted encoder issues. 
-
-!!! note "Databricks 13.x support"
-    13.0 also works on the 12.2.dbr_ build as of 10th May 2023, despite the Spark version difference.
-    13.1 requires its own version as it backports 3.5 functionality.  The 13.1.dbr quality runtime build also works on 13.2 DBR. 
-    13.3 LTS has its own runtime
-
-!!! warning "Databricks 14.x support"
-    Due to back-porting of SPARK-44913 frameless 0.16.0 (the 3.5.0 release) is not binary compatible with 14.2 and above which has back-ported this 4.0 interface change.
-    Similarly, 4.0 / 14.2 introduces a change in resolution so a new runtime version is required upon a potential fix for 44913 in frameless.
-    As such 14.3 has its own runtime
+Introduced in 0.2.0 is support for Spark Connect driven development, via the quality_api jar (shown above for 4.0.0), this includes Databricks Shared Compute support but requires [Session extensions](#using-the-sql-functions-on-spark-thrift-hive-servers).  
 
 !!! warning "0.1.3 Requires com.sparkutils.frameless for newer releases"
     Quality 0.1.3 uses [com.sparkutils.frameless](https://github.com/sparkutils/frameless) for the 3.5, 13.3 and 14.x releases together with the [shim project](https://github.com/sparkutils/shim), allowing quicker releases of Databricks runtime supports going forward.
@@ -156,11 +171,11 @@ As there are many compatibility issues that Quality works around between the var
 
 ```xml
 <properties>
-    <qualityVersion>0.1.3</qualityVersion>
-    <qualityTestPrefix>3.4.1.oss_</qualityTestPrefix>
-    <qualityDatabricksPrefix>13.1.dbr_</qualityDatabricksPrefix>
-    <sparkShortVersion>3.4</sparkShortVersion>
-    <scalaCompatVersion>2.12</scalaCompatVersion>    
+    <qualityVersion>0.1.3.1</qualityVersion>
+    <qualityTestPrefix>4.0.0.oss_</qualityTestPrefix>
+    <qualityDatabricksPrefix>17.3.dbr_</qualityDatabricksPrefix>
+    <sparkShortVersion>4.0</sparkShortVersion>
+    <scalaCompatVersion>2.13</scalaCompatVersion>    
 </properties>
 
 <dependencies>
@@ -186,13 +201,15 @@ It's safe to assume better build tools like gradle / sbt do not need such hacker
 The known combinations requiring this approach is below:
 
 | Spark Version | sparkShortVersion | qualityTestPrefix | qualityDatabricksPrefix | scalaCompatVersion |
-|---------------|-------------------|-------------------|-------------------------| - |
-| 3.2.1         | 3.2               | 3.2.1.oss_        | 10.4.dbr_               | 2.12 | 
-| 3.3.0         | 3.3               | 3.3.0.oss_        | 11.3.dbr_               | 2.12 | 
-| 3.3.2         | 3.3               | 3.3.2.oss_        | 12.2.dbr_               | 2.12 | 
-| 3.4.1         | 3.4               | 3.4.1.oss_        | 13.1.dbr_               | 2.12 | 
-| 3.5.0         | 3.5               | 3.5.0.oss_        | 14.0.dbr_               | 2.12 | 
-| 3.5.0         | 3.5               | 3.5.0.oss_        | 14.3.dbr_               | 2.12 | 
+|---------------|-------------------|-------------------|-------------------------|--------------------|
+| 3.3.2         | 3.3               | 3.3.2.oss_        | 12.2.dbr_               | 2.12               | 
+| 3.4.1         | 3.4               | 3.4.1.oss_        | 13.3.dbr_               | 2.12               | 
+| 3.5.0         | 3.5               | 3.5.0.oss_        | 14.3.dbr_               | 2.12               | 
+| 3.5.0         | 3.5               | 3.5.0.oss_        | 15.4.dbr_               | 2.12               |
+| 3.5.0         | 3.5               | 3.5.0.oss_        | 16.4.dbr_               | 2.12               |
+| 4.0.0         | 4.0               | 4.0.0.oss_        | 17.3.dbr_               | 2.13               |
+
+See [Connect](connect.md#how-to-build-applications-against-connect-with-an-extension) for quality_api based information (Spark 4 onwards).
 
 ## Using the SQL functions on Spark Thrift (Hive) servers
 
@@ -204,9 +221,6 @@ spark.sql.extensions=com.sparkutils.quality.impl.extension.QualitySparkExtension
 
 when starting your cluster, with the appropriate compatible Quality runtime jars - the test Shade jar can also be used -, will automatically register the additional SQL functions from Quality.
 
-!!! note "Spark 2.4 runtimes are not supported"
-    2.4 is not supported as Spark doesn't provide for SQL extensions in this version.
-      
 !!! note "Pure SQL only"    
     Lambdas, blooms and map's cannot be constructed via pure sql, so the functionality of these on Thrift/Hive servers is limited. 
 
@@ -220,7 +234,7 @@ In order to use the query optimisations within normal job / calculator writing y
 
 The extension also enables the FunNRewrite optimisation (as of 0.1.3.1 and Spark 3.2 and higher) which expands user functions allowing sub expression elimination.
 
-### Configuring on Databricks runtimes
+### Configuring on Databricks classic runtimes
 
 In order to register the extensions on Databricks runtimes you need to additionally create a cluster init script much like:
 
@@ -247,7 +261,15 @@ new PrintWriter(scriptName) {write(script); close}
 
 You must still register the Spark config extension attribute, but also make sure the Init script has the same path as the file you created in the above snippet.
 
-## 2.4 Support requires 2.4.6 or Janino 3.0.16
+!!! important "Dos2Unix"
+    If you are using Windows as your dev env, you will probably have to ensure your line endings are unix, so using git-portable and dos2unix before uploading your file if your are not generating it.
 
-Due to [Janino #90](https://github.com/janino-compiler/janino/issues/90) using 2.4.5 directly will bring in 3.0.9 janino which can cause VerifyErrors, use 2.4.6 if you can't use a 3.x Spark.
+### Configuring on Databricks shared runtimes
 
+Supported from DBR 17.3 and Quality 0.2.0 only you must enable init scripts in the UC metastore for a volume.  For example:
+
+```bash
+#!/bin/bash
+
+cp /Volumes/databricks_ws/schema/jars/quality_testshade_17.3.dbr_4.0_2.13-0.2.0.jar /databricks/jars/quality_testshade_17.3-0.2.0.jar
+```

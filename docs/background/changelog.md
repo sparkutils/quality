@@ -1,6 +1,42 @@
-### 0.1.3.1 <small>30th June, 2025</small>
+### [0.2.0](https://github.com/sparkutils/quality/milestone/10?closed=1) <small>24th December, 2025</small>
+
+This release migrates Spark 4 support to use AgnosticEncoders and removes EOL runtimes: 2.4 and DBR's 9.1, 10.4, 11.3.  
+Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1 and 3.3.2 are deprecated as are DBR's 12.2, 13.1, 13.3 and 14.0 and will be removed as of Quality version 0.2.0. 
+
+#90 - Migrate to Spark 4 sql-api, AgnosticEncoder's and support Connect:
+
+> The Sparkutils libraries Shim 0.3.0, Testing 0.1.0 and Frameless 2.0.0 provide support for
+> custom encoding via AgnosticEncoders and a stable API that works with both Spark Classic and Connect.
+> 
+> To use Connect the Quality SparkSessionExtension must be enabled on the "server" Spark Driver side, 
+> the connect friendly DSL forwards all the complexity to the Connect Server.  The newly released Testing project
+> is used to run the same test cases against both Classic and Connect ensuring the API is stable.  This also extends 
+> to user functions (LambdaFunctions), on Connect they are sent to the server via a custom command.
+> 
+> The Testless cluster notebook testing experience has been abstracted to the Testing project providing a standard  
+> interface Quality Scalatest's on clusters, now shared with all Sparkutils testshade based projects.  On Databricks
+> the testing runs will also run in the normal Classic mode and, via the scala.api.mode=connect config parameter, 
+> against the provided Spark Connect server.
+> 
+> A number of functions are not possible to run in Connect and are provided with _classic as a suffix, these typically
+> relate to extension points such as monadic add.
+> 
+> Map and Bloom related functions from 0.2.0 Spark 4 onwards allow multiple lookups to be used and leverage a 
+> struct [Spark Variable](https://spark.apache.org/docs/latest/sql-ref-syntax-ddl-declare-variable.html#:~:text=Temporary%20variables%20are%20scoped%20at,a%20column%20or%20column%20alias.).
+> This change swaps the last parameter type of the DSL, and introduces a third parameter for the SQL interface, to refer to the Spark Variable, with each map being a strongly typed member of the variable available for use with any Spark queries (although probably not all too useful for blooms).
+> 
+
+#87 - EOL DBR and Spark runtimes are removed: 9.1, 10.4, 11.3
+
+#21 - Remove 2.4 Support, Tech Debt removal
+
+### [0.1.3.1](https://github.com/sparkutils/quality/milestone/10?closed=1) <small>24th October, 2025</small>
 
 This is the last release of 2.4, 3.0 is deprecated as of this release, similarly, Databricks versions 9.1 through to 11.3 are also now deprecated and unsupported functionality (fixes for #84 will be gladly accepted), 12.2 support will continue.
+
+#95 - DBR 17.3 Support - Databricks introduced a binary change to NamedExpression 
+
+#85 - Processor optimisation to provide a passed result
 
 #83 - Processor optimisations for stateless and Higher Order Functions
 
@@ -34,7 +70,7 @@ This is the last release of 2.4, 3.0 is deprecated as of this release, similarly
 
 #73 - Spark 4.0 support (with an upgrade to Shim 0.2.0 using sparkutils.frameless 1.0.0)
 
-### 0.1.3 <small>4th October, 2024</small>
+### [0.1.3](https://github.com/sparkutils/quality/milestone/8?closed=1) <small>4th October, 2024</small>
 
 #53 - Docs parser is now more forgiving, empty descriptions are tolerated and normal scaladoc syntax is allowed
 
