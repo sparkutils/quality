@@ -49,7 +49,15 @@ Similarly, Databricks serverless is not possible as there is no SparkSessionExte
 
 ## How to build applications against Connect with an Extension?
 
-...
+In order to build your own connect client and server extension jars you should follow:
+
+* the example approach found in the [test shade pom](https://github.com/sparkutils/quality/blob/temp/0.2.0/testShades/pom.xml#L517) to select resources and
+* the [scripting jarjar approach](https://github.com/sparkutils/quality/blob/temp/0.2.0/testShades/pom.xml#L570) and [shade rules](https://github.com/sparkutils/quality/blob/main/shade.rules) if you wish to re-use the jar for encoding with implicits
+
+The key difference is which jar you build against (the testShades pom illustrates this via the client and server [profiles](https://github.com/sparkutils/quality/blob/temp/0.2.0/testShades/pom.xml#L31)).
+
+* To build your own connect jar, depend on the appropriate quality_api jar only (OSS 4.0.0 and onwards should be sufficient), or
+* To build your own server extension jar, depend only on the full quality runtime jar (this will already exclude the api_stub jar)
 
 ## Example Java Usage
 
