@@ -59,6 +59,32 @@ The key difference is which jar you build against (the testShades pom illustrate
 * To build your own connect jar, depend on the appropriate quality_api jar only (OSS 4.0.0 and onwards should be sufficient), or
 * To build your own server extension jar, depend only on the full quality runtime jar (this will already exclude the api_stub jar)
 
+NB Using the appropriate runtime quality_testshade jar may likely be enough for the server side extension.  
+
+??? info "Why are there duplicate classes warnings from shade?"
+    When building a shade you may see "overlapping classes" warnings (this example is for quality_connect_testshade): 
+    
+    ```
+    [WARNING] quality_core_4.0.0.oss_4.0_2.13-0.2.0-SNAPSHOT.jar, quality_api_4.0.0.oss_4.0_2.13-0.2.0-SNAPSHOT.jar, quality_api_stub_4.0.0.oss_4.0_2.13-0.2.0-SNAPSHOT.jar define 2 overlapping classes:
+    [WARNING]   - com.sparkutils.shim.EmptyCompilationHelper
+    [WARNING]   - com.sparkutils.shim.EmptyCompilationHelper$
+    [WARNING] quality_api_4.0.0.oss_4.0_2.13-0.2.0-SNAPSHOT.jar, quality_api_stub_4.0.0.oss_4.0_2.13-0.2.0-SNAPSHOT.jar define 2 overlapping classes:
+    [WARNING]   - com.sparkutils.quality.impl.mapLookup.MapLookup$
+    [WARNING]   - com.sparkutils.quality.impl.mapLookup.MapLookup
+    [WARNING] maven-shade-plugin has detected that some class files are
+    [WARNING] present in two or more JARs. When this happens, only one
+    [WARNING] single version of the class is copied to the uber jar.
+    [WARNING] Usually this is not harmful and you can skip these warnings,
+    [WARNING] otherwise try to manually exclude artifacts based on
+    [WARNING] mvn dependency:tree -Ddetail=true and the above output.
+    [WARNING] See http://maven.apache.org/plugins/maven-shade-plugin/
+    ```
+    
+    These can be ignored.  The "EmptyCompilationHelper" from shim (and other sparkutils jars) is simply an empty class to force package object scala docs to be built.
+    
+    The quality MapLookup warnings deserve further explanation, in order to re-use the implementation but provide a consistent interface on both connect and classic
+    quality_api_stub, as the name suggests, provides stub implementations that are then swapped out by quality_api and the classic quality 'server' jar as appropriate.  
+
 ## Example Java Usage
 
 _more to come, including json example_
