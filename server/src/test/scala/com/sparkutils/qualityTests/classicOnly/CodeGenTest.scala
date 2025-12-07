@@ -73,16 +73,9 @@ class CodeGenTest extends ClassicSharedTests with RowTools {
     }
   }
 
-  /* GC's on 3.4, taking 2m locally, after 0.1.3.1-RC5 no longer happens with new compilation approach
-  test("ruleRunnerTooMuchPerFunc") { not3_4_or_above{ not_Cluster{ not2_4{ forceCodeGen {
-    shouldAssert64kb{
-      doRunnerGen(variablesPerFunc= 30000, variableFuncGroup = 12)
-    }
-  }}}}*/
-
-  test("ruleRunnerDefault") { not2_4{ forceCodeGen {
+  test("ruleRunnerDefault") { forceCodeGen {
     doRunnerGen(variablesPerFunc = 40, variableFuncGroup = 20)
-  }}}
+  }}
 
   def doEngineRunnerGen(variablesPerFunc: Int, variableFuncGroup: Int, set: Int = 10, rules: Int = 1600): Unit = {
     def genEngineRules(rules: Int, cols: Int) = {
@@ -124,15 +117,15 @@ class CodeGenTest extends ClassicSharedTests with RowTools {
   }
 
   // as of e149d590 (#71) no longer triggered on Spark4
-  def ruleEngineRunnerTooMuchPerFunc: Unit = not_Cluster{ not2_4{ forceCodeGen {
+  def ruleEngineRunnerTooMuchPerFunc: Unit = not_Cluster{ forceCodeGen {
     // as of eec8842 does not hit 64k on the server at 900
     shouldAssert64kb{
       doEngineRunnerGen(variablesPerFunc= 3000, variableFuncGroup = 12)
     }
-  }}}
+  }}
 
-  test("ruleEngineRunnerDefault") { not2_4{ forceCodeGen {
+  test("ruleEngineRunnerDefault") { forceCodeGen {
     doEngineRunnerGen(variablesPerFunc = 40, variableFuncGroup = 20)//, set = 2, rules = 4)
-  }}}
+  }}
 
 }

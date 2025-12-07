@@ -92,7 +92,7 @@ object MapLookupFunctions {
    *
    * @param configs
    * @param stableName Uses a stable name to register the MapLookups
-   * @return
+   * @return stableName
    */
   def loadMaps(configs: Seq[MapConfig], stableName: String): MapLookups =
     buildStruct(configs.map {

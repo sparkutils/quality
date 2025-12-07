@@ -126,9 +126,7 @@ class YamlTests extends SharedConnectTests with RowTools {
       doSerDeTestGuess(s"named_struct('value', $original)", s"struct<value : $ddl>")
     }
 
-    not2_4 {
-      doSerDeGuess("make_interval(100, 11, 1, 1, 12, 30, 01.001001)", "INTERVAL")
-    }
+    doSerDeGuess("make_interval(100, 11, 1, 1, 12, 30, 01.001001)", "INTERVAL")
 
     v3_4_and_above {
       doSerDe("localtimestamp()", "TIMESTAMP_NTZ")

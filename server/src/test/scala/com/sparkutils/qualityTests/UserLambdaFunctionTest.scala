@@ -287,20 +287,17 @@ trait UserLambdaFunctionTestBase extends SharedPureConnectTests {
     //> SELECT _FUNC_(array(1, 2, 3), (x, i) -> x + i);
     assert(Seq(1, 3, 5) == sparkSession.sql("SELECT transform(array(1, 2, 3), _lambda_(plus(_('int'), _('int')))) as res").as[Seq[Int]].head())
 
-    not2_4 {
-      //> SELECT _FUNC_(array(5, 6, 1), (left, right) -> case when left < right then -1 when left > right then 1 else 0 end);
-      //[1,5,6]
-      assert(Seq(1, 5, 6) == sparkSession.sql("SELECT array_sort(array(5, 6, 1), _lambda_(sort1(_('int'), _('int')))) as res").as[Seq[Int]].head())
-      //> SELECT _FUNC_(array('bc', 'ab', 'dc'), (left, right) -> case when left is null and right is null then 0 when left is null then -1 when right is null then 1 when left < right then 1 when left > right then -1 else 0 end);
-      //["dc","bc","ab"]
-      assert(Seq("dc", "bc", "ab") == sparkSession.sql("SELECT array_sort(array('bc', 'ab', 'dc'), _lambda_(sort2(_('string'), _('string')))) as res").as[Seq[String]].head())
-    }
+    //> SELECT _FUNC_(array(5, 6, 1), (left, right) -> case when left < right then -1 when left > right then 1 else 0 end);
+    //[1,5,6]
+    assert(Seq(1, 5, 6) == sparkSession.sql("SELECT array_sort(array(5, 6, 1), _lambda_(sort1(_('int'), _('int')))) as res").as[Seq[Int]].head())
+    //> SELECT _FUNC_(array('bc', 'ab', 'dc'), (left, right) -> case when left is null and right is null then 0 when left is null then -1 when right is null then 1 when left < right then 1 when left > right then -1 else 0 end);
+    //["dc","bc","ab"]
+    assert(Seq("dc", "bc", "ab") == sparkSession.sql("SELECT array_sort(array('bc', 'ab', 'dc'), _lambda_(sort2(_('string'), _('string')))) as res").as[Seq[String]].head())
 
-    not2_4 {
-      //> SELECT _FUNC_(map(1, 0, 2, 2, 3, -1), (k, v) -> k > v);
-      //       {1:0,3:-1}
-      assert(Map(1 -> 0, 3 -> -1) == sparkSession.sql("SELECT map_filter(map(1, 0, 2, 2, 3, -1), _lambda_(gt(_('int'), _('int')))) as res").as[Map[Int, Int]].head())
-    }
+    //> SELECT _FUNC_(map(1, 0, 2, 2, 3, -1), (k, v) -> k > v);
+    //       {1:0,3:-1}
+    assert(Map(1 -> 0, 3 -> -1) == sparkSession.sql("SELECT map_filter(map(1, 0, 2, 2, 3, -1), _lambda_(gt(_('int'), _('int')))) as res").as[Map[Int, Int]].head())
+
 
     //> SELECT _FUNC_(array(1, 2, 3), x -> x % 2 == 1);
     //       [1,3]
@@ -309,9 +306,7 @@ trait UserLambdaFunctionTestBase extends SharedPureConnectTests {
     //      > SELECT _FUNC_(array(0, null, 2, 3, null), x -> x IS NOT NULL);
     //       [0,2,3]
     assert(Seq(1, 3) == sparkSession.sql("SELECT filter(array(1, 2, 3), _lambda_(ismod(_('int'), 2, 1))) as res").as[Seq[Int]].head())
-    not2_4 {
-      assert(Seq(2, 3) == sparkSession.sql("SELECT filter(array(0, 2, 3), _lambda_(gt(_('int'), _('int')))) as res").as[Seq[Int]].head())
-    }
+    assert(Seq(2, 3) == sparkSession.sql("SELECT filter(array(0, 2, 3), _lambda_(gt(_('int'), _('int')))) as res").as[Seq[Int]].head())
     assert(Seq(0, 2, 3) == sparkSession.sql("SELECT filter(array(0, null, 2, 3, null), _lambda_(notnull(_('int')))) as res").as[Seq[Int]].head())
 
     // > SELECT _FUNC_(array(1, 2, 3), x -> x % 2 == 0);
@@ -326,26 +321,23 @@ trait UserLambdaFunctionTestBase extends SharedPureConnectTests {
     //       false
     assert(sparkSession.sql("SELECT exists(array(1, 2, 3), _lambda_(ismod(_('int'), 2, 0))) as res").as[Boolean].head())
     assert(!sparkSession.sql("SELECT exists(array(1, 2, 3), _lambda_(ismod(_('int'), 2, 10))) as res").as[Boolean].head())
-    not2_4 {
-      assert(sparkSession.sql("SELECT exists(array(1, null, 3), _lambda_(ismod(_('int'), 2, 0))) as res").head().isNullAt(0))
-      assert(sparkSession.sql("SELECT exists(array(0, null, 2, 3, null), _lambda_(isnull(_('int')))) as res").as[Boolean].head())
-    }
-    only2_4 {
-      assert(!sparkSession.sql("SELECT exists(array(1, null, 3), _lambda_(ismod(_('int'), 2, 0))) as res").as[Boolean].head())
-      assert(sparkSession.sql("SELECT exists(array(0, null, 2, 3, null), _lambda_(isnull(_('int')))) as res").as[Boolean].head())
-    }
+
+    assert(sparkSession.sql("SELECT exists(array(1, null, 3), _lambda_(ismod(_('int'), 2, 0))) as res").head().isNullAt(0))
+    assert(sparkSession.sql("SELECT exists(array(0, null, 2, 3, null), _lambda_(isnull(_('int')))) as res").as[Boolean].head())
+
+    assert(!sparkSession.sql("SELECT exists(array(1, null, 3), _lambda_(ismod(_('int'), 2, 0))) as res").as[Boolean].head())
+    assert(sparkSession.sql("SELECT exists(array(0, null, 2, 3, null), _lambda_(isnull(_('int')))) as res").as[Boolean].head())
+
     assert(!sparkSession.sql("SELECT exists(array(1, 2, 3), _lambda_(isnull(_('int')))) as res").as[Boolean].head())
 
-    not2_4 {
-      //> SELECT _FUNC_(array(1, null, 3), x -> x % 2 == 0);
-      //       false
-      //      > SELECT _FUNC_(array(2, null, 8), x -> x % 2 == 0);
-      //       NULL
-      assert(!sparkSession.sql("SELECT forall(array(1, null, 3), _lambda_(ismod(_('int'), 2, 0))) as res").as[Boolean].head())
-      assert(sparkSession.sql("SELECT forall(array(2, null, 8), _lambda_(ismod(_('int'), 2, 0))) as res").head().isNullAt(0))
-    }
+    //> SELECT _FUNC_(array(1, null, 3), x -> x % 2 == 0);
+    //       false
+    //      > SELECT _FUNC_(array(2, null, 8), x -> x % 2 == 0);
+    //       NULL
+    assert(!sparkSession.sql("SELECT forall(array(1, null, 3), _lambda_(ismod(_('int'), 2, 0))) as res").as[Boolean].head())
+    assert(sparkSession.sql("SELECT forall(array(2, null, 8), _lambda_(ismod(_('int'), 2, 0))) as res").head().isNullAt(0))
 
-    not2_4_or_3_0_or_3_1 {
+    not3_0_or_3_1 {
 
       //  3.0 / 3.1 for transform_keys and transform_values
       //@transient lazy val LambdaFunction(
@@ -379,12 +371,10 @@ trait UserLambdaFunctionTestBase extends SharedPureConnectTests {
       assert(Map(1 -> 2, 2 -> 4, 3 -> 6) == sparkSession.sql("SELECT transform_values(map_from_arrays(array(1, 2, 3), array(1, 2, 3)), _lambda_(plus(_('int'), _('int')))) as res").as[Map[Int, Int]].head())
     }
 
-    not2_4 {
-      // > SELECT _FUNC_(map(1, 'a', 2, 'b'), map(1, 'x', 2, 'y'), (k, v1, v2) -> concat(v1, v2));
-      //       {1:"ax",2:"by"}
-      // map_zip_with
-      assert(Map(1 -> "ax", 2 -> "by") == sparkSession.sql("SELECT map_zip_with(map(1, 'a', 2, 'b'), map(1, 'x', 2, 'y'), _lambda_(dropNConcat(_('int'), _('string'), _('string')))) as res").as[Map[Int, String]].head())
-    }
+    // > SELECT _FUNC_(map(1, 'a', 2, 'b'), map(1, 'x', 2, 'y'), (k, v1, v2) -> concat(v1, v2));
+    //       {1:"ax",2:"by"}
+    // map_zip_with
+    assert(Map(1 -> "ax", 2 -> "by") == sparkSession.sql("SELECT map_zip_with(map(1, 'a', 2, 'b'), map(1, 'x', 2, 'y'), _lambda_(dropNConcat(_('int'), _('string'), _('string')))) as res").as[Map[Int, String]].head())
 
 
     //> SELECT _FUNC_(array(1, 2), array(3, 4), (x, y) -> x + y);

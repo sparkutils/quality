@@ -712,7 +712,7 @@ class BaseFunctionalityTest extends SharedPureConnectTests with RowTools with Ba
     assert(comparison(rsres.ruleResults.values))
   }
 
-  test("softShouldShowPassed") { not2_4{ evalCodeGens {
+  test("softShouldShowPassed") { evalCodeGens {
     val rs =
       RuleSuite(Id(101, 1), List(RuleSet(Id(101, 1), List(
         Rule(Id(202, 2), ExpressionRule(s"""softFail(
@@ -788,7 +788,7 @@ class BaseFunctionalityTest extends SharedPureConnectTests with RowTools with Ba
       Map(Passed -> 6, SoftFailed -> 2),
       Map(Passed -> 6, SoftFailed -> 2)
     ))
-  } } }
+  } }
 
 }
 
