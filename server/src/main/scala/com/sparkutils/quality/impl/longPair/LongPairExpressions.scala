@@ -8,12 +8,6 @@ import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression, 
 import org.apache.spark.sql.shim.expressions.InputTypeChecks
 import org.apache.spark.sql.types.{DataType, LongType, StructField, StructType}
 
-object LongPair {
-  val structType = StructType(Seq(
-    StructField("lower", LongType, false),
-    StructField("higher", LongType, false)))
-}
-
 object LongPairExpression {
   def genRow(input1: Any, input2: Any) = InternalRow(input1, input2)
 }

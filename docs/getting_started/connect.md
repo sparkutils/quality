@@ -61,7 +61,7 @@ The key difference is which jar you build against (the testShades pom illustrate
 
 NB Using the appropriate runtime quality_testshade jar may likely be enough for the server side extension.  
 
-??? info "Why are there duplicate classes warnings from shade?"
+??? info "Why are there duplicate classes warnings from client shade?"
     When building a shade you may see "overlapping classes" warnings (this example is for quality_connect_testshade): 
     
     ```
@@ -84,6 +84,9 @@ NB Using the appropriate runtime quality_testshade jar may likely be enough for 
     
     The quality MapLookup warnings deserve further explanation, in order to re-use the implementation but provide a consistent interface on both connect and classic
     quality_api_stub, as the name suggests, provides stub implementations that are then swapped out by quality_api and the classic quality 'server' jar as appropriate.  
+
+??? warn "Keep Connect and Server code separated"
+    If y code 
 
 ## Example Java Usage
 

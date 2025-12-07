@@ -71,29 +71,7 @@ case class NonPassThrough(rule: Expression) extends UnaryExpression with ThreeOn
 
 }
 
-object LookupIdFunctions {
-
-  def namesFromSchema(schema: StructType): Set[String] = {
-
-    def withParent(name: String, parent: String) =
-      if (parent.isEmpty)
-        name
-      else
-        parent + "." + name
-
-    def accumulate(set: Set[String], schema: StructType, parent: String): Set[String] =
-      schema.foldLeft(set) {
-        (s, field) =>
-          val name = withParent(field.name, parent)
-          field.dataType match {
-            case struct: StructType =>
-              accumulate(s + name, struct, name)
-            case _ => s + name
-          }
-      }
-
-    accumulate(Set.empty, schema, "")
-  }
+object ClassicLookupIdFunctions {
 
   /**
    * Use this function to identify which maps / blooms etc. are used by a given rulesuite
