@@ -325,9 +325,6 @@ trait UserLambdaFunctionTestBase extends SharedPureConnectTests {
     assert(sparkSession.sql("SELECT exists(array(1, null, 3), _lambda_(ismod(_('int'), 2, 0))) as res").head().isNullAt(0))
     assert(sparkSession.sql("SELECT exists(array(0, null, 2, 3, null), _lambda_(isnull(_('int')))) as res").as[Boolean].head())
 
-    assert(!sparkSession.sql("SELECT exists(array(1, null, 3), _lambda_(ismod(_('int'), 2, 0))) as res").as[Boolean].head())
-    assert(sparkSession.sql("SELECT exists(array(0, null, 2, 3, null), _lambda_(isnull(_('int')))) as res").as[Boolean].head())
-
     assert(!sparkSession.sql("SELECT exists(array(1, 2, 3), _lambda_(isnull(_('int')))) as res").as[Boolean].head())
 
     //> SELECT _FUNC_(array(1, null, 3), x -> x % 2 == 0);
