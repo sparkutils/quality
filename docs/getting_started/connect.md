@@ -40,12 +40,12 @@ This client/server split allows shared servers to upgrade their Quality extensio
 Essentially:
 
 - blooms, these are memory intensive by default but may be targeted for later releases if demand is raised,
-- sparkless is, of course, distinctly Spark `Classic` in nature
+- sparkless is distinctly Spark `Classic` in nature
 - resolveWith
 - validation, documentation
 - enableFunRewrites (they are enabled, by default, on the extension side)
 
-Similarly, Databricks serverless is not possible as there is no SparkSessionExtension support for serverless. 
+Similarly, Databricks serverless is not possible as there is no SparkSessionExtension support for serverless (this is also, of course, true for Classic Quality). 
 
 ## How to build applications against Connect with an Extension?
 
@@ -86,7 +86,7 @@ NB Using the appropriate runtime quality_testshade jar may likely be enough for 
     quality_api_stub, as the name suggests, provides stub implementations that are then swapped out by quality_api and the classic quality 'server' jar as appropriate.  
 
 ??? warn "Keep Connect and Server code separated"
-    If y code 
+    If your code uses both Classic functions and Connect functions in the same object you may force verify or implementation changed errors as this code is not present in normal Spark connect client runtimes.  
 
 ## Example Java Usage
 

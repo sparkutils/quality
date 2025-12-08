@@ -42,6 +42,8 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
   test("rule suites without lambdas or output should be combinable") {
     val stripped = mapRules(rules.copy(lambdaFunctions = Seq.empty)){_.copy(runOnPassProcessor = NoOpRunOnPassProcessor.noOp)}
     val ruleRows = toDS(stripped)
+    val s = sparkSession
+    import s.implicits._
 
     val conbinedRuleSuiteRows = combine(ruleRows)
     val oRS = rule_suite(conbinedRuleSuiteRows, rsId)
@@ -52,6 +54,8 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
     val stripped = mapRules(rules){_.copy(runOnPassProcessor = NoOpRunOnPassProcessor.noOp)}
     val ruleRows = toDS(stripped)
     val lambdas = toLambdaDS(stripped)
+    val s = sparkSession
+    import s.implicits._
 
     val conbinedRuleSuiteRows = combine(ruleRows, lambdas)
     val oRS = rule_suite(conbinedRuleSuiteRows, rsId)
@@ -94,6 +98,8 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
     val ruleRows = toDS(rules)
     val lambdas = toLambdaDS(rules)
     val outRows = toOutputExpressionDS(rules)
+    val s = sparkSession
+    import s.implicits._
 
     val conbinedRuleSuiteRows = combine(ruleRows, lambdas, outRows)
     val oRS = rule_suite(conbinedRuleSuiteRows, rsId)

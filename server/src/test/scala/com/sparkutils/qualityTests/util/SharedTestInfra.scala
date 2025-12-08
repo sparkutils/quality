@@ -3,7 +3,7 @@ package com.sparkutils.qualityTests.util
 import com.sparkutils.quality
 import com.sparkutils.quality.impl.extension.FunNRewrite
 import com.sparkutils.quality.{RuleSuite, ruleRunner}
-import com.sparkutils.testing.SparkTestUtils.{connectMemory, scoverageClassPathsConfig}
+import com.sparkutils.testing.SparkTestUtils.{connectMemory, scoverageClassPathsConfig, useDebugConnectLogs}
 import com.sparkutils.testing._
 import com.sparkutils.testing.markers.{ConnectSafe, DontRunOnPureConnect}
 import com.sparkutils.testing.sessionStrategies.{GlobalSession, SharedSessions}
@@ -62,7 +62,7 @@ trait TestSetup extends SparkTestSuite with TestUtilsBase with SharedSessions { 
   override def connectServerLoggingLevel = "DEBUG"
 
   override def sparkConnectServerConfig(): Map[String, String] =
-    super.sparkConnectServerConfig() + // useDebugConnectLogs +
+    super.sparkConnectServerConfig() + //useDebugConnectLogs +
       scoverageClassPathsConfig + connectMemory("4g") +
       (("spark.sql.extensions", "com.sparkutils.quality.impl.extension.QualitySparkExtension")) + // text used for connect only tests in dbr
       (("javax.jdo.option.ConnectionURL", "jdbc:derby:;databaseName=connect_metastore_db;create=true")) +
