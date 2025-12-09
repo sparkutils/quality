@@ -1,9 +1,10 @@
 package com.sparkutils.qualityTests.classicOnly
 
 import com.sparkutils.quality._
-import com.sparkutils.quality.types._
 import com.sparkutils.qualityTests.util.{ClassicSharedTests, RowTools}
+import com.sparkutils.quality.impl.types._
 import com.sparkutils.testing.TestUtils.anyCauseHas
+
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions.expr
 import org.apache.spark.sql.types.DataType

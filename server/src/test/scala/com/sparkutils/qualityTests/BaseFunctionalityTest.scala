@@ -5,8 +5,8 @@ import com.sparkutils.quality
 import com.sparkutils.quality._
 import com.sparkutils.quality.classicFunctions.{processIfAttributeMissing, validate}
 import com.sparkutils.quality.impl.YamlDecoder
+import com.sparkutils.quality.impl.types._
 import functions._
-import types._
 import impl.PackId.packId
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.StructType

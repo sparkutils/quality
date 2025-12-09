@@ -1,6 +1,6 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality.Id
+import com.sparkutils.quality.{Id, impl}
 import com.sparkutils.quality.impl.PackId.packId
 import com.sparkutils.shim.expressions.NullIntolerant
 import org.apache.spark.sql.ShimUtils.{column, expression}
@@ -127,7 +127,7 @@ case class UnPackIdTripleExpression(child: Expression) extends UnaryExpression w
     StructField(name = "ruleVersion", dataType = IntegerType)
   ))
 
-  override def inputDataTypes: Seq[Seq[DataType]] = Seq(Seq(com.sparkutils.quality.types.fullRuleIdType))
+  override def inputDataTypes: Seq[Seq[DataType]] = Seq(Seq(impl.types.fullRuleIdType))
 
   protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
 }

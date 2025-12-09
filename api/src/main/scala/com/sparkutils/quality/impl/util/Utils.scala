@@ -1,23 +1,7 @@
 package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality._
-import org.apache.spark.internal.Logging
 import org.apache.spark.sql.types.StructType
-
-object DebugTime extends Logging {
-
-  def debugTime[T](what: String, log: (Long, String)=>Unit = (i, what) => {logDebug(s"----> ${i}ms for $what")} )( thunk: => T): T = {
-    val start = System.currentTimeMillis
-    try {
-      thunk
-    } finally {
-      val stop = System.currentTimeMillis
-
-      log(stop - start, what)
-    }
-  }
-
-}
 
 sealed trait LookupType {
   val name: String
@@ -63,42 +47,6 @@ object LookupIdFunctions {
 
     accumulate(Set.empty, schema, "")
   }
-
-}
-
-object Comparison {
-
-  /**
-   * Forwards to compareTo, allows for compareTo[Type] syntax with internal casts
-   * @param left
-   * @param right
-   * @tparam T
-   * @return
-   */
-  def compareTo[T <: Comparable[T]](left: Any, right: Any): Int =
-    if (left == null && right != null)
-      -100
-    else
-      if (right == null && left != null)
-        100
-      else
-        left.asInstanceOf[T].compareTo( right.asInstanceOf[T])
-
-  /**
-   * Forwards to compare, allows for compareToOrdering(ordering) syntax with internal casts
-   * @param left
-   * @param right
-   * @tparam T
-   * @return
-   */
-  def compareToOrdering[T](ordering: Ordering[T])(left: Any, right: Any): Int =
-    if (left == null && right != null)
-      -100
-    else
-      if (right == null && left != null)
-        100
-      else
-        ordering.compare(left.asInstanceOf[T], right.asInstanceOf[T])
 
 }
 

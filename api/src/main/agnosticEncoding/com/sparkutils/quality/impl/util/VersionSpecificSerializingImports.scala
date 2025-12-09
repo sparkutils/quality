@@ -54,15 +54,10 @@ trait VersionSpecificSerializingImports {
               globalLambdaSuites: Option[Dataset[Id]] = None, globalOutputExpressionSuites: Option[Dataset[Id]] = None)(
                       implicit encoder: Encoder[CombinedRuleSuiteRows]
   ): Dataset[CombinedRuleSuiteRows] =
-    (ruleRows.sparkSession.getClass.getName match {
-      case "org.apache.spark.sql.connect.SparkSession" =>
-        remoteCombine(ruleRows, lambdaFunctionRows, outputExpressionRows, probablePass, globalLambdaSuites, globalOutputExpressionSuites)
-      case _ =>
-        combineImpl(ruleRows.toDF(), lambdaFunctionRows.map(_.toDF()), outputExpressionRows.map(_.toDF()), probablePass,
-          globalLambdaSuites.map(_.toDF()), globalOutputExpressionSuites.map(_.toDF())).orElse {
-          remoteCombine(ruleRows, lambdaFunctionRows, outputExpressionRows, probablePass, globalLambdaSuites, globalOutputExpressionSuites)
-        }
-    }).get.as[CombinedRuleSuiteRows]
+    combineImpl(ruleRows.toDF(), lambdaFunctionRows.map(_.toDF()), outputExpressionRows.map(_.toDF()), probablePass,
+      globalLambdaSuites.map(_.toDF()), globalOutputExpressionSuites.map(_.toDF())).orElse {
+      remoteCombine(ruleRows, lambdaFunctionRows, outputExpressionRows, probablePass, globalLambdaSuites, globalOutputExpressionSuites)
+    }.get.as[CombinedRuleSuiteRows]
 
   private def remoteCombine(ruleRows: Dataset[RuleRow], lambdaFunctionRows: Option[Dataset[LambdaFunctionRow]],
                             outputExpressionRows: Option[Dataset[OutputExpressionRow]],
