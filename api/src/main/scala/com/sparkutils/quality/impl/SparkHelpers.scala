@@ -2,7 +2,7 @@ package com.sparkutils.quality.impl
 
 import frameless.{Injection, NotCatalystNullable}
 import com.sparkutils.quality._
-import com.sparkutils.quality.impl.util.{Serializing, SerializingShim}
+import com.sparkutils.quality.impl.util.Serializing
 
 object PackId {
 
