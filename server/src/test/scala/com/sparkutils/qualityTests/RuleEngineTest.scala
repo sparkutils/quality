@@ -102,24 +102,25 @@ trait RuleEngineTestBase extends SharedPureConnectTests {
     }
 
     import com.sparkutils.quality.implicits._
+    defaultAndForceConnect {
+      val outdf = testDataDF.withColumn("together", rer(testDataDF))
+      //outdf.show
+      debug(outdf.select("together.*").show())
+      val res = outdf.select("together.*").as[RuleEngineResult[Seq[NewPosting]]].collect()
 
-    val outdf = testDataDF.withColumn("together", rer(testDataDF))
-    //outdf.show
-    debug(outdf.select("together.*").show())
-    val res = outdf.select("together.*").as[RuleEngineResult[Seq[NewPosting]]].collect()
+      // this row will fail as the 0.6 doesn't class as a pass for the output expression - regardless of overall status
+      assert(res(0).result.contains(Seq(NewPosting("from", "4201", "edt", 40), NewPosting("to", "other_account1", "edt", 40))))
+      assert(res(0).salientRule.contains(SalientRule(Id(1, 1), Id(50, 1), Id(0, 1))))
+      // TestOn("fx", "4206", 90),
+      //    TestOn("fxotc", "4201", 40),
+      assert(res(3).result.contains(Seq(NewPosting("from", "another_account", "fx", 90), NewPosting("to", "4206", "fx", 90))))
+      assert(res(4).result.contains(Seq(NewPosting("from", "another_account", "fxotc", 40), NewPosting("to", "4201", "fxotc", 40))))
+      assert(res(3).salientRule.contains(SalientRule(Id(1, 1), Id(50, 1), Id(100, 1))))
+      assert(res(4).salientRule.contains(SalientRule(Id(1, 1), Id(50, 1), Id(100, 1))))
 
-    // this row will fail as the 0.6 doesn't class as a pass for the output expression - regardless of overall status
-    assert(res(0).result.contains(Seq(NewPosting("from", "4201", "edt", 40), NewPosting("to", "other_account1", "edt", 40))))
-    assert(res(0).salientRule.contains(SalientRule(Id(1, 1), Id(50, 1), Id(0, 1))))
-    // TestOn("fx", "4206", 90),
-    //    TestOn("fxotc", "4201", 40),
-    assert(res(3).result.contains(Seq(NewPosting("from", "another_account", "fx", 90), NewPosting("to", "4206", "fx", 90))))
-    assert(res(4).result.contains(Seq(NewPosting("from", "another_account", "fxotc", 40), NewPosting("to", "4201", "fxotc", 40))))
-    assert(res(3).salientRule.contains(SalientRule(Id(1, 1), Id(50, 1), Id(100, 1))))
-    assert(res(4).salientRule.contains(SalientRule(Id(1, 1), Id(50, 1), Id(100, 1))))
-
-    // did the field replace work
-    assert(res(5).result.contains(Seq(NewPosting("fromWithField", "4201", "eqotc", 6000), NewPosting("to", "other_account1", "eqotc", 60))))
+      // did the field replace work
+      assert(res(5).result.contains(Seq(NewPosting("fromWithField", "4201", "eqotc", 6000), NewPosting("to", "other_account1", "eqotc", 60))))
+    }
   }
 
   def doTestFlattenResults(): Unit =  {

@@ -45,9 +45,11 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
     val s = sparkSession
     import s.implicits._
 
-    val conbinedRuleSuiteRows = combine(ruleRows)
-    val oRS = rule_suite(conbinedRuleSuiteRows, rsId)
-    oRS contains stripped
+    defaultAndForceConnect {
+      val conbinedRuleSuiteRows = combine(ruleRows)
+      val oRS = rule_suite(conbinedRuleSuiteRows, rsId)
+      oRS contains stripped
+    }
   }
 
   test("rule suites with lambdas no output should be combinable") {
@@ -57,9 +59,11 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
     val s = sparkSession
     import s.implicits._
 
-    val conbinedRuleSuiteRows = combine(ruleRows, lambdas)
-    val oRS = rule_suite(conbinedRuleSuiteRows, rsId)
-    oRS contains stripped
+    defaultAndForceConnect {
+      val conbinedRuleSuiteRows = combine(ruleRows, lambdas)
+      val oRS = rule_suite(conbinedRuleSuiteRows, rsId)
+      oRS contains stripped
+    }
   }
 
   test("rule suites without lambdas with output should be combinable") {
@@ -70,9 +74,11 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
     val s = sparkSession
     import s.implicits._
 
-    val conbinedRuleSuiteRows = combine(ruleRows, sparkSession.emptyDataset[LambdaFunctionRow], outRows)
-    val oRS = rule_suite(conbinedRuleSuiteRows, rsId)
-    oRS contains stripped
+    defaultAndForceConnect {
+      val conbinedRuleSuiteRows = combine(ruleRows, sparkSession.emptyDataset[LambdaFunctionRow], outRows)
+      val oRS = rule_suite(conbinedRuleSuiteRows, rsId)
+      oRS contains stripped
+    }
   }
 
   test("global libraries should properly integrate") {
@@ -86,12 +92,14 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
     val outRows = toOutputExpressionDS(rules).collect().zipWithIndex.
       map{ case (l,i) => l.copy(ruleSuiteVersion = l.ruleSuiteVersion + i + 1, ruleSuiteId = l.ruleSuiteId + i + 1) }.toSeq
 
-    // force them back in as global ids
-    val conbinedRuleSuiteRows = combine(ruleRows, lambdas.toDS(), outRows.toDS(),
-      globalLambdaSuites = lambdas.map(l => Id(l.ruleSuiteId,l.ruleSuiteVersion)).toDS(),
-      globalOutputExpressionSuites = outRows.map(l => Id(l.ruleSuiteId,l.ruleSuiteVersion)).toDS())
-    val oRS = rule_suite(conbinedRuleSuiteRows, rsId)
-    oRS contains rules
+    defaultAndForceConnect {
+      // force them back in as global ids
+      val conbinedRuleSuiteRows = combine(ruleRows, lambdas.toDS(), outRows.toDS(),
+        globalLambdaSuites = lambdas.map(l => Id(l.ruleSuiteId, l.ruleSuiteVersion)).toDS(),
+        globalOutputExpressionSuites = outRows.map(l => Id(l.ruleSuiteId, l.ruleSuiteVersion)).toDS())
+      val oRS = rule_suite(conbinedRuleSuiteRows, rsId)
+      oRS contains rules
+    }
   }
 
   test("full rule suites should be combinable") {
@@ -101,9 +109,11 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
     val s = sparkSession
     import s.implicits._
 
-    val conbinedRuleSuiteRows = combine(ruleRows, lambdas, outRows)
-    val oRS = rule_suite(conbinedRuleSuiteRows, rsId)
-    oRS contains rules
+    defaultAndForceConnect {
+      val conbinedRuleSuiteRows = combine(ruleRows, lambdas, outRows)
+      val oRS = rule_suite(conbinedRuleSuiteRows, rsId)
+      oRS contains rules
+    }
   }
 
   test("rule suite spark var is convertible") {
@@ -114,12 +124,14 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
     val s = sparkSession
     import s.implicits._
 
-    val conbinedRuleSuiteRows = combine(ruleRows, lambdas, outRows)
-    val name = register_rule_suite_variable(conbinedRuleSuiteRows, rsId)
-    val fromVar = sparkSession.sql(s"select `$name` as a").selectExpr("a.*").as[CombinedRuleSuiteRows]
+    defaultAndForceConnect {
+      val conbinedRuleSuiteRows = combine(ruleRows, lambdas, outRows)
+      val name = register_rule_suite_variable(conbinedRuleSuiteRows, rsId)
+      val fromVar = sparkSession.sql(s"select `$name` as a").selectExpr("a.*").as[CombinedRuleSuiteRows]
 
-    val oRS = rule_suite(fromVar, rsId)
-    oRS contains rules
+      val oRS = rule_suite(fromVar, rsId)
+      oRS contains rules
+    }
   }
 
   test("ruleRunner via spark var and provided empty dataset") {
@@ -149,29 +161,30 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
     import s.implicits._
 
     // the empty dataset but provided test
-    val conbinedRuleSuiteRows = combine(ruleRows, lambdas, outRows)
-    val name = register_rule_suite_variable(conbinedRuleSuiteRows, rules.id)
+    defaultAndForceConnect {
+      val conbinedRuleSuiteRows = combine(ruleRows, lambdas, outRows)
+      val name = register_rule_suite_variable(conbinedRuleSuiteRows, rules.id)
 
-    val outdf = testDataDF.withColumn("together",
-      ShimUtils.callFunction("rule_engine_runner", col(name))
-    )
-    //outdf.show
-    debug(outdf.select("together.*").show())
-    val res = outdf.select("together.*").as[RuleEngineResult[Seq[NewPosting]]].collect()
+      val outdf = testDataDF.withColumn("together",
+        ShimUtils.callFunction("rule_engine_runner", col(name))
+      )
+      //outdf.show
+      debug(outdf.select("together.*").show())
+      val res = outdf.select("together.*").as[RuleEngineResult[Seq[NewPosting]]].collect()
 
-    // this row will fail as the 0.6 doesn't class as a pass for the output expression - regardless of overall status
-    assert(res(0).result.contains(Seq(NewPosting("from", "4201", "edt", 40), NewPosting("to", "other_account1", "edt", 40))))
-    assert(res(0).salientRule.contains(SalientRule(Id(1, 1), Id(50, 1), Id(0, 1))))
-    // TestOn("fx", "4206", 90),
-    //    TestOn("fxotc", "4201", 40),
-    assert(res(3).result.contains(Seq(NewPosting("from", "another_account", "fx", 90), NewPosting("to", "4206", "fx", 90))))
-    assert(res(4).result.contains(Seq(NewPosting("from", "another_account", "fxotc", 40), NewPosting("to", "4201", "fxotc", 40))))
-    assert(res(3).salientRule.contains(SalientRule(Id(1, 1), Id(50, 1), Id(100, 1))))
-    assert(res(4).salientRule.contains(SalientRule(Id(1, 1), Id(50, 1), Id(100, 1))))
+      // this row will fail as the 0.6 doesn't class as a pass for the output expression - regardless of overall status
+      assert(res(0).result.contains(Seq(NewPosting("from", "4201", "edt", 40), NewPosting("to", "other_account1", "edt", 40))))
+      assert(res(0).salientRule.contains(SalientRule(Id(1, 1), Id(50, 1), Id(0, 1))))
+      // TestOn("fx", "4206", 90),
+      //    TestOn("fxotc", "4201", 40),
+      assert(res(3).result.contains(Seq(NewPosting("from", "another_account", "fx", 90), NewPosting("to", "4206", "fx", 90))))
+      assert(res(4).result.contains(Seq(NewPosting("from", "another_account", "fxotc", 40), NewPosting("to", "4201", "fxotc", 40))))
+      assert(res(3).salientRule.contains(SalientRule(Id(1, 1), Id(50, 1), Id(100, 1))))
+      assert(res(4).salientRule.contains(SalientRule(Id(1, 1), Id(50, 1), Id(100, 1))))
 
-    // did the field replace work
-    assert(res(5).result.contains(Seq(NewPosting("fromWithField", "4201", "eqotc", 6000), NewPosting("to", "other_account1", "eqotc", 60))))
-
+      // did the field replace work
+      assert(res(5).result.contains(Seq(NewPosting("fromWithField", "4201", "eqotc", 6000), NewPosting("to", "other_account1", "eqotc", 60))))
+    }
   }
 
   /**

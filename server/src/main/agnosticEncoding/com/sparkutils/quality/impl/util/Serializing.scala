@@ -3,6 +3,7 @@ package com.sparkutils.quality.impl.util
 import com.sparkutils.quality.Id
 import com.sparkutils.quality.NoOpRunOnPassProcessor.{notPresentOutputId, notPresentOutputVersion, notPresentSalience}
 import com.sparkutils.quality.impl.util.VersionSpecificSerializingImports.uniqueName
+import com.sparkutils.testing.ConnectWhenForced.someOrForcedConnect
 import org.apache.spark.sql.functions.{col, collect_set, expr, lit, struct}
 import org.apache.spark.sql.types.{ArrayType, DoubleType}
 import org.apache.spark.sql.{DataFrame, Encoder}
@@ -22,9 +23,9 @@ protected[quality] object SerializingShim {
    * @return a combined dataframe
    */
   protected[quality] def combineImpl(ruleRows: DataFrame, lambdaFunctionRows: Option[DataFrame] = None,
-                                     outputExpressionRows: Option[DataFrame] = None, probablePass: Option[Double] = None,
-                                     globalLambdaSuites: Option[DataFrame] = None,
-                                     globalOutputExpressionSuites: Option[DataFrame] = None): Option[DataFrame] = Some {
+                         outputExpressionRows: Option[DataFrame] = None, probablePass: Option[Double] = None,
+                         globalLambdaSuites: Option[DataFrame] = None,
+                         globalOutputExpressionSuites: Option[DataFrame] = None): Option[DataFrame] = someOrForcedConnect {
 
     import ruleRows.sparkSession.implicits._
 

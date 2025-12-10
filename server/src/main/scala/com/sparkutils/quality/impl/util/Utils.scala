@@ -1,5 +1,6 @@
 package com.sparkutils.quality.impl.util
 
+import com.sparkutils.quality
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.{RuleLogicUtils, ThreeOnlyNonFoldable}
 import com.sparkutils.shim.expressions.{CreateNamedStruct1, GetStructField3, MapObjects5}
