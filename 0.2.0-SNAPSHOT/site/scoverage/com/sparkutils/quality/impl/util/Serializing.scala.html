@@ -27,143 +27,144 @@
 </span>3 <span style=''>import com.sparkutils.quality.Id
 </span>4 <span style=''>import com.sparkutils.quality.NoOpRunOnPassProcessor.{notPresentOutputId, notPresentOutputVersion, notPresentSalience}
 </span>5 <span style=''>import com.sparkutils.quality.impl.util.VersionSpecificSerializingImports.uniqueName
-</span>6 <span style=''>import org.apache.spark.sql.functions.{col, collect_set, expr, lit, struct}
-</span>7 <span style=''>import org.apache.spark.sql.types.{ArrayType, DoubleType}
-</span>8 <span style=''>import org.apache.spark.sql.{DataFrame, Encoder}
-</span>9 <span style=''>
-</span>10 <span style=''>protected[quality] object SerializingShim {
-</span>11 <span style=''>
-</span>12 <span style=''>  /**
-</span>13 <span style=''>   * combine implementation for loading CombinedRules, this is usable by all jvm languages and, by default, expects a server extension for pure quality_api users.
-</span>14 <span style=''>   * the server implementation will provide a direct call (as it's possible no extension is present)
-</span>15 <span style=''>   *
-</span>16 <span style=''>   * @param ruleRows
-</span>17 <span style=''>   * @param lambdaFunctionRows
-</span>18 <span style=''>   * @param outputExpressionRows
-</span>19 <span style=''>   * @param probablePass
-</span>20 <span style=''>   * @param globalLambdaSuites
-</span>21 <span style=''>   * @param globalOutputExpressionSuites
-</span>22 <span style=''>   * @return a combined dataframe
-</span>23 <span style=''>   */
-</span>24 <span style=''>  protected[quality] def combineImpl(ruleRows: DataFrame, lambdaFunctionRows: Option[DataFrame] = None,
-</span>25 <span style=''>                                     outputExpressionRows: Option[DataFrame] = None, probablePass: Option[Double] = None,
-</span>26 <span style=''>                                     globalLambdaSuites: Option[DataFrame] = None,
-</span>27 <span style=''>                                     globalOutputExpressionSuites: Option[DataFrame] = None): Option[DataFrame] = </span><span style='background: #AEF1AE'>Some {
-</span>28 <span style=''></span><span style='background: #AEF1AE'>
-</span>29 <span style=''></span><span style='background: #AEF1AE'>    import ruleRows.sparkSession.implicits._
-</span>30 <span style=''></span><span style='background: #AEF1AE'>
-</span>31 <span style=''></span><span style='background: #AEF1AE'>    val outputExpressionRowsT = outputExpressionRows.flatMap(r =&gt; if (r.isEmpty) </span><span style='background: #F0ADAD'>None</span><span style='background: #AEF1AE'> else Some(r))
-</span>32 <span style=''></span><span style='background: #AEF1AE'>    val lambdaFunctionRowsT = lambdaFunctionRows.flatMap(r =&gt; if (r.isEmpty) None else Some(r))
-</span>33 <span style=''></span><span style='background: #AEF1AE'>
-</span>34 <span style=''></span><span style='background: #AEF1AE'>    val lun = uniqueName()
-</span>35 <span style=''></span><span style='background: #AEF1AE'>    val oun = uniqueName()
-</span>36 <span style=''></span><span style='background: #AEF1AE'>    globalLambdaSuites.fold(ruleRows.sparkSession.createDataset[Id](Seq.empty).toDF())(identity).
-</span>37 <span style=''></span><span style='background: #AEF1AE'>      createOrReplaceTempView(lun)
-</span>38 <span style=''></span><span style='background: #AEF1AE'>    globalOutputExpressionSuites.fold(ruleRows.sparkSession.createDataset[Id](Seq.empty).toDF())(identity).
-</span>39 <span style=''></span><span style='background: #AEF1AE'>      createOrReplaceTempView(oun)
-</span>40 <span style=''></span><span style='background: #AEF1AE'>
-</span>41 <span style=''></span><span style='background: #AEF1AE'>    val rows = outputExpressionRowsT.fold(ruleRows.select(
-</span>42 <span style=''></span><span style='background: #AEF1AE'>      struct(
-</span>43 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleSuiteId&quot;),
-</span>44 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleSuiteVersion&quot;),
-</span>45 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleSetId&quot;),
-</span>46 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleSetVersion&quot;),
-</span>47 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleId&quot;),
-</span>48 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleVersion&quot;),
-</span>49 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleExpr&quot;),
-</span>50 <span style=''></span><span style='background: #AEF1AE'>        lit(notPresentSalience).as(&quot;ruleEngineSalience&quot;),
-</span>51 <span style=''></span><span style='background: #AEF1AE'>        lit(notPresentOutputId).as(&quot;ruleEngineId&quot;),
-</span>52 <span style=''></span><span style='background: #AEF1AE'>        lit(notPresentOutputVersion).as(&quot;ruleEngineVersion&quot;)
-</span>53 <span style=''></span><span style='background: #AEF1AE'>      ).as(&quot;ruleRow&quot;), lit(null).cast(implicitly[org.apache.spark.sql.Encoder[OutputExpressionRow]].schema).as(&quot;outputExpressionRow&quot;)))(
-</span>54 <span style=''></span><span style='background: #AEF1AE'>      outputExpressionRows =&gt;
-</span>55 <span style=''></span><span style='background: #AEF1AE'>        // join on all fields, then apply
-</span>56 <span style=''></span><span style='background: #AEF1AE'>        ruleRows.join(outputExpressionRows.selectExpr(&quot;ruleExpr as outputRuleExpr&quot;,
-</span>57 <span style=''></span><span style='background: #AEF1AE'>          &quot;ruleSuiteId as oRuleSuiteId&quot;, &quot;ruleSuiteVersion as oRuleSuiteVersion&quot;, &quot;functionId&quot;, &quot;functionVersion&quot;
-</span>58 <span style=''></span><span style='background: #AEF1AE'>        ),
-</span>59 <span style=''></span><span style='background: #AEF1AE'>          ((ruleRows(&quot;ruleSuiteId&quot;) === col(&quot;oRuleSuiteId&quot;) &amp;&amp;
-</span>60 <span style=''></span><span style='background: #AEF1AE'>            ruleRows(&quot;ruleSuiteVersion&quot;) === col(&quot;oRuleSuiteVersion&quot;)) ||
-</span>61 <span style=''></span><span style='background: #AEF1AE'>            // it's global
-</span>62 <span style=''></span><span style='background: #AEF1AE'>            expr(
-</span>63 <span style=''></span><span style='background: #AEF1AE'>              s&quot;&quot;&quot;(exists (
-</span>64 <span style=''></span><span style='background: #AEF1AE'>                      select 0 from $oun goes
-</span>65 <span style=''></span><span style='background: #AEF1AE'>                      where goes.id = oRuleSuiteId and goes.version = oRuleSuiteVersion
-</span>66 <span style=''></span><span style='background: #AEF1AE'>                    ))
-</span>67 <span style=''></span><span style='background: #AEF1AE'>                   &quot;&quot;&quot;) ) &amp;&amp;
-</span>68 <span style=''></span><span style='background: #AEF1AE'>            ruleRows(&quot;ruleEngineId&quot;) === col(&quot;functionId&quot;) &amp;&amp;
-</span>69 <span style=''></span><span style='background: #AEF1AE'>            ruleRows(&quot;ruleEngineVersion&quot;) === col(&quot;functionVersion&quot;)
-</span>70 <span style=''></span><span style='background: #AEF1AE'>        ).select(
-</span>71 <span style=''></span><span style='background: #AEF1AE'>          struct(
-</span>72 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleSuiteId&quot;),
-</span>73 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleSuiteVersion&quot;),
-</span>74 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleSetId&quot;),
-</span>75 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleSetVersion&quot;),
-</span>76 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleId&quot;),
-</span>77 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleVersion&quot;),
-</span>78 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleExpr&quot;),
-</span>79 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleEngineSalience&quot;),
-</span>80 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleEngineId&quot;),
-</span>81 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleEngineVersion&quot;)
-</span>82 <span style=''></span><span style='background: #AEF1AE'>          ).as(&quot;ruleRow&quot;), struct(
-</span>83 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;outputRuleExpr&quot;).as(&quot;ruleExpr&quot;),
-</span>84 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;functionId&quot;),
-</span>85 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;functionVersion&quot;),
-</span>86 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleSuiteId&quot;),
-</span>87 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleSuiteVersion&quot;)
-</span>88 <span style=''></span><span style='background: #AEF1AE'>          ).as(&quot;outputExpressionRow&quot;)
-</span>89 <span style=''></span><span style='background: #AEF1AE'>        )
-</span>90 <span style=''></span><span style='background: #AEF1AE'>    )
-</span>91 <span style=''></span><span style='background: #AEF1AE'>
-</span>92 <span style=''></span><span style='background: #AEF1AE'>    val probablePassLit = probablePass.map(lit(_)).getOrElse(lit(null).cast(DoubleType)).as(&quot;probablePass&quot;)
-</span>93 <span style=''></span><span style='background: #AEF1AE'>
-</span>94 <span style=''></span><span style='background: #AEF1AE'>    val grouped = rows.groupBy(&quot;ruleRow.ruleSuiteId&quot;, &quot;ruleRow.ruleSuiteVersion&quot;).agg(
-</span>95 <span style=''></span><span style='background: #AEF1AE'>      collect_set(struct(col(&quot;ruleRow&quot;), col(&quot;outputExpressionRow&quot;))).as(&quot;ruleRows&quot;))
-</span>96 <span style=''></span><span style='background: #AEF1AE'>    val suiteRows =
-</span>97 <span style=''></span><span style='background: #AEF1AE'>      grouped.select(
-</span>98 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleSuiteId&quot;),
-</span>99 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleSuiteVersion&quot;),
-</span>100 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleRows&quot;),
-</span>101 <span style=''></span><span style='background: #AEF1AE'>        lit(null).cast(ArrayType(implicitly[Encoder[LambdaFunctionRow]].schema)).as(&quot;lambdaFunctions&quot;), // Using Seq in the implicit treats it as a valueclass of seq.
-</span>102 <span style=''></span><span style='background: #AEF1AE'>        probablePassLit
-</span>103 <span style=''></span><span style='background: #AEF1AE'>      )
-</span>104 <span style=''></span><span style='background: #AEF1AE'>
-</span>105 <span style=''></span><span style='background: #AEF1AE'>    lambdaFunctionRowsT.fold(suiteRows){
-</span>106 <span style=''></span><span style='background: #AEF1AE'>      lambdas =&gt;
-</span>107 <span style=''></span><span style='background: #AEF1AE'>        val grouped = lambdas.groupBy(&quot;ruleSuiteId&quot;, &quot;ruleSuiteVersion&quot;).agg(collect_set(
-</span>108 <span style=''></span><span style='background: #AEF1AE'>          struct(
-</span>109 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;name&quot;),
-</span>110 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleExpr&quot;),
-</span>111 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;functionId&quot;),
-</span>112 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;functionVersion&quot;),
-</span>113 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleSuiteId&quot;),
-</span>114 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleSuiteVersion&quot;)
-</span>115 <span style=''></span><span style='background: #AEF1AE'>          )
-</span>116 <span style=''></span><span style='background: #AEF1AE'>        ).as(&quot;theLambdaFunctions&quot;)).select(col(&quot;ruleSuiteId&quot;).as(&quot;lRuleSuiteId&quot;),
-</span>117 <span style=''></span><span style='background: #AEF1AE'>          col(&quot;ruleSuiteVersion&quot;).as(&quot;lRuleSuiteVersion&quot;),
-</span>118 <span style=''></span><span style='background: #AEF1AE'>          col(&quot;theLambdaFunctions&quot;), probablePassLit).as(&quot;grouped&quot;)
-</span>119 <span style=''></span><span style='background: #AEF1AE'>
-</span>120 <span style=''></span><span style='background: #AEF1AE'>        suiteRows.join(grouped,
-</span>121 <span style=''></span><span style='background: #AEF1AE'>            (suiteRows(&quot;ruleSuiteId&quot;) === col(&quot;grouped.lRuleSuiteId&quot;) &amp;&amp;
-</span>122 <span style=''></span><span style='background: #AEF1AE'>              suiteRows(&quot;ruleSuiteVersion&quot;) === col(&quot;grouped.lRuleSuiteVersion&quot;) ) ||
-</span>123 <span style=''></span><span style='background: #AEF1AE'>              // it's global
-</span>124 <span style=''></span><span style='background: #AEF1AE'>              expr(
-</span>125 <span style=''></span><span style='background: #AEF1AE'>                s&quot;&quot;&quot;(exists (
-</span>126 <span style=''></span><span style='background: #AEF1AE'>                      select 0 from $lun gls
-</span>127 <span style=''></span><span style='background: #AEF1AE'>                      where gls.id = grouped.lRuleSuiteId and gls.version = grouped.lRuleSuiteVersion
-</span>128 <span style=''></span><span style='background: #AEF1AE'>                    ))
-</span>129 <span style=''></span><span style='background: #AEF1AE'>                   &quot;&quot;&quot;)
-</span>130 <span style=''></span><span style='background: #AEF1AE'>          ).
-</span>131 <span style=''></span><span style='background: #AEF1AE'>          select(
-</span>132 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleSuiteId&quot;),
-</span>133 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleSuiteVersion&quot;),
-</span>134 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleRows&quot;),
-</span>135 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;theLambdaFunctions&quot;).as(&quot;lambdaFunctions&quot;),
-</span>136 <span style=''></span><span style='background: #AEF1AE'>            probablePassLit
-</span>137 <span style=''></span><span style='background: #AEF1AE'>          )
-</span>138 <span style=''></span><span style='background: #AEF1AE'>    }
-</span>139 <span style=''></span><span style='background: #AEF1AE'>
-</span>140 <span style=''></span><span style='background: #AEF1AE'>  }</span><span style=''>
-</span>141 <span style=''>
-</span>142 <span style=''>}
+</span>6 <span style=''>import com.sparkutils.testing.ConnectWhenForced.someOrForcedConnect
+</span>7 <span style=''>import org.apache.spark.sql.functions.{col, collect_set, expr, lit, struct}
+</span>8 <span style=''>import org.apache.spark.sql.types.{ArrayType, DoubleType}
+</span>9 <span style=''>import org.apache.spark.sql.{DataFrame, Encoder}
+</span>10 <span style=''>
+</span>11 <span style=''>protected[quality] object SerializingShim {
+</span>12 <span style=''>
+</span>13 <span style=''>  /**
+</span>14 <span style=''>   * combine implementation for loading CombinedRules, this is usable by all jvm languages and, by default, expects a server extension for pure quality_api users.
+</span>15 <span style=''>   * the server implementation will provide a direct call (as it's possible no extension is present)
+</span>16 <span style=''>   *
+</span>17 <span style=''>   * @param ruleRows
+</span>18 <span style=''>   * @param lambdaFunctionRows
+</span>19 <span style=''>   * @param outputExpressionRows
+</span>20 <span style=''>   * @param probablePass
+</span>21 <span style=''>   * @param globalLambdaSuites
+</span>22 <span style=''>   * @param globalOutputExpressionSuites
+</span>23 <span style=''>   * @return a combined dataframe
+</span>24 <span style=''>   */
+</span>25 <span style=''>  protected[quality] def combineImpl(ruleRows: DataFrame, lambdaFunctionRows: Option[DataFrame] = None,
+</span>26 <span style=''>                         outputExpressionRows: Option[DataFrame] = None, probablePass: Option[Double] = None,
+</span>27 <span style=''>                         globalLambdaSuites: Option[DataFrame] = None,
+</span>28 <span style=''>                         globalOutputExpressionSuites: Option[DataFrame] = None): Option[DataFrame] = </span><span style='background: #AEF1AE'>someOrForcedConnect {
+</span>29 <span style=''></span><span style='background: #AEF1AE'>
+</span>30 <span style=''></span><span style='background: #AEF1AE'>    import ruleRows.sparkSession.implicits._
+</span>31 <span style=''></span><span style='background: #AEF1AE'>
+</span>32 <span style=''></span><span style='background: #AEF1AE'>    val outputExpressionRowsT = outputExpressionRows.flatMap(r =&gt; if (r.isEmpty) </span><span style='background: #F0ADAD'>None</span><span style='background: #AEF1AE'> else Some(r))
+</span>33 <span style=''></span><span style='background: #AEF1AE'>    val lambdaFunctionRowsT = lambdaFunctionRows.flatMap(r =&gt; if (r.isEmpty) None else Some(r))
+</span>34 <span style=''></span><span style='background: #AEF1AE'>
+</span>35 <span style=''></span><span style='background: #AEF1AE'>    val lun = uniqueName()
+</span>36 <span style=''></span><span style='background: #AEF1AE'>    val oun = uniqueName()
+</span>37 <span style=''></span><span style='background: #AEF1AE'>    globalLambdaSuites.fold(ruleRows.sparkSession.createDataset[Id](Seq.empty).toDF())(identity).
+</span>38 <span style=''></span><span style='background: #AEF1AE'>      createOrReplaceTempView(lun)
+</span>39 <span style=''></span><span style='background: #AEF1AE'>    globalOutputExpressionSuites.fold(ruleRows.sparkSession.createDataset[Id](Seq.empty).toDF())(identity).
+</span>40 <span style=''></span><span style='background: #AEF1AE'>      createOrReplaceTempView(oun)
+</span>41 <span style=''></span><span style='background: #AEF1AE'>
+</span>42 <span style=''></span><span style='background: #AEF1AE'>    val rows = outputExpressionRowsT.fold(ruleRows.select(
+</span>43 <span style=''></span><span style='background: #AEF1AE'>      struct(
+</span>44 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleSuiteId&quot;),
+</span>45 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleSuiteVersion&quot;),
+</span>46 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleSetId&quot;),
+</span>47 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleSetVersion&quot;),
+</span>48 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleId&quot;),
+</span>49 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleVersion&quot;),
+</span>50 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleExpr&quot;),
+</span>51 <span style=''></span><span style='background: #AEF1AE'>        lit(notPresentSalience).as(&quot;ruleEngineSalience&quot;),
+</span>52 <span style=''></span><span style='background: #AEF1AE'>        lit(notPresentOutputId).as(&quot;ruleEngineId&quot;),
+</span>53 <span style=''></span><span style='background: #AEF1AE'>        lit(notPresentOutputVersion).as(&quot;ruleEngineVersion&quot;)
+</span>54 <span style=''></span><span style='background: #AEF1AE'>      ).as(&quot;ruleRow&quot;), lit(null).cast(implicitly[org.apache.spark.sql.Encoder[OutputExpressionRow]].schema).as(&quot;outputExpressionRow&quot;)))(
+</span>55 <span style=''></span><span style='background: #AEF1AE'>      outputExpressionRows =&gt;
+</span>56 <span style=''></span><span style='background: #AEF1AE'>        // join on all fields, then apply
+</span>57 <span style=''></span><span style='background: #AEF1AE'>        ruleRows.join(outputExpressionRows.selectExpr(&quot;ruleExpr as outputRuleExpr&quot;,
+</span>58 <span style=''></span><span style='background: #AEF1AE'>          &quot;ruleSuiteId as oRuleSuiteId&quot;, &quot;ruleSuiteVersion as oRuleSuiteVersion&quot;, &quot;functionId&quot;, &quot;functionVersion&quot;
+</span>59 <span style=''></span><span style='background: #AEF1AE'>        ),
+</span>60 <span style=''></span><span style='background: #AEF1AE'>          ((ruleRows(&quot;ruleSuiteId&quot;) === col(&quot;oRuleSuiteId&quot;) &amp;&amp;
+</span>61 <span style=''></span><span style='background: #AEF1AE'>            ruleRows(&quot;ruleSuiteVersion&quot;) === col(&quot;oRuleSuiteVersion&quot;)) ||
+</span>62 <span style=''></span><span style='background: #AEF1AE'>            // it's global
+</span>63 <span style=''></span><span style='background: #AEF1AE'>            expr(
+</span>64 <span style=''></span><span style='background: #AEF1AE'>              s&quot;&quot;&quot;(exists (
+</span>65 <span style=''></span><span style='background: #AEF1AE'>                      select 0 from $oun goes
+</span>66 <span style=''></span><span style='background: #AEF1AE'>                      where goes.id = oRuleSuiteId and goes.version = oRuleSuiteVersion
+</span>67 <span style=''></span><span style='background: #AEF1AE'>                    ))
+</span>68 <span style=''></span><span style='background: #AEF1AE'>                   &quot;&quot;&quot;) ) &amp;&amp;
+</span>69 <span style=''></span><span style='background: #AEF1AE'>            ruleRows(&quot;ruleEngineId&quot;) === col(&quot;functionId&quot;) &amp;&amp;
+</span>70 <span style=''></span><span style='background: #AEF1AE'>            ruleRows(&quot;ruleEngineVersion&quot;) === col(&quot;functionVersion&quot;)
+</span>71 <span style=''></span><span style='background: #AEF1AE'>        ).select(
+</span>72 <span style=''></span><span style='background: #AEF1AE'>          struct(
+</span>73 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleSuiteId&quot;),
+</span>74 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleSuiteVersion&quot;),
+</span>75 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleSetId&quot;),
+</span>76 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleSetVersion&quot;),
+</span>77 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleId&quot;),
+</span>78 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleVersion&quot;),
+</span>79 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleExpr&quot;),
+</span>80 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleEngineSalience&quot;),
+</span>81 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleEngineId&quot;),
+</span>82 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleEngineVersion&quot;)
+</span>83 <span style=''></span><span style='background: #AEF1AE'>          ).as(&quot;ruleRow&quot;), struct(
+</span>84 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;outputRuleExpr&quot;).as(&quot;ruleExpr&quot;),
+</span>85 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;functionId&quot;),
+</span>86 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;functionVersion&quot;),
+</span>87 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleSuiteId&quot;),
+</span>88 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleSuiteVersion&quot;)
+</span>89 <span style=''></span><span style='background: #AEF1AE'>          ).as(&quot;outputExpressionRow&quot;)
+</span>90 <span style=''></span><span style='background: #AEF1AE'>        )
+</span>91 <span style=''></span><span style='background: #AEF1AE'>    )
+</span>92 <span style=''></span><span style='background: #AEF1AE'>
+</span>93 <span style=''></span><span style='background: #AEF1AE'>    val probablePassLit = probablePass.map(lit(_)).getOrElse(lit(null).cast(DoubleType)).as(&quot;probablePass&quot;)
+</span>94 <span style=''></span><span style='background: #AEF1AE'>
+</span>95 <span style=''></span><span style='background: #AEF1AE'>    val grouped = rows.groupBy(&quot;ruleRow.ruleSuiteId&quot;, &quot;ruleRow.ruleSuiteVersion&quot;).agg(
+</span>96 <span style=''></span><span style='background: #AEF1AE'>      collect_set(struct(col(&quot;ruleRow&quot;), col(&quot;outputExpressionRow&quot;))).as(&quot;ruleRows&quot;))
+</span>97 <span style=''></span><span style='background: #AEF1AE'>    val suiteRows =
+</span>98 <span style=''></span><span style='background: #AEF1AE'>      grouped.select(
+</span>99 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleSuiteId&quot;),
+</span>100 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleSuiteVersion&quot;),
+</span>101 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleRows&quot;),
+</span>102 <span style=''></span><span style='background: #AEF1AE'>        lit(null).cast(ArrayType(implicitly[Encoder[LambdaFunctionRow]].schema)).as(&quot;lambdaFunctions&quot;), // Using Seq in the implicit treats it as a valueclass of seq.
+</span>103 <span style=''></span><span style='background: #AEF1AE'>        probablePassLit
+</span>104 <span style=''></span><span style='background: #AEF1AE'>      )
+</span>105 <span style=''></span><span style='background: #AEF1AE'>
+</span>106 <span style=''></span><span style='background: #AEF1AE'>    lambdaFunctionRowsT.fold(suiteRows){
+</span>107 <span style=''></span><span style='background: #AEF1AE'>      lambdas =&gt;
+</span>108 <span style=''></span><span style='background: #AEF1AE'>        val grouped = lambdas.groupBy(&quot;ruleSuiteId&quot;, &quot;ruleSuiteVersion&quot;).agg(collect_set(
+</span>109 <span style=''></span><span style='background: #AEF1AE'>          struct(
+</span>110 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;name&quot;),
+</span>111 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleExpr&quot;),
+</span>112 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;functionId&quot;),
+</span>113 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;functionVersion&quot;),
+</span>114 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleSuiteId&quot;),
+</span>115 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleSuiteVersion&quot;)
+</span>116 <span style=''></span><span style='background: #AEF1AE'>          )
+</span>117 <span style=''></span><span style='background: #AEF1AE'>        ).as(&quot;theLambdaFunctions&quot;)).select(col(&quot;ruleSuiteId&quot;).as(&quot;lRuleSuiteId&quot;),
+</span>118 <span style=''></span><span style='background: #AEF1AE'>          col(&quot;ruleSuiteVersion&quot;).as(&quot;lRuleSuiteVersion&quot;),
+</span>119 <span style=''></span><span style='background: #AEF1AE'>          col(&quot;theLambdaFunctions&quot;), probablePassLit).as(&quot;grouped&quot;)
+</span>120 <span style=''></span><span style='background: #AEF1AE'>
+</span>121 <span style=''></span><span style='background: #AEF1AE'>        suiteRows.join(grouped,
+</span>122 <span style=''></span><span style='background: #AEF1AE'>            (suiteRows(&quot;ruleSuiteId&quot;) === col(&quot;grouped.lRuleSuiteId&quot;) &amp;&amp;
+</span>123 <span style=''></span><span style='background: #AEF1AE'>              suiteRows(&quot;ruleSuiteVersion&quot;) === col(&quot;grouped.lRuleSuiteVersion&quot;) ) ||
+</span>124 <span style=''></span><span style='background: #AEF1AE'>              // it's global
+</span>125 <span style=''></span><span style='background: #AEF1AE'>              expr(
+</span>126 <span style=''></span><span style='background: #AEF1AE'>                s&quot;&quot;&quot;(exists (
+</span>127 <span style=''></span><span style='background: #AEF1AE'>                      select 0 from $lun gls
+</span>128 <span style=''></span><span style='background: #AEF1AE'>                      where gls.id = grouped.lRuleSuiteId and gls.version = grouped.lRuleSuiteVersion
+</span>129 <span style=''></span><span style='background: #AEF1AE'>                    ))
+</span>130 <span style=''></span><span style='background: #AEF1AE'>                   &quot;&quot;&quot;)
+</span>131 <span style=''></span><span style='background: #AEF1AE'>          ).
+</span>132 <span style=''></span><span style='background: #AEF1AE'>          select(
+</span>133 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleSuiteId&quot;),
+</span>134 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleSuiteVersion&quot;),
+</span>135 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleRows&quot;),
+</span>136 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;theLambdaFunctions&quot;).as(&quot;lambdaFunctions&quot;),
+</span>137 <span style=''></span><span style='background: #AEF1AE'>            probablePassLit
+</span>138 <span style=''></span><span style='background: #AEF1AE'>          )
+</span>139 <span style=''></span><span style='background: #AEF1AE'>    }
+</span>140 <span style=''></span><span style='background: #AEF1AE'>
+</span>141 <span style=''></span><span style='background: #AEF1AE'>  }</span><span style=''>
+</span>142 <span style=''>
+</span>143 <span style=''>}
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -178,27 +179,27 @@
         <th>Code</th>
       </tr><tr>
         <td>
-          27
+          28
         </td>
         <td>
-          2083
+          1851
         </td>
         <td>
-          1428
+          1460
           -
-          5926
+          5973
         </td>
         <td>
           Apply
         </td>
         <td>
-          scala.Some.apply
+          com.sparkutils.testing.ConnectWhenForced.someOrForcedConnect
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          scala.Some.apply[org.apache.spark.sql.DataFrame]({
+          com.sparkutils.testing.ConnectWhenForced.someOrForcedConnect[org.apache.spark.sql.DataFrame]({
   import ruleRows.sparkSession.implicits._;
   val outputExpressionRowsT: Option[org.apache.spark.sql.DataFrame] = outputExpressionRows.flatMap[org.apache.spark.sql.DataFrame](((r: org.apache.spark.sql.DataFrame) =&gt; if (r.isEmpty)
     scala.None
@@ -292,15 +293,15 @@
         </td>
       </tr><tr>
         <td>
-          31
+          32
         </td>
         <td>
-          2022
+          1790
         </td>
         <td>
-          1552
+          1599
           -
-          1561
+          1608
         </td>
         <td>
           Select
@@ -316,15 +317,15 @@
         </td>
       </tr><tr>
         <td>
-          31
+          32
         </td>
         <td>
-          2023
+          1791
         </td>
         <td>
-          1563
+          1610
           -
-          1567
+          1614
         </td>
         <td>
           Select
@@ -340,15 +341,15 @@
         </td>
       </tr><tr>
         <td>
-          31
+          32
         </td>
         <td>
-          2024
+          1792
         </td>
         <td>
-          1563
+          1610
           -
-          1567
+          1614
         </td>
         <td>
           Block
@@ -364,15 +365,15 @@
         </td>
       </tr><tr>
         <td>
-          31
+          32
         </td>
         <td>
-          2025
+          1793
         </td>
         <td>
-          1573
+          1620
           -
-          1580
+          1627
         </td>
         <td>
           Apply
@@ -388,15 +389,15 @@
         </td>
       </tr><tr>
         <td>
-          31
+          32
         </td>
         <td>
-          2026
+          1794
         </td>
         <td>
-          1573
+          1620
           -
-          1580
+          1627
         </td>
         <td>
           Block
@@ -412,15 +413,15 @@
         </td>
       </tr><tr>
         <td>
-          31
+          32
         </td>
         <td>
-          2027
+          1795
         </td>
         <td>
-          1514
+          1561
           -
-          1581
+          1628
         </td>
         <td>
           Apply
@@ -439,15 +440,15 @@ else
         </td>
       </tr><tr>
         <td>
-          32
+          33
         </td>
         <td>
-          2028
+          1796
         </td>
         <td>
-          1648
+          1695
           -
-          1657
+          1704
         </td>
         <td>
           Select
@@ -463,15 +464,15 @@ else
         </td>
       </tr><tr>
         <td>
-          32
+          33
         </td>
         <td>
-          2029
+          1797
         </td>
         <td>
-          1659
+          1706
           -
-          1663
+          1710
         </td>
         <td>
           Select
@@ -487,15 +488,15 @@ else
         </td>
       </tr><tr>
         <td>
-          32
+          33
         </td>
         <td>
-          2030
+          1798
         </td>
         <td>
-          1659
+          1706
           -
-          1663
+          1710
         </td>
         <td>
           Block
@@ -511,15 +512,15 @@ else
         </td>
       </tr><tr>
         <td>
-          32
+          33
         </td>
         <td>
-          2031
+          1799
         </td>
         <td>
-          1669
+          1716
           -
-          1676
+          1723
         </td>
         <td>
           Apply
@@ -535,15 +536,15 @@ else
         </td>
       </tr><tr>
         <td>
-          32
+          33
         </td>
         <td>
-          2032
+          1800
         </td>
         <td>
-          1669
+          1716
           -
-          1676
+          1723
         </td>
         <td>
           Block
@@ -559,15 +560,15 @@ else
         </td>
       </tr><tr>
         <td>
-          32
+          33
         </td>
         <td>
-          2033
+          1801
         </td>
         <td>
-          1612
+          1659
           -
-          1677
+          1724
         </td>
         <td>
           Apply
@@ -586,39 +587,15 @@ else
         </td>
       </tr><tr>
         <td>
-          34
-        </td>
-        <td>
-          2034
-        </td>
-        <td>
-          1693
-          -
-          1705
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.util.VersionSpecificSerializingImports.uniqueName
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          com.sparkutils.quality.impl.util.VersionSpecificSerializingImports.uniqueName()
-        </td>
-      </tr><tr>
-        <td>
           35
         </td>
         <td>
-          2035
+          1802
         </td>
         <td>
-          1720
+          1740
           -
-          1732
+          1752
         </td>
         <td>
           Apply
@@ -634,15 +611,39 @@ else
         </td>
       </tr><tr>
         <td>
-          37
+          36
         </td>
         <td>
-          2036
+          1803
         </td>
         <td>
-          1737
+          1767
           -
-          1865
+          1779
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.VersionSpecificSerializingImports.uniqueName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.VersionSpecificSerializingImports.uniqueName()
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          1804
+        </td>
+        <td>
+          1784
+          -
+          1912
         </td>
         <td>
           Apply
@@ -675,15 +676,15 @@ else
         </td>
       </tr><tr>
         <td>
-          39
+          40
         </td>
         <td>
-          2037
+          1805
         </td>
         <td>
-          1870
+          1917
           -
-          2008
+          2055
         </td>
         <td>
           Apply
@@ -716,15 +717,15 @@ else
         </td>
       </tr><tr>
         <td>
-          41
+          42
         </td>
         <td>
-          2040
+          1808
         </td>
         <td>
-          2052
+          2099
           -
-          2582
+          2629
         </td>
         <td>
           Apply
@@ -757,15 +758,15 @@ else
         </td>
       </tr><tr>
         <td>
-          53
+          54
         </td>
         <td>
-          2038
+          1806
         </td>
         <td>
-          2075
+          2122
           -
-          2469
+          2516
         </td>
         <td>
           Apply
@@ -781,15 +782,15 @@ else
         </td>
       </tr><tr>
         <td>
-          53
+          54
         </td>
         <td>
-          2039
+          1807
         </td>
         <td>
-          2471
+          2518
           -
-          2581
+          2628
         </td>
         <td>
           Apply
@@ -822,15 +823,15 @@ else
         </td>
       </tr><tr>
         <td>
-          53
+          54
         </td>
         <td>
-          2058
+          1826
         </td>
         <td>
-          2025
+          2072
           -
-          4033
+          4080
         </td>
         <td>
           Apply
@@ -863,15 +864,15 @@ else
         </td>
       </tr><tr>
         <td>
-          56
+          57
         </td>
         <td>
-          2041
+          1809
         </td>
         <td>
-          2679
+          2726
           -
-          2864
+          2911
         </td>
         <td>
           Apply
@@ -887,15 +888,15 @@ else
         </td>
       </tr><tr>
         <td>
-          59
+          60
         </td>
         <td>
-          2042
+          1810
         </td>
         <td>
-          2887
+          2934
           -
-          2900
+          2947
         </td>
         <td>
           Literal
@@ -911,15 +912,15 @@ else
         </td>
       </tr><tr>
         <td>
-          59
+          60
         </td>
         <td>
-          2043
+          1811
         </td>
         <td>
-          2906
+          2953
           -
-          2925
+          2972
         </td>
         <td>
           Apply
@@ -935,15 +936,15 @@ else
         </td>
       </tr><tr>
         <td>
-          60
+          61
         </td>
         <td>
-          2044
+          1812
         </td>
         <td>
-          2950
+          2997
           -
-          2968
+          3015
         </td>
         <td>
           Literal
@@ -959,15 +960,15 @@ else
         </td>
       </tr><tr>
         <td>
-          60
+          61
         </td>
         <td>
-          2045
+          1813
         </td>
         <td>
-          2974
+          3021
           -
-          2998
+          3045
         </td>
         <td>
           Apply
@@ -983,15 +984,15 @@ else
         </td>
       </tr><tr>
         <td>
-          60
+          61
         </td>
         <td>
-          2046
+          1814
         </td>
         <td>
-          2941
+          2988
           -
-          2998
+          3045
         </td>
         <td>
           Apply
@@ -1007,15 +1008,15 @@ else
         </td>
       </tr><tr>
         <td>
-          62
+          63
         </td>
         <td>
-          2047
+          1815
         </td>
         <td>
-          3042
+          3089
           -
-          3256
+          3303
         </td>
         <td>
           Apply
@@ -1031,15 +1032,15 @@ else
         </td>
       </tr><tr>
         <td>
-          68
+          69
         </td>
         <td>
-          2048
+          1816
         </td>
         <td>
-          3283
+          3330
           -
-          3297
+          3344
         </td>
         <td>
           Literal
@@ -1055,15 +1056,15 @@ else
         </td>
       </tr><tr>
         <td>
-          68
+          69
         </td>
         <td>
-          2049
+          1817
         </td>
         <td>
-          3303
+          3350
           -
-          3320
+          3367
         </td>
         <td>
           Apply
@@ -1079,15 +1080,15 @@ else
         </td>
       </tr><tr>
         <td>
-          68
+          69
         </td>
         <td>
-          2050
+          1818
         </td>
         <td>
-          3274
+          3321
           -
-          3320
+          3367
         </td>
         <td>
           Apply
@@ -1103,15 +1104,15 @@ else
         </td>
       </tr><tr>
         <td>
-          68
+          69
         </td>
         <td>
-          2054
+          1822
         </td>
         <td>
-          2876
+          2923
           -
-          3392
+          3439
         </td>
         <td>
           Apply
@@ -1127,15 +1128,15 @@ else
         </td>
       </tr><tr>
         <td>
-          69
+          70
         </td>
         <td>
-          2051
+          1819
         </td>
         <td>
-          3345
+          3392
           -
-          3364
+          3411
         </td>
         <td>
           Literal
@@ -1151,15 +1152,15 @@ else
         </td>
       </tr><tr>
         <td>
-          69
+          70
         </td>
         <td>
-          2052
+          1820
         </td>
         <td>
-          3370
+          3417
           -
-          3392
+          3439
         </td>
         <td>
           Apply
@@ -1175,15 +1176,15 @@ else
         </td>
       </tr><tr>
         <td>
-          69
+          70
         </td>
         <td>
-          2053
+          1821
         </td>
         <td>
-          3336
+          3383
           -
-          3392
+          3439
         </td>
         <td>
           Apply
@@ -1199,15 +1200,15 @@ else
         </td>
       </tr><tr>
         <td>
-          70
+          71
         </td>
         <td>
-          2057
+          1825
         </td>
         <td>
-          2665
+          2712
           -
-          4027
+          4074
         </td>
         <td>
           Apply
@@ -1223,15 +1224,15 @@ else
         </td>
       </tr><tr>
         <td>
-          82
+          83
         </td>
         <td>
-          2055
+          1823
         </td>
         <td>
-          3421
+          3468
           -
-          3785
+          3832
         </td>
         <td>
           Apply
@@ -1247,15 +1248,15 @@ else
         </td>
       </tr><tr>
         <td>
-          88
+          89
         </td>
         <td>
-          2056
+          1824
         </td>
         <td>
-          3787
+          3834
           -
-          4017
+          4064
         </td>
         <td>
           Apply
@@ -1271,15 +1272,15 @@ else
         </td>
       </tr><tr>
         <td>
-          92
+          93
         </td>
         <td>
-          2059
+          1827
         </td>
         <td>
-          4061
+          4108
           -
-          4142
+          4189
         </td>
         <td>
           Apply
@@ -1295,15 +1296,15 @@ else
         </td>
       </tr><tr>
         <td>
-          94
+          95
         </td>
         <td>
-          2060
+          1828
         </td>
         <td>
-          4175
+          4222
           -
-          4196
+          4243
         </td>
         <td>
           Literal
@@ -1319,15 +1320,15 @@ else
         </td>
       </tr><tr>
         <td>
-          94
+          95
         </td>
         <td>
-          2061
+          1829
         </td>
         <td>
-          4198
+          4245
           -
-          4224
+          4271
         </td>
         <td>
           Literal
@@ -1343,15 +1344,15 @@ else
         </td>
       </tr><tr>
         <td>
-          94
+          95
         </td>
         <td>
-          2063
+          1831
         </td>
         <td>
-          4162
+          4209
           -
-          4316
+          4363
         </td>
         <td>
           Apply
@@ -1367,15 +1368,15 @@ else
         </td>
       </tr><tr>
         <td>
-          95
+          96
         </td>
         <td>
-          2062
+          1830
         </td>
         <td>
-          4237
+          4284
           -
-          4315
+          4362
         </td>
         <td>
           Apply
@@ -1391,15 +1392,15 @@ else
         </td>
       </tr><tr>
         <td>
-          97
+          98
         </td>
         <td>
-          2068
+          1836
         </td>
         <td>
-          4343
+          4390
           -
-          4643
+          4690
         </td>
         <td>
           Apply
@@ -1432,15 +1433,15 @@ else
         </td>
       </tr><tr>
         <td>
-          98
+          99
         </td>
         <td>
-          2064
+          1832
         </td>
         <td>
-          4367
+          4414
           -
-          4385
+          4432
         </td>
         <td>
           Apply
@@ -1456,15 +1457,15 @@ else
         </td>
       </tr><tr>
         <td>
-          99
+          100
         </td>
         <td>
-          2065
+          1833
         </td>
         <td>
-          4395
+          4442
           -
-          4418
+          4465
         </td>
         <td>
           Apply
@@ -1480,15 +1481,15 @@ else
         </td>
       </tr><tr>
         <td>
-          100
+          101
         </td>
         <td>
-          2066
+          1834
         </td>
         <td>
-          4428
+          4475
           -
-          4443
+          4490
         </td>
         <td>
           Apply
@@ -1504,15 +1505,15 @@ else
         </td>
       </tr><tr>
         <td>
-          101
+          102
         </td>
         <td>
-          2067
+          1835
         </td>
         <td>
-          4453
+          4500
           -
-          4547
+          4594
         </td>
         <td>
           Apply
@@ -1545,15 +1546,15 @@ else
         </td>
       </tr><tr>
         <td>
-          105
+          106
         </td>
         <td>
-          2082
+          1850
         </td>
         <td>
-          4649
+          4696
           -
-          5921
+          5968
         </td>
         <td>
           Apply
@@ -1572,15 +1573,15 @@ else
         </td>
       </tr><tr>
         <td>
-          118
+          119
         </td>
         <td>
-          2069
+          1837
         </td>
         <td>
-          4725
+          4772
           -
-          5220
+          5267
         </td>
         <td>
           Apply
@@ -1596,15 +1597,15 @@ else
         </td>
       </tr><tr>
         <td>
-          121
+          122
         </td>
         <td>
-          2070
+          1838
         </td>
         <td>
-          5277
+          5324
           -
-          5290
+          5337
         </td>
         <td>
           Literal
@@ -1620,15 +1621,15 @@ else
         </td>
       </tr><tr>
         <td>
-          121
+          122
         </td>
         <td>
-          2071
+          1839
         </td>
         <td>
-          5296
+          5343
           -
-          5323
+          5370
         </td>
         <td>
           Apply
@@ -1644,15 +1645,15 @@ else
         </td>
       </tr><tr>
         <td>
-          122
+          123
         </td>
         <td>
-          2072
+          1840
         </td>
         <td>
-          5351
+          5398
           -
-          5369
+          5416
         </td>
         <td>
           Literal
@@ -1668,15 +1669,15 @@ else
         </td>
       </tr><tr>
         <td>
-          122
+          123
         </td>
         <td>
-          2073
+          1841
         </td>
         <td>
-          5375
+          5422
           -
-          5407
+          5454
         </td>
         <td>
           Apply
@@ -1692,15 +1693,15 @@ else
         </td>
       </tr><tr>
         <td>
-          122
+          123
         </td>
         <td>
-          2074
+          1842
         </td>
         <td>
-          5341
+          5388
           -
-          5407
+          5454
         </td>
         <td>
           Apply
@@ -1716,15 +1717,15 @@ else
         </td>
       </tr><tr>
         <td>
-          122
+          123
         </td>
         <td>
-          2076
+          1844
         </td>
         <td>
-          5266
+          5313
           -
-          5685
+          5732
         </td>
         <td>
           Apply
@@ -1740,15 +1741,15 @@ else
         </td>
       </tr><tr>
         <td>
-          124
+          125
         </td>
         <td>
-          2075
+          1843
         </td>
         <td>
-          5456
+          5503
           -
-          5685
+          5732
         </td>
         <td>
           Apply
@@ -1764,15 +1765,15 @@ else
         </td>
       </tr><tr>
         <td>
-          131
+          132
         </td>
         <td>
-          2081
+          1849
         </td>
         <td>
-          5230
+          5277
           -
-          5915
+          5962
         </td>
         <td>
           Apply
@@ -1788,15 +1789,15 @@ else
         </td>
       </tr><tr>
         <td>
-          132
+          133
         </td>
         <td>
-          2077
+          1845
         </td>
         <td>
-          5729
+          5776
           -
-          5747
+          5794
         </td>
         <td>
           Apply
@@ -1812,15 +1813,15 @@ else
         </td>
       </tr><tr>
         <td>
-          133
+          134
         </td>
         <td>
-          2078
+          1846
         </td>
         <td>
-          5761
+          5808
           -
-          5784
+          5831
         </td>
         <td>
           Apply
@@ -1836,15 +1837,15 @@ else
         </td>
       </tr><tr>
         <td>
-          134
+          135
         </td>
         <td>
-          2079
+          1847
         </td>
         <td>
-          5798
+          5845
           -
-          5813
+          5860
         </td>
         <td>
           Apply
@@ -1860,15 +1861,15 @@ else
         </td>
       </tr><tr>
         <td>
-          135
+          136
         </td>
         <td>
-          2080
+          1848
         </td>
         <td>
-          5827
-          -
           5874
+          -
+          5921
         </td>
         <td>
           Apply
