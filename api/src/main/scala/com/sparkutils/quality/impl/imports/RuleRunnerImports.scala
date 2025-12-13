@@ -9,7 +9,7 @@ import org.apache.spark.sql.{Column, DataFrame, ShimUtils}
 trait RuleRunnerImports {
 
   /**
-   * Creates a column that runs the RuleSuite suitable for DQ / Validation.  This also forces registering the lambda functions used by that RuleSuite
+   * Creates a column that runs the RuleSuite suitable for DQ / Validation.  This also forces registering the lambda functions used by that RuleSuite  This forwards to the original ruleRunner via dqRuleRunner
    *
    * @param ruleSuite The Qualty RuleSuite to evaluate
    * @param compileEvals Should the rules be compiled out to interim objects - by default true for eval usage, wholeStageCodeGen will evaluate in place
@@ -20,12 +20,10 @@ trait RuleRunnerImports {
    * @return A Column representing the Quality DQ expression built from this ruleSuite
    */
   def ruleRunner(ruleSuite: RuleSuite, compileEvals: Boolean = true, resolveWith: Option[DataFrame] = None, variablesPerFunc: Int = 40, variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false): Column =
-    Runners.ruleRunner(ruleSuite, compileEvals, resolveWith, variablesPerFunc, variableFuncGroup, forceRunnerEval).getOrElse(
-      ShimUtils.callFunction("dq_rule_runner", lit(RuleSuiteHelpers.serialize(ruleSuite)), lit(compileEvals), lit(variablesPerFunc), lit(variableFuncGroup), lit(forceRunnerEval))
-    )
+    dqRuleRunner(ruleSuite, compileEvals, resolveWith, variablesPerFunc, variableFuncGroup, forceRunnerEval)
 
   /**
-   * Creates a column that runs the RuleSuite suitable for DQ / Validation.  This also forces registering the lambda functions used by that RuleSuite.  This forwards to the original ruleRunner
+   * Creates a column that runs the RuleSuite suitable for DQ / Validation.  This also forces registering the lambda functions used by that RuleSuite.
    *
    * @param ruleSuite The Qualty RuleSuite to evaluate
    * @param compileEvals Should the rules be compiled out to interim objects - by default true for eval usage, wholeStageCodeGen will evaluate in place
