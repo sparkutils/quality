@@ -96,7 +96,7 @@ object UnPackIdTriple {
   def apply( packed: Expression ) =
     UnPackIdTripleExpression( packed )
 
-  private[quality] def toRow( packed: Any ): InternalRow = {
+  def toRow( packed: Any ): InternalRow = {
     val i = packed.asInstanceOf[InternalRow]
 
     val rsuid = PackId.unpack(i.getLong(0))
