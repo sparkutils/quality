@@ -1,4 +1,4 @@
-package com.sparkutils.quality.impl
+package com.sparkutils.quality.impl.util
 
 import org.apache.spark.sql.{Column, DataFrame}
 
