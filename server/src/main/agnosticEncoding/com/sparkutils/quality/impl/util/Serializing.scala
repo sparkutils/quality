@@ -26,6 +26,25 @@ protected[quality] object SerializingShim {
                          outputExpressionRows: Option[DataFrame] = None, probablePass: Option[Double] = None,
                          globalLambdaSuites: Option[DataFrame] = None,
                          globalOutputExpressionSuites: Option[DataFrame] = None): Option[DataFrame] = someOrForcedConnect {
+    combineImplI(ruleRows, lambdaFunctionRows, outputExpressionRows, probablePass, globalLambdaSuites, globalOutputExpressionSuites)
+  }
+
+  /**
+   * combine implementation for loading CombinedRules, this is usable by all jvm languages and, by default, expects a server extension for pure quality_api users.
+   * the server implementation will provide a direct call (as it's possible no extension is present)
+   *
+   * @param ruleRows
+   * @param lambdaFunctionRows
+   * @param outputExpressionRows
+   * @param probablePass
+   * @param globalLambdaSuites
+   * @param globalOutputExpressionSuites
+   * @return a combined dataframe
+   */
+  protected[quality] def combineImplI(ruleRows: DataFrame, lambdaFunctionRows: Option[DataFrame] = None,
+                                     outputExpressionRows: Option[DataFrame] = None, probablePass: Option[Double] = None,
+                                     globalLambdaSuites: Option[DataFrame] = None,
+                                     globalOutputExpressionSuites: Option[DataFrame] = None): DataFrame = {
 
     import ruleRows.sparkSession.implicits._
 

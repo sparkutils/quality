@@ -1,12 +1,16 @@
 package com.sparkutils.quality.impl.extension
 
 import com.sparkutils.quality.impl.extension.ConnectCommandParsers.{NoneQuoted, nameDFOrNoneS}
-import com.sparkutils.quality.impl.util.SerializingShim.combineImpl
+import com.sparkutils.quality.impl.extension.QualityVersionedRulesConstants.{FROM_DF, QUALITY_VERSIONED, QUALITY_VERSIONED_LAMBDAS_FROM_DF, QUALITY_VERSIONED_OUTPUT_EXPRESSIONS_FROM_DF, QUALITY_VERSIONED_RULES_FROM_DF}
+import com.sparkutils.quality.impl.util.SerializingShim.combineImplI
+import com.sparkutils.quality.impl.util.SimpleVersioning
 import com.sparkutils.shim.AbstractInjectableParser
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.{DataFrame, ShimUtils, SparkSession}
 import org.apache.spark.sql.catalyst.parser.ParserInterface
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
+import org.apache.spark.sql.functions.col
+import org.apache.spark.sql.types.IntegerType
 
 object ConnectCommandParsers {
   val combine = "QUALITY COMBINE RULESUITES"
@@ -37,8 +41,32 @@ case class ConnectCommandParsers(sparkSession: SparkSession, delegate: ParserInt
       }
       val qldf = nameDFOrNone(cmd(4))
       val gloedf = nameDFOrNone(cmd(5))
-      ShimUtils.logicalPlan(combineImpl(rules, lfdf, oedf, pps, qldf, gloedf).get)
+      ShimUtils.logicalPlan(combineImplI(rules, lfdf, oedf, pps, qldf, gloedf))
     } else
-      super.parsePlan(sqlText)
+      if (sqlText.startsWith(QUALITY_VERSIONED)) {
+        val fromOffset = sqlText.indexOf(FROM_DF) + FROM_DF.length
+        val viewName = sqlText.substring(fromOffset).replace(';',' ')
+        val df = sparkSession.sql(s"select * from global_temp.$viewName")
+        val cmd = sqlText.substring(0,fromOffset)
+        ShimUtils.logicalPlan(
+          cmd match {
+            case QUALITY_VERSIONED_RULES_FROM_DF =>
+              SimpleVersioning.readVersionedRuleRowsFromDF(df, col("ruleSuiteId").cast(IntegerType),
+                col("ruleSuiteVersion").cast(IntegerType),  col("ruleSetId").cast(IntegerType),
+                col("ruleSetVersion").cast(IntegerType),  col("ruleId").cast(IntegerType),
+                col("ruleVersion").cast(IntegerType),  col("ruleExpr"),  col("ruleEngineSalience").cast(IntegerType),
+                col("ruleEngineId").cast(IntegerType),  col("ruleEngineVersion").cast(IntegerType))
+            case QUALITY_VERSIONED_LAMBDAS_FROM_DF =>
+              SimpleVersioning.readVersionedLambdaRowsFromDF(df, col("name"), col("ruleExpr"),
+                col("functionId").cast(IntegerType), col("functionVersion").cast(IntegerType),
+                col("ruleSuiteId").cast(IntegerType), col("ruleSuiteVersion").cast(IntegerType))
+            case QUALITY_VERSIONED_OUTPUT_EXPRESSIONS_FROM_DF =>
+              SimpleVersioning.readVersionedOutputExpressionRowsFromDF(df, col("ruleExpr"),
+                col("functionId").cast(IntegerType), col("functionVersion").cast(IntegerType),
+                col("ruleSuiteId").cast(IntegerType), col("ruleSuiteVersion").cast(IntegerType))
+          }
+        )
+      } else
+        super.parsePlan(sqlText)
   }
 }
