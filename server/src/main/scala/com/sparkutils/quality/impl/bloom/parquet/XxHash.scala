@@ -28,11 +28,14 @@ import java.nio.ByteBuffer
  * with a seed of 0.
  */
 class XxHash extends HashFunction with Serializable {
+  // $COVERAGE-OFF$
   def hashBytes(input: Array[Byte]): Long = LongHashFunction.xx(0).hashBytes(input)
 
   def hashLongs(input: Array[Long]): Long = LongHashFunction.xx(0).hashLongs(input)
 
+  def hashChars(input: String): Long =  LongHashFunction.xx(0).hashChars(input)
+  // $COVERAGE-ON$
+
   def hashByteBuffer(input: ByteBuffer): Long = LongHashFunction.xx(0).hashBytes(input)
 
-  def hashChars(input: String): Long =  LongHashFunction.xx(0).hashChars(input)
 }

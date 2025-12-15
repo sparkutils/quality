@@ -3,6 +3,7 @@ package com.sparkutils.quality.impl.util
 import com.sparkutils.quality.impl.{RuleSuiteHelpers, VariableHelper}
 import com.sparkutils.quality.{ExpressionRule, Id, LambdaFunction, NoOpRunOnPassProcessor, OutputExpression, Rule, RuleSet, RuleSuite, RunOnPassProcessor, VersionedId}
 import com.sparkutils.quality.impl.util.SerializingShim.combineImpl
+import com.sparkutils.quality.impl.util.VersionSpecificSerializingImports.uniqueName
 import org.apache.spark.sql.{Dataset, Encoder, SparkSession}
 import org.apache.spark.sql.functions.{col, lit}
 import org.apache.spark.sql.types.BinaryType
@@ -24,8 +25,11 @@ case class CombinedRuleRow(ruleRow: RuleRow, outputExpressionRow: Option[OutputE
  */
 case class CombinedRuleSuiteRows(ruleSuiteId: Int, ruleSuiteVersion: Int, ruleRows: Seq[CombinedRuleRow], lambdaFunctions: Option[Seq[LambdaFunctionRow]], probablePass: Option[Double])
 
-trait VersionSpecificSerializingImports extends GeneratedUniqueName {
+object VersionSpecificSerializingImports extends GeneratedUniqueName {
   protected val GENERATED_NAME_PREFIX = "QUALITY_RULE_SUITE_GENERATED_NAME_"
+}
+
+trait VersionSpecificSerializingImports {
 
   /**
    *

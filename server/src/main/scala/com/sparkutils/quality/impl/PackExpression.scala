@@ -12,8 +12,11 @@ import org.apache.spark.sql.shim.expressions.InputTypeChecks
 import org.apache.spark.sql.types.{DataType, IntegerType, LongType, StructField, StructType}
 
 object Pack {
+  // $COVERAGE-OFF$
+  @deprecated(message="Use pack_ints function instead",since="0.2.0")
   def apply(id: Column, version: Column): Column =
     column( apply(expression(id), expression(version)) )
+  // $COVERAGE-ON$
 
   def apply(id: Expression, version: Expression) =
     PackExpression( id, version )
@@ -43,8 +46,11 @@ case class PackExpression(left: Expression, right: Expression) extends BinaryExp
 }
 
 object UnPack {
+  // $COVERAGE-OFF$
+  @deprecated(message="Use unpack function instead",since="0.2.0")
   def apply(packed: Column): Column =
     column( apply(expression(packed)) )
+  // $COVERAGE-ON$
 
   def apply( packed: Expression ) =
     UnPackExpression( packed )
@@ -81,24 +87,24 @@ case class UnPackExpression(child: Expression) extends UnaryExpression
 }
 
 object UnPackIdTriple {
+  // $COVERAGE-OFF$
+  @deprecated(message="Use unpack_id_triple function instead",since="0.2.0")
   def apply(packed: Column): Column =
     column( apply(expression(packed)) )
+  // $COVERAGE-ON$
 
   def apply( packed: Expression ) =
     UnPackIdTripleExpression( packed )
 
-  def toRow( packed: Any ): InternalRow =
-    if (packed == null)
-      packed.asInstanceOf[InternalRow]
-    else {
-      val i = packed.asInstanceOf[InternalRow]
+  private[quality] def toRow( packed: Any ): InternalRow = {
+    val i = packed.asInstanceOf[InternalRow]
 
-      val rsuid = PackId.unpack(i.getLong(0))
-      val rsid = PackId.unpack(i.getLong(1))
-      val ruid = PackId.unpack(i.getLong(2))
+    val rsuid = PackId.unpack(i.getLong(0))
+    val rsid = PackId.unpack(i.getLong(1))
+    val ruid = PackId.unpack(i.getLong(2))
 
-      InternalRow(rsuid.id, rsuid.version, rsid.id, rsid.version, ruid.id, ruid.version)
-    }
+    InternalRow(rsuid.id, rsuid.version, rsid.id, rsid.version, ruid.id, ruid.version)
+  }
 }
 
 @ExpressionDescription(

@@ -4,6 +4,7 @@ import com.sparkutils.quality.RuleSuite.mapRules
 import com.sparkutils.qualityTests.util.SharedPureConnectTests
 import com.sparkutils.quality._
 import com.sparkutils.quality.functions.flatten_results
+import com.sparkutils.quality.impl.OfRuleSuite
 import com.sparkutils.quality.impl.util.{CombinedRuleSuiteRows, LambdaFunctionRow}
 import com.sparkutils.qualityTests.RuleEngineTest.{rulesRaw, testData}
 import com.sparkutils.testing.TestUtils.{anyCauseHas, debug}
@@ -267,5 +268,13 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
           q.getMessage.contains(typ) => true
       case _ => false
     }) shouldBe true
+  }
+
+  test("bad bytes should throw") {
+    null match {
+      case OfRuleSuite(ruleSuite) => fail("Should not have matched")
+      case _ => ()
+    }
+
   }
 }

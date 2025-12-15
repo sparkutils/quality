@@ -53,9 +53,9 @@ class ValidationTest extends ClassicSharedTests with VariableTestShims {
 
     assert(errors match {
       // for < 3.2.0 oss and 10.4 lts Databricks
-      case Seq(LambdaSyntaxError(Id(1,1), err)) if err.contains(ossLT330SingleParam) => true
+      case Seq(e@LambdaSyntaxError(Id(1,1), err)) if err.contains(ossLT330SingleParam) && e.syntax  => true
       // for 3.3.0 oss
-      case Seq(LambdaSyntaxError(Id(1,1), err)) if err.contains(ossGT320SingleParam) => true
+      case Seq(e@LambdaSyntaxError(Id(1,1), err)) if err.contains(ossGT320SingleParam) && e.syntax => true
       case _ => false
     } )
   }
@@ -79,7 +79,7 @@ class ValidationTest extends ClassicSharedTests with VariableTestShims {
       case _ => false
     } )
     assert(warns.toSeq match {
-      case Seq(LambdaPossibleSOE(Id(1,1))) => true
+      case Seq(l@LambdaPossibleSOE(Id(1,1))) if !l.syntax => true
       case _ => false
     } )
 
@@ -375,9 +375,9 @@ class ValidationTest extends ClassicSharedTests with VariableTestShims {
     assert(sorted match {
       case Seq(
       NonLambdaDocParameters(Id(2,1)),
-      ExtraDocParameter(Id(6,1), "fielda"),
-      NonLambdaDocParameters(Id(1002,1))
-      )
+      e@ExtraDocParameter(Id(6,1), "fielda"),
+      n@NonLambdaDocParameters(Id(1002,1))
+      ) if e.syntax && n.syntax
       => true
       case _ => false
     } )
@@ -452,9 +452,9 @@ class ValidationTest extends ClassicSharedTests with VariableTestShims {
     assert(sorted match {
       case Seq(
         RuleViewError("theview", Id(4,1)),
-        OutputRuleViewError("theview", Id(7,1)),
+        o @ OutputRuleViewError("theview", Id(7,1)),
         LambdaViewError("theview", Id(16,1))
-        )
+        ) if !o.syntax
         => true
       case _ => false
     } )
