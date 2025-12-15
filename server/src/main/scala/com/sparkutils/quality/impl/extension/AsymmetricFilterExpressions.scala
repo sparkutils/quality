@@ -111,17 +111,8 @@ abstract class AsymmetricFilterExpressions extends Rule[LogicalPlan]
 }
 
 object AsymmetricFilterExpressions {
-  /**
-   * TODO When 2.4 is dropped move this to withChildren
-   */
-  def create(expressionTemplate: Expression, left: Expression, right: Expression): Expression = expressionTemplate match {
-    case _:EqualTo => EqualTo(left, right)
-    case _:EqualNullSafe => EqualNullSafe(left, right)
-    case _:LessThan => LessThan(left, right)
-    case _:LessThanOrEqual => LessThanOrEqual(left, right)
-    case _:GreaterThan => GreaterThan(left, right)
-    case _:GreaterThanOrEqual => GreaterThanOrEqual(left, right)
-  }
+  def create(expressionTemplate: Expression, left: Expression, right: Expression): Expression =
+    expressionTemplate.withNewChildren(Seq(left,right))
 }
 
 /**
