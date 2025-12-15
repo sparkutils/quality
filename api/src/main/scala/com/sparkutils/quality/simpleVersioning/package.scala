@@ -1,33 +1,23 @@
 package com.sparkutils.quality
 
 import com.sparkutils.quality.impl.util.RuleModel.RuleSuiteMap
-import com.sparkutils.quality.impl.util.{OutputExpressionRow, Serializing, SimpleVersioningStub}
+import com.sparkutils.quality.impl.util.{GeneratedUniqueName, OutputExpressionRow, Serializing, SimpleVersioningStub}
 import org.apache.spark.sql.types.IntegerType
 import org.apache.spark.sql.{Column, DataFrame}
 import org.apache.spark.sql.functions.col
-import VersioningImports.uniqueName
 import com.sparkutils.quality.impl.extension.QualityVersionedRulesConstants.{QUALITY_VERSIONED_LAMBDAS_FROM_DF, QUALITY_VERSIONED_OUTPUT_EXPRESSIONS_FROM_DF, QUALITY_VERSIONED_RULES_FROM_DF}
 
-import java.util.concurrent.atomic.AtomicInteger
 import scala.collection.immutable.TreeMap
 
 // Used to pull in |+| to deep merge the maps as SemiGroups - https://typelevel.org/cats/typeclasses/semigroup.html#example-usage-merging-maps
 import cats.implicits._
 
-object VersioningImports {
-
-  private val nameCounter = new AtomicInteger(0)
-
-  private val GENERATED_NAME_PREFIX = "QUALITY_VERSIONING_GENERATED_NAME_"
-
-  // only for the current session, so regardless of on driver with static or connect client this works
-  protected[quality] def uniqueName(): String = GENERATED_NAME_PREFIX + nameCounter.incrementAndGet()
-
-}
 /**
  * A simple versioning scheme that allows management of versions
  */
-package object simpleVersioning {
+package object simpleVersioning extends GeneratedUniqueName {
+
+  protected val GENERATED_NAME_PREFIX = "QUALITY_VERSIONING_GENERATED_NAME_"
 
   /**
    * Reads the rules table and builds complete rule versions by adding together all changes below that rulesuiteVersion

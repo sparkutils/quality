@@ -1,23 +1,17 @@
 package com.sparkutils.quality.impl.mapLookup
 
 import com.sparkutils.quality.impl.VariableHelper
-import com.sparkutils.quality.impl.util.{Config, ConfigFactory}
+import com.sparkutils.quality.impl.util.{Config, ConfigFactory, GeneratedUniqueName}
 import org.apache.spark.sql.functions.expr
 import org.apache.spark.sql.types.{DataType, StructField, StructType}
 import org.apache.spark.sql._
 
-import java.util.concurrent.atomic.AtomicInteger
 import scala.collection.JavaConverters._
 import scala.collection.Map
 
-object MapLookupFunctions {
+object MapLookupFunctions extends GeneratedUniqueName {
 
-  private val nameCounter = new AtomicInteger(0)
-
-  private val GENERATED_NAME_PREFIX = "QUALITY_LOOKUPS_GENERATED_NAME_"
-
-  // only for the current session, so regardless of on driver with static or connect client this works
-  private def uniqueName() = GENERATED_NAME_PREFIX + nameCounter.incrementAndGet()
+  protected val GENERATED_NAME_PREFIX = "QUALITY_LOOKUPS_GENERATED_NAME_"
 
   /**
    * Used as a param to load the map lookups - note the type of the broadcast is always Map[AnyRef, AnyRef]
