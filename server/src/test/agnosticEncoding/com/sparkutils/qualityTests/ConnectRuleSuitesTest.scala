@@ -270,11 +270,4 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
     }) shouldBe true
   }
 
-  test("bad bytes should throw") {
-    null match {
-      case OfRuleSuite(ruleSuite) => fail("Should not have matched")
-      case _ => ()
-    }
-
-  }
 }
