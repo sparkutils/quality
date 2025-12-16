@@ -1,6 +1,6 @@
 package com.sparkutils.qualityTests.classicOnly
 
-import com.sparkutils.quality.{Id, LambdaFunction, QualityException}
+import com.sparkutils.quality.QualityException
 import com.sparkutils.quality.impl.OfRuleSuite
 import com.sparkutils.qualityTests.util.ClassicSharedTests
 import org.apache.spark.sql.catalyst.expressions.Literal
