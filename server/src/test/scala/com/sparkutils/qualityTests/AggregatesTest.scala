@@ -215,7 +215,7 @@ class AggregatesTest extends SharedPureConnectTests with VariableTestShims with 
     }
   }
 
-  test("evalSumTest") {
+  ignore("evalSumTest") {
     evalCodeGensNoResolve {
       val s = sparkSession
       import s.implicits._

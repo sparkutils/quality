@@ -69,7 +69,9 @@ class SubExpressionEliminationTest extends ClassicSharedTests {
   val expectedTriggerRules = 12*rows // (4 rows, 12 times called per each)
   val expectedEliminatedTriggerRules = 6*rows // 4 rows, 6 _unique_
 
-  test("controlRunner") { evalCodeGensNoResolve{ doRunner(expectedTriggerRules, ruleRunner(_)) }   }// defaults may change later
+  test("controlRunner") { evalCodeGensNoResolve{ doRunner(expectedTriggerRules / 2, ruleRunner(_)) }   }
+
+  test("controlRunner old defaults") { evalCodeGensNoResolve{ doRunner(expectedTriggerRules , ruleRunner(_, compileEvals = true)) }   }
 
   // forceRunnerEval disables codegen elimination as CodeGenFallback is also ignored for interpreted
   test("runnerShouldNotEliminateWithRunnerEval") { evalCodeGensNoResolve { doRunner(expectedTriggerRules, ruleRunner(_, compileEvals = false, forceRunnerEval = true)) } }
@@ -82,12 +84,13 @@ class SubExpressionEliminationTest extends ClassicSharedTests {
       _.copy(runOnPassProcessor = RunOnPassProcessor(1000, Id(1042,1),OutputExpression(expr)))
     )))
 
-
   val outputExpr = "if(myequal(product, 'p1'), 1, 0)"
 
   val expectedOutputRules = rows // one for each row is extra called
 
-  test("controlEngine") { evalCodeGensNoResolve{ doOutput(expectedTriggerRules + expectedOutputRules, ruleEngineRunner(_), outputExpr) }  } // defaults may change later
+  test("controlEngine") { evalCodeGensNoResolve{ doOutput((expectedTriggerRules / 2 ) , ruleEngineRunner(_), outputExpr) }  }
+
+  test("controlEngine old defaults") { evalCodeGensNoResolve{ doOutput(expectedTriggerRules + expectedOutputRules , ruleEngineRunner(_, compileEvals = true, forceTriggerEval = true), outputExpr) }  }
 
   // forceRunnerEval disables codegen elimination as CodeGenFallback is also ignored for interpreted
   test("engineShouldNotEliminateWithRunnerEval") { evalCodeGensNoResolve { doOutput(expectedTriggerRules + expectedOutputRules, ruleEngineRunner(_, compileEvals = false, forceRunnerEval = true), outputExpr) } }

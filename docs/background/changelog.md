@@ -28,7 +28,13 @@ Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1 and 3.3.2 are deprecated as are DBR's 12.2
 
 #96 - quality_api is introduced, leveraging Spark Connect - allows a client server model and further client language support
 
-#100 - Support for key functions to be run from the SparkSessionExtension when using quality_api, removing the integration surface area for other client languages and simplifying upgrades
+#100 - Support for key functions to be run from the SparkSessionExtension when using quality_api, reducing the integration surface area for other client languages and simplifying upgrades
+
+#72 - Defaults for sub expression elimination and compilation of triggers are changed to better overall performance with recent Spark versions. 
+
+> compileEvals and forceTriggerEval now default to false for all runner types.  This has been found to be the best balance for most rules with 
+> large performance gains as of 0.1.3.1 for long running processes or larger data volumes.  These can be set to the previous defaults for the old behaviour if
+> code generation itself dominates your applications time.
 
 #87 - EOL DBR and Spark runtimes are removed: 9.1, 10.4, 11.3, 13.1, 14.0
 
