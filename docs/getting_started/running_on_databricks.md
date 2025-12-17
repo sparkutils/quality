@@ -75,15 +75,15 @@ Supported as of 0.1.3.1.
 
 The following test combinations are supported as of 0.2.0:
 
-| Compute Type   | Cluster Library                     | Extension              | Connect Via quality_api | Full Pre 0.2.0 Functionality | QualityTestRunner Test Count               |
-|----------------|-------------------------------------|------------------------|-------------------------|------------------------------|--------------------------------------------| 
-| Non Shared     | quality_testshade_17.3              |                        |                         | :octicons-checkbox-24:       | >400                                       |
-| Non Shared     | quality_testshade_17.3              | quality_testshade_17.3 | :octicons-checkbox-24:  | :octicons-checkbox-24:       | >400 tests, default < 120 tests in Connect |
-| Shared Compute | quality_testshade_17.3              | quality_testshade_17.3 | :octicons-checkbox-24:  |                              | < 120                                      |
-| Shared Compute | quality_connect_testshade_17.3      | quality_testshade_17.3 | :octicons-checkbox-24:  |                              | < 120                                      |
-| Shared Compute | quality_connect_testshade_4.0.0.oss | quality_testshade_17.3 | :octicons-checkbox-24:  |                              | < 120                                      |
-| Shared Compute | quality_api_17.3                    | quality_17.3           | :octicons-checkbox-24:  |                              | :octicons-circle-slash-24:                 |
-| Shared Compute | quality_api_4.0.0.oss               | quality_17.3           | :octicons-checkbox-24:  |                              | :octicons-circle-slash-24:                 |
+| Compute Type   | Cluster Library                     | Extension              | Connect Via quality_api | Full Pre 0.2.0 Functionality | QualityTestRunner Test Count                |
+|----------------|-------------------------------------|------------------------|-------------------------|------------------------------|---------------------------------------------| 
+| Non Shared     | quality_testshade_17.3              |                        |                         | :octicons-checkbox-24:       | > 500                                       |
+| Non Shared     | quality_testshade_17.3              | quality_testshade_17.3 | :octicons-checkbox-24:  | :octicons-checkbox-24:       | > 500 tests, default < 180 tests in Connect |
+| Shared Compute | quality_testshade_17.3              | quality_testshade_17.3 | :octicons-checkbox-24:  |                              | < 180                                       |
+| Shared Compute | quality_connect_testshade_17.3      | quality_testshade_17.3 | :octicons-checkbox-24:  |                              | < 180                                       |
+| Shared Compute | quality_connect_testshade_4.0.0.oss | quality_testshade_17.3 | :octicons-checkbox-24:  |                              | < 180                                       |
+| Shared Compute | quality_api_17.3                    | quality_17.3           | :octicons-checkbox-24:  |                              | :octicons-circle-slash-24:                  |
+| Shared Compute | quality_api_4.0.0.oss               | quality_17.3           | :octicons-checkbox-24:  |                              | :octicons-circle-slash-24:                  |
 
 !!! info "Non Shared Connect"
     Using quality_testshade on both client and extension allows mixing modes.  To use connect on the test cases leverage:
@@ -128,12 +128,21 @@ AggregatesTest:
 - testSalience (1 second, 817 milliseconds)
 - testDebug (293 milliseconds)
 ...
-Run completed in 2 minutes, 27 seconds.
+Run completed in 4 minutes, 22 seconds.
 Total number of tests run: 118
 Suites: completed 10, aborted 0
 Tests: succeeded 118, failed 0, canceled 0, ignored 0, pending 0
 All tests passed.
 Quality - gc'ing after finishing test batch 0
+Quality - starting test batch 1
+Run starting. Expected test count is: 53
+...
+Run completed in 1 minute, 28 seconds.
+Total number of tests run: 53
+Suites: completed 6, aborted 0
+Tests: succeeded 53, failed 0, canceled 0, ignored 0, pending 0
+All tests passed.
+Quality - gc'ing after finishing test batch 1
 all Quality test batches completed
 ```
 

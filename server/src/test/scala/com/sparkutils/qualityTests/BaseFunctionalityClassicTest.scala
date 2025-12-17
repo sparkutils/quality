@@ -3,7 +3,7 @@ package com.sparkutils.qualityTests
 import com.sparkutils.quality.Id
 import com.sparkutils.quality.impl.YamlDecoder
 import com.sparkutils.quality.impl.util.{Arrays, PrintCode}
-import com.sparkutils.quality.types.ruleSuiteResultType
+import com.sparkutils.quality.impl.types.ruleSuiteResultType
 import com.sparkutils.qualityTests.util.{ClassicSharedTests, RowTools, SharedConnectTests}
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.ShimUtils.expression

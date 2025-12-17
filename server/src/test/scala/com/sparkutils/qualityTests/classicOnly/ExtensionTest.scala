@@ -96,7 +96,7 @@ abstract class ExtensionTestBase extends ClassicSharedTests  {
 
   }
 
-  test("testExtension") { when_not_disabled { not2_4 {
+  test("testExtension") { when_not_disabled {
     not_Cluster { // will never work on 2.4 and Databricks has a fixed session
       wrapWithExtension { tsparkSession =>
         import tsparkSession.implicits._
@@ -109,23 +109,23 @@ abstract class ExtensionTestBase extends ClassicSharedTests  {
         assert(sres == uuid)
       }
     }
-  } } }
+  } }
 
-  test("testExtensionDisableSpecific") { when_not_disabled { not2_4 {
+  test("testExtensionDisableSpecific") { when_not_disabled {
     not_Cluster { // will never work on 2.4 and Databricks has a fixed session
       wrapWithExtensionT(tsparkSession => {}, AsUUIDFilter.getClass.getName)
       val str = ExtensionTesting.disableRuleResult
       assert(str.indexOf(s"${disableRulesConf} = Set(${AsUUIDFilter.getClass.getName}) leaving List(${IDBase64Filter.getClass.getName}, ${FunNRewrite.getClass.getName}) remaining") > -1, s"str didn't have the expected contents, got $str")
     }
-  } } }
+  } }
 
-  test("testExtensionDisableStar") { when_not_disabled { not2_4 {
+  test("testExtensionDisableStar") { when_not_disabled {
     not_Cluster { // will never work on 2.4 and Databricks has a fixed session
       wrapWithExtensionT(tsparkSession => {}, "*")
       val str = ExtensionTesting.disableRuleResult
       assert(str.isEmpty, s"should have been empty, got $str")
     }
-  } } }
+  } }
 
   val createview = (sparkSession: SparkSession) => {
     sparkSession.sql(s"create or replace view testfunctionview as select as_uuid($lower, $higher) context");
@@ -137,7 +137,7 @@ abstract class ExtensionTestBase extends ClassicSharedTests  {
     ()
   }
 
-  test("testForceFunctionInjection") { when_not_disabled { not2_4 {
+  test("testForceFunctionInjection") { when_not_disabled {
     not_Cluster { // will never work on 2.4 and Databricks has a fixed session
       // need to clear the existing quality functions out first
       registerQualityFunctions(
@@ -152,13 +152,13 @@ abstract class ExtensionTestBase extends ClassicSharedTests  {
           if (throwable.getMessage.contains("as_uuid"))  ()
       }
     }
-  } } }
+  } }
 
-  test("testDefaultFunctionRegistrationViaBuiltIn") { when_not_disabled { not2_4 {
+  test("testDefaultFunctionRegistrationViaBuiltIn") { when_not_disabled {
     not_Cluster { // will never work on 2.4 and Databricks has a fixed session
       wrapWithExtensionT(createview)
     }
-  } } }
+  } }
 
 
   val theuuid = "123e4567-e89b-12d3-a456-42661417400"
@@ -323,7 +323,7 @@ abstract class ExtensionTestBase extends ClassicSharedTests  {
   def doTestAsymmetricFilterPlan(withContextF: SparkSession => DataFrame, filters: Seq[(String, Filter, String)],
                                  joinTest: Boolean = false, viaExtension: (SparkSession => Unit) => Unit = wrapWithExtension,
                                  verifyJoinPlan: DataFrame => Boolean = verifyJoinPlanUUID
-                                ): Unit = when_not_disabled { not2_4 {
+                                ): Unit = when_not_disabled {
     viaExtension { tsparkSession: SparkSession =>
       val withcontext = withContextF(tsparkSession)
 
@@ -352,7 +352,7 @@ abstract class ExtensionTestBase extends ClassicSharedTests  {
         assertWithPlan(pushdowns.contains(expectedFilter), s"$hint - did not have a pushdown with the correct predicates including $expectedFilter but $pushdowns")
       }
     }
-  } }
+  }
 
   /*
   Spark thankfully removes all the superfluous And(trues)
@@ -695,7 +695,7 @@ class ExtensionDeltaTest extends ExtensionTestBase {
   val shouldRun = true
 
   // test doesn't run in parquet due to some weird hive issue.
-  test("testAsymmetricFilterEqSQL") { when_not_disabled { not_Cluster { not2_4 {
+  test("testAsymmetricFilterEqSQL") { when_not_disabled { not_Cluster {
     wrapWithExtensionT(sparkSession => {
       val ds = uuidPairsWithContext("a")(sparkSession)
       val abspath = new File(ds.inputFiles.head).getParentFile.getPath.replaceAll("\\\\", "/")
@@ -717,6 +717,6 @@ class ExtensionDeltaTest extends ExtensionTestBase {
 
       assert(pushdowns.contains(theuuid6Higher), s"did not have a pushdown with the correct predicates including $theuuid6Higher but $pushdowns")
     }, withHive = true)
-  }}}}
+  }}}
 
 }

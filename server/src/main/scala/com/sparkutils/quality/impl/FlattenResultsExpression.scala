@@ -1,9 +1,9 @@
 package com.sparkutils.quality.impl
 
 import com.sparkutils.quality._
-import types._
 import com.sparkutils.quality.impl.util.Serializing
 import com.sparkutils.shim.expressions.NullIntolerant
+import com.sparkutils.quality.impl.types._
 import org.apache.spark.sql.ShimUtils
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder

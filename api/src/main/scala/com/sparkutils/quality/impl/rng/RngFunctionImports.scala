@@ -14,14 +14,13 @@ trait RngFunctionImports {
    * @return a column with the appropriate rng defined
    */
   def rng_bytes(randomSource: RandomSource = RandomSource.XO_RO_SHI_RO_128_PP, numBytes: Int = 16, seed: Long = 0): Column =
-    //RandomBytes(randomSource, numBytes, seed)
-    ShimUtils.callFunction("rng_bytes", lit(randomSource.name()), lit(seed), lit(numBytes))
+     ShimUtils.callFunction("rng_bytes", lit(randomSource.name()), lit(seed), lit(numBytes))
 
   /**
    * Creates a uuid from byte arrays or two longs, use with the rng() function to generate random uuids.
    *
    * @param child the expression to produce a BinaryType
    */
-  def rng_uuid(column: Column): Column = //ShimUtils.column(RngUUIDExpression(expression(column)))
+  def rng_uuid(column: Column): Column =
     ShimUtils.callFunction("rng_uuid", column)
 }

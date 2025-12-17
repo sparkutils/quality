@@ -4,30 +4,37 @@ import com.sparkutils.quality.impl.util.Optional
 
 import scala.collection.JavaConverters._
 
+@SerialVersionUID(1L)
 sealed trait RuleResult extends Serializable
 
+@SerialVersionUID(1L)
 case object Failed extends RuleResult
+@SerialVersionUID(1L)
 case object Passed extends RuleResult
 
 /**
  * This shouldn't evaluate to a fail, think of it as Amber / Warn
  */
+@SerialVersionUID(1L)
 case object SoftFailed extends RuleResult
 
 /**
  * This shouldn't evaluate to a fail, allows signalling a rule has been disabled
  */
+@SerialVersionUID(1L)
 case object DisabledRule extends RuleResult
 
 /**
   * 0-1 with 1 being absolutely likely a pass
   * @param percentage
   */
+@SerialVersionUID(1L)
 case class Probability(percentage: Double) extends RuleResult
 
 /**
  * Packs a rule result with a RunOnPassProcessor processor
  */
+@SerialVersionUID(1L)
 case class RuleResultWithProcessor(ruleResult: RuleResult, runOnPassProcessor: RunOnPassProcessor) extends RuleResult
 
 /**
@@ -35,6 +42,7 @@ case class RuleResultWithProcessor(ruleResult: RuleResult, runOnPassProcessor: R
   * @param overallResult
   * @param ruleResults rule id -> ruleresult
   */
+@SerialVersionUID(1L)
 case class RuleSetResult(overallResult: RuleResult, ruleResults: Map[VersionedId, RuleResult]) extends Serializable {
   def getRuleResults: java.util.Map[VersionedId, RuleResult] = ruleResults.asJava
 }
@@ -45,6 +53,7 @@ case class RuleSetResult(overallResult: RuleResult, ruleResults: Map[VersionedId
  * @param id
  * @param ruleSetResults
  */
+@SerialVersionUID(1L)
 case class RuleSuiteResultDetails(id: VersionedId, ruleSetResults: Map[VersionedId, RuleSetResult]) extends Serializable {
   def getRuleSetResults: java.util.Map[VersionedId, RuleSetResult] = ruleSetResults.asJava
 }
@@ -64,6 +73,7 @@ object RuleSuiteResultDetails {
 /**
  * A lazy proxy for RuleSuiteResultDetails
  */
+@SerialVersionUID(1L)
 trait LazyRuleSuiteResultDetails extends Serializable {
   def ruleSuiteResultDetails: RuleSuiteResultDetails
 }
@@ -74,6 +84,7 @@ trait LazyRuleSuiteResultDetails extends Serializable {
   * @param overallResult
   * @param ruleSetResults
   */
+@SerialVersionUID(1L)
 case class RuleSuiteResult(id: VersionedId, overallResult: RuleResult, ruleSetResults: Map[VersionedId, RuleSetResult]) extends Serializable {
   def details: RuleSuiteResultDetails = RuleSuiteResultDetails(id, ruleSetResults)
   def getRuleSetResults: java.util.Map[VersionedId, RuleSetResult] = ruleSetResults.asJava
@@ -84,6 +95,7 @@ case class RuleSuiteResult(id: VersionedId, overallResult: RuleResult, ruleSetRe
  * @param result the result casted to string
  * @param resultDDL the result type in ddl
  */
+@SerialVersionUID(1L)
 case class GeneralExpressionResult(result: String, resultDDL: String) {
   // provided for compatibility
   def ruleResult: String = result
@@ -94,6 +106,7 @@ case class GeneralExpressionResult(result: String, resultDDL: String) {
  * @param id
  * @param ruleSetResults
  */
+@SerialVersionUID(1L)
 case class GeneralExpressionsResult[R](id: VersionedId, ruleSetResults: Map[VersionedId, Map[VersionedId, R]]) extends Serializable {
   def getRuleSetResults: java.util.Map[VersionedId, Map[VersionedId, R]] = ruleSetResults.asJava
 }
@@ -103,6 +116,7 @@ case class GeneralExpressionsResult[R](id: VersionedId, ruleSetResults: Map[Vers
  * @param id
  * @param ruleSetResults
  */
+@SerialVersionUID(1L)
 case class GeneralExpressionsResultNoDDL(id: VersionedId, ruleSetResults: Map[VersionedId, Map[VersionedId, String]]) extends Serializable {
   def getRuleSetResults: java.util.Map[VersionedId, Map[VersionedId, String]] = ruleSetResults.asJava
 }
@@ -113,6 +127,7 @@ case class GeneralExpressionsResultNoDDL(id: VersionedId, ruleSetResults: Map[Ve
  * @param ruleSetId
  * @param ruleId
  */
+@SerialVersionUID(1L)
 case class SalientRule(ruleSuiteId: VersionedId, ruleSetId: VersionedId, ruleId: VersionedId)
 
 /**
@@ -121,6 +136,7 @@ case class SalientRule(ruleSuiteId: VersionedId, ruleSetId: VersionedId, ruleId:
  * @param salientRule if it's None there is no rule which matched for this row or it's in Debug mode which will return all results.
  * @param result The result type for this row, if no rule matched this will be None, if a rule matched but the outputexpression returned null this will also be None
  */
+@SerialVersionUID(1L)
 case class RuleEngineResult[T](ruleSuiteResults: RuleSuiteResult, salientRule: Option[SalientRule], result: Option[T]) extends Serializable {
   def getSalientRule: java.util.Optional[SalientRule] = Optional.toOptional(salientRule)
 
@@ -132,6 +148,7 @@ case class RuleEngineResult[T](ruleSuiteResults: RuleSuiteResult, salientRule: O
  * @param ruleSuiteResults Overall results from applying the engine
  * @param result The result type for this row, if no rule matched this will be None, if a rule matched but the outputexpression returned null this will also be None
  */
+@SerialVersionUID(1L)
 case class RuleFolderResult[T](ruleSuiteResults: RuleSuiteResult, result: Option[T]) extends Serializable {
   def getResult: java.util.Optional[T] = Optional.toOptional(result)
 }

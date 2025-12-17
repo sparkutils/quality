@@ -50,19 +50,25 @@ object BloomFilter {
     */
   sealed trait HashStrategy
   case object XXH64 extends HashStrategy {
+    // $COVERAGE-OFF$
     override def toString = "xxhash"
+    // $COVERAGE-ON$
   }
 
   // Bloom filter algorithm.
   sealed trait Algorithm
   case object BLOCK extends Algorithm {
+    // $COVERAGE-OFF$
     override def toString = "block"
+    // $COVERAGE-ON$
   }
 
   // Bloom filter compression.
   sealed trait Compression
   case object UNCOMPRESSED extends Compression {
+    // $COVERAGE-OFF$
     override def toString = "uncompressed"
+    // $COVERAGE-ON$
   }
 
 }

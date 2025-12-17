@@ -33,8 +33,17 @@ import com.sparkutils.quality.classicFunctions._
 The classicFunctions rule, engine, folder and expression runner functions will use connect where required and classic where possible.  Functions which are only possible to use with classic are annotated with ClassicOnly.
 
 ??? note "registerQualityFunctions has no params?"
-    com.sparkutils.quality.registerQualityFunctions no longer takes parameters.  On classic, non quality_api, it forwards to the com.sparkutils.quality.classicFunction.registerQualityFunctions's default implementation.
-    When using quality_api via connect it's a no-op, as the functions exist on the server.    
+com.sparkutils.quality.registerQualityFunctions no longer takes parameters.  On classic, non quality_api, it forwards to the com.sparkutils.quality.classicFunction.registerQualityFunctions's default implementation.
+When using quality_api via connect it's a no-op, as the functions exist on the server.
+
+### Breaking Change Spark 4
+
+The SQL function's map_lookup and map_contains take the additional parameter of the MapLookup Spark SQL Variable name:
+
+```sql
+map_lookup('mapid', expr, mapLookupsVar)
+map_contains('mapid', expr, mapLookupsVar)
+```
 
 ### Spark 4, Connect and Remote Calls
 

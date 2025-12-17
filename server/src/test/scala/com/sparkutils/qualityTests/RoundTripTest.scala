@@ -4,7 +4,7 @@ import com.sparkutils.quality._
 import com.sparkutils.quality.impl.PackId.packId
 import com.sparkutils.qualityTests.util.{RowTools, SharedPureConnectTests}
 import com.sparkutils.testing.TestUtils.debug
-import types._
+import com.sparkutils.quality.impl.types._
 import impl.util.OutputExpressionRow
 import org.apache.spark.sql.SaveMode
 import org.apache.spark.sql.functions._

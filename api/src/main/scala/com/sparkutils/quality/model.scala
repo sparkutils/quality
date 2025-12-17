@@ -7,6 +7,7 @@ import org.apache.spark.sql.DataFrame
  * @param msg
  * @param cause
  */
+@SerialVersionUID(1L)
 case class QualityException(msg: String, cause: Throwable = null) extends RuntimeException(msg, cause)
 
 object QualityException {

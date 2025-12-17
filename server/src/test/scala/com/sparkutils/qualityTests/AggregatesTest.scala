@@ -219,9 +219,8 @@ class AggregatesTest extends SharedPureConnectTests with VariableTestShims with 
     evalCodeGensNoResolve {
       val s = sparkSession
       import s.implicits._
-      val df = sparkSession.range(1, aggregatesTestSTooFastBuffer).union(
-        sparkSession.range(1, 2).select(lit(null).as[java.lang.Long])
-      )
+      // using map via udf forces the classes and jars to be sent to the remote server, helping to test testing
+      val df = sparkSession.range(1, aggregatesTestSTooFastBuffer).union(sparkSession.range(1, 2).map(_ => null.asInstanceOf[Long]))
 
       val summed = df.select(expr("aggExpr(id % 2 > 0, sumWith(sum -> sum + id), resultsWith( (sum, count) -> sum / count ) )").as("aggExpr"))
 

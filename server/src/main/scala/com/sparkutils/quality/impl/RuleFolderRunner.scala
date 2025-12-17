@@ -1,6 +1,6 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality._
+import com.sparkutils.quality.{impl, _}
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
 import com.sparkutils.quality.impl.imports.ClassicRuleFolderRunnerImports
 import com.sparkutils.quality.impl.util.PassThroughEvalOnly
@@ -86,7 +86,7 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression {
   }
 
   def dataType: DataType = StructType( Seq(
-      StructField(name = "ruleSuiteResults", dataType = com.sparkutils.quality.types.ruleSuiteResultType),
+      StructField(name = "ruleSuiteResults", dataType = impl.types.ruleSuiteResultType),
       StructField(name = "result", dataType = resultDataType(), nullable = true)
     ))
 

@@ -310,7 +310,11 @@ class RuleFolderTest extends RuleFolderTestBase {
 
   // Below seem to have issues with casting as[ the fields are swapped.
 
-  test("testSimpleProductionRulesReplaceDebug") { doTestSimpleProductionRulesReplaceDebug(false) }
+  test("testSimpleProductionRulesReplaceDebug") {
+    defaultAndForceConnect {
+      doTestSimpleProductionRulesReplaceDebug(false)
+    }
+  }
 
   test("testSimpleProductionRulesReplaceDebugSet") { doTestSimpleProductionRulesReplaceDebug(true) }
 

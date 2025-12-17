@@ -18,8 +18,11 @@ object RandomBytes {
    * @param seed the seed to use / mixin
    * @return a column with the appropriate rng defined
    */
+  // $COVERAGE-OFF$
+  @deprecated(message = "Please use rng_bytes instead", since = "0.2.0")
   def apply(randomSource: RandomSource, numBytes: Int = 16, seed: Long = 0): Column =
     column( apply(numBytes, randomSource, seed) )
+  // $COVERAGE-ON$
 
   def apply(numBytes: Int, randomSource: RandomSource, seed: Long): Expression =
     if (randomSource.isJumpable)

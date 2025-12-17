@@ -1,9 +1,10 @@
 package com.sparkutils.qualityTests.classicOnly
 
 import com.sparkutils.quality.impl.util.{Docs, DocsParser}
+import com.sparkutils.testing.markers.DontRunOnPureConnect
 import org.scalatest.{FunSuite, Matchers}
 
-class DocsParserTest extends FunSuite with Matchers {
+class DocsParserTest extends FunSuite with Matchers with DontRunOnPureConnect {
 
   test("simpleParsingTest") {
     val test = "/** My Description @param name name desc @param othername othername desc @return return val*/ "

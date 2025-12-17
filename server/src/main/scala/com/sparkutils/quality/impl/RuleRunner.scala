@@ -83,7 +83,7 @@ protected[quality] object RuleRunnerImpl {
   def ruleRunnerImpl(ruleSuite: RuleSuite, compileEvals: Boolean = false,
                      variablesPerFunc: Int = 40, variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false): Column =
     ShimUtils.callFunction("dq_rule_runner", lit(RuleSuiteHelpers.serialize(ruleSuite)), lit(compileEvals), lit(variablesPerFunc), lit(variableFuncGroup), lit(forceRunnerEval))
-// TODO remove this?
+
 }
 
 private[quality] object RuleRunnerUtils extends RuleRunnerImports {

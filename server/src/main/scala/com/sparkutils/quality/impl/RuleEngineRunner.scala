@@ -1,11 +1,10 @@
 package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.impl.RuleRunnerUtils.RuleSuiteResultArray
-import com.sparkutils.quality.Id
+import com.sparkutils.quality.{Id, impl, _}
 import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenExpressions
 import com.sparkutils.quality.impl.RuleRunnerUtils.{genRuleSuiteTerm, packTheId}
-import com.sparkutils.quality._
 import com.sparkutils.quality.impl.imports.RuleEngineRunnerImports
 import PackId.packId
 import com.sparkutils.quality
@@ -415,8 +414,8 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression {
   }
 
   def dataType: DataType = StructType( Seq(
-      StructField(name = "ruleSuiteResults", dataType = com.sparkutils.quality.types.ruleSuiteResultType),
-      StructField(name = "salientRule", dataType = com.sparkutils.quality.types.fullRuleIdType, nullable = true),
+      StructField(name = "ruleSuiteResults", dataType = impl.types.ruleSuiteResultType),
+      StructField(name = "salientRule", dataType = impl.types.fullRuleIdType, nullable = true),
       StructField(name = "result", dataType = resultDataType, nullable = true)
     ))
 
