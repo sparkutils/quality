@@ -30,6 +30,8 @@ Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1 and 3.3.2 are deprecated as are DBR's 12.2
 
 #100 - Support for key functions to be run from the SparkSessionExtension when using quality_api, reducing the integration surface area for other client languages and simplifying upgrades
 
+#108 - Support for Spark 4.1 added
+
 #72 - Defaults for sub expression elimination and compilation of triggers are changed to better overall performance with recent Spark versions. 
 
 > compileEvals and forceTriggerEval now default to false for all runner types.  This has been found to be the best balance for most rules with 

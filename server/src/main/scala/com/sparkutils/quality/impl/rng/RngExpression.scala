@@ -1,6 +1,6 @@
 package com.sparkutils.quality.impl.rng
 
-import com.sparkutils.shim.expressions.StatefulLike
+import com.sparkutils.shim.expressions.{ExpressionWithRandomSeedLike, StatefulLike}
 import org.apache.commons.rng.simple.RandomSource
 import org.apache.spark.sql.Column
 import org.apache.spark.sql.ShimUtils.column
@@ -51,7 +51,7 @@ case class RandBytesNonJump(definedSeed: Long, numBytes: Int, source: RandomSour
  * Base implementation for random number byte generation with pluggable implementations
  */
 abstract class RandBytes extends Expression with StatefulLike
-  with ExpressionWithRandomSeed with CodegenFallback with RngImpl {
+  with ExpressionWithRandomSeedLike with CodegenFallback with RngImpl {
 
   type ThisType <: RandBytes
 
@@ -127,7 +127,7 @@ case class RandLongsNonJump(definedSeed: Long, source: RandomSource) extends Ran
  * Base implementation for random number two long (128 bit) generation with pluggable implementations
  */
 abstract class RandLongs extends Expression with StatefulLike
-  with ExpressionWithRandomSeed with CodegenFallback with RngImpl {
+  with ExpressionWithRandomSeedLike with CodegenFallback with RngImpl {
 
   type ThisType <: RandLongs
 

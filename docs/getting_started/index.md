@@ -158,6 +158,8 @@ The full list of supported runtimes is below:
 | 4.0.0         | 4.0               | 17.3.dbr_      | 2.13               |
 | 4.0.0         | 4.0               | api_4.0.0.oss_ | 2.13               |
 | 4.0.0         | 4.0               | api_17.3.dbr_  | 2.13               |
+| 4.1.0         | 4.1               | api_4.1.0.oss_ | 2.13               |
+| 4.1.0         | 4.1               | 4.1.0.oss_     | 2.13               |
 
 Fabric 1.3 uses the 3.5.0.oss_ runtime, other Fabric runtimes may run on their equivalent OSS version.
 
