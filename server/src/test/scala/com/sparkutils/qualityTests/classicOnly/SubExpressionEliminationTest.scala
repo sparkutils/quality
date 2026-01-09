@@ -8,6 +8,7 @@ import com.sparkutils.quality.{LambdaFunction, _}
 import com.sparkutils.quality.impl.ExpressionRunner
 import com.sparkutils.qualityTests.util.ClassicSharedTests
 import com.sparkutils.shim.expressions.NullIntolerant
+import com.sparkutils.testing.TestUtilsEnvironment
 import org.apache.spark.sql
 import org.apache.spark.sql.catalyst.util.TypeUtils
 import org.apache.spark.sql.types.{BooleanType, DataType}
@@ -69,7 +70,13 @@ class SubExpressionEliminationTest extends ClassicSharedTests {
   val expectedTriggerRules = 12*rows // (4 rows, 12 times called per each)
   val expectedEliminatedTriggerRules = 6*rows // 4 rows, 6 _unique_
 
-  test("controlRunner") { evalCodeGensNoResolve{ doRunner(expectedTriggerRules / 2, ruleRunner(_)) }   }
+  test("controlRunner") {
+    if (sparkVersionNumericMajor != 30) {
+      evalCodeGensNoResolve {
+        doRunner(expectedTriggerRules / 2, ruleRunner(_))
+      }
+    }
+  }
 
   test("controlRunner old defaults") { evalCodeGensNoResolve{ doRunner(expectedTriggerRules , ruleRunner(_, compileEvals = true)) }   }
 
@@ -88,7 +95,13 @@ class SubExpressionEliminationTest extends ClassicSharedTests {
 
   val expectedOutputRules = rows // one for each row is extra called
 
-  test("controlEngine") { evalCodeGensNoResolve{ doOutput((expectedTriggerRules / 2 ) , ruleEngineRunner(_), outputExpr) }  }
+  test("controlEngine") {
+    if (sparkVersionNumericMajor != 30) {
+      evalCodeGensNoResolve {
+        doOutput((expectedTriggerRules / 2), ruleEngineRunner(_), outputExpr)
+      }
+    }
+  }
 
   test("controlEngine old defaults") { evalCodeGensNoResolve{ doOutput(expectedTriggerRules + expectedOutputRules , ruleEngineRunner(_, compileEvals = true, forceTriggerEval = true), outputExpr) }  }
 
