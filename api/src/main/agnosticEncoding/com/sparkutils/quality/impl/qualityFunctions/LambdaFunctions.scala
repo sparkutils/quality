@@ -1,9 +1,6 @@
-package com.sparkutils.quality.impl
+package com.sparkutils.quality.impl.qualityFunctions
 
 import com.sparkutils.quality.LambdaFunction
-import com.sparkutils.quality.impl.extension.QualityFunctionParserConstants.{CREATE_FUNCTION_PREFIX, DIVIDER, WITH_TOKEN}
-import com.sparkutils.quality.impl.qualityFunctions.LambdaFunctions
-import org.apache.spark.sql.{ShimUtils, SparkSession}
 
 /*
  When building 0.2.0 verify issues:
@@ -32,7 +29,7 @@ Exception Details:
 
  were triggered on connect only clients as plan is no longer the same thing.  As such the split was introduced.
  */
-object QualitySparkUtils {
+object LambdaFunctions {
 
   def registerLambdaFunctions(functions: Seq[LambdaFunction]): Unit =
     if (functions.nonEmpty)
@@ -50,4 +47,5 @@ object QualitySparkUtils {
       }
     else
       ()
+
 }
