@@ -7,8 +7,6 @@ import com.sparkutils.quality.{LazyRuleSuiteResult, LazyRuleSuiteResultDetails, 
 import org.apache.spark.sql.{Encoder, Row, ShimUtils}
 import org.apache.spark.sql.types.StructType
 
-
-
 /*
  * Need an approach via row, still classic runtime only
  */

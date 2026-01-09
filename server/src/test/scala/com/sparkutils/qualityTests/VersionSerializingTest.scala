@@ -121,56 +121,57 @@ class VersionSerializingTest extends SharedPureConnectTests {
       toDS(rulesA3)
     debug(df.show())
 
-    val rereadWithoutLambdas = readVersionedRulesFromDF(df.toDF(),
-      col("ruleSuiteId"),
-      col("ruleSuiteVersion"),
-      col("ruleSetId"),
-      col("ruleSetVersion"),
-      col("ruleId"),
-      col("ruleVersion"),
-      col("ruleExpr"),
-      col("ruleEngineSalience"),
-      col("ruleEngineId"),
-      col("ruleEngineVersion")
-    )
+    defaultAndForceConnect {
+      val rereadWithoutLambdas = readVersionedRulesFromDF(df.toDF(),
+        col("ruleSuiteId"),
+        col("ruleSuiteVersion"),
+        col("ruleSetId"),
+        col("ruleSetVersion"),
+        col("ruleId"),
+        col("ruleVersion"),
+        col("ruleExpr"),
+        col("ruleEngineSalience"),
+        col("ruleEngineId"),
+        col("ruleEngineVersion")
+      )
 
-    val lambdas = readVersionedLambdasFromDF(lambdaDF.toDF(),
-      col("name"),
-      col("ruleExpr"),
-      col("functionId"),
-      col("functionVersion"),
-      col("ruleSuiteId"),
-      col("ruleSuiteVersion")
-    )
+      val lambdas = readVersionedLambdasFromDF(lambdaDF.toDF(),
+        col("name"),
+        col("ruleExpr"),
+        col("functionId"),
+        col("functionVersion"),
+        col("ruleSuiteId"),
+        col("ruleSuiteVersion")
+      )
 
-    val outputExpressions = readVersionedOutputExpressionsFromDF(outputExpressionsDF.toDF(),
-      col("ruleExpr"),
-      col("functionId"),
-      col("functionVersion"),
-      col("ruleSuiteId"),
-      col("ruleSuiteVersion")
-    )
+      val outputExpressions = readVersionedOutputExpressionsFromDF(outputExpressionsDF.toDF(),
+        col("ruleExpr"),
+        col("functionId"),
+        col("functionVersion"),
+        col("ruleSuiteId"),
+        col("ruleSuiteVersion")
+      )
 
-    val rereadWithLambdas = integrateVersionedLambdas(rereadWithoutLambdas, lambdas)
-    val (reread, _) = integrateVersionedOutputExpressions(rereadWithLambdas, outputExpressions)
+      val rereadWithLambdas = integrateVersionedLambdas(rereadWithoutLambdas, lambdas)
+      val (reread, _) = integrateVersionedOutputExpressions(rereadWithLambdas, outputExpressions)
 
-    def assertEq(id: Id, expected: RuleSuite): Unit = {
-      val reRules = reread.getOrElse(id, fail("Could not read the rule back"))
+      def assertEq(id: Id, expected: RuleSuite): Unit = {
+        val reRules = reread.getOrElse(id, fail("Could not read the rule back"))
 
-      def toOrdered(ruleSuite: RuleSuite): RuleSuite = {
-        RuleSuite(ruleSuite.id,
-          ruleSuite.ruleSets.map(rs => RuleSet(rs.id, rs.rules.toVector.sortBy(r => packId(r.id)))).toVector.
-            sortBy(rs => packId(rs.id))
-        )
+        def toOrdered(ruleSuite: RuleSuite): RuleSuite = {
+          RuleSuite(ruleSuite.id,
+            ruleSuite.ruleSets.map(rs => RuleSet(rs.id, rs.rules.toVector.sortBy(r => packId(r.id)))).toVector.
+              sortBy(rs => packId(rs.id))
+          )
+        }
+
+        assert(toOrdered(expected) == toOrdered(reRules), s"The rules for $id were not identical")
       }
 
-      assert(toOrdered(expected) == toOrdered(reRules), s"The rules for $id were not identical")
+      assertEq(rsIdA1, rulesA1)
+      assertEq(rsIdA2, expectedA2)
+      assertEq(rsIdA3, expectedA3)
     }
-
-    assertEq(rsIdA1, rulesA1)
-    assertEq(rsIdA2, expectedA2)
-    assertEq(rsIdA3, expectedA3)
-
   } }
 
 }

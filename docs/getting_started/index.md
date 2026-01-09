@@ -33,8 +33,17 @@ import com.sparkutils.quality.classicFunctions._
 The classicFunctions rule, engine, folder and expression runner functions will use connect where required and classic where possible.  Functions which are only possible to use with classic are annotated with ClassicOnly.
 
 ??? note "registerQualityFunctions has no params?"
-    com.sparkutils.quality.registerQualityFunctions no longer takes parameters.  On classic, non quality_api, it forwards to the com.sparkutils.quality.classicFunction.registerQualityFunctions's default implementation.
-    When using quality_api via connect it's a no-op, as the functions exist on the server.    
+com.sparkutils.quality.registerQualityFunctions no longer takes parameters.  On classic, non quality_api, it forwards to the com.sparkutils.quality.classicFunction.registerQualityFunctions's default implementation.
+When using quality_api via connect it's a no-op, as the functions exist on the server.
+
+### Breaking Change Spark 4
+
+The SQL function's map_lookup and map_contains take the additional parameter of the MapLookup Spark SQL Variable name:
+
+```sql
+map_lookup('mapid', expr, mapLookupsVar)
+map_contains('mapid', expr, mapLookupsVar)
+```
 
 ### Spark 4, Connect and Remote Calls
 
@@ -149,6 +158,8 @@ The full list of supported runtimes is below:
 | 4.0.0         | 4.0               | 17.3.dbr_      | 2.13               |
 | 4.0.0         | 4.0               | api_4.0.0.oss_ | 2.13               |
 | 4.0.0         | 4.0               | api_17.3.dbr_  | 2.13               |
+| 4.1.0         | 4.1               | api_4.1.0.oss_ | 2.13               |
+| 4.1.0         | 4.1               | 4.1.0.oss_     | 2.13               |
 
 Fabric 1.3 uses the 3.5.0.oss_ runtime, other Fabric runtimes may run on their equivalent OSS version.
 

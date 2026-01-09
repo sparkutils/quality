@@ -14,7 +14,5 @@ object QualityTestRunner extends TestRunner {
   // when on fabric or databricks disables cluster tests
   setupDefaultsViaCurrentSession()
 
-  def main(args: Array[String]): Unit = {
-    test(args)
-  }
+  def main(args: Array[String]): Unit = test(args)
 }

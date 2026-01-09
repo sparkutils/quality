@@ -3,15 +3,15 @@ package com.sparkutils.qualityTests.util
 import com.sparkutils.quality
 import com.sparkutils.quality.impl.extension.FunNRewrite
 import com.sparkutils.quality.{RuleSuite, ruleRunner}
-import com.sparkutils.testing.SparkTestUtils.{connectMemory, scoverageClassPathsConfig}
+import com.sparkutils.testing.SparkTestUtils.{connectMemory, scoverageClassPathsConfig, useDebugConnectLogs}
 import com.sparkutils.testing._
 import com.sparkutils.testing.markers.{ConnectSafe, DontRunOnPureConnect}
 import com.sparkutils.testing.sessionStrategies.{GlobalSession, SharedSessions}
 import org.apache.spark.sql.ClassicQualitySparkUtils.DatasetBase
 import org.apache.spark.sql.{Dataset, Row}
-import org.scalatest.{BeforeAndAfterAll, FunSuite}
+import org.scalatest.{BeforeAndAfterAll, FunSuite, TestSuite}
 
-trait ClassicSharedTests extends FunSuite with TestUtilsBase with SharedSessions with BeforeAndAfterAll {
+trait ClassicSharedTests extends FunSuite with TestSetup {
 
   override val currentSessionsHolder: SessionsStateHolder = GlobalSession
 
@@ -45,7 +45,7 @@ trait SharedConnectTests extends SharedPureConnectTests with ClassicSharedTests 
 
 }
 
-trait SharedPureConnectTests extends FunSuite with TestUtilsBase with SharedSessions with ConnectSafe {
+trait TestSetup extends SparkTestSuite with TestUtilsBase with SharedSessions { self: TestSuite =>
 
   override def beforeAll(): Unit = {
     // no-op to force it to be created
@@ -59,18 +59,22 @@ trait SharedPureConnectTests extends FunSuite with TestUtilsBase with SharedSess
     })
   }
 
-  override val currentSessionsHolder: SessionsStateHolder = GlobalSession
-
-  override val runWith: ConnectionType = UseBoth
-
-  //override def connectServerLoggingLevel = "DEBUG"
+  override def connectServerLoggingLevel = "DEBUG"
 
   override def sparkConnectServerConfig(): Map[String, String] =
-    super.sparkConnectServerConfig() + // useDebugConnectLogs +
+    super.sparkConnectServerConfig() + //useDebugConnectLogs +
       scoverageClassPathsConfig + connectMemory("4g") +
       (("spark.sql.extensions", "com.sparkutils.quality.impl.extension.QualitySparkExtension")) + // text used for connect only tests in dbr
       (("javax.jdo.option.ConnectionURL", "jdbc:derby:;databaseName=connect_metastore_db;create=true")) +
       (("spark.sql.codegen.factoryMode", "NO_CODEGEN"))
+
+}
+
+trait SharedPureConnectTests extends FunSuite with TestSetup with ConnectSafe {
+
+  override val currentSessionsHolder: SessionsStateHolder = GlobalSession
+
+  override val runWith: ConnectionType = UseBoth
 
 }
 

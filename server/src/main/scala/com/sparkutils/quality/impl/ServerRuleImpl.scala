@@ -4,7 +4,7 @@ import com.sparkutils.quality
 import com.sparkutils.quality.RuleSuite.mapRules
 import com.sparkutils.quality.impl.ExpressionCompiler.withExpressionCompiler
 import com.sparkutils.quality.impl.util.SubQueryWrapper
-import com.sparkutils.quality._
+import com.sparkutils.quality.{impl, _}
 import com.sparkutils.quality.impl.ExpressionRuleExpr.ExpressionRuleOps
 import com.sparkutils.quality.impl.RunOnPassProcessorImpl.RunOnPassProcessorImplOps
 import com.sparkutils.shim.expressions.Names.toName
@@ -649,7 +649,7 @@ object RuleSuiteFunctions {
             case e: ExprLogic => e.internalEval(internalRow)
           }
           r.id -> (
-            if (dataType == quality.types.expressionResultTypeYaml) {
+            if (dataType == impl.types.expressionResultTypeYaml) {
               // it's a cast to string
               val resultType = r.expression match {
                 case expr: HasExpr =>

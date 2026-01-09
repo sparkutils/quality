@@ -1,7 +1,8 @@
 package com.sparkutils.quality.impl
 
+import com.sparkutils.quality.impl
 import com.sparkutils.quality.impl.MapUtils.getMapEntry
-import com.sparkutils.quality.types._
+import com.sparkutils.quality.impl.types._
 import org.apache.spark.sql.Column
 import org.apache.spark.sql.ShimUtils.{column, expression}
 import org.apache.spark.sql.catalyst.InternalRow
@@ -156,7 +157,7 @@ case class RuleResultExpression(children: Seq[Expression]) extends
     children(0).dataType match {
       case ExpressionsResultsType(theType) =>
         (theType, expressionsRuleSetType(theType), (a: Any) => a.asInstanceOf[MapData] )
-      case com.sparkutils.quality.types.expressionsResultsNoDDLType =>
+      case impl.types.expressionsResultsNoDDLType =>
         (StringType, expressionsRuleSetNoDDLType, (a: Any) => a.asInstanceOf[MapData])
       case _ =>
         (IntegerType, ruleSetType, (a: Any) => a.asInstanceOf[InternalRow].getMap (1) )

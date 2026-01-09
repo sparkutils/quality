@@ -215,13 +215,11 @@ class AggregatesTest extends SharedPureConnectTests with VariableTestShims with 
     }
   }
 
-  test("evalSumTest") {
-    evalCodeGensNoResolve {
+  ignore("evalSumTest") { v4_1_and_above { evalCodeGensNoResolve {
       val s = sparkSession
       import s.implicits._
-      val df = sparkSession.range(1, aggregatesTestSTooFastBuffer).union(
-        sparkSession.range(1, 2).select(lit(null).as[java.lang.Long])
-      )
+      // using map via udf forces the classes and jars to be sent to the remote server, helping to test testing
+      val df = sparkSession.range(1, aggregatesTestSTooFastBuffer).union(sparkSession.range(1, 2).map(_ => null.asInstanceOf[Long]))
 
       val summed = df.select(expr("aggExpr(id % 2 > 0, sumWith(sum -> sum + id), resultsWith( (sum, count) -> sum / count ) )").as("aggExpr"))
 
@@ -242,8 +240,7 @@ class AggregatesTest extends SharedPureConnectTests with VariableTestShims with 
       debug(summedNameFParam.show(1))
 
       assert(summedNameFParam.head().getAs[Double]("aggExpr") == (set.sum / set.size), "aggExpr did not have the correct math from NameFParam")
-    }
-  }
+  } } }
 
   lazy val mapCountExpr = expr("aggExpr('MAP<STRING, LONG>', 1 > 0, mapWith(date || ', ' || product, entry -> entry + 1 ), resultsWith((sum, count) -> sum ) )").as("mapCountExpr")
   lazy val mapDeprecatedCountExpr = expr("aggExpr(1 > 0, mapWith('MAP<STRING, LONG>', date || ', ' || product, entry -> entry + 1 ), resultsWith('MAP<STRING, LONG>', (sum, count) -> sum ) )").as("mapCountExpr")

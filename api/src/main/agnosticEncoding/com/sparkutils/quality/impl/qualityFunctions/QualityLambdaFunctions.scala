@@ -1,4 +1,4 @@
-package com.sparkutils.quality.impl
+package com.sparkutils.quality.impl.qualityFunctions
 
 import com.sparkutils.quality.LambdaFunction
 import com.sparkutils.quality.impl.extension.QualityFunctionParserConstants.{CREATE_FUNCTION_PREFIX, DIVIDER, WITH_TOKEN}
@@ -32,10 +32,12 @@ Exception Details:
 
  were triggered on connect only clients as plan is no longer the same thing.  As such the split was introduced.
  */
-object QualitySparkUtils {
+object QualityLambdaFunctions {
 
-  def registerLambdaFunctions(functions: Seq[LambdaFunction]): Unit =
-    if (functions.nonEmpty)
+  def registerLambdaFunctions(functions: Seq[LambdaFunction]): Unit = {
+    val registeredViaDriver = LambdaFunctions.registerLambdaFunctions(functions)
+
+    if (functions.nonEmpty && !registeredViaDriver)
       SparkSession.active match {
         case s if ShimUtils.isClassic(s) =>
           LambdaFunctions.registerLambdaFunctions(functions)
@@ -50,4 +52,6 @@ object QualitySparkUtils {
       }
     else
       ()
+  }
+
 }

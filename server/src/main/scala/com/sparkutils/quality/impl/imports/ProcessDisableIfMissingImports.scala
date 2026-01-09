@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl.imports
 
 import com.sparkutils.quality.RuleSuite
-import com.sparkutils.quality.impl.{ProcessDisableIfMissing, VariableProcessIfMissing}
+import com.sparkutils.quality.impl.ProcessDisableIfMissing
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.types.StructType
 

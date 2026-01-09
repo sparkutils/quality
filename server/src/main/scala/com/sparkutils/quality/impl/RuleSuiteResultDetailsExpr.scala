@@ -7,7 +7,7 @@ import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression, 
 import org.apache.spark.sql.shim.expressions.InputTypeChecks
 import org.apache.spark.sql.types._
 
-import com.sparkutils.quality.types.{ruleSuiteResultType, ruleSuiteDetailsResultType}
+import types.{ruleSuiteResultType, ruleSuiteDetailsResultType}
 
 object RuleSuiteResultDetailsExpr {
   def getDetails(input: scala.Any): InternalRow = {

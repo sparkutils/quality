@@ -1,7 +1,7 @@
 ### [0.2.0](https://github.com/sparkutils/quality/milestone/10?closed=1) <small>24th December, 2025</small>
 
-This release migrates Spark 4 support to use AgnosticEncoders and removes EOL runtimes: 2.4 and DBR's 9.1, 10.4, 11.3.  
-Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1 and 3.3.2 are deprecated as are DBR's 12.2, 13.1, 13.3 and 14.0 and will be removed as of Quality version 0.2.0. 
+This release migrates Spark 4 support to use AgnosticEncoders and removes EOL runtimes: 2.4 and DBR's 9.1, 10.4, 11.3, 13.1 and 14.0.  
+Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1 and 3.3.2 are deprecated as are DBR's 12.2 and 13.3 and will be removed as of Quality version 0.3.0. 
 
 #90 - Migrate to Spark 4 sql-api, AgnosticEncoder's and support Connect:
 
@@ -23,10 +23,23 @@ Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1 and 3.3.2 are deprecated as are DBR's 12.2
 > 
 > Map and Bloom related functions from 0.2.0 Spark 4 onwards allow multiple lookups to be used and leverage a 
 > struct [Spark Variable](https://spark.apache.org/docs/latest/sql-ref-syntax-ddl-declare-variable.html#:~:text=Temporary%20variables%20are%20scoped%20at,a%20column%20or%20column%20alias.).
-> This change swaps the last parameter type of the DSL, and introduces a third parameter for the SQL interface, to refer to the Spark Variable, with each map being a strongly typed member of the variable available for use with any Spark queries (although probably not all too useful for blooms).
+> This change swaps the last parameter type of the DSL, and introduces a third breaking change parameter for the SQL interface, to refer to the Spark Variable, with each map being a strongly typed member of the variable available for use with any Spark queries (although probably not all too useful for blooms).
 > 
 
-#87 - EOL DBR and Spark runtimes are removed: 9.1, 10.4, 11.3
+#96 - quality_api is introduced, leveraging Spark Connect - allows a client server model and further client language support
+
+#100 - Support for key functions to be run from the SparkSessionExtension when using quality_api, reducing the integration surface area for other client languages and simplifying upgrades
+
+#108 - Support for Spark 4.1 added
+
+#72 - Defaults for sub expression elimination and compilation of triggers are changed to better overall performance with recent Spark versions. 
+
+> compileEvals and forceTriggerEval now default to false for all runner types.  This has been found to be the best balance for most rules with 
+> large performance gains as of 0.1.3.1 for long running processes or larger data volumes.  These can be set to the previous defaults for the old behaviour if
+> code generation itself dominates your applications time.
+> ruleEngineRunner's schema parameter is now Option\[DataType\], wrapping in Some should be sufficient if you are not relying on the old defaults.
+
+#87 - EOL DBR and Spark runtimes are removed: 9.1, 10.4, 11.3, 13.1, 14.0
 
 #21 - Remove 2.4 Support, Tech Debt removal
 

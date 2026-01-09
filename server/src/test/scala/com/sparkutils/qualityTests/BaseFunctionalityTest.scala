@@ -5,8 +5,8 @@ import com.sparkutils.quality
 import com.sparkutils.quality._
 import com.sparkutils.quality.classicFunctions.{processIfAttributeMissing, validate}
 import com.sparkutils.quality.impl.YamlDecoder
+import com.sparkutils.quality.impl.types._
 import functions._
-import types._
 import impl.PackId.packId
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.StructType
@@ -53,9 +53,11 @@ trait BaseFunctionalityShared extends SharedPureConnectTests with RowTools {
 
     val toWrite = 1400 // writeRows
 
-    val df = taddDataQuality(dataFrameLong(toWrite, 27, ruleSuiteResultType, null), rules)
+    defaultAndForceConnect {
+      val df = taddDataQuality(dataFrameLong(toWrite, 27, ruleSuiteResultType, null), rules)
 
-    doTheRuleResultTest(df, toWrite)
+      doTheRuleResultTest(df, toWrite)
+    }
   }
 
   def doTestRuleResultDetails(): Unit = {
@@ -600,22 +602,24 @@ class BaseFunctionalityTest extends SharedPureConnectTests with RowTools with Ba
 
     import quality.implicits._
 
-    val processed = sparkSession.sql("select 'a' a, 'b' b, null c").select(
-      typedExpressionRunner(rs, ddlType = "STRING"))
+    defaultAndForceConnect {
+      val processed = sparkSession.sql("select 'a' a, 'b' b, null c").select(
+        typedExpressionRunner(rs, ddlType = "STRING"))
 
-    val res = processed.selectExpr("expressionResults.*").as[GeneralExpressionsResult[String]].head()
-    assert(res == GeneralExpressionsResult[String](Id(10, 2), Map(Id(20, 1) -> Map(
-      Id(30, 3) -> "a",
-      Id(31, 3) -> "b",
-      Id(32, 3) -> null
-    ))))
+      val res = processed.selectExpr("expressionResults.*").as[GeneralExpressionsResult[String]].head()
+      assert(res == GeneralExpressionsResult[String](Id(10, 2), Map(Id(20, 1) -> Map(
+        Id(30, 3) -> "a",
+        Id(31, 3) -> "b",
+        Id(32, 3) -> null
+      ))))
 
-    val s = sparkSession
-    import s.implicits._
-    val gres =
-      processed.selectExpr("rule_result(expressionResults, pack_ints(10,2), pack_ints(20,1), pack_ints(31,3)) rr")
-        .as[String].head()
-    assert(gres == "b")
+      val s = sparkSession
+      import s.implicits._
+      val gres =
+        processed.selectExpr("rule_result(expressionResults, pack_ints(10,2), pack_ints(20,1), pack_ints(31,3)) rr")
+          .as[String].head()
+      assert(gres == "b")
+    }
   }}
 
   test("updateFields") { evalCodeGens {
@@ -712,7 +716,7 @@ class BaseFunctionalityTest extends SharedPureConnectTests with RowTools with Ba
     assert(comparison(rsres.ruleResults.values))
   }
 
-  test("softShouldShowPassed") { not2_4{ evalCodeGens {
+  test("softShouldShowPassed") { evalCodeGens {
     val rs =
       RuleSuite(Id(101, 1), List(RuleSet(Id(101, 1), List(
         Rule(Id(202, 2), ExpressionRule(s"""softFail(
@@ -788,7 +792,7 @@ class BaseFunctionalityTest extends SharedPureConnectTests with RowTools with Ba
       Map(Passed -> 6, SoftFailed -> 2),
       Map(Passed -> 6, SoftFailed -> 2)
     ))
-  } } }
+  } }
 
 }
 
