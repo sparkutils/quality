@@ -1,6 +1,9 @@
 package com.sparkutils.quality.impl.qualityFunctions
 
 import com.sparkutils.quality.LambdaFunction
+import com.sparkutils.quality.impl.extension.QualityFunctionParserConstants.{CREATE_FUNCTION_PREFIX, DIVIDER, WITH_TOKEN}
+import com.sparkutils.quality.impl.qualityFunctions.LambdaFunctions
+import org.apache.spark.sql.{ShimUtils, SparkSession}
 
 /*
  When building 0.2.0 verify issues:
