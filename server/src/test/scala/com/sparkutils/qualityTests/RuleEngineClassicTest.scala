@@ -108,6 +108,8 @@ class RuleEngineClassicTest extends SharedConnectTests with RuleEngineTestBase {
     Compilation_110("a", "af", Some("a"), "A", "b", None)
   )
 
+  // Using compileEvals = true, forceTriggerEval = true will cause compilation and runtime issues when nesting
+  // and it being wholestage relevant (needs files)
   test("Deeply nested projection causes compilation issue") { evalCodeGensNoResolve {
     import com.sparkutils.quality._
 
@@ -176,7 +178,7 @@ class RuleEngineClassicTest extends SharedConnectTests with RuleEngineTestBase {
     threeOutDf.filter("TEMP_O_3 IS NULL").head() // doesn't work on 14.3
   } } // 22 times in CodeGenerator cook before the right code is there
 
-  override def loggingLevel: String = "DEBUG"
+  // override def loggingLevel: String = "DEBUG"
 }
 
 case class Compilation_110(STARTER: String, STARTER_FLAG: String, I1: Option[String], I2: String, I3: String, I4: Option[String])

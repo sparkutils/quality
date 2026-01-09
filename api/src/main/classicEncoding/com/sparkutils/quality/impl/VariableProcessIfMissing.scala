@@ -1,8 +1,6 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality.RuleSuite
 import org.apache.spark.sql.catalyst.expressions.Expression
-import org.apache.spark.sql.types.StructType
 
 object VariableProcessIfMissingFunctions {
 

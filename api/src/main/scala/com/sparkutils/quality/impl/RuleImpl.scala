@@ -51,14 +51,14 @@ case class HolderUsedInsteadIfImpl(id: Id) extends
   RuntimeException(s"An OutputExpression $id has either not been correctly linked in your rules or you have not called withExpr.")
 
 @SerialVersionUID(1L)
-case class RunOnPassProcessorHolder(salience: Int, id: Id) extends RunOnPassProcessor with Serializable {
+case class RunOnPassProcessorHolder(salience: Int, id: Id) extends quality.RunOnPassProcessor with Serializable {
 
   lazy val rule: String = throw HolderUsedInsteadIfImpl(id)
   lazy val returnIfPassed: OutputExpression = throw HolderUsedInsteadIfImpl(id)
 
-  override def withExpr(expr: quality.OutputExpression): RunOnPassProcessor =
-    RunOnPassProcessorImpl(salience, id, expr match {
-      case h: HasRuleText => h.rule
+  override def withExpr(expr: quality.OutputExpression): quality.RunOnPassProcessor =
+    RunOnPassProcessor.RunOnPassProcessorImpl(salience, id, expr match {
+      case h: quality.HasRuleText => h.rule
       case _ => ""
     }, expr)
 }
