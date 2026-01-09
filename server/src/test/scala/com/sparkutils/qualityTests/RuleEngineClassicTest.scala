@@ -123,7 +123,7 @@ class RuleEngineClassicTest extends SharedConnectTests with RuleEngineTestBase {
       OutputExpression("array(STARTER_FLAG, 'EX_2')")))
     val ruleSuite = RuleSuite(Id(22, 1034), Seq(RuleSet(Id(33, 345), Seq(rule1,rule2))))
     val schema=DataType.fromDDL("ARRAY<STRING>")
-    val rer :org.apache.spark.sql.Column = ruleEngineRunner(ruleSuite,Some(schema), compileEvals = true, forceTriggerEval = true)
+    val rer :org.apache.spark.sql.Column = ruleEngineRunner(ruleSuite,Some(schema))//, compileEvals = true, forceTriggerEval = true)
 
     val fname = outputDir + "/compilation_110_testData"
 
@@ -145,7 +145,7 @@ class RuleEngineClassicTest extends SharedConnectTests with RuleEngineTestBase {
       RunOnPassProcessor(1000, Id(1040,1),OutputExpression("array(I4, 'b', 'EX_4')")))
     val ruleSuite2 = RuleSuite(Id(22, 1034), Seq(RuleSet(Id(33, 345), Seq(rule3,rule4))))
     val schema2=DataType.fromDDL("ARRAY<STRING>")
-    val rer2 :org.apache.spark.sql.Column = ruleEngineRunner(ruleSuite2,Some(schema2), compileEvals = true, forceTriggerEval = true)
+    val rer2 :org.apache.spark.sql.Column = ruleEngineRunner(ruleSuite2,Some(schema2))//, compileEvals = true, forceTriggerEval = true)
 
     val twoOutDf = oneOutDf.select(col("*"), rer2.alias("together")).select(col("*"), expr(exprString)).
       withColumn("TEMP_O_2",col("result").getItem(0)).withColumn("REASON_CODE",col("result").getItem(1)).
@@ -163,7 +163,7 @@ class RuleEngineClassicTest extends SharedConnectTests with RuleEngineTestBase {
 
     val ruleSuite3 = RuleSuite(Id(22, 1034), Seq(RuleSet(Id(33, 345), Seq(rule5,rule6,rule7))))
     val schema3=DataType.fromDDL("ARRAY<STRING>")
-    val rer3 :org.apache.spark.sql.Column = ruleEngineRunner(ruleSuite3,Some(schema3), compileEvals = true, forceTriggerEval = true)
+    val rer3 :org.apache.spark.sql.Column = ruleEngineRunner(ruleSuite3,Some(schema3))//, compileEvals = true, forceTriggerEval = true)
 
     val threeOutDf = twoOutDf.select(col("*"), rer3.alias("together")).select(col("*"), expr(exprString)).
       withColumn("TEMP_O_3",col("result").getItem(0)).withColumn("RULE_ID",col("result").getItem(1))
