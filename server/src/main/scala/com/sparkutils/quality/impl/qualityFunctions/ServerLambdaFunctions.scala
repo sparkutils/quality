@@ -12,7 +12,7 @@ object LambdaFunctions {
    * @param functions
    * @return
    */
-  def registerLambdaFunctions(functions: Seq[LambdaFunction]): Boolean = 
+  def registerLambdaFunctions(functions: Seq[LambdaFunction]): Boolean =
     if (ShimUtils.isClassic(SparkSession.active))
       someOrForcedConnect(
         org.apache.spark.sql.qualityFunctions.LambdaFunctions.registerLambdaFunctions(
