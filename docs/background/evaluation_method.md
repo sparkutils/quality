@@ -42,7 +42,7 @@ so for compiled at a mean of 174,583ms we have 15m rules run at 0.011ms per rule
 
 When using RuleEngineRunners you should try to re-use output expressions (RunOnPassProcessor) wherever possible to improve performance.
 
-!!! warn "Using custom compilation settings and chaining runner is not supported"
+!!! warn "Using custom compilation settings (compileEvals = true, forceTriggerEval = true, forceRunnerEval = true) and chaining runner is not supported"
     Chaining calls to runners using the result of a runner in another runner can lead to nesting of runners, as if you called runners via sql directly within a trigger or an output expression.
     This is only supported when using the default compilation options and correctly working as part of wholestage codegen, allowing Spark to "do it's thing" will also allow for higher degrees of sub expression elimination, constant folding etc..
 

@@ -37,7 +37,8 @@ Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1 and 3.3.2 are deprecated as are DBR's 12.2
 > compileEvals and forceTriggerEval now default to false for all runner types.  This has been found to be the best balance for most rules with 
 > large performance gains as of 0.1.3.1 for long-running processes or larger data volumes.  These can be set to the previous defaults for the old behaviour if
 > code generation itself dominates your applications time but note that nesting and chaining calls between runners is not supported - use .cache / write interim results if this is needed.
-> ruleEngineRunner's schema parameter is now Option\[DataType\], wrapping in Some should be sufficient if you are not relying on the old defaults.
+> ruleEngineRunner's schema parameter when using all parameters is now Option\[DataType\], wrapping in Some should be sufficient if you are not relying on the old defaults.
+> Deriving the type for ruleEngineRunner may work but you must use the type if control over nullability is required (for example expressions differ in nullability).
 
 #87 - EOL DBR and Spark runtimes are removed: 9.1, 10.4, 11.3, 13.1, 14.0
 
