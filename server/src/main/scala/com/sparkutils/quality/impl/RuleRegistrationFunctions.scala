@@ -149,7 +149,9 @@ object RuleRegistrationFunctions {
           }
           argsf(exps)
         }
+
     registerFunction(name, create)
+    
     if (!mustKeepNames(name)) {
       registerFunction(name.replaceAll("_",""), create)
     }
