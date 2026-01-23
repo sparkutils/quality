@@ -1,3 +1,17 @@
+### [0.1.4](https://github.com/sparkutils/quality/milestone/10?closed=1) <small>24th January, 2026</small>
+
+This release provides a new runner type - collectRunner and a new RuleResult type of ignoredRule.  
+
+Similar to folder, in that it runs Output Expressions for each 
+matching trigger Rule expression ordered by salience, it collects the result of each Output Expression.  
+It is optimised around optionally collecting and expanding nested arrays and auto expanding User LambdaFunctions.  
+
+0.1.4 was released in order to speed up delivery of 0.2.0 functionality for some key users.
+
+#107 - Introducing collectRunner - an optimised collecting rule engine
+
+#111 - Introducing the notRelevant result - signal that a rule was not relevant for a row but is equivalent to a pass.  Allows collecting statistics in three states, rows passed, rows failed and rows not relevant for a given rule.
+
 ### [0.1.3.1](https://github.com/sparkutils/quality/milestone/10?closed=1) <small>24th October, 2025</small>
 
 This is the last release of 2.4, 3.0 is deprecated as of this release, similarly, Databricks versions 9.1 through to 11.3 are also now deprecated and unsupported functionality (fixes for #84 will be gladly accepted), 12.2 support will continue.

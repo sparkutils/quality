@@ -17,10 +17,8 @@ Write rules using simple SQL or create re-usable functions via SQL Lambdas.
 
 Your rules are just versioned data, store them wherever convenient, use them by simply defining a column.
 
-* :new:{.pulseABit} test packages for [Fabric](getting_started/running_on_fabric.md)
-* :new:{.pulseABit} Spark 4 support
-* :new:{.pulseABit} 5-10% speed bump with a change in compilation defaults
-* :new:{.pulseABit} sparkless [row level processors](advanced/processors.md) added for non-spark runtimes (uses spark at compilation time)
+* :new:{.pulseABit} [collectRunner](advanced/collectRunner.md), optimally collect all results which match a given row 
+* :new:{.pulseABit} ignoredRule function and return types, signalling that a rule wasn't actually appropriate to run for a row
 
 Rules are evaluated lazily during Spark actions, such as writing a row, with results saved in a single predictable column.
 
