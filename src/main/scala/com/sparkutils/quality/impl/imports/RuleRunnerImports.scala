@@ -90,6 +90,10 @@ trait RuleRunnerFunctionImports {
    */
   val disabled_rule = column(RuleResultsImports.DisabledRuleExpr)
   /**
+   * The ignored_rule value
+   */
+  val ignored_rule = column(RuleResultsImports.IgnoredRuleExpr)
+  /**
    * The passed value
    */
   val passed = column(RuleResultsImports.PassedExpr)
