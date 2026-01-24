@@ -2,13 +2,14 @@ package com.sparkutils.quality.impl
 
 import com.sparkutils.quality
 import com.sparkutils.quality.impl.ExpressionCompiler.withExpressionCompiler
-import com.sparkutils.quality.impl.util.SubQueryWrapper
+import com.sparkutils.quality.impl.util.{Arrays, SubQueryWrapper}
 import com.sparkutils.quality._
 import org.apache.spark.sql.ShimUtils.newParser
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedFunction}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext}
 import org.apache.spark.sql.catalyst.expressions.{Expression, ScalarSubquery, SubqueryExpression, UnresolvedNamedLambdaVariable, LambdaFunction => SparkLambdaFunction}
+import org.apache.spark.sql.catalyst.util.{ArrayData, GenericArrayData}
 import org.apache.spark.sql.qualityFunctions.{FunN, RefExpressionLazyType}
 import org.apache.spark.sql.types.{DataType, Decimal}
 import org.apache.spark.sql.{ShimUtils, SparkSession}
@@ -550,7 +551,7 @@ object RuleSuiteFunctions {
       ).asInstanceOf[InternalRow]
 
       if (row == null || inputRow == null) {
-        println()
+        // println()
       }
 
       seq :+ (salience, if (debugMode)
@@ -600,6 +601,82 @@ object RuleSuiteFunctions {
       }
 
     GeneralExpressionsResult(id, rawRuleSets.toMap)
+  }
+
+  def collect(ruleSuite: RuleSuite, inputRow: InternalRow, debugMode: Boolean, flatten: Boolean,
+              includeNulls: Boolean, arrayElementType: DataType, starterSize: Int): (RuleSuiteResult, Any) = {
+    import ruleSuite._
+
+    val runOnPassProcessors =
+      mutable.ArrayBuffer.empty[(IdTriple, Int, OutputExprLogic)]
+
+    val rawRuleSets =
+      ruleSets.map { rs =>
+        val ruleSetRawRes = rs.rules.map { r =>
+          val ruleResult = r.expression.eval(inputRow)
+
+          val onPass = ((id, rs.id, r.id), r.runOnPassProcessor.salience, r.runOnPassProcessor.returnIfPassed)
+          // only add passed
+          if (ruleResult == Passed){
+            runOnPassProcessors += (onPass)
+          }
+
+          r.id -> ruleResult
+        }
+        val overall = ruleSetRawRes.foldLeft(quality.OverallResult(probablePass)){
+          (ov, pair) =>
+            ov.process(pair._2)
+        }
+        rs.id -> RuleSetResult(overall.currentResult, ruleSetRawRes.toMap)
+      }
+
+    val overall = rawRuleSets.foldLeft(quality.OverallResult(probablePass)){
+      (ov, pair) =>
+        ov.process(pair._2.overallResult)
+    }
+
+    // sort applicable by salience - we don't reset original ordering here - surprising? TODO decide if it is too much surprise
+    val sorted = runOnPassProcessors.sortBy(_._2)
+
+    val buffer = new mutable.ArrayBuffer[Any](starterSize)
+
+    // for each of the output
+    // debug copys, non-debug does not
+    sorted.foreach{ case (_, salience, rule) =>
+
+      val o =  rule.eval(
+        inputRow
+      )
+
+      if ((o != null) || includeNulls) {
+        if ((o == null) || !flatten) {
+          buffer.addOne(o)
+        } else {
+          // flatten case
+          val ar = o.asInstanceOf[ArrayData]
+          ar.foreach(arrayElementType,
+            (_, o) =>
+              if ((o != null) || includeNulls) {
+                buffer.addOne(o)
+              }
+          )
+        }
+      }
+    }
+
+    val result =
+      /*if (debugMode)
+        new org.apache.spark.sql.catalyst.util.GenericArrayData(res.map(p =>
+          InternalRow(p._1, p._2)
+        ).toArray)
+      else { */
+        if (buffer.isEmpty)
+          null
+        else
+          new GenericArrayData(buffer)
+      //}
+
+    (RuleSuiteResult(id, overall.currentResult, rawRuleSets.toMap), result)
   }
 }
 

@@ -19,23 +19,21 @@ i.e. the Output Expressions of all matching rules should be added and flattened 
 
 Quality prior to 0.1.4 offered ruleFolder as a general case 'run all the things which match' engine.  The above pattern can be represented by:
 
-| Rule ID | Salience | Rule                                  | Output Expression                                                                                |
-|---------|----------|---------------------------------------|--------------------------------------------------------------------------------------------------|
-| 1       | 100      | a = '5' and b is not null and c > 100 | set(resultArray = array_append(current.resultArray, array(outputrow1, outputrow2, outputrow3)))  |
-| 2       | 200      | a = '5' and c > 100                   | set(resultArray = array_append(current.resultArray, array(outputrow4)))                          |
+| Rule ID | Salience | Rule                                  | Output Expression                                                                               |
+|---------|----------|---------------------------------------|-------------------------------------------------------------------------------------------------|
+| 1       | 100      | a = '5' and b is not null and c > 100 | set(resultArray = concat(currentResult.resultArray, array(outputrow1, outputrow2, outputrow3))) |
+| 2       | 200      | a = '5' and c > 100                   | set(resultArray = concat(currentResult.resultArray, array(outputrow4)))                         |
 
 This is functionally identical but each rule involves two additional array creations and array copy's.  
 If this wasn't expensive enough the use of a Spark LambdaFunction disables all subexpression eliminations within those Output Expressions.
 
-In a given users tests the following was observed over half a billion rows and 7k rules (on a beefy cluster):
+The CollectorThroughputBenchmark shows the following indicative results against 1m rows using 50 rules (more than this is not possible to compile with the pure Spark approach):
 
-| Run against                                                      | Version | Time taken in minutes |
-|------------------------------------------------------------------|---------|-----------------------|
-| Quality Folder                                                   | 0.1.3   | 12                    |
-| Quality Folder                                                   | 0.1.3.1 | 8.2                   |
-| Spark SQL array(if(rule, line1, null), if(rule2, line2, null)).. | -       | 6.3                   |
-
-so although 0.1.3.1 gave a 30% performance boost it still trails behind a more direct Spark SQL encoding.  
+| Run against                                                                     | Mean time taken in ms |
+|---------------------------------------------------------------------------------|-----------------------|
+| Spark SQL flatten(filter(array(if(rule, line1, null), if(rule2, line2, null)).. | 1316.74               |
+| Quality Folder                                                                  | 912.70                |
+| Quality Collector                                                               | 630.29                |
 
 collectRunner fixes this by efficient array allocations at only one per row, and by default auto flattening nested calls to array.
 

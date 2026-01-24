@@ -15,7 +15,8 @@ package object quality extends BloomFilterTypes with BucketedCreatorFunctionImpo
   with BloomFilterRegistration with RuleRunnerImports with Serializable with MapLookupImports with LookupIdFunctionsImports
   with BloomFilterLookupImports with BlockSplitBloomFilterImports with SerializingImports
   with AddDataFunctionsImports with LambdaFunctionsImports with RuleEngineRunnerImports with ValidationImports
-  with ProcessDisableIfMissingImports with RuleFolderRunnerImports with ViewLoading with ExpressionRunnerImports {
+  with ProcessDisableIfMissingImports with RuleFolderRunnerImports with ViewLoading with ExpressionRunnerImports
+  with CollectRunnerImports {
   // NB it must inherit Serializable due to the nested types and sparks serialization
 
   /**
