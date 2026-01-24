@@ -84,6 +84,7 @@ RuleResult <|-- Passed:Singleton
 RuleResult <|-- Failed:Singleton
 RuleResult <|-- SoftFailed:Singleton
 RuleResult <|-- DisabledRule:Singleton
+RuleResult <|-- IgnoredRule:Singleton
 RuleResult <|-- Probability
 RuleResult <|-- RuleResultWithProcessor
 RuleResult *-- RuleSetResult
@@ -107,6 +108,8 @@ class Failed {
 class SoftFailed {
 }
 class DisabledRule {
+}
+class IgnoredRule {
 }
 class Probability {
 +double percentage

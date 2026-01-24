@@ -97,6 +97,7 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
       case Failed => FailedInt
       case SoftFailed => SoftFailedInt
       case DisabledRule => DisabledRuleInt
+      case IgnoredRule => IgnoredRuleInt
       case Passed => PassedInt
       case Probability(percentage) => (percentage * PassedInt).toInt
       case RuleResultWithProcessor(res, _) => ruleResultToInt(res)

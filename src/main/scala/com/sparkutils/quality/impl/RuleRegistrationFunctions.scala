@@ -200,6 +200,7 @@ object RuleRegistrationFunctions {
     register("failed", _ => com.sparkutils.quality.impl.imports.RuleResultsImports.FailedExpr, Set(0))
     register("soft_Failed", _ => com.sparkutils.quality.impl.imports.RuleResultsImports.SoftFailedExpr, Set(0))
     register("disabled_Rule", _ => com.sparkutils.quality.impl.imports.RuleResultsImports.DisabledRuleExpr, Set(0))
+    register("ignored_rule", _ => com.sparkutils.quality.impl.imports.RuleResultsImports.IgnoredRuleExpr, Set(0))
 
     register("pack_Ints", exps => Pack(exps(0), exps(1)), Set(2))
 
