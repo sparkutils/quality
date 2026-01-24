@@ -35,13 +35,12 @@ The CollectorThroughputBenchmark shows the following indicative results against 
 | Quality Folder                                                                  | 912.70                |
 | Quality Collector                                                               | 630.29                |
 
-collectRunner fixes this by efficient array allocations at only one per row, and by default auto flattening nested calls to array.
+collectRunner fixes this by efficient array allocations and by default auto flattening nested calls to array.
+
+When the rule number falls below 30 Spark is faster, but this only holds on 1m rows of data, at 10m rows the performance of Quality runners pulls ahead for all rule counts. 
 
 !!! info "How is it faster than normal Spark SQL?"
-    collectRunner swaps out calls to the "array" function and instead passes on the result of each array member directly to a single 
-    temporary array per row without creating the interim array or therefore requiring an array copy.
-
-    This in turn can be optionally filtered out for nulls without requiring intermediatary instances.
+    This in turn can be optionally filtered out for nulls without requiring intermediary instances.
 
     So the equivalent spark of:
 
@@ -52,4 +51,4 @@ collectRunner fixes this by efficient array allocations at only one per row, and
     which is the same as using array_compact, requires at least three array creations as well as the overhead of the lambda, 
     which as per folderRunner cannot take part in sub expression elimination and other optimisation strategies.  
     Indeed filter currently cannot have subexpression elimination applied at all, this also includes the array input.   
-    Of course that also comes with the lack of an audit trail.
+    Of course that also, unlike Quality runners, comes with the lack of an audit trail.
