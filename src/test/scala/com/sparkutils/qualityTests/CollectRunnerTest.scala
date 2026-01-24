@@ -92,23 +92,21 @@ class CollectRunnerTest  extends FunSuite with TestUtils {
     val got = outdf.select("together.*").select(explode(col("result")).as("exp")).select("exp.*").as[NewPosting]
 
     def verify(got: Seq[NewPosting], expected: Seq[NewPosting]): Unit = {
-      val sorter = (a: NewPosting, b: NewPosting) => a.transfer_type < b.transfer_type && a.product < b.product &&
-        a.account < b.account && a.subcode < b.subcode
-      val sortedGot = got.sortWith( sorter )
-      val sortedExp = expected.sortWith( sorter )
+      val sortedGot = got.sortBy( NewPosting.unapply )
+      val sortedExp = expected.sortBy( NewPosting.unapply ).toVector
       sortedGot shouldBe sortedExp
     }
 
     val expected = Seq(
       NewPosting("from","1234","edt", 40),
-        NewPosting("to","4201","edt", 40),
-        NewPosting("from","4201","eqotc", 60),
-        NewPosting("to","4201","eqotc", 60),
-        NewPosting("whoknows","money","eqotc", 60), // our extra eqotc case
-        NewPosting("to","4206","fx", 90),
-        NewPosting("from","4206","fx", 90),
-        NewPosting("to","4201","fxotc", 40),
-        NewPosting("from","4201","fxotc", 40)
+      NewPosting("whoknows","money","eqotc", 60), // our extra eqotc case
+      NewPosting("to","4206","fx", 90),
+      NewPosting("from","4206","fx", 90),
+      NewPosting("to","4201","edt", 40),
+      NewPosting("from","4201","eqotc", 60),
+      NewPosting("to","4201","eqotc", 60),
+      NewPosting("to","4201","fxotc", 40),
+      NewPosting("from","4201","fxotc", 40)
     )
 
     verify(got.collect(), expected)
