@@ -652,14 +652,14 @@ object RuleSuiteFunctions {
 
       if ((o != null) || includeNulls) {
         if ((o == null) || !flatten) {
-          buffer.addOne(o)
+          buffer.+=(o)
         } else {
           // flatten case
           val ar = o.asInstanceOf[ArrayData]
           ar.foreach(arrayElementType,
             (_, o) =>
               if ((o != null) || includeNulls) {
-                buffer.addOne(o)
+                buffer.+=(o)
               }
           )
         }

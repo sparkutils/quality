@@ -29,6 +29,7 @@ private[quality] object CollectRunnerUtils extends RuleFolderRunnerImports {
   def compiledEval[T](results: InternalRow, output: ArrayBuffer[T]): InternalRow =
     InternalRow(results, new GenericArrayData(output))
 
+  def addOne[T](output: ArrayBuffer[T], an: T): Unit = output.+=(an)
 
 }
 
@@ -123,14 +124,14 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
           s"""
              if (($outArrTerm != null) || $includeNulls) {
                 if (($outArrTerm == null) || ${!(flatten && canFlatten)}) {
-                  $bufferTerm.addOne($outArrTerm);
+                  com.sparkutils.quality.impl.CollectRunnerUtils.addOne($bufferTerm, $outArrTerm);
                 } else {
                   // flatten case and non-null
                   ArrayData $arrayData = (ArrayData) $outArrTerm;
                   for (int $z = 0; $z < $arrayData.numElements(); $z++) {
                     Object $o = ${CodeGenerator.getValue(arrayData, elementType, z)};
                     if (($o != null) || $includeNulls) {
-                      $bufferTerm.addOne( $o );
+                      com.sparkutils.quality.impl.CollectRunnerUtils.addOne($bufferTerm, $o);
                     }
                   }
                 }
