@@ -52,3 +52,9 @@ When the rule number falls below 30 Spark is faster, but this only holds on 1m r
     which as per folderRunner cannot take part in sub expression elimination and other optimisation strategies.  
     Indeed filter currently cannot have subexpression elimination applied at all, this also includes the array input.   
     Of course that also, unlike Quality runners, comes with the lack of an audit trail.
+
+!!! warn "flatten = false, includeNulls = true doesn't fully work on Spark 3.4 and below with Frameless encoding"
+    Instead it triggers an NPE at runtime, this isn't the case for Spark 4 or Spark 3.5, a great reason to upgrade.
+
+    This occurs if the result type is not wrapped in an Option, wrapping in an option _does_ work.  
+    See CollectRunnerTest for example encoding approaches.  

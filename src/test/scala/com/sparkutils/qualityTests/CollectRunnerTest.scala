@@ -140,24 +140,28 @@ class CollectRunnerTest  extends FunSuite with TestUtils {
 
   } }
 
-
+  // has an npe for this combination on 3.4 and below, some form of nested option and MapObjects bug
   @Test
-  def nonFlattenWithNulls(): Unit = evalCodeGensNoResolve { funNRewrites {
-    import com.sparkutils.quality.implicits._
+  def nonFlattenWithNulls(): Unit =  if (sparkVersionNumericMajor >= 35) {
 
-    import sparkSession.implicits._
+    evalCodeGensNoResolve { funNRewrites {
+      import com.sparkutils.quality.implicits._
 
-    testBase[Seq[NewPosting], Int](Seq(
-      List(NewPosting("from","1234","edt",40), NewPosting("to","4201","edt",40)),
-      List(NewPosting("to","4206","fx",90), NewPosting("from","4206","fx",90)),
-      null,
-      List(NewPosting("to","4201","fxotc",40), NewPosting("from","4201","fxotc",40)),
-      List(NewPosting("from","4201","eqotc",60), NewPosting("to","4201","eqotc",60))
-    ),  s => if (s ne null) s.toVector.hashCode() else 0 ,
-      _.as[Seq[NewPosting]].collect())(flatten = false, includeNulls = true,
-      dummyOut = "null", canRunSimpleSpark = false)
+      import sparkSession.implicits._
 
-  } }
+      testBase[Seq[NewPosting], Int](Seq(
+        List(NewPosting("from","1234","edt",40), NewPosting("to","4201","edt",40)),
+        List(NewPosting("to","4206","fx",90), NewPosting("from","4206","fx",90)),
+        null,
+        List(NewPosting("to","4201","fxotc",40), NewPosting("from","4201","fxotc",40)),
+        List(NewPosting("from","4201","eqotc",60), NewPosting("to","4201","eqotc",60))
+      ),  s => if (s ne null) s.toVector.hashCode() else 0 ,
+        _.as[Seq[NewPosting]].collect())(flatten = false, includeNulls = true,
+        dummyOut = "null", canRunSimpleSpark = false)
+
+    } }
+
+  }
 
   @Test
   def flattenWithNulls(): Unit = evalCodeGensNoResolve { funNRewrites {
