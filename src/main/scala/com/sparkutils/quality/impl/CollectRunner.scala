@@ -16,16 +16,6 @@ import scala.reflect.{ClassTag, classTag}
 
 private[quality] object CollectRunnerUtils extends RuleFolderRunnerImports {
 
-  /**
-   * Needs sorting in salience order for output processing but NOT for result's.
-   * So output array should use offsets, results should be offset, but order
-   * of calling must be salience based.
-   *
-   */
-
-  def compiledEvalDebug[T](results: InternalRow, output: T): InternalRow =
-    InternalRow(results, output)
-
   def compiledEval[T](results: InternalRow, output: ArrayBuffer[T]): InternalRow =
     InternalRow(results, new GenericArrayData(output))
 
@@ -42,7 +32,6 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
 
   val ruleSuite: RuleSuite
   val resultDataType: DataType
-  val debugMode: Boolean
   val variablesPerFunc: Int
   val variableFuncGroup: Int
   val expressionOffsets: Array[Int]
@@ -87,7 +76,7 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
 
   override def eval(input: InternalRow): Any = {
     val (res, processedRes) = //(null, null)
-      RuleSuiteFunctions.collect(reincorporated, input, debugMode, flatten && canFlatten, includeNulls,
+      RuleSuiteFunctions.collect(reincorporated, input, flatten && canFlatten, includeNulls,
         elementType, starterSize)
     InternalRow(com.sparkutils.quality.impl.RuleRunnerUtils.ruleResultToRow(res), processedRes)
   }
@@ -118,7 +107,7 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
 
     val compilerTerms =
       RuleEngineRunnerUtils.genCompilerTerms[T](ctx, PassThroughCompileEvals(children), expressionOffsets, children,
-        debugMode, variablesPerFunc, variableFuncGroup, false,
+        false, variablesPerFunc, variableFuncGroup, false,
         // capture the current
         extraResult = (outArrTerm: String) =>
           s"""
@@ -158,30 +147,17 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
       """
 
     val res =
-      if (debugMode)
-        ev.copy(code = code"""
-          $pre
+      ev.copy(code = code"""
+        $pre
 
-          InternalRow ${ev.value} =
-            com.sparkutils.quality.impl.CollectRunnerUtils.compiledEvalDebug(
-              $utilsName.evalArray($ruleSuitTerm, $ruleSuiteArrays, $resArrTerm),
-            ($currentOutputIndex < 0) ? null : com.sparkutils.quality.impl.RuleEngineRunnerUtils.debugOutput($salienceArrTerm, $outArrTerm, $currentOutputIndex));
+        InternalRow ${ev.value} =
+          com.sparkutils.quality.impl.CollectRunnerUtils.compiledEval(
+            $utilsName.evalArray($ruleSuitTerm, $ruleSuiteArrays, $resArrTerm),
+            $bufferTerm);
 
-          $post
-          """
-        )
-      else
-        ev.copy(code = code"""
-          $pre
-
-          InternalRow ${ev.value} =
-            com.sparkutils.quality.impl.CollectRunnerUtils.compiledEval(
-              $utilsName.evalArray($ruleSuitTerm, $ruleSuiteArrays, $resArrTerm),
-              $bufferTerm);
-
-          $post
-          """
-        )
+        $post
+        """
+      )
 
     res
 
@@ -193,8 +169,7 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
  * expressionOffsets.length is the length of the trigger expressions in realChildren, realChildren(expressionOffsets.length + expressionOffsets(x)) will be the correct OutputExpression
  */
 case class CollectRunnerRunner(ruleSuite: RuleSuite, children: Seq[Expression], resultDataType: DataType,
-                                debugMode: Boolean, variablesPerFunc: Int,
-                                variableFuncGroup: Int, expressionOffsets: Array[Int],
+                                variablesPerFunc: Int, variableFuncGroup: Int, expressionOffsets: Array[Int],
                                flatten: Boolean, includeNulls: Boolean
                                ) extends CollectRunnerBase[CollectRunnerRunner] {
 

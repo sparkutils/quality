@@ -23,15 +23,13 @@ trait CollectRunnerImports {
    * @param ruleSuite The ruleSuite with runOnPassProcessors
    * @param resultType the collected result type
    * @param compileEvals Should the rules be compiled out to interim objects - by default false, allowing optimisations
-   * @param debugMode When debugMode is enabled the resultDataType is wrapped in Array of (salience, result) pairs to ease debugging
    * @param variablesPerFunc Defaulting to 40 allows, in combination with variableFuncGroup allows customisation of handling the 64k jvm method size limitation when performing WholeStageCodeGen
    * @param variableFuncGroup Defaulting to 20
    * @param flatten when resultType is an ArrayType should the result be flattened
    * @param includeNulls should nulls returned by the output expressions be included, note when flattening nulls IN the returned arrays are not filtered
    * @return A Column representing the QualityRules expression built from this ruleSuite
    */
-  def collectRunner(ruleSuite: RuleSuite, resultType: DataType,
-                       debugMode: Boolean = false, variablesPerFunc: Int = 40,
+  def collectRunner(ruleSuite: RuleSuite, resultType: DataType, variablesPerFunc: Int = 40,
                        variableFuncGroup: Int = 20,
                       flatten: Boolean = true, includeNulls: Boolean = false): Column = {
     com.sparkutils.quality.registerLambdaFunctions( ruleSuite.lambdaFunctions )
@@ -42,7 +40,7 @@ trait CollectRunnerImports {
 
     column(
       CollectRunnerRunner(cleaned, expressions, resultType,
-        debugMode = false, variablesPerFunc, variableFuncGroup, // TODO
+        variablesPerFunc, variableFuncGroup,
         expressionOffsets = indexes, flatten = flatten, includeNulls = includeNulls)
     )
   }

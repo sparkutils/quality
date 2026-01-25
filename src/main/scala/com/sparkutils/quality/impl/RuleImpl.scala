@@ -605,7 +605,7 @@ object RuleSuiteFunctions {
     GeneralExpressionsResult(id, rawRuleSets.toMap)
   }
 
-  def collect(ruleSuite: RuleSuite, inputRow: InternalRow, debugMode: Boolean, flatten: Boolean,
+  def collect(ruleSuite: RuleSuite, inputRow: InternalRow, flatten: Boolean,
               includeNulls: Boolean, arrayElementType: DataType, starterSize: Int): (RuleSuiteResult, Any) = {
     import ruleSuite._
 
@@ -667,16 +667,10 @@ object RuleSuiteFunctions {
     }
 
     val result =
-      /*if (debugMode)
-        new org.apache.spark.sql.catalyst.util.GenericArrayData(res.map(p =>
-          InternalRow(p._1, p._2)
-        ).toArray)
-      else { */
-        if (buffer.isEmpty)
-          null
-        else
-          new GenericArrayData(buffer)
-      //}
+      if (buffer.isEmpty)
+        null
+      else
+        new GenericArrayData(buffer)
 
     (RuleSuiteResult(id, overall.currentResult, rawRuleSets.toMap), result)
   }
