@@ -51,7 +51,7 @@ object RuleEngineRunnerImpl {
                        variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false): Column = {
     com.sparkutils.quality.registerLambdaFunctions( ruleSuite.lambdaFunctions )
 
-    val (expressions, indexes) = flattenExpressions(ruleSuite)
+    val (expressions, indexes, triggerCount) = flattenExpressions(ruleSuite)
 
     val cleaned = RuleLogicUtils.cleanExprs(ruleSuite)
     val exprs =
@@ -65,10 +65,12 @@ object RuleEngineRunnerImpl {
     val runner =
       if (forceRunnerEval || resolveWith.isDefined)
         new RuleEngineRunnerEval(cleaned, exprs, resultDataType, compileEvals,
-          debugMode, variablesPerFunc, variableFuncGroup, expressionOffsets = indexes, forceTriggerEval)
+          debugMode, variablesPerFunc, variableFuncGroup, expressionOffsets = indexes,
+          forceTriggerEval, triggerCount = triggerCount)
       else
         new RuleEngineRunner(cleaned, exprs, resultDataType, compileEvals,
-          debugMode, variablesPerFunc, variableFuncGroup, expressionOffsets = indexes, forceTriggerEval)
+          debugMode, variablesPerFunc, variableFuncGroup, expressionOffsets = indexes,
+          forceTriggerEval, triggerCount = triggerCount)
 
     ShimUtils.column(
       ClassicQualitySparkUtils.resolveWithOverride(resolveWith).map { df =>
@@ -85,8 +87,22 @@ object RuleEngineRunnerImpl {
 }
 
 private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
+/*
+  def structToNullable(struct: StructType): StructType = {
+    StructType(
+      struct.fields.map(f =>
+        f.copy(nullable = true, metadata = Metadata.empty, dataType = nonNullableDataType(f.dataType))
+      )
+    ) // Spark 4 puts metadata in _2 in schema test
+  }
 
-  protected[quality] def flattenExpressions(ruleSuite: RuleSuite, transformOutputExpression: Expression => Expression = identity): (Seq[Expression], Array[Int]) = {
+  def nonNullableDataType(dataType: DataType): DataType =
+    dataType match {
+      case s: StructType => structToNullable(s)
+      case _ => dataType
+    }
+  */
+  protected[quality] def flattenExpressions(ruleSuite: RuleSuite, transformOutputExpression: Expression => Expression = identity): (Seq[Expression], Array[Int], Int) = {
     val outputs = mutable.Map.empty[Id, Int]
     var pos = 0
     val outputExpressions = new mutable.ArrayBuffer[Expression](10)
@@ -115,7 +131,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
         expr
       }))
 
-    (expressions ++ outputExpressions, indexes.toArray)
+    (expressions ++ outputExpressions, indexes.toArray, expressions.size)
   }
 
   // count is not to be trusted, seems some funcs are evaluated twice
@@ -361,29 +377,15 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression {
   val forceTriggerEval: Boolean
   val expressionOffsets: Array[Int]
   val userResultDataType: Option[DataType]
+  val triggerCount: Int
 
   implicit val classTagT: ClassTag[T]
 
-  def structToNullable(struct: StructType): StructType = {
-    StructType(
-      struct.fields.map(f =>
-        f.copy(nullable = true, metadata = Metadata.empty, dataType = nonNullableDataType(f.dataType))
-      )
-    ) // Spark 4 puts metadata in _2 in schema test
-  }
-
-  def nonNullableDataType(dataType: DataType): DataType =
-    dataType match {
-      case s: StructType => structToNullable(s)
-      case _ => dataType
-    }
-
   lazy val resultDataType = {
-    val resultDataType = userResultDataType.getOrElse(nonNullableDataType(realChildren.last.dataType))
-// TODO - Correct this type checking and re-enable the DDL to force nullability etc.
-/*    realChildren.drop(realChildren.length / 2).find(e => nonNullableDataType(e.dataType) != resultDataType).foreach{ e =>
-      throw new QualityException(s"RuleEngine DataType ${e.dataType.sql} does not match the first OutputExpression type ${resultDataType.sql}")
-    }*/
+    val resultDataType = userResultDataType.getOrElse(realChildren.last.dataType)
+    realChildren.drop(triggerCount).find(e => e.dataType != resultDataType).foreach{ e =>
+      throw new QualityException(s"RuleEngine DataType ${e.dataType.sql} does not match the last OutputExpression type ${resultDataType.sql}")
+    }
 
     if (debugMode)
       // wrap it in an array with the priority result
@@ -475,7 +477,7 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression {
 case class RuleEngineRunnerEval(ruleSuite: RuleSuite, children: Seq[Expression], userResultDataType: Option[DataType],
                             compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
                             variableFuncGroup: Int, expressionOffsets: Array[Int],
-                            forceTriggerEval: Boolean) extends RuleEngineRunnerBase[RuleEngineRunnerEval] with CodegenFallback {
+                            forceTriggerEval: Boolean, triggerCount: Int) extends RuleEngineRunnerBase[RuleEngineRunnerEval] with CodegenFallback {
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
 
@@ -486,7 +488,7 @@ case class RuleEngineRunnerEval(ruleSuite: RuleSuite, children: Seq[Expression],
 case class RuleEngineRunner(ruleSuite: RuleSuite, children: Seq[Expression], userResultDataType: Option[DataType],
                                 compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
                                 variableFuncGroup: Int, expressionOffsets: Array[Int],
-                                forceTriggerEval: Boolean) extends RuleEngineRunnerBase[RuleEngineRunner] {
+                                forceTriggerEval: Boolean, triggerCount: Int) extends RuleEngineRunnerBase[RuleEngineRunner] {
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
 

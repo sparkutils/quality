@@ -1,0 +1,33 @@
+package com.sparkutils.quality.impl.imports
+
+import com.sparkutils.quality.RuleSuite
+import com.sparkutils.quality.impl.{RuleSuiteHelpers, Runners}
+import org.apache.spark.sql.{Column, ShimUtils}
+import org.apache.spark.sql.functions.lit
+import org.apache.spark.sql.types.DataType
+
+trait CollectRunnerImports {
+
+  /**
+   * Creates a column that runs the folding RuleSuite.  This also forces registering the lambda functions used by that RuleSuite.
+   *
+   * FolderRunner runs all output expressions for matching rules in order of salience, the startingStruct is passed ot the first
+   * matching, the result passed to the second etc.  In contrast to ruleEngineRunner OutputExpressions should be lambdas with one parameter, that of the structure
+   *
+   * @param ruleSuite The ruleSuite with runOnPassProcessors
+   * @param resultDataType the collected result type, specify this if the derived types have nullability or ordering issues.  By default, it takes the type of the last output expression
+   * @param variablesPerFunc Defaulting to 40 allows, in combination with variableFuncGroup allows customisation of handling the 64k jvm method size limitation when performing WholeStageCodeGen
+   * @param variableFuncGroup Defaulting to 20
+   * @param flatten when resultType is an ArrayType should the result be flattened
+   * @param includeNulls should nulls returned by the output expressions be included, note when flattening nulls IN the returned arrays are not filtered
+   * @return A Column representing the QualityRules expression built from this ruleSuite
+   */
+  def collectRunner(ruleSuite: RuleSuite, resultDataType: Option[DataType] = None, variablesPerFunc: Int = 40,
+                           variableFuncGroup: Int = 20,
+                           flatten: Boolean = true, includeNulls: Boolean = false): Column =
+    ShimUtils.callFunction("collect_runner", lit(RuleSuiteHelpers.serialize(ruleSuite)),
+      lit(resultDataType.map(_.sql).getOrElse("")), lit(flatten), lit(includeNulls),
+      lit(variablesPerFunc), lit(variableFuncGroup)
+    )
+
+}

@@ -2,6 +2,7 @@ package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.classicFunctions._
+import com.sparkutils.quality.impl.CollectRunner.collectRunnerClassic
 import com.sparkutils.quality.impl.ReWriteConstants.INC_REWRITE_GENEXP_ERR_MSG
 import com.sparkutils.quality.impl.RuleSuiteHelpers.deserialize
 import com.sparkutils.quality.impl.VariableProcessIfMissingFunctions.registerProcessIfAttributeMissingForAgnostic
@@ -663,6 +664,23 @@ object RuleRegistrationFunctions {
           useType = defaultParseTypes(getString(dt, 7)).map(_.asInstanceOf[StructType]), forceTriggerEval = getBoolean(fort, 8)
         ))
     }, Set(2, 3, 4, 9))
+
+    register("collect_runner", {
+      case Seq(OfRuleOutputSuite(rs)) =>
+        expression(collectRunnerClassic(rs, None))
+      case Seq(OfRuleOutputSuite(rs), dt) =>
+        expression(collectRunnerClassic(rs, defaultParseTypes(getString(dt, 1))))
+      case Seq(OfRuleOutputSuite(rs), dt, flatten) =>
+        expression(collectRunnerClassic(rs, defaultParseTypes(getString(dt, 1)), flatten = getBoolean(flatten, 2)))
+      case Seq(OfRuleOutputSuite(rs), dt, flatten, includeNulls) =>
+        expression(collectRunnerClassic(rs, defaultParseTypes(getString(dt, 1)),
+          flatten = getBoolean(flatten, 2), includeNulls = getBoolean(includeNulls, 3)))
+      case Seq(OfRuleOutputSuite(rs), dt, flatten, includeNulls, varp, varg) =>
+        expression(collectRunnerClassic(rs, defaultParseTypes(getString(dt, 1)),
+          flatten = getBoolean(flatten, 2), includeNulls = getBoolean(includeNulls, 3),
+          variablesPerFunc = getInteger(varp, 4), variableFuncGroup = getInteger(varg, 5)
+        ))
+    }, Set(1, 2, 3, 4, 6))
 
     // coalesce support
     registerProcessIfAttributeMissingForAgnostic(registerFunction)
