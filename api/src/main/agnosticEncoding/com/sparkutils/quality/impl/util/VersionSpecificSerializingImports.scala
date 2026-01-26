@@ -8,8 +8,6 @@ import org.apache.spark.sql.{Dataset, Encoder, SparkSession}
 import org.apache.spark.sql.functions.{col, lit}
 import org.apache.spark.sql.types.BinaryType
 
-import java.util.concurrent.atomic.AtomicInteger
-
 /**
  * Raw model for Variable usage
  *

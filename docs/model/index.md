@@ -84,6 +84,7 @@ RuleResult <|-- Passed:Singleton
 RuleResult <|-- Failed:Singleton
 RuleResult <|-- SoftFailed:Singleton
 RuleResult <|-- DisabledRule:Singleton
+RuleResult <|-- IgnoredRule:Singleton
 RuleResult <|-- Probability
 RuleResult <|-- RuleResultWithProcessor
 RuleResult *-- RuleSetResult
@@ -107,6 +108,8 @@ class Failed {
 class SoftFailed {
 }
 class DisabledRule {
+}
+class IgnoredRule {
 }
 class Probability {
 +double percentage
@@ -167,5 +170,6 @@ class RuleSuiteResult {
 * SoftFailed results do not cause the RuleSet or RuleSuite to fail
 * DisabledRule results also do not cause the RuleSet or RuleSuite to fail but signal a rule has been disabled upstream
 * Probability results with over 80 percent are deemed to have Passed, you may override this with the RuleSuite.withProbablePass function after creating the RuleSuite.
+* IgnoredRule results also do not cause the RuleSet or RuleSuite to fail but signal a rule has been ignored upstream, typically to aid in reporting of applicable rules
 
 RuleResultWithProcessor is only used when using the ruleEngineRunner and is not returned in the column, rather the result of the expression is - shown above as call to "data".

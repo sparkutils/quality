@@ -226,12 +226,16 @@ functions:
     description: "failed() returns the Failed Integer result (0) for use in filtering"
     tags:
       - rule
-  soft_Failed:
-    description: "soft_Failed() returns the SoftFailed Integer result (-1) for use in filtering"
+  soft_failed:
+    description: "soft_failed() returns the SoftFailed Integer result (-1) for use in filtering"
     tags:
       - rule
-  disabled_Rule:
-    description: "disabledRule() returns the DisabledRule Integer result (-2) for use in filtering and to disable rules (which may not signify a version bump)"
+  disabled_rule:
+    description: "disabled_rule() returns the DisabledRule Integer result (-2) for use in filtering and to disable rules (which may not signify a version bump)"
+    tags:
+      - rule
+  ignored_rule:
+    description: "ignored_rule() returns the IgnoredRule Integer result (-3) for use in filtering and to ignoring rules (e.g. a return value in an active rule)"
     tags:
       - rule
   coalesce_If_Attributes_Missing_Disable:

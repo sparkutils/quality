@@ -175,6 +175,7 @@ object RuleLogicUtils {
       case 1 | 1.0 | 1L => Passed
       case -1 | -1.0 | -1L | UTF8Str("softfail" | "maybe") => SoftFailed
       case -2  | -2.0 | -2L | UTF8Str("disabledrule" | "disabled") => DisabledRule
+      case -3  | -3.0 | -3L | UTF8Str("ignoredrule" | "ignored") => IgnoredRule
       case d: Double => Probability(d) // only spark 2 unless configured to behave like spark 2
       case d: Float => Probability(d) // only spark 2 unless configured to behave like spark 2
       case d: Decimal => Probability(d.toDouble)
@@ -191,6 +192,7 @@ object RuleLogicUtils {
       case 1 | 1.0 | 1L => PassedInt
       case -1 | -1.0 | -1L | UTF8Str("softfail" | "maybe") => SoftFailedInt
       case -2  | -2.0 | -2L | UTF8Str("disabledrule" | "disabled") => DisabledRuleInt
+      case -3  | -3.0 | -3L | UTF8Str("ignoredrule" | "ignored") => IgnoredRuleInt
       case d: Double => (d * PassedInt).toInt
       case d: Float => (d * PassedInt).toInt
       case d: Decimal => (d.toDouble * PassedInt).toInt

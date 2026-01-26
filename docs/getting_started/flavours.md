@@ -60,3 +60,15 @@ _Example Usage:_ Instead of checking if something exists in a view in a rule, th
 _What is stored:_ For a type of STRUCT<key: INT, value: STRING>
 ```plantuml format="svg_object" classes="shrink_to_fit" source="./docs/getting_started/typedExpressionRunner.puml"
 ```
+
+## QualityCollector - collectRunner
+
+[QualityFolder](../advanced/ruleFolder.md) extends QualityRules providing the ability to collect multiple Output Expressions, sorted by salience with a default flatten.
+
+Unlike QualityRules which uses salience to select only one Output expression, Collector uses salience to order the execution of *all* the matching Trigger's paired Output Expressions - collecting the results as it goes.
+
+_Example Usage:_ Derivation logic
+
+_What is stored:_
+```plantuml format="svg_object" classes="shrink_to_fit" source="./docs/getting_started/collector.puml"
+```

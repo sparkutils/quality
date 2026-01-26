@@ -25,6 +25,12 @@ case object SoftFailed extends RuleResult
 case object DisabledRule extends RuleResult
 
 /**
+ * This shouldn't evaluate to a fail, allows signalling a rule has been ignored
+ */
+@SerialVersionUID(1L)
+case object IgnoredRule extends RuleResult
+
+/**
   * 0-1 with 1 being absolutely likely a pass
   * @param percentage
   */

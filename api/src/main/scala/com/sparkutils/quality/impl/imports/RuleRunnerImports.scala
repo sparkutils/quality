@@ -47,6 +47,10 @@ trait RuleRunnerImports {
    */
   val DisabledRuleInt = RuleResultsImports.DisabledRuleInt
   /**
+   * The integer value for ignored dq rules
+   */
+  val IgnoredRuleInt = RuleResultsImports.IgnoredRuleInt
+  /**
    * The integer value for passed dq rules
    */
   val PassedInt = RuleResultsImports.PassedInt
@@ -61,6 +65,7 @@ object RuleResultsImports {
 
   val SoftFailedInt = -1
   val DisabledRuleInt = -2
+  val IgnoredRuleInt = -3
   val PassedInt = 100000
   val FailedInt = 0
 
@@ -82,6 +87,10 @@ trait RuleRunnerFunctionImports {
    * The disabled_rule value
    */
   val disabled_rule = callFunction("disabled_rule")
+  /**
+   * The ignored_rule value
+   */
+  val ignored_rule = callFunction("ignored_rule")
   /**
    * The passed value
    */

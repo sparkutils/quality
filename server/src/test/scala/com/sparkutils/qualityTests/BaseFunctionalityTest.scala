@@ -2,11 +2,11 @@ package com.sparkutils.qualityTests
 
 import com.sparkutils.manual.RowId
 import com.sparkutils.quality
-import com.sparkutils.quality._
+import com.sparkutils.quality.{IgnoredRuleInt, _}
 import com.sparkutils.quality.classicFunctions.{processIfAttributeMissing, validate}
 import com.sparkutils.quality.impl.YamlDecoder
 import com.sparkutils.quality.impl.types._
-import functions._
+import functions.{ignored_rule, _}
 import impl.PackId.packId
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.StructType
@@ -180,9 +180,9 @@ class BaseFunctionalityTest extends SharedPureConnectTests with RowTools with Ba
   } } }
 
   test("verifyResultExprDSL") {  evalCodeGens {
-    assert(sparkSession.range(1).selectExpr("passed() p", "soft_failed() s", "disabled_rule() d", "failed() f")
-      .select(expr("*"), passed as "p1", soft_failed as "s1", disabled_rule as "d1", failed as "f1")
-      .filter("p1 = p and s1 = s and d1 = d and f1 = f").count() == 1)
+    assert(sparkSession.range(1).selectExpr("passed() p", "soft_failed() s", "disabled_rule() d", "failed() f", "ignored_rule() i")
+      .select(expr("*"), passed as "p1", soft_failed as "s1", disabled_rule as "d1", failed as "f1", ignored_rule as "i1")
+      .filter("p1 = p and s1 = s and d1 = d and f1 = f and i1 = i").count() == 1)
   }}
 
   test("longPairEqual") { evalCodeGens {
@@ -209,7 +209,8 @@ class BaseFunctionalityTest extends SharedPureConnectTests with RowTools with Ba
     val id = Id(1024, 9084)
     val Packed = packId(id)
 
-    val starter = sparkSession.range(1,500).selectExpr("cast(id as int) as id").selectExpr("*","failed() * id as a", "passed() * id as b", "softFailed() * 1 as c", "disabledRule() as dis")
+    val starter = sparkSession.range(1,500).selectExpr("cast(id as int) as id").selectExpr("*","failed() * id as a",
+      "passed() * id as b", "softFailed() * 1 as c", "disabledRule() as dis", "ignored_rule() as ignored")
     val df = starter.selectExpr("*", "packInts(1024 * id, 9084 * id) as d", "cast(softFail( (1 * id) > 2 ) as int) as e", s"longPairFromUUID('$uuid') as fparts").
       selectExpr("*", "rngUUID(longPairFromUUID(uuid())) throwaway").
       selectExpr("*", "rngUUID(named_struct('lower', fparts.lower + id, 'higher', fparts.higher)) as f"," longPair(`id` + 0L, `id` + 1L) as rowid", "unpack(d) as g", "probability(1000) as prob",
@@ -225,12 +226,12 @@ class BaseFunctionalityTest extends SharedPureConnectTests with RowTools with Ba
     val re = sparkSession.read.parquet(outputDir + "/simpleExprs")
     val res = re.as[SimpleRes].orderBy(col("id").asc).head()
     assert(res match {
-      case SimpleRes(1, FailedInt, PassedInt, SoftFailedInt, Packed, SoftFailedInt, DisabledRuleInt, ModifiedString, _, TestId, id, 0.01, ModifiedString, ModifiedString) => true
+      case SimpleRes(1, FailedInt, PassedInt, SoftFailedInt, Packed, SoftFailedInt, DisabledRuleInt, IgnoredRuleInt, ModifiedString, _, TestId, id, 0.01, ModifiedString, ModifiedString) => true
       case _ => false
     })
     val revres = re.as[SimpleRes].orderBy(col("id").desc).head()
     assert(revres match {
-      case SimpleRes(_, _, _, -1, _, 1, _, _, _, _, _, _, _, _) => true
+      case SimpleRes(_, _, _, -1, _, 1, _, _, _, _, _, _, _, _, _) => true
       case _ => false
     })
   }}
@@ -689,9 +690,18 @@ class BaseFunctionalityTest extends SharedPureConnectTests with RowTools with Ba
     resultChecker(
       rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
         Rule(Id(30, 3), ExpressionRule("'disabled'")),
-        Rule(Id(31, 3), ExpressionRule("'disabled'")),
-        Rule(Id(32, 3), ExpressionRule("'disabled'"))
+        Rule(Id(31, 3), ExpressionRule("'disabledrule'")),
+        Rule(Id(32, 3), ExpressionRule("-2"))
       )))), (Passed, Passed), _.toSeq == Seq(DisabledRule, DisabledRule, DisabledRule))
+  }
+
+  test("ignored") {
+    resultChecker(
+      rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+        Rule(Id(30, 3), ExpressionRule("'ignored'")),
+        Rule(Id(31, 3), ExpressionRule("'ignoredrule'")),
+        Rule(Id(32, 3), ExpressionRule("-3"))
+      )))), (Passed, Passed), _.toSeq == Seq(IgnoredRule, IgnoredRule, IgnoredRule))
   }
 
   test("mixedIgnore") {
@@ -810,4 +820,4 @@ case class NestedMapStruct( nested: NestedStruct)
 case class TestIdLeft(left_lower: Long, left_higher: Long)
 case class TestIdRight(right_lower: Long, right_higher: Long)
 
-case class SimpleRes(id: Int, a: Int, b: Int, c: Int, d: Long, e: Int, dis: Int, f: String, throwaway: String, rowId: RowId, g: Id, prob: Double, asUUIDExpr: String, asUUIDCol: String)
+case class SimpleRes(id: Int, a: Int, b: Int, c: Int, d: Long, e: Int, dis: Int, ignored: Int, f: String, throwaway: String, rowId: RowId, g: Id, prob: Double, asUUIDExpr: String, asUUIDCol: String)
