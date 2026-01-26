@@ -34,8 +34,7 @@ trait LazyProcessFunctions { self: NonLazyProcessFunctions =>
 
     val iEnc = implicitly[Encoder[I]]
 
-    val r = processFactory[I, (RuleResult, InternalRow)](addOverallResultsAndDetailsWrapperF(ruleSuite,
-      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval), noCorrection, compile, forceMutable = forceMutable,
+    val r = processFactory[I, (RuleResult, InternalRow)](addOverallResultsAndDetailsWrapperF(ruleSuite), noCorrection, compile, forceMutable = forceMutable,
       extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)(
       implicitly[Encoder[I]], tup
@@ -71,8 +70,7 @@ trait LazyProcessFunctions { self: NonLazyProcessFunctions =>
     implicit val ttyped: TypedEncoder[T] = fromNormalEncoder[T]
     implicit val enc = TypedExpressionEncoder[(InternalRow, Option[SalientRule], Option[T])]
 
-    val r = processFactory[I, (InternalRow, Option[SalientRule], Option[T])](star("ruleEngine")(ruleEngineWithStructFOT(ruleSuite, outputType = outputType,
-      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval)), ofRuleEngine[Option[T]], compile,
+    val r = processFactory[I, (InternalRow, Option[SalientRule], Option[T])](star("ruleEngine")(ruleEngineWithStructFOT(ruleSuite, outputType = outputType)), ofRuleEngine[Option[T]], compile,
       forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)(implicitly[Encoder[I]], enc)
 
@@ -101,8 +99,7 @@ trait LazyProcessFunctions { self: NonLazyProcessFunctions =>
     implicit val ttyped: TypedEncoder[T] = fromNormalEncoder[T]
     implicit val enc = TypedExpressionEncoder[(InternalRow, Option[T])]
 
-    val r = processFactory[I, (InternalRow, Option[T])](star("foldedFields")(foldAndReplaceFieldPairsWithStruct(ruleSuite, fields, outputType,
-      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval)), ofRuleFolder[T], compile,
+    val r = processFactory[I, (InternalRow, Option[T])](star("foldedFields")(foldAndReplaceFieldPairsWithStruct(ruleSuite, fields, outputType)), ofRuleFolder[T], compile,
       forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)(
       implicitly[Encoder[I]], enc)
@@ -132,8 +129,7 @@ trait LazyProcessFunctions { self: NonLazyProcessFunctions =>
     implicit val ttyped: TypedEncoder[T] = fromNormalEncoder[T]
     implicit val enc = TypedExpressionEncoder[(InternalRow, Option[T])]
 
-    val r = processFactory[I, (InternalRow, Option[T])](star("foldedFields")(foldAndReplaceFieldsWithStruct(ruleSuite, outputType,
-      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval)), ofRuleFolder[T], compile,
+    val r = processFactory[I, (InternalRow, Option[T])](star("foldedFields")(foldAndReplaceFieldsWithStruct(ruleSuite, outputType)), ofRuleFolder[T], compile,
       forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
       forceVarCompilation = forceVarCompilation)(
       implicitly[Encoder[I]], enc
