@@ -610,7 +610,10 @@ object RuleRegistrationFunctions {
         expression(ExpressionRunner(rs, ddlType = getString(ddl, 1)))
       case Seq(OfRuleSuite(rs), ddl, name) =>
         expression(ExpressionRunner(rs, ddlType = getString(ddl, 1), name = getString(name, 2)))
-    }, Set(2, 3))
+      case Seq(OfRuleSuite(rs), ddl, name, varPer, varG) =>
+        expression(ExpressionRunner(rs, ddlType = getString(ddl, 1), name = getString(name, 2),
+          variablesPerFunc = getInteger(varPer, 3), variableFuncGroup = getInteger(varG, 4)))
+    }, Set(2, 3, 5))
 
     register("expression_runner", {
       case Seq(OfRuleSuite(rs)) =>
@@ -619,7 +622,10 @@ object RuleRegistrationFunctions {
         expression(ExpressionRunner(rs, name = getString(name, 1)))
       case Seq(OfRuleSuite(rs), name, options) =>
         expression(ExpressionRunner(rs, name = getString(name, 1), renderOptions = getMap(options, 2)))
-    }, Set(1, 2, 3))
+      case Seq(OfRuleSuite(rs), name, options, varp, varg) =>
+        expression(ExpressionRunner(rs, name = getString(name, 1), renderOptions = getMap(options, 2),
+          variablesPerFunc = getInteger(varp, 3), variableFuncGroup = getInteger(varg, 4)))
+    }, Set(1, 2, 3, 5))
 
     register("rule_engine_runner", {
       case Seq(OfRuleOutputSuite(rs)) =>
@@ -632,7 +638,7 @@ object RuleRegistrationFunctions {
       case Seq(OfRuleOutputSuite(rs), dt, debug, varp, varg) =>
         expression(RuleEngineRunnerImpl.ruleEngineRunnerImpl(rs, defaultParseTypes(getString(dt, 1)),
           debugMode = getBoolean(debug, 2), variablesPerFunc = getInteger(varp, 3),
-          variableFuncGroup = getInteger(varg, 3)
+          variableFuncGroup = getInteger(varg, 4)
         ))
     }, Set(1, 2, 3, 5))
 
