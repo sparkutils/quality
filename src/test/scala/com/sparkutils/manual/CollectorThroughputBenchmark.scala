@@ -114,7 +114,7 @@ object CollectorThroughputBenchmark extends Bench.OfflineReport with RowTools {
 
       val ruleCol = (numRules: Int) =>
         quality.collectRunner(genRules(numRules),
-          ArrayType(LongType, true), flatten = true, includeNulls = false).as("result")
+          Some(ArrayType(LongType, true)), flatten = true, includeNulls = false).as("result")
 
       using(rules) in evaluate( ruleCol, expr("result.result") )
     }

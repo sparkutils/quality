@@ -21,27 +21,26 @@ trait CollectRunnerImports {
    * matching, the result passed to the second etc.  In contrast to ruleEngineRunner OutputExpressions should be lambdas with one parameter, that of the structure
    *
    * @param ruleSuite The ruleSuite with runOnPassProcessors
-   * @param resultType the collected result type
-   * @param compileEvals Should the rules be compiled out to interim objects - by default false, allowing optimisations
+   * @param resultType the collected result type, specify this if the derived types have nullability or ordering issues.  By default, it takes the type of the last output expression
    * @param variablesPerFunc Defaulting to 40 allows, in combination with variableFuncGroup allows customisation of handling the 64k jvm method size limitation when performing WholeStageCodeGen
    * @param variableFuncGroup Defaulting to 20
    * @param flatten when resultType is an ArrayType should the result be flattened
    * @param includeNulls should nulls returned by the output expressions be included, note when flattening nulls IN the returned arrays are not filtered
    * @return A Column representing the QualityRules expression built from this ruleSuite
    */
-  def collectRunner(ruleSuite: RuleSuite, resultType: DataType, variablesPerFunc: Int = 40,
+  def collectRunner(ruleSuite: RuleSuite, resultType: Option[DataType] = None, variablesPerFunc: Int = 40,
                        variableFuncGroup: Int = 20,
                       flatten: Boolean = true, includeNulls: Boolean = false): Column = {
     com.sparkutils.quality.registerLambdaFunctions( ruleSuite.lambdaFunctions )
 
-    val (expressions, indexes) = flattenExpressions(ruleSuite)
+    val (expressions, indexes, triggerCount) = flattenExpressions(ruleSuite)
 
     val cleaned = RuleLogicUtils.cleanExprs(ruleSuite)
 
     column(
       CollectRunnerRunner(cleaned, expressions, resultType,
         variablesPerFunc, variableFuncGroup,
-        expressionOffsets = indexes, flatten = flatten, includeNulls = includeNulls)
+        expressionOffsets = indexes, triggerCount = triggerCount, flatten = flatten, includeNulls = includeNulls)
     )
   }
 }

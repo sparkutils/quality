@@ -49,7 +49,7 @@ object RuleEngineRunnerImpl {
       else
         resultDataType
 
-    val (expressions, indexes) = flattenExpressions(ruleSuite)
+    val (expressions, indexes, _) = flattenExpressions(ruleSuite)
 
     val cleaned = RuleLogicUtils.cleanExprs(ruleSuite)
     val exprs =
@@ -84,7 +84,7 @@ object RuleEngineRunnerImpl {
 
 private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
 
-  protected[quality] def flattenExpressions(ruleSuite: RuleSuite, transformOutputExpression: Expression => Expression = identity): (Seq[Expression], Array[Int]) = {
+  protected[quality] def flattenExpressions(ruleSuite: RuleSuite, transformOutputExpression: Expression => Expression = identity): (Seq[Expression], Array[Int], Int) = {
     val outputs = mutable.Map.empty[Id, Int]
     var pos = 0
     val outputExpressions = new mutable.ArrayBuffer[Expression](10)
@@ -116,7 +116,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
         expr
       }))
 
-    (expressions ++ outputExpressions, indexes.toArray)
+    (expressions ++ outputExpressions, indexes.toArray, expressions.size)
   }
 
   // count is not to be trusted, seems some funcs are evaluated twice

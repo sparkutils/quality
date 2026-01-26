@@ -5,7 +5,7 @@ import com.sparkutils.quality.{ExpressionRule, Id, LambdaFunction, OutputExpress
 import frameless.TypedEncoder
 import org.apache.spark.sql.{DataFrame, Encoder, SaveMode}
 import org.apache.spark.sql.functions.{col, explode, lit, struct}
-import org.apache.spark.sql.types.{ArrayType, IntegerType, StringType, StructField, StructType}
+import org.apache.spark.sql.types.{ArrayType, DataType, IntegerType, StringType, StructField, StructType}
 import org.junit.Test
 import org.scalatest.FunSuite
 import org.scalatest.Matchers.convertToAnyShouldWrapper
@@ -25,7 +25,17 @@ class CollectRunnerTest  extends FunSuite with TestUtils {
 
   def irules(expressionRules: Seq[(ExpressionRule, RunOnPassProcessor)])(
     debugMode: Boolean = false, // it will likely never be added
-             transformRuleSuite: RuleSuite => RuleSuite = identity, flatten: Boolean = true, includeNulls: Boolean = false) = {
+             transformRuleSuite: RuleSuite => RuleSuite = identity,
+    flatten: Boolean = true, includeNulls: Boolean = false,
+    dataType: Option[DataType] = Some(
+      ArrayType(StructType(Seq(
+        StructField("transfer_type", StringType),
+        StructField("account", StringType),
+        StructField("product", StringType),
+        StructField("subcode", IntegerType)
+      )))
+    )
+  ) = {
     registerLambdaFunctions(Seq(
       LambdaFunction("account_row", "(transfer_type, account) -> named_struct('transfer_type', transfer_type, 'account', account, 'product', product, 'subcode', subcode)", Id(123, 23)),
       LambdaFunction("account_row", "transfer_type -> account_row(transfer_type, account)", Id(123, 24)),
@@ -45,12 +55,7 @@ class CollectRunnerTest  extends FunSuite with TestUtils {
 
     (dataFrame: DataFrame) =>
       collectRunner(transformRuleSuite(ruleSuite),
-        ArrayType(StructType(Seq(
-          StructField("transfer_type", StringType),
-          StructField("account", StringType),
-          StructField("product", StringType),
-          StructField("subcode", IntegerType)
-        ))),
+        dataType,
         flatten = flatten, includeNulls = includeNulls)
   }
 
@@ -59,19 +64,49 @@ class CollectRunnerTest  extends FunSuite with TestUtils {
       transformRuleSuite: RuleSuite => RuleSuite = identity, flatten: Boolean = true,
       includeNulls: Boolean = false, nullInArray: Boolean = false,
       dummyOut: String = "array(account_row('whoknows', 'money'))", canRunSimpleSpark: Boolean = true
-  ): Unit = evalCodeGensNoResolve { funNRewrites {
+  ): Unit = {
+    testBaseI[T, O](expected, ordF, sparkTo)( debugMode = debugMode,
+      transformRuleSuite = transformRuleSuite, flatten = flatten,
+      includeNulls = includeNulls, nullInArray = nullInArray,
+      dummyOut = dummyOut, canRunSimpleSpark = canRunSimpleSpark)
+    // derive type case
+    testBaseI[T, O](expected, ordF, sparkTo)( debugMode = debugMode,
+      transformRuleSuite = transformRuleSuite, flatten = flatten,
+      includeNulls = includeNulls, nullInArray = nullInArray,
+      dummyOut = dummyOut, canRunSimpleSpark = canRunSimpleSpark, dataType = None)
+  }
+
+  def testBaseI[T: TypedEncoder: ClassTag, O: Ordering](
+      expected: Seq[T], ordF: T => O, sparkTo: DataFrame => Seq[T])( debugMode: Boolean = false,
+      transformRuleSuite: RuleSuite => RuleSuite = identity, flatten: Boolean = true,
+      includeNulls: Boolean = false, nullInArray: Boolean = false,
+      dummyOut: String = "array(account_row('whoknows', 'money'))", canRunSimpleSpark: Boolean = true,
+      dataType: Option[DataType] = Some(
+        ArrayType(StructType(Seq(
+          StructField("transfer_type", StringType),
+          StructField("account", StringType),
+          StructField("product", StringType),
+          StructField("subcode", IntegerType)
+        )))
+      )
+    ): Unit = evalCodeGensNoResolve { funNRewrites {
     val rer = irules(
       Seq(
+        (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1001, Id(1044,1),
+          OutputExpression(dummyOut))),
+        (ExpressionRule("product = 'fred'"), RunOnPassProcessor(1001, Id(1044,1),
+          OutputExpression(dummyOut))),
+
         (ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(995, Id(1040,1),
           OutputExpression("array(subcodeF('from', 1234), account_row('to'))"))),
         (ExpressionRule("product like '%fx%'"), RunOnPassProcessor(996, Id(1042,1),
           OutputExpression("array(account_row('to'), account_row('from'))"))),
         (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1000, Id(1043,1),
-          OutputExpression(s"array(account_row('from'), ${if (nullInArray) "null" else "account_row('to')"})"))),
-        (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1001, Id(1044,1),
-          OutputExpression(dummyOut)))
+          OutputExpression(s"array(account_row('from'), ${if (nullInArray) "null" else "account_row('to')"})")))
+
       )
-    )(debugMode = debugMode, transformRuleSuite = transformRuleSuite, flatten = flatten, includeNulls = includeNulls)
+    )(debugMode = debugMode, transformRuleSuite = transformRuleSuite, flatten = flatten,
+      includeNulls = includeNulls, dataType = dataType)
 
     val testDataDF = {
       import sparkSession.implicits._

@@ -55,7 +55,7 @@ trait RuleFolderRunnerImports {
 
     val liftLambda = (e: Expression) => FunN(Seq(lazyRef), e, usedAsLambda = true)
 
-    val (expressions, indexes) = flattenExpressions(ruleSuite, liftLambda)
+    val (expressions, indexes, triggerCount) = flattenExpressions(ruleSuite, liftLambda)
 
     val cleaed = RuleLogicUtils.cleanExprs(ruleSuite)
     val starter = expression(startingStruct)
@@ -71,12 +71,12 @@ trait RuleFolderRunnerImports {
         new RuleFolderRunnerEval(cleaed, starter, exprs,
           realType, compileEvals = compileEvals,
           debugMode = debugMode, variablesPerFunc, variableFuncGroup,
-          expressionOffsets = indexes, dataRef, forceTriggerEval)
+          expressionOffsets = indexes, dataRef, forceTriggerEval, triggerCount = triggerCount)
       else
         new RuleFolderRunner(cleaed, starter, exprs,
           realType, compileEvals = compileEvals,
           debugMode = debugMode, variablesPerFunc, variableFuncGroup,
-          expressionOffsets = indexes, dataRef, forceTriggerEval)
+          expressionOffsets = indexes, dataRef, forceTriggerEval, triggerCount = triggerCount)
 
     column(
       QualitySparkUtils.resolveWithOverride(resolveWith).map { df =>

@@ -31,12 +31,13 @@ private[quality] object CollectRunnerUtils extends RuleFolderRunnerImports {
 trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
 
   val ruleSuite: RuleSuite
-  val resultDataType: DataType
+  val resultDataType: Option[DataType]
   val variablesPerFunc: Int
   val variableFuncGroup: Int
   val expressionOffsets: Array[Int]
   val flatten: Boolean
   val includeNulls: Boolean
+  val triggerCount: Int
 
   implicit val classTagT: ClassTag[T]
   val tClass: Class[T]
@@ -44,11 +45,16 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
   import RuleEngineRunnerUtils._
   import RuleFolderRunnerUtils._
 
+  lazy val actualType =
+    resultDataType.getOrElse{
+      children.last.dataType
+    }
+
   // only used for compilation compatibility with ruleEngine utils code
   lazy val compiledRealChildren = Array.empty[ExpressionWrapper]
 
-  lazy val canFlatten = resultDataType.isInstanceOf[ArrayType]
-  lazy val elementType: DataType = if (!canFlatten) null else resultDataType.asInstanceOf[ArrayType].elementType
+  lazy val canFlatten = actualType.isInstanceOf[ArrayType]
+  lazy val elementType: DataType = if (!canFlatten) null else actualType.asInstanceOf[ArrayType].elementType
 
   // e.g. starter space for each rule with 5 possible rows when flattening or exact size when it's an array
   // to find out the exact size after casting etc. involves a second pass and is measurably more expensive
@@ -84,7 +90,7 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
   def dataType: DataType = StructType( Seq(
       StructField(name = "ruleSuiteResults", dataType = com.sparkutils.quality.types.ruleSuiteResultType),
       StructField(name = "result", dataType =
-        if (flatten && canFlatten) ArrayType(elementType, includeNulls) else ArrayType(resultDataType, includeNulls),
+        if (flatten && canFlatten) ArrayType(elementType, includeNulls) else ArrayType(actualType, includeNulls),
         nullable = true)
     ))
 
@@ -96,7 +102,7 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
 
     // order by salience
     val salience = com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenSalience(ruleSuite)
-    val outputs = 0 until (children.size - expressionOffsets.size)
+    val outputs = 0 until triggerCount
     val reordered = outputs zip salience sortBy(_._2) map(_._1)
 
     //val outputExprs = children.drop(expressionOffsets.length).map(_.genCode(ctx))
@@ -168,8 +174,9 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
  * Children will be rewritten by the plan, it's then re-incorporated into ruleSuite
  * expressionOffsets.length is the length of the trigger expressions in realChildren, realChildren(expressionOffsets.length + expressionOffsets(x)) will be the correct OutputExpression
  */
-case class CollectRunnerRunner(ruleSuite: RuleSuite, children: Seq[Expression], resultDataType: DataType,
+case class CollectRunnerRunner(ruleSuite: RuleSuite, children: Seq[Expression], resultDataType: Option[DataType],
                                 variablesPerFunc: Int, variableFuncGroup: Int, expressionOffsets: Array[Int],
+                               triggerCount: Int,
                                flatten: Boolean, includeNulls: Boolean
                                ) extends CollectRunnerBase[CollectRunnerRunner] {
 
