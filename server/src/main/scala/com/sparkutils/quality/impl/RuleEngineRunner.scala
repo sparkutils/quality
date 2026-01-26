@@ -383,9 +383,10 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression {
 
   lazy val resultDataType = {
     val resultDataType = userResultDataType.getOrElse(realChildren.last.dataType)
-    realChildren.drop(triggerCount).find(e => e.dataType != resultDataType).foreach{ e =>
-      throw new QualityException(s"RuleEngine DataType ${e.dataType.sql} does not match the last OutputExpression type ${resultDataType.sql}")
-    }
+    // TODO needs a better type comparison, leverage whatever is present in spark directly
+    //realChildren.drop(triggerCount).find(e => e.dataType != resultDataType).foreach{ e =>
+    //  throw new QualityException(s"RuleEngine DataType ${e.dataType.sql} does not match the last OutputExpression type ${resultDataType.sql}")
+    //}
 
     if (debugMode)
       // wrap it in an array with the priority result

@@ -68,7 +68,7 @@ trait RuleFolderTestBase extends SharedPureConnectTests {
     import sc.implicits._
 
     (dataFrame: DataFrame) =>
-      ruleFolderRunner(transformRuleSuite(ruleSuite), struct(lit("").as("transfer_type"), $"account", $"product", $"subcode"), debugMode = debugMode,
+      classicFunctions.ruleFolderRunner(transformRuleSuite(ruleSuite), struct(lit("").as("transfer_type"), $"account", $"product", $"subcode"), debugMode = debugMode,
         resolveWith = if (doResolve.get()) Some(dataFrame) else None, compileEvals = compileEvals)
   }
 

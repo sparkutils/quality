@@ -58,7 +58,7 @@ trait RuleEngineTestBase extends SharedPureConnectTests {
   def irules(expressionRules: Seq[(ExpressionRule, RunOnPassProcessor)], debugMode: Boolean = false, compileEvals: Boolean = true, transformRuleSuite: RuleSuite => RuleSuite = identity) = {
     val ruleSuite = rulesRaw(expressionRules)
     (dataFrame: DataFrame) =>
-      ruleEngineRunner(transformRuleSuite(ruleSuite), debugMode = debugMode,
+      classicFunctions.ruleEngineRunner(transformRuleSuite(ruleSuite), debugMode = debugMode,
         resolveWith = if (doResolve.get()) Some(dataFrame) else None, compileEvals = compileEvals)
   }
 

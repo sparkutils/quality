@@ -39,7 +39,7 @@ class JoinValidationTest extends SharedPureConnectTests {
       )))
 
     (dataFrame: DataFrame) =>
-      ruleRunner(transformRuleSuite(ruleSuite),
+      classicFunctions.ruleRunner(transformRuleSuite(ruleSuite),
         resolveWith = if (doResolve.get()) Some(dataFrame) else None, compileEvals = compileEvals)
   }
 

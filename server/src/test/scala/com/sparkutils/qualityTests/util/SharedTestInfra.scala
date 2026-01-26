@@ -2,7 +2,7 @@ package com.sparkutils.qualityTests.util
 
 import com.sparkutils.quality
 import com.sparkutils.quality.impl.extension.FunNRewrite
-import com.sparkutils.quality.{RuleSuite, ruleRunner}
+import com.sparkutils.quality.{RuleSuite, classicFunctions, ruleRunner}
 import com.sparkutils.testing.SparkTestUtils.{connectMemory, scoverageClassPathsConfig, useDebugConnectLogs}
 import com.sparkutils.testing._
 import com.sparkutils.testing.markers.{ConnectSafe, DontRunOnPureConnect}
@@ -90,7 +90,7 @@ trait TestUtilsBase extends SparkTestSuite {
   def taddDataQuality(dataFrame: Dataset[Row], rules: RuleSuite, name: String = "DataQuality", compileEvals: Boolean = true): Dataset[Row] = {
     import org.apache.spark.sql.functions.expr
     val tdf = dataFrame.drop(name) // some gen tests add this
-    val rr = ruleRunner(rules, compileEvals, resolveWith = if (doResolve.get()) Some(tdf) else None, forceRunnerEval = false)
+    val rr = classicFunctions.ruleRunner(rules, compileEvals, resolveWith = if (doResolve.get()) Some(tdf) else None, forceRunnerEval = false)
     tdf.select(expr("*"), rr.as(name))
   }
 

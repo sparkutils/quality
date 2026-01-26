@@ -18,11 +18,9 @@ trait AddDataFunctionsImports {
    * @param name
    * @return
    */
-  def addDataQuality(dataFrame: DataFrame, rules: RuleSuite, name: String = "DataQuality", compileEvals: Boolean = false,
-                     forceRunnerEval: Boolean = false): DataFrame = {
+  def addDataQuality(dataFrame: DataFrame, rules: RuleSuite, name: String = "DataQuality"): DataFrame = {
     import org.apache.spark.sql.functions.expr
-    dataFrame.select(expr("*"), com.sparkutils.quality.ruleRunner(rules, compileEvals = compileEvals,
-      forceRunnerEval = forceRunnerEval).as(name))
+    dataFrame.select(expr("*"), com.sparkutils.quality.ruleRunner(rules).as(name))
   }
 
   /**
@@ -31,10 +29,8 @@ trait AddDataFunctionsImports {
    * @param name
    * @return
    */
-  def addDataQualityF(rules: RuleSuite, name: String = "DataQuality", compileEvals: Boolean = false,
-                      forceRunnerEval: Boolean = false): DataFrame => DataFrame =
-    addDataQuality(_, rules, name, compileEvals = compileEvals,
-      forceRunnerEval = forceRunnerEval)
+  def addDataQualityF(rules: RuleSuite, name: String = "DataQuality"): DataFrame => DataFrame =
+    addDataQuality(_, rules, name)
 
   /**
    * Adds two columns, one for overallResult and the other the details, allowing 30-50% performance gains for simple filters
@@ -45,11 +41,9 @@ trait AddDataFunctionsImports {
    * @return
    */
   def addOverallResultsAndDetails(dataFrame: DataFrame, rules: RuleSuite, overallResult: String = "DQ_overallResult",
-                                  resultDetails: String = "DQ_Details", compileEvals: Boolean = false,
-                                  forceRunnerEval: Boolean = false): DataFrame = {
+                                  resultDetails: String = "DQ_Details"): DataFrame = {
     val temporaryDQname: String = "DQ_TEMP_Quality"
-    addDataQuality(dataFrame, rules, temporaryDQname, compileEvals = compileEvals,
-      forceRunnerEval = forceRunnerEval).
+    addDataQuality(dataFrame, rules, temporaryDQname).
       selectExpr("*",s"$temporaryDQname.overallResult as $overallResult",
         s"ruleSuiteResultDetails($temporaryDQname) as $resultDetails").drop(temporaryDQname)
   }
@@ -62,10 +56,8 @@ trait AddDataFunctionsImports {
    * @return
    */
   def addOverallResultsAndDetailsF(rules: RuleSuite, overallResult: String = "DQ_overallResult",
-                                   resultDetails: String = "DQ_Details", compileEvals: Boolean = false,
-                                   forceRunnerEval: Boolean = false): DataFrame=> DataFrame =
-    addOverallResultsAndDetails(_, rules, overallResult, resultDetails, compileEvals = compileEvals,
-      forceRunnerEval = forceRunnerEval)
+                                   resultDetails: String = "DQ_Details"): DataFrame=> DataFrame =
+    addOverallResultsAndDetails(_, rules, overallResult, resultDetails)
 
   /**
    * Leverages the foldRunner to replace fields, the input fields are used to create a structure that the rules fold over.
@@ -80,11 +72,9 @@ trait AddDataFunctionsImports {
    */
   def foldAndReplaceFields[P[R] >: Dataset[R]](rules: RuleSuite, fields: Seq[String], foldFieldName: String = "foldedFields",
                                                    debugMode: Boolean = false, @deprecated(message = "tempFoldDebugName is no longer used and will be removed in 0.3.0", since = "0.2.0") tempFoldDebugName: String = "tempFOLDDEBUG",
-                                                   maintainOrder: Boolean = true, compileEvals: Boolean = false, forceRunnerEval: Boolean = false,
-                                                   forceTriggerEval: Boolean = false, alias: String = "main"): P[SRow] => P[SRow] =
+                                                   maintainOrder: Boolean = true, alias: String = "main"): P[SRow] => P[SRow] =
     ifoldAndReplaceFields(rules, Left(fields), foldFieldName,
-      debugMode, maintainOrder, compileEvals = compileEvals,
-      forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval, alias = alias)
+      debugMode, maintainOrder, alias = alias)
 
   /**
    * Leverages the foldRunner to replace fields, the input fields pairs are used to create a structure that the rules fold over.
@@ -99,11 +89,9 @@ trait AddDataFunctionsImports {
    */
   def foldAndReplaceFieldPairs[P[R] >: Dataset[R]](rules: RuleSuite, fields: Seq[(String, Column)], foldFieldName: String = "foldedFields",
                                                    debugMode: Boolean = false, @deprecated(message = "tempFoldDebugName is no longer used and will be removed in 0.3.0", since = "0.2.0") tempFoldDebugName: String = "tempFOLDDEBUG",
-                                                   maintainOrder: Boolean = true, compileEvals: Boolean = false, forceRunnerEval: Boolean = false,
-                                                   forceTriggerEval: Boolean = false, alias: String = "main"): P[SRow] => P[SRow] =
+                                                   maintainOrder: Boolean = true, alias: String = "main"): P[SRow] => P[SRow] =
     ifoldAndReplaceFields(rules, Right(fields), foldFieldName,
-      debugMode, maintainOrder, compileEvals = compileEvals,
-      forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval, alias = alias)
+      debugMode, maintainOrder, alias = alias)
 
   /**
    * Leverages the foldRunner to replace fields, the input fields are used to create a structure that the rules fold over.
@@ -121,11 +109,9 @@ trait AddDataFunctionsImports {
    */
   def foldAndReplaceFieldsWithStruct[P[R] >: Dataset[R]](rules: RuleSuite, struct: StructType, foldFieldName: String = "foldedFields",
       debugMode: Boolean = false, @deprecated(message = "tempFoldDebugName is no longer used and will be removed in 0.3.0", since = "0.2.0") tempFoldDebugName: String = "tempFOLDDEBUG",
-      maintainOrder: Boolean = true, compileEvals: Boolean = false,
-      forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false, alias: String = "main"): P[SRow] => P[SRow] =
+      maintainOrder: Boolean = true, alias: String = "main"): P[SRow] => P[SRow] =
     AddDataFunctions.ifoldAndReplaceFields(rules, Left(struct.fields.map(_.name)), foldFieldName,
-      debugMode, maintainOrder, useType = Some(struct), compileEvals = compileEvals,
-      forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval, alias = alias)
+      debugMode, maintainOrder, useType = Some(struct), alias = alias)
 
   /**
    * Leverages the foldRunner to replace fields, the input field pairs are used to create a structure that the rules fold over,
@@ -144,11 +130,9 @@ trait AddDataFunctionsImports {
    */
   def foldAndReplaceFieldPairsWithStruct[P[R] >: Dataset[R]](rules: RuleSuite, fields: Seq[(String, Column)], struct: StructType, foldFieldName: String = "foldedFields",
                                                              debugMode: Boolean = false, @deprecated(message = "tempFoldDebugName is no longer used and will be removed in 0.3.0", since = "0.2.0") tempFoldDebugName: String = "tempFOLDDEBUG",
-                                                             maintainOrder: Boolean = true, compileEvals: Boolean = false,
-                                                             forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false, alias: String = "main"): P[SRow] => P[SRow] =
+                                                             maintainOrder: Boolean = true, alias: String = "main"): P[SRow] => P[SRow] =
     AddDataFunctions.ifoldAndReplaceFields(rules, Right(fields), foldFieldName,
-      debugMode, maintainOrder, useType = Some(struct), compileEvals = compileEvals,
-      forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval, alias = alias)
+      debugMode, maintainOrder, useType = Some(struct), alias = alias)
 
   /**
    * Leverages the ruleRunner to produce an new output structure, the outputType defines the output structure generated.
@@ -163,14 +147,13 @@ trait AddDataFunctionsImports {
    * @return
    */
   def ruleEngineWithStruct(dataFrame: DataFrame, rules: RuleSuite, outputType: DataType,
-      ruleEngineFieldName: String = "ruleEngine", alias: String = "main", debugMode: Boolean = false,
-      compileEvals: Boolean = false, forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false): DataFrame = {
+      ruleEngineFieldName: String = "ruleEngine", alias: String = "main", debugMode: Boolean = false): DataFrame = {
     import org.apache.spark.sql.functions.expr
     (if ( (alias eq null) || alias.isEmpty )
       dataFrame
     else
-      dataFrame.as(alias)).select(expr("*"), ruleEngineRunner(rules, Some(outputType), debugMode = debugMode,
-      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval).as(ruleEngineFieldName))
+      dataFrame.as(alias)).select(expr("*"), ruleEngineRunner(rules, Some(outputType), debugMode = debugMode).
+        as(ruleEngineFieldName))
   }
 
   /**
@@ -189,14 +172,13 @@ trait AddDataFunctionsImports {
    * @return
    */
   def ruleEngineWithStructOT(dataFrame: DataFrame, rules: RuleSuite, outputType: Option[DataType] = None,
-                           ruleEngineFieldName: String = "ruleEngine", alias: String = "main", debugMode: Boolean = false,
-                           compileEvals: Boolean = false, forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false): DataFrame = {
+                           ruleEngineFieldName: String = "ruleEngine", alias: String = "main", debugMode: Boolean = false): DataFrame = {
     import org.apache.spark.sql.functions.expr
     (if ( (alias eq null) || alias.isEmpty )
       dataFrame
     else
-      dataFrame.as(alias)).select(expr("*"), ruleEngineRunner(rules, outputType, debugMode = debugMode,
-      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval).as(ruleEngineFieldName))
+      dataFrame.as(alias)).select(expr("*"), ruleEngineRunner(rules, outputType, debugMode = debugMode).
+        as(ruleEngineFieldName))
   }
 
   /**
@@ -209,10 +191,8 @@ trait AddDataFunctionsImports {
    * @return
    */
   def ruleEngineWithStructF[P[R] >: Dataset[R]](rules: RuleSuite, outputType: DataType,
-      ruleEngineFieldName: String = "ruleEngine", alias: String = "main", debugMode: Boolean = false,
-      compileEvals: Boolean = false, forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false): P[SRow] => P[SRow] =
-    (p: P[SRow]) => ruleEngineWithStruct(p.asInstanceOf[DataFrame], rules, outputType, ruleEngineFieldName, alias, debugMode,
-      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval).asInstanceOf[P[SRow]]
+      ruleEngineFieldName: String = "ruleEngine", alias: String = "main", debugMode: Boolean = false): P[SRow] => P[SRow] =
+    (p: P[SRow]) => ruleEngineWithStruct(p.asInstanceOf[DataFrame], rules, outputType, ruleEngineFieldName, alias, debugMode).asInstanceOf[P[SRow]]
 
   /**
    * Optional outputType, when none attempts will be made by spark to derive the output type based on the first output.
@@ -227,10 +207,9 @@ trait AddDataFunctionsImports {
    * @return
    */
   def ruleEngineWithStructFOT[P[R] >: Dataset[R]](rules: RuleSuite, outputType: Option[DataType] = None,
-                                                    ruleEngineFieldName: String = "ruleEngine", alias: String = "main", debugMode: Boolean = false,
-                                                    compileEvals: Boolean = false, forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false): P[SRow] => P[SRow] =
-    (p: P[SRow]) => ruleEngineWithStructOT(p.asInstanceOf[DataFrame], rules, outputType, ruleEngineFieldName, alias, debugMode,
-      compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval).asInstanceOf[P[SRow]]
+                                                    ruleEngineFieldName: String = "ruleEngine", alias: String = "main",
+                                                  debugMode: Boolean = false): P[SRow] => P[SRow] =
+    (p: P[SRow]) => ruleEngineWithStructOT(p.asInstanceOf[DataFrame], rules, outputType, ruleEngineFieldName, alias, debugMode).asInstanceOf[P[SRow]]
 
   /**
    * Runs the ruleSuite expressions saving results as a tuple of (ruleResult: yaml, resultType: String)
@@ -242,17 +221,13 @@ trait AddDataFunctionsImports {
    */
   def addExpressionRunner(dataFrame: DataFrame, ruleSuite: RuleSuite, name: String = "expressionResults",
                        renderOptions: Map[String, String] = Map.empty, ddlType: String = "",
-                       forceRunnerEval: Boolean = false,
-                       @deprecated(message = "compileEvals is provided for source migration only and will be removed in 0.3.0", since = "0.2.0") compileEvals: Boolean = false,
                        stripDDL: Boolean = false, postProcess: DataFrame => DataFrame = identity): DataFrame = {
     import org.apache.spark.sql.functions.expr
     val runner =
       if (ddlType.isEmpty)
-        expressionRunner(ruleSuite, name = name, renderOptions = renderOptions,
-          forceRunnerEval = forceRunnerEval)
+        expressionRunner(ruleSuite, name = name, renderOptions = renderOptions)
       else
-        typedExpressionRunner(ruleSuite, name = name,
-          ddlType = ddlType, forceRunnerEval = forceRunnerEval)
+        typedExpressionRunner(ruleSuite, name = name, ddlType = ddlType)
 
     postProcess(
       dataFrame.select(expr("*"),
@@ -274,13 +249,11 @@ trait AddDataFunctionsImports {
    */
   def addExpressionRunnerF[P[R] >: Dataset[R]](ruleSuite: RuleSuite, name: String = "expressionResults",
                        renderOptions: Map[String, String] = Map.empty, ddlType: String = "",
-                       forceRunnerEval: Boolean = false, compileEvals: Boolean = false,
                        stripDDL: Boolean = false, postProcess: DataFrame => DataFrame = identity): P[SRow] => P[SRow] =
     (p: P[SRow]) => {
       import org.apache.spark.sql.functions.expr
       addExpressionRunner(p.asInstanceOf[DataFrame], ruleSuite, name = name, renderOptions = renderOptions,
-        ddlType = ddlType,
-        compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, stripDDL = stripDDL,
+        ddlType = ddlType, stripDDL = stripDDL,
         postProcess = postProcess).asInstanceOf[P[SRow]]
     }
 }

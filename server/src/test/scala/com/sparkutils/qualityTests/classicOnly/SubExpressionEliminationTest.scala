@@ -78,12 +78,12 @@ class SubExpressionEliminationTest extends ClassicSharedTests {
     }
   }
 
-  test("controlRunner old defaults") { evalCodeGensNoResolve{ doRunner(expectedTriggerRules , ruleRunner(_, compileEvals = true)) }   }
+  test("controlRunner old defaults") { evalCodeGensNoResolve{ doRunner(expectedTriggerRules , classicFunctions.ruleRunner(_, compileEvals = true)) }   }
 
   // forceRunnerEval disables codegen elimination as CodeGenFallback is also ignored for interpreted
-  test("runnerShouldNotEliminateWithRunnerEval") { evalCodeGensNoResolve { doRunner(expectedTriggerRules, ruleRunner(_, compileEvals = false, forceRunnerEval = true)) } }
+  test("runnerShouldNotEliminateWithRunnerEval") { evalCodeGensNoResolve { doRunner(expectedTriggerRules, classicFunctions.ruleRunner(_, compileEvals = false, forceRunnerEval = true)) } }
 
-  test("runnerShouldEliminate") { v3_2_and_above { evalCodeGensNoResolve { doRunner(expectedEliminatedTriggerRules, ruleRunner(_, compileEvals = false)) } } }
+  test("runnerShouldEliminate") { v3_2_and_above { evalCodeGensNoResolve { doRunner(expectedEliminatedTriggerRules, classicFunctions.ruleRunner(_, compileEvals = false)) } } }
 
   // adds an output expression
   def doOutput(count: Int, rsf: RuleSuite => Column, expr: String): Unit =
@@ -103,13 +103,13 @@ class SubExpressionEliminationTest extends ClassicSharedTests {
     }
   }
 
-  test("controlEngine old defaults") { evalCodeGensNoResolve{ doOutput(expectedTriggerRules + expectedOutputRules , ruleEngineRunner(_, compileEvals = true, forceTriggerEval = true), outputExpr) }  }
+  test("controlEngine old defaults") { evalCodeGensNoResolve{ doOutput(expectedTriggerRules + expectedOutputRules , classicFunctions.ruleEngineRunner(_, compileEvals = true, forceTriggerEval = true), outputExpr) }  }
 
   // forceRunnerEval disables codegen elimination as CodeGenFallback is also ignored for interpreted
-  test("engineShouldNotEliminateWithRunnerEval") { evalCodeGensNoResolve { doOutput(expectedTriggerRules + expectedOutputRules, ruleEngineRunner(_, compileEvals = false, forceRunnerEval = true), outputExpr) } }
+  test("engineShouldNotEliminateWithRunnerEval") { evalCodeGensNoResolve { doOutput(expectedTriggerRules + expectedOutputRules, classicFunctions.ruleEngineRunner(_, compileEvals = false, forceRunnerEval = true), outputExpr) } }
 
   // note there should be no more calls as the outputexpr is already eliminated
-  test("engineShouldEliminate") { v3_2_and_above { evalCodeGensNoResolve{ doOutput(expectedEliminatedTriggerRules, ruleEngineRunner(_, forceTriggerEval = false, compileEvals = false), outputExpr) } } }
+  test("engineShouldEliminate") { v3_2_and_above { evalCodeGensNoResolve{ doOutput(expectedEliminatedTriggerRules, classicFunctions.ruleEngineRunner(_, forceTriggerEval = false, compileEvals = false), outputExpr) } } }
 
   test("controlExpression") { evalCodeGensNoResolve{ doRunner(expectedTriggerRules, ExpressionRunner(_, ddlType = "boolean", forceRunnerEval = true)) }  } // defaults may change later
 
@@ -123,15 +123,15 @@ class SubExpressionEliminationTest extends ClassicSharedTests {
   val starter = sql.functions.struct(sql.functions.lit(1).as("r"))
   val folderOverhead = rows // not entirely sure why
 
-  test("controlFolder") { evalCodeGensNoResolve{ doOutput(expectedTriggerRules + expectedOutputRules + folderOverhead, ruleFolderRunner(_, starter, forceRunnerEval = true), folderExpr) }  } // defaults may change later
+  test("controlFolder") { evalCodeGensNoResolve{ doOutput(expectedTriggerRules + expectedOutputRules + folderOverhead, classicFunctions.ruleFolderRunner(_, starter, forceRunnerEval = true), folderExpr) }  } // defaults may change later
 
   // forceRunnerEval disables codegen elimination as CodeGenFallback is also ignored for interpreted
-  test("folderShouldNotEliminateWithRunnerEval") { evalCodeGensNoResolve { doOutput(expectedTriggerRules + expectedOutputRules + folderOverhead, ruleFolderRunner(_, starter, compileEvals = false, forceRunnerEval = true), folderExpr) } }
+  test("folderShouldNotEliminateWithRunnerEval") { evalCodeGensNoResolve { doOutput(expectedTriggerRules + expectedOutputRules + folderOverhead, classicFunctions.ruleFolderRunner(_, starter, compileEvals = false, forceRunnerEval = true), folderExpr) } }
 
   // note there should be no more calls as the outputexpr is already eliminated
-  test("folderShouldEliminate") { v3_2_and_above { evalCodeGensNoResolve{ doOutput(expectedEliminatedTriggerRules, ruleFolderRunner(_, starter, compileEvals = false), folderExpr) } } }
+  test("folderShouldEliminate") { v3_2_and_above { evalCodeGensNoResolve{ doOutput(expectedEliminatedTriggerRules, classicFunctions.ruleFolderRunner(_, starter, compileEvals = false), folderExpr) } } }
 
-  test("folderShouldEliminateWithTriggersFalse") { v3_2_and_above { evalCodeGensNoResolve{ doOutput(expectedEliminatedTriggerRules, ruleFolderRunner(_, starter, compileEvals = false, forceTriggerEval = false), folderExpr) }  }}
+  test("folderShouldEliminateWithTriggersFalse") { v3_2_and_above { evalCodeGensNoResolve{ doOutput(expectedEliminatedTriggerRules, classicFunctions.ruleFolderRunner(_, starter, compileEvals = false, forceTriggerEval = false), folderExpr) }  }}
 
 }
 

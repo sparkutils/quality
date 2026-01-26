@@ -20,6 +20,8 @@ trait ClassicRuleFolderRunnerImports {
    * FolderRunner runs all output expressions for matching rules in order of salience, the startingStruct is passed ot the first
    * matching, the result passed to the second etc.  In contrast to ruleEngineRunner OutputExpressions should be lambdas with one parameter, that of the structure
    *
+   * NOTE if using this in a Connect session resolveWith, compileEvals, forceRunnerEval and forceTriggerEval are ignored and use defaults
+   *
    * @param ruleSuite The ruleSuite with runOnPassProcessors
    * @param startingStruct This struct is passed to the first matching rule, ideally you would use the spark dsl struct function to refer to existing columns
    * @param compileEvals Should the rules be compiled out to interim objects - by default false, allowing optimisations
@@ -41,8 +43,8 @@ trait ClassicRuleFolderRunnerImports {
         variableFuncGroup, forceRunnerEval, useType, forceTriggerEval)
     else
       ShimUtils.callFunction("rule_folder_runner", lit(RuleSuiteHelpers.serialize(ruleSuite)),
-        startingStruct, lit(compileEvals), lit(debugMode), lit(variablesPerFunc),
-        lit(variableFuncGroup), lit(forceRunnerEval), lit(useType.map(_.sql).getOrElse("")), lit(forceTriggerEval)
+        startingStruct, lit(useType.map(_.sql).getOrElse("")), lit(debugMode), lit(variablesPerFunc),
+        lit(variableFuncGroup)
       )
 
   /**

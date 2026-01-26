@@ -2,13 +2,16 @@ package com.sparkutils.quality.impl.imports
 
 import com.sparkutils.quality.RuleSuite
 import com.sparkutils.quality.impl.imports.ResolveUtil.checkResolveMakesSenseOrClassic
-import com.sparkutils.quality.impl.RuleRunnerImpl
-import org.apache.spark.sql.{Column, DataFrame}
+import com.sparkutils.quality.impl.{RuleRunnerImpl, RuleSuiteHelpers}
+import org.apache.spark.sql.functions.lit
+import org.apache.spark.sql.{Column, DataFrame, ShimUtils}
 
 trait ClassicRuleRunnerImports {
 
   /**
    * Creates a column that runs the RuleSuite.  This also forces registering the lambda functions used by that RuleSuite
+   *
+   * NOTE if using this in a Connect session resolveWith, compileEvals and forceRunnerEval are ignored and use defaults
    *
    * @param ruleSuite The Qualty RuleSuite to evaluate
    * @param compileEvals Should the rules be compiled out to interim objects - by default false
@@ -22,6 +25,7 @@ trait ClassicRuleRunnerImports {
     if (checkResolveMakesSenseOrClassic(resolveWith))
       RuleRunnerImpl.ruleRunnerImplClassic(ruleSuite, compileEvals, resolveWith, variablesPerFunc, variableFuncGroup, forceRunnerEval)
     else
-      RuleRunnerImpl.ruleRunnerImpl(ruleSuite, compileEvals, variablesPerFunc, variableFuncGroup, forceRunnerEval)
+      ShimUtils.callFunction("dq_rule_runner", lit(RuleSuiteHelpers.serialize(ruleSuite)),
+        lit(variablesPerFunc), lit(variableFuncGroup))
 
 }

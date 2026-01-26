@@ -29,9 +29,7 @@ protected[quality] object AddDataFunctions {
    * @return
    */
   def ifoldAndReplaceFields[P[R] >: Dataset[R]](rules: RuleSuite, fields: Either[Seq[String], Seq[(String, Column)]], foldFieldName: String = "foldedFields",
-                           debugMode: Boolean = false, maintainOrder: Boolean = true, useType: Option[StructType] = None,
-                           compileEvals: Boolean = false, forceRunnerEval: Boolean = false,
-                           forceTriggerEval: Boolean = false, alias: String = "main"): P[SRow] => P[SRow] = rdf => {
+                           debugMode: Boolean = false, maintainOrder: Boolean = true, useType: Option[StructType] = None, alias: String = "main"): P[SRow] => P[SRow] = rdf => {
     val df = rdf.asInstanceOf[DataFrame]
     import org.apache.spark.sql.functions._
 
@@ -42,8 +40,7 @@ protected[quality] object AddDataFunctions {
       pairs => NamedStruct(pairs)
     )
     val withFolder =
-      df.as(alias).withColumn(foldFieldName, ruleFolderRunner(rules, theStruct, debugMode = debugMode, useType = useType,
-        compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval))
+      df.as(alias).withColumn(foldFieldName, ruleFolderRunner(rules, theStruct, debugMode = debugMode, useType = useType))
 
     val schema = withFolder.schema
     val dfFields = schema.map(_.name)
