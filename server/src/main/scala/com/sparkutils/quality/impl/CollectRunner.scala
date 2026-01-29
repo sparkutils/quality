@@ -12,7 +12,7 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{TypeCoercion, UnresolvedFunction}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, ExprCode, FalseLiteral, GlobalValue}
-import org.apache.spark.sql.catalyst.expressions.{CreateArray, Expression, NoThrow, NonSQLExpression}
+import org.apache.spark.sql.catalyst.expressions.{CreateArray, Expression, NonSQLExpression}
 import org.apache.spark.sql.catalyst.util.GenericArrayData
 import org.apache.spark.sql.types._
 
@@ -80,7 +80,7 @@ case class InPlaceArray(children: Seq[Expression]) extends Expression {
       containsNull = children.exists(_.nullable))
   }
 
-  override protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(newChildren)
+  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(newChildren)
 }
 
 object CollectRunner {
