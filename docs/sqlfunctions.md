@@ -564,6 +564,9 @@ functions:
       - |
         collect_runner( ruleSuiteVariable, ddl, flatten, includeNulls, variablesPerFunc, variableFuncGroup)
         This version provides two additional compilation options, these are typically not needed.
+      - |
+        collect_runner( ruleSuiteVariable, ddl, flatten, includeNulls, variablesPerFunc, variableFuncGroup, useInPlaceArray, unrollInPlaceArray, unrollOutputArraySize)
+        This version also allows tweaking further collectRunner specific optimisations, these are typically not needed and use should be carefully evaluated.  
     tags:
       - variable
       - runner

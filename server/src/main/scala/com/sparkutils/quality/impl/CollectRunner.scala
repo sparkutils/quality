@@ -52,7 +52,7 @@ case class InPlaceArray(children: Seq[Expression]) extends Expression  with NoTh
       case (child, i) =>
 
         val eval = child.genCode(ctx)
-
+        // TODO will autoboxing work on databricks? it's had an old janino version for a long time - tests need
         s"""
           // InPlaceArray for elem $i
           ${eval.code}
@@ -119,20 +119,21 @@ object CollectRunner {
    * @return A Column representing the QualityRules expression built from this ruleSuite
    */
   def collectRunnerClassic(ruleSuite: RuleSuite, resultDataType: Option[DataType] = None, variablesPerFunc: Int = 40,
-                           variableFuncGroup: Int = 20,
-                           flatten: Boolean = true, includeNulls: Boolean = false): Column = {
+                           variableFuncGroup: Int = 20, flatten: Boolean = true, includeNulls: Boolean = false,
+                           useInPlaceArray: Boolean = true, unrollInPlaceArray: Boolean = false,
+                           unrollOutputArraySize: Int = 1): Column = {
     com.sparkutils.quality.registerLambdaFunctions( ruleSuite.lambdaFunctions )
 
     val (expressionsRaw, indexes, triggerCount) = flattenExpressions(ruleSuite)
 
     val cleaned = RuleLogicUtils.cleanExprs(ruleSuite)
 
-    val inPlace = getConfig(UseInPlaceArray, "true").toBoolean
-    val unroll = getConfig(UnrollOutputArray, "true").toBoolean
+    val inPlace = getConfig(UseInPlaceArray, s"$useInPlaceArray").toBoolean
+    val unroll = getConfig(UnrollOutputArray, s"$unrollInPlaceArray").toBoolean
 
     val canUnroll =
       expressionsRaw.drop(triggerCount).map{
-        case a: UnresolvedFunction if Names.toName(a).toLowerCase == "array" && unroll => a.children.size
+        case a: UnresolvedFunction if Names.toName(a).toLowerCase == "array" => a.children.size
         case _ => -1
       }.toArray
 
@@ -156,7 +157,8 @@ object CollectRunner {
       CollectRunnerRunner(cleaned, expressions, resultDataType,
         variablesPerFunc, variableFuncGroup,
         expressionOffsets = indexes, triggerCount = triggerCount, flatten = flatten,
-        includeNulls = includeNulls, canUnroll = canUnroll, isInPlace = isInPlace)
+        includeNulls = includeNulls, canUnroll = canUnroll, isInPlace = isInPlace, unroll = unroll,
+        unrollOutputArraySize = unrollOutputArraySize)
     )
   }
 }
@@ -176,7 +178,9 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
   val includeNulls: Boolean
   val triggerCount: Int
   val canUnroll: Array[Int]
+  val unroll: Boolean
   val isInPlace: Array[Boolean]
+  val unrollOutputArraySize: Int
 
   implicit val classTagT: ClassTag[T]
   val tClass: Class[T]
@@ -261,110 +265,112 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
         """
 
     def processFlattenResult(i: Int, outArrTerm: String) =
-      if (flatten && canUnroll(i) > 0) {
+      if ((canUnroll(i) > 0 && unroll) && isInPlace(i)) {
+        // it may have been replaced by subexpr, but it was at one stage an InPlaceArray
+        val o = ctx.freshName("o")
+        val a = ctx.freshName("a")
+
+        val pre = s"""
+          // flatten and canUnroll for InPlaceArray
+          Object $o = null;
+          Object[] $a = $outArrTerm.array();
+        """
+
+        val groupSize = getConfig(UnrollOutputArraySize, s"$unrollOutputArraySize").toInt
+
+        val entries = (0 until canUnroll(i)).grouped(groupSize).toSeq
+        val hasLastToDrop =
+          entries.lastOption.exists { l =>
+            if (l.size == groupSize)
+              false
+            else
+              true
+          }
+        val ofSize =
+          if (hasLastToDrop)
+            entries.dropRight(1)
+          else
+            entries
+
+        val lastChunks =
+          if (hasLastToDrop)
+            entries.last
+          else
+            Seq.empty
+
+        val loopChunk =
+          (0 until groupSize).foldLeft("") {
+            (cur, i) =>
+
+              s"""
+                $cur
+                $o = $a[($z * $groupSize) + $i];
+                ${wrapperIf(o)}
+               """
+          }
+
+        val lastChunk =
+          lastChunks.indices.foldLeft("") {
+            (cur, i) =>
+
+              s"""
+              $cur
+
+              $o = $a[${ofSize.size * groupSize} + $i];
+              ${wrapperIf(o)}
+            """
+          }
+
+        val loop =
+          if (ofSize.nonEmpty)
+            s"""
+              for (int $z = 0; $z < ${ofSize.size}; $z++) {
+                $loopChunk
+              }
+            """
+          else
+            ""
+
+        val out =
+          s"""
+            $pre
+            $loop
+            $lastChunk
+             """
+        out
+
+      } else {
         if (isInPlace(i)) { // it may have been replaced but it was at one stage an InPlaceArray
           val o = ctx.freshName("o")
           val a = ctx.freshName("a")
 
           val pre = s"""
-            // flatten and canUnroll for InPlaceArray
+            // flatten case and InPlaceArray - no unroll
             Object $o = null;
             Object[] $a = $outArrTerm.array();
           """
 
-          val groupSize = getConfig(UnrollOutputArraySize, "1").toInt
-
-          val entries = (0 until canUnroll(i)).grouped(groupSize).toSeq
-          val hasLastToDrop =
-            entries.lastOption.exists { l =>
-              if (l.size == groupSize)
-                false
-              else
-                true
-            }
-          val ofSize =
-            if (hasLastToDrop)
-              entries.dropRight(1)
-            else
-              entries
-
-          val lastChunks =
-            if (hasLastToDrop)
-              entries.last
-            else
-              Seq.empty
-
-          val loopChunk =
-            (0 until groupSize).foldLeft("") {
-              (cur, i) =>
-
-                s"""
-                  $cur
-                  $o = $a[($z * $groupSize) + $i];
-                  ${wrapperIf(o)}
-                 """
-            }
-
-          val lastChunk =
-            lastChunks.indices.foldLeft("") {
-              (cur, i) =>
-
-                s"""
-                $cur
-
-                $o = $a[${ofSize.size * groupSize} + $i];
-                ${wrapperIf(o)}
-              """
-            }
-
-          val loop =
-            if (ofSize.nonEmpty)
-              s"""
-                for (int $z = 0; $z < ${ofSize.size}; $z++) {
-                  $loopChunk
-                }
-              """
-            else
-              ""
-
           val out =
-            s"""
-              $pre
-              $loop
-              $lastChunk
-               """
+          s"""
+            $pre
+
+            for (int $z = 0; $z < ${canUnroll(i)}; $z++) {
+              $o = $a[$z];
+              ${wrapperIf(o)}
+            }
+          """
+
           out
-        } else {
-          // have to treat it as a normal array, just fixed length
-          val out =
-            (0 until canUnroll(i)).foldLeft(
-              s"""
-            // flatten and canUnroll
+        } else
+          s"""
+            // flatten case and native CreateArray
             ArrayData $arrayData = (ArrayData) $outArrTerm;
-          """) {
-              (cur, i) =>
-
-                val o = ctx.freshName("o")
-                s"""
-                $cur
-                Object $o = ${CodeGenerator.getValue(arrayData, elementType, s"$i")};
-                ${wrapperIf(o)}
-              """
+            for (int $z = 0; $z < $arrayData.numElements(); $z++) {
+              Object $o = ${CodeGenerator.getValue(arrayData, elementType, z)};
+              ${wrapperIf(o)}
             }
-
-          out
-        }
-      } else
-        s"""
-          // flatten case and non-null
-          ArrayData $arrayData = (ArrayData) $outArrTerm;
-          for (int $z = 0; $z < $arrayData.numElements(); $z++) {
-            Object $o = ${CodeGenerator.getValue(arrayData, elementType, z)};
-            if (($o != null) || $includeNulls) {
-              com.sparkutils.quality.impl.CollectRunnerUtils.addOne($bufferTerm, $o);
-            }
-          }
-        """
+          """
+      }
 
 
     val compilerTerms =
@@ -426,7 +432,7 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
 case class CollectRunnerRunner(ruleSuite: RuleSuite, children: Seq[Expression], resultDataType: Option[DataType],
                                 variablesPerFunc: Int, variableFuncGroup: Int, expressionOffsets: Array[Int],
                                triggerCount: Int, flatten: Boolean, includeNulls: Boolean, canUnroll: Array[Int],
-                               isInPlace: Array[Boolean]
+                               isInPlace: Array[Boolean], unroll: Boolean, unrollOutputArraySize: Int
                                ) extends CollectRunnerBase[CollectRunnerRunner] {
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = {

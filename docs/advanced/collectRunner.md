@@ -67,4 +67,33 @@ with an unfortunate (assumed cpu) interruption on the 90 rule mark the trend is 
     Of course Quality runners also provide an audit trail missing in the simple Spark SQL approach.
 
 !!! warn "flatten = false, includeNulls = true needs Option"
-    In Spark 3.4 and below not wrapping in Option will cause an NPE.  See CollectRunnerTest for example encoding approaches.  
+    In Spark 3.4 and below not wrapping in Option will cause an NPE.  See CollectRunnerTest for example encoding approaches.
+
+## Performance Tweaking Options
+
+### InPlaceArray
+
+collectRunner, by default, swaps Spark's CreateArray for InPlaceArray, which only allocates a single array per partition.  In general, it performs as well as, if not better, than using CreateArray, but that's not always the case, e.g.:
+
+![Spark 4 10m Rows, up to 100 rules InPlace](../../img/collectPerf_4_10m_upto100rules_inplace.png)
+
+Here, aside from the measurement blip, the orange bar (right of the bar pairs) are the runs using CreateArray against 10m rows.  The difference is performance for using InPlaceArray can be significant, as such it is configurable when calling the ruleSuite and can be overridden by using:
+
+```
+com.sparkutils.collect.useInPlaceArray false
+```
+
+on your environment or Spark job options.  
+
+### Loop unrolling
+
+This value can be safely ignored for low numbers of items in the 'array( ' Output Expressions, the JIT's optimisation of loops is more than adequate.  If, however, there are large numbers of average entry sizes you can experiment with these settings.
+
+With a default of 'false', this applies to InPlaceArray results processing and uses the following parameters:
+
+```
+com.sparkutils.collect.unrollOutputArray true
+com.sparkutils.collect.unrollOutputArraySize 1
+```
+
+The value of 1 forces the compilation to use a for loop and is functionally equivalent to the default unrollOutputArray of false.

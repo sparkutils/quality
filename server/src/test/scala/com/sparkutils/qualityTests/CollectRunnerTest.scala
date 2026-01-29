@@ -22,6 +22,10 @@ trait CollectRunnerTestBase extends SharedPureConnectTests {
     TestOn("eqotc", "4201", 60)
   )
 
+  val inPlace = new scala.util.DynamicVariable[Boolean](true)
+  val inPlaceUnroll = new scala.util.DynamicVariable[Boolean](false)
+  val inPlaceUnrollSize = new scala.util.DynamicVariable[Int](1)
+
   def irules(expressionRules: Seq[(ExpressionRule, RunOnPassProcessor)])(
     debugMode: Boolean = false, // it will likely never be added
              transformRuleSuite: RuleSuite => RuleSuite = identity,
@@ -53,7 +57,9 @@ trait CollectRunnerTestBase extends SharedPureConnectTests {
     (dataFrame: DataFrame) =>
       collectRunner(transformRuleSuite(ruleSuite),
         dataType,
-        flatten = flatten, includeNulls = includeNulls)
+        flatten = flatten, includeNulls = includeNulls,
+        useInPlaceArray = inPlace.value, unrollInPlaceArray = inPlaceUnroll.value,
+        unrollOutputArraySize = inPlaceUnrollSize.value)
   }
 
   def testBase[T: TypedEncoder: ClassTag, O: Ordering](
@@ -73,7 +79,25 @@ trait CollectRunnerTestBase extends SharedPureConnectTests {
       dummyOut = dummyOut, canRunSimpleSpark = canRunSimpleSpark, dataType = None)
   }
 
-  def thunker(thunk: => Unit): Unit = thunk
+// TODO add primitive tests for Databricks janino version problem
+  def thunker(thunk: => Unit): Unit = {
+    thunk
+
+    inPlace.withValue(false){
+      thunk
+    }
+
+    inPlaceUnroll.withValue(true){
+      thunk // as for loop
+      inPlaceUnrollSize.withValue(2) {
+        thunk // unroll in a loop
+      }
+      inPlaceUnrollSize.withValue(6) {
+        thunk // full unroll
+      }
+    } // TODO add a test case for a large number of entries to force a loop and overflow
+
+  }
 
   def testBaseI[T: TypedEncoder: ClassTag, O: Ordering](
       expected: Seq[T], ordF: T => O, sparkTo: DataFrame => Seq[T])( debugMode: Boolean = false,

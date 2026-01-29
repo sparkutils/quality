@@ -674,7 +674,15 @@ object RuleRegistrationFunctions {
           flatten = getBoolean(flatten, 2), includeNulls = getBoolean(includeNulls, 3),
           variablesPerFunc = getInteger(varp, 4), variableFuncGroup = getInteger(varg, 5)
         ))
-    }, Set(1, 2, 3, 4, 6))
+      case Seq(OfRuleOutputSuite(rs), dt, flatten, includeNulls, varp, varg,
+        useInPlaceArray, unrollInPlaceArray, unrollOutputArraySize) =>
+        expression(collectRunnerClassic(rs, defaultParseTypes(getString(dt, 1)),
+          flatten = getBoolean(flatten, 2), includeNulls = getBoolean(includeNulls, 3),
+          variablesPerFunc = getInteger(varp, 4), variableFuncGroup = getInteger(varg, 5),
+          useInPlaceArray = getBoolean(useInPlaceArray, 6), unrollInPlaceArray = getBoolean(unrollInPlaceArray, 7),
+          unrollOutputArraySize = getInteger(unrollOutputArraySize, 8)
+        ))
+    }, Set(1, 2, 3, 4, 6, 9))
 
     // coalesce support
     registerProcessIfAttributeMissingForAgnostic(registerFunction)

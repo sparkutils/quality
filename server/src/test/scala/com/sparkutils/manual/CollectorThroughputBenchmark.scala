@@ -37,8 +37,8 @@ object Args {
 }
 
 object TestSetup extends RowTools {
-  val ROWS = 10000000
-  //val ROWS = 1000000
+  //val ROWS = 10000000
+  val ROWS = 1000000
   //val ROWS = 100000
   //val ROWS = 10000
 
@@ -114,7 +114,7 @@ object CollectorThroughputBenchmark extends Bench.OfflineReport with TestUtils {
 })"""
 
   // not possible to run on pure spark with 50, 200, 50 even on 4 it hits the 64kb problem // memory wise 10, 50, 10 only starts to stress things at 50 on 100k rows
-  val rules = Gen.range("ruleCount")(10, 100, 10)
+  val rules = Gen.range("ruleCount")(100, 100, 1)
 
   performance of "Processing Array Collection Transformations" config (
     exec.minWarmupRuns -> 2,
@@ -163,24 +163,44 @@ object CollectorThroughputBenchmark extends Bench.OfflineReport with TestUtils {
 
       using(rules) in f
     }
-    /*
-        measure method "collect flatten remove nulls with unroll" in {
-          val s = sparkSession
 
-          val ruleCol = (numRules: Int) =>
-            CollectRunner.collectRunnerClassic(genRules(numRules),
-              Some(ArrayType(LongType, true)), flatten = true, includeNulls = false).as("result")
+    measure method "collect flatten remove nulls with unroll at 5" in {
+      val s = sparkSession
 
-          val f = (p: Int) =>
-            try {
-              System.setProperty(CollectRunner.UnrollOutputArray, "true")
-              evaluate( ruleCol, expr("result.result") )(p)
-            } finally {
-              System.clearProperty(CollectRunner.UnrollOutputArray)
-            }
+      val ruleCol = (numRules: Int) =>
+        CollectRunner.collectRunnerClassic(genRules(numRules),
+          Some(ArrayType(LongType, true)), flatten = true, includeNulls = false).as("result")
 
-          using(rules) in f
-        } */
+      val f = (p: Int) =>
+        try {
+          System.setProperty(CollectRunner.UnrollOutputArray, "true")
+          System.setProperty(CollectRunner.UnrollOutputArraySize, "5")
+          evaluate( ruleCol, expr("result.result") )(p)
+        } finally {
+          System.clearProperty(CollectRunner.UnrollOutputArray)
+        }
+
+      using(rules) in f
+    }
+
+    measure method "collect flatten remove nulls with unroll at 2" in {
+      val s = sparkSession
+
+      val ruleCol = (numRules: Int) =>
+        CollectRunner.collectRunnerClassic(genRules(numRules),
+          Some(ArrayType(LongType, true)), flatten = true, includeNulls = false).as("result")
+
+      val f = (p: Int) =>
+        try {
+          System.setProperty(CollectRunner.UnrollOutputArray, "true")
+          System.setProperty(CollectRunner.UnrollOutputArraySize, "5")
+          evaluate( ruleCol, expr("result.result") )(p)
+        } finally {
+          System.clearProperty(CollectRunner.UnrollOutputArray)
+        }
+
+      using(rules) in f
+    }
 /*
     measure method "collect flatten remove nulls - no Inplace - no unroll" in {
       val s = sparkSession
