@@ -33,7 +33,7 @@ private[quality] object CollectRunnerUtils extends RuleFolderRunnerImports {
  * Replacement for CreateArray when flatten is true, eval creates new arrays, but gencode does not and only replaces the array location
  * @param children
  */
-case class InPlaceArray(children: Seq[Expression]) extends Expression  with NoThrow {
+case class InPlaceArray(children: Seq[Expression]) extends Expression {
 
   override def nullable: Boolean = false
 
