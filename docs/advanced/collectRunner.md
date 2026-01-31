@@ -44,7 +44,7 @@ Less interestingly, the same is true for increases in record counts, when jumpin
 
 collectRunner leads in these scenarios by efficient array allocations and by default auto flattening nested calls to array and not using filter (this uses a LambdaExpression and cannot be optimised out).
 
-When the rule number falls below 30 Spark is faster, but this only holds on 1m rows of data, at 10m rows the performance of Quality runners pulls ahead for all rule counts e.g.:
+When the rule number falls below 50 Spark is faster, but this only holds on 1m rows of data, at 10m rows the performance of Quality runners pulls ahead for all rule counts e.g.:
 
 ![Spark 4 1m Rows, 50 and 100 rules](../../img/collectPerf_4_10m_upto100rules.png)
 

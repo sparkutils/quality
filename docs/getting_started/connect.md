@@ -114,10 +114,12 @@ Spark Connect, combined with the Quality extension, opens the door for usage fro
 def readVersionedRuleRowsFromDF(df: DataFrame, ruleSuiteId: Column,....): DataFrame
 def readVersionedLambdaRowsFromDF(lambdaFunctionDF: DataFrame, lambdaFunctionName: Column,....): DataFrame
 def readVersionedOutputExpressionRowsFromDF(outputExpressionDF: DataFrame, outputExpression: Column,....): DataFrame
+def readVersionedRuleSuitesFromDF(ruleSuitesDF: DataFrame, ruleSuiteId, rulesSuiteVersion,....): DataFrame
 // combine and register functions, which can use either simple or versioned reads 
 def combine(ruleRows: Dataset[RuleRow], lambdaFunctionRows: Dataset[LambdaFunctionRow],
   outputExpressionRows: Dataset[OutputExpressionRow], probablePass: Double,
-  globalLambdaSuites: Option[Dataset[Id]] = None, globalOutputExpressionSuites: Option[Dataset[Id]] = None): Dataset[CombinedRuleSuiteRows]
+  globalLambdaSuites: Option[Dataset[Id]] = None, globalOutputExpressionSuites: Option[Dataset[Id]] = None,
+  ruleSuites: Option[Dataset[RuleSuiteRow]] = None): Dataset[CombinedRuleSuiteRows]
 def register_rule_suite_variable(ds: Dataset[CombinedRuleSuiteRows], id: VersionedId, stableName: String): String
 // version specific for lambdas
 QualitySparkUtils.registerLambdaFunctions(functions: Seq[LambdaFunction])
@@ -128,12 +130,13 @@ with each function running on the server and connect using simple commands on gl
 ```sql
 -- versioned reads
 QUALITY VERSIONED RULES FROM DF viewName; -- With columns: ruleSuiteId, ruleSuiteVersion, ruleSetId, ruleSetVersion, ruleVersion, ruleExpr, ruleEngineSalience, ruleEngineId, ruleEngineVersion
-QUALITY VERSIONED LAMBDAS FROM DF viewName; -- With columns: name, ruleExpr, functionId, functionVersion, functionVersion, ruleSuiteId, ruleSuiteVersion
-QUALITY VERSIONED OUTPUT EXPRESSIONS FROM DF viewName; -- With columns: ruleExpr, functionId, functionVersion, functionVersion, ruleSuiteId, ruleSuiteVersion
+QUALITY VERSIONED LAMBDAS FROM DF viewName; -- With columns: name, ruleExpr, functionId, functionVersion, ruleSuiteId, ruleSuiteVersion
+QUALITY VERSIONED OUTPUT EXPRESSIONS FROM DF viewName; -- With columns: ruleExpr, functionId, functionVersion, ruleSuiteId, ruleSuiteVersion
+QUALITY VERSIONED RULESUITES FROM DF viewName; -- With columns: functionId, functionVersion, probablePass, ruleSuiteId, ruleSuiteVersion
 -- combine
 QUALITY COMBINE RULESUITES ruleRowsName, lambdaFunctionRowsName | `None`,
-  outputExpressionRowsName | `None`, probablePass Double | `None`,
-  globalLambdaSuitesName | `None`, globalOutputExpressionSuitesName | `None`
+  outputExpressionRowsName | `None`, globalLambdaSuitesName | `None`, 
+  globalOutputExpressionSuitesName | `None`, ruleSuitesName | `None`
 QUALITY REGISTER RULE SUITE combinedRowsName, ruleSuiteId Int, ruleSuiteVersion Int, stableName
 -- lambdas
 CREATE QUALITY FUNCTION simplename _WITH_IMPL_ simpleExpression _END_OF_USER_FUNCTION_ 

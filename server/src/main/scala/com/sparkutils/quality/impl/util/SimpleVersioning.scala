@@ -1,6 +1,6 @@
 package com.sparkutils.quality.impl.util
 
-import org.apache.spark.sql.types.IntegerType
+import org.apache.spark.sql.types.{DoubleType, IntegerType}
 import org.apache.spark.sql.{Column, DataFrame}
 
 /**
@@ -151,6 +151,32 @@ object SimpleVersioning {
 
     val versionedOutputs = outputExpressionDF.sparkSession.sql(
       lambdaOutputSQL("outputExpressions"))
+
+    versionedOutputs
+  }
+
+  /**
+   * Reads RuleSuite attributes including probablePass and defaultProcessor
+   *
+   * @return
+   */
+  def readVersionedRuleSuitesFromDF(ruleSuiteDF: DataFrame,
+                                    ruleSuiteId: Column,
+                                    ruleSuiteVersion: Column,
+                                    defaultProcessorId: Column,
+                                    defaultProcessorVersion: Column,
+                                    probablePass: Column
+                                   ): DataFrame = {
+    ruleSuiteDF.select(
+      defaultProcessorId.as("functionId").cast(IntegerType),
+      defaultProcessorVersion.as("functionVersion").cast(IntegerType),
+      probablePass.as("probablePass").cast(DoubleType),
+      ruleSuiteId.as("ruleSuiteId").cast(IntegerType),
+      ruleSuiteVersion.as("ruleSuiteVersion").cast(IntegerType)
+    ).createOrReplaceTempView("ruleSuites")
+
+    val versionedOutputs = ruleSuiteDF.sparkSession.sql(
+      lambdaOutputSQL("ruleSuites"))
 
     versionedOutputs
   }

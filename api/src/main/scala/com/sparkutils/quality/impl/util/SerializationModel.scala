@@ -31,6 +31,15 @@ case class OutputExpressionRow(ruleExpr: String, functionId: Int,
                                ruleSuiteVersion: Int)
 
 /**
+ * Only needed for probability and defaultProcessor support with the optional integrateRuleSuites
+ */
+case class RuleSuiteRow(ruleSuiteId: Int,
+                        ruleSuiteVersion: Int,
+                        probablePass: Double,
+                        ruleEngineId: Int,
+                        ruleEngineVersion: Int)
+
+/**
  * Used to filter columns for meta RuleSets
  * @param name
  * @param dataType
