@@ -38,7 +38,10 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
   ), Seq(
     LambdaFunction("func1", "expr1", Id(200,134)),
     LambdaFunction("func2", "expr2", Id(201,131))
-  )).sorted//, 0.4d, DefaultProcessor(Id(101,9), OutputExpression("i")))
+  )).sorted
+
+  val rulesAttributes = rules.copy( probablePass = 0.4d,
+    defaultProcessor = DefaultProcessor(Id(101,9), OutputExpression("i")))
 
   test("rule suites without lambdas or output should be combinable") {
     val stripped = mapRules(rules.copy(lambdaFunctions = Seq.empty)){_.copy(runOnPassProcessor = NoOpRunOnPassProcessor.noOp)}
@@ -77,6 +80,23 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
 
     defaultAndForceConnect {
       val conbinedRuleSuiteRows = combine(ruleRows, sparkSession.emptyDataset[LambdaFunctionRow], outRows)
+      val oRS = rule_suite(conbinedRuleSuiteRows, rsId)
+      oRS.map(_.sorted) should contain( stripped )
+    }
+  }
+
+  test("rule suites without lambdas with output AND attributes should be combinable") {
+    val stripped = rulesAttributes.copy(lambdaFunctions = Seq.empty)
+    val ruleRows = toDS(stripped)
+    val outRows = toOutputExpressionDS(stripped)
+    val (ruleSuite, Some(defaultO)) = toRuleSuiteRow(rulesAttributes)
+
+    val s = sparkSession
+    import s.implicits._
+
+    defaultAndForceConnect {
+      val conbinedRuleSuiteRows = combine(ruleRows, sparkSession.emptyDataset[LambdaFunctionRow],
+        outRows union( Seq(defaultO).toDS()), Seq(ruleSuite).toDS())
       val oRS = rule_suite(conbinedRuleSuiteRows, rsId)
       oRS.map(_.sorted) should contain( stripped )
     }

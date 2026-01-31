@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality.impl.{RuleSuiteHelpers, VariableHelper}
-import com.sparkutils.quality.{ExpressionRule, Id, LambdaFunction, NoOpRunOnPassProcessor, OutputExpression, Rule, RuleSet, RuleSuite, RunOnPassProcessor, VersionedId}
+import com.sparkutils.quality.{DefaultProcessor, ExpressionRule, Id, LambdaFunction, NoOpDefaultProcessor, NoOpRunOnPassProcessor, OutputExpression, Rule, RuleSet, RuleSuite, RunOnPassProcessor, VersionedId}
 import com.sparkutils.quality.impl.util.SerializingShim.combineImpl
 import com.sparkutils.quality.impl.util.VersionSpecificSerializingImports.uniqueName
 import org.apache.spark.sql.{Dataset, Encoder, SparkSession}
@@ -191,7 +191,10 @@ trait VersionSpecificSerializingImports {
           })
       }.toSeq, lambdaFunctions = row.lambdaFunctions.fold(Seq.empty[LambdaFunction]){_.map { lr =>
         LambdaFunction(lr.name, lr.ruleExpr, Id(lr.functionId, lr.functionVersion))
-      }})
+      }}, probablePass = row.probablePass.getOrElse(0.8),
+      defaultProcessor = row.defaultProcessor.map{o =>
+        DefaultProcessor(Id(o.functionId, o.functionVersion), OutputExpression(o.ruleExpr))}.
+        getOrElse(NoOpDefaultProcessor.noOp))
   }
 
   /**

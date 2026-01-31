@@ -6,7 +6,7 @@ import com.sparkutils.quality.impl.util.VersionSpecificSerializingImports.unique
 import com.sparkutils.testing.ConnectWhenForced.someOrForcedConnect
 import org.apache.spark.sql.functions.{col, collect_set, expr, lit, struct}
 import org.apache.spark.sql.types.{ArrayType, DoubleType}
-import org.apache.spark.sql.{DataFrame, Encoder}
+import org.apache.spark.sql.{DataFrame, Encoder, functions}
 
 protected[quality] object SerializingShim {
 
@@ -52,6 +52,11 @@ protected[quality] object SerializingShim {
 
     val outputExpressionRowsT = outputExpressionRows.flatMap(r => if (r.isEmpty) None else Some(r))
     val lambdaFunctionRowsT = lambdaFunctionRows.flatMap(r => if (r.isEmpty) None else Some(r))
+
+    val groupedLambdasN = uniqueName()
+    val outsN = uniqueName()
+    outputExpressionRowsT.fold(ruleRows.sparkSession.createDataset[OutputExpressionRow](Seq.empty).toDF)(identity).
+      createOrReplaceTempView(outsN)
 
     val lun = uniqueName()
     val oun = uniqueName()
@@ -126,8 +131,49 @@ protected[quality] object SerializingShim {
         defaultProcessorLit
       )
 
+    val withAttributes =
+      ruleSuites.fold(suiteRows) {
+        rsa =>
+
+          val adjusted =
+            rsa.select(col("ruleSuiteId").as("rRuleSuiteId"), col("ruleSuiteVersion").as("rRuleSuiteVersion"),
+              col("probablePass").as("rProbablePass"),
+              functions.when(
+                lit(notPresentOutputId) === col("ruleEngineId") &&
+                  lit(notPresentOutputVersion) === col("ruleEngineVersion")
+                , defaultProcessorLit).
+                otherwise(
+                  expr(
+                    s"""
+                      (select first(struct(ruleExpr, functionId, functionVersion, ruleSuiteId, ruleSuiteVersion))
+                          from $outsN outs
+                          where (
+                            outs.ruleSuiteId = ruleSuiteId and outs.ruleSuiteVersion = ruleSuiteVersion
+                            or (exists (
+                             select 0 from $oun gls
+                             where gls.id = outs.ruleSuiteId and gls.version = outs.ruleSuiteVersion
+                            ) )
+                          ) and outs.functionId = ruleEngineId and outs.functionVersion = ruleEngineVersion
+                       )
+                      """
+                  )
+                ).as("rDefaultProcessor")
+            )
+
+          suiteRows.join(adjusted,
+            col("ruleSuiteId") === col("rRuleSuiteId") && col("ruleSuiteVersion") === col("rRuleSuiteVersion")
+          ).select(
+            col("ruleSuiteId"),
+            col("ruleSuiteVersion"),
+            col("ruleRows"),
+            col("lambdaFunctions"),
+            col("rProbablePass").as("probablePass"),
+            col("rDefaultProcessor").as("defaultProcessor")
+          )
+      }
+
     val withLambdas =
-      lambdaFunctionRowsT.fold(suiteRows){
+      lambdaFunctionRowsT.fold(withAttributes){
         lambdas =>
           val grouped = lambdas.groupBy("ruleSuiteId", "ruleSuiteVersion").agg(collect_set(
             struct(
@@ -140,32 +186,28 @@ protected[quality] object SerializingShim {
             )
           ).as("theLambdaFunctions")).select(col("ruleSuiteId").as("lRuleSuiteId"),
             col("ruleSuiteVersion").as("lRuleSuiteVersion"),
-            col("theLambdaFunctions"), probablePassLit, defaultProcessorLit).as("grouped")
+            col("theLambdaFunctions")).as("grouped")
 
-          suiteRows.join(grouped,
-              (suiteRows("ruleSuiteId") === col("grouped.lRuleSuiteId") &&
-                suiteRows("ruleSuiteVersion") === col("grouped.lRuleSuiteVersion") ) ||
-                // it's global
-                expr(
-                  s"""(exists (
-                        select 0 from $lun gls
-                        where gls.id = grouped.lRuleSuiteId and gls.version = grouped.lRuleSuiteVersion
-                      ))
-                     """)
-            ).
-            select(
-              col("ruleSuiteId"),
-              col("ruleSuiteVersion"),
-              col("ruleRows"),
-              col("theLambdaFunctions").as("lambdaFunctions"),
-              probablePassLit,
-              defaultProcessorLit
-            )
+          grouped.createOrReplaceTempView(groupedLambdasN)
+
+          withAttributes.select(
+            col("ruleSuiteId"),
+            col("ruleSuiteVersion"),
+            col("ruleRows"),
+            expr(
+              s"""(select flatten(collect_set(theLambdaFunctions))
+                  from $groupedLambdasN grouped
+                  where grouped.lRuleSuiteId = ruleSuiteId and grouped.lRuleSuiteVersion = ruleSuiteVersion
+                  or (exists (
+                   select 0 from $lun gls
+                   where gls.id = grouped.lRuleSuiteId and gls.version = grouped.lRuleSuiteVersion
+                  ) )
+               )""").as("lambdaFunctions")
+            , col("probablePass"),
+            col("defaultProcessor")
+          )
       }
 
-    /*ruleSuites.fold{withLambdas.with}{
-
-    }*/
     withLambdas
   }
 
