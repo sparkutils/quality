@@ -28,12 +28,12 @@
 </span>4 <span style=''>import com.sparkutils.quality.impl.CollectRunner.UnrollOutputArraySize
 </span>5 <span style=''>import com.sparkutils.quality.impl.RuleEngineRunnerUtils.{flattenExpressions, outputExpressionType}
 </span>6 <span style=''>import com.sparkutils.quality.impl.imports.RuleFolderRunnerImports
-</span>7 <span style=''>import com.sparkutils.quality.impl.util.{PassThroughCompileEvals, PassThroughEvalOnly}
+</span>7 <span style=''>import com.sparkutils.quality.impl.util.PassThroughEvalOnly
 </span>8 <span style=''>import com.sparkutils.shim.expressions.Names
-</span>9 <span style=''>import org.apache.spark.sql.{Column, ShimUtils}
+</span>9 <span style=''>import org.apache.spark.sql.Column
 </span>10 <span style=''>import org.apache.spark.sql.ShimUtils.column
 </span>11 <span style=''>import org.apache.spark.sql.catalyst.InternalRow
-</span>12 <span style=''>import org.apache.spark.sql.catalyst.analysis.{TypeCoercion, UnresolvedFunction}
+</span>12 <span style=''>import org.apache.spark.sql.catalyst.analysis.UnresolvedFunction
 </span>13 <span style=''>import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 </span>14 <span style=''>import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, ExprCode, FalseLiteral, GlobalValue}
 </span>15 <span style=''>import org.apache.spark.sql.catalyst.expressions.{CreateArray, Expression, NonSQLExpression}
@@ -260,214 +260,268 @@
 </span>236 <span style=''>  protected def doGenCodeI(ctx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = {
 </span>237 <span style=''>    </span><span style='background: #AEF1AE'>ctx.references += this</span><span style=''>
 </span>238 <span style=''>
-</span>239 <span style=''>    // tester to prove compilation on throughput tests
-</span>240 <span style=''>    // print(&quot;I AM GENERATING CODE!!!!&quot;)
-</span>241 <span style=''>
-</span>242 <span style=''>    // needs resetting every row
-</span>243 <span style=''>    val bufferTerm = </span><span style='background: #AEF1AE'>ctx.addMutableState(classOf[ArrayBuffer[_]].getName, ctx.freshName(&quot;results&quot;))</span><span style=''>
+</span>239 <span style=''>    def hasDefault(when: =&gt; String, els: String = &quot;&quot;): String =
+</span>240 <span style=''>      if (</span><span style='background: #AEF1AE'>ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp</span><span style=''>)
+</span>241 <span style=''>        </span><span style='background: #AEF1AE'>when</span><span style=''>
+</span>242 <span style=''>      else
+</span>243 <span style=''>        </span><span style='background: #AEF1AE'>els</span><span style=''>
 </span>244 <span style=''>
-</span>245 <span style=''>    // order by salience
-</span>246 <span style=''>    val salience = </span><span style='background: #AEF1AE'>com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenSalience(ruleSuite)</span><span style=''>
-</span>247 <span style=''>    val outputs = </span><span style='background: #AEF1AE'>0 until triggerCount</span><span style=''>
-</span>248 <span style=''>    val reordered = </span><span style='background: #AEF1AE'>outputs zip salience sortBy(_._2) map(_._1)</span><span style=''>
-</span>249 <span style=''>
-</span>250 <span style=''>    //val outputExprs = children.drop(expressionOffsets.length).map(_.genCode(ctx))
+</span>245 <span style=''>
+</span>246 <span style=''>    // tester to prove compilation on throughput tests
+</span>247 <span style=''>    // print(&quot;I AM GENERATING CODE!!!!&quot;)
+</span>248 <span style=''>
+</span>249 <span style=''>    // needs resetting every row
+</span>250 <span style=''>    val bufferTerm = </span><span style='background: #AEF1AE'>ctx.addMutableState(classOf[ArrayBuffer[_]].getName, ctx.freshName(&quot;results&quot;))</span><span style=''>
 </span>251 <span style=''>
-</span>252 <span style=''>    val arrayData = </span><span style='background: #AEF1AE'>ctx.freshName(&quot;arrayData&quot;)</span><span style=''>
-</span>253 <span style=''>    val z = </span><span style='background: #AEF1AE'>ctx.freshName(&quot;z&quot;)</span><span style=''>
-</span>254 <span style=''>    val o = </span><span style='background: #AEF1AE'>ctx.freshName(&quot;o&quot;)</span><span style=''>
-</span>255 <span style=''>
-</span>256 <span style=''>    // needs addOne as janino can't compile .$plus$eq( and .addOne only exists on 2.13
-</span>257 <span style=''>    def wrapperIf(o: String) =
-</span>258 <span style=''>      if (</span><span style='background: #AEF1AE'>includeNulls</span><span style=''>)
-</span>259 <span style=''>        s&quot;com.sparkutils.quality.impl.CollectRunnerUtils.addOne($bufferTerm, $o);&quot;
-</span>260 <span style=''>      else
-</span>261 <span style=''>        s&quot;&quot;&quot;
-</span>262 <span style=''>        if ($o != null) {
-</span>263 <span style=''>          com.sparkutils.quality.impl.CollectRunnerUtils.addOne($bufferTerm, $o);
-</span>264 <span style=''>        }
-</span>265 <span style=''>        &quot;&quot;&quot;
-</span>266 <span style=''>
-</span>267 <span style=''>    def processFlattenResult(i: Int, outArrTerm: String) =
-</span>268 <span style=''>      if (</span><span style='background: #AEF1AE'>(canUnroll(i) &gt; 0 &amp;&amp; unroll) &amp;&amp; isInPlace(i)</span><span style=''>) </span><span style='background: #AEF1AE'>{
-</span>269 <span style=''></span><span style='background: #AEF1AE'>        // it may have been replaced by subexpr, but it was at one stage an InPlaceArray
-</span>270 <span style=''></span><span style='background: #AEF1AE'>        val o = ctx.freshName(&quot;o&quot;)
-</span>271 <span style=''></span><span style='background: #AEF1AE'>        val a = ctx.freshName(&quot;a&quot;)
-</span>272 <span style=''></span><span style='background: #AEF1AE'>
-</span>273 <span style=''></span><span style='background: #AEF1AE'>        val pre = s&quot;&quot;&quot;
-</span>274 <span style=''></span><span style='background: #AEF1AE'>          // flatten and canUnroll for InPlaceArray
-</span>275 <span style=''></span><span style='background: #AEF1AE'>          Object $o = null;
-</span>276 <span style=''></span><span style='background: #AEF1AE'>          Object[] $a = $outArrTerm.array();
-</span>277 <span style=''></span><span style='background: #AEF1AE'>        &quot;&quot;&quot;
-</span>278 <span style=''></span><span style='background: #AEF1AE'>
-</span>279 <span style=''></span><span style='background: #AEF1AE'>        val groupSize = getConfig(UnrollOutputArraySize, s&quot;$unrollOutputArraySize&quot;).toInt
-</span>280 <span style=''></span><span style='background: #AEF1AE'>
-</span>281 <span style=''></span><span style='background: #AEF1AE'>        val entries = (0 until canUnroll(i)).grouped(groupSize).toSeq
-</span>282 <span style=''></span><span style='background: #AEF1AE'>        val hasLastToDrop =
-</span>283 <span style=''></span><span style='background: #AEF1AE'>          entries.lastOption.exists { l =&gt;
-</span>284 <span style=''></span><span style='background: #AEF1AE'>            if (l.size == groupSize)
-</span>285 <span style=''></span><span style='background: #AEF1AE'>              false
-</span>286 <span style=''></span><span style='background: #AEF1AE'>            else
-</span>287 <span style=''></span><span style='background: #AEF1AE'>              true
-</span>288 <span style=''></span><span style='background: #AEF1AE'>          }
-</span>289 <span style=''></span><span style='background: #AEF1AE'>        val ofSize =
-</span>290 <span style=''></span><span style='background: #AEF1AE'>          if (hasLastToDrop)
-</span>291 <span style=''></span><span style='background: #AEF1AE'>            entries.dropRight(1)
-</span>292 <span style=''></span><span style='background: #AEF1AE'>          else
-</span>293 <span style=''></span><span style='background: #AEF1AE'>            entries
-</span>294 <span style=''></span><span style='background: #AEF1AE'>
-</span>295 <span style=''></span><span style='background: #AEF1AE'>        val lastChunks =
-</span>296 <span style=''></span><span style='background: #AEF1AE'>          if (hasLastToDrop)
-</span>297 <span style=''></span><span style='background: #AEF1AE'>            entries.last
-</span>298 <span style=''></span><span style='background: #AEF1AE'>          else
-</span>299 <span style=''></span><span style='background: #AEF1AE'>            Seq.empty
-</span>300 <span style=''></span><span style='background: #AEF1AE'>
-</span>301 <span style=''></span><span style='background: #AEF1AE'>        val loopChunk =
-</span>302 <span style=''></span><span style='background: #AEF1AE'>          (0 until groupSize).foldLeft(&quot;&quot;) {
-</span>303 <span style=''></span><span style='background: #AEF1AE'>            (cur, i) =&gt;
-</span>304 <span style=''></span><span style='background: #AEF1AE'>
-</span>305 <span style=''></span><span style='background: #AEF1AE'>              s&quot;&quot;&quot;
-</span>306 <span style=''></span><span style='background: #AEF1AE'>                $cur
-</span>307 <span style=''></span><span style='background: #AEF1AE'>                $o = $a[($z * $groupSize) + $i];
-</span>308 <span style=''></span><span style='background: #AEF1AE'>                ${wrapperIf(o)}
-</span>309 <span style=''></span><span style='background: #AEF1AE'>               &quot;&quot;&quot;
-</span>310 <span style=''></span><span style='background: #AEF1AE'>          }
-</span>311 <span style=''></span><span style='background: #AEF1AE'>
-</span>312 <span style=''></span><span style='background: #AEF1AE'>        val lastChunk =
-</span>313 <span style=''></span><span style='background: #AEF1AE'>          lastChunks.indices.foldLeft(&quot;&quot;) {
-</span>314 <span style=''></span><span style='background: #AEF1AE'>            (cur, i) =&gt;
-</span>315 <span style=''></span><span style='background: #AEF1AE'>
-</span>316 <span style=''></span><span style='background: #AEF1AE'>              s&quot;&quot;&quot;
-</span>317 <span style=''></span><span style='background: #AEF1AE'>              $cur
-</span>318 <span style=''></span><span style='background: #AEF1AE'>
-</span>319 <span style=''></span><span style='background: #AEF1AE'>              $o = $a[${ofSize.size * groupSize} + $i];
-</span>320 <span style=''></span><span style='background: #AEF1AE'>              ${wrapperIf(o)}
-</span>321 <span style=''></span><span style='background: #AEF1AE'>            &quot;&quot;&quot;
-</span>322 <span style=''></span><span style='background: #AEF1AE'>          }
-</span>323 <span style=''></span><span style='background: #AEF1AE'>
-</span>324 <span style=''></span><span style='background: #AEF1AE'>        val loop =
-</span>325 <span style=''></span><span style='background: #AEF1AE'>          if (ofSize.nonEmpty)
-</span>326 <span style=''></span><span style='background: #AEF1AE'>            s&quot;&quot;&quot;
-</span>327 <span style=''></span><span style='background: #AEF1AE'>              for (int $z = 0; $z &lt; ${ofSize.size}; $z++) {
-</span>328 <span style=''></span><span style='background: #AEF1AE'>                $loopChunk
-</span>329 <span style=''></span><span style='background: #AEF1AE'>              }
+</span>252 <span style=''>    val hasAPassTerm = </span><span style='background: #AEF1AE'>ctx.addMutableState(&quot;boolean&quot;, ctx.freshName(&quot;hasAPass&quot;))</span><span style=''>
+</span>253 <span style=''>
+</span>254 <span style=''>    // order by salience
+</span>255 <span style=''>    val salience = </span><span style='background: #AEF1AE'>com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenSalience(ruleSuite)</span><span style=''>
+</span>256 <span style=''>    val outputs = </span><span style='background: #AEF1AE'>0 until triggerCount</span><span style=''>
+</span>257 <span style=''>    val reordered = </span><span style='background: #AEF1AE'>outputs zip salience sortBy(_._2) map(_._1)</span><span style=''>
+</span>258 <span style=''>
+</span>259 <span style=''>    //val outputExprs = children.drop(expressionOffsets.length).map(_.genCode(ctx))
+</span>260 <span style=''>
+</span>261 <span style=''>    val arrayData = </span><span style='background: #AEF1AE'>ctx.freshName(&quot;arrayData&quot;)</span><span style=''>
+</span>262 <span style=''>    val z = </span><span style='background: #AEF1AE'>ctx.freshName(&quot;z&quot;)</span><span style=''>
+</span>263 <span style=''>    val o = </span><span style='background: #AEF1AE'>ctx.freshName(&quot;o&quot;)</span><span style=''>
+</span>264 <span style=''>
+</span>265 <span style=''>    // needs addOne as janino can't compile .$plus$eq( and .addOne only exists on 2.13
+</span>266 <span style=''>    def wrapperIf(o: String) =
+</span>267 <span style=''>      if (</span><span style='background: #AEF1AE'>includeNulls</span><span style=''>)
+</span>268 <span style=''>        s&quot;com.sparkutils.quality.impl.CollectRunnerUtils.addOne($bufferTerm, $o);&quot;
+</span>269 <span style=''>      else
+</span>270 <span style=''>        s&quot;&quot;&quot;
+</span>271 <span style=''>        if ($o != null) {
+</span>272 <span style=''>          com.sparkutils.quality.impl.CollectRunnerUtils.addOne($bufferTerm, $o);
+</span>273 <span style=''>        }
+</span>274 <span style=''>        &quot;&quot;&quot;
+</span>275 <span style=''>
+</span>276 <span style=''>    def processFlattenResult(i: Int, outArrTerm: String) =
+</span>277 <span style=''>      if (</span><span style='background: #AEF1AE'>(canUnroll(i) &gt; 0 &amp;&amp; unroll) &amp;&amp; isInPlace(i)</span><span style=''>) </span><span style='background: #AEF1AE'>{
+</span>278 <span style=''></span><span style='background: #AEF1AE'>        // it may have been replaced by subexpr, but it was at one stage an InPlaceArray
+</span>279 <span style=''></span><span style='background: #AEF1AE'>        val o = ctx.freshName(&quot;o&quot;)
+</span>280 <span style=''></span><span style='background: #AEF1AE'>        val a = ctx.freshName(&quot;a&quot;)
+</span>281 <span style=''></span><span style='background: #AEF1AE'>
+</span>282 <span style=''></span><span style='background: #AEF1AE'>        val pre = s&quot;&quot;&quot;
+</span>283 <span style=''></span><span style='background: #AEF1AE'>          // flatten and canUnroll for InPlaceArray
+</span>284 <span style=''></span><span style='background: #AEF1AE'>          Object $o = null;
+</span>285 <span style=''></span><span style='background: #AEF1AE'>          Object[] $a = $outArrTerm.array();
+</span>286 <span style=''></span><span style='background: #AEF1AE'>        &quot;&quot;&quot;
+</span>287 <span style=''></span><span style='background: #AEF1AE'>
+</span>288 <span style=''></span><span style='background: #AEF1AE'>        val groupSize = getConfig(UnrollOutputArraySize, s&quot;$unrollOutputArraySize&quot;).toInt
+</span>289 <span style=''></span><span style='background: #AEF1AE'>
+</span>290 <span style=''></span><span style='background: #AEF1AE'>        val entries = (0 until canUnroll(i)).grouped(groupSize).toSeq
+</span>291 <span style=''></span><span style='background: #AEF1AE'>        val hasLastToDrop =
+</span>292 <span style=''></span><span style='background: #AEF1AE'>          entries.lastOption.exists { l =&gt;
+</span>293 <span style=''></span><span style='background: #AEF1AE'>            if (l.size == groupSize)
+</span>294 <span style=''></span><span style='background: #AEF1AE'>              false
+</span>295 <span style=''></span><span style='background: #AEF1AE'>            else
+</span>296 <span style=''></span><span style='background: #AEF1AE'>              true
+</span>297 <span style=''></span><span style='background: #AEF1AE'>          }
+</span>298 <span style=''></span><span style='background: #AEF1AE'>        val ofSize =
+</span>299 <span style=''></span><span style='background: #AEF1AE'>          if (hasLastToDrop)
+</span>300 <span style=''></span><span style='background: #AEF1AE'>            entries.dropRight(1)
+</span>301 <span style=''></span><span style='background: #AEF1AE'>          else
+</span>302 <span style=''></span><span style='background: #AEF1AE'>            entries
+</span>303 <span style=''></span><span style='background: #AEF1AE'>
+</span>304 <span style=''></span><span style='background: #AEF1AE'>        val lastChunks =
+</span>305 <span style=''></span><span style='background: #AEF1AE'>          if (hasLastToDrop)
+</span>306 <span style=''></span><span style='background: #AEF1AE'>            entries.last
+</span>307 <span style=''></span><span style='background: #AEF1AE'>          else
+</span>308 <span style=''></span><span style='background: #AEF1AE'>            Seq.empty
+</span>309 <span style=''></span><span style='background: #AEF1AE'>
+</span>310 <span style=''></span><span style='background: #AEF1AE'>        val loopChunk =
+</span>311 <span style=''></span><span style='background: #AEF1AE'>          (0 until groupSize).foldLeft(&quot;&quot;) {
+</span>312 <span style=''></span><span style='background: #AEF1AE'>            (cur, i) =&gt;
+</span>313 <span style=''></span><span style='background: #AEF1AE'>
+</span>314 <span style=''></span><span style='background: #AEF1AE'>              s&quot;&quot;&quot;
+</span>315 <span style=''></span><span style='background: #AEF1AE'>                $cur
+</span>316 <span style=''></span><span style='background: #AEF1AE'>                $o = $a[($z * $groupSize) + $i];
+</span>317 <span style=''></span><span style='background: #AEF1AE'>                ${wrapperIf(o)}
+</span>318 <span style=''></span><span style='background: #AEF1AE'>               &quot;&quot;&quot;
+</span>319 <span style=''></span><span style='background: #AEF1AE'>          }
+</span>320 <span style=''></span><span style='background: #AEF1AE'>
+</span>321 <span style=''></span><span style='background: #AEF1AE'>        val lastChunk =
+</span>322 <span style=''></span><span style='background: #AEF1AE'>          lastChunks.indices.foldLeft(&quot;&quot;) {
+</span>323 <span style=''></span><span style='background: #AEF1AE'>            (cur, i) =&gt;
+</span>324 <span style=''></span><span style='background: #AEF1AE'>
+</span>325 <span style=''></span><span style='background: #AEF1AE'>              s&quot;&quot;&quot;
+</span>326 <span style=''></span><span style='background: #AEF1AE'>              $cur
+</span>327 <span style=''></span><span style='background: #AEF1AE'>
+</span>328 <span style=''></span><span style='background: #AEF1AE'>              $o = $a[${ofSize.size * groupSize} + $i];
+</span>329 <span style=''></span><span style='background: #AEF1AE'>              ${wrapperIf(o)}
 </span>330 <span style=''></span><span style='background: #AEF1AE'>            &quot;&quot;&quot;
-</span>331 <span style=''></span><span style='background: #AEF1AE'>          else
-</span>332 <span style=''></span><span style='background: #AEF1AE'>            &quot;&quot;
-</span>333 <span style=''></span><span style='background: #AEF1AE'>
-</span>334 <span style=''></span><span style='background: #AEF1AE'>        val out =
-</span>335 <span style=''></span><span style='background: #AEF1AE'>          s&quot;&quot;&quot;
-</span>336 <span style=''></span><span style='background: #AEF1AE'>            $pre
-</span>337 <span style=''></span><span style='background: #AEF1AE'>            $loop
-</span>338 <span style=''></span><span style='background: #AEF1AE'>            $lastChunk
-</span>339 <span style=''></span><span style='background: #AEF1AE'>             &quot;&quot;&quot;
-</span>340 <span style=''></span><span style='background: #AEF1AE'>        out
-</span>341 <span style=''></span><span style='background: #AEF1AE'>
-</span>342 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''> else {
-</span>343 <span style=''>        </span><span style='background: #AEF1AE'>if (isInPlace(i)) { // it may have been replaced but it was at one stage an InPlaceArray
-</span>344 <span style=''></span><span style='background: #AEF1AE'>          val o = ctx.freshName(&quot;o&quot;)
-</span>345 <span style=''></span><span style='background: #AEF1AE'>          val a = ctx.freshName(&quot;a&quot;)
-</span>346 <span style=''></span><span style='background: #AEF1AE'>
-</span>347 <span style=''></span><span style='background: #AEF1AE'>          val pre = s&quot;&quot;&quot;
-</span>348 <span style=''></span><span style='background: #AEF1AE'>            // flatten case and InPlaceArray - no unroll
-</span>349 <span style=''></span><span style='background: #AEF1AE'>            Object $o = null;
-</span>350 <span style=''></span><span style='background: #AEF1AE'>            Object[] $a = $outArrTerm.array();
-</span>351 <span style=''></span><span style='background: #AEF1AE'>          &quot;&quot;&quot;
-</span>352 <span style=''></span><span style='background: #AEF1AE'>
-</span>353 <span style=''></span><span style='background: #AEF1AE'>          val out =
-</span>354 <span style=''></span><span style='background: #AEF1AE'>          s&quot;&quot;&quot;
-</span>355 <span style=''></span><span style='background: #AEF1AE'>            $pre
-</span>356 <span style=''></span><span style='background: #AEF1AE'>
-</span>357 <span style=''></span><span style='background: #AEF1AE'>            for (int $z = 0; $z &lt; ${canUnroll(i)}; $z++) {
-</span>358 <span style=''></span><span style='background: #AEF1AE'>              $o = $a[$z];
-</span>359 <span style=''></span><span style='background: #AEF1AE'>              ${wrapperIf(o)}
-</span>360 <span style=''></span><span style='background: #AEF1AE'>            }
-</span>361 <span style=''></span><span style='background: #AEF1AE'>          &quot;&quot;&quot;
-</span>362 <span style=''></span><span style='background: #AEF1AE'>
-</span>363 <span style=''></span><span style='background: #AEF1AE'>          out
-</span>364 <span style=''></span><span style='background: #AEF1AE'>        } else
-</span>365 <span style=''></span><span style='background: #AEF1AE'>          s&quot;&quot;&quot;
-</span>366 <span style=''></span><span style='background: #AEF1AE'>            // flatten case and native CreateArray
-</span>367 <span style=''></span><span style='background: #AEF1AE'>            ArrayData $arrayData = (ArrayData) $outArrTerm;
-</span>368 <span style=''></span><span style='background: #AEF1AE'>            for (int $z = 0; $z &lt; $arrayData.numElements(); $z++) {
-</span>369 <span style=''></span><span style='background: #AEF1AE'>              Object $o = ${CodeGenerator.getValue(arrayData, elementType, z)};
-</span>370 <span style=''></span><span style='background: #AEF1AE'>              ${wrapperIf(o)}
-</span>371 <span style=''></span><span style='background: #AEF1AE'>            }
-</span>372 <span style=''></span><span style='background: #AEF1AE'>          &quot;&quot;&quot;</span><span style=''>
-</span>373 <span style=''>      }
-</span>374 <span style=''>
-</span>375 <span style=''>
-</span>376 <span style=''>    val compilerTerms =
-</span>377 <span style=''>      </span><span style='background: #AEF1AE'>RuleEngineRunnerUtils.genCompilerTerms[T](ctx, PassThroughEvalOnly(children), expressionOffsets, children,
-</span>378 <span style=''></span><span style='background: #AEF1AE'>        false, variablesPerFunc, variableFuncGroup, false,
-</span>379 <span style=''></span><span style='background: #AEF1AE'>        // capture the current
-</span>380 <span style=''></span><span style='background: #AEF1AE'>        extraResult = (outArrTerm: String, i: Int) =&gt;
-</span>381 <span style=''></span><span style='background: #AEF1AE'>          s&quot;&quot;&quot;
-</span>382 <span style=''></span><span style='background: #AEF1AE'>             if (($outArrTerm != null) || $includeNulls) {
-</span>383 <span style=''></span><span style='background: #AEF1AE'>                if (($outArrTerm == null) || ${!(flatten &amp;&amp; canFlatten)}) {
-</span>384 <span style=''></span><span style='background: #AEF1AE'>                  com.sparkutils.quality.impl.CollectRunnerUtils.addOne($bufferTerm, $outArrTerm);
-</span>385 <span style=''></span><span style='background: #AEF1AE'>                } else {
-</span>386 <span style=''></span><span style='background: #AEF1AE'>                  ${ processFlattenResult(i, outArrTerm) }
-</span>387 <span style=''></span><span style='background: #AEF1AE'>                }
-</span>388 <span style=''></span><span style='background: #AEF1AE'>             }
-</span>389 <span style=''></span><span style='background: #AEF1AE'>           &quot;&quot;&quot;,
-</span>390 <span style=''></span><span style='background: #AEF1AE'>        orderOffset = (idx: Int) =&gt; reordered(idx),
-</span>391 <span style=''></span><span style='background: #AEF1AE'>        // we shouldn't check salience as we are already ordered by it
-</span>392 <span style=''></span><span style='background: #AEF1AE'>        salienceCheck = false
-</span>393 <span style=''></span><span style='background: #AEF1AE'>      )</span><span style=''>
-</span>394 <span style=''>
-</span>395 <span style=''>    import compilerTerms._
-</span>396 <span style=''>
-</span>397 <span style=''>    val pre = s&quot;&quot;&quot;
-</span>398 <span style=''>          $currentSalience = java.lang.Integer.MAX_VALUE;
-</span>399 <span style=''>          $currentOutputIndex = -1;
-</span>400 <span style=''>          $pushToTop
-</span>401 <span style=''>          $bufferTerm = new ${classOf[ArrayBuffer[_]].getName}($starterSize);
-</span>402 <span style=''>
-</span>403 <span style=''>          ${funNames.map{f =&gt; s&quot;$f($paramsCall);&quot;}.mkString(&quot;\n&quot;)}
-</span>404 <span style=''>      &quot;&quot;&quot;
-</span>405 <span style=''>    val post = s&quot;&quot;&quot;
-</span>406 <span style=''>
-</span>407 <span style=''>          boolean ${ev.isNull} = false;
-</span>408 <span style=''>      &quot;&quot;&quot;
-</span>409 <span style=''>
-</span>410 <span style=''>    val res =
-</span>411 <span style=''>      </span><span style='background: #AEF1AE'>ev.copy(code = code&quot;&quot;&quot;
-</span>412 <span style=''></span><span style='background: #AEF1AE'>        $pre
-</span>413 <span style=''></span><span style='background: #AEF1AE'>
-</span>414 <span style=''></span><span style='background: #AEF1AE'>        InternalRow ${ev.value} =
-</span>415 <span style=''></span><span style='background: #AEF1AE'>          com.sparkutils.quality.impl.CollectRunnerUtils.compiledEval(
-</span>416 <span style=''></span><span style='background: #AEF1AE'>            $utilsName.evalArray($ruleSuitTerm, $ruleSuiteArrays, $resArrTerm),
-</span>417 <span style=''></span><span style='background: #AEF1AE'>            $bufferTerm);
-</span>418 <span style=''></span><span style='background: #AEF1AE'>
-</span>419 <span style=''></span><span style='background: #AEF1AE'>        $post
-</span>420 <span style=''></span><span style='background: #AEF1AE'>        &quot;&quot;&quot;
-</span>421 <span style=''></span><span style='background: #AEF1AE'>      )</span><span style=''>
-</span>422 <span style=''>
-</span>423 <span style=''>    res
-</span>424 <span style=''>
-</span>425 <span style=''>  }
-</span>426 <span style=''>}
-</span>427 <span style=''>
-</span>428 <span style=''>/**
-</span>429 <span style=''> * Children will be rewritten by the plan, it's then re-incorporated into ruleSuite
-</span>430 <span style=''> * expressionOffsets.length is the length of the trigger expressions in realChildren, realChildren(expressionOffsets.length + expressionOffsets(x)) will be the correct OutputExpression
-</span>431 <span style=''> */
-</span>432 <span style=''>case class CollectRunnerRunner(ruleSuite: RuleSuite, children: Seq[Expression], resultDataType: Option[DataType],
-</span>433 <span style=''>                                variablesPerFunc: Int, variableFuncGroup: Int, expressionOffsets: Array[Int],
-</span>434 <span style=''>                               triggerCount: Int, flatten: Boolean, includeNulls: Boolean, canUnroll: Array[Int],
-</span>435 <span style=''>                               isInPlace: Array[Boolean], unroll: Boolean, unrollOutputArraySize: Int
-</span>436 <span style=''>                               ) extends CollectRunnerBase[CollectRunnerRunner] {
-</span>437 <span style=''>
-</span>438 <span style=''>  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = {
-</span>439 <span style=''>    </span><span style='background: #AEF1AE'>copy(children = newChildren)</span><span style=''>
-</span>440 <span style=''>  }
-</span>441 <span style=''>
-</span>442 <span style=''>  override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = </span><span style='background: #AEF1AE'>doGenCodeI(ctx, ev)</span><span style=''>
-</span>443 <span style=''>
-</span>444 <span style=''>  override implicit val classTagT: ClassTag[CollectRunnerRunner] = </span><span style='background: #AEF1AE'>ClassTag(classOf[CollectRunnerRunner])</span><span style=''>
-</span>445 <span style=''>  override val tClass: Class[CollectRunnerRunner] = </span><span style='background: #AEF1AE'>classOf[CollectRunnerRunner]</span><span style=''>
-</span>446 <span style=''>}
+</span>331 <span style=''></span><span style='background: #AEF1AE'>          }
+</span>332 <span style=''></span><span style='background: #AEF1AE'>
+</span>333 <span style=''></span><span style='background: #AEF1AE'>        val loop =
+</span>334 <span style=''></span><span style='background: #AEF1AE'>          if (ofSize.nonEmpty)
+</span>335 <span style=''></span><span style='background: #AEF1AE'>            s&quot;&quot;&quot;
+</span>336 <span style=''></span><span style='background: #AEF1AE'>              for (int $z = 0; $z &lt; ${ofSize.size}; $z++) {
+</span>337 <span style=''></span><span style='background: #AEF1AE'>                $loopChunk
+</span>338 <span style=''></span><span style='background: #AEF1AE'>              }
+</span>339 <span style=''></span><span style='background: #AEF1AE'>            &quot;&quot;&quot;
+</span>340 <span style=''></span><span style='background: #AEF1AE'>          else
+</span>341 <span style=''></span><span style='background: #AEF1AE'>            &quot;&quot;
+</span>342 <span style=''></span><span style='background: #AEF1AE'>
+</span>343 <span style=''></span><span style='background: #AEF1AE'>        val out =
+</span>344 <span style=''></span><span style='background: #AEF1AE'>          s&quot;&quot;&quot;
+</span>345 <span style=''></span><span style='background: #AEF1AE'>            $pre
+</span>346 <span style=''></span><span style='background: #AEF1AE'>            $loop
+</span>347 <span style=''></span><span style='background: #AEF1AE'>            $lastChunk
+</span>348 <span style=''></span><span style='background: #AEF1AE'>             &quot;&quot;&quot;
+</span>349 <span style=''></span><span style='background: #AEF1AE'>        out
+</span>350 <span style=''></span><span style='background: #AEF1AE'>
+</span>351 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''> else {
+</span>352 <span style=''>        </span><span style='background: #AEF1AE'>if (isInPlace(i)) { // it may have been replaced but it was at one stage an InPlaceArray
+</span>353 <span style=''></span><span style='background: #AEF1AE'>          val o = ctx.freshName(&quot;o&quot;)
+</span>354 <span style=''></span><span style='background: #AEF1AE'>          val a = ctx.freshName(&quot;a&quot;)
+</span>355 <span style=''></span><span style='background: #AEF1AE'>
+</span>356 <span style=''></span><span style='background: #AEF1AE'>          val pre = s&quot;&quot;&quot;
+</span>357 <span style=''></span><span style='background: #AEF1AE'>            // flatten case and InPlaceArray - no unroll
+</span>358 <span style=''></span><span style='background: #AEF1AE'>            Object $o = null;
+</span>359 <span style=''></span><span style='background: #AEF1AE'>            Object[] $a = $outArrTerm.array();
+</span>360 <span style=''></span><span style='background: #AEF1AE'>          &quot;&quot;&quot;
+</span>361 <span style=''></span><span style='background: #AEF1AE'>
+</span>362 <span style=''></span><span style='background: #AEF1AE'>          val out =
+</span>363 <span style=''></span><span style='background: #AEF1AE'>          s&quot;&quot;&quot;
+</span>364 <span style=''></span><span style='background: #AEF1AE'>            $pre
+</span>365 <span style=''></span><span style='background: #AEF1AE'>
+</span>366 <span style=''></span><span style='background: #AEF1AE'>            for (int $z = 0; $z &lt; ${canUnroll(i)}; $z++) {
+</span>367 <span style=''></span><span style='background: #AEF1AE'>              $o = $a[$z];
+</span>368 <span style=''></span><span style='background: #AEF1AE'>              ${wrapperIf(o)}
+</span>369 <span style=''></span><span style='background: #AEF1AE'>            }
+</span>370 <span style=''></span><span style='background: #AEF1AE'>          &quot;&quot;&quot;
+</span>371 <span style=''></span><span style='background: #AEF1AE'>
+</span>372 <span style=''></span><span style='background: #AEF1AE'>          out
+</span>373 <span style=''></span><span style='background: #AEF1AE'>        } else
+</span>374 <span style=''></span><span style='background: #AEF1AE'>          s&quot;&quot;&quot;
+</span>375 <span style=''></span><span style='background: #AEF1AE'>            // flatten case and native CreateArray
+</span>376 <span style=''></span><span style='background: #AEF1AE'>            ArrayData $arrayData = (ArrayData) $outArrTerm;
+</span>377 <span style=''></span><span style='background: #AEF1AE'>            for (int $z = 0; $z &lt; $arrayData.numElements(); $z++) {
+</span>378 <span style=''></span><span style='background: #AEF1AE'>              Object $o = ${CodeGenerator.getValue(arrayData, elementType, z)};
+</span>379 <span style=''></span><span style='background: #AEF1AE'>              ${wrapperIf(o)}
+</span>380 <span style=''></span><span style='background: #AEF1AE'>            }
+</span>381 <span style=''></span><span style='background: #AEF1AE'>          &quot;&quot;&quot;</span><span style=''>
+</span>382 <span style=''>      }
+</span>383 <span style=''>
+</span>384 <span style=''>    val compilerTerms =
+</span>385 <span style=''>      </span><span style='background: #AEF1AE'>RuleEngineRunnerUtils.genCompilerTerms[T](ctx, PassThroughEvalOnly(children), expressionOffsets, children,
+</span>386 <span style=''></span><span style='background: #AEF1AE'>        false, variablesPerFunc, variableFuncGroup, false,
+</span>387 <span style=''></span><span style='background: #AEF1AE'>        // capture the current
+</span>388 <span style=''></span><span style='background: #AEF1AE'>        extraResult = (outArrTerm: String, i: Int, resArrTerm: String) =&gt;
+</span>389 <span style=''></span><span style='background: #AEF1AE'>          s&quot;&quot;&quot;
+</span>390 <span style=''></span><span style='background: #AEF1AE'>             if (($outArrTerm != null) || $includeNulls) {
+</span>391 <span style=''></span><span style='background: #AEF1AE'>                if (($outArrTerm == null) || ${!(flatten &amp;&amp; canFlatten)}) {
+</span>392 <span style=''></span><span style='background: #AEF1AE'>                  com.sparkutils.quality.impl.CollectRunnerUtils.addOne($bufferTerm, $outArrTerm);
+</span>393 <span style=''></span><span style='background: #AEF1AE'>                } else {
+</span>394 <span style=''></span><span style='background: #AEF1AE'>                  ${ processFlattenResult(i, outArrTerm) }
+</span>395 <span style=''></span><span style='background: #AEF1AE'>                }
+</span>396 <span style=''></span><span style='background: #AEF1AE'>             }
+</span>397 <span style=''></span><span style='background: #AEF1AE'>             if ($resArrTerm[$i] != null &amp;&amp; ((Integer) $resArrTerm[$i]) == $PassedInt) {
+</span>398 <span style=''></span><span style='background: #AEF1AE'>               $hasAPassTerm = true;
+</span>399 <span style=''></span><span style='background: #AEF1AE'>             }
+</span>400 <span style=''></span><span style='background: #AEF1AE'>           &quot;&quot;&quot;,
+</span>401 <span style=''></span><span style='background: #AEF1AE'>        orderOffset = (idx: Int) =&gt; reordered(idx),
+</span>402 <span style=''></span><span style='background: #AEF1AE'>        // we shouldn't check salience as we are already ordered by it
+</span>403 <span style=''></span><span style='background: #AEF1AE'>        salienceCheck = false,
+</span>404 <span style=''></span><span style='background: #AEF1AE'>        sizeAdjustment =
+</span>405 <span style=''></span><span style='background: #AEF1AE'>          if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp)
+</span>406 <span style=''></span><span style='background: #AEF1AE'>            -1 // don't generate the default, there isn't a trigger
+</span>407 <span style=''></span><span style='background: #AEF1AE'>          else
+</span>408 <span style=''></span><span style='background: #AEF1AE'>            0
+</span>409 <span style=''></span><span style='background: #AEF1AE'>      )</span><span style=''>
+</span>410 <span style=''>
+</span>411 <span style=''>    import compilerTerms._
+</span>412 <span style=''>
+</span>413 <span style=''>    val pre = s&quot;&quot;&quot;
+</span>414 <span style=''>          $currentSalience = java.lang.Integer.MAX_VALUE;
+</span>415 <span style=''>          $currentOutputIndex = -1;
+</span>416 <span style=''>          $hasAPassTerm = false;
+</span>417 <span style=''>          $pushToTop
+</span>418 <span style=''>          $bufferTerm = new ${classOf[ArrayBuffer[_]].getName}($starterSize);
+</span>419 <span style=''>
+</span>420 <span style=''>          ${funNames.map{f =&gt; s&quot;$f($paramsCall);&quot;}.mkString(&quot;\n&quot;)}
+</span>421 <span style=''>      &quot;&quot;&quot;
+</span>422 <span style=''>    val post = s&quot;&quot;&quot;
+</span>423 <span style=''>
+</span>424 <span style=''>          boolean ${ev.isNull} = false;
+</span>425 <span style=''>      &quot;&quot;&quot;
+</span>426 <span style=''>
+</span>427 <span style=''>    val rsres = </span><span style='background: #AEF1AE'>ctx.freshName(&quot;ruleSuiteRes&quot;)</span><span style=''>
+</span>428 <span style=''>
+</span>429 <span style=''>    val res =
+</span>430 <span style=''>      </span><span style='background: #AEF1AE'>ev.copy(code = code&quot;&quot;&quot;
+</span>431 <span style=''></span><span style='background: #AEF1AE'>        $pre
+</span>432 <span style=''></span><span style='background: #AEF1AE'>
+</span>433 <span style=''></span><span style='background: #AEF1AE'>        ${hasDefault{
+</span>434 <span style=''></span><span style='background: #AEF1AE'>        s&quot;&quot;&quot;
+</span>435 <span style=''></span><span style='background: #AEF1AE'>            if (!$hasAPassTerm) {
+</span>436 <span style=''></span><span style='background: #AEF1AE'>              ${
+</span>437 <span style=''></span><span style='background: #AEF1AE'>                val defP = children.last.genCode(ctx)
+</span>438 <span style=''></span><span style='background: #AEF1AE'>                s&quot;&quot;&quot;
+</span>439 <span style=''></span><span style='background: #AEF1AE'>                    ${defP.code}
+</span>440 <span style=''></span><span style='background: #AEF1AE'>
+</span>441 <span style=''></span><span style='background: #AEF1AE'>                    //System.out.println(&quot;DefaultProcessor result is ${defP.value}&quot; + ${defP.value});
+</span>442 <span style=''></span><span style='background: #AEF1AE'>
+</span>443 <span style=''></span><span style='background: #AEF1AE'>                    if ((${defP.value} == null) || ${!(flatten &amp;&amp; canFlatten)}) {
+</span>444 <span style=''></span><span style='background: #AEF1AE'>                      com.sparkutils.quality.impl.CollectRunnerUtils.addOne($bufferTerm, ${defP.value});
+</span>445 <span style=''></span><span style='background: #AEF1AE'>                    } else {
+</span>446 <span style=''></span><span style='background: #AEF1AE'>                      ${ // -1 for normal last
+</span>447 <span style=''></span><span style='background: #AEF1AE'>                        processFlattenResult(canUnroll.length - 1, defP.value)
+</span>448 <span style=''></span><span style='background: #AEF1AE'>                        }
+</span>449 <span style=''></span><span style='background: #AEF1AE'>                    }
+</span>450 <span style=''></span><span style='background: #AEF1AE'>                  &quot;&quot;&quot;
+</span>451 <span style=''></span><span style='background: #AEF1AE'>              }
+</span>452 <span style=''></span><span style='background: #AEF1AE'>            }
+</span>453 <span style=''></span><span style='background: #AEF1AE'>        &quot;&quot;&quot;
+</span>454 <span style=''></span><span style='background: #AEF1AE'>        }}
+</span>455 <span style=''></span><span style='background: #AEF1AE'>
+</span>456 <span style=''></span><span style='background: #AEF1AE'>        InternalRow $rsres = $utilsName.evalArrayForDefault($ruleSuitTerm, $ruleSuiteArrays, $resArrTerm);
+</span>457 <span style=''></span><span style='background: #AEF1AE'>
+</span>458 <span style=''></span><span style='background: #AEF1AE'>        ${
+</span>459 <span style=''></span><span style='background: #AEF1AE'>          hasDefault(
+</span>460 <span style=''></span><span style='background: #AEF1AE'>            // if we have a default the result type should be DefaultRule
+</span>461 <span style=''></span><span style='background: #AEF1AE'>            s&quot;&quot;&quot;
+</span>462 <span style=''></span><span style='background: #AEF1AE'>            if (!$hasAPassTerm) {
+</span>463 <span style=''></span><span style='background: #AEF1AE'>              $rsres.update(1, ${DefaultRuleInt});
+</span>464 <span style=''></span><span style='background: #AEF1AE'>            }
+</span>465 <span style=''></span><span style='background: #AEF1AE'>            &quot;&quot;&quot;)
+</span>466 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>467 <span style=''></span><span style='background: #AEF1AE'>
+</span>468 <span style=''></span><span style='background: #AEF1AE'>        InternalRow ${ev.value} =
+</span>469 <span style=''></span><span style='background: #AEF1AE'>          com.sparkutils.quality.impl.CollectRunnerUtils.compiledEval(
+</span>470 <span style=''></span><span style='background: #AEF1AE'>            $rsres,
+</span>471 <span style=''></span><span style='background: #AEF1AE'>            $bufferTerm);
+</span>472 <span style=''></span><span style='background: #AEF1AE'>
+</span>473 <span style=''></span><span style='background: #AEF1AE'>        $post
+</span>474 <span style=''></span><span style='background: #AEF1AE'>        &quot;&quot;&quot;
+</span>475 <span style=''></span><span style='background: #AEF1AE'>      )</span><span style=''>
+</span>476 <span style=''>
+</span>477 <span style=''>    res
+</span>478 <span style=''>
+</span>479 <span style=''>  }
+</span>480 <span style=''>}
+</span>481 <span style=''>
+</span>482 <span style=''>/**
+</span>483 <span style=''> * Children will be rewritten by the plan, it's then re-incorporated into ruleSuite
+</span>484 <span style=''> * expressionOffsets.length is the length of the trigger expressions in realChildren, realChildren(expressionOffsets.length + expressionOffsets(x)) will be the correct OutputExpression
+</span>485 <span style=''> */
+</span>486 <span style=''>case class CollectRunnerRunner(ruleSuite: RuleSuite, children: Seq[Expression], resultDataType: Option[DataType],
+</span>487 <span style=''>                                variablesPerFunc: Int, variableFuncGroup: Int, expressionOffsets: Array[Int],
+</span>488 <span style=''>                               triggerCount: Int, flatten: Boolean, includeNulls: Boolean, canUnroll: Array[Int],
+</span>489 <span style=''>                               isInPlace: Array[Boolean], unroll: Boolean, unrollOutputArraySize: Int
+</span>490 <span style=''>                               ) extends CollectRunnerBase[CollectRunnerRunner] {
+</span>491 <span style=''>
+</span>492 <span style=''>  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = {
+</span>493 <span style=''>    </span><span style='background: #AEF1AE'>copy(children = newChildren)</span><span style=''>
+</span>494 <span style=''>  }
+</span>495 <span style=''>
+</span>496 <span style=''>  override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = </span><span style='background: #AEF1AE'>doGenCodeI(ctx, ev)</span><span style=''>
+</span>497 <span style=''>
+</span>498 <span style=''>  override implicit val classTagT: ClassTag[CollectRunnerRunner] = </span><span style='background: #AEF1AE'>ClassTag(classOf[CollectRunnerRunner])</span><span style=''>
+</span>499 <span style=''>  override val tClass: Class[CollectRunnerRunner] = </span><span style='background: #AEF1AE'>classOf[CollectRunnerRunner]</span><span style=''>
+</span>500 <span style=''>}
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -485,12 +539,12 @@
           26
         </td>
         <td>
-          2451
+          2470
         </td>
         <td>
-          1314
+          1258
           -
-          1342
+          1286
         </td>
         <td>
           Apply
@@ -509,12 +563,12 @@
           26
         </td>
         <td>
-          2452
+          2471
         </td>
         <td>
-          1293
+          1237
           -
-          1343
+          1287
         </td>
         <td>
           Apply
@@ -533,12 +587,12 @@
           28
         </td>
         <td>
-          2453
+          2472
         </td>
         <td>
-          1400
+          1344
           -
-          1413
+          1357
         </td>
         <td>
           Apply
@@ -557,12 +611,12 @@
           28
         </td>
         <td>
-          2454
+          2473
         </td>
         <td>
-          1409
+          1353
           -
-          1409
+          1353
         </td>
         <td>
           Literal
@@ -581,12 +635,12 @@
           38
         </td>
         <td>
-          2455
+          2474
         </td>
         <td>
-          1689
+          1633
           -
-          1694
+          1638
         </td>
         <td>
           Literal
@@ -605,12 +659,12 @@
           41
         </td>
         <td>
-          2456
+          2475
         </td>
         <td>
-          1781
+          1725
           -
-          1794
+          1738
         </td>
         <td>
           Apply
@@ -629,12 +683,12 @@
           41
         </td>
         <td>
-          2457
+          2476
         </td>
         <td>
-          1768
+          1712
           -
-          1803
+          1747
         </td>
         <td>
           ApplyToImplicitArgs
@@ -653,12 +707,12 @@
           41
         </td>
         <td>
-          2458
+          2477
         </td>
         <td>
-          1747
+          1691
           -
-          1804
+          1748
         </td>
         <td>
           Apply
@@ -677,12 +731,12 @@
           44
         </td>
         <td>
-          2459
+          2478
         </td>
         <td>
-          1908
+          1852
           -
-          1926
+          1870
         </td>
         <td>
           Literal
@@ -701,12 +755,12 @@
           45
         </td>
         <td>
-          2460
+          2479
         </td>
         <td>
-          1967
+          1911
           -
-          1979
+          1923
         </td>
         <td>
           Apply
@@ -725,12 +779,12 @@
           45
         </td>
         <td>
-          2461
+          2480
         </td>
         <td>
-          1981
+          1925
           -
-          2005
+          1949
         </td>
         <td>
           Apply
@@ -749,12 +803,12 @@
           45
         </td>
         <td>
-          2462
+          2481
         </td>
         <td>
-          1947
+          1891
           -
-          2058
+          2002
         </td>
         <td>
           Apply
@@ -773,12 +827,12 @@
           47
         </td>
         <td>
-          2463
+          2482
         </td>
         <td>
-          2076
+          2020
           -
-          2109
+          2053
         </td>
         <td>
           Apply
@@ -797,12 +851,12 @@
           48
         </td>
         <td>
-          2464
+          2483
         </td>
         <td>
-          2162
+          2106
           -
-          2185
+          2129
         </td>
         <td>
           Apply
@@ -821,12 +875,12 @@
           48
         </td>
         <td>
-          2465
+          2484
         </td>
         <td>
-          2134
+          2078
           -
-          2231
+          2175
         </td>
         <td>
           Apply
@@ -845,12 +899,12 @@
           51
         </td>
         <td>
-          2468
+          2487
         </td>
         <td>
-          2251
+          2195
           -
-          2589
+          2533
         </td>
         <td>
           Apply
@@ -874,12 +928,12 @@
           52
         </td>
         <td>
-          2467
+          2486
         </td>
         <td>
-          2301
+          2245
           -
-          2583
+          2527
         </td>
         <td>
           Block
@@ -901,12 +955,12 @@
           54
         </td>
         <td>
-          2466
+          2485
         </td>
         <td>
-          2324
+          2268
           -
-          2342
+          2286
         </td>
         <td>
           Apply
@@ -925,12 +979,12 @@
           65
         </td>
         <td>
-          2473
+          2492
         </td>
         <td>
-          2612
+          2556
           -
-          2771
+          2715
         </td>
         <td>
           Apply
@@ -952,12 +1006,12 @@
           67
         </td>
         <td>
-          2469
+          2488
         </td>
         <td>
-          2697
+          2641
           -
-          2713
+          2657
         </td>
         <td>
           Literal
@@ -976,12 +1030,12 @@
           68
         </td>
         <td>
-          2470
+          2489
         </td>
         <td>
-          2739
+          2683
           -
-          2751
+          2695
         </td>
         <td>
           Apply
@@ -1000,12 +1054,12 @@
           68
         </td>
         <td>
-          2471
+          2490
         </td>
         <td>
-          2738
+          2682
           -
-          2763
+          2707
         </td>
         <td>
           Apply
@@ -1024,12 +1078,12 @@
           68
         </td>
         <td>
-          2472
+          2491
         </td>
         <td>
-          2764
+          2708
           -
-          2770
+          2714
         </td>
         <td>
           Apply
@@ -1048,12 +1102,12 @@
           70
         </td>
         <td>
-          2477
+          2496
         </td>
         <td>
-          2777
+          2721
           -
-          2923
+          2867
         </td>
         <td>
           Apply
@@ -1072,12 +1126,12 @@
           71
         </td>
         <td>
-          2474
+          2493
         </td>
         <td>
-          2798
+          2742
           -
-          2836
+          2780
         </td>
         <td>
           Apply
@@ -1096,12 +1150,12 @@
           73
         </td>
         <td>
-          2475
+          2494
         </td>
         <td>
-          2847
+          2791
           -
-          2859
+          2803
         </td>
         <td>
           Select
@@ -1120,12 +1174,12 @@
           73
         </td>
         <td>
-          2476
+          2495
         </td>
         <td>
-          2869
+          2813
           -
-          2922
+          2866
         </td>
         <td>
           Apply
@@ -1144,12 +1198,12 @@
           78
         </td>
         <td>
-          2484
+          2503
         </td>
         <td>
-          2973
+          2917
           -
-          3080
+          3024
         </td>
         <td>
           Apply
@@ -1168,12 +1222,12 @@
           79
         </td>
         <td>
-          2478
+          2497
         </td>
         <td>
-          3011
+          2955
           -
-          3015
+          2959
         </td>
         <td>
           Select
@@ -1192,12 +1246,12 @@
           79
         </td>
         <td>
-          2479
+          2498
         </td>
         <td>
-          3017
+          2961
           -
-          3025
+          2969
         </td>
         <td>
           Select
@@ -1216,12 +1270,12 @@
           79
         </td>
         <td>
-          2480
+          2499
         </td>
         <td>
-          3027
+          2971
           -
-          3028
+          2972
         </td>
         <td>
           Literal
@@ -1240,12 +1294,12 @@
           79
         </td>
         <td>
-          2481
+          2500
         </td>
         <td>
-          2990
+          2934
           -
-          3029
+          2973
         </td>
         <td>
           Apply
@@ -1264,12 +1318,12 @@
           80
         </td>
         <td>
-          2482
+          2501
         </td>
         <td>
-          3068
+          3012
           -
-          3078
+          3022
         </td>
         <td>
           Select
@@ -1288,12 +1342,12 @@
           80
         </td>
         <td>
-          2483
+          2502
         </td>
         <td>
-          3052
+          2996
           -
-          3079
+          3023
         </td>
         <td>
           Apply
@@ -1312,12 +1366,12 @@
           83
         </td>
         <td>
-          2485
+          2504
         </td>
         <td>
-          3177
+          3121
           -
-          3194
+          3138
         </td>
         <td>
           Apply
@@ -1336,12 +1390,12 @@
           91
         </td>
         <td>
-          2486
+          2505
         </td>
         <td>
-          3375
+          3319
           -
-          3415
+          3359
         </td>
         <td>
           Literal
@@ -1360,12 +1414,12 @@
           98
         </td>
         <td>
-          2487
+          2506
         </td>
         <td>
-          3835
+          3779
           -
-          3877
+          3821
         </td>
         <td>
           Literal
@@ -1384,12 +1438,12 @@
           103
         </td>
         <td>
-          2488
+          2507
         </td>
         <td>
-          4134
+          4078
           -
-          4180
+          4124
         </td>
         <td>
           Literal
@@ -1408,12 +1462,12 @@
           125
         </td>
         <td>
-          2489
+          2508
         </td>
         <td>
-          6077
+          6021
           -
-          6102
+          6046
         </td>
         <td>
           Select
@@ -1432,12 +1486,12 @@
           125
         </td>
         <td>
-          2490
+          2509
         </td>
         <td>
-          6029
+          5973
           -
-          6104
+          6048
         </td>
         <td>
           Apply
@@ -1456,12 +1510,12 @@
           127
         </td>
         <td>
-          2491
+          2510
         </td>
         <td>
-          6156
+          6100
           -
-          6185
+          6129
         </td>
         <td>
           Apply
@@ -1480,12 +1534,12 @@
           127
         </td>
         <td>
-          2492
+          2511
         </td>
         <td>
-          6114
+          6058
           -
-          6153
+          6097
         </td>
         <td>
           Apply
@@ -1504,12 +1558,12 @@
           127
         </td>
         <td>
-          2493
+          2512
         </td>
         <td>
-          6114
+          6058
           -
-          6153
+          6097
         </td>
         <td>
           Block
@@ -1528,12 +1582,12 @@
           127
         </td>
         <td>
-          2494
+          2513
         </td>
         <td>
-          6115
+          6059
           -
-          6115
+          6059
         </td>
         <td>
           Select
@@ -1552,12 +1606,12 @@
           127
         </td>
         <td>
-          2495
+          2514
         </td>
         <td>
-          6131
+          6075
           -
-          6131
+          6075
         </td>
         <td>
           Select
@@ -1576,12 +1630,12 @@
           127
         </td>
         <td>
-          2496
+          2515
         </td>
         <td>
-          6140
+          6084
           -
-          6140
+          6084
         </td>
         <td>
           Select
@@ -1600,12 +1654,12 @@
           129
         </td>
         <td>
-          2497
+          2516
         </td>
         <td>
-          6205
+          6149
           -
-          6241
+          6185
         </td>
         <td>
           Apply
@@ -1624,12 +1678,12 @@
           131
         </td>
         <td>
-          2498
+          2517
         </td>
         <td>
-          6271
+          6215
           -
-          6286
+          6230
         </td>
         <td>
           Select
@@ -1648,12 +1702,12 @@
           131
         </td>
         <td>
-          2499
+          2518
         </td>
         <td>
-          6261
+          6205
           -
-          6308
+          6252
         </td>
         <td>
           Apply
@@ -1672,12 +1726,12 @@
           131
         </td>
         <td>
-          2500
+          2519
         </td>
         <td>
-          6261
+          6205
           -
-          6318
+          6262
         </td>
         <td>
           Select
@@ -1696,12 +1750,12 @@
           132
         </td>
         <td>
-          2501
+          2520
         </td>
         <td>
-          6346
+          6290
           -
-          6363
+          6307
         </td>
         <td>
           Select
@@ -1720,12 +1774,12 @@
           132
         </td>
         <td>
-          2502
+          2521
         </td>
         <td>
-          6336
+          6280
           -
-          6388
+          6332
         </td>
         <td>
           Apply
@@ -1744,12 +1798,12 @@
           132
         </td>
         <td>
-          2503
+          2522
         </td>
         <td>
-          6336
+          6280
           -
-          6398
+          6342
         </td>
         <td>
           Select
@@ -1768,12 +1822,12 @@
           136
         </td>
         <td>
-          2504
+          2523
         </td>
         <td>
-          6503
+          6447
           -
-          6541
+          6485
         </td>
         <td>
           Apply
@@ -1792,12 +1846,12 @@
           136
         </td>
         <td>
-          2505
+          2524
         </td>
         <td>
-          6545
+          6489
           -
-          6560
+          6504
         </td>
         <td>
           Select
@@ -1816,12 +1870,12 @@
           136
         </td>
         <td>
-          2506
+          2525
         </td>
         <td>
-          6545
+          6489
           -
-          6560
+          6504
         </td>
         <td>
           Block
@@ -1840,12 +1894,12 @@
           137
         </td>
         <td>
-          2507
+          2526
         </td>
         <td>
-          6579
+          6523
           -
-          6581
+          6525
         </td>
         <td>
           Literal
@@ -1864,12 +1918,12 @@
           137
         </td>
         <td>
-          2508
+          2527
         </td>
         <td>
-          6579
+          6523
           -
-          6581
+          6525
         </td>
         <td>
           Block
@@ -1888,12 +1942,12 @@
           138
         </td>
         <td>
-          2509
+          2528
         </td>
         <td>
-          6426
+          6370
           -
-          6597
+          6541
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1915,12 +1969,12 @@
           141
         </td>
         <td>
-          2510
+          2529
         </td>
         <td>
-          6631
+          6575
           -
-          6649
+          6593
         </td>
         <td>
           Apply
@@ -1939,12 +1993,12 @@
           142
         </td>
         <td>
-          2518
+          2537
         </td>
         <td>
-          6659
+          6603
           -
-          7031
+          6975
         </td>
         <td>
           Apply
@@ -1966,12 +2020,12 @@
           142
         </td>
         <td>
-          2519
+          2538
         </td>
         <td>
-          6659
+          6603
           -
-          7031
+          6975
         </td>
         <td>
           Block
@@ -1993,12 +2047,12 @@
           144
         </td>
         <td>
-          2511
+          2530
         </td>
         <td>
-          6848
+          6792
           -
-          6855
+          6799
         </td>
         <td>
           Literal
@@ -2017,12 +2071,12 @@
           144
         </td>
         <td>
-          2512
+          2531
         </td>
         <td>
-          6859
+          6803
           -
-          6876
+          6820
         </td>
         <td>
           Apply
@@ -2041,12 +2095,12 @@
           144
         </td>
         <td>
-          2513
+          2532
         </td>
         <td>
-          6817
+          6761
           -
-          6876
+          6820
         </td>
         <td>
           Apply
@@ -2065,12 +2119,12 @@
           144
         </td>
         <td>
-          2514
+          2533
         </td>
         <td>
-          6893
+          6837
           -
-          6903
+          6847
         </td>
         <td>
           Select
@@ -2089,12 +2143,12 @@
           144
         </td>
         <td>
-          2515
+          2534
         </td>
         <td>
-          6880
+          6824
           -
-          6904
+          6848
         </td>
         <td>
           Apply
@@ -2113,12 +2167,12 @@
           144
         </td>
         <td>
-          2516
+          2535
         </td>
         <td>
-          6880
+          6824
           -
-          6904
+          6848
         </td>
         <td>
           Block
@@ -2137,12 +2191,12 @@
           145
         </td>
         <td>
-          2517
+          2536
         </td>
         <td>
-          7020
+          6964
           -
-          7021
+          6965
         </td>
         <td>
           Ident
@@ -2161,12 +2215,12 @@
           148
         </td>
         <td>
-          2520
+          2539
         </td>
         <td>
-          7051
+          6995
           -
-          7065
+          7009
         </td>
         <td>
           Ident
@@ -2185,12 +2239,12 @@
           152
         </td>
         <td>
-          2521
+          2540
         </td>
         <td>
-          7161
+          7105
           -
-          7165
+          7109
         </td>
         <td>
           Literal
@@ -2209,12 +2263,12 @@
           152
         </td>
         <td>
-          2522
+          2541
         </td>
         <td>
-          7161
+          7105
           -
-          7165
+          7109
         </td>
         <td>
           Block
@@ -2233,12 +2287,12 @@
           153
         </td>
         <td>
-          2523
+          2542
         </td>
         <td>
-          7184
+          7128
           -
-          7189
+          7133
         </td>
         <td>
           Literal
@@ -2257,12 +2311,12 @@
           153
         </td>
         <td>
-          2524
+          2543
         </td>
         <td>
-          7184
+          7128
           -
-          7189
+          7133
         </td>
         <td>
           Block
@@ -2281,12 +2335,12 @@
           154
         </td>
         <td>
-          2525
+          2544
         </td>
         <td>
-          7093
+          7037
           -
-          7205
+          7149
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2308,12 +2362,12 @@
           156
         </td>
         <td>
-          2527
+          2546
         </td>
         <td>
-          7211
+          7155
           -
-          7573
+          7517
         </td>
         <td>
           Apply
@@ -2332,12 +2386,12 @@
           157
         </td>
         <td>
-          2526
+          2545
         </td>
         <td>
-          7225
+          7169
           -
-          7567
+          7511
         </td>
         <td>
           Apply
@@ -2356,12 +2410,12 @@
           216
         </td>
         <td>
-          2528
+          2547
         </td>
         <td>
-          9462
+          9406
           -
-          9467
+          9411
         </td>
         <td>
           Literal
@@ -2380,12 +2434,12 @@
           223
         </td>
         <td>
-          2532
+          2551
         </td>
         <td>
-          9787
+          9731
           -
-          9806
+          9750
         </td>
         <td>
           Apply
@@ -2404,12 +2458,12 @@
           223
         </td>
         <td>
-          2533
+          2552
         </td>
         <td>
-          9787
+          9731
           -
-          9806
+          9750
         </td>
         <td>
           Block
@@ -2428,12 +2482,12 @@
           223
         </td>
         <td>
-          2534
+          2553
         </td>
         <td>
-          9788
+          9732
           -
-          9788
+          9732
         </td>
         <td>
           Select
@@ -2452,12 +2506,12 @@
           223
         </td>
         <td>
-          2535
+          2554
         </td>
         <td>
-          9793
+          9737
           -
-          9793
+          9737
         </td>
         <td>
           Select
@@ -2476,12 +2530,12 @@
           224
         </td>
         <td>
-          2529
+          2548
         </td>
         <td>
-          9880
+          9824
           -
-          9901
+          9845
         </td>
         <td>
           Apply
@@ -2500,12 +2554,12 @@
           224
         </td>
         <td>
-          2530
+          2549
         </td>
         <td>
-          9903
+          9847
           -
-          9915
+          9859
         </td>
         <td>
           Select
@@ -2524,12 +2578,12 @@
           224
         </td>
         <td>
-          2531
+          2550
         </td>
         <td>
-          9830
+          9774
           -
-          9950
+          9894
         </td>
         <td>
           Apply
@@ -2548,12 +2602,12 @@
           226
         </td>
         <td>
-          2536
+          2555
         </td>
         <td>
-          9967
+          9911
           -
-          10031
+          9975
         </td>
         <td>
           Apply
@@ -2572,12 +2626,12 @@
           226
         </td>
         <td>
-          2537
+          2556
         </td>
         <td>
-          9955
+          9899
           -
-          10046
+          9990
         </td>
         <td>
           Apply
@@ -2596,12 +2650,12 @@
           229
         </td>
         <td>
-          2551
+          2570
         </td>
         <td>
-          10091
+          10035
           -
-          10375
+          10319
         </td>
         <td>
           Apply
@@ -2623,12 +2677,12 @@ else
           229
         </td>
         <td>
-          2552
+          2571
         </td>
         <td>
-          10079
+          10023
           -
-          10376
+          10320
         </td>
         <td>
           Apply
@@ -2650,12 +2704,12 @@ else
           230
         </td>
         <td>
-          2538
+          2557
         </td>
         <td>
-          10121
+          10065
           -
-          10139
+          10083
         </td>
         <td>
           Literal
@@ -2674,12 +2728,12 @@ else
           230
         </td>
         <td>
-          2539
+          2558
         </td>
         <td>
-          10152
+          10096
           -
-          10182
+          10126
         </td>
         <td>
           Select
@@ -2698,12 +2752,12 @@ else
           230
         </td>
         <td>
-          2540
+          2559
         </td>
         <td>
-          10102
+          10046
           -
-          10183
+          10127
         </td>
         <td>
           Apply
@@ -2722,12 +2776,12 @@ else
           231
         </td>
         <td>
-          2541
+          2560
         </td>
         <td>
-          10210
+          10154
           -
-          10218
+          10162
         </td>
         <td>
           Literal
@@ -2746,12 +2800,12 @@ else
           231
         </td>
         <td>
-          2550
+          2569
         </td>
         <td>
-          10191
+          10135
           -
-          10369
+          10313
         </td>
         <td>
           Apply
@@ -2773,12 +2827,12 @@ else
           232
         </td>
         <td>
-          2542
+          2561
         </td>
         <td>
-          10243
+          10187
           -
-          10264
+          10208
         </td>
         <td>
           Apply
@@ -2797,12 +2851,12 @@ else
           232
         </td>
         <td>
-          2543
+          2562
         </td>
         <td>
-          10289
+          10233
           -
-          10301
+          10245
         </td>
         <td>
           Select
@@ -2821,12 +2875,12 @@ else
           232
         </td>
         <td>
-          2544
+          2563
         </td>
         <td>
-          10266
+          10210
           -
-          10302
+          10246
         </td>
         <td>
           Apply
@@ -2845,12 +2899,12 @@ else
           232
         </td>
         <td>
-          2545
+          2564
         </td>
         <td>
-          10266
+          10210
           -
-          10302
+          10246
         </td>
         <td>
           Block
@@ -2869,12 +2923,12 @@ else
           232
         </td>
         <td>
-          2546
+          2565
         </td>
         <td>
-          10330
+          10274
           -
-          10342
+          10286
         </td>
         <td>
           Select
@@ -2893,12 +2947,12 @@ else
           232
         </td>
         <td>
-          2547
+          2566
         </td>
         <td>
-          10308
+          10252
           -
-          10343
+          10287
         </td>
         <td>
           Apply
@@ -2917,12 +2971,12 @@ else
           232
         </td>
         <td>
-          2548
+          2567
         </td>
         <td>
-          10308
+          10252
           -
-          10343
+          10287
         </td>
         <td>
           Block
@@ -2941,12 +2995,12 @@ else
           233
         </td>
         <td>
-          2549
+          2568
         </td>
         <td>
-          10364
+          10308
           -
-          10368
+          10312
         </td>
         <td>
           Literal
@@ -2965,12 +3019,12 @@ else
           237
         </td>
         <td>
-          2553
+          2572
         </td>
         <td>
-          10631
+          10575
           -
-          10653
+          10597
         </td>
         <td>
           Apply
@@ -2986,15 +3040,111 @@ else
         </td>
       </tr><tr>
         <td>
+          240
+        </td>
+        <td>
+          2573
+        </td>
+        <td>
+          10703
+          -
+          10728
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.NoOpDefaultProcessor.noOp
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.NoOpDefaultProcessor.noOp
+        </td>
+      </tr><tr>
+        <td>
+          240
+        </td>
+        <td>
+          2574
+        </td>
+        <td>
+          10673
+          -
+          10728
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.!=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          CollectRunnerBase.this.ruleSuite.defaultProcessor.!=(com.sparkutils.quality.NoOpDefaultProcessor.noOp)
+        </td>
+      </tr><tr>
+        <td>
+          241
+        </td>
+        <td>
+          2575
+        </td>
+        <td>
+          10738
+          -
+          10742
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.sparkutils.quality.impl.CollectRunnerBase.when
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          when
+        </td>
+      </tr><tr>
+        <td>
           243
         </td>
         <td>
-          2554
+          2576
         </td>
         <td>
-          10826
+          10762
           -
-          10857
+          10765
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.sparkutils.quality.impl.CollectRunnerBase.els
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          els
+        </td>
+      </tr><tr>
+        <td>
+          250
+        </td>
+        <td>
+          2577
+        </td>
+        <td>
+          10939
+          -
+          10970
         </td>
         <td>
           Apply
@@ -3010,15 +3160,15 @@ else
         </td>
       </tr><tr>
         <td>
-          243
+          250
         </td>
         <td>
-          2555
+          2578
         </td>
         <td>
-          10859
+          10972
           -
-          10883
+          10996
         </td>
         <td>
           Apply
@@ -3034,15 +3184,15 @@ else
         </td>
       </tr><tr>
         <td>
-          243
+          250
         </td>
         <td>
-          2556
+          2579
         </td>
         <td>
-          10806
+          10919
           -
-          10884
+          10997
         </td>
         <td>
           Apply
@@ -3058,15 +3208,87 @@ else
         </td>
       </tr><tr>
         <td>
-          246
+          252
         </td>
         <td>
-          2557
+          2580
         </td>
         <td>
-          10996
+          11042
           -
-          11005
+          11051
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;boolean&quot;
+        </td>
+      </tr><tr>
+        <td>
+          252
+        </td>
+        <td>
+          2581
+        </td>
+        <td>
+          11053
+          -
+          11078
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.freshName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.freshName(&quot;hasAPass&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          252
+        </td>
+        <td>
+          2582
+        </td>
+        <td>
+          11022
+          -
+          11079
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.addMutableState
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.addMutableState(&quot;boolean&quot;, ctx.freshName(&quot;hasAPass&quot;), ctx.addMutableState$default$3, ctx.addMutableState$default$4, ctx.addMutableState$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          255
+        </td>
+        <td>
+          2583
+        </td>
+        <td>
+          11191
+          -
+          11200
         </td>
         <td>
           Select
@@ -3082,15 +3304,15 @@ else
         </td>
       </tr><tr>
         <td>
-          246
+          255
         </td>
         <td>
-          2558
+          2584
         </td>
         <td>
-          10930
+          11125
           -
-          11006
+          11201
         </td>
         <td>
           Apply
@@ -3106,15 +3328,15 @@ else
         </td>
       </tr><tr>
         <td>
-          247
+          256
         </td>
         <td>
-          2559
+          2585
         </td>
         <td>
-          11025
+          11220
           -
-          11026
+          11221
         </td>
         <td>
           Literal
@@ -3130,15 +3352,15 @@ else
         </td>
       </tr><tr>
         <td>
-          247
+          256
         </td>
         <td>
-          2560
+          2586
         </td>
         <td>
-          11033
+          11228
           -
-          11045
+          11240
         </td>
         <td>
           Select
@@ -3154,15 +3376,15 @@ else
         </td>
       </tr><tr>
         <td>
-          247
+          256
         </td>
         <td>
-          2561
+          2587
         </td>
         <td>
-          11025
+          11220
           -
-          11045
+          11240
         </td>
         <td>
           Apply
@@ -3178,15 +3400,15 @@ else
         </td>
       </tr><tr>
         <td>
-          248
+          257
         </td>
         <td>
-          2562
+          2588
         </td>
         <td>
-          11078
+          11273
           -
-          11086
+          11281
         </td>
         <td>
           ApplyImplicitView
@@ -3202,15 +3424,15 @@ else
         </td>
       </tr><tr>
         <td>
-          248
+          257
         </td>
         <td>
-          2563
+          2589
         </td>
         <td>
-          11094
+          11289
           -
-          11098
+          11293
         </td>
         <td>
           Select
@@ -3226,15 +3448,15 @@ else
         </td>
       </tr><tr>
         <td>
-          248
+          257
         </td>
         <td>
-          2564
+          2590
         </td>
         <td>
-          11087
+          11282
           -
-          11087
+          11282
         </td>
         <td>
           Select
@@ -3250,15 +3472,15 @@ else
         </td>
       </tr><tr>
         <td>
-          248
+          257
         </td>
         <td>
-          2565
+          2591
         </td>
         <td>
-          11104
+          11299
           -
-          11108
+          11303
         </td>
         <td>
           Select
@@ -3274,15 +3496,15 @@ else
         </td>
       </tr><tr>
         <td>
-          248
+          257
         </td>
         <td>
-          2566
+          2592
         </td>
         <td>
-          11066
+          11261
           -
-          11109
+          11304
         </td>
         <td>
           Apply
@@ -3298,15 +3520,15 @@ else
         </td>
       </tr><tr>
         <td>
-          252
+          261
         </td>
         <td>
-          2567
+          2593
         </td>
         <td>
-          11216
+          11411
           -
-          11242
+          11437
         </td>
         <td>
           Apply
@@ -3322,15 +3544,15 @@ else
         </td>
       </tr><tr>
         <td>
-          253
+          262
         </td>
         <td>
-          2568
+          2594
         </td>
         <td>
-          11255
+          11450
           -
-          11273
+          11468
         </td>
         <td>
           Apply
@@ -3346,15 +3568,15 @@ else
         </td>
       </tr><tr>
         <td>
-          254
+          263
         </td>
         <td>
-          2569
+          2595
         </td>
         <td>
-          11286
+          11481
           -
-          11304
+          11499
         </td>
         <td>
           Apply
@@ -3370,15 +3592,15 @@ else
         </td>
       </tr><tr>
         <td>
-          258
+          267
         </td>
         <td>
-          2570
+          2596
         </td>
         <td>
-          11434
+          11629
           -
-          11446
+          11641
         </td>
         <td>
           Select
@@ -3394,15 +3616,15 @@ else
         </td>
       </tr><tr>
         <td>
-          259
+          268
         </td>
         <td>
-          2571
+          2597
         </td>
         <td>
-          11527
+          11722
           -
-          11527
+          11722
         </td>
         <td>
           Apply
@@ -3418,15 +3640,15 @@ else
         </td>
       </tr><tr>
         <td>
-          263
+          272
         </td>
         <td>
-          2572
+          2598
         </td>
         <td>
-          11660
+          11855
           -
-          11660
+          11855
         </td>
         <td>
           Apply
@@ -3442,15 +3664,15 @@ else
         </td>
       </tr><tr>
         <td>
-          268
+          277
         </td>
         <td>
-          2573
+          2599
         </td>
         <td>
-          11771
+          11966
           -
-          11772
+          11967
         </td>
         <td>
           Literal
@@ -3466,15 +3688,15 @@ else
         </td>
       </tr><tr>
         <td>
-          268
+          277
         </td>
         <td>
-          2574
+          2600
         </td>
         <td>
-          11776
+          11971
           -
-          11782
+          11977
         </td>
         <td>
           Select
@@ -3490,15 +3712,15 @@ else
         </td>
       </tr><tr>
         <td>
-          268
+          277
         </td>
         <td>
-          2575
+          2601
         </td>
         <td>
-          11787
+          11982
           -
-          11799
+          11994
         </td>
         <td>
           Apply
@@ -3514,15 +3736,15 @@ else
         </td>
       </tr><tr>
         <td>
-          268
+          277
         </td>
         <td>
-          2576
+          2602
         </td>
         <td>
-          11755
+          11950
           -
-          11799
+          11994
         </td>
         <td>
           Apply
@@ -3538,15 +3760,15 @@ else
         </td>
       </tr><tr>
         <td>
-          268
+          277
         </td>
         <td>
-          2607
+          2633
         </td>
         <td>
-          11801
+          11996
           -
-          13536
+          13731
         </td>
         <td>
           Block
@@ -3588,15 +3810,15 @@ else
         </td>
       </tr><tr>
         <td>
-          270
+          279
         </td>
         <td>
-          2577
+          2603
         </td>
         <td>
-          11908
+          12103
           -
-          11926
+          12121
         </td>
         <td>
           Apply
@@ -3612,15 +3834,15 @@ else
         </td>
       </tr><tr>
         <td>
-          271
+          280
         </td>
         <td>
-          2578
+          2604
         </td>
         <td>
-          11943
+          12138
           -
-          11961
+          12156
         </td>
         <td>
           Apply
@@ -3636,15 +3858,15 @@ else
         </td>
       </tr><tr>
         <td>
-          279
+          288
         </td>
         <td>
-          2579
+          2605
         </td>
         <td>
-          12158
+          12353
           -
-          12179
+          12374
         </td>
         <td>
           Select
@@ -3660,15 +3882,15 @@ else
         </td>
       </tr><tr>
         <td>
-          279
+          288
         </td>
         <td>
-          2580
+          2606
         </td>
         <td>
-          12148
+          12343
           -
-          12207
+          12402
         </td>
         <td>
           Apply
@@ -3684,15 +3906,15 @@ else
         </td>
       </tr><tr>
         <td>
-          279
+          288
         </td>
         <td>
-          2581
+          2607
         </td>
         <td>
-          12148
+          12343
           -
-          12213
+          12408
         </td>
         <td>
           Select
@@ -3708,15 +3930,15 @@ else
         </td>
       </tr><tr>
         <td>
-          281
+          290
         </td>
         <td>
-          2582
+          2608
         </td>
         <td>
-          12238
+          12433
           -
-          12239
+          12434
         </td>
         <td>
           Literal
@@ -3732,15 +3954,15 @@ else
         </td>
       </tr><tr>
         <td>
-          281
+          290
         </td>
         <td>
-          2583
+          2609
         </td>
         <td>
-          12246
+          12441
           -
-          12258
+          12453
         </td>
         <td>
           Apply
@@ -3756,15 +3978,15 @@ else
         </td>
       </tr><tr>
         <td>
-          281
+          290
         </td>
         <td>
-          2584
+          2610
         </td>
         <td>
-          12237
+          12432
           -
-          12284
+          12479
         </td>
         <td>
           Select
@@ -3780,15 +4002,15 @@ else
         </td>
       </tr><tr>
         <td>
-          283
+          292
         </td>
         <td>
-          2590
+          2616
         </td>
         <td>
-          12323
+          12518
           -
-          12460
+          12655
         </td>
         <td>
           Apply
@@ -3807,15 +4029,15 @@ else
         </td>
       </tr><tr>
         <td>
-          284
+          293
         </td>
         <td>
-          2585
+          2611
         </td>
         <td>
-          12372
+          12567
           -
-          12391
+          12586
         </td>
         <td>
           Apply
@@ -3831,15 +4053,15 @@ else
         </td>
       </tr><tr>
         <td>
-          285
+          294
         </td>
         <td>
-          2586
+          2612
         </td>
         <td>
-          12407
+          12602
           -
-          12412
+          12607
         </td>
         <td>
           Literal
@@ -3855,15 +4077,15 @@ else
         </td>
       </tr><tr>
         <td>
-          285
+          294
         </td>
         <td>
-          2587
+          2613
         </td>
         <td>
-          12407
+          12602
           -
-          12412
+          12607
         </td>
         <td>
           Block
@@ -3879,15 +4101,15 @@ else
         </td>
       </tr><tr>
         <td>
-          287
+          296
         </td>
         <td>
-          2588
+          2614
         </td>
         <td>
-          12444
+          12639
           -
-          12448
+          12643
         </td>
         <td>
           Literal
@@ -3903,15 +4125,15 @@ else
         </td>
       </tr><tr>
         <td>
-          287
+          296
         </td>
         <td>
-          2589
+          2615
         </td>
         <td>
-          12444
+          12639
           -
-          12448
+          12643
         </td>
         <td>
           Block
@@ -3927,15 +4149,15 @@ else
         </td>
       </tr><tr>
         <td>
-          291
+          300
         </td>
         <td>
-          2591
+          2617
         </td>
         <td>
-          12523
+          12718
           -
-          12543
+          12738
         </td>
         <td>
           Apply
@@ -3951,15 +4173,15 @@ else
         </td>
       </tr><tr>
         <td>
-          291
+          300
         </td>
         <td>
-          2592
+          2618
         </td>
         <td>
-          12523
+          12718
           -
-          12543
+          12738
         </td>
         <td>
           Block
@@ -3975,15 +4197,15 @@ else
         </td>
       </tr><tr>
         <td>
-          293
+          302
         </td>
         <td>
-          2593
+          2619
         </td>
         <td>
-          12571
+          12766
           -
-          12578
+          12773
         </td>
         <td>
           Ident
@@ -3999,15 +4221,15 @@ else
         </td>
       </tr><tr>
         <td>
-          297
+          306
         </td>
         <td>
-          2594
+          2620
         </td>
         <td>
-          12646
+          12841
           -
-          12658
+          12853
         </td>
         <td>
           Select
@@ -4023,15 +4245,15 @@ else
         </td>
       </tr><tr>
         <td>
-          297
+          306
         </td>
         <td>
-          2595
+          2621
         </td>
         <td>
-          12646
+          12841
           -
-          12658
+          12853
         </td>
         <td>
           Block
@@ -4047,15 +4269,15 @@ else
         </td>
       </tr><tr>
         <td>
-          299
+          308
         </td>
         <td>
-          2596
+          2622
         </td>
         <td>
-          12686
+          12881
           -
-          12695
+          12890
         </td>
         <td>
           TypeApply
@@ -4071,15 +4293,15 @@ else
         </td>
       </tr><tr>
         <td>
-          299
+          308
         </td>
         <td>
-          2597
+          2623
         </td>
         <td>
-          12686
+          12881
           -
-          12695
+          12890
         </td>
         <td>
           Block
@@ -4095,15 +4317,15 @@ else
         </td>
       </tr><tr>
         <td>
-          302
+          311
         </td>
         <td>
-          2598
+          2624
         </td>
         <td>
-          12732
+          12927
           -
-          12733
+          12928
         </td>
         <td>
           Literal
@@ -4119,15 +4341,15 @@ else
         </td>
       </tr><tr>
         <td>
-          302
+          311
         </td>
         <td>
-          2599
+          2625
         </td>
         <td>
-          12760
+          12955
           -
-          12762
+          12957
         </td>
         <td>
           Literal
@@ -4143,15 +4365,15 @@ else
         </td>
       </tr><tr>
         <td>
-          302
+          311
         </td>
         <td>
-          2600
+          2626
         </td>
         <td>
-          12731
+          12926
           -
-          12942
+          13137
         </td>
         <td>
           Apply
@@ -4167,15 +4389,15 @@ else
         </td>
       </tr><tr>
         <td>
-          313
+          322
         </td>
         <td>
-          2601
+          2627
         </td>
         <td>
-          13006
+          13201
           -
-          13008
+          13203
         </td>
         <td>
           Literal
@@ -4191,15 +4413,15 @@ else
         </td>
       </tr><tr>
         <td>
-          313
+          322
         </td>
         <td>
-          2602
+          2628
         </td>
         <td>
-          12978
+          13173
           -
-          13189
+          13384
         </td>
         <td>
           Apply
@@ -4215,15 +4437,15 @@ else
         </td>
       </tr><tr>
         <td>
-          325
+          334
         </td>
         <td>
-          2603
+          2629
         </td>
         <td>
-          13224
+          13419
           -
-          13239
+          13434
         </td>
         <td>
           Select
@@ -4239,15 +4461,15 @@ else
         </td>
       </tr><tr>
         <td>
-          328
+          337
         </td>
         <td>
-          2604
+          2630
         </td>
         <td>
-          13344
+          13539
           -
-          13344
+          13539
         </td>
         <td>
           Apply
@@ -4263,15 +4485,15 @@ else
         </td>
       </tr><tr>
         <td>
-          332
+          341
         </td>
         <td>
-          2605
+          2631
         </td>
         <td>
-          13404
+          13599
           -
-          13406
+          13601
         </td>
         <td>
           Literal
@@ -4287,15 +4509,15 @@ else
         </td>
       </tr><tr>
         <td>
-          332
+          341
         </td>
         <td>
-          2606
+          2632
         </td>
         <td>
-          13404
+          13599
           -
-          13406
+          13601
         </td>
         <td>
           Block
@@ -4311,15 +4533,15 @@ else
         </td>
       </tr><tr>
         <td>
-          343
+          352
         </td>
         <td>
-          2608
+          2634
         </td>
         <td>
-          13556
+          13751
           -
-          13568
+          13763
         </td>
         <td>
           Apply
@@ -4335,15 +4557,15 @@ else
         </td>
       </tr><tr>
         <td>
-          343
+          352
         </td>
         <td>
-          2611
+          2637
         </td>
         <td>
-          13570
+          13765
           -
-          14111
+          14306
         </td>
         <td>
           Block
@@ -4365,15 +4587,15 @@ else
         </td>
       </tr><tr>
         <td>
-          343
+          352
         </td>
         <td>
-          2613
+          2639
         </td>
         <td>
-          13552
+          13747
           -
-          14448
+          14643
         </td>
         <td>
           If
@@ -4398,15 +4620,15 @@ else
         </td>
       </tr><tr>
         <td>
-          344
+          353
         </td>
         <td>
-          2609
+          2635
         </td>
         <td>
-          13659
+          13854
           -
-          13677
+          13872
         </td>
         <td>
           Apply
@@ -4422,15 +4644,15 @@ else
         </td>
       </tr><tr>
         <td>
-          345
+          354
         </td>
         <td>
-          2610
+          2636
         </td>
         <td>
-          13696
+          13891
           -
-          13714
+          13909
         </td>
         <td>
           Apply
@@ -4446,15 +4668,15 @@ else
         </td>
       </tr><tr>
         <td>
-          370
+          379
         </td>
         <td>
-          2612
+          2638
         </td>
         <td>
-          14420
+          14615
           -
-          14420
+          14615
         </td>
         <td>
           Apply
@@ -4470,15 +4692,15 @@ else
         </td>
       </tr><tr>
         <td>
-          377
+          385
         </td>
         <td>
-          2614
+          2640
         </td>
         <td>
-          14556
+          14750
           -
-          14564
+          14758
         </td>
         <td>
           Select
@@ -4494,15 +4716,15 @@ else
         </td>
       </tr><tr>
         <td>
-          377
+          385
         </td>
         <td>
-          2615
+          2641
         </td>
         <td>
-          14536
+          14730
           -
-          14565
+          14759
         </td>
         <td>
           Apply
@@ -4518,15 +4740,15 @@ else
         </td>
       </tr><tr>
         <td>
-          377
+          385
         </td>
         <td>
-          2616
+          2642
         </td>
         <td>
-          14567
+          14761
           -
-          14584
+          14778
         </td>
         <td>
           Select
@@ -4542,15 +4764,15 @@ else
         </td>
       </tr><tr>
         <td>
-          377
+          385
         </td>
         <td>
-          2617
+          2643
         </td>
         <td>
-          14586
+          14780
           -
-          14594
+          14788
         </td>
         <td>
           Select
@@ -4566,15 +4788,15 @@ else
         </td>
       </tr><tr>
         <td>
-          377
+          385
         </td>
         <td>
-          2624
+          2656
         </td>
         <td>
-          14527
+          14721
           -
-          14527
+          14721
         </td>
         <td>
           TypeApply
@@ -4590,15 +4812,15 @@ else
         </td>
       </tr><tr>
         <td>
-          377
+          385
         </td>
         <td>
-          2628
+          2660
         </td>
         <td>
-          14530
+          14724
           -
-          14530
+          14724
         </td>
         <td>
           Select
@@ -4614,15 +4836,15 @@ else
         </td>
       </tr><tr>
         <td>
-          377
+          385
         </td>
         <td>
-          2629
+          2661
         </td>
         <td>
-          14489
+          14683
           -
-          15282
+          15831
         </td>
         <td>
           ApplyToImplicitArgs
@@ -4634,19 +4856,19 @@ else
           
         </td>
         <td style="background: #AEF1AE">
-          RuleEngineRunnerUtils.genCompilerTerms[T](x$1, x$2, x$3, x$4, false, x$6, x$7, false, x$9, x$12, x$10, false)(CollectRunnerBase.this.classTagT)
+          RuleEngineRunnerUtils.genCompilerTerms[T](x$1, x$2, x$3, x$4, false, x$6, x$7, false, x$9, x$13, x$10, false, x$12)(CollectRunnerBase.this.classTagT)
         </td>
       </tr><tr>
         <td>
-          378
+          386
         </td>
         <td>
-          2618
+          2644
         </td>
         <td>
-          14604
+          14798
           -
-          14609
+          14803
         </td>
         <td>
           Literal
@@ -4662,15 +4884,15 @@ else
         </td>
       </tr><tr>
         <td>
-          378
+          386
         </td>
         <td>
-          2619
+          2645
         </td>
         <td>
-          14611
+          14805
           -
-          14627
+          14821
         </td>
         <td>
           Select
@@ -4686,15 +4908,15 @@ else
         </td>
       </tr><tr>
         <td>
-          378
+          386
         </td>
         <td>
-          2620
+          2646
         </td>
         <td>
-          14629
+          14823
           -
-          14646
+          14840
         </td>
         <td>
           Select
@@ -4710,15 +4932,15 @@ else
         </td>
       </tr><tr>
         <td>
-          378
+          386
         </td>
         <td>
-          2621
+          2647
         </td>
         <td>
-          14648
+          14842
           -
-          14653
+          14847
         </td>
         <td>
           Literal
@@ -4734,15 +4956,15 @@ else
         </td>
       </tr><tr>
         <td>
-          378
+          386
         </td>
         <td>
-          2625
+          2657
         </td>
         <td>
-          14604
+          14798
           -
-          14604
+          14798
         </td>
         <td>
           Literal
@@ -4758,15 +4980,15 @@ else
         </td>
       </tr><tr>
         <td>
-          378
+          386
         </td>
         <td>
-          2626
+          2658
         </td>
         <td>
-          14648
+          14842
           -
-          14648
+          14842
         </td>
         <td>
           Literal
@@ -4782,15 +5004,15 @@ else
         </td>
       </tr><tr>
         <td>
-          390
+          401
         </td>
         <td>
-          2622
+          2648
         </td>
         <td>
-          15158
+          15513
           -
-          15172
+          15527
         </td>
         <td>
           Apply
@@ -4806,15 +5028,15 @@ else
         </td>
       </tr><tr>
         <td>
-          392
+          403
         </td>
         <td>
-          2623
+          2649
         </td>
         <td>
-          15269
+          15624
           -
-          15274
+          15629
         </td>
         <td>
           Literal
@@ -4830,15 +5052,15 @@ else
         </td>
       </tr><tr>
         <td>
-          392
+          403
         </td>
         <td>
-          2627
+          2659
         </td>
         <td>
-          15269
+          15624
           -
-          15269
+          15624
         </td>
         <td>
           Literal
@@ -4854,15 +5076,183 @@ else
         </td>
       </tr><tr>
         <td>
-          411
+          405
         </td>
         <td>
-          2630
+          2650
         </td>
         <td>
-          15709
+          15700
           -
-          15968
+          15725
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.NoOpDefaultProcessor.noOp
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.NoOpDefaultProcessor.noOp
+        </td>
+      </tr><tr>
+        <td>
+          405
+        </td>
+        <td>
+          2651
+        </td>
+        <td>
+          15670
+          -
+          15725
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.!=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          CollectRunnerBase.this.ruleSuite.defaultProcessor.!=(com.sparkutils.quality.NoOpDefaultProcessor.noOp)
+        </td>
+      </tr><tr>
+        <td>
+          406
+        </td>
+        <td>
+          2652
+        </td>
+        <td>
+          15739
+          -
+          15741
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          -1
+        </td>
+      </tr><tr>
+        <td>
+          406
+        </td>
+        <td>
+          2653
+        </td>
+        <td>
+          15739
+          -
+          15741
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          -1
+        </td>
+      </tr><tr>
+        <td>
+          408
+        </td>
+        <td>
+          2654
+        </td>
+        <td>
+          15822
+          -
+          15823
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          408
+        </td>
+        <td>
+          2655
+        </td>
+        <td>
+          15822
+          -
+          15823
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          427
+        </td>
+        <td>
+          2662
+        </td>
+        <td>
+          16272
+          -
+          16301
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.freshName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.freshName(&quot;ruleSuiteRes&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          430
+        </td>
+        <td>
+          2663
+        </td>
+        <td>
+          16338
+          -
+          17660
         </td>
         <td>
           Apply
@@ -4874,19 +5264,19 @@ else
           
         </td>
         <td style="background: #AEF1AE">
-          scala.StringContext.apply(&quot;\n        &quot;, &quot;\n\n        InternalRow &quot;, &quot; =\n          com.sparkutils.quality.impl.CollectRunnerUtils.compiledEval(\n            &quot;, &quot;.evalArray(&quot;, &quot;, &quot;, &quot;, &quot;, &quot;),\n            &quot;, &quot;);\n\n        &quot;, &quot;\n        &quot;)
+          scala.StringContext.apply(&quot;\n        &quot;, &quot;\n\n        &quot;, &quot;\n\n        InternalRow &quot;, &quot; = &quot;, &quot;.evalArrayForDefault(&quot;, &quot;, &quot;, &quot;, &quot;, &quot;);\n\n        &quot;, &quot;\n\n        InternalRow &quot;, &quot; =\n          com.sparkutils.quality.impl.CollectRunnerUtils.compiledEval(\n            &quot;, &quot;,\n            &quot;, &quot;);\n\n        &quot;, &quot;\n        &quot;)
         </td>
       </tr><tr>
         <td>
-          411
+          430
         </td>
         <td>
-          2636
+          2671
         </td>
         <td>
-          15709
+          16338
           -
-          15968
+          17660
         </td>
         <td>
           Apply
@@ -4898,19 +5288,22 @@ else
           
         </td>
         <td style="background: #AEF1AE">
-          org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n        &quot;, &quot;\n\n        InternalRow &quot;, &quot; =\n          com.sparkutils.quality.impl.CollectRunnerUtils.compiledEval(\n            &quot;, &quot;.evalArray(&quot;, &quot;, &quot;, &quot;, &quot;, &quot;),\n            &quot;, &quot;);\n\n        &quot;, &quot;\n        &quot;)).code(pre, ev.value, compilerTerms.utilsName, compilerTerms.ruleSuitTerm, compilerTerms.ruleSuiteArrays, compilerTerms.resArrTerm, bufferTerm, post)
+          org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n        &quot;, &quot;\n\n        &quot;, &quot;\n\n        InternalRow &quot;, &quot; = &quot;, &quot;.evalArrayForDefault(&quot;, &quot;, &quot;, &quot;, &quot;, &quot;);\n\n        &quot;, &quot;\n\n        InternalRow &quot;, &quot; =\n          com.sparkutils.quality.impl.CollectRunnerUtils.compiledEval(\n            &quot;, &quot;,\n            &quot;, &quot;);\n\n        &quot;, &quot;\n        &quot;)).code(pre, hasDefault(&quot;\n            if (!&quot;.+(hasAPassTerm).+(&quot;) {\n              &quot;).+({
+  val defP: org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = CollectRunnerBase.this.children.last.genCode(ctx);
+  &quot;\n                    &quot;.+(defP.code).+(&quot;\n\n                    //System.out.println(\&quot;DefaultProcessor result is &quot;).+(defP.value).+(&quot;\&quot; + &quot;).+(defP.value).+(&quot;);\n\n                    if ((&quot;).+(defP.value).+(&quot; == null) || &quot;).+(CollectRunnerBase.this.flatten.&amp;&amp;(CollectRunnerBase.this.canFlatten).unary_!).+(&quot;) {\n                      com.sparkutils.quality.impl.CollectRunnerUtils.addOne(&quot;).+(bufferTerm).+(&quot;, &quot;).+(defP.value).+(&quot;);\n                    } else {\n                      &quot;).+(processFlattenResult(CollectRunnerBase.this.canUnroll.length.-(1), codegen.this.ExprValue.exprValueToString(defP.value))).+(&quot;\n                    }\n                  &quot;)
+}).+(&quot;\n            }\n        &quot;), hasDefault$default$2), rsres, compilerTerms.utilsName, compilerTerms.ruleSuitTerm, compilerTerms.ruleSuiteArrays, compilerTerms.resArrTerm, hasDefault(&quot;\n            if (!&quot;.+(hasAPassTerm).+(&quot;) {\n              &quot;).+(rsres).+(&quot;.update(1, &quot;).+(com.sparkutils.quality.`package`.DefaultRuleInt).+(&quot;);\n            }\n            &quot;), hasDefault$default$2), ev.value, rsres, bufferTerm, post)
         </td>
       </tr><tr>
         <td>
-          411
+          430
         </td>
         <td>
-          2637
+          2672
         </td>
         <td>
-          15694
+          16323
           -
-          15976
+          17668
         </td>
         <td>
           Apply
@@ -4922,43 +5315,49 @@ else
           
         </td>
         <td style="background: #AEF1AE">
-          ev.copy(org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n        &quot;, &quot;\n\n        InternalRow &quot;, &quot; =\n          com.sparkutils.quality.impl.CollectRunnerUtils.compiledEval(\n            &quot;, &quot;.evalArray(&quot;, &quot;, &quot;, &quot;, &quot;, &quot;),\n            &quot;, &quot;);\n\n        &quot;, &quot;\n        &quot;)).code(pre, ev.value, compilerTerms.utilsName, compilerTerms.ruleSuitTerm, compilerTerms.ruleSuiteArrays, compilerTerms.resArrTerm, bufferTerm, post), ev.copy$default$2, ev.copy$default$3)
+          ev.copy(org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n        &quot;, &quot;\n\n        &quot;, &quot;\n\n        InternalRow &quot;, &quot; = &quot;, &quot;.evalArrayForDefault(&quot;, &quot;, &quot;, &quot;, &quot;, &quot;);\n\n        &quot;, &quot;\n\n        InternalRow &quot;, &quot; =\n          com.sparkutils.quality.impl.CollectRunnerUtils.compiledEval(\n            &quot;, &quot;,\n            &quot;, &quot;);\n\n        &quot;, &quot;\n        &quot;)).code(pre, hasDefault(&quot;\n            if (!&quot;.+(hasAPassTerm).+(&quot;) {\n              &quot;).+({
+  val defP: org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = CollectRunnerBase.this.children.last.genCode(ctx);
+  &quot;\n                    &quot;.+(defP.code).+(&quot;\n\n                    //System.out.println(\&quot;DefaultProcessor result is &quot;).+(defP.value).+(&quot;\&quot; + &quot;).+(defP.value).+(&quot;);\n\n                    if ((&quot;).+(defP.value).+(&quot; == null) || &quot;).+(CollectRunnerBase.this.flatten.&amp;&amp;(CollectRunnerBase.this.canFlatten).unary_!).+(&quot;) {\n                      com.sparkutils.quality.impl.CollectRunnerUtils.addOne(&quot;).+(bufferTerm).+(&quot;, &quot;).+(defP.value).+(&quot;);\n                    } else {\n                      &quot;).+(processFlattenResult(CollectRunnerBase.this.canUnroll.length.-(1), codegen.this.ExprValue.exprValueToString(defP.value))).+(&quot;\n                    }\n                  &quot;)
+}).+(&quot;\n            }\n        &quot;), hasDefault$default$2), rsres, compilerTerms.utilsName, compilerTerms.ruleSuitTerm, compilerTerms.ruleSuiteArrays, compilerTerms.resArrTerm, hasDefault(&quot;\n            if (!&quot;.+(hasAPassTerm).+(&quot;) {\n              &quot;).+(rsres).+(&quot;.update(1, &quot;).+(com.sparkutils.quality.`package`.DefaultRuleInt).+(&quot;);\n            }\n            &quot;), hasDefault$default$2), ev.value, rsres, bufferTerm, post), ev.copy$default$2, ev.copy$default$3)
         </td>
       </tr><tr>
         <td>
-          414
+          433
         </td>
         <td>
-          2631
+          2664
         </td>
         <td>
-          15753
+          16370
           -
-          15761
+          17121
         </td>
         <td>
-          Select
+          Apply
         </td>
         <td>
-          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.value
+          com.sparkutils.quality.impl.CollectRunnerBase.hasDefault
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          ev.value
+          hasDefault(&quot;\n            if (!&quot;.+(hasAPassTerm).+(&quot;) {\n              &quot;).+({
+  val defP: org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = CollectRunnerBase.this.children.last.genCode(ctx);
+  &quot;\n                    &quot;.+(defP.code).+(&quot;\n\n                    //System.out.println(\&quot;DefaultProcessor result is &quot;).+(defP.value).+(&quot;\&quot; + &quot;).+(defP.value).+(&quot;);\n\n                    if ((&quot;).+(defP.value).+(&quot; == null) || &quot;).+(CollectRunnerBase.this.flatten.&amp;&amp;(CollectRunnerBase.this.canFlatten).unary_!).+(&quot;) {\n                      com.sparkutils.quality.impl.CollectRunnerUtils.addOne(&quot;).+(bufferTerm).+(&quot;, &quot;).+(defP.value).+(&quot;);\n                    } else {\n                      &quot;).+(processFlattenResult(CollectRunnerBase.this.canUnroll.length.-(1), codegen.this.ExprValue.exprValueToString(defP.value))).+(&quot;\n                    }\n                  &quot;)
+}).+(&quot;\n            }\n        &quot;), hasDefault$default$2)
         </td>
       </tr><tr>
         <td>
-          416
+          456
         </td>
         <td>
-          2632
+          2665
         </td>
         <td>
-          15849
+          17154
           -
-          15858
+          17163
         </td>
         <td>
           Select
@@ -4974,15 +5373,15 @@ else
         </td>
       </tr><tr>
         <td>
-          416
+          456
         </td>
         <td>
-          2633
+          2666
         </td>
         <td>
-          15870
+          17185
           -
-          15882
+          17197
         </td>
         <td>
           Select
@@ -4998,15 +5397,15 @@ else
         </td>
       </tr><tr>
         <td>
-          416
+          456
         </td>
         <td>
-          2634
+          2667
         </td>
         <td>
-          15885
+          17200
           -
-          15900
+          17215
         </td>
         <td>
           Select
@@ -5022,15 +5421,15 @@ else
         </td>
       </tr><tr>
         <td>
-          416
+          456
         </td>
         <td>
-          2635
+          2668
         </td>
         <td>
-          15903
+          17218
           -
-          15913
+          17228
         </td>
         <td>
           Select
@@ -5046,15 +5445,63 @@ else
         </td>
       </tr><tr>
         <td>
-          439
+          459
         </td>
         <td>
-          2638
+          2669
         </td>
         <td>
-          16891
+          17253
           -
-          16919
+          17471
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.CollectRunnerBase.hasDefault
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          hasDefault(&quot;\n            if (!&quot;.+(hasAPassTerm).+(&quot;) {\n              &quot;).+(rsres).+(&quot;.update(1, &quot;).+(com.sparkutils.quality.`package`.DefaultRuleInt).+(&quot;);\n            }\n            &quot;), hasDefault$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          468
+        </td>
+        <td>
+          2670
+        </td>
+        <td>
+          17505
+          -
+          17513
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.value
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ev.value
+        </td>
+      </tr><tr>
+        <td>
+          493
+        </td>
+        <td>
+          2673
+        </td>
+        <td>
+          18583
+          -
+          18611
         </td>
         <td>
           Apply
@@ -5070,15 +5517,15 @@ else
         </td>
       </tr><tr>
         <td>
-          442
+          496
         </td>
         <td>
-          2639
+          2674
         </td>
         <td>
-          17007
+          18699
           -
-          17026
+          18718
         </td>
         <td>
           Apply
@@ -5094,15 +5541,15 @@ else
         </td>
       </tr><tr>
         <td>
-          444
+          498
         </td>
         <td>
-          2640
+          2675
         </td>
         <td>
-          17095
+          18787
           -
-          17133
+          18825
         </td>
         <td>
           Apply
@@ -5118,15 +5565,15 @@ else
         </td>
       </tr><tr>
         <td>
-          445
+          499
         </td>
         <td>
-          2641
+          2676
         </td>
         <td>
-          17186
+          18878
           -
-          17214
+          18906
         </td>
         <td>
           Literal
