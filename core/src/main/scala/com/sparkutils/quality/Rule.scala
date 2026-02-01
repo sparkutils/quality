@@ -43,11 +43,15 @@ case class Id(id: Int, version: Int) extends VersionedId
 /**
  * A trigger rule
  */
-trait ExpressionRule
+trait ExpressionRule extends Serializable {
+  def updateRule(rule: String): ExpressionRule
+}
 
 object ExpressionRule {
   @SerialVersionUID(1L)
-  case class ExpressionRuleImpl( rule: String ) extends ExpressionRule with HasRuleText
+  case class ExpressionRuleImpl( rule: String ) extends ExpressionRule with HasRuleText {
+    override def updateRule(rule: String): ExpressionRule = copy(rule = rule)
+  }
 
   def apply(rule: String): ExpressionRule = ExpressionRuleImpl(rule)
 }

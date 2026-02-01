@@ -2,7 +2,7 @@ package com.sparkutils.quality.impl
 
 import com.sparkutils.quality
 import com.sparkutils.quality.impl.imports.RuleResultsImports.{DisabledRuleInt, FailedInt, IgnoredRuleInt, PassedInt, SoftFailedInt}
-import com.sparkutils.quality.{DefaultProcessor, DisabledRule, Failed, Id, IgnoredRule, OutputExpression, Passed, Probability, RuleResult, RuleResultWithProcessor, RuleSuite, RunOnPassProcessor, SoftFailed}
+import com.sparkutils.quality.{DefaultProcessor, DefaultRule, DefaultRuleInt, DisabledRule, Failed, Id, IgnoredRule, OutputExpression, Passed, Probability, RuleResult, RuleResultWithProcessor, RuleSuite, RunOnPassProcessor, SoftFailed}
 import com.sparkutils.quality.impl.util.Serializing.toSeq
 import org.apache.spark.sql.SparkSession
 
@@ -40,6 +40,7 @@ object RuleSuiteHelpers {
       case SoftFailed => SoftFailedInt
       case DisabledRule => DisabledRuleInt
       case IgnoredRule => IgnoredRuleInt
+      case DefaultRule => DefaultRuleInt
       case Passed => PassedInt
       case Probability(percentage) => (percentage * PassedInt).toInt
       case RuleResultWithProcessor(res, _) => ruleResultToInt(res)

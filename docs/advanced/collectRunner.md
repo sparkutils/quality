@@ -69,6 +69,14 @@ with an unfortunate (assumed cpu) interruption on the 90 rule mark the trend is 
 !!! warn "flatten = false, includeNulls = true needs Option"
     In Spark 3.4 and below not wrapping in Option will cause an NPE.  See CollectRunnerTest for example encoding approaches.
 
+## defaultProcessor
+
+If no trigger rules match the overallStatus for a RuleSuiteResult will be failed() and collectRunner, by default, will return an empty array.  
+It can be useful however to perform a specific output expression in this case, these can either be directly specified or loaded via with 
+0.2.0's Connect friendly combine functions or via the serializing integrateRuleSuites functions.  
+The alternative from an sql perspective is to use another projection and an 'if' on the resulting array to default, 
+or specify the sql rule twice directly in an if (assuming subexpression elimination will take place).
+
 ## Performance Tweaking Options
 
 ### InPlaceArray

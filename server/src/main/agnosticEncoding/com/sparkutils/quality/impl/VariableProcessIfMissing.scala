@@ -26,7 +26,7 @@ object VariableProcessIfMissingFunctions {
         case h: quality.HasRuleText =>
           checkRuleSuiteHasProcess(h.rule, rule.id, "trigger rule")
       }
-      if (rule.runOnPassProcessor ne NoOpRunOnPassProcessor.noOp) {
+      if (rule.runOnPassProcessor != NoOpRunOnPassProcessor.noOp) {
         checkRuleSuiteHasProcess(rule.runOnPassProcessor.rule, rule.runOnPassProcessor.id, "output expression")
       }
     })

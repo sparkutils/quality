@@ -13,7 +13,7 @@ case object Failed extends RuleResult
 case object Passed extends RuleResult
 
 /**
- * This shouldn't evaluate to a fail, think of it as Amber / Warn
+ * This shouldn't evaluate to a fail, think of it as Amber / Warn, and is auto-wrapped for rule engine, folder and collector
  */
 @SerialVersionUID(1L)
 case object SoftFailed extends RuleResult
@@ -29,6 +29,12 @@ case object DisabledRule extends RuleResult
  */
 @SerialVersionUID(1L)
 case object IgnoredRule extends RuleResult
+
+/**
+ * Returned for RuleSuiteResult.overallResult when no other trigger rule has passed and a defaultProcessor has been configured (otherwise it's Failed)
+ */
+@SerialVersionUID(1L)
+case object DefaultRule extends RuleResult
 
 /**
   * 0-1 with 1 being absolutely likely a pass

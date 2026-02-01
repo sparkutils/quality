@@ -124,7 +124,7 @@ object CollectRunner {
                            unrollOutputArraySize: Int = 1): Column = {
     com.sparkutils.quality.registerLambdaFunctions( ruleSuite.lambdaFunctions )
 
-    val (expressionsRaw, indexes, triggerCount) = flattenExpressions(ruleSuite)
+    val (expressionsRaw, indexes, triggerCount) = flattenExpressions(RuleSuiteFunctions.wrapTriggersWithSoftFail(ruleSuite))
 
     val cleaned = RuleLogicUtils.cleanExprs(ruleSuite)
 

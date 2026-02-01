@@ -67,6 +67,8 @@ _What is stored:_ For a type of STRUCT<key: INT, value: STRING>
 
 Unlike QualityRules which uses salience to select only one Output expression, Collector uses salience to order the execution of *all* the matching Trigger's paired Output Expressions - collecting the results as it goes.
 
+If no triggers match, then an optional defaultProcessor on the RuleSuite can be run.
+
 _Example Usage:_ Derivation logic
 
 _What is stored:_

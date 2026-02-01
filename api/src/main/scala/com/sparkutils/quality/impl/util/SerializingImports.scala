@@ -327,7 +327,7 @@ trait SerializingImports {
   def toRuleSuiteRow(ruleSuite: RuleSuite): (RuleSuiteRow, Option[OutputExpressionRow]) =
     (RuleSuiteRow(ruleSuite.id.id, ruleSuite.id.version, ruleSuite.probablePass,
       ruleSuite.defaultProcessor.id.id, ruleSuite.defaultProcessor.id.version),
-      if (ruleSuite.defaultProcessor eq NoOpRunOnPassProcessor.noOp)
+      if (ruleSuite.defaultProcessor == NoOpDefaultProcessor.noOp)
         None
       else
         Some(OutputExpressionRow(ruleSuite.defaultProcessor.rule, ruleSuite.defaultProcessor.id.id,

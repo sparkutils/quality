@@ -1,12 +1,11 @@
 package com.sparkutils.qualityTests
 
-import com.sparkutils.quality.{ExpressionRule, Id, LambdaFunction, OutputExpression, Rule, RuleFolderResult, RuleSet, RuleSuite, RunOnPassProcessor, collectRunner, registerLambdaFunctions, ruleFolderRunner}
+import com.sparkutils.quality.{ExpressionRule, Id, LambdaFunction, OutputExpression, Passed, Rule, RuleFolderResult, RuleSet, RuleSuite, RunOnPassProcessor, collectRunner, registerLambdaFunctions, ruleFolderRunner}
 import com.sparkutils.qualityTests.util.SharedPureConnectTests
 import frameless.TypedEncoder
 import org.apache.spark.sql.{DataFrame, Encoder, SaveMode}
 import org.apache.spark.sql.functions.{col, explode, lit, struct}
 import org.apache.spark.sql.types.{ArrayType, DataType, IntegerType, StringType, StructField, StructType}
-
 import org.scalatest.Matchers.convertToAnyShouldWrapper
 
 import scala.reflect.ClassTag
@@ -159,6 +158,7 @@ trait CollectRunnerTestBase extends SharedPureConnectTests {
 
     val viaFrameless = outdf.select("together.*").as[RuleFolderResult[Seq[T]]].collect()
 
+    viaFrameless.map(_.ruleSuiteResults.overallResult == Passed).forall(identity) shouldBe true
     verify(viaFrameless.flatMap(_.result).flatten[T], expected)
   }
 

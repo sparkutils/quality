@@ -1,7 +1,9 @@
 package com.sparkutils.quality.impl
 
 import com.sparkutils.quality
+import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.RuleSuite.mapRules
+import com.sparkutils.quality.impl.DefaultProcessorImpl.DefaultProcessorImplOps
 import com.sparkutils.quality.impl.ExpressionCompiler.withExpressionCompiler
 import com.sparkutils.quality.impl.util.SubQueryWrapper
 import com.sparkutils.quality.{impl, _}
@@ -28,6 +30,8 @@ import scala.collection.mutable
  */
 case class ExpressionRule( rule: String ) extends quality.ExpressionRule with ExprLogic with HasRuleText[ExpressionRule] {
   override def reset(): ExpressionRule = super[HasRuleText].reset()
+
+  override def updateRule(rule: String): quality.ExpressionRule = copy(rule)
 }
 
 /**
@@ -85,6 +89,11 @@ object RuleLogicUtils {
       case h: RuleLogic[_] => h.reset()
       case _ => ()
     }
+
+    if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp) {
+      ruleSuite.defaultProcessor.toImpl.outputExpression.reset()
+    }
+
     mapRules(ruleSuite){
       f =>
         val e = f.expression.toImpl.reset()
@@ -177,6 +186,7 @@ object RuleLogicUtils {
       case -1 | -1.0 | -1L | UTF8Str("softfail" | "maybe") => SoftFailed
       case -2  | -2.0 | -2L | UTF8Str("disabledrule" | "disabled") => DisabledRule
       case -3  | -3.0 | -3L | UTF8Str("ignoredrule" | "ignored") => IgnoredRule
+      case -4  | -4.0 | -4L => DefaultRule
       case d: Double => Probability(d) // only spark 2 unless configured to behave like spark 2
       case d: Float => Probability(d) // only spark 2 unless configured to behave like spark 2
       case d: Decimal => Probability(d.toDouble)
@@ -194,6 +204,7 @@ object RuleLogicUtils {
       case -1 | -1.0 | -1L | UTF8Str("softfail" | "maybe") => SoftFailedInt
       case -2  | -2.0 | -2L | UTF8Str("disabledrule" | "disabled") => DisabledRuleInt
       case -3  | -3.0 | -3L | UTF8Str("ignoredrule" | "ignored") => IgnoredRuleInt
+      case -4  | -4.0 | -4L => DefaultRuleInt
       case d: Double => (d * PassedInt).toInt
       case d: Float => (d * PassedInt).toInt
       case d: Decimal => (d.toDouble * PassedInt).toInt
@@ -290,6 +301,8 @@ case class ExpressionRuleExpr( rule: String, override val expr: Expression ) ext
   override def reset(): ExpressionRuleExpr = super[HasRuleText].reset()
 
   override protected[quality] def expression(): Expression = expr // ignore resets - allows process_if_att.., the ruletext remains with coalesce, the expr is corrected
+
+  override def updateRule(rule: String): quality.ExpressionRule = copy(rule, RuleLogicUtils.expr(rule))
 }
 
 object ExpressionRuleExpr {
@@ -373,6 +386,9 @@ case class ExpressionWrapper( expr: Expression, compileEval: Boolean = true) ext
     else
       super.internalEval(internalRow)
   }
+
+  override def updateRule(rule: String): quality.ExpressionRule =
+    qualityException("ExpressionWrapper updateRule likely called from reincorporateExpressions - this is not possible after plan resolution has started")
 }
 
 trait OutputExprLogic extends quality.OutputExpression with HasExpr {
@@ -463,7 +479,60 @@ object RunOnPassProcessorImpl {
   }
 }
 
+
+trait DefaultProcessor extends quality.DefaultProcessor with Serializable {
+  override val outputExpression: OutputExprLogic
+  def withExpr(expr: OutputExpression): DefaultProcessor
+  def withExpr(expr: OutputExprLogic): DefaultProcessor
+}
+
+/**
+ * Only run for folder and collector to provide defaults (engine can just use a low prio rule)
+ */
+@SerialVersionUID(1L)
+case class DefaultProcessorImpl(id: Id, rule: String, outputExpression: OutputExprLogic) extends DefaultProcessor with Serializable {
+  override def withExpr(expr: OutputExpression): DefaultProcessor =
+    copy(rule = expr.rule, outputExpression = expr)
+
+  def withExpr(expr: OutputExprLogic): DefaultProcessor =
+    copy(outputExpression = expr)
+
+  override def withExpr(e: quality.OutputExpression): quality.DefaultProcessor = copy(outputExpression =
+    e match {
+      case o: OutputExprLogic => o
+      case h: quality.HasRuleText => OutputExpression(h.rule)
+    }
+  )
+}
+
+object DefaultProcessorImpl {
+  implicit class DefaultProcessorImplOps(defaultProcessor: quality.DefaultProcessor) {
+    def toImpl: DefaultProcessor = defaultProcessor match {
+      case r: DefaultProcessorImpl => r
+      case q: quality.DefaultProcessor => DefaultProcessorImpl(q.id, q.rule, OutputExpression(q.rule))
+    }
+  }
+}
+
+
 object RuleSuiteFunctions {
+
+  /**
+   * Only possible to use before being resolved, typically it must be called within the function that creates
+   * the expression
+   * @param ruleSuite
+   * @return
+   */
+  def wrapTriggersWithSoftFail(ruleSuite: RuleSuite): RuleSuite =
+    RuleSuite.mapRules(ruleSuite){
+      rule =>
+        rule.copy(expression =
+          rule.expression match {
+            case r: quality.HasRuleText =>
+              rule.expression.updateRule( s"soft_fail(${r.rule})" )
+          })
+    }
+
   def eval(ruleSuite: RuleSuite, internalRow: InternalRow): RuleSuiteResult = {
     import ruleSuite._
 
@@ -707,42 +776,52 @@ object RuleSuiteFunctions {
         ov.process(pair._2.overallResult)
     }
 
-    // sort applicable by salience - we don't reset original ordering here - surprising? TODO decide if it is too much surprise
-    val sorted = runOnPassProcessors.sortBy(_._2)
+    val (buffer, overallResult)  =
+      if (overall.currentResult != Passed) { // not a single rule triggered, this should be revisited - does the status for overall make sense on engine/folder/collector to be failed, perhaps softFailed instead?
+        val buffer = new mutable.ArrayBuffer[Any](0)
+        (buffer,
+        if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp) {
+          buffer += ruleSuite.defaultProcessor.toImpl.outputExpression.eval(inputRow)
+          DefaultRule
+        } else
+          Failed
+        )
+      } else {
+        // sort applicable by salience - we don't reset original ordering here - surprising? TODO decide if it is too much surprise
+        val sorted = runOnPassProcessors.sortBy(_._2)
 
-    val buffer = new mutable.ArrayBuffer[Any](starterSize)
+        val buffer = new mutable.ArrayBuffer[Any](starterSize)
 
-    // for each of the output
-    // debug copys, non-debug does not
-    sorted.foreach{ case (_, salience, rule) =>
+        // for each of the output
+        // debug copys, non-debug does not
+        sorted.foreach { case (_, salience, rule) =>
 
-      val o =  rule.eval(
-        inputRow
-      )
-
-      if ((o != null) || includeNulls) {
-        if ((o == null) || !flatten) {
-          buffer.+=(o)
-        } else {
-          // flatten case
-          val ar = o.asInstanceOf[ArrayData]
-          ar.foreach(arrayElementType,
-            (_, o) =>
-              if ((o != null) || includeNulls) {
-                buffer.+=(o)
-              }
+          val o = rule.eval(
+            inputRow
           )
+
+          if ((o != null) || includeNulls) {
+            if ((o == null) || !flatten) {
+              buffer.+=(o)
+            } else {
+              // flatten case
+              val ar = o.asInstanceOf[ArrayData]
+              ar.foreach(arrayElementType,
+                (_, o) =>
+                  if ((o != null) || includeNulls) {
+                    buffer.+=(o)
+                  }
+              )
+            }
+          }
         }
+
+        (buffer, overall.currentResult)
       }
-    }
 
-    val result =
-      if (buffer.isEmpty)
-        null
-      else
-        new GenericArrayData(buffer)
+    val result = new GenericArrayData(buffer)
 
-    (RuleSuiteResult(id, overall.currentResult, rawRuleSets.toMap), result)
+    (RuleSuiteResult(id, overallResult, rawRuleSets.toMap), result)
   }
 }
 

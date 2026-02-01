@@ -8,6 +8,7 @@ import com.sparkutils.quality.impl.RuleRunnerUtils.{genRuleSuiteTerm, packTheId}
 import com.sparkutils.quality.impl.imports.RuleEngineRunnerImports
 import PackId.packId
 import com.sparkutils.quality
+import com.sparkutils.quality.impl.DefaultProcessorImpl.DefaultProcessorImplOps
 import com.sparkutils.quality.impl.ExpressionRuleExpr.ExpressionRuleOps
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
 import com.sparkutils.quality.impl.RunOnPassProcessorImpl.RunOnPassProcessorImplOps
@@ -128,6 +129,12 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
         expr
       }))
 
+    if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp) {
+      val expr = ruleSuite.defaultProcessor.toImpl.outputExpression.expr
+      outputExpressions += transformOutputExpression(expr)
+      indexes += pos
+    }
+
     (expressions ++ outputExpressions, indexes.toArray, expressions.size)
   }
 
@@ -178,7 +185,12 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
               rule.runOnPassProcessor.toImpl.withExpr(OutputExpressionWrapper(processorExpression(outexpr), compileEvals)))
           }
         ))
-    ))
+    ), defaultProcessor =
+      if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp)
+        ruleSuite.defaultProcessor.toImpl.withExpr(OutputExpressionWrapper(processorExpression(expr.last), compileEvals))
+      else
+        ruleSuite.defaultProcessor
+    )
   }
 
   def compiledEvalDebug[T](results: InternalRow, output: T): InternalRow =
