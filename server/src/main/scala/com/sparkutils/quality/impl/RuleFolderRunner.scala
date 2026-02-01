@@ -114,7 +114,7 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression {
       RuleEngineRunnerUtils.genCompilerTerms[T](ctx, PassThroughEvalOnly(realChildren), expressionOffsets, realChildren,
         debugMode, variablesPerFunc, variableFuncGroup, forceTriggerEval,
         // capture the current
-        extraResult = (outArrTerm: String, _) => s"$folderV = $outArrTerm;",
+        extraResult = (outArrTerm: String, _, _) => s"$folderV = $outArrTerm;",
         extraSetup = (_, i: Int) =>
           s"""
           // set the current row for the fold for flattened rule $i

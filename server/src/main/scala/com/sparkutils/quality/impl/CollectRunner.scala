@@ -4,12 +4,12 @@ import com.sparkutils.quality._
 import com.sparkutils.quality.impl.CollectRunner.UnrollOutputArraySize
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.{flattenExpressions, outputExpressionType}
 import com.sparkutils.quality.impl.imports.RuleFolderRunnerImports
-import com.sparkutils.quality.impl.util.{PassThroughCompileEvals, PassThroughEvalOnly}
+import com.sparkutils.quality.impl.util.PassThroughEvalOnly
 import com.sparkutils.shim.expressions.Names
-import org.apache.spark.sql.{Column, ShimUtils}
+import org.apache.spark.sql.Column
 import org.apache.spark.sql.ShimUtils.column
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.analysis.{TypeCoercion, UnresolvedFunction}
+import org.apache.spark.sql.catalyst.analysis.UnresolvedFunction
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, ExprCode, FalseLiteral, GlobalValue}
 import org.apache.spark.sql.catalyst.expressions.{CreateArray, Expression, NonSQLExpression}
@@ -124,7 +124,7 @@ object CollectRunner {
                            unrollOutputArraySize: Int = 1): Column = {
     com.sparkutils.quality.registerLambdaFunctions( ruleSuite.lambdaFunctions )
 
-    val (expressionsRaw, indexes, triggerCount) = flattenExpressions(RuleSuiteFunctions.wrapTriggersWithSoftFail(ruleSuite))
+    val (expressionsRaw, indexes, triggerCount) = flattenExpressions(ruleSuite)
 
     val cleaned = RuleLogicUtils.cleanExprs(ruleSuite)
 
@@ -236,11 +236,20 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
   protected def doGenCodeI(ctx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = {
     ctx.references += this
 
+    def hasDefault(when: => String, els: String = ""): String =
+      if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp)
+        when
+      else
+        els
+
+
     // tester to prove compilation on throughput tests
     // print("I AM GENERATING CODE!!!!")
 
     // needs resetting every row
     val bufferTerm = ctx.addMutableState(classOf[ArrayBuffer[_]].getName, ctx.freshName("results"))
+
+    val hasAPassTerm = ctx.addMutableState("boolean", ctx.freshName("hasAPass"))
 
     // order by salience
     val salience = com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenSalience(ruleSuite)
@@ -372,12 +381,11 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
           """
       }
 
-
     val compilerTerms =
       RuleEngineRunnerUtils.genCompilerTerms[T](ctx, PassThroughEvalOnly(children), expressionOffsets, children,
         false, variablesPerFunc, variableFuncGroup, false,
         // capture the current
-        extraResult = (outArrTerm: String, i: Int) =>
+        extraResult = (outArrTerm: String, i: Int, resArrTerm: String) =>
           s"""
              if (($outArrTerm != null) || $includeNulls) {
                 if (($outArrTerm == null) || ${!(flatten && canFlatten)}) {
@@ -386,10 +394,18 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
                   ${ processFlattenResult(i, outArrTerm) }
                 }
              }
+             if ($resArrTerm[$i] != null && ((Integer) $resArrTerm[$i]) == $PassedInt) {
+               $hasAPassTerm = true;
+             }
            """,
         orderOffset = (idx: Int) => reordered(idx),
         // we shouldn't check salience as we are already ordered by it
-        salienceCheck = false
+        salienceCheck = false,
+        sizeAdjustment =
+          if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp)
+            -1 // don't generate the default, there isn't a trigger
+          else
+            0
       )
 
     import compilerTerms._
@@ -397,6 +413,7 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
     val pre = s"""
           $currentSalience = java.lang.Integer.MAX_VALUE;
           $currentOutputIndex = -1;
+          $hasAPassTerm = false;
           $pushToTop
           $bufferTerm = new ${classOf[ArrayBuffer[_]].getName}($starterSize);
 
@@ -407,13 +424,50 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
           boolean ${ev.isNull} = false;
       """
 
+    val rsres = ctx.freshName("ruleSuiteRes")
+
     val res =
       ev.copy(code = code"""
         $pre
 
+        ${hasDefault{
+        s"""
+            if (!$hasAPassTerm) {
+              ${
+                val defP = children.last.genCode(ctx)
+                s"""
+                    ${defP.code}
+
+                    //System.out.println("DefaultProcessor result is ${defP.value}" + ${defP.value});
+
+                    if ((${defP.value} == null) || ${!(flatten && canFlatten)}) {
+                      com.sparkutils.quality.impl.CollectRunnerUtils.addOne($bufferTerm, ${defP.value});
+                    } else {
+                      ${ // -1 for normal last
+                        processFlattenResult(canUnroll.length - 1, defP.value)
+                        }
+                    }
+                  """
+              }
+            }
+        """
+        }}
+
+        InternalRow $rsres = $utilsName.evalArrayForDefault($ruleSuitTerm, $ruleSuiteArrays, $resArrTerm);
+
+        ${
+          hasDefault(
+            // if we have a default the result type should be DefaultRule
+            s"""
+            if (!$hasAPassTerm) {
+              $rsres.update(1, ${DefaultRuleInt});
+            }
+            """)
+        }
+
         InternalRow ${ev.value} =
           com.sparkutils.quality.impl.CollectRunnerUtils.compiledEval(
-            $utilsName.evalArray($ruleSuitTerm, $ruleSuiteArrays, $resArrTerm),
+            $rsres,
             $bufferTerm);
 
         $post

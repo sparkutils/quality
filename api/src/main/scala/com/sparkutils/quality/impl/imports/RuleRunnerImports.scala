@@ -48,7 +48,7 @@ trait RuleRunnerImports {
   /**
    * The integer value for RuleSuiteResult.overallResult when no trigger rules have run and the default rule was
    */
-  val DefaultRuleInt = RuleResultsImports.IgnoredRuleInt
+  val DefaultRuleInt = RuleResultsImports.DefaultRuleInt
   /**
    * The integer value for passed dq rules
    */

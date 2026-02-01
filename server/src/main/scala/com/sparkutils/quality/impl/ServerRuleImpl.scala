@@ -517,22 +517,6 @@ object DefaultProcessorImpl {
 
 object RuleSuiteFunctions {
 
-  /**
-   * Only possible to use before being resolved, typically it must be called within the function that creates
-   * the expression
-   * @param ruleSuite
-   * @return
-   */
-  def wrapTriggersWithSoftFail(ruleSuite: RuleSuite): RuleSuite =
-    RuleSuite.mapRules(ruleSuite){
-      rule =>
-        rule.copy(expression =
-          rule.expression match {
-            case r: quality.HasRuleText =>
-              rule.expression.updateRule( s"soft_fail(${r.rule})" )
-          })
-    }
-
   def eval(ruleSuite: RuleSuite, internalRow: InternalRow): RuleSuiteResult = {
     import ruleSuite._
 
@@ -764,27 +748,45 @@ object RuleSuiteFunctions {
 
           r.id -> ruleResult
         }
-        val overall = ruleSetRawRes.foldLeft(quality.OverallResult(probablePass)){
+        val overall = ruleSetRawRes.foldLeft(quality.OverallResult(probablePass, Failed)){
           (ov, pair) =>
-            ov.process(pair._2)
+            ov.processForDefault(pair._2)
         }
         rs.id -> RuleSetResult(overall.currentResult, ruleSetRawRes.toMap)
       }
 
-    val overall = rawRuleSets.foldLeft(quality.OverallResult(probablePass)){
+    val overall = rawRuleSets.foldLeft(quality.OverallResult(probablePass, Failed)){
       (ov, pair) =>
-        ov.process(pair._2.overallResult)
+        ov.processForDefault(pair._2.overallResult)
+    }
+
+    def addResult(buffer: mutable.ArrayBuffer[Any], o: Any) = {
+      if ((o != null) || includeNulls) {
+        if ((o == null) || !flatten) {
+          buffer.+=(o)
+        } else {
+          // flatten case
+          val ar = o.asInstanceOf[ArrayData]
+          ar.foreach(arrayElementType,
+            (_, o) =>
+              if ((o != null) || includeNulls) {
+                buffer.+=(o)
+              }
+          )
+        }
+      }
     }
 
     val (buffer, overallResult)  =
       if (overall.currentResult != Passed) { // not a single rule triggered, this should be revisited - does the status for overall make sense on engine/folder/collector to be failed, perhaps softFailed instead?
-        val buffer = new mutable.ArrayBuffer[Any](0)
+        val buffer = new mutable.ArrayBuffer[Any](1)
         (buffer,
-        if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp) {
-          buffer += ruleSuite.defaultProcessor.toImpl.outputExpression.eval(inputRow)
-          DefaultRule
-        } else
-          Failed
+          if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp) {
+            val o = ruleSuite.defaultProcessor.toImpl.outputExpression.eval(inputRow)
+            addResult(buffer, o)
+            DefaultRule
+          } else
+            Failed
         )
       } else {
         // sort applicable by salience - we don't reset original ordering here - surprising? TODO decide if it is too much surprise
@@ -800,20 +802,7 @@ object RuleSuiteFunctions {
             inputRow
           )
 
-          if ((o != null) || includeNulls) {
-            if ((o == null) || !flatten) {
-              buffer.+=(o)
-            } else {
-              // flatten case
-              val ar = o.asInstanceOf[ArrayData]
-              ar.foreach(arrayElementType,
-                (_, o) =>
-                  if ((o != null) || includeNulls) {
-                    buffer.+=(o)
-                  }
-              )
-            }
-          }
+          addResult(buffer, o)
         }
 
         (buffer, overall.currentResult)

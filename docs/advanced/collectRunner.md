@@ -74,6 +74,10 @@ with an unfortunate (assumed cpu) interruption on the 90 rule mark the trend is 
 If no trigger rules match the overallStatus for a RuleSuiteResult will be failed() and collectRunner, by default, will return an empty array.  
 It can be useful however to perform a specific output expression in this case, these can either be directly specified or loaded via with 
 0.2.0's Connect friendly combine functions or via the serializing integrateRuleSuites functions.  
+
+To clearly separate a Passed trigger rule vs. a defaultProcessor result the DefaultRule result type is used as the 
+RuleSuiteResult.overallResult, although every other overallResult and ruleResult will be Failed.
+
 The alternative from an sql perspective is to use another projection and an 'if' on the resulting array to default, 
 or specify the sql rule twice directly in an if (assuming subexpression elimination will take place).
 

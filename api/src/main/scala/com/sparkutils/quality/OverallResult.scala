@@ -8,7 +8,19 @@ import scala.annotation.tailrec
  */
 @SerialVersionUID(1L)
 case class OverallResult(probablePass: Double = 0.8, currentResult: RuleResult = Passed) extends Serializable {
+  /**
+   * Processes a RuleResult for DQ
+   * @param ruleResult
+   * @return
+   */
   def process(ruleResult: RuleResult): OverallResult = copy(currentResult = OverallResultHelper.inplace(ruleResult, currentResult, probablePass))
+
+  /**
+   * Processes a RuleResult for DefaultProcessing, unlike process, processForDefault returns Passed when receiving a Passed and all other values retain the currentResult
+   * @param ruleResult
+   * @return
+   */
+  def processForDefault(ruleResult: RuleResult): OverallResult = copy(currentResult = OverallResultHelper.inplaceForDefault(ruleResult, currentResult, probablePass))
 }
 
 protected[quality] object OverallResultHelper {
@@ -25,6 +37,14 @@ protected[quality] object OverallResultHelper {
           currentResult
     }
 
+  @tailrec
+  protected[quality] def inplaceForDefault(ruleResult: RuleResult, currentResult: RuleResult, probablePass: Double): RuleResult =
+    ruleResult match {
+      case Passed => Passed
+      case RuleResultWithProcessor(ruleResult, _) => inplaceForDefault(ruleResult, currentResult, probablePass)
+      case _ => currentResult
+    }
+
   protected[quality] def inplaceInt(ruleResult: Int, currentResult: Int, probablePass: Double): Int =
     ruleResult match {
       case PassedInt | SoftFailedInt | DisabledRuleInt | IgnoredRuleInt | DefaultRuleInt => currentResult
@@ -34,6 +54,12 @@ protected[quality] object OverallResultHelper {
           FailedInt
         else
           currentResult
+    }
+
+  protected[quality] def inplaceForDefaultInt(ruleResult: Int, currentResult: Int, probablePass: Double): Int =
+    ruleResult match {
+      case PassedInt => PassedInt
+      case _ => currentResult
     }
 
 }

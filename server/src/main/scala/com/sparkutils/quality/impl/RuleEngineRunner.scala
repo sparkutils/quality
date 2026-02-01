@@ -217,10 +217,10 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
   def genCompilerTerms[T: ClassTag](ctx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext,
                   child: Expression, expressionOffsets: Array[Int], realChildren: Seq[Expression],
                        debugMode: Boolean, variablesPerFunc: Int, variableFuncGroup: Int, forceTriggerEval: Boolean,
-                       extraResult: (String, Int) => String = (_ : String, _: Int) => "",
+                       extraResult: (String, Int, String) => String = (_ : String, _: Int, _: String) => "",
                        extraSetup: (String, Int) => String = (_ : String, _: Int) => "",
                        orderOffset: Int => Int = identity,
-                       salienceCheck: Boolean = true
+                       salienceCheck: Boolean = true, sizeAdjustment: Int = 0
                       ):
     CompilerTerms = {
     val i = ctx.INPUT_ROW
@@ -245,7 +245,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
       v => s"$v = -1;"
     )
 
-    val offset = expressionOffsets.size
+    val offset = expressionOffsets.size + sizeAdjustment
 
     val ruleRes = "java.lang.Object"
     val resArrTerm = ctx.addMutableState(ruleRes+"[]", ctx.freshName("results"),
@@ -322,7 +322,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
               ${eval.code} \n
 
               $outArrTerm[$i] = ${eval.isNull} ? null : ($output)${eval.value}; \n
-              ${extraResult(s"$outArrTerm[$i]", i)}
+              ${extraResult(s"$outArrTerm[$i]", i, resArrTerm)}
         """
 
         ctx.addNewFunction(exprFuncName,
