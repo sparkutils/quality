@@ -200,8 +200,9 @@ class CollectRunnerTest  extends FunSuite with TestUtils {
 
   } }
 
+  // 2.4 can't encode it
   @Test
-  def noMatchesAndWithDefaultShouldBeDefaultRuleFlattenNullsIncluded(): Unit = evalCodeGensNoResolve { funNRewrites {
+  def noMatchesAndWithDefaultShouldBeDefaultRuleFlattenNullsIncluded(): Unit = not2_4 { evalCodeGensNoResolve { funNRewrites {
     import com.sparkutils.quality.implicits._
 
     val s = sparkSession
@@ -219,7 +220,7 @@ class CollectRunnerTest  extends FunSuite with TestUtils {
       includeNulls = true
     )
 
-  } }
+  } } }
 
   @Test
   def noMatchesAndWithDefaultShouldBeDefaultRuleNoFlatten(): Unit = evalCodeGensNoResolve { funNRewrites {
