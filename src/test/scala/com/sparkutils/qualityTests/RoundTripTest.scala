@@ -252,4 +252,104 @@ class RoundTripTest extends FunSuite with RowTools with TestUtils {
     assert(toOrdered(rules) == toOrdered(reRules), "The rules were not identical")
   } }
 
+  /**
+   * Verify roundtripping of storage
+   */
+  @Test
+  def ruleDefaultProcessorRoundTrippingToDF(): Unit = {
+    val rsId = Id(1,1)
+    val rules = RuleSuite(rsId, Seq(
+      RuleSet(Id(50, 1), Seq(
+        Rule(Id(100, 1), ExpressionRule("a"), RunOnPassProcessor(10, Id(101,1), OutputExpression("a"))),
+        Rule(Id(100, 2), ExpressionRule("b"), RunOnPassProcessor(20, Id(101,2), OutputExpression("b"))),
+        Rule(Id(100, 3), ExpressionRule("c"), RunOnPassProcessor(30, Id(101,3), OutputExpression("c"))),
+        Rule(Id(100, 4), ExpressionRule("d"), RunOnPassProcessor(40, Id(101,4), OutputExpression("d")))
+      )),
+      RuleSet(Id(50, 2), Seq(
+        Rule(Id(100, 5), ExpressionRule("e"), RunOnPassProcessor(50, Id(101,5), OutputExpression("e"))),
+        Rule(Id(100, 6), ExpressionRule("f"), RunOnPassProcessor(60, Id(101,6), OutputExpression("f"))),
+        Rule(Id(100, 7), ExpressionRule("g"), RunOnPassProcessor(70, Id(101,7), OutputExpression("g"))),
+        Rule(Id(100, 8), ExpressionRule("h"), RunOnPassProcessor(80, Id(101,8), OutputExpression("h")))
+      )),
+      RuleSet(Id(50, 3), Seq(
+        Rule(Id(100, 9),ExpressionRule("i"), RunOnPassProcessor(90, Id(101,9), OutputExpression("i"))),
+        Rule(Id(100, 10), ExpressionRule("j"), RunOnPassProcessor(100, Id(101,10), OutputExpression("j"))),
+        Rule(Id(100, 11), ExpressionRule("k"), RunOnPassProcessor(110, Id(101,11), OutputExpression("k"))),
+        Rule(Id(100, 12), ExpressionRule("l"), RunOnPassProcessor(120, Id(101,12), OutputExpression("l")))
+      ))
+    ), Seq(
+      LambdaFunction("func1", "expr1", Id(200,134)),
+      LambdaFunction("func2", "expr2", Id(201,131))
+    ), 0.9d, DefaultProcessor(Id(101,9), OutputExpression("i")))
+
+    val (rsr, rso) = toRuleSuiteRow(rules)
+
+    // treat these as globals
+    val global = Id(-1,-1)
+    val flattened =
+      rules.ruleSets.flatMap(rs => rs.rules.map { rule =>
+        val oe = rule.runOnPassProcessor
+        OutputExpressionRow(oe.rule, oe.id.id, oe.id.version, global.id, global.version)
+      }) ++ rso.map(Seq(_)).getOrElse(Seq())
+
+    val outputExpressionsDF = {
+      val s = sparkSession
+      import s.implicits._
+      flattened.toDF()
+    }
+    debug(outputExpressionsDF.show())
+
+    val lambdaDF = toLambdaDS(rules)
+    debug(lambdaDF.show())
+
+    val df = toDS(rules)
+    val rereadWithoutLambdas = readRulesFromDF(df.toDF(),
+      col("ruleSuiteId"),
+      col("ruleSuiteVersion"),
+      col("ruleSetId"),
+      col("ruleSetVersion"),
+      col("ruleId"),
+      col("ruleVersion"),
+      col("ruleExpr"),
+      col("ruleEngineSalience"),
+      col("ruleEngineId"),
+      col("ruleEngineVersion")
+    )
+
+    val lambdas = readLambdasFromDF(lambdaDF.toDF(),
+      col("name"),
+      col("ruleExpr"),
+      col("functionId"),
+      col("functionVersion"),
+      col("ruleSuiteId"),
+      col("ruleSuiteVersion")
+    )
+
+    val outputExpressions = readOutputExpressionsFromDF(outputExpressionsDF.toDF(),
+      col("ruleExpr"),
+      col("functionId"),
+      col("functionVersion"),
+      col("ruleSuiteId"),
+      col("ruleSuiteVersion")
+    )
+
+    val s = sparkSession
+    import s.implicits._
+    val rereadWithLambdas = integrateLambdas(rereadWithoutLambdas, lambdas)
+    val rereadWithRSOutput = integrateRuleSuites(rereadWithLambdas, readRuleSuitesFromDF(Seq(rsr).toDS))
+    val (reread, missingOutputExpressions) = integrateOutputExpressions(rereadWithRSOutput, outputExpressions, Some(global))
+
+    val reRules = reread.getOrElse(rsId, fail("Could not read the rule back"))
+
+    def toOrdered(ruleSuite: RuleSuite): RuleSuite = {
+      RuleSuite(ruleSuite.id,
+        ruleSuite.ruleSets.map( rs => RuleSet(rs.id, rs.rules.toVector.sortBy(r => packId(r.id)))).toVector.
+          sortBy(rs => packId(rs.id)), probablePass = ruleSuite.probablePass, defaultProcessor = ruleSuite.defaultProcessor
+      )
+    }
+
+    assert(toOrdered(reRules) == toOrdered(rules))
+  }
+
+
 }

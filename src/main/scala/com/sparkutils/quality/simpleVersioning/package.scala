@@ -3,7 +3,7 @@ package com.sparkutils.quality
 import com.sparkutils.quality.impl.util.RuleModel.RuleSuiteMap
 import com.sparkutils.quality.impl.LambdaFunction
 import com.sparkutils.quality.impl.util.{OutputExpressionRow, Serializing}
-import org.apache.spark.sql.types.IntegerType
+import org.apache.spark.sql.types.{DoubleType, IntegerType}
 import org.apache.spark.sql.{Column, DataFrame}
 import org.apache.spark.sql.functions.col
 
@@ -228,5 +228,32 @@ package object simpleVersioning {
    */
   def integrateVersionedOutputExpressions(ruleSuiteMap: RuleSuiteMap, outputs: Map[Id, Seq[OutputExpressionRow]], globalLibrary: Option[Id] = None): (RuleSuiteMap, Map[Id, Set[Rule]]) =
     Serializing.iIntegrateOutputExpressions(ruleSuiteMap, outputs, globalLibrary, SameOrNextVersionLower(outputs))
+
+
+  /**
+   * Reads RuleSuite attributes including probablePass and defaultProcessor
+   *
+   * @return
+   */
+  def readVersionedRuleSuitesFromDF(ruleSuiteDF: DataFrame,
+                                    ruleSuiteId: Column,
+                                    ruleSuiteVersion: Column,
+                                    defaultProcessorId: Column,
+                                    defaultProcessorVersion: Column,
+                                    probablePass: Column
+                                   ): DataFrame = {
+    ruleSuiteDF.select(
+      defaultProcessorId.as("functionId").cast(IntegerType),
+      defaultProcessorVersion.as("functionVersion").cast(IntegerType),
+      probablePass.as("probablePass").cast(DoubleType),
+      ruleSuiteId.as("ruleSuiteId").cast(IntegerType),
+      ruleSuiteVersion.as("ruleSuiteVersion").cast(IntegerType)
+    ).createOrReplaceTempView("ruleSuites")
+
+    val versionedOutputs = ruleSuiteDF.sparkSession.sql(
+      lambdaOutputSQL("ruleSuites"))
+
+    versionedOutputs
+  }
 
 }

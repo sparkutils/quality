@@ -2,7 +2,7 @@ package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality.impl.util.RuleModel.RuleSuiteMap
 import com.sparkutils.quality._
-import com.sparkutils.quality.impl.LambdaFunction
+import com.sparkutils.quality.impl.{DefaultProcessorHolder, HasRuleText, LambdaFunction, NoOpDefaultProcessor}
 import com.sparkutils.quality.impl.util.Serializing.{iIntegrateLambdas, iIntegrateOutputExpressions, ireadRulesFromDF}
 import org.apache.spark.sql.{Column, DataFrame, Dataset}
 
@@ -141,10 +141,41 @@ trait SerializingImports {
     iIntegrateLambdas(ruleSuiteMap, lambdas, globalLibrary, r => lambdas.get(r))
 
 
+  def integrateRuleSuites(ruleSuiteMap: RuleSuiteMap, ruleSuites: Map[Id, RuleSuiteRow]): RuleSuiteMap =
+    ruleSuiteMap.mapValues{
+      rs =>
+        ruleSuites.get(rs.id).map{
+          r =>
+            rs.copy(probablePass = r.probablePass, defaultProcessor =
+              DefaultProcessorHolder(Id(r.ruleEngineId, r.ruleEngineVersion))
+            )
+        }.getOrElse(rs)
+    }.toMap
+
+  /**
+   * Loads RuleSuite specific attributes to use with integrateRuleSuites
+   * @param ruleSuites
+   * @return
+   */
+  def readRuleSuitesFromDF(ruleSuites: Dataset[RuleSuiteRow]): Map[Id, RuleSuiteRow] =
+    ruleSuites.collect().map(r => Id(r.ruleSuiteId, r.ruleSuiteVersion) -> r).toMap
+
+  /**
+   * Identify if the missing OutputExpression from a RuleSuite is from a defaultOutputExpression
+   * @param rule
+   * @return
+   */
+  def isAMissingRuleSuiteRule(rule: Rule) =
+    rule.expression match {
+      case h: HasRuleText => h.rule == Serializing.ruleSuiteDefaultText
+      case _ => false
+    }
+
   /**
    * Returns an integrated ruleSuiteMap with a set of RuleSuite Id -> Rule mappings where the OutputExpression didn't exist.
+   * If defaultProcessor is expected to be used then call integrateRuleSuites *before*.
    *
-   * Users should check if their RuleSuite is in the "error" map.
+   * Users should check if their RuleSuite is in the "error" map.  The isAMissingRuleSuiteRule can be used to identify if a Rule is referring to a missing RuleSuite.defaultProcessor
    *
    * @param ruleSuiteMap
    * @param outputs
@@ -197,5 +228,21 @@ trait SerializingImports {
    */
   def toOutputExpressionDS(ruleSuite: RuleSuite): Dataset[OutputExpressionRow] =
     Serializing.toOutputExpressionDS(ruleSuite)
+
+
+  /**
+   * Creates a RuleSuiteRow from a RuleSuite for RuleSuite specific attributes and an optional defaultProcessor
+   * @param ruleSuite
+   */
+  def toRuleSuiteRow(ruleSuite: RuleSuite): (RuleSuiteRow, Option[OutputExpressionRow]) =
+    (RuleSuiteRow(ruleSuite.id.id, ruleSuite.id.version, ruleSuite.probablePass,
+      ruleSuite.defaultProcessor.id.id, ruleSuite.defaultProcessor.id.version),
+      if (ruleSuite.defaultProcessor == NoOpDefaultProcessor.noOp)
+        None
+      else
+        Some(OutputExpressionRow(ruleSuite.defaultProcessor.rule, ruleSuite.defaultProcessor.id.id,
+          ruleSuite.defaultProcessor.id.version, ruleSuite.id.id, ruleSuite.id.version))
+    )
+
 
 }

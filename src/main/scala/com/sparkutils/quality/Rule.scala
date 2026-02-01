@@ -68,6 +68,29 @@ case class OutputExpression( rule: String ) extends OutputExprLogic with HasRule
   override def reset(): Unit = super[HasRuleText].reset()
 }
 
+trait HasOutputExpression extends Serializable {
+  type ThisType
+  val id: Id
+  def outputExpression: OutputExprLogic
+  def withExpr(e: OutputExprLogic): ThisType
+  def withExpr(e: OutputExpression): ThisType
+}
+
+object DefaultProcessor {
+  /**
+   * Creates a DefaultProcessor using a given OutputExpression
+   *
+   * @param id
+   * @param e
+   * @return
+   */
+  def apply(id: Id, e: OutputExpression): DefaultProcessor =
+    DefaultProcessorImpl(id, e match {
+      case h: HasRuleText => h.rule
+      case _ => ""
+    }, e)
+}
+
 object RunOnPassProcessor {
   /**
    * Creates a RunOnPassProcesser using a given OutputExpression
@@ -97,8 +120,9 @@ case class RuleSet(id: Id, rules: Seq[Rule]) extends Serializable
  * @param ruleSets
  * @param lambdaFunctions
  * @param probablePass override to specify a different percentage for treating probability results as passes - defaults to 80% (0.8)
+ * @param defaultProcessor when using folder or collector this output expression will be used when no rules are triggered
  */
-case class RuleSuite(id: Id, ruleSets: Seq[RuleSet], lambdaFunctions: Seq[LambdaFunction] = Seq.empty, probablePass: Double = 0.8) extends Serializable {
+case class RuleSuite(id: Id, ruleSets: Seq[RuleSet], lambdaFunctions: Seq[LambdaFunction] = Seq.empty, probablePass: Double = 0.8, defaultProcessor: DefaultProcessor = NoOpDefaultProcessor.noOp) extends Serializable {
 
   /**
    * Use a different probable pass value for this RuleSuite
@@ -106,5 +130,15 @@ case class RuleSuite(id: Id, ruleSets: Seq[RuleSet], lambdaFunctions: Seq[Lambda
    * @return
    */
   def withProbablePass(probablePass: Double) = copy(probablePass = probablePass)
+
+  /**
+   * Sorts the ruleSets and lambdaFunctions by Id
+   * @return
+   */
+  def sorted: RuleSuite =
+    copy(
+      ruleSets = ruleSets.sortBy(l => (l.id.id, l.id.version)).map(r =>
+        r.copy(rules = r.rules.sortBy(l => (l.id.id, l.id.version)).toVector)).toVector,
+      lambdaFunctions = lambdaFunctions.sortBy(l => (l.id.id, l.id.version)).toVector)
 
 }

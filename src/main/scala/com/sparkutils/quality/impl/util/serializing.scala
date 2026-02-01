@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality.impl.util.RuleModel.RuleSuiteMap
-import com.sparkutils.quality.impl.{LambdaFunction, NoOpRunOnPassProcessor, RuleRunnerUtils, RunOnPassProcessor, RunOnPassProcessorHolder, VersionedId}
+import com.sparkutils.quality.impl.{DefaultProcessor, LambdaFunction, NoOpRunOnPassProcessor, RuleRunnerUtils, RunOnPassProcessor, RunOnPassProcessorHolder, VersionedId}
 import com.sparkutils.quality.impl.imports.RuleResultsImports.packId
 import com.sparkutils.quality._
 import org.apache.spark.sql._
@@ -58,40 +58,88 @@ object Serializing {
     ruleSuiteMap.mapValues(r => get(r.id).map(lambdas => r.copy(lambdaFunctions = (lambdas.toSet |+| shared).toSeq)).getOrElse(r.copy(lambdaFunctions = shared.toSeq)))
   }.toMap
 
+  protected[quality] sealed trait HasOutput[T] {
+    type P <: HasOutputExpression
+    def processor(t: T): P
+    def updateWith(t: T, outputExpression: OutputExpression): T
+    def missingRule(t: T): Rule
+  }
+
+  /**
+   * Represents a defaultOutputExpression used by a RuleSuite
+   */
+  protected[quality] val ruleSuiteDefaultText: String = "-RS-Default-Rule-"
+
+  protected[quality] object HasOutput {
+    implicit val rule: HasOutput[Rule] =
+      new HasOutput[Rule] {
+        type P = RunOnPassProcessor
+
+        val alreadyProcessed = mutable.Map.empty[Id, RunOnPassProcessor]
+
+        override def processor(t: Rule): RunOnPassProcessor = t.runOnPassProcessor
+
+        override def updateWith(t: Rule, outputExpression: OutputExpression): Rule = {
+          val existing = t.runOnPassProcessor
+          val processor =
+            alreadyProcessed.getOrElse(existing.id, {
+              val processed = existing.withExpr(outputExpression)
+              alreadyProcessed.put(existing.id, processed)
+              processed
+            })
+          t.copy(runOnPassProcessor = processor)
+        }
+
+        override def missingRule(t: Rule): Rule = t
+      }
+
+    implicit val ruleSuite: HasOutput[RuleSuite] =
+      new HasOutput[RuleSuite] {
+        type P = DefaultProcessor
+
+        override def processor(t: RuleSuite): DefaultProcessor = t.defaultProcessor
+
+        override def updateWith(t: RuleSuite, outputExpression: OutputExpression): RuleSuite =
+          t.copy(defaultProcessor = t.defaultProcessor.withExpr(outputExpression))
+
+        override def missingRule(t: RuleSuite): Rule = Rule(t.id, ExpressionRule(ruleSuiteDefaultText))
+      }
+  }
+
   protected[quality] def iIntegrateOutputExpressions(ruleSuiteMap: RuleSuiteMap, outputs: Map[Id, Seq[OutputExpressionRow]], globalLibrary: Option[Id], get: Id => Option[Seq[OutputExpressionRow]]): (RuleSuiteMap, Map[Id, Set[Rule]]) = {
     val shared = globalLibrary.map(outputs.getOrElse(_, Seq.empty)).getOrElse(Seq.empty)
     val notexists = mutable.Map.empty[Id, Set[Rule]]
 
-    val alreadyProcessed = mutable.Map.empty[Id, RunOnPassProcessor]
+    def runOn[T: HasOutput](rsuite: RuleSuite, t: T, map: Map[Id, OutputExpressionRow]): T = {
+      val ho = implicitly[HasOutput[T]]
+      val existing = ho.processor(t)
+
+      if (existing.id != NoOpRunOnPassProcessor.noOpId)
+        map.get(existing.id).map { oe =>
+          ho.updateWith( t, OutputExpression(oe.ruleExpr) )
+        }.getOrElse {
+          val s = notexists.getOrElse(rsuite.id, Set.empty)
+          notexists(rsuite.id) = (s + ho.missingRule(t))
+          t
+        }
+      else
+        t
+    }
 
     val map =
       ruleSuiteMap.mapValues { rsuite =>
 
         val outputSeq = get(rsuite.id).map(os => os).getOrElse(Seq.empty) ++ shared
-        val map = outputSeq.map(oe => Id(oe.functionId, oe.functionVersion) -> oe).toMap
+        val map: Map[Id, OutputExpressionRow] = outputSeq.map(oe => Id(oe.functionId, oe.functionVersion) -> oe).toMap
 
-        rsuite.copy(ruleSets = rsuite.ruleSets.map {
-          rs =>
-            rs.copy(rules = rs.rules.map {
-              r =>
-                if (r.runOnPassProcessor ne NoOpRunOnPassProcessor.noOp)
-                  map.get(r.runOnPassProcessor.id).map { oe =>
-                    r.copy(runOnPassProcessor =
-                      alreadyProcessed.getOrElse(r.runOnPassProcessor.id, {
-                        val processed = r.runOnPassProcessor.withExpr(OutputExpression(oe.ruleExpr))
-                        alreadyProcessed.put(r.runOnPassProcessor.id, processed)
-                        processed
-                      })
-                    )
-                  }.getOrElse {
-                    val s = notexists.getOrElse(rsuite.id, Set.empty)
-                    notexists(rsuite.id) = (s + r)
-                    r
-                  }
-                else
-                  r
-            })
-        })
+        runOn(rsuite,
+          rsuite.copy(ruleSets = rsuite.ruleSets.map {
+            rs =>
+              rs.copy(rules = rs.rules.map {
+                r =>
+                  runOn(rsuite, r, map)
+              })
+          }), map)
 
       }
 

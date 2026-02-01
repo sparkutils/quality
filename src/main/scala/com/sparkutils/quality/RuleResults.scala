@@ -1,6 +1,6 @@
 package com.sparkutils.quality
 
-import com.sparkutils.quality.impl.VersionedId
+import com.sparkutils.quality.impl.{OverallResultHelper, VersionedId}
 import com.sparkutils.quality.impl.util.Optional
 
 import scala.collection.JavaConverters._
@@ -26,6 +26,12 @@ case object DisabledRule extends RuleResult
 case object IgnoredRule extends RuleResult
 
 /**
+ * The integer value for RuleSuiteResult.overallResult when no trigger rules have run and the default rule was run
+ */
+@SerialVersionUID(1L)
+case object DefaultRule extends RuleResult
+
+/**
   * 0-1 with 1 being absolutely likely a pass
   * @param percentage
   */
@@ -41,7 +47,20 @@ case class RuleResultWithProcessor(ruleResult: RuleResult, runOnPassProcessor: i
   * Passed until any failure occurs
   */
 case class OverallResult(probablePass: Double = 0.8, currentResult: RuleResult = Passed) {
+  /**
+   * Processes a RuleResult for DQ
+   * @param ruleResult
+   * @return
+   */
   def process(ruleResult: RuleResult): OverallResult = copy(currentResult = impl.OverallResultHelper.inplace(ruleResult, currentResult, probablePass))
+
+  /**
+   * Processes a RuleResult for DefaultProcessing, unlike process, processForDefault returns Passed when receiving a Passed and all other values retain the currentResult
+   * @param ruleResult
+   * @return
+   */
+  def processForDefault(ruleResult: RuleResult): OverallResult = copy(currentResult = OverallResultHelper.inplaceForDefault(ruleResult, currentResult, probablePass))
+
 }
 
 /**

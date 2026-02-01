@@ -98,6 +98,7 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
       case SoftFailed => SoftFailedInt
       case DisabledRule => DisabledRuleInt
       case IgnoredRule => IgnoredRuleInt
+      case DefaultRule => DefaultRuleInt
       case Passed => PassedInt
       case Probability(percentage) => (percentage * PassedInt).toInt
       case RuleResultWithProcessor(res, _) => ruleResultToInt(res)
@@ -137,40 +138,46 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
       ruleSetIds.toArray, rulesArrays.toArray)
   }
 
-  def evalArray(ruleSuite: RuleSuite, ruleSuiteArrays: RuleSuiteResultArray, results: Array[Any]): InternalRow = {
+  def evalArray(ruleSuite: RuleSuite, ruleSuiteArrays: RuleSuiteResultArray, results: Array[Any], startingResult: Int, processOverall: (Int, Int, Double) => Int): InternalRow = {
     import ruleSuite._
 
     val ruleSetRes = Array.ofDim[InternalRow](ruleSuiteArrays.ruleSetIds.length)
 
-    var rsOverall = PassedInt
+    var rsOverall = startingResult
 
     var offset = 0
 
-    for( rsi <- 0 until ruleSuiteArrays.ruleSetIds.length) {
+    for (rsi <- 0 until ruleSuiteArrays.ruleSetIds.length) {
 
       val rulesetSize = ruleSuiteArrays.ruleSets(rsi).length
 
       val ruleSetResults = results.slice(offset, offset + rulesetSize)
       offset += rulesetSize
 
-      val overall = ruleSetResults.foldLeft(PassedInt){
+      val overall = ruleSetResults.foldLeft(startingResult) {
         (ov, res) =>
-          OverallResultHelper.inplaceInt(res.asInstanceOf[Int], ov, probablePass) // convert needed for process
+          processOverall(res.asInstanceOf[Int], ov, probablePass) // convert needed for process
       }
 
-      rsOverall = OverallResultHelper.inplaceInt(overall, rsOverall, probablePass)
+      rsOverall = processOverall(overall, rsOverall, probablePass)
 
       ruleSetRes(rsi) = InternalRow(
         overall: java.lang.Integer,
-        ArrayBasedMapData( ruleSuiteArrays.ruleSets(rsi), ruleSetResults )
-        )
+        ArrayBasedMapData(ruleSuiteArrays.ruleSets(rsi), ruleSetResults)
+      )
     }
 
-    InternalRow( ruleSuiteArrays.packedId,
+    InternalRow(ruleSuiteArrays.packedId,
       rsOverall: java.lang.Integer,
-      ArrayBasedMapData( ruleSuiteArrays.ruleSetIds, ruleSetRes)
+      ArrayBasedMapData(ruleSuiteArrays.ruleSetIds, ruleSetRes)
     )
   }
+
+  def evalArray(ruleSuite: RuleSuite, ruleSuiteArrays: RuleSuiteResultArray, results: Array[Any]): InternalRow =
+    evalArray(ruleSuite, ruleSuiteArrays, results, PassedInt, OverallResultHelper.inplaceInt)
+
+  def evalArrayForDefault(ruleSuite: RuleSuite, ruleSuiteArrays: RuleSuiteResultArray, results: Array[Any]): InternalRow =
+    evalArray(ruleSuite, ruleSuiteArrays, results, FailedInt, OverallResultHelper.inplaceForDefaultInt)
 
   def ruleResultToRow(ruleSuiteResult: RuleSuiteResult): InternalRow =
     InternalRow(

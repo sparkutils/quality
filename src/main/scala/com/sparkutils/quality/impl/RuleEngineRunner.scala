@@ -12,6 +12,7 @@ import com.sparkutils.quality.impl.util.SubQueryWrapper.hasASubQuery
 import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals, PassThroughEvalOnly, SubQueryWrapper}
 import org.apache.spark.sql.QualitySparkUtils.genParams
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.analysis.TypeCoercion
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode}
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression, UnaryExpression}
@@ -84,6 +85,16 @@ object RuleEngineRunnerImpl {
 
 private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
 
+  // derive the correct output expression type
+  def outputExpressionType(resultDataType: Option[DataType], children: Seq[Expression], triggerCount: Int): DataType =
+    resultDataType.getOrElse {
+      // CreateArray uses this approach, pretty much what we are looking for
+      // as Output Expressions can contain null they must be filtered out or it will default to NullType
+      TypeCoercion.findCommonTypeDifferentOnlyInNullFlags(
+        children.drop(triggerCount).filterNot(_.dataType == NullType).map(_.dataType)
+      ).getOrElse(NullType)
+    }
+
   protected[quality] def flattenExpressions(ruleSuite: RuleSuite, transformOutputExpression: Expression => Expression = identity): (Seq[Expression], Array[Int], Int) = {
     val outputs = mutable.Map.empty[Id, Int]
     var pos = 0
@@ -115,6 +126,12 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
 
         expr
       }))
+
+    if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp) {
+      val expr = ruleSuite.defaultProcessor.outputExpression.expr
+      outputExpressions += transformOutputExpression(expr)
+      indexes += pos
+    }
 
     (expressions ++ outputExpressions, indexes.toArray, expressions.size)
   }
@@ -166,7 +183,12 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
               rule.runOnPassProcessor.withExpr(OutputExpressionWrapper(processorExpression(outexpr), compileEvals)))
           }
         ))
-    ))
+    ), defaultProcessor =
+      if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp)
+        ruleSuite.defaultProcessor.withExpr(OutputExpressionWrapper(processorExpression(expr.last), compileEvals))
+      else
+        ruleSuite.defaultProcessor
+    )
   }
 
   def compiledEvalDebug[T](results: InternalRow, output: T): InternalRow =
@@ -193,10 +215,10 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
   def genCompilerTerms[T: ClassTag](ctx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext,
                   child: Expression, expressionOffsets: Array[Int], realChildren: Seq[Expression],
                        debugMode: Boolean, variablesPerFunc: Int, variableFuncGroup: Int, forceTriggerEval: Boolean,
-                       extraResult: String => String = (_ : String) => "",
-                       extraSetup: (String, Int) => String = (_ : String, _: Int) => "",
+                        extraResult: (String, Int, String) => String = (_ : String, _: Int, _: String) => "",
+                        extraSetup: (String, Int) => String = (_ : String, _: Int) => "",
                        orderOffset: Int => Int = identity,
-                       salienceCheck: Boolean = true
+                       salienceCheck: Boolean = true, sizeAdjustment: Int = 0
                       ):
     CompilerTerms = {
     val i = ctx.INPUT_ROW
@@ -221,7 +243,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
       v => s"$v = -1;"
     )
 
-    val offset = expressionOffsets.size
+    val offset = expressionOffsets.size + sizeAdjustment
 
     val ruleRes = "java.lang.Object"
     val resArrTerm = ctx.addMutableState(ruleRes+"[]", ctx.freshName("results"),
@@ -298,7 +320,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
               ${eval.code} \n
 
               $outArrTerm[$i] = ${eval.isNull} ? null : ($output)${eval.value}; \n
-              ${extraResult(s"$outArrTerm[$i]")}
+              ${extraResult(s"$outArrTerm[$i]", i, resArrTerm)}
         """
 
         ctx.addNewFunction(exprFuncName,

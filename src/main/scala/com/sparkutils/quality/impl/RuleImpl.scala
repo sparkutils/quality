@@ -4,6 +4,7 @@ import com.sparkutils.quality
 import com.sparkutils.quality.impl.ExpressionCompiler.withExpressionCompiler
 import com.sparkutils.quality.impl.util.{Arrays, SubQueryWrapper}
 import com.sparkutils.quality._
+import com.sparkutils.quality.impl.NoOpRunOnPassProcessor.noOpId
 import org.apache.spark.sql.ShimUtils.newParser
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedFunction}
@@ -51,6 +52,11 @@ object RuleLogicUtils {
    */
   def cleanExprs(ruleSuite: RuleSuite) = {
     ruleSuite.lambdaFunctions.foreach(_.reset())
+
+    if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp) {
+      ruleSuite.defaultProcessor.outputExpression.reset()
+    }
+
     mapRules(ruleSuite){f => f.expression.reset(); f.runOnPassProcessor.returnIfPassed.reset(); f}
   }
 
@@ -137,6 +143,7 @@ object RuleLogicUtils {
       case -1 | -1.0 | -1L | UTF8Str("softfail" | "maybe") => SoftFailed
       case -2  | -2.0 | -2L | UTF8Str("disabledrule" | "disabled") => DisabledRule
       case -3  | -3.0 | -3L | UTF8Str("ignoredrule" | "ignored") => IgnoredRule
+      case -4  | -4.0 | -4L => DefaultRule
       case d: Double => Probability(d) // only spark 2 unless configured to behave like spark 2
       case d: Float => Probability(d) // only spark 2 unless configured to behave like spark 2
       case d: Decimal => Probability(d.toDouble)
@@ -154,6 +161,7 @@ object RuleLogicUtils {
       case -1 | -1.0 | -1L | UTF8Str("softfail" | "maybe") => SoftFailedInt
       case -2  | -2.0 | -2L | UTF8Str("disabledrule" | "disabled") => DisabledRuleInt
       case -3  | -3.0 | -3L | UTF8Str("ignoredrule" | "ignored") => IgnoredRuleInt
+      case -4  | -4.0 | -4L => DefaultRuleInt
       case d: Double => (d * PassedInt).toInt
       case d: Float => (d * PassedInt).toInt
       case d: Decimal => (d.toDouble * PassedInt).toInt
@@ -358,9 +366,10 @@ case class OutputExpressionWrapper( expr: Expression, compileEval: Boolean = tru
       super.eval(internalRow)
 }
 
-trait RunOnPassProcessor extends Serializable {
+trait RunOnPassProcessor extends Serializable with HasOutputExpression {
+  type ThisType = RunOnPassProcessor
+
   def salience: Int
-  def id: Id
   def rule: String
   def returnIfPassed: OutputExprLogic
   def withExpr(expr: OutputExpression): RunOnPassProcessor
@@ -377,6 +386,8 @@ case class RunOnPassProcessorImpl(salience: Int, id: Id, rule: String, returnIfP
 
   def withExpr(expr: OutputExprLogic): RunOnPassProcessor =
     copy(returnIfPassed = expr)
+
+  override def outputExpression: OutputExprLogic = returnIfPassed
 }
 
 case class HolderUsedInsteadIfImpl(id: Id) extends
@@ -395,11 +406,45 @@ case class RunOnPassProcessorHolder(salience: Int, id: Id) extends RunOnPassProc
 
   // should not be called
   def withExpr(expr: OutputExprLogic): RunOnPassProcessor = throw HolderUsedInsteadIfImpl(id)
+
+  override def outputExpression: OutputExprLogic = returnIfPassed
 }
 
 object NoOpRunOnPassProcessor {
   val noOpId = Id(Int.MinValue, Int.MinValue)
   val noOp = RunOnPassProcessorImpl(Int.MaxValue, noOpId, "", OutputExpression(""))
+}
+
+/**
+ * Configuration of what should be evaluated when no trigger passes for Folder and Collector
+ */
+trait DefaultProcessor extends HasRuleText with HasOutputExpression {
+  type ThisType = DefaultProcessor
+  val id: Id
+  val outputExpression: OutputExprLogic
+  def withExpr(e: OutputExprLogic): DefaultProcessor
+  def withExpr(e: OutputExpression): DefaultProcessor
+}
+
+@SerialVersionUID(1L)
+case class DefaultProcessorImpl(id: Id, rule: String, outputExpression: OutputExprLogic) extends DefaultProcessor with Serializable {
+  override def withExpr(e: OutputExprLogic): DefaultProcessor = copy(outputExpression = e)
+
+  override def withExpr(e: OutputExpression): DefaultProcessor = copy(rule = e.rule, outputExpression = e)
+}
+
+object NoOpDefaultProcessor {
+  val noOp = DefaultProcessorImpl(noOpId, "", OutputExpression(""))
+}
+
+case class DefaultProcessorHolder(id: Id) extends DefaultProcessor with Serializable {
+
+  lazy val rule: String = throw HolderUsedInsteadIfImpl(id)
+  lazy val outputExpression: OutputExpression = throw HolderUsedInsteadIfImpl(id)
+
+  override def withExpr(expr: OutputExprLogic): DefaultProcessor = throw HolderUsedInsteadIfImpl(id)
+
+  override def withExpr(e: OutputExpression): DefaultProcessor = DefaultProcessorImpl(id, rule = e.rule, outputExpression = e)
 }
 
 object RuleSuiteFunctions {
@@ -617,7 +662,10 @@ object RuleSuiteFunctions {
         val ruleSetRawRes = rs.rules.map { r =>
           val ruleResult = r.expression.eval(inputRow)
 
-          val onPass = ((id, rs.id, r.id), r.runOnPassProcessor.salience, r.runOnPassProcessor.returnIfPassed)
+          val onPass = ((id, rs.id, r.id), r.runOnPassProcessor.salience, r.runOnPassProcessor match {
+            case r: RunOnPassProcessor => r.returnIfPassed
+          })
+
           // only add passed
           if (ruleResult == Passed){
             runOnPassProcessors += (onPass)
@@ -625,31 +673,19 @@ object RuleSuiteFunctions {
 
           r.id -> ruleResult
         }
-        val overall = ruleSetRawRes.foldLeft(quality.OverallResult(probablePass)){
+        val overall = ruleSetRawRes.foldLeft(quality.OverallResult(probablePass, Failed)){
           (ov, pair) =>
-            ov.process(pair._2)
+            ov.processForDefault(pair._2)
         }
         rs.id -> RuleSetResult(overall.currentResult, ruleSetRawRes.toMap)
       }
 
-    val overall = rawRuleSets.foldLeft(quality.OverallResult(probablePass)){
+    val overall = rawRuleSets.foldLeft(quality.OverallResult(probablePass, Failed)){
       (ov, pair) =>
-        ov.process(pair._2.overallResult)
+        ov.processForDefault(pair._2.overallResult)
     }
 
-    // sort applicable by salience - we don't reset original ordering here - surprising? TODO decide if it is too much surprise
-    val sorted = runOnPassProcessors.sortBy(_._2)
-
-    val buffer = new mutable.ArrayBuffer[Any](starterSize)
-
-    // for each of the output
-    // debug copys, non-debug does not
-    sorted.foreach{ case (_, salience, rule) =>
-
-      val o =  rule.eval(
-        inputRow
-      )
-
+    def addResult(buffer: mutable.ArrayBuffer[Any], o: Any) = {
       if ((o != null) || includeNulls) {
         if ((o == null) || !flatten) {
           buffer.+=(o)
@@ -666,13 +702,40 @@ object RuleSuiteFunctions {
       }
     }
 
-    val result =
-      if (buffer.isEmpty)
-        null
-      else
-        new GenericArrayData(buffer)
+    val (buffer, overallResult)  =
+      if (overall.currentResult != Passed) { // not a single rule triggered, this should be revisited - does the status for overall make sense on engine/folder/collector to be failed, perhaps softFailed instead?
+        val buffer = new mutable.ArrayBuffer[Any](1)
+        (buffer,
+          if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp) {
+            val o = ruleSuite.defaultProcessor.outputExpression.eval(inputRow)
+            addResult(buffer, o)
+            DefaultRule
+          } else
+            Failed
+        )
+      } else {
+        // sort applicable by salience - we don't reset original ordering here - surprising? TODO decide if it is too much surprise
+        val sorted = runOnPassProcessors.sortBy(_._2)
 
-    (RuleSuiteResult(id, overall.currentResult, rawRuleSets.toMap), result)
+        val buffer = new mutable.ArrayBuffer[Any](starterSize)
+
+        // for each of the output
+        // debug copys, non-debug does not
+        sorted.foreach { case (_, salience, rule) =>
+
+          val o = rule.eval(
+            inputRow
+          )
+
+          addResult(buffer, o)
+        }
+
+        (buffer, overall.currentResult)
+      }
+
+    val result = new GenericArrayData(buffer)
+
+    (RuleSuiteResult(id, overallResult, rawRuleSets.toMap), result)
   }
 }
 

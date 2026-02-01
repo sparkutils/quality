@@ -117,7 +117,7 @@ trait RuleFolderRunnerBase[T] extends BinaryExpression with NonSQLExpression {
       RuleEngineRunnerUtils.genCompilerTerms[T](ctx, right, expressionOffsets, realChildren,
         debugMode, variablesPerFunc, variableFuncGroup, forceTriggerEval,
         // capture the current
-        extraResult = (outArrTerm: String) => s"$folderV = $outArrTerm;",
+        extraResult = (outArrTerm: String, _, _) => s"$folderV = $outArrTerm;",
         extraSetup = (idx: String, i: Int) =>
           s"""
           // set the current row for the fold for flattened rule $i

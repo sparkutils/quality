@@ -238,6 +238,10 @@ functions:
     description: "ignored_rule() returns the IgnoredRule Integer result (-3) for use in filtering and to ignoring rules (e.g. a return value in an active rule)"
     tags:
       - rule
+  default_rule:
+    description: "default_rule() returns the DefaultRule Integer result (-4) for use in filtering and returned by collectRunner defaultProcessor"
+    tags:
+      - rule
   coalesce_If_Attributes_Missing_Disable:
     description: |
       coalesce_If_Attributes_Missing_Disable(expr) substitutes expr with the DisabledRule Integer result (-2) when expr has missing attributes in the source dataframe.  Your code must call the scala processIfAttributeMissing function before using in validate or ruleEngineRunner/ruleRunner:
