@@ -13,7 +13,7 @@ case object Failed extends RuleResult
 case object Passed extends RuleResult
 
 /**
- * This shouldn't evaluate to a fail, think of it as Amber / Warn, and is auto-wrapped for rule engine, folder and collector
+ * This shouldn't evaluate to a fail, think of it as Amber / Warn
  */
 @SerialVersionUID(1L)
 case object SoftFailed extends RuleResult
