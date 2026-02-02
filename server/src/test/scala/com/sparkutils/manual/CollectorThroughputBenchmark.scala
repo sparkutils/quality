@@ -1,9 +1,10 @@
 package com.sparkutils.manual
 
-import com.sparkutils.manual.TestSetup.sparkSession
+import com.sparkutils.manual.CollectorThroughputBenchmark.rules
+import com.sparkutils.manual.TestSetup.{partitions, sparkSession}
 import com.sparkutils.quality
 import com.sparkutils.quality.impl.CollectRunner
-import com.sparkutils.quality.{ExpressionRule, Id, OutputExpression, Rule, RuleSet, RuleSuite, RunOnPassProcessor}
+import com.sparkutils.quality.{DefaultProcessor, ExpressionRule, Id, OutputExpression, Rule, RuleSet, RuleSuite, RunOnPassProcessor}
 import com.sparkutils.qualityTests.util.{ClassicSharedTests, RowTools, TestUtilsBase}
 import com.sparkutils.testing.markers.DontRunOnPureConnect
 import com.sparkutils.testing.sessionStrategies.{GlobalSession, SharedSessions}
@@ -37,14 +38,16 @@ object Args {
 }
 
 object TestSetup extends RowTools {
-  //val ROWS = 10000000
-  val ROWS = 1000000
+  val ROWS = 10000000
+  //val ROWS = 1000000
   //val ROWS = 100000
   //val ROWS = 10000
 
+  val partitions = 8
+
   def main(args: Array[String]) = {
 
-    sparkSession.range(ROWS).repartition(4).write.mode(SaveMode.Overwrite).parquet(outputDir + "/collectTestData")
+    sparkSession.range(ROWS).repartition(partitions).write.mode(SaveMode.Overwrite).parquet(outputDir + "/collectTestData")
 
   }
 
@@ -68,7 +71,7 @@ object CollectorThroughputBenchmark extends Bench.OfflineReport with TestUtils {
     val s = sparkSession
     quality.registerQualityFunctions()
 
-    s.range(TestSetup.ROWS).repartition(4).persist(StorageLevel.MEMORY_ONLY)
+    s.range(TestSetup.ROWS).repartition(partitions).persist(StorageLevel.MEMORY_ONLY)
   } //sparkSession.read.parquet(outputDir + "/collectTestData")
 
   def evaluate[T](colF: Int => Column, result: => Column)(param: Int) = {
@@ -76,41 +79,56 @@ object CollectorThroughputBenchmark extends Bench.OfflineReport with TestUtils {
     df.select(col).write.format("noop").mode(Overwrite).save()
   }
 
-  def genRules(rules: Int, prefix: String = "", postfix: String = "") =
+  def genRules(rules: Int, prefix: String = "", postfix: String = "", forceDefault: Boolean = false) = {
+    val extraRule =
+      if (forceDefault)
+        "and id < 0"
+      else
+        ""
+
     RuleSuite(Id(1, 1), Seq(RuleSet(Id(50, 1),
       (
         for{
           r <- 2 to rules
         } yield
           Rule(Id(50+r, 1),
-            ExpressionRule(s"(id % 2) = 0 and (id % $r) = 0"),
+            ExpressionRule(s"(id % 2) = 0 and (id % $r) = 0 $extraRule"),
             RunOnPassProcessor(r, Id(500+r, 1), OutputExpression(s"$prefix array(${
               if (r % 5 == 0) "null" else "id"
             }, id + 1, id + 2, id + $r)$postfix"))
           )
       ) ++ Seq( // always run
         Rule(Id(50+rules + 1, 1),
-          ExpressionRule(s"true"),
+          ExpressionRule(s"true $extraRule"),
           RunOnPassProcessor(500 + rules + 1, Id(500 + rules + 1, 1),
             OutputExpression(s"$prefix array(id, id + 7, id + 4, id + 9)$postfix"))
         )
     )))
     )
+  }
 
-  def pureSparkArray(rules: Int) =
+  def pureSparkArray(rules: Int, forceDefault: Boolean = false) =
     s"""
      array(
      ${(
       for{
         r <- 2 to rules
       } yield
-        s"if((id % 2) = 0 and (id % $r) = 0, array(${
+        s"if((id % 2) = 0 and (id % $r) = 0 ${if (forceDefault) "and id < 0" else ""}, array(${
           if (r % 5 == 0) "null" else "id"
           }, id + 1, id + 2, id + $r), null)"
 
-    ) ++ Seq( // always run
-      s"array(id, id + 7, id + 4, id + 9)"
-    ) mkString(",")
+    ) ++
+      (
+        if (forceDefault)
+          Seq(
+            s"array()"
+          )
+        else
+          Seq( // always run
+          s"array(id, id + 7, id + 4, id + 9)"
+          )
+      ) mkString(",")
 })"""
 
   // not possible to run on pure spark with 50, 200, 50 even on 4 it hits the 64kb problem // memory wise 10, 50, 10 only starts to stress things at 50 on 100k rows
@@ -136,6 +154,44 @@ object CollectorThroughputBenchmark extends Bench.OfflineReport with TestUtils {
       using(rules) in evaluate( ruleCol, expr("result") )
     }
 */
+    measure method "collect default" in {
+      val s = sparkSession
+
+      val ruleCol = (numRules: Int) =>
+        CollectRunner.collectRunnerClassic(genRules(numRules, forceDefault = true).
+          copy(defaultProcessor = DefaultProcessor(Id(10000,1), OutputExpression("array(id, id + 7, id + 4, id + 9)"))),
+          Some(ArrayType(LongType, true)), flatten = true, includeNulls = false).as("result")
+
+      using(rules) in evaluate( ruleCol, expr("result.result") )
+    }
+
+    measure method "collect default via default in projection" in {
+      val s = sparkSession
+
+      val ruleCol = (numRules: Int) =>
+        CollectRunner.collectRunnerClassic(genRules(numRules, forceDefault = true),
+          Some(ArrayType(LongType, true)), flatten = true, includeNulls = false).as("result")
+
+      using(rules) in evaluate( ruleCol, expr("if(size(result.result) > 0, result.result, array(id, id + 7, id + 4, id + 9))") )
+    }
+
+    measure method "pure spark filter via subexpression hope" in {
+      val s = sparkSession
+
+      val ruleCol = (rules: Int) => {
+        val theExpression = s"flatten(filter(${pureSparkArray(rules, forceDefault = true)}, x -> x IS NOT NULL))"
+        expr(s"if(size($theExpression) > 0, $theExpression, array(id, id + 7, id + 4, id + 9))").as("result")
+      }
+      using(rules) in evaluate( ruleCol, expr("result") )
+    }
+
+    measure method "pure spark filter via default in projection" in {
+      val s = sparkSession
+
+      val ruleCol = (rules: Int) => expr(s"flatten(filter(${pureSparkArray(rules, forceDefault = true)}, x -> x IS NOT NULL))").as("result")
+      using(rules) in evaluate( ruleCol,  expr("if(size(result) > 0, result, array(id, id + 7, id + 4, id + 9))") )
+    }
+/*
     measure method "collect flatten remove nulls" in {
       val s = sparkSession
 
@@ -200,7 +256,7 @@ object CollectorThroughputBenchmark extends Bench.OfflineReport with TestUtils {
         }
 
       using(rules) in f
-    }
+    }*/
 /*
     measure method "collect flatten remove nulls - no Inplace - no unroll" in {
       val s = sparkSession
