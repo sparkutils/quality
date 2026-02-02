@@ -3,7 +3,7 @@ package com.sparkutils.qualityTests
 import com.sparkutils.quality.{DefaultProcessor, DefaultRule, ExpressionRule, Failed, Id, LambdaFunction, OutputExpression, Passed, Rule, RuleFolderResult, RuleResult, RuleSet, RuleSuite, RunOnPassProcessor, collectRunner, registerLambdaFunctions}
 import com.sparkutils.qualityTests.util.SharedPureConnectTests
 import frameless.TypedEncoder
-import org.apache.spark.sql.{DataFrame, SaveMode}
+import org.apache.spark.sql.{DataFrame, Encoder, SaveMode}
 import org.apache.spark.sql.functions.{col, explode}
 import org.apache.spark.sql.types.{ArrayType, DataType, IntegerType, StringType, StructField, StructType}
 import org.scalatest.Matchers.convertToAnyShouldWrapper
@@ -44,14 +44,7 @@ trait CollectRunnerTestBase extends SharedPureConnectTests {
       LambdaFunction("subcodeF", "(transfer_type, sub) -> account_row(transfer_type, string(sub))", Id(123, 25))
     ))
 
-    val rules =
-      for { ((exp, processor), idOffset) <- expressionRules.zipWithIndex }
-        yield Rule(Id(100 * idOffset, 1), exp, processor)
-
-    val rsId = Id(1, 1)
-    val ruleSuite = RuleSuite(rsId, Seq(
-      RuleSet(Id(50, 1), rules
-      )))
+    val ruleSuite: RuleSuite = buildRules(expressionRules)
 
     (dataFrame: DataFrame) =>
       collectRunner(transformRuleSuite(ruleSuite),
@@ -61,27 +54,63 @@ trait CollectRunnerTestBase extends SharedPureConnectTests {
         unrollOutputArraySize = inPlaceUnrollSize.value)
   }
 
+  private def buildRules(expressionRules: Seq[(ExpressionRule, RunOnPassProcessor)]) = {
+    val rules =
+      for {((exp, processor), idOffset) <- expressionRules.zipWithIndex}
+        yield Rule(Id(100 * idOffset, 1), exp, processor)
+
+    val rsId = Id(1, 1)
+    val ruleSuite = RuleSuite(rsId, Seq(
+      RuleSet(Id(50, 1), rules
+      )))
+    ruleSuite
+  }
+
   def testBase[T: TypedEncoder: ClassTag, O: Ordering](
       expected: Seq[T], ordF: T => O, sparkTo: DataFrame => Seq[T])( debugMode: Boolean = false,
+     transformRuleSuite: RuleSuite => RuleSuite = identity, flatten: Boolean = true,
+     includeNulls: Boolean = false, nullInArray: Boolean = false,
+     dummyOut: String = "array(account_row('whoknows', 'money'))", canRunSimpleSpark: Boolean = true,
+     result: RuleResult = Passed, testData: Seq[TestOn] = testData,
+     dataType: Option[DataType] = Some(
+        ArrayType(StructType(Seq(
+          StructField("transfer_type", StringType),
+          StructField("account", StringType),
+          StructField("product", StringType),
+          StructField("subcode", IntegerType)
+        )))
+     )
+    ): Unit = {
+      val s = sparkSession
+      import s.implicits._
+      testBaseInput[T, O, TestOn](testData, expected, ordF, sparkTo)(
+        debugMode = debugMode,
+        transformRuleSuite = transformRuleSuite, flatten = flatten,
+        includeNulls = includeNulls, nullInArray = nullInArray,
+        dummyOut = dummyOut, canRunSimpleSpark = canRunSimpleSpark,result = result, dataType = dataType
+      )
+    }
+
+  def testBaseInput[T: TypedEncoder: ClassTag, O: Ordering, I: Encoder](
+      testData: Seq[I], expected: Seq[T], ordF: T => O, sparkTo: DataFrame => Seq[T])( debugMode: Boolean = false,
       transformRuleSuite: RuleSuite => RuleSuite = identity, flatten: Boolean = true,
       includeNulls: Boolean = false, nullInArray: Boolean = false,
       dummyOut: String = "array(account_row('whoknows', 'money'))", canRunSimpleSpark: Boolean = true,
-      testData: Seq[TestOn] = testData, result: RuleResult = Passed
+      result: RuleResult = Passed, dataType: Option[DataType] = None
   ): Unit = {
-    testBaseI[T, O](expected, ordF, sparkTo)( debugMode = debugMode,
+    testBaseI[T, O, I](expected, ordF, sparkTo)( debugMode = debugMode,
       transformRuleSuite = transformRuleSuite, flatten = flatten,
       includeNulls = includeNulls, nullInArray = nullInArray,
       dummyOut = dummyOut, canRunSimpleSpark = canRunSimpleSpark,
-      testData = testData, result = result)
+      testData = testData, result = result, dataType = dataType)
     // derive type case
-    testBaseI[T, O](expected, ordF, sparkTo)( debugMode = debugMode,
+    testBaseI[T, O, I](expected, ordF, sparkTo)( debugMode = debugMode,
       transformRuleSuite = transformRuleSuite, flatten = flatten,
       includeNulls = includeNulls, nullInArray = nullInArray,
       dummyOut = dummyOut, canRunSimpleSpark = canRunSimpleSpark, dataType = None,
       testData = testData, result = result)
   }
 
-// TODO add primitive tests for Databricks janino version problem
   def thunker(thunk: => Unit): Unit = {
     thunk
 
@@ -101,19 +130,12 @@ trait CollectRunnerTestBase extends SharedPureConnectTests {
 
   }
 
-  def testBaseI[T: TypedEncoder: ClassTag, O: Ordering](
+  def testBaseI[T: TypedEncoder: ClassTag, O: Ordering, I: Encoder](
       expected: Seq[T], ordF: T => O, sparkTo: DataFrame => Seq[T])( debugMode: Boolean = false,
       transformRuleSuite: RuleSuite => RuleSuite = identity, flatten: Boolean = true,
       includeNulls: Boolean = false, nullInArray: Boolean = false,
       dummyOut: String = "array(account_row('whoknows', 'money'))", canRunSimpleSpark: Boolean = true,
-      dataType: Option[DataType] = Some(
-        ArrayType(StructType(Seq(
-          StructField("transfer_type", StringType),
-          StructField("account", StringType),
-          StructField("product", StringType),
-          StructField("subcode", IntegerType)
-        )))
-      ), testData: Seq[TestOn] = testData, result: RuleResult = Passed
+      dataType: Option[DataType] = None, testData: Seq[I], result: RuleResult = Passed
     ): Unit = thunker {
     val rer = irules(
       Seq(
@@ -187,6 +209,48 @@ trait CollectRunnerTestBase extends SharedPureConnectTests {
     ), NewPosting.unapply, _.select("exp.*").as[NewPosting].collect())()
 
   } }
+
+
+  test("simplePrimitiveProductionRules") { thunker {
+    import com.sparkutils.quality.implicits._
+
+    val s = sparkSession
+    import s.implicits._
+
+    testBaseInput[Int, Int, Int](testData = Seq(1,2,3,4,5,6), expected = Seq(
+      10,20,30,40,50,60
+    ), identity, _.select("exp").as[Int].collect())(
+      transformRuleSuite = (_: RuleSuite) =>  buildRules(
+        Seq(
+          (ExpressionRule("value > 0"), RunOnPassProcessor(1001, Id(1044,1),
+            OutputExpression("array(value * 10)")))
+        )
+      ),
+      dataType = Some(ArrayType(IntegerType))
+    )
+
+  } }
+
+  test("simplePrimitiveProductionRulesNoArrayOutput") { thunker {
+    import com.sparkutils.quality.implicits._
+
+    val s = sparkSession
+    import s.implicits._
+
+    testBaseInput[Int, Int, Int](testData = Seq(1,2,3,4,5,6), expected = Seq(
+      10,20,30,40,50,60
+    ), identity, _.select("exp").as[Int].collect())(
+      transformRuleSuite = (_: RuleSuite) =>  buildRules(
+        Seq(
+          (ExpressionRule("value > 0"), RunOnPassProcessor(1001, Id(1044,1),
+            OutputExpression("value * 10")))
+        )
+      ),
+      dataType = Some(IntegerType)
+    )
+
+  } }
+
 
   test("no matches and with default should be default_rule flatten") {
     import com.sparkutils.quality.implicits._

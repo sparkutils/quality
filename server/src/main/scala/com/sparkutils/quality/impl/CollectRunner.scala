@@ -371,7 +371,7 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
 
           out
         } else
-          s"""
+          if (canFlatten) s"""
             // flatten case and native CreateArray
             ArrayData $arrayData = (ArrayData) $outArrTerm;
             for (int $z = 0; $z < $arrayData.numElements(); $z++) {
@@ -379,6 +379,7 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
               ${wrapperIf(o)}
             }
           """
+          else ""
       }
 
     val compilerTerms =
