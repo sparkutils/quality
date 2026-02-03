@@ -75,11 +75,24 @@ If no trigger rules match the overallStatus for a RuleSuiteResult will be failed
 It can be useful however to perform a specific output expression in this case, these can either be directly specified or loaded via with 
 0.2.0's Connect friendly combine functions or via the serializing integrateRuleSuites functions.  
 
-To clearly separate a Passed trigger rule vs. a defaultProcessor result the DefaultRule result type is used as the 
-RuleSuiteResult.overallResult, although every other overallResult and ruleResult will be Failed.
+To clearly separate a Passed trigger rule vs. a defaultProcessor result DefaultRule is stored in the 
+RuleSuiteResult.overallResult, although every other RuleSet.overallResult and ruleResult will be Failed.
 
 The alternative from an sql perspective is to use another projection and an 'if' on the resulting array to default, 
 or specify the sql rule twice directly in an if (assuming subexpression elimination will take place).
+
+The benefit of evaluating without a separate projection is clear:
+
+![Spark 4 10m Rows, up to 100 rules InPlace](../../img/collectPerf_10m_100rules_defaults.png)
+
+The two left most (blue and orange) are using collect with the defaultProcessor on the left.  The two right most are Spark SQL, with the 2nd from the right being a repetition of the SQL rules snippet in the same projection, and the right most being a separate projection.  e.g.:
+
+| Type                                  | Logic Used                                                                                     | Projection                                             |  Mean time taken in ms |
+|---------------------------------------|------------------------------------------------------------------------------------------------|--------------------------------------------------------|-----------------------:|
+| collect defaultProcessor              | ruleSuite.copy(defaultProcessor = DefaultProcessor(Id(10000,1), OutputExpression("array(...)") | result.result                                          |                6022.40 |
+| collect default logic in projection   | ruleSuite                                                                                      | if(size(result.result) > 0, result.result, array(...)) |                6412.10 |
+| Spark SQL repeated logic              | expr(s"if(size($theExpression) > 0, $theExpression, array(...))")                              | result                                                 |               10020.00 |
+| Spark SQL default logic in projection | expr(s"$theExpression")                                                                        | if(size(result) > 0, result, array(...))               |               10242.19 |
 
 ## Performance Tweaking Options
 
