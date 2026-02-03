@@ -289,7 +289,7 @@ class CollectRunnerTest  extends FunSuite with TestUtils {
   }
 
   @Test
-  def noMatchesAndWithDefaultShouldBeDefaultRuleFlattenNullsIncluded(): Unit = {
+  def noMatchesAndWithDefaultShouldBeDefaultRuleFlattenNullsIncluded(): Unit = not2_4 {
     import com.sparkutils.quality.implicits._
 
     val s = sparkSession
