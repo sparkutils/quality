@@ -190,7 +190,7 @@ trait CollectRunnerTestBase extends SharedPureConnectTests {
     verify(viaFrameless.flatMap(_.result).flatten[T], expected)
   }
 
-  test("simpleProductionRules") { thunker {
+  test("simpleProductionRules") {
     import com.sparkutils.quality.implicits._
 
     val s = sparkSession
@@ -208,10 +208,9 @@ trait CollectRunnerTestBase extends SharedPureConnectTests {
       NewPosting("from","4201","fxotc", 40)
     ), NewPosting.unapply, _.select("exp.*").as[NewPosting].collect())()
 
-  } }
+  }
 
-
-  test("simplePrimitiveProductionRules") { thunker {
+  test("simplePrimitiveProductionRules") {
     import com.sparkutils.quality.implicits._
 
     val s = sparkSession
@@ -229,9 +228,9 @@ trait CollectRunnerTestBase extends SharedPureConnectTests {
       dataType = Some(ArrayType(IntegerType))
     )
 
-  } }
+  }
 
-  test("simplePrimitiveProductionRulesNoArrayOutput") { thunker {
+  test("simplePrimitiveProductionRulesNoArrayOutput") {
     import com.sparkutils.quality.implicits._
 
     val s = sparkSession
@@ -249,8 +248,7 @@ trait CollectRunnerTestBase extends SharedPureConnectTests {
       dataType = Some(IntegerType)
     )
 
-  } }
-
+  }
 
   test("no matches and with default should be default_rule flatten") {
     import com.sparkutils.quality.implicits._
@@ -321,7 +319,7 @@ trait CollectRunnerTestBase extends SharedPureConnectTests {
 
   }
 
-  test("nonFlatten") { thunker {
+  test("nonFlatten") {
     import com.sparkutils.quality.implicits._
 
     val s = sparkSession
@@ -335,31 +333,29 @@ trait CollectRunnerTestBase extends SharedPureConnectTests {
       List(NewPosting("from","4201","eqotc",60), NewPosting("to","4201","eqotc",60))
     ), _.toVector.hashCode(), _.as[Seq[NewPosting]].collect())(flatten = false)
 
-  } }
-
-  // AgnosticEncoders don't allow a null list item, so they need to be Option Seq
-  test("nonFlattenWithNulls") {  {
-    thunker {
-      import com.sparkutils.quality.implicits._
-
-      val s = sparkSession
-      import s.implicits._
-
-      testBase[Option[Seq[NewPosting]], Int](Seq(
-        List(NewPosting("from","1234","edt",40), NewPosting("to","4201","edt",40)),
-        List(NewPosting("to","4206","fx",90), NewPosting("from","4206","fx",90)),
-        null,
-        List(NewPosting("to","4201","fxotc",40), NewPosting("from","4201","fxotc",40)),
-        List(NewPosting("from","4201","eqotc",60), NewPosting("to","4201","eqotc",60))
-      ).map(Option(_)), _.hashCode(),
-        _.as[Option[Seq[NewPosting]]].collect())(flatten = false, includeNulls = true,
-        dummyOut = "null", canRunSimpleSpark = false)
-
-      }
-    }
   }
 
-  test("flattenWithNulls") { thunker {
+  // AgnosticEncoders don't allow a null list item, so they need to be Option Seq
+  test("nonFlattenWithNulls") {
+    import com.sparkutils.quality.implicits._
+
+    val s = sparkSession
+    import s.implicits._
+
+    testBase[Option[Seq[NewPosting]], Int](Seq(
+      List(NewPosting("from","1234","edt",40), NewPosting("to","4201","edt",40)),
+      List(NewPosting("to","4206","fx",90), NewPosting("from","4206","fx",90)),
+      null,
+      List(NewPosting("to","4201","fxotc",40), NewPosting("from","4201","fxotc",40)),
+      List(NewPosting("from","4201","eqotc",60), NewPosting("to","4201","eqotc",60))
+    ).map(Option(_)), _.hashCode(),
+      _.as[Option[Seq[NewPosting]]].collect())(flatten = false, includeNulls = true,
+      dummyOut = "null", canRunSimpleSpark = false)
+
+  }
+
+  test("flattenWithNulls") {
+
     import com.sparkutils.quality.implicits._
 
     val s = sparkSession
@@ -378,9 +374,9 @@ trait CollectRunnerTestBase extends SharedPureConnectTests {
       ).map(Option(_)), _.hashCode(), _.select("exp.*").as[Option[NewPosting]].collect())(includeNulls = true,
       dummyOut = "null", canRunSimpleSpark = false)
 
-  } }
+  }
 
-  test("flattenWithNestedNulls") { thunker {
+  test("flattenWithNestedNulls") {
     import com.sparkutils.quality.implicits._
 
     val s = sparkSession
@@ -399,9 +395,9 @@ trait CollectRunnerTestBase extends SharedPureConnectTests {
     ).map(Option(_)), _.flatMap(NewPosting.unapply), _.select("exp.*").as[Option[NewPosting]].collect())(includeNulls = true,
       nullInArray = true, canRunSimpleSpark = false)
 
-  } }
+  }
 
-  test("flattenWithTopAndNestedNulls") { thunker {
+  test("flattenWithTopAndNestedNulls") {
     import com.sparkutils.quality.implicits._
 
     val s = sparkSession
@@ -420,7 +416,7 @@ trait CollectRunnerTestBase extends SharedPureConnectTests {
     ).map(Option(_)), _.flatMap(NewPosting.unapply), _.select("exp.*").as[Option[NewPosting]].collect())(includeNulls = true,
       dummyOut = "null", nullInArray = true, canRunSimpleSpark = false)
 
-  } }
+  }
 
 }
 
