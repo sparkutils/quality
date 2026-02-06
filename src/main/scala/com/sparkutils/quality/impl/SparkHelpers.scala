@@ -113,6 +113,23 @@ trait EncodersImplicits extends Serializable {
 
   implicit def ruleFolderResultExpEnc[T: TypedEncoder]: Encoder[RuleFolderResult[T]] = TypedExpressionEncoder[RuleFolderResult[T]]
 
+
+  implicit val ruleStatisticsTypedEnc = TypedEncoder[RuleStatistics]
+
+  implicit val ruleStatisticsTypedExpEnc = TypedExpressionEncoder[RuleStatistics]
+
+  implicit val ruleSetStatisticsTypedEnc = TypedEncoder[RuleSetStatistics]
+
+  implicit val ruleSetStatisticsTypedExpEnc = TypedExpressionEncoder[RuleSetStatistics]
+
+  implicit val ruleSuiteStatisticsTypedEnc = TypedEncoder[RuleSuiteStatistics]
+
+  implicit val ruleSuiteStatisticsTypedExpEnc = TypedExpressionEncoder[RuleSuiteStatistics]
+
+  implicit val ruleSuiteGroupStatisticsTypedEnc = TypedEncoder[RuleSuiteGroupStatistics]
+
+  implicit val ruleSuiteGroupStatisticsTypedExpEnc = TypedExpressionEncoder[RuleSuiteGroupStatistics]
+
 }
 
 object Encoders extends EncodersImplicits {
