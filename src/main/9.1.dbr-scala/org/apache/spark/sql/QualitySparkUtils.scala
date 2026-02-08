@@ -10,13 +10,12 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, ResolveCatalogs, ResolveHigherOrderFunctions, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, Resolver, TimeWindowing, TypeCheckResult, TypeCoercion, UnresolvedAttribute, UnresolvedExtractValue}
 import org.apache.spark.sql.catalyst.catalog.SessionCatalog
 import org.apache.spark.sql.catalyst.errors.TreeNodeException
-import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, AggregateFunction, Complete, ImperativeAggregate}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode, QualityExprUtils}
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, CreateNamedStruct, EqualNullSafe, Expression, ExpressionSet, ExtractValue, GetStructField, If, IsNull, LeafExpression, Literal, Projection, UnaryExpression, Unevaluable}
 import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, UnaryNode}
 import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.sql.execution.aggregate.{InputAggregationBuffer, MutableAggregationBufferImpl, ScalaAggregator, TypedAggregateExpression}
-import org.apache.spark.sql.expressions.{Aggregator, UserDefinedAggregateFunction}
+import org.apache.spark.sql.execution.aggregate.{ScalaAggregator, TypedAggregateExpression}
+import org.apache.spark.sql.expressions.{Aggregator, UserDefinedAggregator}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{DataType, StructField, StructType}
 import org.apache.spark.util.Utils
@@ -331,18 +330,22 @@ object QualitySparkUtils {
       }
     )
 
-  def aggregator[I: Encoder, B, O](agg: Aggregator[I,B,O], exps: Seq[Expression]) = {
-    implicit val bEncoder = agg.bufferEncoder
-    implicit val cEncoder = agg.outputEncoder
+  def aggregator[I: Encoder, B, O](agg: Aggregator[I,B,O], exps: Seq[Expression]) =
+    ScalaAggregator(UserDefinedAggregator(agg, implicitly[Encoder[I]]), exps).toAggregateExpression()
 
-    AggregateExpression(
-      ScalaAggregator( exps, agg,
-        inputEncoder = expressionEncoder(implicitly[Encoder[I]]),
-        bufferEncoder = expressionEncoder(agg.bufferEncoder)),
-      Complete,
-      isDistinct = false)
+  object ScalaAggregator {
+    def apply[IN, BUF, OUT](
+                             uda: UserDefinedAggregator[IN, BUF, OUT],
+                             children: Seq[Expression]): ScalaAggregator[IN, BUF, OUT] = {
+      new ScalaAggregator(
+        children = children,
+        agg = uda.aggregator,
+        inputEncoder = expressionEncoder(uda.inputEncoder),
+        bufferEncoder = expressionEncoder(uda.aggregator.bufferEncoder),
+        nullable = uda.nullable,
+        isDeterministic = uda.deterministic)
+    }
   }
-
 }
 
 object QualityStructFunctions {
