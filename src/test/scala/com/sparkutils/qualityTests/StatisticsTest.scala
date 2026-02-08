@@ -1,8 +1,12 @@
 package com.sparkutils.qualityTests
 
-import com.sparkutils.quality._
+import org.apache.spark.sql.functions.{col, expr, udaf}
+import com.sparkutils.quality.{RuleSuiteGroupStatistics, _}
+import com.sparkutils.quality.functions.rule_suite_statistics
+import com.sparkutils.quality.impl.aggregates.Statistics
 import org.junit.Test
 import org.scalatest.{FunSuite, Matchers}
+import frameless.{Injection, NotCatalystNullable, TypedColumn, TypedEncoder, TypedExpressionEncoder}
 
 class StatisticsTest  extends FunSuite with TestUtils with Matchers {
 
@@ -179,5 +183,113 @@ class StatisticsTest  extends FunSuite with TestUtils with Matchers {
     val processed = grp_combined.process(rsr)
 
     processed shouldBe RuleSuiteGroupStatistics(Map(rs1.ruleSuite -> rs1_1, rs2.ruleSuite -> rs2), rowCount = 41)
+  }
+
+  // the above tests cover the actual functionality, outside empty process calls, the below are testing the expressions all work
+  // and, given zero, process and combine all work from nothing
+  @Test
+  def udafAndEmptyProcessOperations(): Unit = {
+    val rsr = Seq(
+      ("a", RuleSuiteResult(
+        Id(100,0), Passed, Map(
+          Id(1,0) ->
+            RuleSetResult(DisabledRule, Map(
+              Id(1,0) -> Failed,
+              Id(2,0) -> Passed,
+              Id(3,0) -> IgnoredRule,
+              Id(4,0) -> DefaultRule,
+              Id(5,0) -> SoftFailed,
+              Id(6,0) -> DisabledRule,
+              Id(7,0) -> Probability(0.4),
+              Id(8,0) -> Probability(0.9)
+            ))
+        ))),
+      ("a", RuleSuiteResult(
+        Id(100,0), IgnoredRule, Map(
+          Id(1,0) ->
+            RuleSetResult(DefaultRule, Map(
+              Id(1,0) -> Passed,
+              Id(2,0) -> SoftFailed,
+              Id(3,0) -> IgnoredRule,
+              Id(4,0) -> DefaultRule,
+              Id(5,0) -> SoftFailed,
+              Id(6,0) -> DisabledRule,
+              Id(7,0) -> Probability(0.4),
+              Id(8,0) -> Probability(0.9)
+            ))
+        ))),
+      ("a", RuleSuiteResult(
+        Id(200,0), Failed, Map(
+          Id(10,0) ->
+            RuleSetResult(Probability(0.9), Map(
+              Id(10,0) -> Failed,
+              Id(20,0) -> Passed,
+              Id(30,0) -> IgnoredRule,
+              Id(40,0) -> DefaultRule,
+              Id(50,0) -> SoftFailed,
+              Id(60,0) -> DisabledRule,
+              Id(70,0) -> Probability(0.4),
+              Id(80,0) -> Probability(0.9)
+            ))
+        )))
+    )
+    import sparkSession.implicits.localSeqToDatasetHolder
+    import com.sparkutils.quality.implicits._
+    import frameless._
+
+    registerQualityFunctions()
+
+    implicit val enc = TypedExpressionEncoder[(String, RuleSuiteResult)]
+
+    val df = localSeqToDatasetHolder[(String, RuleSuiteResult)](rsr).toDS()
+    val res = df.agg(rule_suite_statistics(col("_2")).as("res")).select("res.*").as[RuleSuiteGroupStatistics].collect().head
+
+    val res2 = df.agg(expr("rule_suite_statistics(_2)").as("res")).select("res.*").as[RuleSuiteGroupStatistics].collect().head
+
+    res shouldBe res2
+
+    res shouldBe
+      RuleSuiteGroupStatistics(
+        Map(
+          Id(100,0) ->
+            RuleSuiteStatistics(Id(100,0), passed = 1, ignored = 1,
+              ruleSets =
+                Map(
+                  Id(1, 0) ->
+                    RuleSetStatistics(Id(1,0), disabled = 1, defaulted = 1,
+                    rules = Map(
+                      Id(1,0) -> RuleStatistics(Id(1,0), failed = 1, passed = 1),
+                      Id(2,0) -> RuleStatistics(Id(2,0), passed = 1, softFailed = 1),
+                      Id(3,0) -> RuleStatistics(Id(3,0), ignored = 2),
+                      Id(4,0) -> RuleStatistics(Id(4,0), defaulted = 2),
+                      Id(5,0) -> RuleStatistics(Id(5,0), softFailed = 2),
+                      Id(6,0) -> RuleStatistics(Id(6,0), disabled = 2),
+                      Id(7,0) -> RuleStatistics(Id(7,0), probabilityFailed = 2),
+                      Id(8,0) -> RuleStatistics(Id(8,0), probabilityPassed = 2)
+                    ))
+                ),
+              rowCount = 2
+            ),
+          Id(200,0) ->
+            RuleSuiteStatistics(Id(200,0), failed = 1,
+              ruleSets =
+                Map(
+                  Id(10, 0) ->
+                    RuleSetStatistics(Id(10,0), probabilityPassed = 1,
+                      rules = Map(
+                        Id(10,0) -> RuleStatistics(Id(10,0), failed = 1),
+                        Id(20,0) -> RuleStatistics(Id(20,0), passed = 1),
+                        Id(30,0) -> RuleStatistics(Id(30,0), ignored = 1),
+                        Id(40,0) -> RuleStatistics(Id(40,0), defaulted = 1),
+                        Id(50,0) -> RuleStatistics(Id(50,0), softFailed = 1),
+                        Id(60,0) -> RuleStatistics(Id(60,0), disabled = 1),
+                        Id(70,0) -> RuleStatistics(Id(70,0), probabilityFailed = 1),
+                        Id(80,0) -> RuleStatistics(Id(80,0), probabilityPassed = 1)
+                      ))
+                ),
+              rowCount = 1
+            )
+        ),
+        rowCount = 3)
   }
 }

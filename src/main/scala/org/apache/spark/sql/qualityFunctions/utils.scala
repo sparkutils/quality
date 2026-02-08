@@ -1,10 +1,12 @@
 package org.apache.spark.sql.qualityFunctions
 
 import com.sparkutils.quality.impl.util.Comparison.compareToOrdering
-import org.apache.spark.sql.ShimUtils
+import org.apache.spark.sql.{Encoder, ShimUtils}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.BoundReference
+import org.apache.spark.sql.catalyst.expressions.{BoundReference, Expression}
 import org.apache.spark.sql.catalyst.util.ArrayData
+import org.apache.spark.sql.execution.aggregate.ScalaAggregator
+import org.apache.spark.sql.expressions.{Aggregator, UserDefinedAggregator}
 import org.apache.spark.sql.types._
 
 object utils {
@@ -114,5 +116,8 @@ object utils {
         sys.error(s"Could not find compare function for ${dataType}")
       )
     }
+
+  def aggregator[I: Encoder, B, O](agg: Aggregator[I,B,O], exps: Seq[Expression]) =
+    ScalaAggregator(UserDefinedAggregator(agg, implicitly[Encoder[I]]), exps)
 }
 

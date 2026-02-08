@@ -197,7 +197,7 @@ case class LazyRuleFolderResult[T](lazyRuleSuiteResults: LazyRuleSuiteResult, re
   def getResult: java.util.Optional[T] = Optional.toOptional(result)
 }
 
-trait ResultStatistics[T <: ResultStatistics[_]] {
+trait ResultStatistics[T <: ResultStatistics[_]] extends Serializable {
   def failed: Long
   def passed: Long
   def softFailed: Long
@@ -239,7 +239,7 @@ trait ResultStatistics[T <: ResultStatistics[_]] {
 /**
  * Rule level results aggregated across a set of rows
  */
-case class RuleStatistics(rule: Id, failed: Long = 0, passed: Long = 0, softFailed: Long = 0, disabled: Long = 0, ignored: Long = 0,
+case class RuleStatistics(rule: VersionedId, failed: Long = 0, passed: Long = 0, softFailed: Long = 0, disabled: Long = 0, ignored: Long = 0,
                                 defaulted: Long = 0, probabilityPassed: Long = 0, probabilityFailed: Long = 0) extends ResultStatistics[RuleStatistics] {
 
   override def update(failed: Long, passed: Long, softFailed: Long, disabled: Long, ignored: Long, defaulted: Long,
@@ -253,7 +253,7 @@ case class RuleStatistics(rule: Id, failed: Long = 0, passed: Long = 0, softFail
 /**
  * Aggregated RuleStatistics for a RuleSet
  */
-case class RuleSetStatistics(ruleSet: Id, failed: Long = 0, passed: Long = 0, softFailed: Long = 0, disabled: Long = 0, ignored: Long = 0,
+case class RuleSetStatistics(ruleSet: VersionedId, failed: Long = 0, passed: Long = 0, softFailed: Long = 0, disabled: Long = 0, ignored: Long = 0,
                              defaulted: Long = 0, probabilityPassed: Long = 0, probabilityFailed: Long = 0, rules: Map[VersionedId, RuleStatistics] = Map.empty) extends ResultStatistics[RuleSetStatistics] {
 
   override def update(failed: Long, passed: Long, softFailed: Long, disabled: Long, ignored: Long, defaulted: Long, probabilityPassed: Long, probabilityFailed: Long): RuleSetStatistics =
@@ -267,7 +267,7 @@ case class RuleSetStatistics(ruleSet: Id, failed: Long = 0, passed: Long = 0, so
           cur.updatedWith(id)(_.map{
             rs =>
               rs.processResult(ruleResult)
-          })
+          }.orElse(Some(RuleStatistics(id).processResult(ruleResult))))
       })
 
   override def combine(other: RuleSetStatistics): RuleSetStatistics = combineResults(other).copy(
@@ -285,7 +285,7 @@ case class RuleSetStatistics(ruleSet: Id, failed: Long = 0, passed: Long = 0, so
 /**
  * Aggregated RuleSetStatistics for a complete RuleSuite
  */
-case class RuleSuiteStatistics(ruleSuite: Id, failed: Long = 0, passed: Long = 0, softFailed: Long = 0, disabled: Long = 0, ignored: Long = 0,
+case class RuleSuiteStatistics(ruleSuite: VersionedId, failed: Long = 0, passed: Long = 0, softFailed: Long = 0, disabled: Long = 0, ignored: Long = 0,
                                defaulted: Long = 0, probabilityPassed: Long = 0, probabilityFailed: Long = 0, rowCount: Long = 0, ruleSets: Map[VersionedId, RuleSetStatistics] = Map.empty) extends ResultStatistics[RuleSuiteStatistics] {
 
   override def update(failed: Long, passed: Long, softFailed: Long, disabled: Long, ignored: Long, defaulted: Long, probabilityPassed: Long, probabilityFailed: Long): RuleSuiteStatistics =
@@ -299,7 +299,7 @@ case class RuleSuiteStatistics(ruleSuite: Id, failed: Long = 0, passed: Long = 0
           cur.updatedWith(id)(_.map{
             rs =>
               rs.process(setResult)
-          })
+          }.orElse(Some(RuleSetStatistics(id).process(setResult))))
       }
     )
   }
@@ -320,11 +320,11 @@ case class RuleSuiteStatistics(ruleSuite: Id, failed: Long = 0, passed: Long = 0
 /**
  * Convenience as a dataset may contain more than one rule suite
  */
-case class RuleSuiteGroupStatistics(ruleSuites: Map[VersionedId, RuleSuiteStatistics] = Map.empty, rowCount: Long = 0) {
+case class RuleSuiteGroupStatistics(ruleSuites: Map[VersionedId, RuleSuiteStatistics] = Map.empty, rowCount: Long = 0) extends Serializable {
 // TODO - probable pass may be different for each rulesuite, so link that in 0.2
   def process(ruleSuiteResult: RuleSuiteResult): RuleSuiteGroupStatistics =
     copy(rowCount = rowCount + 1, ruleSuites = ruleSuites.updatedWith(ruleSuiteResult.id){
-      _.map( _.process(ruleSuiteResult))
+      _.map( _.process(ruleSuiteResult)).orElse(Some(RuleSuiteStatistics(ruleSuiteResult.id).process(ruleSuiteResult)))
     })
 
   def combine(other: RuleSuiteGroupStatistics): RuleSuiteGroupStatistics =
