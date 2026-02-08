@@ -211,6 +211,14 @@ trait ResultStatistics[T <: ResultStatistics[_]] {
              ignored: Long = ignored, defaulted: Long = defaulted, probabilityPassed: Long = probabilityPassed,
              probabilityFailed: Long = probabilityFailed): T
 
+  def combineResults(other: T): T =
+    update(failed = failed + other.failed, passed = passed + other.passed, softFailed = softFailed + other.softFailed,
+      disabled = disabled + other.disabled, ignored = ignored + other.ignored, defaulted = defaulted + other.defaulted,
+      probabilityPassed = probabilityPassed + other.probabilityPassed,
+      probabilityFailed = probabilityFailed + other.probabilityFailed)
+
+  def combine(other: T): T
+
   @tailrec
   final def processResult(ruleResult: RuleResult, probabilityPass: Double = 0.8d): T =
     ruleResult match {
@@ -239,6 +247,7 @@ case class RuleStatistics(rule: Id, failed: Long = 0, passed: Long = 0, softFail
     copy(failed = failed, passed = passed, softFailed = softFailed, disabled = disabled, ignored = ignored,
       defaulted = defaulted, probabilityPassed = probabilityPassed, probabilityFailed = probabilityFailed)
 
+  override def combine(other: RuleStatistics): RuleStatistics = combineResults(other)
 }
 
 /**
@@ -251,7 +260,7 @@ case class RuleSetStatistics(ruleSet: Id, failed: Long = 0, passed: Long = 0, so
     copy(failed = failed, passed = passed, softFailed = softFailed, disabled = disabled, ignored = ignored,
       defaulted = defaulted, probabilityPassed = probabilityPassed, probabilityFailed = probabilityFailed)
 
-  def process(setResult: RuleSetResult): RuleSetStatistics = {
+  def process(setResult: RuleSetResult): RuleSetStatistics =
     processResult(setResult.overallResult).copy(
       rules = setResult.ruleResults.foldLeft(rules){
         case (cur, (id, ruleResult)) =>
@@ -260,7 +269,16 @@ case class RuleSetStatistics(ruleSet: Id, failed: Long = 0, passed: Long = 0, so
               rs.processResult(ruleResult)
           })
       })
-  }
+
+  override def combine(other: RuleSetStatistics): RuleSetStatistics = combineResults(other).copy(
+    rules = other.rules.foldLeft(rules){
+      case (cur, (id, ruleResult)) =>
+        cur.updatedWith(id)(_.map{
+          rs =>
+            rs.combine(ruleResult)
+        }.orElse(Some(ruleResult)))
+    }
+  )
 
 }
 
@@ -286,6 +304,17 @@ case class RuleSuiteStatistics(ruleSuite: Id, failed: Long = 0, passed: Long = 0
     )
   }
 
+  override def combine(other: RuleSuiteStatistics): RuleSuiteStatistics = combineResults(other).copy(
+    rowCount = rowCount + other.rowCount,
+    ruleSets = other.ruleSets.foldLeft(ruleSets){
+      case (cur, (id, setResult)) =>
+        cur.updatedWith(id)(_.map{
+          rs =>
+            rs.combine(setResult)
+        }.orElse(Some(setResult)))
+    }
+  )
+
 }
 
 /**
@@ -297,6 +326,15 @@ case class RuleSuiteGroupStatistics(ruleSuites: Map[VersionedId, RuleSuiteStatis
     copy(rowCount = rowCount + 1, ruleSuites = ruleSuites.updatedWith(ruleSuiteResult.id){
       _.map( _.process(ruleSuiteResult))
     })
+
+  def combine(other: RuleSuiteGroupStatistics): RuleSuiteGroupStatistics =
+    copy(rowCount = rowCount + other.rowCount,
+      ruleSuites = other.ruleSuites.foldLeft(ruleSuites){
+        case (cur, (id, rs)) =>
+          cur.updatedWith(id){
+            _.map( _.combine(rs)).orElse(Some(rs))
+          }
+      })
 
 }
 
