@@ -1,0 +1,995 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/sparkutils/quality/impl/imports/CollectRunnerImports.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality.impl.imports
+</span>2 <span style=''>
+</span>3 <span style=''>import com.sparkutils.quality.RuleSuite
+</span>4 <span style=''>import com.sparkutils.quality.impl.CollectRunner.{UnrollOutputArray, UseInPlaceArray}
+</span>5 <span style=''>import com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenExpressions
+</span>6 <span style=''>import com.sparkutils.quality.impl.{CollectRunnerRunner, InPlaceArray, RuleLogicUtils}
+</span>7 <span style=''>import com.sparkutils.shim.expressions.Names
+</span>8 <span style=''>import org.apache.spark.sql.Column
+</span>9 <span style=''>import org.apache.spark.sql.ShimUtils.column
+</span>10 <span style=''>import org.apache.spark.sql.catalyst.analysis.UnresolvedFunction
+</span>11 <span style=''>import org.apache.spark.sql.types._
+</span>12 <span style=''>
+</span>13 <span style=''>
+</span>14 <span style=''>trait CollectRunnerImports {
+</span>15 <span style=''>
+</span>16 <span style=''>  /**
+</span>17 <span style=''>   * Creates a column that runs the folding RuleSuite.  This also forces registering the lambda functions used by that RuleSuite.
+</span>18 <span style=''>   *
+</span>19 <span style=''>   * FolderRunner runs all output expressions for matching rules in order of salience, the startingStruct is passed ot the first
+</span>20 <span style=''>   * matching, the result passed to the second etc.  In contrast to ruleEngineRunner OutputExpressions should be lambdas with one parameter, that of the structure
+</span>21 <span style=''>   *
+</span>22 <span style=''>   * By default, InPlaceArray will substitute CreateArray (array sql function), should there be issues with loop unrolling com.sparkutils.collect.useInPlaceArray can be set to false.
+</span>23 <span style=''>   *
+</span>24 <span style=''>   * @param ruleSuite The ruleSuite with runOnPassProcessors
+</span>25 <span style=''>   * @param resultDataType the collected result type, specify this if the derived types have nullability or ordering issues.  By default, it takes the type of the last output expression
+</span>26 <span style=''>   * @param variablesPerFunc Defaulting to 40 allows, in combination with variableFuncGroup allows customisation of handling the 64k jvm method size limitation when performing WholeStageCodeGen
+</span>27 <span style=''>   * @param variableFuncGroup Defaulting to 20
+</span>28 <span style=''>   * @param flatten when resultType is an ArrayType should the result be flattened
+</span>29 <span style=''>   * @param includeNulls should nulls returned by the output expressions be included, note when flattening nulls IN the returned arrays are not filtered
+</span>30 <span style=''>   * @return A Column representing the QualityRules expression built from this ruleSuite
+</span>31 <span style=''>   */
+</span>32 <span style=''>  def collectRunner(ruleSuite: RuleSuite, resultDataType: Option[DataType] = None, variablesPerFunc: Int = 40,
+</span>33 <span style=''>                           variableFuncGroup: Int = 20, flatten: Boolean = true, includeNulls: Boolean = false,
+</span>34 <span style=''>                           useInPlaceArray: Boolean = true, unrollInPlaceArray: Boolean = false,
+</span>35 <span style=''>                           unrollOutputArraySize: Int = 1): Column = {
+</span>36 <span style=''>    import com.sparkutils.quality.getConfig
+</span>37 <span style=''>    </span><span style='background: #AEF1AE'>com.sparkutils.quality.registerLambdaFunctions( ruleSuite.lambdaFunctions )</span><span style=''>
+</span>38 <span style=''>
+</span>39 <span style=''>    val (expressionsRaw, indexes, triggerCount) = flattenExpressions(ruleSuite)
+</span>40 <span style=''>
+</span>41 <span style=''>    val cleaned = </span><span style='background: #AEF1AE'>RuleLogicUtils.cleanExprs(ruleSuite)</span><span style=''>
+</span>42 <span style=''>
+</span>43 <span style=''>    val inPlace = </span><span style='background: #AEF1AE'>getConfig(UseInPlaceArray, s&quot;$useInPlaceArray&quot;).toBoolean</span><span style=''>
+</span>44 <span style=''>    val unroll = </span><span style='background: #AEF1AE'>getConfig(UnrollOutputArray, s&quot;$unrollInPlaceArray&quot;).toBoolean</span><span style=''>
+</span>45 <span style=''>
+</span>46 <span style=''>    val canUnroll =
+</span>47 <span style=''>      </span><span style='background: #AEF1AE'>expressionsRaw.drop(triggerCount).map{
+</span>48 <span style=''></span><span style='background: #AEF1AE'>        case a: UnresolvedFunction if Names.toName(a).toLowerCase == &quot;array&quot; =&gt; a.children.size
+</span>49 <span style=''></span><span style='background: #AEF1AE'>        case _ =&gt; -1
+</span>50 <span style=''></span><span style='background: #AEF1AE'>      }.toArray</span><span style=''>
+</span>51 <span style=''>
+</span>52 <span style=''>    val expressions =
+</span>53 <span style=''>      if (</span><span style='background: #AEF1AE'>flatten &amp;&amp; inPlace</span><span style=''>)
+</span>54 <span style=''>        </span><span style='background: #AEF1AE'>expressionsRaw.zipWithIndex.map{
+</span>55 <span style=''></span><span style='background: #AEF1AE'>          case (a: UnresolvedFunction, i) if // check triggerCount because we do not want triggers to be swapped
+</span>56 <span style=''></span><span style='background: #AEF1AE'>            Names.toName(a).toLowerCase == &quot;array&quot; &amp;&amp; i &gt;= triggerCount =&gt; InPlaceArray(a.children) // TODO should this move into the expression and auto resolve in the case of FunNRewrite?
+</span>57 <span style=''></span><span style='background: #AEF1AE'>          case (e, i) =&gt; e
+</span>58 <span style=''></span><span style='background: #AEF1AE'>        }</span><span style=''>
+</span>59 <span style=''>      else
+</span>60 <span style=''>        </span><span style='background: #AEF1AE'>expressionsRaw</span><span style=''>
+</span>61 <span style=''>
+</span>62 <span style=''>    val isInPlace =
+</span>63 <span style=''>      </span><span style='background: #AEF1AE'>expressions.drop(triggerCount).map{
+</span>64 <span style=''></span><span style='background: #AEF1AE'>        case _: InPlaceArray =&gt; true
+</span>65 <span style=''></span><span style='background: #AEF1AE'>        case _ =&gt; false
+</span>66 <span style=''></span><span style='background: #AEF1AE'>      }.toArray</span><span style=''>
+</span>67 <span style=''>
+</span>68 <span style=''>    </span><span style='background: #AEF1AE'>column(
+</span>69 <span style=''></span><span style='background: #AEF1AE'>      CollectRunnerRunner(cleaned, expressions, resultDataType,
+</span>70 <span style=''></span><span style='background: #AEF1AE'>        variablesPerFunc, variableFuncGroup,
+</span>71 <span style=''></span><span style='background: #AEF1AE'>        expressionOffsets = indexes, triggerCount = triggerCount, flatten = flatten,
+</span>72 <span style=''></span><span style='background: #AEF1AE'>        includeNulls = includeNulls, canUnroll = canUnroll, isInPlace = isInPlace, unroll = unroll,
+</span>73 <span style=''></span><span style='background: #AEF1AE'>        unrollOutputArraySize = unrollOutputArraySize)
+</span>74 <span style=''></span><span style='background: #AEF1AE'>    )</span><span style=''>
+</span>75 <span style=''>  }
+</span>76 <span style=''>
+</span>77 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          7266
+        </td>
+        <td>
+          2524
+          -
+          2549
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuite.lambdaFunctions
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuite.lambdaFunctions
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          7267
+        </td>
+        <td>
+          2476
+          -
+          2551
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.imports.LambdaFunctionsImports.registerLambdaFunctions
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.`package`.registerLambdaFunctions(ruleSuite.lambdaFunctions)
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          7269
+        </td>
+        <td>
+          2578
+          -
+          2578
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple3._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$1._2
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          7268
+        </td>
+        <td>
+          2562
+          -
+          2562
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple3._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$1._1
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          7270
+        </td>
+        <td>
+          2587
+          -
+          2587
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple3._3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$1._3
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          7271
+        </td>
+        <td>
+          2652
+          -
+          2688
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleLogicUtils.cleanExprs
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.RuleLogicUtils.cleanExprs(ruleSuite)
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          7272
+        </td>
+        <td>
+          2718
+          -
+          2733
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.CollectRunner.UseInPlaceArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.CollectRunner.UseInPlaceArray
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          7275
+        </td>
+        <td>
+          2708
+          -
+          2765
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.toBoolean
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.augmentString(com.sparkutils.quality.`package`.getConfig(com.sparkutils.quality.impl.CollectRunner.UseInPlaceArray, scala.StringContext.apply(&quot;&quot;, &quot;&quot;).s(useInPlaceArray))).toBoolean
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          7274
+        </td>
+        <td>
+          2708
+          -
+          2755
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.getConfig
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.`package`.getConfig(com.sparkutils.quality.impl.CollectRunner.UseInPlaceArray, scala.StringContext.apply(&quot;&quot;, &quot;&quot;).s(useInPlaceArray))
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          7273
+        </td>
+        <td>
+          2735
+          -
+          2754
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;&quot;, &quot;&quot;).s(useInPlaceArray)
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          7278
+        </td>
+        <td>
+          2783
+          -
+          2835
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.getConfig
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.`package`.getConfig(com.sparkutils.quality.impl.CollectRunner.UnrollOutputArray, scala.StringContext.apply(&quot;&quot;, &quot;&quot;).s(unrollInPlaceArray))
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          7277
+        </td>
+        <td>
+          2812
+          -
+          2834
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;&quot;, &quot;&quot;).s(unrollInPlaceArray)
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          7279
+        </td>
+        <td>
+          2783
+          -
+          2845
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.toBoolean
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.augmentString(com.sparkutils.quality.`package`.getConfig(com.sparkutils.quality.impl.CollectRunner.UnrollOutputArray, scala.StringContext.apply(&quot;&quot;, &quot;&quot;).s(unrollInPlaceArray))).toBoolean
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          7276
+        </td>
+        <td>
+          2793
+          -
+          2810
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.CollectRunner.UnrollOutputArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.CollectRunner.UnrollOutputArray
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          7283
+        </td>
+        <td>
+          2910
+          -
+          2910
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[Int]
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          7281
+        </td>
+        <td>
+          2992
+          -
+          3007
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.SeqLike.size
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          a.children.size
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          7280
+        </td>
+        <td>
+          2950
+          -
+          2988
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.shim.expressions.Names.toName(a).toLowerCase().==(&quot;array&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          7282
+        </td>
+        <td>
+          3026
+          -
+          3028
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          -1
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          7284
+        </td>
+        <td>
+          2873
+          -
+          3044
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          expressionsRaw.drop(triggerCount).map[Int, Seq[Int]](((x0$1: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; x0$1 match {
+  case (a @ (_: org.apache.spark.sql.catalyst.analysis.UnresolvedFunction)) if com.sparkutils.shim.expressions.Names.toName(a).toLowerCase().==(&quot;array&quot;) =&gt; a.children.size
+  case _ =&gt; -1
+}))(collection.this.Seq.canBuildFrom[Int]).toArray[Int]((ClassTag.Int: scala.reflect.ClassTag[Int]))
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          7285
+        </td>
+        <td>
+          3078
+          -
+          3096
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          flatten.&amp;&amp;(inPlace)
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          7293
+        </td>
+        <td>
+          3106
+          -
+          3478
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          expressionsRaw.zipWithIndex[org.apache.spark.sql.catalyst.expressions.Expression, Seq[(org.apache.spark.sql.catalyst.expressions.Expression, Int)]](collection.this.Seq.canBuildFrom[(org.apache.spark.sql.catalyst.expressions.Expression, Int)]).map[org.apache.spark.sql.catalyst.expressions.Expression, Seq[org.apache.spark.sql.catalyst.expressions.Expression]](((x0$2: (org.apache.spark.sql.catalyst.expressions.Expression, Int)) =&gt; x0$2 match {
+  case (_1: org.apache.spark.sql.catalyst.expressions.Expression, _2: Int)(org.apache.spark.sql.catalyst.expressions.Expression, Int)((a @ (_: org.apache.spark.sql.catalyst.analysis.UnresolvedFunction)), (i @ _)) if com.sparkutils.shim.expressions.Names.toName(a).toLowerCase().==(&quot;array&quot;).&amp;&amp;(i.&gt;=(triggerCount)) =&gt; com.sparkutils.quality.impl.InPlaceArray.apply(a.children)
+  case (_1: org.apache.spark.sql.catalyst.expressions.Expression, _2: Int)(org.apache.spark.sql.catalyst.expressions.Expression, Int)((e @ _), (i @ _)) =&gt; e
+}))(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression])
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          7292
+        </td>
+        <td>
+          3137
+          -
+          3137
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression]
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          7286
+        </td>
+        <td>
+          3121
+          -
+          3121
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[(org.apache.spark.sql.catalyst.expressions.Expression, Int)]
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          7294
+        </td>
+        <td>
+          3106
+          -
+          3478
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          expressionsRaw.zipWithIndex[org.apache.spark.sql.catalyst.expressions.Expression, Seq[(org.apache.spark.sql.catalyst.expressions.Expression, Int)]](collection.this.Seq.canBuildFrom[(org.apache.spark.sql.catalyst.expressions.Expression, Int)]).map[org.apache.spark.sql.catalyst.expressions.Expression, Seq[org.apache.spark.sql.catalyst.expressions.Expression]](((x0$2: (org.apache.spark.sql.catalyst.expressions.Expression, Int)) =&gt; x0$2 match {
+  case (_1: org.apache.spark.sql.catalyst.expressions.Expression, _2: Int)(org.apache.spark.sql.catalyst.expressions.Expression, Int)((a @ (_: org.apache.spark.sql.catalyst.analysis.UnresolvedFunction)), (i @ _)) if com.sparkutils.shim.expressions.Names.toName(a).toLowerCase().==(&quot;array&quot;).&amp;&amp;(i.&gt;=(triggerCount)) =&gt; com.sparkutils.quality.impl.InPlaceArray.apply(a.children)
+  case (_1: org.apache.spark.sql.catalyst.expressions.Expression, _2: Int)(org.apache.spark.sql.catalyst.expressions.Expression, Int)((e @ _), (i @ _)) =&gt; e
+}))(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression])
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          7287
+        </td>
+        <td>
+          3295
+          -
+          3302
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;array&quot;
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          7290
+        </td>
+        <td>
+          3340
+          -
+          3350
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.analysis.UnresolvedFunction.children
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          a.children
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          7289
+        </td>
+        <td>
+          3264
+          -
+          3323
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.shim.expressions.Names.toName(a).toLowerCase().==(&quot;array&quot;).&amp;&amp;(i.&gt;=(triggerCount))
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          7288
+        </td>
+        <td>
+          3306
+          -
+          3323
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&gt;=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          i.&gt;=(triggerCount)
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          7291
+        </td>
+        <td>
+          3327
+          -
+          3351
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.InPlaceArray.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.InPlaceArray.apply(a.children)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          7295
+        </td>
+        <td>
+          3498
+          -
+          3512
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.sparkutils.quality.impl.imports.CollectRunnerImports.expressionsRaw
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          expressionsRaw
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          7298
+        </td>
+        <td>
+          3574
+          -
+          3574
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[Boolean]
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          7296
+        </td>
+        <td>
+          3608
+          -
+          3612
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          7297
+        </td>
+        <td>
+          3631
+          -
+          3636
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          7299
+        </td>
+        <td>
+          3540
+          -
+          3652
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          expressions.drop(triggerCount).map[Boolean, Seq[Boolean]](((x0$3: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; x0$3 match {
+  case (_: com.sparkutils.quality.impl.InPlaceArray) =&gt; true
+  case _ =&gt; false
+}))(collection.this.Seq.canBuildFrom[Boolean]).toArray[Boolean]((ClassTag.Boolean: scala.reflect.ClassTag[Boolean]))
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          7301
+        </td>
+        <td>
+          3658
+          -
+          4020
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.ShimUtils.column
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.ShimUtils.column(com.sparkutils.quality.impl.CollectRunnerRunner.apply(cleaned, expressions, resultDataType, variablesPerFunc, variableFuncGroup, indexes, triggerCount, flatten, includeNulls, canUnroll, isInPlace, unroll, unrollOutputArraySize))
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          7300
+        </td>
+        <td>
+          3672
+          -
+          4014
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.CollectRunnerRunner.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.CollectRunnerRunner.apply(cleaned, expressions, resultDataType, variablesPerFunc, variableFuncGroup, indexes, triggerCount, flatten, includeNulls, canUnroll, isInPlace, unroll, unrollOutputArraySize)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

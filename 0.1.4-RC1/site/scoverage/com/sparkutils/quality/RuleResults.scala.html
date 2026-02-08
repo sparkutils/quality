@@ -1,0 +1,6557 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/sparkutils/quality/RuleResults.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality
+</span>2 <span style=''>
+</span>3 <span style=''>import com.sparkutils.quality.impl.{OverallResultHelper, VersionedId}
+</span>4 <span style=''>import com.sparkutils.quality.impl.util.Optional
+</span>5 <span style=''>
+</span>6 <span style=''>import scala.annotation.tailrec
+</span>7 <span style=''>import scala.collection.JavaConverters._
+</span>8 <span style=''>
+</span>9 <span style=''>import com.sparkutils.quality.impl.util.MapOps._
+</span>10 <span style=''>
+</span>11 <span style=''>sealed trait RuleResult extends Serializable
+</span>12 <span style=''>
+</span>13 <span style=''>case object Failed extends RuleResult
+</span>14 <span style=''>case object Passed extends RuleResult
+</span>15 <span style=''>
+</span>16 <span style=''>/**
+</span>17 <span style=''> * This shouldn't evaluate to a fail, think of it as Amber / Warn
+</span>18 <span style=''> */
+</span>19 <span style=''>case object SoftFailed extends RuleResult
+</span>20 <span style=''>
+</span>21 <span style=''>/**
+</span>22 <span style=''> * This shouldn't evaluate to a fail, allows signalling a rule has been disabled
+</span>23 <span style=''> */
+</span>24 <span style=''>case object DisabledRule extends RuleResult
+</span>25 <span style=''>
+</span>26 <span style=''>/**
+</span>27 <span style=''> * This shouldn't evaluate to a fail, allows signalling a rule has been ignored
+</span>28 <span style=''> */
+</span>29 <span style=''>case object IgnoredRule extends RuleResult
+</span>30 <span style=''>
+</span>31 <span style=''>/**
+</span>32 <span style=''> * Returned for RuleSuiteResult.overallResult when no other trigger rule has passed and a defaultProcessor has been configured (otherwise it's Failed)
+</span>33 <span style=''> */
+</span>34 <span style=''>case object DefaultRule extends RuleResult
+</span>35 <span style=''>
+</span>36 <span style=''>/**
+</span>37 <span style=''>  * 0-1 with 1 being absolutely likely a pass
+</span>38 <span style=''>  * @param percentage
+</span>39 <span style=''>  */
+</span>40 <span style=''>case class Probability(percentage: Double) extends RuleResult
+</span>41 <span style=''>
+</span>42 <span style=''>/**
+</span>43 <span style=''> * Packs a rule result with a RunOnPassProcessor processor
+</span>44 <span style=''> */
+</span>45 <span style=''>case class RuleResultWithProcessor(ruleResult: RuleResult, runOnPassProcessor: impl.RunOnPassProcessor) extends RuleResult
+</span>46 <span style=''>
+</span>47 <span style=''>/**
+</span>48 <span style=''>  * Probability is evaluated at over probablePass percent, defaults to 80% 0.8.
+</span>49 <span style=''>  * Passed until any failure occurs
+</span>50 <span style=''>  */
+</span>51 <span style=''>case class OverallResult(probablePass: Double = 0.8, currentResult: RuleResult = Passed) {
+</span>52 <span style=''>  /**
+</span>53 <span style=''>   * Processes a RuleResult for DQ
+</span>54 <span style=''>   * @param ruleResult
+</span>55 <span style=''>   * @return
+</span>56 <span style=''>   */
+</span>57 <span style=''>  def process(ruleResult: RuleResult): OverallResult = </span><span style='background: #AEF1AE'>copy(currentResult = impl.OverallResultHelper.inplace(ruleResult, currentResult, probablePass))</span><span style=''>
+</span>58 <span style=''>
+</span>59 <span style=''>  /**
+</span>60 <span style=''>   * Processes a RuleResult for DefaultProcessing, unlike process, processForDefault returns Passed when receiving a Passed and all other values retain the currentResult
+</span>61 <span style=''>   * @param ruleResult
+</span>62 <span style=''>   * @return
+</span>63 <span style=''>   */
+</span>64 <span style=''>  def processForDefault(ruleResult: RuleResult): OverallResult = </span><span style='background: #AEF1AE'>copy(currentResult = OverallResultHelper.inplaceForDefault(ruleResult, currentResult, probablePass))</span><span style=''>
+</span>65 <span style=''>
+</span>66 <span style=''>}
+</span>67 <span style=''>
+</span>68 <span style=''>/**
+</span>69 <span style=''>  * Result collection for a number of rules
+</span>70 <span style=''>  * @param overallResult
+</span>71 <span style=''>  * @param ruleResults rule id -&gt; ruleresult
+</span>72 <span style=''>  */
+</span>73 <span style=''>case class RuleSetResult(overallResult: RuleResult, ruleResults: Map[VersionedId, RuleResult]) extends Serializable {
+</span>74 <span style=''>  def getRuleResults: java.util.Map[VersionedId, RuleResult] = </span><span style='background: #AEF1AE'>ruleResults.asJava</span><span style=''>
+</span>75 <span style=''>}
+</span>76 <span style=''>
+</span>77 <span style=''>/**
+</span>78 <span style=''> * Results for all rules run against a dataframe without the overallResult.  Performance differences for filtering on top level fields
+</span>79 <span style=''> * are significant over nested structures even under Spark 3, in the region of 30-50% depending on op.
+</span>80 <span style=''> * @param id
+</span>81 <span style=''> * @param ruleSetResults
+</span>82 <span style=''> */
+</span>83 <span style=''>case class RuleSuiteResultDetails(id: VersionedId, ruleSetResults: Map[VersionedId, RuleSetResult]) extends Serializable {
+</span>84 <span style=''>  def getRuleSetResults: java.util.Map[VersionedId, RuleSetResult] = </span><span style='background: #AEF1AE'>ruleSetResults.asJava</span><span style=''>
+</span>85 <span style=''>}
+</span>86 <span style=''>
+</span>87 <span style=''>object RuleSuiteResultDetails {
+</span>88 <span style=''>  /**
+</span>89 <span style=''>   * Creates a RuleSuiteResultDetails for this ruleSuite as if all rules Passed, it may be applicable for dqLazyDetailsFactory usage.
+</span>90 <span style=''>   * @param ruleSuite
+</span>91 <span style=''>   * @return
+</span>92 <span style=''>   */
+</span>93 <span style=''>  def ifAllPassed(ruleSuite: RuleSuite): RuleSuiteResultDetails =
+</span>94 <span style=''>    </span><span style='background: #AEF1AE'>RuleSuiteResultDetails(ruleSuite.id, ruleSuite.ruleSets.map{
+</span>95 <span style=''></span><span style='background: #AEF1AE'>      ruleSet =&gt; (ruleSet.id, RuleSetResult(Passed, ruleSet.rules.map(r =&gt; (r.id, Passed)).toMap))
+</span>96 <span style=''></span><span style='background: #AEF1AE'>    }.toMap)</span><span style=''>
+</span>97 <span style=''>}
+</span>98 <span style=''>
+</span>99 <span style=''>/**
+</span>100 <span style=''> * A lazy proxy for RuleSuiteResultDetails
+</span>101 <span style=''> */
+</span>102 <span style=''>trait LazyRuleSuiteResultDetails extends Serializable {
+</span>103 <span style=''>  def ruleSuiteResultDetails: RuleSuiteResultDetails
+</span>104 <span style=''>}
+</span>105 <span style=''>
+</span>106 <span style=''>/**
+</span>107 <span style=''>  * Results for all rules run against a dataframe
+</span>108 <span style=''>  * @param id - the Id of the suite, all other content is mapped
+</span>109 <span style=''>  * @param overallResult
+</span>110 <span style=''>  * @param ruleSetResults
+</span>111 <span style=''>  */
+</span>112 <span style=''>case class RuleSuiteResult(id: VersionedId, overallResult: RuleResult, ruleSetResults: Map[VersionedId, RuleSetResult]) extends Serializable {
+</span>113 <span style=''>  def details: RuleSuiteResultDetails = </span><span style='background: #AEF1AE'>RuleSuiteResultDetails(id, ruleSetResults)</span><span style=''>
+</span>114 <span style=''>  def getRuleSetResults: java.util.Map[VersionedId, RuleSetResult] = </span><span style='background: #AEF1AE'>ruleSetResults.asJava</span><span style=''>
+</span>115 <span style=''>}
+</span>116 <span style=''>
+</span>117 <span style=''>/**
+</span>118 <span style=''> * A lazy proxy for RuleSuiteResult
+</span>119 <span style=''> */
+</span>120 <span style=''>trait LazyRuleSuiteResult extends Serializable {
+</span>121 <span style=''>  def ruleSuiteResult: RuleSuiteResult
+</span>122 <span style=''>}
+</span>123 <span style=''>
+</span>124 <span style=''>/**
+</span>125 <span style=''> * Represents the expression results of ExpressionRunner
+</span>126 <span style=''> * @param result the result casted to string
+</span>127 <span style=''> * @param resultDDL the result type in ddl
+</span>128 <span style=''> */
+</span>129 <span style=''>case class GeneralExpressionResult(result: String, resultDDL: String) {
+</span>130 <span style=''>  // provided for compatibility
+</span>131 <span style=''>  def ruleResult: String = </span><span style='background: #AEF1AE'>result</span><span style=''>
+</span>132 <span style=''>}
+</span>133 <span style=''>
+</span>134 <span style=''>/**
+</span>135 <span style=''> * Represents the results of the ExpressionRunner
+</span>136 <span style=''> * @param id
+</span>137 <span style=''> * @param ruleSetResults
+</span>138 <span style=''> */
+</span>139 <span style=''>case class GeneralExpressionsResult[R](id: VersionedId, ruleSetResults: Map[VersionedId, Map[VersionedId, R]]) extends Serializable {
+</span>140 <span style=''>  def getRuleSetResults: java.util.Map[VersionedId, Map[VersionedId, R]] = </span><span style='background: #AEF1AE'>ruleSetResults.asJava</span><span style=''>
+</span>141 <span style=''>}
+</span>142 <span style=''>
+</span>143 <span style=''>/**
+</span>144 <span style=''> * Represents the results of the ExpressionRunner after calling strip_result_ddl
+</span>145 <span style=''> * @param id
+</span>146 <span style=''> * @param ruleSetResults
+</span>147 <span style=''> */
+</span>148 <span style=''>case class GeneralExpressionsResultNoDDL(id: VersionedId, ruleSetResults: Map[VersionedId, Map[VersionedId, String]]) extends Serializable {
+</span>149 <span style=''>  def getRuleSetResults: java.util.Map[VersionedId, Map[VersionedId, String]] = </span><span style='background: #AEF1AE'>ruleSetResults.asJava</span><span style=''>
+</span>150 <span style=''>}
+</span>151 <span style=''>
+</span>152 <span style=''>/**
+</span>153 <span style=''> * Represents the rule that matched a given RuleEngine result
+</span>154 <span style=''> * @param ruleSuiteId
+</span>155 <span style=''> * @param ruleSetId
+</span>156 <span style=''> * @param ruleId
+</span>157 <span style=''> */
+</span>158 <span style=''>case class SalientRule(ruleSuiteId: VersionedId, ruleSetId: VersionedId, ruleId: VersionedId)
+</span>159 <span style=''>
+</span>160 <span style=''>/**
+</span>161 <span style=''> * Results for all rules run against a DataFrame.  Note in debug mode the type of T must be Seq[(Int, ActualType)]
+</span>162 <span style=''> * @param ruleSuiteResults Overall results from applying the engine
+</span>163 <span style=''> * @param salientRule if it's None there is no rule which matched for this row or it's in Debug mode which will return all results.
+</span>164 <span style=''> * @param result The result type for this row, if no rule matched this will be None, if a rule matched but the outputexpression returned null this will also be None
+</span>165 <span style=''> */
+</span>166 <span style=''>case class RuleEngineResult[T](ruleSuiteResults: RuleSuiteResult, salientRule: Option[SalientRule], result: Option[T]) extends Serializable {
+</span>167 <span style=''>  def getSalientRule: java.util.Optional[SalientRule] = </span><span style='background: #AEF1AE'>Optional.toOptional(salientRule)</span><span style=''>
+</span>168 <span style=''>
+</span>169 <span style=''>  def getResult: java.util.Optional[T] = </span><span style='background: #AEF1AE'>Optional.toOptional(result)</span><span style=''>
+</span>170 <span style=''>}
+</span>171 <span style=''>
+</span>172 <span style=''>/**
+</span>173 <span style=''> * Results for all rules run against a DataFrame, the RuleSuiteResult is lazily evaluated.  Note in debug mode  the type of T must be Seq[(Int, ActualType)]
+</span>174 <span style=''> * @param lazyRuleSuiteResults Overall results from applying the engine, evealuated lazily
+</span>175 <span style=''> * @param salientRule if it's None there is no rule which matched for this row or it's in Debug mode which will return all results.
+</span>176 <span style=''> * @param result The result type for this row, if no rule matched this will be None, if a rule matched but the outputexpression returned null this will also be None
+</span>177 <span style=''> */
+</span>178 <span style=''>case class LazyRuleEngineResult[T](lazyRuleSuiteResults: LazyRuleSuiteResult, salientRule: Option[SalientRule], result: Option[T]) extends Serializable {
+</span>179 <span style=''>  def getSalientRule: java.util.Optional[SalientRule] = </span><span style='background: #AEF1AE'>Optional.toOptional(salientRule)</span><span style=''>
+</span>180 <span style=''>
+</span>181 <span style=''>  def getResult: java.util.Optional[T] = </span><span style='background: #AEF1AE'>Optional.toOptional(result)</span><span style=''>
+</span>182 <span style=''>}
+</span>183 <span style=''>
+</span>184 <span style=''>/**
+</span>185 <span style=''> * Results for all rules run against a DataFrame.  Note in debug mode the type of T must be Seq[(Int, ActualType)]
+</span>186 <span style=''> * @param ruleSuiteResults Overall results from applying the engine
+</span>187 <span style=''> * @param result The result type for this row, if no rule matched this will be None, if a rule matched but the outputexpression returned null this will also be None
+</span>188 <span style=''> */
+</span>189 <span style=''>case class RuleFolderResult[T](ruleSuiteResults: RuleSuiteResult, result: Option[T]) extends Serializable {
+</span>190 <span style=''>  def getResult: java.util.Optional[T] = </span><span style='background: #AEF1AE'>Optional.toOptional(result)</span><span style=''>
+</span>191 <span style=''>}
+</span>192 <span style=''>
+</span>193 <span style=''>/**
+</span>194 <span style=''> * Results for all rules run against a DataFrame, the RuleSuiteResult is lazily evaluated.  Note in debug mode  the type of T must be Seq[(Int, ActualType)]
+</span>195 <span style=''> * @param lazyRuleSuiteResults Overall results from applying the engine, evaluated lazily
+</span>196 <span style=''> * @param result The result type for this row, if no rule matched this will be None, if a rule matched but the outputexpression returned null this will also be None
+</span>197 <span style=''> */
+</span>198 <span style=''>case class LazyRuleFolderResult[T](lazyRuleSuiteResults: LazyRuleSuiteResult, result: Option[T]) extends Serializable {
+</span>199 <span style=''>  def getResult: java.util.Optional[T] = </span><span style='background: #AEF1AE'>Optional.toOptional(result)</span><span style=''>
+</span>200 <span style=''>}
+</span>201 <span style=''>
+</span>202 <span style=''>trait ResultStatistics[T &lt;: ResultStatistics[_]] extends Serializable {
+</span>203 <span style=''>  def failed: Long
+</span>204 <span style=''>  def passed: Long
+</span>205 <span style=''>  def softFailed: Long
+</span>206 <span style=''>  def disabled: Long
+</span>207 <span style=''>  def ignored: Long
+</span>208 <span style=''>  def defaulted: Long
+</span>209 <span style=''>  def probabilityPassed: Long
+</span>210 <span style=''>  def probabilityFailed: Long
+</span>211 <span style=''>
+</span>212 <span style=''>  def update(failed: Long = failed, passed: Long = passed, softFailed: Long = softFailed, disabled: Long = disabled,
+</span>213 <span style=''>             ignored: Long = ignored, defaulted: Long = defaulted, probabilityPassed: Long = probabilityPassed,
+</span>214 <span style=''>             probabilityFailed: Long = probabilityFailed): T
+</span>215 <span style=''>
+</span>216 <span style=''>  def combineResults(other: T): T =
+</span>217 <span style=''>    </span><span style='background: #AEF1AE'>update(failed = failed + other.failed, passed = passed + other.passed, softFailed = softFailed + other.softFailed,
+</span>218 <span style=''></span><span style='background: #AEF1AE'>      disabled = disabled + other.disabled, ignored = ignored + other.ignored, defaulted = defaulted + other.defaulted,
+</span>219 <span style=''></span><span style='background: #AEF1AE'>      probabilityPassed = probabilityPassed + other.probabilityPassed,
+</span>220 <span style=''></span><span style='background: #AEF1AE'>      probabilityFailed = probabilityFailed + other.probabilityFailed)</span><span style=''>
+</span>221 <span style=''>
+</span>222 <span style=''>  def combine(other: T): T
+</span>223 <span style=''>
+</span>224 <span style=''>  @tailrec
+</span>225 <span style=''>  final def processResult(ruleResult: RuleResult, probabilityPass: Double = 0.8d): T =
+</span>226 <span style=''>    ruleResult match {
+</span>227 <span style=''>      case Failed =&gt; </span><span style='background: #AEF1AE'>update(failed = failed + 1)</span><span style=''>
+</span>228 <span style=''>      case Passed =&gt; </span><span style='background: #AEF1AE'>update(passed = passed + 1)</span><span style=''>
+</span>229 <span style=''>      case SoftFailed =&gt; </span><span style='background: #AEF1AE'>update(softFailed = softFailed + 1)</span><span style=''>
+</span>230 <span style=''>      case DisabledRule =&gt; </span><span style='background: #AEF1AE'>update(disabled = disabled + 1)</span><span style=''>
+</span>231 <span style=''>      case IgnoredRule =&gt; </span><span style='background: #AEF1AE'>update(ignored = ignored + 1)</span><span style=''>
+</span>232 <span style=''>      case DefaultRule =&gt; </span><span style='background: #AEF1AE'>update(defaulted = defaulted + 1)</span><span style=''>
+</span>233 <span style=''>      case Probability(percentage) if (</span><span style='background: #AEF1AE'>percentage &gt;= probabilityPass</span><span style=''>) =&gt; </span><span style='background: #AEF1AE'>update(probabilityPassed = probabilityPassed + 1)</span><span style=''>
+</span>234 <span style=''>      case Probability(_) =&gt; </span><span style='background: #AEF1AE'>update(probabilityFailed = probabilityFailed + 1)</span><span style=''>
+</span>235 <span style=''>      case RuleResultWithProcessor(ruleResult: RuleResult, _) =&gt;
+</span>236 <span style=''>        </span><span style='background: #AEF1AE'>processResult(ruleResult, probabilityPass)</span><span style=''>
+</span>237 <span style=''>    }
+</span>238 <span style=''>
+</span>239 <span style=''>}
+</span>240 <span style=''>
+</span>241 <span style=''>/**
+</span>242 <span style=''> * Rule level results aggregated across a set of rows
+</span>243 <span style=''> */
+</span>244 <span style=''>case class RuleStatistics(rule: VersionedId, failed: Long = 0, passed: Long = 0, softFailed: Long = 0, disabled: Long = 0, ignored: Long = 0,
+</span>245 <span style=''>                                defaulted: Long = 0, probabilityPassed: Long = 0, probabilityFailed: Long = 0) extends ResultStatistics[RuleStatistics] {
+</span>246 <span style=''>
+</span>247 <span style=''>  override def update(failed: Long, passed: Long, softFailed: Long, disabled: Long, ignored: Long, defaulted: Long,
+</span>248 <span style=''>                      probabilityPassed: Long, probabilityFailed: Long): RuleStatistics =
+</span>249 <span style=''>    </span><span style='background: #AEF1AE'>copy(failed = failed, passed = passed, softFailed = softFailed, disabled = disabled, ignored = ignored,
+</span>250 <span style=''></span><span style='background: #AEF1AE'>      defaulted = defaulted, probabilityPassed = probabilityPassed, probabilityFailed = probabilityFailed)</span><span style=''>
+</span>251 <span style=''>
+</span>252 <span style=''>  override def combine(other: RuleStatistics): RuleStatistics = </span><span style='background: #AEF1AE'>combineResults(other)</span><span style=''>
+</span>253 <span style=''>}
+</span>254 <span style=''>
+</span>255 <span style=''>/**
+</span>256 <span style=''> * Aggregated RuleStatistics for a RuleSet
+</span>257 <span style=''> */
+</span>258 <span style=''>case class RuleSetStatistics(ruleSet: VersionedId, failed: Long = 0, passed: Long = 0, softFailed: Long = 0, disabled: Long = 0, ignored: Long = 0,
+</span>259 <span style=''>                             defaulted: Long = 0, probabilityPassed: Long = 0, probabilityFailed: Long = 0, rules: Map[VersionedId, RuleStatistics] = Map.empty) extends ResultStatistics[RuleSetStatistics] {
+</span>260 <span style=''>
+</span>261 <span style=''>  override def update(failed: Long, passed: Long, softFailed: Long, disabled: Long, ignored: Long, defaulted: Long, probabilityPassed: Long, probabilityFailed: Long): RuleSetStatistics =
+</span>262 <span style=''>    </span><span style='background: #AEF1AE'>copy(failed = failed, passed = passed, softFailed = softFailed, disabled = disabled, ignored = ignored,
+</span>263 <span style=''></span><span style='background: #AEF1AE'>      defaulted = defaulted, probabilityPassed = probabilityPassed, probabilityFailed = probabilityFailed)</span><span style=''>
+</span>264 <span style=''>
+</span>265 <span style=''>  def process(setResult: RuleSetResult): RuleSetStatistics =
+</span>266 <span style=''>    </span><span style='background: #AEF1AE'>processResult(setResult.overallResult).copy(
+</span>267 <span style=''></span><span style='background: #AEF1AE'>      rules = setResult.ruleResults.foldLeft(rules){
+</span>268 <span style=''></span><span style='background: #AEF1AE'>        case (cur, (id, ruleResult)) =&gt;
+</span>269 <span style=''></span><span style='background: #AEF1AE'>          cur.updatedWithF(id)(_.map{
+</span>270 <span style=''></span><span style='background: #AEF1AE'>            rs =&gt;
+</span>271 <span style=''></span><span style='background: #AEF1AE'>              rs.processResult(ruleResult)
+</span>272 <span style=''></span><span style='background: #AEF1AE'>          }.orElse(Some(RuleStatistics(id).processResult(ruleResult))))
+</span>273 <span style=''></span><span style='background: #AEF1AE'>      })</span><span style=''>
+</span>274 <span style=''>
+</span>275 <span style=''>  override def combine(other: RuleSetStatistics): RuleSetStatistics = </span><span style='background: #AEF1AE'>combineResults(other).copy(
+</span>276 <span style=''></span><span style='background: #AEF1AE'>    rules = other.rules.foldLeft(rules){
+</span>277 <span style=''></span><span style='background: #AEF1AE'>      case (cur, (id, ruleResult)) =&gt;
+</span>278 <span style=''></span><span style='background: #AEF1AE'>        cur.updatedWithF(id)(_.map{
+</span>279 <span style=''></span><span style='background: #AEF1AE'>          rs =&gt;
+</span>280 <span style=''></span><span style='background: #AEF1AE'>            rs.combine(ruleResult)
+</span>281 <span style=''></span><span style='background: #AEF1AE'>        }.orElse(Some(ruleResult)))
+</span>282 <span style=''></span><span style='background: #AEF1AE'>    }
+</span>283 <span style=''></span><span style='background: #AEF1AE'>  )</span><span style=''>
+</span>284 <span style=''>
+</span>285 <span style=''>}
+</span>286 <span style=''>
+</span>287 <span style=''>/**
+</span>288 <span style=''> * Aggregated RuleSetStatistics for a complete RuleSuite
+</span>289 <span style=''> */
+</span>290 <span style=''>case class RuleSuiteStatistics(ruleSuite: VersionedId, failed: Long = 0, passed: Long = 0, softFailed: Long = 0, disabled: Long = 0, ignored: Long = 0,
+</span>291 <span style=''>                               defaulted: Long = 0, probabilityPassed: Long = 0, probabilityFailed: Long = 0, rowCount: Long = 0, ruleSets: Map[VersionedId, RuleSetStatistics] = Map.empty) extends ResultStatistics[RuleSuiteStatistics] {
+</span>292 <span style=''>
+</span>293 <span style=''>  override def update(failed: Long, passed: Long, softFailed: Long, disabled: Long, ignored: Long, defaulted: Long, probabilityPassed: Long, probabilityFailed: Long): RuleSuiteStatistics =
+</span>294 <span style=''>    </span><span style='background: #AEF1AE'>copy(failed = failed, passed = passed, softFailed = softFailed, disabled = disabled, ignored = ignored,
+</span>295 <span style=''></span><span style='background: #AEF1AE'>      defaulted = defaulted, probabilityPassed = probabilityPassed, probabilityFailed = probabilityFailed)</span><span style=''>
+</span>296 <span style=''>
+</span>297 <span style=''>  def process(ruleSuiteResult: RuleSuiteResult): RuleSuiteStatistics = {
+</span>298 <span style=''>    </span><span style='background: #AEF1AE'>processResult(ruleSuiteResult.overallResult).copy(rowCount = rowCount + 1,
+</span>299 <span style=''></span><span style='background: #AEF1AE'>      ruleSets = ruleSuiteResult.ruleSetResults.foldLeft(ruleSets){
+</span>300 <span style=''></span><span style='background: #AEF1AE'>        case (cur, (id, setResult)) =&gt;
+</span>301 <span style=''></span><span style='background: #AEF1AE'>          cur.updatedWithF(id)(_.map{
+</span>302 <span style=''></span><span style='background: #AEF1AE'>            rs =&gt;
+</span>303 <span style=''></span><span style='background: #AEF1AE'>              rs.process(setResult)
+</span>304 <span style=''></span><span style='background: #AEF1AE'>          }.orElse(Some(RuleSetStatistics(id).process(setResult))))
+</span>305 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>306 <span style=''></span><span style='background: #AEF1AE'>    )</span><span style=''>
+</span>307 <span style=''>  }
+</span>308 <span style=''>
+</span>309 <span style=''>  override def combine(other: RuleSuiteStatistics): RuleSuiteStatistics = </span><span style='background: #AEF1AE'>combineResults(other).copy(
+</span>310 <span style=''></span><span style='background: #AEF1AE'>    rowCount = rowCount + other.rowCount,
+</span>311 <span style=''></span><span style='background: #AEF1AE'>    ruleSets = other.ruleSets.foldLeft(ruleSets){
+</span>312 <span style=''></span><span style='background: #AEF1AE'>      case (cur, (id, setResult)) =&gt;
+</span>313 <span style=''></span><span style='background: #AEF1AE'>        cur.updatedWithF(id)(_.map{
+</span>314 <span style=''></span><span style='background: #AEF1AE'>          rs =&gt;
+</span>315 <span style=''></span><span style='background: #AEF1AE'>            rs.combine(setResult)
+</span>316 <span style=''></span><span style='background: #AEF1AE'>        }.orElse(Some(setResult)))
+</span>317 <span style=''></span><span style='background: #AEF1AE'>    }
+</span>318 <span style=''></span><span style='background: #AEF1AE'>  )</span><span style=''>
+</span>319 <span style=''>
+</span>320 <span style=''>}
+</span>321 <span style=''>
+</span>322 <span style=''>/**
+</span>323 <span style=''> * Convenience as a dataset may contain more than one rule suite
+</span>324 <span style=''> */
+</span>325 <span style=''>case class RuleSuiteGroupStatistics(ruleSuites: Map[VersionedId, RuleSuiteStatistics] = Map.empty, rowCount: Long = 0) extends Serializable {
+</span>326 <span style=''>// TODO - probable pass may be different for each rulesuite, so link that in 0.2
+</span>327 <span style=''>  def process(ruleSuiteResult: RuleSuiteResult): RuleSuiteGroupStatistics =
+</span>328 <span style=''>    </span><span style='background: #AEF1AE'>copy(rowCount = rowCount + 1, ruleSuites = ruleSuites.updatedWithF(ruleSuiteResult.id){
+</span>329 <span style=''></span><span style='background: #AEF1AE'>      _.map( _.process(ruleSuiteResult)).orElse(Some(RuleSuiteStatistics(ruleSuiteResult.id).process(ruleSuiteResult)))
+</span>330 <span style=''></span><span style='background: #AEF1AE'>    })</span><span style=''>
+</span>331 <span style=''>
+</span>332 <span style=''>  def combine(other: RuleSuiteGroupStatistics): RuleSuiteGroupStatistics =
+</span>333 <span style=''>    </span><span style='background: #AEF1AE'>copy(rowCount = rowCount + other.rowCount,
+</span>334 <span style=''></span><span style='background: #AEF1AE'>      ruleSuites = other.ruleSuites.foldLeft(ruleSuites){
+</span>335 <span style=''></span><span style='background: #AEF1AE'>        case (cur, (id, rs)) =&gt;
+</span>336 <span style=''></span><span style='background: #AEF1AE'>          cur.updatedWithF(id){
+</span>337 <span style=''></span><span style='background: #AEF1AE'>            _.map( _.combine(rs)).orElse(Some(rs))
+</span>338 <span style=''></span><span style='background: #AEF1AE'>          }
+</span>339 <span style=''></span><span style='background: #AEF1AE'>      })</span><span style=''>
+</span>340 <span style=''>
+</span>341 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          735
+        </td>
+        <td>
+          1691
+          -
+          1764
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.OverallResultHelper.inplace
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          impl.OverallResultHelper.inplace(ruleResult, OverallResult.this.currentResult, OverallResult.this.probablePass)
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          737
+        </td>
+        <td>
+          1670
+          -
+          1765
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.OverallResult.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          OverallResult.this.copy(x$2, x$1)
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          734
+        </td>
+        <td>
+          1751
+          -
+          1763
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.OverallResult.probablePass
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          OverallResult.this.probablePass
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          733
+        </td>
+        <td>
+          1736
+          -
+          1749
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.OverallResult.currentResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          OverallResult.this.currentResult
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          736
+        </td>
+        <td>
+          1670
+          -
+          1670
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.OverallResult.copy$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          OverallResult.this.copy$default$1
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          738
+        </td>
+        <td>
+          2121
+          -
+          2134
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.OverallResult.currentResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          OverallResult.this.currentResult
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          741
+        </td>
+        <td>
+          2050
+          -
+          2050
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.OverallResult.copy$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          OverallResult.this.copy$default$1
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          740
+        </td>
+        <td>
+          2071
+          -
+          2149
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.OverallResultHelper.inplaceForDefault
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.OverallResultHelper.inplaceForDefault(ruleResult, OverallResult.this.currentResult, OverallResult.this.probablePass)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          742
+        </td>
+        <td>
+          2050
+          -
+          2150
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.OverallResult.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          OverallResult.this.copy(x$2, x$1)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          739
+        </td>
+        <td>
+          2136
+          -
+          2148
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.OverallResult.probablePass
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          OverallResult.this.probablePass
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          744
+        </td>
+        <td>
+          2459
+          -
+          2477
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.convert.Decorators.AsJava.asJava
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.JavaConverters.mapAsJavaMapConverter[com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleResult](RuleSetResult.this.ruleResults).asJava
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          743
+        </td>
+        <td>
+          2459
+          -
+          2470
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetResult.ruleResults
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSetResult.this.ruleResults
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          746
+        </td>
+        <td>
+          2957
+          -
+          2978
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.convert.Decorators.AsJava.asJava
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.JavaConverters.mapAsJavaMapConverter[com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleSetResult](RuleSuiteResultDetails.this.ruleSetResults).asJava
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          745
+        </td>
+        <td>
+          2957
+          -
+          2971
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteResultDetails.ruleSetResults
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteResultDetails.this.ruleSetResults
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          747
+        </td>
+        <td>
+          3288
+          -
+          3300
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuite.id
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuite.id
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          756
+        </td>
+        <td>
+          3324
+          -
+          3324
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[(com.sparkutils.quality.Id, com.sparkutils.quality.RuleSetResult)]
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          759
+        </td>
+        <td>
+          3265
+          -
+          3437
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteResultDetails.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteResultDetails.apply(ruleSuite.id, ruleSuite.ruleSets.map[(com.sparkutils.quality.Id, com.sparkutils.quality.RuleSetResult), Seq[(com.sparkutils.quality.Id, com.sparkutils.quality.RuleSetResult)]](((ruleSet: com.sparkutils.quality.RuleSet) =&gt; scala.Tuple2.apply[com.sparkutils.quality.Id, com.sparkutils.quality.RuleSetResult](ruleSet.id, RuleSetResult.apply(Passed, ruleSet.rules.map[(com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type), Seq[(com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type)]](((r: com.sparkutils.quality.Rule) =&gt; scala.Tuple2.apply[com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type](r.id, Passed)))(collection.this.Seq.canBuildFrom[(com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type)]).toMap[com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleResult](scala.Predef.$conforms[(com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type)])))))(collection.this.Seq.canBuildFrom[(com.sparkutils.quality.Id, com.sparkutils.quality.RuleSetResult)]).toMap[com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleSetResult](scala.Predef.$conforms[(com.sparkutils.quality.Id, com.sparkutils.quality.RuleSetResult)]))
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          750
+        </td>
+        <td>
+          3401
+          -
+          3415
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type](r.id, Passed)
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          753
+        </td>
+        <td>
+          3378
+          -
+          3422
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSet.rules.map[(com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type), Seq[(com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type)]](((r: com.sparkutils.quality.Rule) =&gt; scala.Tuple2.apply[com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type](r.id, Passed)))(collection.this.Seq.canBuildFrom[(com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type)]).toMap[com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleResult](scala.Predef.$conforms[(com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type)])
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          752
+        </td>
+        <td>
+          3417
+          -
+          3417
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.$conforms[(com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type)]
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          755
+        </td>
+        <td>
+          3343
+          -
+          3424
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[com.sparkutils.quality.Id, com.sparkutils.quality.RuleSetResult](ruleSet.id, RuleSetResult.apply(Passed, ruleSet.rules.map[(com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type), Seq[(com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type)]](((r: com.sparkutils.quality.Rule) =&gt; scala.Tuple2.apply[com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type](r.id, Passed)))(collection.this.Seq.canBuildFrom[(com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type)]).toMap[com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleResult](scala.Predef.$conforms[(com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type)])))
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          749
+        </td>
+        <td>
+          3402
+          -
+          3406
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.Rule.id
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          r.id
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          751
+        </td>
+        <td>
+          3395
+          -
+          3395
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[(com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type)]
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          754
+        </td>
+        <td>
+          3356
+          -
+          3423
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetResult.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSetResult.apply(Passed, ruleSet.rules.map[(com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type), Seq[(com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type)]](((r: com.sparkutils.quality.Rule) =&gt; scala.Tuple2.apply[com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type](r.id, Passed)))(collection.this.Seq.canBuildFrom[(com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type)]).toMap[com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleResult](scala.Predef.$conforms[(com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type)]))
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          748
+        </td>
+        <td>
+          3344
+          -
+          3354
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSet.id
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSet.id
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          758
+        </td>
+        <td>
+          3302
+          -
+          3436
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuite.ruleSets.map[(com.sparkutils.quality.Id, com.sparkutils.quality.RuleSetResult), Seq[(com.sparkutils.quality.Id, com.sparkutils.quality.RuleSetResult)]](((ruleSet: com.sparkutils.quality.RuleSet) =&gt; scala.Tuple2.apply[com.sparkutils.quality.Id, com.sparkutils.quality.RuleSetResult](ruleSet.id, RuleSetResult.apply(Passed, ruleSet.rules.map[(com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type), Seq[(com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type)]](((r: com.sparkutils.quality.Rule) =&gt; scala.Tuple2.apply[com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type](r.id, Passed)))(collection.this.Seq.canBuildFrom[(com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type)]).toMap[com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleResult](scala.Predef.$conforms[(com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type)])))))(collection.this.Seq.canBuildFrom[(com.sparkutils.quality.Id, com.sparkutils.quality.RuleSetResult)]).toMap[com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleSetResult](scala.Predef.$conforms[(com.sparkutils.quality.Id, com.sparkutils.quality.RuleSetResult)])
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          757
+        </td>
+        <td>
+          3431
+          -
+          3431
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.$conforms[(com.sparkutils.quality.Id, com.sparkutils.quality.RuleSetResult)]
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          762
+        </td>
+        <td>
+          3962
+          -
+          4004
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteResultDetails.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteResultDetails.apply(RuleSuiteResult.this.id, RuleSuiteResult.this.ruleSetResults)
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          761
+        </td>
+        <td>
+          3989
+          -
+          4003
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteResult.ruleSetResults
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteResult.this.ruleSetResults
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          760
+        </td>
+        <td>
+          3985
+          -
+          3987
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteResult.id
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteResult.this.id
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          764
+        </td>
+        <td>
+          4074
+          -
+          4095
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.convert.Decorators.AsJava.asJava
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.JavaConverters.mapAsJavaMapConverter[com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleSetResult](RuleSuiteResult.this.ruleSetResults).asJava
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          763
+        </td>
+        <td>
+          4074
+          -
+          4088
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteResult.ruleSetResults
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteResult.this.ruleSetResults
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          765
+        </td>
+        <td>
+          4518
+          -
+          4524
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.GeneralExpressionResult.result
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GeneralExpressionResult.this.result
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          767
+        </td>
+        <td>
+          4833
+          -
+          4854
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.convert.Decorators.AsJava.asJava
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.JavaConverters.mapAsJavaMapConverter[com.sparkutils.quality.impl.VersionedId, Map[com.sparkutils.quality.impl.VersionedId,R]](GeneralExpressionsResult.this.ruleSetResults).asJava
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          766
+        </td>
+        <td>
+          4833
+          -
+          4847
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.GeneralExpressionsResult.ruleSetResults
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GeneralExpressionsResult.this.ruleSetResults
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          768
+        </td>
+        <td>
+          5206
+          -
+          5220
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.GeneralExpressionsResultNoDDL.ruleSetResults
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GeneralExpressionsResultNoDDL.this.ruleSetResults
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          769
+        </td>
+        <td>
+          5206
+          -
+          5227
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.convert.Decorators.AsJava.asJava
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.JavaConverters.mapAsJavaMapConverter[com.sparkutils.quality.impl.VersionedId, Map[com.sparkutils.quality.impl.VersionedId,String]](GeneralExpressionsResultNoDDL.this.ruleSetResults).asJava
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          771
+        </td>
+        <td>
+          6141
+          -
+          6173
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.Optional.toOptional
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.Optional.toOptional[com.sparkutils.quality.SalientRule](RuleEngineResult.this.salientRule)
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          770
+        </td>
+        <td>
+          6161
+          -
+          6172
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleEngineResult.salientRule
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleEngineResult.this.salientRule
+        </td>
+      </tr><tr>
+        <td>
+          169
+        </td>
+        <td>
+          773
+        </td>
+        <td>
+          6216
+          -
+          6243
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.Optional.toOptional
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.Optional.toOptional[T](RuleEngineResult.this.result)
+        </td>
+      </tr><tr>
+        <td>
+          169
+        </td>
+        <td>
+          772
+        </td>
+        <td>
+          6236
+          -
+          6242
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleEngineResult.result
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleEngineResult.this.result
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          774
+        </td>
+        <td>
+          7030
+          -
+          7041
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.LazyRuleEngineResult.salientRule
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          LazyRuleEngineResult.this.salientRule
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          775
+        </td>
+        <td>
+          7010
+          -
+          7042
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.Optional.toOptional
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.Optional.toOptional[com.sparkutils.quality.SalientRule](LazyRuleEngineResult.this.salientRule)
+        </td>
+      </tr><tr>
+        <td>
+          181
+        </td>
+        <td>
+          777
+        </td>
+        <td>
+          7085
+          -
+          7112
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.Optional.toOptional
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.Optional.toOptional[T](LazyRuleEngineResult.this.result)
+        </td>
+      </tr><tr>
+        <td>
+          181
+        </td>
+        <td>
+          776
+        </td>
+        <td>
+          7105
+          -
+          7111
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.LazyRuleEngineResult.result
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          LazyRuleEngineResult.this.result
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          779
+        </td>
+        <td>
+          7621
+          -
+          7648
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.Optional.toOptional
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.Optional.toOptional[T](RuleFolderResult.this.result)
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          778
+        </td>
+        <td>
+          7641
+          -
+          7647
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleFolderResult.result
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleFolderResult.this.result
+        </td>
+      </tr><tr>
+        <td>
+          199
+        </td>
+        <td>
+          781
+        </td>
+        <td>
+          8233
+          -
+          8260
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.Optional.toOptional
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.Optional.toOptional[T](LazyRuleFolderResult.this.result)
+        </td>
+      </tr><tr>
+        <td>
+          199
+        </td>
+        <td>
+          780
+        </td>
+        <td>
+          8253
+          -
+          8259
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.LazyRuleFolderResult.result
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          LazyRuleFolderResult.this.result
+        </td>
+      </tr><tr>
+        <td>
+          217
+        </td>
+        <td>
+          783
+        </td>
+        <td>
+          8868
+          -
+          8889
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.failed.+(other.failed)
+        </td>
+      </tr><tr>
+        <td>
+          217
+        </td>
+        <td>
+          786
+        </td>
+        <td>
+          8949
+          -
+          8965
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.softFailed
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.softFailed
+        </td>
+      </tr><tr>
+        <td>
+          217
+        </td>
+        <td>
+          782
+        </td>
+        <td>
+          8877
+          -
+          8889
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.failed
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.failed
+        </td>
+      </tr><tr>
+        <td>
+          217
+        </td>
+        <td>
+          785
+        </td>
+        <td>
+          8900
+          -
+          8921
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.passed.+(other.passed)
+        </td>
+      </tr><tr>
+        <td>
+          217
+        </td>
+        <td>
+          784
+        </td>
+        <td>
+          8909
+          -
+          8921
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.passed
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.passed
+        </td>
+      </tr><tr>
+        <td>
+          217
+        </td>
+        <td>
+          787
+        </td>
+        <td>
+          8936
+          -
+          8965
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.softFailed.+(other.softFailed)
+        </td>
+      </tr><tr>
+        <td>
+          217
+        </td>
+        <td>
+          798
+        </td>
+        <td>
+          8852
+          -
+          9228
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update(ResultStatistics.this.failed.+(other.failed), ResultStatistics.this.passed.+(other.passed), ResultStatistics.this.softFailed.+(other.softFailed), ResultStatistics.this.disabled.+(other.disabled), ResultStatistics.this.ignored.+(other.ignored), ResultStatistics.this.defaulted.+(other.defaulted), ResultStatistics.this.probabilityPassed.+(other.probabilityPassed), ResultStatistics.this.probabilityFailed.+(other.probabilityFailed))
+        </td>
+      </tr><tr>
+        <td>
+          218
+        </td>
+        <td>
+          792
+        </td>
+        <td>
+          9070
+          -
+          9085
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.defaulted
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.defaulted
+        </td>
+      </tr><tr>
+        <td>
+          218
+        </td>
+        <td>
+          788
+        </td>
+        <td>
+          8995
+          -
+          9009
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.disabled
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.disabled
+        </td>
+      </tr><tr>
+        <td>
+          218
+        </td>
+        <td>
+          791
+        </td>
+        <td>
+          9021
+          -
+          9044
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.ignored.+(other.ignored)
+        </td>
+      </tr><tr>
+        <td>
+          218
+        </td>
+        <td>
+          793
+        </td>
+        <td>
+          9058
+          -
+          9085
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.defaulted.+(other.defaulted)
+        </td>
+      </tr><tr>
+        <td>
+          218
+        </td>
+        <td>
+          790
+        </td>
+        <td>
+          9031
+          -
+          9044
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.ignored
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.ignored
+        </td>
+      </tr><tr>
+        <td>
+          218
+        </td>
+        <td>
+          789
+        </td>
+        <td>
+          8984
+          -
+          9009
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.disabled.+(other.disabled)
+        </td>
+      </tr><tr>
+        <td>
+          219
+        </td>
+        <td>
+          795
+        </td>
+        <td>
+          9113
+          -
+          9156
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.probabilityPassed.+(other.probabilityPassed)
+        </td>
+      </tr><tr>
+        <td>
+          219
+        </td>
+        <td>
+          794
+        </td>
+        <td>
+          9133
+          -
+          9156
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.probabilityPassed
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.probabilityPassed
+        </td>
+      </tr><tr>
+        <td>
+          220
+        </td>
+        <td>
+          797
+        </td>
+        <td>
+          9184
+          -
+          9227
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.probabilityFailed.+(other.probabilityFailed)
+        </td>
+      </tr><tr>
+        <td>
+          220
+        </td>
+        <td>
+          796
+        </td>
+        <td>
+          9204
+          -
+          9227
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.probabilityFailed
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.probabilityFailed
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          801
+        </td>
+        <td>
+          9400
+          -
+          9400
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$3
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          804
+        </td>
+        <td>
+          9400
+          -
+          9400
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$6
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$6
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          803
+        </td>
+        <td>
+          9400
+          -
+          9400
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$5
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          806
+        </td>
+        <td>
+          9400
+          -
+          9400
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$8
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$8
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          800
+        </td>
+        <td>
+          9400
+          -
+          9400
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$2
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          802
+        </td>
+        <td>
+          9400
+          -
+          9400
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$4
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          805
+        </td>
+        <td>
+          9400
+          -
+          9400
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$7
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$7
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          799
+        </td>
+        <td>
+          9416
+          -
+          9426
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.failed.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          807
+        </td>
+        <td>
+          9400
+          -
+          9427
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update(ResultStatistics.this.failed.+(1), ResultStatistics.this.update$default$2, ResultStatistics.this.update$default$3, ResultStatistics.this.update$default$4, ResultStatistics.this.update$default$5, ResultStatistics.this.update$default$6, ResultStatistics.this.update$default$7, ResultStatistics.this.update$default$8)
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          810
+        </td>
+        <td>
+          9449
+          -
+          9449
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$3
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          813
+        </td>
+        <td>
+          9449
+          -
+          9449
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$6
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$6
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          812
+        </td>
+        <td>
+          9449
+          -
+          9449
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$5
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          815
+        </td>
+        <td>
+          9449
+          -
+          9449
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$8
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$8
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          809
+        </td>
+        <td>
+          9449
+          -
+          9449
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$1
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          811
+        </td>
+        <td>
+          9449
+          -
+          9449
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$4
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          814
+        </td>
+        <td>
+          9449
+          -
+          9449
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$7
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$7
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          808
+        </td>
+        <td>
+          9465
+          -
+          9475
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.passed.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          816
+        </td>
+        <td>
+          9449
+          -
+          9476
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update(x$2, x$1, x$3, x$4, x$5, x$6, x$7, x$8)
+        </td>
+      </tr><tr>
+        <td>
+          229
+        </td>
+        <td>
+          819
+        </td>
+        <td>
+          9502
+          -
+          9502
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$2
+        </td>
+      </tr><tr>
+        <td>
+          229
+        </td>
+        <td>
+          822
+        </td>
+        <td>
+          9502
+          -
+          9502
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$6
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$6
+        </td>
+      </tr><tr>
+        <td>
+          229
+        </td>
+        <td>
+          821
+        </td>
+        <td>
+          9502
+          -
+          9502
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$5
+        </td>
+      </tr><tr>
+        <td>
+          229
+        </td>
+        <td>
+          824
+        </td>
+        <td>
+          9502
+          -
+          9502
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$8
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$8
+        </td>
+      </tr><tr>
+        <td>
+          229
+        </td>
+        <td>
+          818
+        </td>
+        <td>
+          9502
+          -
+          9502
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$1
+        </td>
+      </tr><tr>
+        <td>
+          229
+        </td>
+        <td>
+          817
+        </td>
+        <td>
+          9522
+          -
+          9536
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.softFailed.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          229
+        </td>
+        <td>
+          820
+        </td>
+        <td>
+          9502
+          -
+          9502
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$4
+        </td>
+      </tr><tr>
+        <td>
+          229
+        </td>
+        <td>
+          823
+        </td>
+        <td>
+          9502
+          -
+          9502
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$7
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$7
+        </td>
+      </tr><tr>
+        <td>
+          229
+        </td>
+        <td>
+          825
+        </td>
+        <td>
+          9502
+          -
+          9537
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update(x$10, x$11, x$9, x$12, x$13, x$14, x$15, x$16)
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          828
+        </td>
+        <td>
+          9565
+          -
+          9565
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$2
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          831
+        </td>
+        <td>
+          9565
+          -
+          9565
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$6
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$6
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          830
+        </td>
+        <td>
+          9565
+          -
+          9565
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$5
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          833
+        </td>
+        <td>
+          9565
+          -
+          9565
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$8
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$8
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          827
+        </td>
+        <td>
+          9565
+          -
+          9565
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$1
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          826
+        </td>
+        <td>
+          9583
+          -
+          9595
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.disabled.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          829
+        </td>
+        <td>
+          9565
+          -
+          9565
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$3
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          832
+        </td>
+        <td>
+          9565
+          -
+          9565
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$7
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$7
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          834
+        </td>
+        <td>
+          9565
+          -
+          9596
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update(x$18, x$19, x$20, x$17, x$21, x$22, x$23, x$24)
+        </td>
+      </tr><tr>
+        <td>
+          231
+        </td>
+        <td>
+          837
+        </td>
+        <td>
+          9623
+          -
+          9623
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$2
+        </td>
+      </tr><tr>
+        <td>
+          231
+        </td>
+        <td>
+          839
+        </td>
+        <td>
+          9623
+          -
+          9623
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$4
+        </td>
+      </tr><tr>
+        <td>
+          231
+        </td>
+        <td>
+          842
+        </td>
+        <td>
+          9623
+          -
+          9623
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$8
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$8
+        </td>
+      </tr><tr>
+        <td>
+          231
+        </td>
+        <td>
+          836
+        </td>
+        <td>
+          9623
+          -
+          9623
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$1
+        </td>
+      </tr><tr>
+        <td>
+          231
+        </td>
+        <td>
+          835
+        </td>
+        <td>
+          9640
+          -
+          9651
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.ignored.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          231
+        </td>
+        <td>
+          838
+        </td>
+        <td>
+          9623
+          -
+          9623
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$3
+        </td>
+      </tr><tr>
+        <td>
+          231
+        </td>
+        <td>
+          841
+        </td>
+        <td>
+          9623
+          -
+          9623
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$7
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$7
+        </td>
+      </tr><tr>
+        <td>
+          231
+        </td>
+        <td>
+          840
+        </td>
+        <td>
+          9623
+          -
+          9623
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$6
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$6
+        </td>
+      </tr><tr>
+        <td>
+          231
+        </td>
+        <td>
+          843
+        </td>
+        <td>
+          9623
+          -
+          9652
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update(x$26, x$27, x$28, x$29, x$25, x$30, x$31, x$32)
+        </td>
+      </tr><tr>
+        <td>
+          232
+        </td>
+        <td>
+          846
+        </td>
+        <td>
+          9679
+          -
+          9679
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$2
+        </td>
+      </tr><tr>
+        <td>
+          232
+        </td>
+        <td>
+          848
+        </td>
+        <td>
+          9679
+          -
+          9679
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$4
+        </td>
+      </tr><tr>
+        <td>
+          232
+        </td>
+        <td>
+          851
+        </td>
+        <td>
+          9679
+          -
+          9679
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$8
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$8
+        </td>
+      </tr><tr>
+        <td>
+          232
+        </td>
+        <td>
+          845
+        </td>
+        <td>
+          9679
+          -
+          9679
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$1
+        </td>
+      </tr><tr>
+        <td>
+          232
+        </td>
+        <td>
+          844
+        </td>
+        <td>
+          9698
+          -
+          9711
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.defaulted.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          232
+        </td>
+        <td>
+          847
+        </td>
+        <td>
+          9679
+          -
+          9679
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$3
+        </td>
+      </tr><tr>
+        <td>
+          232
+        </td>
+        <td>
+          850
+        </td>
+        <td>
+          9679
+          -
+          9679
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$7
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$7
+        </td>
+      </tr><tr>
+        <td>
+          232
+        </td>
+        <td>
+          849
+        </td>
+        <td>
+          9679
+          -
+          9679
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$5
+        </td>
+      </tr><tr>
+        <td>
+          232
+        </td>
+        <td>
+          852
+        </td>
+        <td>
+          9679
+          -
+          9712
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update(x$34, x$35, x$36, x$37, x$38, x$33, x$39, x$40)
+        </td>
+      </tr><tr>
+        <td>
+          233
+        </td>
+        <td>
+          855
+        </td>
+        <td>
+          9786
+          -
+          9786
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$1
+        </td>
+      </tr><tr>
+        <td>
+          233
+        </td>
+        <td>
+          857
+        </td>
+        <td>
+          9786
+          -
+          9786
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$3
+        </td>
+      </tr><tr>
+        <td>
+          233
+        </td>
+        <td>
+          860
+        </td>
+        <td>
+          9786
+          -
+          9786
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$6
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$6
+        </td>
+      </tr><tr>
+        <td>
+          233
+        </td>
+        <td>
+          854
+        </td>
+        <td>
+          9813
+          -
+          9834
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.probabilityPassed.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          233
+        </td>
+        <td>
+          862
+        </td>
+        <td>
+          9786
+          -
+          9835
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update(x$42, x$43, x$44, x$45, x$46, x$47, x$41, x$48)
+        </td>
+      </tr><tr>
+        <td>
+          233
+        </td>
+        <td>
+          853
+        </td>
+        <td>
+          9752
+          -
+          9781
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Double.&gt;=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          percentage.&gt;=(probabilityPass)
+        </td>
+      </tr><tr>
+        <td>
+          233
+        </td>
+        <td>
+          856
+        </td>
+        <td>
+          9786
+          -
+          9786
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$2
+        </td>
+      </tr><tr>
+        <td>
+          233
+        </td>
+        <td>
+          859
+        </td>
+        <td>
+          9786
+          -
+          9786
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$5
+        </td>
+      </tr><tr>
+        <td>
+          233
+        </td>
+        <td>
+          858
+        </td>
+        <td>
+          9786
+          -
+          9786
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$4
+        </td>
+      </tr><tr>
+        <td>
+          233
+        </td>
+        <td>
+          861
+        </td>
+        <td>
+          9786
+          -
+          9786
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$8
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$8
+        </td>
+      </tr><tr>
+        <td>
+          234
+        </td>
+        <td>
+          864
+        </td>
+        <td>
+          9865
+          -
+          9865
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$1
+        </td>
+      </tr><tr>
+        <td>
+          234
+        </td>
+        <td>
+          863
+        </td>
+        <td>
+          9892
+          -
+          9913
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.probabilityFailed.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          234
+        </td>
+        <td>
+          866
+        </td>
+        <td>
+          9865
+          -
+          9865
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$3
+        </td>
+      </tr><tr>
+        <td>
+          234
+        </td>
+        <td>
+          869
+        </td>
+        <td>
+          9865
+          -
+          9865
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$6
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$6
+        </td>
+      </tr><tr>
+        <td>
+          234
+        </td>
+        <td>
+          871
+        </td>
+        <td>
+          9865
+          -
+          9914
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update(x$50, x$51, x$52, x$53, x$54, x$55, x$56, x$49)
+        </td>
+      </tr><tr>
+        <td>
+          234
+        </td>
+        <td>
+          865
+        </td>
+        <td>
+          9865
+          -
+          9865
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$2
+        </td>
+      </tr><tr>
+        <td>
+          234
+        </td>
+        <td>
+          868
+        </td>
+        <td>
+          9865
+          -
+          9865
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$5
+        </td>
+      </tr><tr>
+        <td>
+          234
+        </td>
+        <td>
+          867
+        </td>
+        <td>
+          9865
+          -
+          9865
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$4
+        </td>
+      </tr><tr>
+        <td>
+          234
+        </td>
+        <td>
+          870
+        </td>
+        <td>
+          9865
+          -
+          9865
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update$default$7
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update$default$7
+        </td>
+      </tr><tr>
+        <td>
+          236
+        </td>
+        <td>
+          872
+        </td>
+        <td>
+          9988
+          -
+          10030
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.processResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.processResult(ruleResult, probabilityPass)
+        </td>
+      </tr><tr>
+        <td>
+          249
+        </td>
+        <td>
+          873
+        </td>
+        <td>
+          10610
+          -
+          10610
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleStatistics.copy$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleStatistics.this.copy$default$1
+        </td>
+      </tr><tr>
+        <td>
+          249
+        </td>
+        <td>
+          874
+        </td>
+        <td>
+          10610
+          -
+          10820
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleStatistics.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleStatistics.this.copy(x$9, x$1, x$2, x$3, x$4, x$5, x$6, x$7, x$8)
+        </td>
+      </tr><tr>
+        <td>
+          252
+        </td>
+        <td>
+          875
+        </td>
+        <td>
+          10886
+          -
+          10907
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.combineResults
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleStatistics.this.combineResults(other)
+        </td>
+      </tr><tr>
+        <td>
+          262
+        </td>
+        <td>
+          878
+        </td>
+        <td>
+          11509
+          -
+          11719
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSetStatistics.this.copy(x$9, x$1, x$2, x$3, x$4, x$5, x$6, x$7, x$8, x$10)
+        </td>
+      </tr><tr>
+        <td>
+          262
+        </td>
+        <td>
+          877
+        </td>
+        <td>
+          11509
+          -
+          11509
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.copy$default$10
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSetStatistics.this.copy$default$10
+        </td>
+      </tr><tr>
+        <td>
+          262
+        </td>
+        <td>
+          876
+        </td>
+        <td>
+          11509
+          -
+          11509
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.copy$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSetStatistics.this.copy$default$1
+        </td>
+      </tr><tr>
+        <td>
+          266
+        </td>
+        <td>
+          908
+        </td>
+        <td>
+          11825
+          -
+          11825
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.copy$default$9
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$9
+        </td>
+      </tr><tr>
+        <td>
+          266
+        </td>
+        <td>
+          881
+        </td>
+        <td>
+          11786
+          -
+          11824
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.processResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSetStatistics.this.processResult(setResult.overallResult, RuleSetStatistics.this.processResult$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          266
+        </td>
+        <td>
+          902
+        </td>
+        <td>
+          11825
+          -
+          11825
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.copy$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$3
+        </td>
+      </tr><tr>
+        <td>
+          266
+        </td>
+        <td>
+          905
+        </td>
+        <td>
+          11825
+          -
+          11825
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.copy$default$6
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$6
+        </td>
+      </tr><tr>
+        <td>
+          266
+        </td>
+        <td>
+          904
+        </td>
+        <td>
+          11825
+          -
+          11825
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.copy$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$5
+        </td>
+      </tr><tr>
+        <td>
+          266
+        </td>
+        <td>
+          907
+        </td>
+        <td>
+          11825
+          -
+          11825
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.copy$default$8
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$8
+        </td>
+      </tr><tr>
+        <td>
+          266
+        </td>
+        <td>
+          880
+        </td>
+        <td>
+          11786
+          -
+          11786
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.processResult$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSetStatistics.this.processResult$default$2
+        </td>
+      </tr><tr>
+        <td>
+          266
+        </td>
+        <td>
+          901
+        </td>
+        <td>
+          11825
+          -
+          11825
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.copy$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$2
+        </td>
+      </tr><tr>
+        <td>
+          266
+        </td>
+        <td>
+          909
+        </td>
+        <td>
+          11786
+          -
+          12103
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy(x$4, x$5, x$6, x$7, x$8, x$9, x$10, x$11, x$12, x$3)
+        </td>
+      </tr><tr>
+        <td>
+          266
+        </td>
+        <td>
+          900
+        </td>
+        <td>
+          11825
+          -
+          11825
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.copy$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$1
+        </td>
+      </tr><tr>
+        <td>
+          266
+        </td>
+        <td>
+          903
+        </td>
+        <td>
+          11825
+          -
+          11825
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.copy$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$4
+        </td>
+      </tr><tr>
+        <td>
+          266
+        </td>
+        <td>
+          906
+        </td>
+        <td>
+          11825
+          -
+          11825
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.copy$default$7
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$7
+        </td>
+      </tr><tr>
+        <td>
+          266
+        </td>
+        <td>
+          879
+        </td>
+        <td>
+          11800
+          -
+          11823
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetResult.overallResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          setResult.overallResult
+        </td>
+      </tr><tr>
+        <td>
+          267
+        </td>
+        <td>
+          882
+        </td>
+        <td>
+          11876
+          -
+          11881
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.rules
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSetStatistics.this.rules
+        </td>
+      </tr><tr>
+        <td>
+          267
+        </td>
+        <td>
+          899
+        </td>
+        <td>
+          11845
+          -
+          12102
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.foldLeft
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          setResult.ruleResults.foldLeft[Map[com.sparkutils.quality.impl.VersionedId,com.sparkutils.quality.RuleStatistics]](RuleSetStatistics.this.rules)(((x0$1: Map[com.sparkutils.quality.impl.VersionedId,com.sparkutils.quality.RuleStatistics], x1$1: (com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleResult)) =&gt; scala.Tuple2.apply[Map[com.sparkutils.quality.impl.VersionedId,com.sparkutils.quality.RuleStatistics], (com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleResult)](x0$1, x1$1) match {
+  case (_1: Map[com.sparkutils.quality.impl.VersionedId,com.sparkutils.quality.RuleStatistics], _2: (com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleResult))(Map[com.sparkutils.quality.impl.VersionedId,com.sparkutils.quality.RuleStatistics], (com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleResult))((cur @ _), (_1: com.sparkutils.quality.impl.VersionedId, _2: com.sparkutils.quality.RuleResult)(com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleResult)((id @ _), (ruleResult @ _))) =&gt; com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleStatistics](cur).updatedWithF[com.sparkutils.quality.RuleStatistics](id)(((x$1: Option[com.sparkutils.quality.RuleStatistics]) =&gt; x$1.map[com.sparkutils.quality.RuleStatistics](((rs: com.sparkutils.quality.RuleStatistics) =&gt; rs.processResult(ruleResult, rs.processResult$default$2))).orElse[com.sparkutils.quality.RuleStatistics](scala.Some.apply[com.sparkutils.quality.RuleStatistics]({
+    &lt;artifact&gt; val qual$2: com.sparkutils.quality.RuleStatistics = RuleStatistics.apply(id, RuleStatistics.apply$default$2, RuleStatistics.apply$default$3, RuleStatistics.apply$default$4, RuleStatistics.apply$default$5, RuleStatistics.apply$default$6, RuleStatistics.apply$default$7, RuleStatistics.apply$default$8, RuleStatistics.apply$default$9);
+    &lt;artifact&gt; val x$1: com.sparkutils.quality.RuleResult = ruleResult;
+    &lt;artifact&gt; val x$2: Double = qual$2.processResult$default$2;
+    qual$2.processResult(x$1, x$2)
+  }))))
+}))
+        </td>
+      </tr><tr>
+        <td>
+          269
+        </td>
+        <td>
+          898
+        </td>
+        <td>
+          11934
+          -
+          12094
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.MapOps.MapOps.updatedWithF
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleStatistics](cur).updatedWithF[com.sparkutils.quality.RuleStatistics](id)(((x$1: Option[com.sparkutils.quality.RuleStatistics]) =&gt; x$1.map[com.sparkutils.quality.RuleStatistics](((rs: com.sparkutils.quality.RuleStatistics) =&gt; rs.processResult(ruleResult, rs.processResult$default$2))).orElse[com.sparkutils.quality.RuleStatistics](scala.Some.apply[com.sparkutils.quality.RuleStatistics]({
+  &lt;artifact&gt; val qual$2: com.sparkutils.quality.RuleStatistics = RuleStatistics.apply(id, RuleStatistics.apply$default$2, RuleStatistics.apply$default$3, RuleStatistics.apply$default$4, RuleStatistics.apply$default$5, RuleStatistics.apply$default$6, RuleStatistics.apply$default$7, RuleStatistics.apply$default$8, RuleStatistics.apply$default$9);
+  &lt;artifact&gt; val x$1: com.sparkutils.quality.RuleResult = ruleResult;
+  &lt;artifact&gt; val x$2: Double = qual$2.processResult$default$2;
+  qual$2.processResult(x$1, x$2)
+}))))
+        </td>
+      </tr><tr>
+        <td>
+          271
+        </td>
+        <td>
+          884
+        </td>
+        <td>
+          11994
+          -
+          12022
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.processResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          rs.processResult(ruleResult, rs.processResult$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          271
+        </td>
+        <td>
+          883
+        </td>
+        <td>
+          11997
+          -
+          11997
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.processResult$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          rs.processResult$default$2
+        </td>
+      </tr><tr>
+        <td>
+          272
+        </td>
+        <td>
+          891
+        </td>
+        <td>
+          12047
+          -
+          12047
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleStatistics.apply$default$8
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleStatistics.apply$default$8
+        </td>
+      </tr><tr>
+        <td>
+          272
+        </td>
+        <td>
+          890
+        </td>
+        <td>
+          12047
+          -
+          12047
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleStatistics.apply$default$7
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleStatistics.apply$default$7
+        </td>
+      </tr><tr>
+        <td>
+          272
+        </td>
+        <td>
+          893
+        </td>
+        <td>
+          12047
+          -
+          12065
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleStatistics.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleStatistics.apply(id, RuleStatistics.apply$default$2, RuleStatistics.apply$default$3, RuleStatistics.apply$default$4, RuleStatistics.apply$default$5, RuleStatistics.apply$default$6, RuleStatistics.apply$default$7, RuleStatistics.apply$default$8, RuleStatistics.apply$default$9)
+        </td>
+      </tr><tr>
+        <td>
+          272
+        </td>
+        <td>
+          896
+        </td>
+        <td>
+          12042
+          -
+          12092
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[com.sparkutils.quality.RuleStatistics]({
+  &lt;artifact&gt; val qual$2: com.sparkutils.quality.RuleStatistics = RuleStatistics.apply(id, RuleStatistics.apply$default$2, RuleStatistics.apply$default$3, RuleStatistics.apply$default$4, RuleStatistics.apply$default$5, RuleStatistics.apply$default$6, RuleStatistics.apply$default$7, RuleStatistics.apply$default$8, RuleStatistics.apply$default$9);
+  &lt;artifact&gt; val x$1: com.sparkutils.quality.RuleResult = ruleResult;
+  &lt;artifact&gt; val x$2: Double = qual$2.processResult$default$2;
+  qual$2.processResult(x$1, x$2)
+})
+        </td>
+      </tr><tr>
+        <td>
+          272
+        </td>
+        <td>
+          887
+        </td>
+        <td>
+          12047
+          -
+          12047
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleStatistics.apply$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleStatistics.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          272
+        </td>
+        <td>
+          886
+        </td>
+        <td>
+          12047
+          -
+          12047
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleStatistics.apply$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleStatistics.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          272
+        </td>
+        <td>
+          895
+        </td>
+        <td>
+          12047
+          -
+          12091
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.processResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$2.processResult(x$1, x$2)
+        </td>
+      </tr><tr>
+        <td>
+          272
+        </td>
+        <td>
+          889
+        </td>
+        <td>
+          12047
+          -
+          12047
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleStatistics.apply$default$6
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleStatistics.apply$default$6
+        </td>
+      </tr><tr>
+        <td>
+          272
+        </td>
+        <td>
+          892
+        </td>
+        <td>
+          12047
+          -
+          12047
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleStatistics.apply$default$9
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleStatistics.apply$default$9
+        </td>
+      </tr><tr>
+        <td>
+          272
+        </td>
+        <td>
+          885
+        </td>
+        <td>
+          12047
+          -
+          12047
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleStatistics.apply$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleStatistics.apply$default$2
+        </td>
+      </tr><tr>
+        <td>
+          272
+        </td>
+        <td>
+          894
+        </td>
+        <td>
+          12066
+          -
+          12066
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.processResult$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$2.processResult$default$2
+        </td>
+      </tr><tr>
+        <td>
+          272
+        </td>
+        <td>
+          888
+        </td>
+        <td>
+          12047
+          -
+          12047
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleStatistics.apply$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleStatistics.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          272
+        </td>
+        <td>
+          897
+        </td>
+        <td>
+          11955
+          -
+          12093
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.orElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$1.map[com.sparkutils.quality.RuleStatistics](((rs: com.sparkutils.quality.RuleStatistics) =&gt; rs.processResult(ruleResult, rs.processResult$default$2))).orElse[com.sparkutils.quality.RuleStatistics](scala.Some.apply[com.sparkutils.quality.RuleStatistics]({
+  &lt;artifact&gt; val qual$2: com.sparkutils.quality.RuleStatistics = RuleStatistics.apply(id, RuleStatistics.apply$default$2, RuleStatistics.apply$default$3, RuleStatistics.apply$default$4, RuleStatistics.apply$default$5, RuleStatistics.apply$default$6, RuleStatistics.apply$default$7, RuleStatistics.apply$default$8, RuleStatistics.apply$default$9);
+  &lt;artifact&gt; val x$1: com.sparkutils.quality.RuleResult = ruleResult;
+  &lt;artifact&gt; val x$2: Double = qual$2.processResult$default$2;
+  qual$2.processResult(x$1, x$2)
+}))
+        </td>
+      </tr><tr>
+        <td>
+          275
+        </td>
+        <td>
+          923
+        </td>
+        <td>
+          12197
+          -
+          12197
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.copy$default$7
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$7
+        </td>
+      </tr><tr>
+        <td>
+          275
+        </td>
+        <td>
+          926
+        </td>
+        <td>
+          12175
+          -
+          12414
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy(x$2, x$3, x$4, x$5, x$6, x$7, x$8, x$9, x$10, x$1)
+        </td>
+      </tr><tr>
+        <td>
+          275
+        </td>
+        <td>
+          917
+        </td>
+        <td>
+          12197
+          -
+          12197
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.copy$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$1
+        </td>
+      </tr><tr>
+        <td>
+          275
+        </td>
+        <td>
+          920
+        </td>
+        <td>
+          12197
+          -
+          12197
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.copy$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$4
+        </td>
+      </tr><tr>
+        <td>
+          275
+        </td>
+        <td>
+          922
+        </td>
+        <td>
+          12197
+          -
+          12197
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.copy$default$6
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$6
+        </td>
+      </tr><tr>
+        <td>
+          275
+        </td>
+        <td>
+          925
+        </td>
+        <td>
+          12197
+          -
+          12197
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.copy$default$9
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$9
+        </td>
+      </tr><tr>
+        <td>
+          275
+        </td>
+        <td>
+          910
+        </td>
+        <td>
+          12175
+          -
+          12196
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.combineResults
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSetStatistics.this.combineResults(other)
+        </td>
+      </tr><tr>
+        <td>
+          275
+        </td>
+        <td>
+          919
+        </td>
+        <td>
+          12197
+          -
+          12197
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.copy$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$3
+        </td>
+      </tr><tr>
+        <td>
+          275
+        </td>
+        <td>
+          918
+        </td>
+        <td>
+          12197
+          -
+          12197
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.copy$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$2
+        </td>
+      </tr><tr>
+        <td>
+          275
+        </td>
+        <td>
+          921
+        </td>
+        <td>
+          12197
+          -
+          12197
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.copy$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$5
+        </td>
+      </tr><tr>
+        <td>
+          275
+        </td>
+        <td>
+          924
+        </td>
+        <td>
+          12197
+          -
+          12197
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.copy$default$8
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$8
+        </td>
+      </tr><tr>
+        <td>
+          276
+        </td>
+        <td>
+          911
+        </td>
+        <td>
+          12236
+          -
+          12241
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.rules
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSetStatistics.this.rules
+        </td>
+      </tr><tr>
+        <td>
+          276
+        </td>
+        <td>
+          916
+        </td>
+        <td>
+          12215
+          -
+          12410
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.foldLeft
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.rules.foldLeft[Map[com.sparkutils.quality.impl.VersionedId,com.sparkutils.quality.RuleStatistics]](RuleSetStatistics.this.rules)(((x0$1: Map[com.sparkutils.quality.impl.VersionedId,com.sparkutils.quality.RuleStatistics], x1$1: (com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleStatistics)) =&gt; scala.Tuple2.apply[Map[com.sparkutils.quality.impl.VersionedId,com.sparkutils.quality.RuleStatistics], (com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleStatistics)](x0$1, x1$1) match {
+  case (_1: Map[com.sparkutils.quality.impl.VersionedId,com.sparkutils.quality.RuleStatistics], _2: (com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleStatistics))(Map[com.sparkutils.quality.impl.VersionedId,com.sparkutils.quality.RuleStatistics], (com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleStatistics))((cur @ _), (_1: com.sparkutils.quality.impl.VersionedId, _2: com.sparkutils.quality.RuleStatistics)(com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleStatistics)((id @ _), (ruleResult @ _))) =&gt; com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleStatistics](cur).updatedWithF[com.sparkutils.quality.RuleStatistics](id)(((x$2: Option[com.sparkutils.quality.RuleStatistics]) =&gt; x$2.map[com.sparkutils.quality.RuleStatistics](((rs: com.sparkutils.quality.RuleStatistics) =&gt; rs.combine(ruleResult))).orElse[com.sparkutils.quality.RuleStatistics](scala.Some.apply[com.sparkutils.quality.RuleStatistics](ruleResult))))
+}))
+        </td>
+      </tr><tr>
+        <td>
+          278
+        </td>
+        <td>
+          915
+        </td>
+        <td>
+          12290
+          -
+          12404
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.MapOps.MapOps.updatedWithF
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleStatistics](cur).updatedWithF[com.sparkutils.quality.RuleStatistics](id)(((x$2: Option[com.sparkutils.quality.RuleStatistics]) =&gt; x$2.map[com.sparkutils.quality.RuleStatistics](((rs: com.sparkutils.quality.RuleStatistics) =&gt; rs.combine(ruleResult))).orElse[com.sparkutils.quality.RuleStatistics](scala.Some.apply[com.sparkutils.quality.RuleStatistics](ruleResult))))
+        </td>
+      </tr><tr>
+        <td>
+          280
+        </td>
+        <td>
+          912
+        </td>
+        <td>
+          12346
+          -
+          12368
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleStatistics.combine
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          rs.combine(ruleResult)
+        </td>
+      </tr><tr>
+        <td>
+          281
+        </td>
+        <td>
+          914
+        </td>
+        <td>
+          12311
+          -
+          12403
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.orElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$2.map[com.sparkutils.quality.RuleStatistics](((rs: com.sparkutils.quality.RuleStatistics) =&gt; rs.combine(ruleResult))).orElse[com.sparkutils.quality.RuleStatistics](scala.Some.apply[com.sparkutils.quality.RuleStatistics](ruleResult))
+        </td>
+      </tr><tr>
+        <td>
+          281
+        </td>
+        <td>
+          913
+        </td>
+        <td>
+          12386
+          -
+          12402
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[com.sparkutils.quality.RuleStatistics](ruleResult)
+        </td>
+      </tr><tr>
+        <td>
+          294
+        </td>
+        <td>
+          929
+        </td>
+        <td>
+          13067
+          -
+          13067
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.copy$default$11
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteStatistics.this.copy$default$11
+        </td>
+      </tr><tr>
+        <td>
+          294
+        </td>
+        <td>
+          928
+        </td>
+        <td>
+          13067
+          -
+          13067
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.copy$default$10
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteStatistics.this.copy$default$10
+        </td>
+      </tr><tr>
+        <td>
+          294
+        </td>
+        <td>
+          927
+        </td>
+        <td>
+          13067
+          -
+          13067
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.copy$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteStatistics.this.copy$default$1
+        </td>
+      </tr><tr>
+        <td>
+          294
+        </td>
+        <td>
+          930
+        </td>
+        <td>
+          13067
+          -
+          13277
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteStatistics.this.copy(x$9, x$1, x$2, x$3, x$4, x$5, x$6, x$7, x$8, x$10, x$11)
+        </td>
+      </tr><tr>
+        <td>
+          298
+        </td>
+        <td>
+          950
+        </td>
+        <td>
+          13401
+          -
+          13401
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.copy$default$9
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$9
+        </td>
+      </tr><tr>
+        <td>
+          298
+        </td>
+        <td>
+          932
+        </td>
+        <td>
+          13356
+          -
+          13356
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.processResult$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteStatistics.this.processResult$default$2
+        </td>
+      </tr><tr>
+        <td>
+          298
+        </td>
+        <td>
+          944
+        </td>
+        <td>
+          13401
+          -
+          13401
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.copy$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$3
+        </td>
+      </tr><tr>
+        <td>
+          298
+        </td>
+        <td>
+          947
+        </td>
+        <td>
+          13401
+          -
+          13401
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.copy$default$6
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$6
+        </td>
+      </tr><tr>
+        <td>
+          298
+        </td>
+        <td>
+          946
+        </td>
+        <td>
+          13401
+          -
+          13401
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.copy$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$5
+        </td>
+      </tr><tr>
+        <td>
+          298
+        </td>
+        <td>
+          949
+        </td>
+        <td>
+          13401
+          -
+          13401
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.copy$default$8
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$8
+        </td>
+      </tr><tr>
+        <td>
+          298
+        </td>
+        <td>
+          931
+        </td>
+        <td>
+          13370
+          -
+          13399
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteResult.overallResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuiteResult.overallResult
+        </td>
+      </tr><tr>
+        <td>
+          298
+        </td>
+        <td>
+          943
+        </td>
+        <td>
+          13401
+          -
+          13401
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.copy$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$2
+        </td>
+      </tr><tr>
+        <td>
+          298
+        </td>
+        <td>
+          934
+        </td>
+        <td>
+          13417
+          -
+          13429
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteStatistics.this.rowCount.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          298
+        </td>
+        <td>
+          945
+        </td>
+        <td>
+          13401
+          -
+          13401
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.copy$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$4
+        </td>
+      </tr><tr>
+        <td>
+          298
+        </td>
+        <td>
+          948
+        </td>
+        <td>
+          13401
+          -
+          13401
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.copy$default$7
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$7
+        </td>
+      </tr><tr>
+        <td>
+          298
+        </td>
+        <td>
+          933
+        </td>
+        <td>
+          13356
+          -
+          13400
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.processResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteStatistics.this.processResult(ruleSuiteResult.overallResult, RuleSuiteStatistics.this.processResult$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          298
+        </td>
+        <td>
+          942
+        </td>
+        <td>
+          13401
+          -
+          13401
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.copy$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$1
+        </td>
+      </tr><tr>
+        <td>
+          298
+        </td>
+        <td>
+          951
+        </td>
+        <td>
+          13356
+          -
+          13711
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy(x$3, x$4, x$5, x$6, x$7, x$8, x$9, x$10, x$11, x$1, x$2)
+        </td>
+      </tr><tr>
+        <td>
+          299
+        </td>
+        <td>
+          941
+        </td>
+        <td>
+          13448
+          -
+          13705
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.foldLeft
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuiteResult.ruleSetResults.foldLeft[Map[com.sparkutils.quality.impl.VersionedId,com.sparkutils.quality.RuleSetStatistics]](RuleSuiteStatistics.this.ruleSets)(((x0$1: Map[com.sparkutils.quality.impl.VersionedId,com.sparkutils.quality.RuleSetStatistics], x1$1: (com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleSetResult)) =&gt; scala.Tuple2.apply[Map[com.sparkutils.quality.impl.VersionedId,com.sparkutils.quality.RuleSetStatistics], (com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleSetResult)](x0$1, x1$1) match {
+  case (_1: Map[com.sparkutils.quality.impl.VersionedId,com.sparkutils.quality.RuleSetStatistics], _2: (com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleSetResult))(Map[com.sparkutils.quality.impl.VersionedId,com.sparkutils.quality.RuleSetStatistics], (com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleSetResult))((cur @ _), (_1: com.sparkutils.quality.impl.VersionedId, _2: com.sparkutils.quality.RuleSetResult)(com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleSetResult)((id @ _), (setResult @ _))) =&gt; com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleSetStatistics](cur).updatedWithF[com.sparkutils.quality.RuleSetStatistics](id)(((x$3: Option[com.sparkutils.quality.RuleSetStatistics]) =&gt; x$3.map[com.sparkutils.quality.RuleSetStatistics](((rs: com.sparkutils.quality.RuleSetStatistics) =&gt; rs.process(setResult))).orElse[com.sparkutils.quality.RuleSetStatistics](scala.Some.apply[com.sparkutils.quality.RuleSetStatistics](RuleSetStatistics.apply(id, RuleSetStatistics.apply$default$2, RuleSetStatistics.apply$default$3, RuleSetStatistics.apply$default$4, RuleSetStatistics.apply$default$5, RuleSetStatistics.apply$default$6, RuleSetStatistics.apply$default$7, RuleSetStatistics.apply$default$8, RuleSetStatistics.apply$default$9, RuleSetStatistics.apply$default$10).process(setResult)))))
+}))
+        </td>
+      </tr><tr>
+        <td>
+          299
+        </td>
+        <td>
+          935
+        </td>
+        <td>
+          13488
+          -
+          13496
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.ruleSets
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteStatistics.this.ruleSets
+        </td>
+      </tr><tr>
+        <td>
+          301
+        </td>
+        <td>
+          940
+        </td>
+        <td>
+          13548
+          -
+          13697
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.MapOps.MapOps.updatedWithF
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleSetStatistics](cur).updatedWithF[com.sparkutils.quality.RuleSetStatistics](id)(((x$3: Option[com.sparkutils.quality.RuleSetStatistics]) =&gt; x$3.map[com.sparkutils.quality.RuleSetStatistics](((rs: com.sparkutils.quality.RuleSetStatistics) =&gt; rs.process(setResult))).orElse[com.sparkutils.quality.RuleSetStatistics](scala.Some.apply[com.sparkutils.quality.RuleSetStatistics](RuleSetStatistics.apply(id, RuleSetStatistics.apply$default$2, RuleSetStatistics.apply$default$3, RuleSetStatistics.apply$default$4, RuleSetStatistics.apply$default$5, RuleSetStatistics.apply$default$6, RuleSetStatistics.apply$default$7, RuleSetStatistics.apply$default$8, RuleSetStatistics.apply$default$9, RuleSetStatistics.apply$default$10).process(setResult)))))
+        </td>
+      </tr><tr>
+        <td>
+          303
+        </td>
+        <td>
+          936
+        </td>
+        <td>
+          13608
+          -
+          13629
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.process
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          rs.process(setResult)
+        </td>
+      </tr><tr>
+        <td>
+          304
+        </td>
+        <td>
+          938
+        </td>
+        <td>
+          13649
+          -
+          13695
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[com.sparkutils.quality.RuleSetStatistics](RuleSetStatistics.apply(id, RuleSetStatistics.apply$default$2, RuleSetStatistics.apply$default$3, RuleSetStatistics.apply$default$4, RuleSetStatistics.apply$default$5, RuleSetStatistics.apply$default$6, RuleSetStatistics.apply$default$7, RuleSetStatistics.apply$default$8, RuleSetStatistics.apply$default$9, RuleSetStatistics.apply$default$10).process(setResult))
+        </td>
+      </tr><tr>
+        <td>
+          304
+        </td>
+        <td>
+          937
+        </td>
+        <td>
+          13654
+          -
+          13694
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.process
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSetStatistics.apply(id, RuleSetStatistics.apply$default$2, RuleSetStatistics.apply$default$3, RuleSetStatistics.apply$default$4, RuleSetStatistics.apply$default$5, RuleSetStatistics.apply$default$6, RuleSetStatistics.apply$default$7, RuleSetStatistics.apply$default$8, RuleSetStatistics.apply$default$9, RuleSetStatistics.apply$default$10).process(setResult)
+        </td>
+      </tr><tr>
+        <td>
+          304
+        </td>
+        <td>
+          939
+        </td>
+        <td>
+          13569
+          -
+          13696
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.orElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$3.map[com.sparkutils.quality.RuleSetStatistics](((rs: com.sparkutils.quality.RuleSetStatistics) =&gt; rs.process(setResult))).orElse[com.sparkutils.quality.RuleSetStatistics](scala.Some.apply[com.sparkutils.quality.RuleSetStatistics](RuleSetStatistics.apply(id, RuleSetStatistics.apply$default$2, RuleSetStatistics.apply$default$3, RuleSetStatistics.apply$default$4, RuleSetStatistics.apply$default$5, RuleSetStatistics.apply$default$6, RuleSetStatistics.apply$default$7, RuleSetStatistics.apply$default$8, RuleSetStatistics.apply$default$9, RuleSetStatistics.apply$default$10).process(setResult)))
+        </td>
+      </tr><tr>
+        <td>
+          309
+        </td>
+        <td>
+          968
+        </td>
+        <td>
+          13813
+          -
+          13813
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.copy$default$8
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$8
+        </td>
+      </tr><tr>
+        <td>
+          309
+        </td>
+        <td>
+          962
+        </td>
+        <td>
+          13813
+          -
+          13813
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.copy$default$2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$2
+        </td>
+      </tr><tr>
+        <td>
+          309
+        </td>
+        <td>
+          965
+        </td>
+        <td>
+          13813
+          -
+          13813
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.copy$default$5
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$5
+        </td>
+      </tr><tr>
+        <td>
+          309
+        </td>
+        <td>
+          964
+        </td>
+        <td>
+          13813
+          -
+          13813
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.copy$default$4
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$4
+        </td>
+      </tr><tr>
+        <td>
+          309
+        </td>
+        <td>
+          967
+        </td>
+        <td>
+          13813
+          -
+          13813
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.copy$default$7
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$7
+        </td>
+      </tr><tr>
+        <td>
+          309
+        </td>
+        <td>
+          961
+        </td>
+        <td>
+          13813
+          -
+          13813
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.copy$default$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$1
+        </td>
+      </tr><tr>
+        <td>
+          309
+        </td>
+        <td>
+          970
+        </td>
+        <td>
+          13791
+          -
+          14078
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy(x$3, x$4, x$5, x$6, x$7, x$8, x$9, x$10, x$11, x$1, x$2)
+        </td>
+      </tr><tr>
+        <td>
+          309
+        </td>
+        <td>
+          952
+        </td>
+        <td>
+          13791
+          -
+          13812
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.combineResults
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteStatistics.this.combineResults(other)
+        </td>
+      </tr><tr>
+        <td>
+          309
+        </td>
+        <td>
+          969
+        </td>
+        <td>
+          13813
+          -
+          13813
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.copy$default$9
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$9
+        </td>
+      </tr><tr>
+        <td>
+          309
+        </td>
+        <td>
+          963
+        </td>
+        <td>
+          13813
+          -
+          13813
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.copy$default$3
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$3
+        </td>
+      </tr><tr>
+        <td>
+          309
+        </td>
+        <td>
+          966
+        </td>
+        <td>
+          13813
+          -
+          13813
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.copy$default$6
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy$default$6
+        </td>
+      </tr><tr>
+        <td>
+          310
+        </td>
+        <td>
+          953
+        </td>
+        <td>
+          13845
+          -
+          13859
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.rowCount
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.rowCount
+        </td>
+      </tr><tr>
+        <td>
+          310
+        </td>
+        <td>
+          954
+        </td>
+        <td>
+          13834
+          -
+          13859
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteStatistics.this.rowCount.+(other.rowCount)
+        </td>
+      </tr><tr>
+        <td>
+          311
+        </td>
+        <td>
+          955
+        </td>
+        <td>
+          13900
+          -
+          13908
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.ruleSets
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteStatistics.this.ruleSets
+        </td>
+      </tr><tr>
+        <td>
+          311
+        </td>
+        <td>
+          960
+        </td>
+        <td>
+          13876
+          -
+          14074
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.foldLeft
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.ruleSets.foldLeft[Map[com.sparkutils.quality.impl.VersionedId,com.sparkutils.quality.RuleSetStatistics]](RuleSuiteStatistics.this.ruleSets)(((x0$1: Map[com.sparkutils.quality.impl.VersionedId,com.sparkutils.quality.RuleSetStatistics], x1$1: (com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleSetStatistics)) =&gt; scala.Tuple2.apply[Map[com.sparkutils.quality.impl.VersionedId,com.sparkutils.quality.RuleSetStatistics], (com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleSetStatistics)](x0$1, x1$1) match {
+  case (_1: Map[com.sparkutils.quality.impl.VersionedId,com.sparkutils.quality.RuleSetStatistics], _2: (com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleSetStatistics))(Map[com.sparkutils.quality.impl.VersionedId,com.sparkutils.quality.RuleSetStatistics], (com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleSetStatistics))((cur @ _), (_1: com.sparkutils.quality.impl.VersionedId, _2: com.sparkutils.quality.RuleSetStatistics)(com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleSetStatistics)((id @ _), (setResult @ _))) =&gt; com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleSetStatistics](cur).updatedWithF[com.sparkutils.quality.RuleSetStatistics](id)(((x$4: Option[com.sparkutils.quality.RuleSetStatistics]) =&gt; x$4.map[com.sparkutils.quality.RuleSetStatistics](((rs: com.sparkutils.quality.RuleSetStatistics) =&gt; rs.combine(setResult))).orElse[com.sparkutils.quality.RuleSetStatistics](scala.Some.apply[com.sparkutils.quality.RuleSetStatistics](setResult))))
+}))
+        </td>
+      </tr><tr>
+        <td>
+          313
+        </td>
+        <td>
+          959
+        </td>
+        <td>
+          13956
+          -
+          14068
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.MapOps.MapOps.updatedWithF
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleSetStatistics](cur).updatedWithF[com.sparkutils.quality.RuleSetStatistics](id)(((x$4: Option[com.sparkutils.quality.RuleSetStatistics]) =&gt; x$4.map[com.sparkutils.quality.RuleSetStatistics](((rs: com.sparkutils.quality.RuleSetStatistics) =&gt; rs.combine(setResult))).orElse[com.sparkutils.quality.RuleSetStatistics](scala.Some.apply[com.sparkutils.quality.RuleSetStatistics](setResult))))
+        </td>
+      </tr><tr>
+        <td>
+          315
+        </td>
+        <td>
+          956
+        </td>
+        <td>
+          14012
+          -
+          14033
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.combine
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          rs.combine(setResult)
+        </td>
+      </tr><tr>
+        <td>
+          316
+        </td>
+        <td>
+          958
+        </td>
+        <td>
+          13977
+          -
+          14067
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.orElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$4.map[com.sparkutils.quality.RuleSetStatistics](((rs: com.sparkutils.quality.RuleSetStatistics) =&gt; rs.combine(setResult))).orElse[com.sparkutils.quality.RuleSetStatistics](scala.Some.apply[com.sparkutils.quality.RuleSetStatistics](setResult))
+        </td>
+      </tr><tr>
+        <td>
+          316
+        </td>
+        <td>
+          957
+        </td>
+        <td>
+          14051
+          -
+          14066
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[com.sparkutils.quality.RuleSetStatistics](setResult)
+        </td>
+      </tr><tr>
+        <td>
+          328
+        </td>
+        <td>
+          971
+        </td>
+        <td>
+          14475
+          -
+          14487
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteGroupStatistics.this.rowCount.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          328
+        </td>
+        <td>
+          973
+        </td>
+        <td>
+          14526
+          -
+          14544
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteResult.id
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuiteResult.id
+        </td>
+      </tr><tr>
+        <td>
+          328
+        </td>
+        <td>
+          979
+        </td>
+        <td>
+          14459
+          -
+          14673
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteGroupStatistics.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteGroupStatistics.this.copy(x$2, x$1)
+        </td>
+      </tr><tr>
+        <td>
+          328
+        </td>
+        <td>
+          978
+        </td>
+        <td>
+          14502
+          -
+          14672
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.MapOps.MapOps.updatedWithF
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleSuiteStatistics](RuleSuiteGroupStatistics.this.ruleSuites).updatedWithF[com.sparkutils.quality.RuleSuiteStatistics](ruleSuiteResult.id)(((x$5: Option[com.sparkutils.quality.RuleSuiteStatistics]) =&gt; x$5.map[com.sparkutils.quality.RuleSuiteStatistics](((x$6: com.sparkutils.quality.RuleSuiteStatistics) =&gt; x$6.process(ruleSuiteResult))).orElse[com.sparkutils.quality.RuleSuiteStatistics](scala.Some.apply[com.sparkutils.quality.RuleSuiteStatistics](RuleSuiteStatistics.apply(ruleSuiteResult.id, RuleSuiteStatistics.apply$default$2, RuleSuiteStatistics.apply$default$3, RuleSuiteStatistics.apply$default$4, RuleSuiteStatistics.apply$default$5, RuleSuiteStatistics.apply$default$6, RuleSuiteStatistics.apply$default$7, RuleSuiteStatistics.apply$default$8, RuleSuiteStatistics.apply$default$9, RuleSuiteStatistics.apply$default$10, RuleSuiteStatistics.apply$default$11).process(ruleSuiteResult)))))
+        </td>
+      </tr><tr>
+        <td>
+          328
+        </td>
+        <td>
+          972
+        </td>
+        <td>
+          14502
+          -
+          14512
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteGroupStatistics.ruleSuites
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteGroupStatistics.this.ruleSuites
+        </td>
+      </tr><tr>
+        <td>
+          329
+        </td>
+        <td>
+          977
+        </td>
+        <td>
+          14553
+          -
+          14666
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.orElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$5.map[com.sparkutils.quality.RuleSuiteStatistics](((x$6: com.sparkutils.quality.RuleSuiteStatistics) =&gt; x$6.process(ruleSuiteResult))).orElse[com.sparkutils.quality.RuleSuiteStatistics](scala.Some.apply[com.sparkutils.quality.RuleSuiteStatistics](RuleSuiteStatistics.apply(ruleSuiteResult.id, RuleSuiteStatistics.apply$default$2, RuleSuiteStatistics.apply$default$3, RuleSuiteStatistics.apply$default$4, RuleSuiteStatistics.apply$default$5, RuleSuiteStatistics.apply$default$6, RuleSuiteStatistics.apply$default$7, RuleSuiteStatistics.apply$default$8, RuleSuiteStatistics.apply$default$9, RuleSuiteStatistics.apply$default$10, RuleSuiteStatistics.apply$default$11).process(ruleSuiteResult)))
+        </td>
+      </tr><tr>
+        <td>
+          329
+        </td>
+        <td>
+          974
+        </td>
+        <td>
+          14560
+          -
+          14586
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.process
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$6.process(ruleSuiteResult)
+        </td>
+      </tr><tr>
+        <td>
+          329
+        </td>
+        <td>
+          976
+        </td>
+        <td>
+          14595
+          -
+          14665
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[com.sparkutils.quality.RuleSuiteStatistics](RuleSuiteStatistics.apply(ruleSuiteResult.id, RuleSuiteStatistics.apply$default$2, RuleSuiteStatistics.apply$default$3, RuleSuiteStatistics.apply$default$4, RuleSuiteStatistics.apply$default$5, RuleSuiteStatistics.apply$default$6, RuleSuiteStatistics.apply$default$7, RuleSuiteStatistics.apply$default$8, RuleSuiteStatistics.apply$default$9, RuleSuiteStatistics.apply$default$10, RuleSuiteStatistics.apply$default$11).process(ruleSuiteResult))
+        </td>
+      </tr><tr>
+        <td>
+          329
+        </td>
+        <td>
+          975
+        </td>
+        <td>
+          14600
+          -
+          14664
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.process
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteStatistics.apply(ruleSuiteResult.id, RuleSuiteStatistics.apply$default$2, RuleSuiteStatistics.apply$default$3, RuleSuiteStatistics.apply$default$4, RuleSuiteStatistics.apply$default$5, RuleSuiteStatistics.apply$default$6, RuleSuiteStatistics.apply$default$7, RuleSuiteStatistics.apply$default$8, RuleSuiteStatistics.apply$default$9, RuleSuiteStatistics.apply$default$10, RuleSuiteStatistics.apply$default$11).process(ruleSuiteResult)
+        </td>
+      </tr><tr>
+        <td>
+          333
+        </td>
+        <td>
+          980
+        </td>
+        <td>
+          14781
+          -
+          14795
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteGroupStatistics.rowCount
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.rowCount
+        </td>
+      </tr><tr>
+        <td>
+          333
+        </td>
+        <td>
+          988
+        </td>
+        <td>
+          14754
+          -
+          14990
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteGroupStatistics.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteGroupStatistics.this.copy(x$2, x$1)
+        </td>
+      </tr><tr>
+        <td>
+          333
+        </td>
+        <td>
+          981
+        </td>
+        <td>
+          14770
+          -
+          14795
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteGroupStatistics.this.rowCount.+(other.rowCount)
+        </td>
+      </tr><tr>
+        <td>
+          334
+        </td>
+        <td>
+          982
+        </td>
+        <td>
+          14842
+          -
+          14852
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteGroupStatistics.ruleSuites
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteGroupStatistics.this.ruleSuites
+        </td>
+      </tr><tr>
+        <td>
+          334
+        </td>
+        <td>
+          987
+        </td>
+        <td>
+          14816
+          -
+          14989
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.foldLeft
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.ruleSuites.foldLeft[Map[com.sparkutils.quality.impl.VersionedId,com.sparkutils.quality.RuleSuiteStatistics]](RuleSuiteGroupStatistics.this.ruleSuites)(((x0$1: Map[com.sparkutils.quality.impl.VersionedId,com.sparkutils.quality.RuleSuiteStatistics], x1$1: (com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleSuiteStatistics)) =&gt; scala.Tuple2.apply[Map[com.sparkutils.quality.impl.VersionedId,com.sparkutils.quality.RuleSuiteStatistics], (com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleSuiteStatistics)](x0$1, x1$1) match {
+  case (_1: Map[com.sparkutils.quality.impl.VersionedId,com.sparkutils.quality.RuleSuiteStatistics], _2: (com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleSuiteStatistics))(Map[com.sparkutils.quality.impl.VersionedId,com.sparkutils.quality.RuleSuiteStatistics], (com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleSuiteStatistics))((cur @ _), (_1: com.sparkutils.quality.impl.VersionedId, _2: com.sparkutils.quality.RuleSuiteStatistics)(com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleSuiteStatistics)((id @ _), (rs @ _))) =&gt; com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleSuiteStatistics](cur).updatedWithF[com.sparkutils.quality.RuleSuiteStatistics](id)(((x$7: Option[com.sparkutils.quality.RuleSuiteStatistics]) =&gt; x$7.map[com.sparkutils.quality.RuleSuiteStatistics](((x$8: com.sparkutils.quality.RuleSuiteStatistics) =&gt; x$8.combine(rs))).orElse[com.sparkutils.quality.RuleSuiteStatistics](scala.Some.apply[com.sparkutils.quality.RuleSuiteStatistics](rs))))
+}))
+        </td>
+      </tr><tr>
+        <td>
+          336
+        </td>
+        <td>
+          986
+        </td>
+        <td>
+          14897
+          -
+          14981
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.MapOps.MapOps.updatedWithF
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.impl.VersionedId, com.sparkutils.quality.RuleSuiteStatistics](cur).updatedWithF[com.sparkutils.quality.RuleSuiteStatistics](id)(((x$7: Option[com.sparkutils.quality.RuleSuiteStatistics]) =&gt; x$7.map[com.sparkutils.quality.RuleSuiteStatistics](((x$8: com.sparkutils.quality.RuleSuiteStatistics) =&gt; x$8.combine(rs))).orElse[com.sparkutils.quality.RuleSuiteStatistics](scala.Some.apply[com.sparkutils.quality.RuleSuiteStatistics](rs))))
+        </td>
+      </tr><tr>
+        <td>
+          337
+        </td>
+        <td>
+          983
+        </td>
+        <td>
+          14938
+          -
+          14951
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.combine
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$8.combine(rs)
+        </td>
+      </tr><tr>
+        <td>
+          337
+        </td>
+        <td>
+          985
+        </td>
+        <td>
+          14931
+          -
+          14969
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.orElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$7.map[com.sparkutils.quality.RuleSuiteStatistics](((x$8: com.sparkutils.quality.RuleSuiteStatistics) =&gt; x$8.combine(rs))).orElse[com.sparkutils.quality.RuleSuiteStatistics](scala.Some.apply[com.sparkutils.quality.RuleSuiteStatistics](rs))
+        </td>
+      </tr><tr>
+        <td>
+          337
+        </td>
+        <td>
+          984
+        </td>
+        <td>
+          14960
+          -
+          14968
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[com.sparkutils.quality.RuleSuiteStatistics](rs)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
