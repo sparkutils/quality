@@ -6,6 +6,8 @@ import com.sparkutils.quality.impl.util.Optional
 import scala.annotation.tailrec
 import scala.collection.JavaConverters._
 
+import com.sparkutils.quality.impl.util.MapOps._
+
 sealed trait RuleResult extends Serializable
 
 case object Failed extends RuleResult
@@ -264,7 +266,7 @@ case class RuleSetStatistics(ruleSet: VersionedId, failed: Long = 0, passed: Lon
     processResult(setResult.overallResult).copy(
       rules = setResult.ruleResults.foldLeft(rules){
         case (cur, (id, ruleResult)) =>
-          cur.updatedWith(id)(_.map{
+          cur.updatedWithF(id)(_.map{
             rs =>
               rs.processResult(ruleResult)
           }.orElse(Some(RuleStatistics(id).processResult(ruleResult))))
@@ -273,7 +275,7 @@ case class RuleSetStatistics(ruleSet: VersionedId, failed: Long = 0, passed: Lon
   override def combine(other: RuleSetStatistics): RuleSetStatistics = combineResults(other).copy(
     rules = other.rules.foldLeft(rules){
       case (cur, (id, ruleResult)) =>
-        cur.updatedWith(id)(_.map{
+        cur.updatedWithF(id)(_.map{
           rs =>
             rs.combine(ruleResult)
         }.orElse(Some(ruleResult)))
@@ -296,7 +298,7 @@ case class RuleSuiteStatistics(ruleSuite: VersionedId, failed: Long = 0, passed:
     processResult(ruleSuiteResult.overallResult).copy(rowCount = rowCount + 1,
       ruleSets = ruleSuiteResult.ruleSetResults.foldLeft(ruleSets){
         case (cur, (id, setResult)) =>
-          cur.updatedWith(id)(_.map{
+          cur.updatedWithF(id)(_.map{
             rs =>
               rs.process(setResult)
           }.orElse(Some(RuleSetStatistics(id).process(setResult))))
@@ -308,7 +310,7 @@ case class RuleSuiteStatistics(ruleSuite: VersionedId, failed: Long = 0, passed:
     rowCount = rowCount + other.rowCount,
     ruleSets = other.ruleSets.foldLeft(ruleSets){
       case (cur, (id, setResult)) =>
-        cur.updatedWith(id)(_.map{
+        cur.updatedWithF(id)(_.map{
           rs =>
             rs.combine(setResult)
         }.orElse(Some(setResult)))
@@ -323,7 +325,7 @@ case class RuleSuiteStatistics(ruleSuite: VersionedId, failed: Long = 0, passed:
 case class RuleSuiteGroupStatistics(ruleSuites: Map[VersionedId, RuleSuiteStatistics] = Map.empty, rowCount: Long = 0) extends Serializable {
 // TODO - probable pass may be different for each rulesuite, so link that in 0.2
   def process(ruleSuiteResult: RuleSuiteResult): RuleSuiteGroupStatistics =
-    copy(rowCount = rowCount + 1, ruleSuites = ruleSuites.updatedWith(ruleSuiteResult.id){
+    copy(rowCount = rowCount + 1, ruleSuites = ruleSuites.updatedWithF(ruleSuiteResult.id){
       _.map( _.process(ruleSuiteResult)).orElse(Some(RuleSuiteStatistics(ruleSuiteResult.id).process(ruleSuiteResult)))
     })
 
@@ -331,7 +333,7 @@ case class RuleSuiteGroupStatistics(ruleSuites: Map[VersionedId, RuleSuiteStatis
     copy(rowCount = rowCount + other.rowCount,
       ruleSuites = other.ruleSuites.foldLeft(ruleSuites){
         case (cur, (id, rs)) =>
-          cur.updatedWith(id){
+          cur.updatedWithF(id){
             _.map( _.combine(rs)).orElse(Some(rs))
           }
       })

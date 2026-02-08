@@ -1,6 +1,6 @@
 package org.apache.spark.sql
 
-import org.apache.spark.sql.ShimUtils.column
+import org.apache.spark.sql.ShimUtils.{column, expressionEncoder}
 import com.sparkutils.quality.impl.util.DebugTime.debugTime
 import com.sparkutils.quality.impl.util.Params.formatParams
 import com.sparkutils.quality.impl.util.{PassThrough, PassThroughCompileEvals}
@@ -11,9 +11,11 @@ import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, Codegen
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, EqualNullSafe, Expression, ExpressionSet, HigherOrderFunction, Literal, Projection, UpdateFields}
 import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, UnaryNode}
 import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.execution.aggregate.{ScalaAggregator, TypedAggregateExpression}
+import org.apache.spark.sql.expressions.{Aggregator, UserDefinedAggregator}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.qualityFunctions.FunN
+import org.apache.spark.sql.types.StructType
 import org.apache.spark.util.Utils
 
 /**
@@ -330,4 +332,21 @@ object QualitySparkUtils {
         }
       }
     )
+
+  def aggregator[I: Encoder, B, O](agg: Aggregator[I,B,O], exps: Seq[Expression]) =
+    ScalaAggregator(UserDefinedAggregator(agg, implicitly[Encoder[I]]), exps).toAggregateExpression()
+
+  object ScalaAggregator {
+    def apply[IN, BUF, OUT](
+                             uda: UserDefinedAggregator[IN, BUF, OUT],
+                             children: Seq[Expression]): ScalaAggregator[IN, BUF, OUT] = {
+      new ScalaAggregator(
+        children = children,
+        agg = uda.aggregator,
+        inputEncoder = expressionEncoder(uda.inputEncoder),
+        bufferEncoder = expressionEncoder(uda.aggregator.bufferEncoder),
+        nullable = uda.nullable,
+        isDeterministic = uda.deterministic)
+    }
+  }
 }

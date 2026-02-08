@@ -5,7 +5,7 @@ import com.sparkutils.quality.impl.util.Params.formatParams
 import com.sparkutils.quality.impl.util.{PassThrough, PassThroughCompileEvals}
 import com.sparkutils.quality.impl.{RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
 import org.apache.spark.sql.QualityStructFunctions.UpdateFields
-import org.apache.spark.sql.ShimUtils.{column, toSQLExpr, toSQLType}
+import org.apache.spark.sql.ShimUtils.{column, expressionEncoder, toSQLExpr, toSQLType}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, ResolveCatalogs, ResolveHigherOrderFunctions, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, Resolver, TimeWindowing, TypeCheckResult, TypeCoercion, UnresolvedAttribute, UnresolvedExtractValue}
 import org.apache.spark.sql.catalyst.catalog.SessionCatalog
@@ -14,6 +14,8 @@ import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, Codegen
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, CreateNamedStruct, EqualNullSafe, Expression, ExpressionSet, ExtractValue, GetStructField, If, IsNull, LeafExpression, Literal, Projection, UnaryExpression, Unevaluable}
 import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, UnaryNode}
 import org.apache.spark.sql.catalyst.rules.Rule
+import org.apache.spark.sql.execution.aggregate.{InputAggregationBuffer, MutableAggregationBufferImpl, ScalaAggregator, TypedAggregateExpression}
+import org.apache.spark.sql.expressions.{Aggregator, UserDefinedAggregateFunction}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{DataType, StructField, StructType}
 import org.apache.spark.util.Utils
@@ -327,6 +329,19 @@ object QualitySparkUtils {
         }
       }
     )
+
+  def aggregator[I: Encoder, B, O](agg: Aggregator[I,B,O], exps: Seq[Expression]) = {
+    implicit val bEncoder = agg.bufferEncoder
+    implicit val cEncoder = agg.outputEncoder
+
+    AggregateExpression(
+      ScalaAggregator( exps, agg,
+        inputEncoder = expressionEncoder(implicitly[Encoder[I]]),
+        bufferEncoder = expressionEncoder(agg.bufferEncoder)),
+      Complete,
+      isDistinct = false)
+  }
+
 }
 
 object QualityStructFunctions {

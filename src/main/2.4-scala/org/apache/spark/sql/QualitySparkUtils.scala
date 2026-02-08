@@ -3,18 +3,22 @@ package org.apache.spark.sql
 import com.sparkutils.quality.impl.util.DebugTime.debugTime
 import com.sparkutils.quality.impl.util.{PassThrough, PassThroughCompileEvals}
 import com.sparkutils.quality.impl.{RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
+import org.apache.spark.internal.Logging
 import org.apache.spark.sql.QualityStructFunctions.UpdateFields
-import org.apache.spark.sql.ShimUtils.{column, toSQLExpr, toSQLType}
-import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.ShimUtils.{column, expressionEncoder, toSQLExpr, toSQLType}
+import org.apache.spark.sql.catalyst.{CatalystTypeConverters, InternalRow}
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, ResolveHigherOrderFunctions, ResolveInlineTables, ResolveLambdaVariables, ResolveTimeZone, Resolver, TypeCheckResult, TypeCoercion, UnresolvedAttribute, UnresolvedExtractValue}
 import org.apache.spark.sql.catalyst.catalog.SessionCatalog
 import org.apache.spark.sql.catalyst.errors.TreeNodeException
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode}
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, CreateNamedStruct, EqualNullSafe, Expression, ExtractValue, GetStructField, If, IsNull, LeafExpression, Literal, Projection, UnaryExpression, Unevaluable}
+import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, AggregateFunction, Complete, ImperativeAggregate}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode, GenerateMutableProjection}
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, BindReferences, CreateNamedStruct, EqualNullSafe, Expression, ExtractValue, GetStructField, If, ImplicitCastInputTypes, IsNull, LeafExpression, Literal, NonSQLExpression, Projection, UnaryExpression, Unevaluable, UserDefinedExpression}
 import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, UnaryNode}
 import org.apache.spark.sql.catalyst.rules.Rule
+import org.apache.spark.sql.execution.aggregate.{InputAggregationBuffer, MutableAggregationBufferImpl, ScalaAggregator, TypedAggregateExpression}
+import org.apache.spark.sql.expressions.{Aggregator, UserDefinedAggregateFunction}
 import org.apache.spark.sql.internal.{BaseSessionStateBuilder, SQLConf, SessionState}
-import org.apache.spark.sql.types.{DataType, StructField, StructType}
+import org.apache.spark.sql.types.{DataType, Metadata, StructField, StructType}
 import org.apache.spark.util.Utils
 
 import scala.collection.mutable.ArrayBuffer
@@ -310,6 +314,19 @@ object QualitySparkUtils {
         }
       }
     )
+
+  def aggregator[I: Encoder, B, O](agg: Aggregator[I,B,O], exps: Seq[Expression]) = {
+    implicit val bEncoder = agg.bufferEncoder
+    implicit val cEncoder = agg.outputEncoder
+
+    AggregateExpression(
+      ScalaAggregator( exps, agg,
+        inputEncoder = expressionEncoder(implicitly[Encoder[I]]),
+        bufferEncoder = expressionEncoder(agg.bufferEncoder)),
+      Complete,
+      isDistinct = false)
+  }
+
 }
 
 object QualityStructFunctions {
@@ -507,4 +524,5 @@ object QualityStructFunctions {
       }
     }
   }
+
 }

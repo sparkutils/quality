@@ -432,6 +432,18 @@ functions:
           \_lambda\_ is also incompatible with printCode both wrapping a user function and the \_lambda\_ function.  Similarly the \_() placeholder function cannot be wrapped.
 
           Any function expecting a specific signature like aggExpr or other HigherOrderFunctions like aggregate or filter are unlikely to support wrapped arguements.
+
+  rule_suite_statistics:
+    description: |
+      The rule_suite_statistics(ruleSuiteResult) aggregate function collects a RuleSuiteGroupStatistics object for a given dataset using the default 0.8 probability.
+
+      !!! "warn" It is not recommended to use with 2.4
+          The aggregate function is based on Aggregator which, in 2.4, is not possible to apply on specific columns.
+          
+          Quality provides a backport of Spark 3 functionality to enable this and, in addition to the last Quality 2.4 release, this is not an intended Spark 2.4 pattern, although it works in local testing it has not been tested against clusters. 
+      
+    tags:
+      - rule
 ---
 
 {% macro divstart(clazz) -%}<t class="{{ clazz }}" >{%- endmacro %}

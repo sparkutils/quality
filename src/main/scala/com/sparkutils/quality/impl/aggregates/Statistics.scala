@@ -1,21 +1,20 @@
 package com.sparkutils.quality.impl.aggregates
 
 import com.sparkutils.quality.{RuleSuiteGroupStatistics, RuleSuiteResult}
-import org.apache.spark.sql.Encoder
+import org.apache.spark.sql.{Encoder, QualitySparkUtils}
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.expressions.Aggregator
-import org.apache.spark.sql.qualityFunctions.utils.aggregator
 
 /**
  * Processes RuleSuiteResult's into RuleSuiteGroupStatistics, as of 0.1.4 using UDAF Aggregator
  */
-object Statistics extends Aggregator[Tuple1[RuleSuiteResult], RuleSuiteGroupStatistics, RuleSuiteGroupStatistics] {
+object Statistics extends Aggregator[Tuple1[RuleSuiteResult], RuleSuiteGroupStatistics, RuleSuiteGroupStatistics] with Serializable {
 
   def apply(exp: Expression): Expression = {
     import com.sparkutils.quality.impl.Encoders.ruleSuiteResultTypedEnc
     import frameless._
     implicit val enc = TypedExpressionEncoder[Tuple1[RuleSuiteResult]]
-    aggregator(this, Seq(exp))
+    QualitySparkUtils.aggregator(this, Seq(exp))
   }
 
   override def zero: RuleSuiteGroupStatistics = RuleSuiteGroupStatistics()

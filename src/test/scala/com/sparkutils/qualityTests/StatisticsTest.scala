@@ -1,12 +1,11 @@
 package com.sparkutils.qualityTests
 
-import org.apache.spark.sql.functions.{col, expr, udaf}
+import org.apache.spark.sql.functions.{col, expr}
 import com.sparkutils.quality.{RuleSuiteGroupStatistics, _}
 import com.sparkutils.quality.functions.rule_suite_statistics
-import com.sparkutils.quality.impl.aggregates.Statistics
 import org.junit.Test
 import org.scalatest.{FunSuite, Matchers}
-import frameless.{Injection, NotCatalystNullable, TypedColumn, TypedEncoder, TypedExpressionEncoder}
+import com.sparkutils.quality.impl.util.MapOps._
 
 class StatisticsTest  extends FunSuite with TestUtils with Matchers {
 
@@ -77,7 +76,7 @@ class StatisticsTest  extends FunSuite with TestUtils with Matchers {
       )))
 
     onlyOneEntry shouldBe RuleSetStatistics(Id(1,0), failed = 3, passed = 3, ignored = 4, defaulted = 3, softFailed = 3,
-      disabled = 4, probabilityFailed = 3, probabilityPassed = 3, rules = updated.rules.updatedWith(Id(8,0)) {
+      disabled = 4, probabilityFailed = 3, probabilityPassed = 3, rules = updated.rules.updatedWithF(Id(8,0)) {
         _.map(_.copy(passed = 1))
       })
 
@@ -187,8 +186,9 @@ class StatisticsTest  extends FunSuite with TestUtils with Matchers {
 
   // the above tests cover the actual functionality, outside empty process calls, the below are testing the expressions all work
   // and, given zero, process and combine all work from nothing
+  // it does actually work on 2.4 but it's resolveAndBind based so thread safety may be off
   @Test
-  def udafAndEmptyProcessOperations(): Unit = {
+  def udafAndEmptyProcessOperations(): Unit = not2_4 {
     val rsr = Seq(
       ("a", RuleSuiteResult(
         Id(100,0), Passed, Map(
@@ -242,9 +242,9 @@ class StatisticsTest  extends FunSuite with TestUtils with Matchers {
     implicit val enc = TypedExpressionEncoder[(String, RuleSuiteResult)]
 
     val df = localSeqToDatasetHolder[(String, RuleSuiteResult)](rsr).toDS()
-    val res = df.agg(rule_suite_statistics(col("_2")).as("res")).select("res.*").as[RuleSuiteGroupStatistics].collect().head
+    val res = df.select(rule_suite_statistics(col("_2")).as("res")).select("res.*").as[RuleSuiteGroupStatistics].collect().head
 
-    val res2 = df.agg(expr("rule_suite_statistics(_2)").as("res")).select("res.*").as[RuleSuiteGroupStatistics].collect().head
+    val res2 = df.select(expr("rule_suite_statistics(_2)").as("res")).select("res.*").as[RuleSuiteGroupStatistics].collect().head
 
     res shouldBe res2
 
