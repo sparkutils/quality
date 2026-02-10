@@ -11,6 +11,7 @@ import org.junit.Test
 import org.scalatest.FunSuite
 import com.sparkutils.qualityTests.mapLookup.TradeTests._
 import org.apache.spark.sql.ShimUtils.expression
+import org.apache.spark.sql.catalyst.expressions.{Alias, CreateArray, Flatten, Literal}
 
 class UserLambdaFunctionTest extends FunSuite with TestUtils {
   @Test

@@ -1,6 +1,6 @@
 package com.sparkutils.quality.impl.extension
 
-import com.sparkutils.quality.impl.extension.QualitySparkExtension.{disableRulesConf, forceInjectFunction}
+import com.sparkutils.quality.impl.extension.QualitySparkExtension.{disableRulesConf, disabledOptimiserRules, forceInjectFunction}
 import com.sparkutils.quality.impl.util.Testing
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.{ShimUtils, SparkSession, SparkSessionExtensions}
@@ -16,6 +16,15 @@ object QualitySparkExtension {
    */
   val disableRulesConf = "quality_disable_optimiser_rules"
   val forceInjectFunction = "quality_force_inject_function"
+
+  def disabledOptimiserRules(): (Boolean, Set[String]) = {
+    val disableConf = com.sparkutils.quality.getConfig(disableRulesConf)
+    if (disableConf != "*") {
+      val disabledRules = disableConf.split(",").map(_.trim).toSet
+      (false, disabledRules)
+    } else
+      (true, Set.empty)
+  }
 }
 
 /**
@@ -76,9 +85,8 @@ class QualitySparkExtension extends ((SparkSessionExtensions) => Unit) with Logg
     if (Testing.testing) {
       ExtensionTesting.disableRuleResult = ""
     }
-    val disableConf = com.sparkutils.quality.getConfig(disableRulesConf)
-    if (disableConf != "*") {
-      val disabledRules = disableConf.split(",").map(_.trim).toSet
+    val (all, disabledRules) = disabledOptimiserRules()
+    if (!all) {
       val filteredRules = optimiserRules.filterNot(p => disabledRules.contains(p._1.trim))
       val str = s"$disableRulesConf = $disabledRules leaving ${filteredRules.map(_._1)} remaining"
       attemptLogInfo(str)
