@@ -309,8 +309,10 @@ class BaseFunctionalityTest extends FunSuite with RowTools with TestUtils {
     // rewrite can be Math or +
     forceCodeGen {
       justfunNRewrite {
-        v3_2_and_above {
+        if (sparkVersionNumericMajor >= 40) {
           doTestPrint(PrintCode(expression(lit(""))).msg, "my message is", "my message is", "MathUtils.addExact", "printCode")
+        } else {
+          doTestPrint(PrintCode(expression(lit(""))).msg, "my message is", "my message is", "1 + 1", "printCode")
         }
       }
     }
