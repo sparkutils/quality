@@ -6,13 +6,18 @@ Similar to folder, in that it runs Output Expressions for each
 matching trigger Rule expression ordered by salience, it collects the result of each Output Expression.  
 It is optimised around optionally collecting and expanding nested arrays and auto expanding User LambdaFunctions.  
 
-0.1.4 was released in order to speed up delivery of 0.2.0 functionality for some key users.  Please note, at time of publishing, many of the published Databricks and OSS versions are un-supported, please consider migrating versions to 14.3 LTS and Spark 3.5 at a minimum. 
+If no matching trigger rule is found the new optional RuleSuite.DefaultProcessor can be run and the overallResult will reflect DefaultRule.  
+In 0.2.0 this default approach will also be extended to engine and folder runners (with an optional fallback configuration for the 0.2.x series).
+
+0.1.4 was released in order to speed up delivery of 0.2.0 functionality for some key users.  Please note, at time of publishing, many of the published Databricks and OSS versions are un-supported by their communities, please consider migrating versions to 14.3 LTS and Spark 3.5 at a minimum. 
 
 #107 - Introducing collectRunner - an optimised collecting rule engine
 
 #111 - Introducing the notRelevant result - signal that a rule was not relevant for a row but is equivalent to a pass.  Allows collecting statistics in three states, rows passed, rows failed and rows not relevant for a given rule.
 
 #93 - Introducing the rule_suite_statistics aggregate function, which collects statistics over a RuleSuiteResult column
+
+#114 - Further improvements to FunNRewrite logic, allowing both more control over the optimisation and more use cases where it can optimise. 
 
 ### [0.1.3.1](https://github.com/sparkutils/quality/milestone/10?closed=1) <small>24th October, 2025</small>
 
