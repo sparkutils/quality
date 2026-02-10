@@ -246,7 +246,13 @@ class StatisticsTest  extends FunSuite with TestUtils with Matchers {
 
     val res2 = df.select(expr("rule_suite_statistics(_2)").as("res")).select("res.*").as[RuleSuiteGroupStatistics].collect().head
 
+    // verify split
+    val res3 = df.selectExpr( s"_2.overallResult as overallResult",
+      s"ruleSuiteResultDetails(_2) as resultDetails").
+      select(expr("rule_suite_statistics(struct(resultDetails.id, overallResult, resultDetails.ruleSetResults))").as("res")).select("res.*").as[RuleSuiteGroupStatistics].collect().head
+
     res shouldBe res2
+    res shouldBe res3
 
     res shouldBe
       RuleSuiteGroupStatistics(

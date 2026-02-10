@@ -439,7 +439,7 @@ functions:
       When using a split details and overall pair, recombine them via:
       
       ```sql
-      rule_suite_statistics(struct(overall, details))
+      rule_suite_statistics(struct(resultDetails.id, overallResult, resultDetails.ruleSetResults))
       ```
 
       !!! "warn" It is not recommended to use with 2.4
