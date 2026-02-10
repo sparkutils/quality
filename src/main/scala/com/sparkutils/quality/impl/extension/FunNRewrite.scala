@@ -22,16 +22,26 @@ import org.apache.spark.sql.qualityFunctions.LambdaCompilationUtils.compilationH
  *
  * IMPORTANT: This only works on 3.2 and above as it introduced transformDownWithPruning
  */
-object FunNRewrite extends Rule[LogicalPlan] {
-  val className = "com.sparkutils.quality.impl.extension.FunNRewrite"
+object FunNRewrite extends FunNRewriteBase {
 
-  lazy val disabled = {
+  override def className = "com.sparkutils.quality.impl.extension.FunNRewrite"
+
+  lazy val disabled: Boolean = shouldBeDisabled
+
+}
+
+trait FunNRewriteBase extends Rule[LogicalPlan] {
+  def className: String
+
+  def shouldBeDisabled: Boolean = {
     val (all, disabledRules) = disabledOptimiserRules()
     if (all)
       true
     else
       disabledRules.contains(className)
   }
+
+  def disabled: Boolean
 
   def funNHandled(f: FunN): Boolean = f.name.isDefined && compilationHandlers.contains(f.name.get)
 
@@ -48,7 +58,7 @@ object FunNRewrite extends Rule[LogicalPlan] {
             // specific FunN name
             case f: FunN if funNHandled(f) => true
           }.nonEmpty )
-            &&
+          &&
           // if this FunN should be handled then we shouldn't rewrite
           !(funNHandled(f)) =>
           val pairs = f.elementVars.zip(f.arguments).toMap
@@ -57,5 +67,5 @@ object FunNRewrite extends Rule[LogicalPlan] {
               case e: NamedLambdaVariable if pairs.contains(e) => pairs(e)
             }
           r
-     })
+      })
 }

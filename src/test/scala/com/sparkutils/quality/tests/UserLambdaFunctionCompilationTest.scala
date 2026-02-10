@@ -1,7 +1,7 @@
 package com.sparkutils.quality.tests
 
 import com.sparkutils.quality._
-import com.sparkutils.quality.impl.extension.{FunNRewrite, QualitySparkExtension}
+import com.sparkutils.quality.impl.extension.{FunNRewrite, FunNRewriteBase, QualitySparkExtension}
 import com.sparkutils.quality.impl.util.Testing
 import com.sparkutils.quality.tests.TestHandler._
 import com.sparkutils.qualityTests.{RowTools, SparkTestUtils, TestUtils}
@@ -181,12 +181,15 @@ class UserLambdaFunctionCompilationTest extends FunSuite with TestUtils {
     }
   }
 
+  // FunNRewriteD needed to allow swapping the config out to test disabling the entire plugin
+  lazy val justfunNRewriteD = testPlan(FunNRewriteD, secondRunWithoutPlan = false) _
+
   @Test
-  def disabledRewriteNestedArray(): Unit = v3_2_and_above { justfunNRewrite {
+  def disabledRewriteNestedArray(): Unit = v3_2_and_above { justfunNRewriteD {
 
     val before = System.getProperty(QualitySparkExtension.disableRulesConf)
     try {
-      System.setProperty(QualitySparkExtension.disableRulesConf, FunNRewrite.className)
+      System.setProperty(QualitySparkExtension.disableRulesConf, FunNRewriteD.className)
 
       val toarr = LambdaFunction("toarr", "(a, b) -> array(a, b)", Id(1, 2))
       val toarr2 = LambdaFunction("toarr2", "(a, b) -> flatten(array(array(b, a, b), toarr(a,b)))", Id(1, 2))
@@ -303,5 +306,14 @@ case class TestHandler() extends LambdaCompilationHandler {
 }
 
 class TestMe() {
+
+}
+
+// only difference is disabled is always evaluated so disabling can be tested
+object FunNRewriteD extends FunNRewriteBase {
+
+  override def className = "com.sparkutils.quality.tests.FunNRewriteD"
+
+  def disabled: Boolean = shouldBeDisabled
 
 }

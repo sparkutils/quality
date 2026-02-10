@@ -436,6 +436,11 @@ functions:
   rule_suite_statistics:
     description: |
       The rule_suite_statistics(ruleSuiteResult) aggregate function collects a RuleSuiteGroupStatistics object for a given dataset using the default 0.8 probability.
+      When using a split details and overall pair, recombine them via:
+      
+      ```sql
+      rule_suite_statistics(struct(overall, details))
+      ```
 
       !!! "warn" It is not recommended to use with 2.4
           The aggregate function is based on Aggregator which, in 2.4, is not possible to apply on specific columns.
