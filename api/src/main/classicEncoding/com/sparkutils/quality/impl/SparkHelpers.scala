@@ -1,6 +1,6 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality.{GeneralExpressionsResult, RuleEngineResult, RuleFolderResult, RuleResult, RuleSetResult, RuleSuiteResult, VersionedId}
+import com.sparkutils.quality.{GeneralExpressionsResult, RuleEngineResult, RuleFolderResult, RuleResult, RuleSetResult, RuleSetStatistics, RuleStatistics, RuleSuiteGroupStatistics, RuleSuiteResult, RuleSuiteStatistics, VersionedId}
 import org.apache.spark.sql.Encoder
 import shapeless.{::, HList, HNil, LabelledGeneric, Lazy, cachedImplicit}
 import shapeless.ops.hlist.IsHCons
