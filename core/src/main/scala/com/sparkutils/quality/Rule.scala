@@ -1,5 +1,7 @@
 package com.sparkutils.quality
 
+import com.sparkutils.quality.DefaultProcessor.DefaultProcessorImpl
+import com.sparkutils.quality.NoOpRunOnPassProcessor.noOpId
 import com.sparkutils.quality.RunOnPassProcessor.RunOnPassProcessorImpl
 
 /**
@@ -41,11 +43,15 @@ case class Id(id: Int, version: Int) extends VersionedId
 /**
  * A trigger rule
  */
-trait ExpressionRule
+trait ExpressionRule extends Serializable {
+  def updateRule(rule: String): ExpressionRule
+}
 
 object ExpressionRule {
   @SerialVersionUID(1L)
-  case class ExpressionRuleImpl( rule: String ) extends ExpressionRule with HasRuleText
+  case class ExpressionRuleImpl( rule: String ) extends ExpressionRule with HasRuleText {
+    override def updateRule(rule: String): ExpressionRule = copy(rule = rule)
+  }
 
   def apply(rule: String): ExpressionRule = ExpressionRuleImpl(rule)
 }
@@ -62,13 +68,23 @@ object OutputExpression {
   def apply(rule: String): OutputExpression = OutputExpressionImpl(rule)
 }
 
+trait HasOutputExpression extends Serializable {
+  type ThisType
+  val id: Id
+  def outputExpression: OutputExpression
+  def withExpr(e: OutputExpression): ThisType
+}
+
 /**
  * Configuration of what should be evaluated when a trigger passes and salience matches
  */
-trait RunOnPassProcessor extends HasRuleText {
+trait RunOnPassProcessor extends HasRuleText with HasOutputExpression {
   val salience: Int
   val id: Id
   val returnIfPassed: OutputExpression
+  type ThisType = RunOnPassProcessor
+
+  override def outputExpression: OutputExpression = returnIfPassed
   def withExpr(e: OutputExpression): RunOnPassProcessor
 }
 
@@ -104,6 +120,40 @@ object NoOpRunOnPassProcessor {
 }
 
 /**
+ * Configuration of what should be evaluated when no trigger passes for Folder and Collector
+ */
+trait DefaultProcessor extends HasRuleText with HasOutputExpression {
+  type ThisType = DefaultProcessor
+  val id: Id
+  val outputExpression: OutputExpression
+  def withExpr(e: OutputExpression): DefaultProcessor
+}
+
+object DefaultProcessor {
+  @SerialVersionUID(1L)
+  case class DefaultProcessorImpl(id: Id, rule: String, outputExpression: OutputExpression) extends DefaultProcessor with Serializable {
+    override def withExpr(e: OutputExpression): DefaultProcessor = copy(outputExpression = e)
+  }
+
+  /**
+   * Creates a DefaultProcessor using a given OutputExpression
+   *
+   * @param id
+   * @param e
+   * @return
+   */
+  def apply(id: Id, e: OutputExpression): DefaultProcessor =
+    DefaultProcessorImpl(id, e match {
+      case h: HasRuleText => h.rule
+      case _ => ""
+    }, e)
+}
+
+object NoOpDefaultProcessor {
+  val noOp = DefaultProcessorImpl(noOpId, "", OutputExpression(""))
+}
+
+/**
   * A rule to run over a row
   * @param id
   * @param expression
@@ -120,9 +170,11 @@ case class RuleSet(id: Id, rules: Seq[Rule]) extends Serializable
  * @param ruleSets
  * @param lambdaFunctions
  * @param probablePass override to specify a different percentage for treating probability results as passes - defaults to 80% (0.8)
+ * @param defaultProcessor when using folder or collector this output expression will be used when no rules are triggered
  */
 @SerialVersionUID(1L)
-case class RuleSuite(id: Id, ruleSets: Seq[RuleSet], lambdaFunctions: Seq[LambdaFunction] = Seq.empty, probablePass: Double = 0.8) extends Serializable {
+case class RuleSuite(id: Id, ruleSets: Seq[RuleSet], lambdaFunctions: Seq[LambdaFunction] = Seq.empty,
+                     probablePass: Double = 0.8, defaultProcessor: DefaultProcessor = NoOpDefaultProcessor.noOp) extends Serializable {
 
   /**
    * Use a different probable pass value for this RuleSuite
@@ -131,6 +183,15 @@ case class RuleSuite(id: Id, ruleSets: Seq[RuleSet], lambdaFunctions: Seq[Lambda
    */
   def withProbablePass(probablePass: Double) = copy(probablePass = probablePass)
 
+  /**
+   * Sorts the ruleSets and lambdaFunctions by Id
+   * @return
+   */
+  def sorted: RuleSuite =
+    copy(
+      ruleSets = ruleSets.sortBy(l => (l.id.id, l.id.version)).map(r =>
+        r.copy(rules = r.rules.sortBy(l => (l.id.id, l.id.version)).toVector)).toVector,
+      lambdaFunctions = lambdaFunctions.sortBy(l => (l.id.id, l.id.version)).toVector)
 }
 
 object RuleSuite {

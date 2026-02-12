@@ -38,7 +38,10 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
   ), Seq(
     LambdaFunction("func1", "expr1", Id(200,134)),
     LambdaFunction("func2", "expr2", Id(201,131))
-  ))
+  )).sorted
+
+  val rulesAttributes = rules.copy( probablePass = 0.4d,
+    defaultProcessor = DefaultProcessor(Id(101,9), OutputExpression("i")))
 
   test("rule suites without lambdas or output should be combinable") {
     val stripped = mapRules(rules.copy(lambdaFunctions = Seq.empty)){_.copy(runOnPassProcessor = NoOpRunOnPassProcessor.noOp)}
@@ -49,7 +52,7 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
     defaultAndForceConnect {
       val conbinedRuleSuiteRows = combine(ruleRows)
       val oRS = rule_suite(conbinedRuleSuiteRows, rsId)
-      oRS contains stripped
+      oRS.map(_.sorted) should contain( stripped )
     }
   }
 
@@ -63,7 +66,7 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
     defaultAndForceConnect {
       val conbinedRuleSuiteRows = combine(ruleRows, lambdas)
       val oRS = rule_suite(conbinedRuleSuiteRows, rsId)
-      oRS contains stripped
+      oRS.map(_.sorted) should contain( stripped )
     }
   }
 
@@ -78,7 +81,24 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
     defaultAndForceConnect {
       val conbinedRuleSuiteRows = combine(ruleRows, sparkSession.emptyDataset[LambdaFunctionRow], outRows)
       val oRS = rule_suite(conbinedRuleSuiteRows, rsId)
-      oRS contains stripped
+      oRS.map(_.sorted) should contain( stripped )
+    }
+  }
+
+  test("rule suites without lambdas with output AND attributes should be combinable") {
+    val stripped = rulesAttributes.copy(lambdaFunctions = Seq.empty)
+    val ruleRows = toDS(stripped)
+    val outRows = toOutputExpressionDS(stripped)
+    val (ruleSuite, Some(defaultO)) = toRuleSuiteRow(rulesAttributes)
+
+    val s = sparkSession
+    import s.implicits._
+
+    defaultAndForceConnect {
+      val conbinedRuleSuiteRows = combine(ruleRows, sparkSession.emptyDataset[LambdaFunctionRow],
+        outRows union( Seq(defaultO).toDS()), Seq(ruleSuite).toDS())
+      val oRS = rule_suite(conbinedRuleSuiteRows, rsId)
+      oRS.map(_.sorted) should contain( stripped )
     }
   }
 
@@ -95,11 +115,13 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
 
     defaultAndForceConnect {
       // force them back in as global ids
-      val conbinedRuleSuiteRows = combine(ruleRows, lambdas.toDS(), outRows.toDS(),
-        globalLambdaSuites = lambdas.map(l => Id(l.ruleSuiteId, l.ruleSuiteVersion)).toDS(),
-        globalOutputExpressionSuites = outRows.map(l => Id(l.ruleSuiteId, l.ruleSuiteVersion)).toDS())
+      val conbinedRuleSuiteRows = combine(ruleRows, lambdaFunctionRows = Some(lambdas.toDS()),
+        outputExpressionRows = Some(outRows.toDS()),
+        globalLambdaSuites = Some(lambdas.map(l => Id(l.ruleSuiteId, l.ruleSuiteVersion)).toDS()),
+        globalOutputExpressionSuites = Some(outRows.map(l => Id(l.ruleSuiteId, l.ruleSuiteVersion)).toDS()))
       val oRS = rule_suite(conbinedRuleSuiteRows, rsId)
-      oRS contains rules
+
+      oRS.map(_.sorted) should contain( rules )
     }
   }
 
@@ -113,7 +135,7 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
     defaultAndForceConnect {
       val conbinedRuleSuiteRows = combine(ruleRows, lambdas, outRows)
       val oRS = rule_suite(conbinedRuleSuiteRows, rsId)
-      oRS contains rules
+      oRS.map(_.sorted) should contain( rules )
     }
   }
 
@@ -131,7 +153,7 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
       val fromVar = sparkSession.sql(s"select `$name` as a").selectExpr("a.*").as[CombinedRuleSuiteRows]
 
       val oRS = rule_suite(fromVar, rsId)
-      oRS contains rules
+      oRS.map(_.sorted) should contain( rules )
     }
   }
 

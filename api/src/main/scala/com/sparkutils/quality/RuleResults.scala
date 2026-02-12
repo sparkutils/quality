@@ -31,6 +31,12 @@ case object DisabledRule extends RuleResult
 case object IgnoredRule extends RuleResult
 
 /**
+ * Returned for RuleSuiteResult.overallResult when no other trigger rule has passed and a defaultProcessor has been configured (otherwise it's Failed)
+ */
+@SerialVersionUID(1L)
+case object DefaultRule extends RuleResult
+
+/**
   * 0-1 with 1 being absolutely likely a pass
   * @param percentage
   */

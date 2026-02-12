@@ -233,9 +233,13 @@ functions:
   disabled_rule:
     description: "disabled_rule() returns the DisabledRule Integer result (-2) for use in filtering and to disable rules (which may not signify a version bump)"
     tags:
-      - rule
+      - rule      
   ignored_rule:
     description: "ignored_rule() returns the IgnoredRule Integer result (-3) for use in filtering and to ignoring rules (e.g. a return value in an active rule)"
+    tags:
+      - rule
+  default_rule:
+    description: "default_rule() returns the DefaultRule Integer result (-4) for use in filtering and returned by collectRunner defaultProcessor"
     tags:
       - rule
   coalesce_If_Attributes_Missing_Disable:
@@ -564,6 +568,9 @@ functions:
       - |
         collect_runner( ruleSuiteVariable, ddl, flatten, includeNulls, variablesPerFunc, variableFuncGroup)
         This version provides two additional compilation options, these are typically not needed.
+      - |
+        collect_runner( ruleSuiteVariable, ddl, flatten, includeNulls, variablesPerFunc, variableFuncGroup, useInPlaceArray, unrollInPlaceArray, unrollOutputArraySize)
+        This version also allows tweaking further collectRunner specific optimisations, these are typically not needed and use should be carefully evaluated.  
     tags:
       - variable
       - runner

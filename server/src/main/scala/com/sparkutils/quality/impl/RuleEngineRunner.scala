@@ -3,17 +3,19 @@ package com.sparkutils.quality.impl
 import com.sparkutils.quality.impl.RuleRunnerUtils.RuleSuiteResultArray
 import com.sparkutils.quality.{Id, impl, _}
 import com.sparkutils.quality.QualityException.qualityException
-import com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenExpressions
+import com.sparkutils.quality.impl.RuleEngineRunnerUtils.{flattenExpressions, outputExpressionType}
 import com.sparkutils.quality.impl.RuleRunnerUtils.{genRuleSuiteTerm, packTheId}
 import com.sparkutils.quality.impl.imports.RuleEngineRunnerImports
 import PackId.packId
 import com.sparkutils.quality
+import com.sparkutils.quality.impl.DefaultProcessorImpl.DefaultProcessorImplOps
 import com.sparkutils.quality.impl.ExpressionRuleExpr.ExpressionRuleOps
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
 import com.sparkutils.quality.impl.RunOnPassProcessorImpl.RunOnPassProcessorImplOps
 import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals, PassThroughEvalOnly}
 import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.analysis.TypeCoercion
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode}
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression}
@@ -87,21 +89,17 @@ object RuleEngineRunnerImpl {
 }
 
 private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
-/*
-  def structToNullable(struct: StructType): StructType = {
-    StructType(
-      struct.fields.map(f =>
-        f.copy(nullable = true, metadata = Metadata.empty, dataType = nonNullableDataType(f.dataType))
-      )
-    ) // Spark 4 puts metadata in _2 in schema test
-  }
 
-  def nonNullableDataType(dataType: DataType): DataType =
-    dataType match {
-      case s: StructType => structToNullable(s)
-      case _ => dataType
+  // derive the correct output expression type
+  def outputExpressionType(resultDataType: Option[DataType], children: Seq[Expression], triggerCount: Int): DataType =
+    resultDataType.getOrElse {
+      // CreateArray uses this approach, pretty much what we are looking for
+      // as Output Expressions can contain null they must be filtered out or it will default to NullType
+      TypeCoercion.findCommonTypeDifferentOnlyInNullFlags(
+        children.drop(triggerCount).filterNot(_.dataType == NullType).map(_.dataType)
+      ).getOrElse(NullType)
     }
-  */
+
   protected[quality] def flattenExpressions(ruleSuite: RuleSuite, transformOutputExpression: Expression => Expression = identity): (Seq[Expression], Array[Int], Int) = {
     val outputs = mutable.Map.empty[Id, Int]
     var pos = 0
@@ -130,6 +128,12 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
 
         expr
       }))
+
+    if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp) {
+      val expr = ruleSuite.defaultProcessor.toImpl.outputExpression.expr
+      outputExpressions += transformOutputExpression(expr)
+      indexes += pos
+    }
 
     (expressions ++ outputExpressions, indexes.toArray, expressions.size)
   }
@@ -181,7 +185,12 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
               rule.runOnPassProcessor.toImpl.withExpr(OutputExpressionWrapper(processorExpression(outexpr), compileEvals)))
           }
         ))
-    ))
+    ), defaultProcessor =
+      if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp)
+        ruleSuite.defaultProcessor.toImpl.withExpr(OutputExpressionWrapper(processorExpression(expr.last), compileEvals))
+      else
+        ruleSuite.defaultProcessor
+    )
   }
 
   def compiledEvalDebug[T](results: InternalRow, output: T): InternalRow =
@@ -208,10 +217,10 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
   def genCompilerTerms[T: ClassTag](ctx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext,
                   child: Expression, expressionOffsets: Array[Int], realChildren: Seq[Expression],
                        debugMode: Boolean, variablesPerFunc: Int, variableFuncGroup: Int, forceTriggerEval: Boolean,
-                       extraResult: String => String = (_ : String) => "",
+                       extraResult: (String, Int, String) => String = (_ : String, _: Int, _: String) => "",
                        extraSetup: (String, Int) => String = (_ : String, _: Int) => "",
                        orderOffset: Int => Int = identity,
-                       salienceCheck: Boolean = true
+                       salienceCheck: Boolean = true, sizeAdjustment: Int = 0
                       ):
     CompilerTerms = {
     val i = ctx.INPUT_ROW
@@ -236,7 +245,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
       v => s"$v = -1;"
     )
 
-    val offset = expressionOffsets.size
+    val offset = expressionOffsets.size + sizeAdjustment
 
     val ruleRes = "java.lang.Object"
     val resArrTerm = ctx.addMutableState(ruleRes+"[]", ctx.freshName("results"),
@@ -313,7 +322,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
               ${eval.code} \n
 
               $outArrTerm[$i] = ${eval.isNull} ? null : ($output)${eval.value}; \n
-              ${extraResult(s"$outArrTerm[$i]")}
+              ${extraResult(s"$outArrTerm[$i]", i, resArrTerm)}
         """
 
         ctx.addNewFunction(exprFuncName,
@@ -382,11 +391,7 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression {
   implicit val classTagT: ClassTag[T]
 
   lazy val resultDataType = {
-    val resultDataType = userResultDataType.getOrElse(realChildren.last.dataType)
-    // TODO needs a better type comparison, leverage whatever is present in spark directly
-    //realChildren.drop(triggerCount).find(e => e.dataType != resultDataType).foreach{ e =>
-    //  throw new QualityException(s"RuleEngine DataType ${e.dataType.sql} does not match the last OutputExpression type ${resultDataType.sql}")
-    //}
+    val resultDataType = outputExpressionType(userResultDataType, realChildren, triggerCount)
 
     if (debugMode)
       // wrap it in an array with the priority result

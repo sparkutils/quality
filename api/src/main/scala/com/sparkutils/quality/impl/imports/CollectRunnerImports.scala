@@ -20,14 +20,19 @@ trait CollectRunnerImports {
    * @param variableFuncGroup Defaulting to 20
    * @param flatten when resultType is an ArrayType should the result be flattened
    * @param includeNulls should nulls returned by the output expressions be included, note when flattening nulls IN the returned arrays are not filtered
+   * @param useInPlaceArray defaulting to true, this replaces the array handling approach for 'array' Output Expressions
+   * @param unrollInPlaceArray defaulting to false, when true, unrolls array copying for InPlaceArray usage, it _could_ be faster in some circumstances but in most cases trust the JVM's JIT
+   * @param unrollOutputArraySize defaulting to 1 and only used when unrollInPlaceArray is true.  When higher, decides how many operations should be unrolled for array copies per loop, setting to a higher number than all OutputExpression array sizes would force all array copying to be inlined.  It _could_ be faster in some circumstances but in most cases trust the JVM's JIT to unroll the loops.
    * @return A Column representing the QualityRules expression built from this ruleSuite
    */
   def collectRunner(ruleSuite: RuleSuite, resultDataType: Option[DataType] = None, variablesPerFunc: Int = 40,
-                           variableFuncGroup: Int = 20,
-                           flatten: Boolean = true, includeNulls: Boolean = false): Column =
+                    variableFuncGroup: Int = 20, flatten: Boolean = true, includeNulls: Boolean = false,
+                    useInPlaceArray: Boolean = true, unrollInPlaceArray: Boolean = false,
+                    unrollOutputArraySize: Int = 1): Column =
     ShimUtils.callFunction("collect_runner", lit(RuleSuiteHelpers.serialize(ruleSuite)),
       lit(resultDataType.map(_.sql).getOrElse("")), lit(flatten), lit(includeNulls),
-      lit(variablesPerFunc), lit(variableFuncGroup)
+      lit(variablesPerFunc), lit(variableFuncGroup), lit(useInPlaceArray),
+      lit(unrollInPlaceArray), lit(unrollOutputArraySize)
     )
 
 }

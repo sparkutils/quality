@@ -1,14 +1,17 @@
 package com.sparkutils.quality.impl
 
 import com.sparkutils.quality._
-import com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenExpressions
+import com.sparkutils.quality.impl.CollectRunner.UnrollOutputArraySize
+import com.sparkutils.quality.impl.RuleEngineRunnerUtils.{flattenExpressions, outputExpressionType}
 import com.sparkutils.quality.impl.imports.RuleFolderRunnerImports
-import com.sparkutils.quality.impl.util.{PassThroughCompileEvals, PassThroughEvalOnly}
+import com.sparkutils.quality.impl.util.PassThroughEvalOnly
+import com.sparkutils.shim.expressions.Names
 import org.apache.spark.sql.Column
 import org.apache.spark.sql.ShimUtils.column
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.analysis.UnresolvedFunction
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, ExprCode}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, ExprCode, FalseLiteral, GlobalValue}
 import org.apache.spark.sql.catalyst.expressions.{CreateArray, Expression, NonSQLExpression}
 import org.apache.spark.sql.catalyst.util.GenericArrayData
 import org.apache.spark.sql.types._
@@ -26,13 +29,86 @@ private[quality] object CollectRunnerUtils extends RuleFolderRunnerImports {
 
 }
 
+/**
+ * Replacement for CreateArray when flatten is true, eval creates new arrays, but gencode does not and only replaces the array location
+ * @param children
+ */
+case class InPlaceArray(children: Seq[Expression]) extends Expression {
+
+  override def nullable: Boolean = false
+
+  override def eval(input: InternalRow): Any =
+    new GenericArrayData(children.map(_.eval(input)).toArray)
+
+  override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
+    val ruleRes = "java.lang.Object"
+    val arrayTerm = ctx.addMutableState(ruleRes+"[]", ctx.freshName("results"),
+      v => s"$v = new $ruleRes[${children.size}];")
+    val genArr = classOf[GenericArrayData].getName
+    val arrayDataTerm = ctx.addMutableState(genArr, ctx.freshName("retval"),
+      v => s"$v = new $genArr($arrayTerm);")
+
+    val theCode = children.zipWithIndex.map {
+      case (child, i) =>
+
+        val eval = child.genCode(ctx)
+        // TODO will autoboxing work on databricks? it's had an old janino version for a long time - tests need
+        s"""
+          // InPlaceArray for elem $i
+          ${eval.code}
+
+          $arrayTerm[$i] = ${eval.value};
+        """
+    }
+
+
+    val splitCode = ctx.splitExpressionsWithCurrentInputs(
+      expressions = theCode,
+      funcName = "inPlaceApplyAD",
+      extraArguments = (ruleRes+"[]", arrayTerm) :: Nil)
+
+    ev.copy(code =
+      code"""
+        $splitCode
+        """, isNull = FalseLiteral, value = GlobalValue(arrayDataTerm, classOf[GenericArrayData]))
+
+  }
+
+  override def dataType: ArrayType = {
+    ArrayType(
+      outputExpressionType(None, children, 0),
+      containsNull = children.exists(_.nullable))
+  }
+
+  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(newChildren)
+}
+
 object CollectRunner {
+
+  /**
+   * defaults to true, swapping out array( / CreateArray usage to reduce array creation and have direct array access
+   */
+  val UseInPlaceArray = "com.sparkutils.collect.useInPlaceArray"
+  /**
+   * defaults to false, enables output expressions with InPlaceArray to have unrolling applied,
+   * the default unrollOutputArraySize of 1 behaves like for loop.  In testing for small array output expression sizes
+   * there is a loss of performance for unrolling.  It is likely only useful for large "array(" size output expressions.
+   * Up to 4 tested have shown zero benefit.
+   */
+  val UnrollOutputArray = "com.sparkutils.collect.unrollOutputArray"
+  /**
+   * defaults to 1, used to configure InPlaceArray unrolling, 1 behaves like a for loop, every higher number groups into
+   * a for loop with unrollOutputArraySize entries and any leftover being directly unrolled.
+   */
+  val UnrollOutputArraySize = "com.sparkutils.collect.unrollOutputArraySize"
 
   /**
    * Creates a column that runs the folding RuleSuite.  This also forces registering the lambda functions used by that RuleSuite.
    *
    * FolderRunner runs all output expressions for matching rules in order of salience, the startingStruct is passed ot the first
    * matching, the result passed to the second etc.  In contrast to ruleEngineRunner OutputExpressions should be lambdas with one parameter, that of the structure
+   *
+   * By default, InPlaceArray will substitute CreateArray (array sql function), should there be issues with loop unrolling com.sparkutils.collect.useInPlaceArray can be set to false.
    *
    * @param ruleSuite The ruleSuite with runOnPassProcessors
    * @param resultDataType the collected result type, specify this if the derived types have nullability or ordering issues.  By default, it takes the type of the last output expression
@@ -43,18 +119,46 @@ object CollectRunner {
    * @return A Column representing the QualityRules expression built from this ruleSuite
    */
   def collectRunnerClassic(ruleSuite: RuleSuite, resultDataType: Option[DataType] = None, variablesPerFunc: Int = 40,
-                           variableFuncGroup: Int = 20,
-                           flatten: Boolean = true, includeNulls: Boolean = false): Column = {
+                           variableFuncGroup: Int = 20, flatten: Boolean = true, includeNulls: Boolean = false,
+                           useInPlaceArray: Boolean = true, unrollInPlaceArray: Boolean = false,
+                           unrollOutputArraySize: Int = 1): Column = {
     com.sparkutils.quality.registerLambdaFunctions( ruleSuite.lambdaFunctions )
 
-    val (expressions, indexes, triggerCount) = flattenExpressions(ruleSuite)
+    val (expressionsRaw, indexes, triggerCount) = flattenExpressions(ruleSuite)
 
     val cleaned = RuleLogicUtils.cleanExprs(ruleSuite)
+
+    val inPlace = getConfig(UseInPlaceArray, s"$useInPlaceArray").toBoolean
+    val unroll = getConfig(UnrollOutputArray, s"$unrollInPlaceArray").toBoolean
+
+    val canUnroll =
+      expressionsRaw.drop(triggerCount).map{
+        case a: UnresolvedFunction if Names.toName(a).toLowerCase == "array" => a.children.size
+        case _ => -1
+      }.toArray
+
+    val expressions =
+      if (flatten && inPlace)
+        expressionsRaw.zipWithIndex.map{
+          case (a: UnresolvedFunction, i) if // check triggerCount because we do not want triggers to be swapped
+            Names.toName(a).toLowerCase == "array" && i >= triggerCount => InPlaceArray(a.children) // TODO should this move into the expression and auto resolve in the case of FunNRewrite?
+          case (e, i) => e
+        }
+      else
+        expressionsRaw
+
+    val isInPlace =
+      expressions.drop(triggerCount).map{
+        case _: InPlaceArray => true
+        case _ => false
+      }.toArray
 
     column(
       CollectRunnerRunner(cleaned, expressions, resultDataType,
         variablesPerFunc, variableFuncGroup,
-        expressionOffsets = indexes, triggerCount = triggerCount, flatten = flatten, includeNulls = includeNulls)
+        expressionOffsets = indexes, triggerCount = triggerCount, flatten = flatten,
+        includeNulls = includeNulls, canUnroll = canUnroll, isInPlace = isInPlace, unroll = unroll,
+        unrollOutputArraySize = unrollOutputArraySize)
     )
   }
 }
@@ -73,21 +177,17 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
   val flatten: Boolean
   val includeNulls: Boolean
   val triggerCount: Int
+  val canUnroll: Array[Int]
+  val unroll: Boolean
+  val isInPlace: Array[Boolean]
+  val unrollOutputArraySize: Int
 
   implicit val classTagT: ClassTag[T]
   val tClass: Class[T]
 
   import RuleEngineRunnerUtils._
 
-  lazy val actualType = {
-    val theType = resultDataType.getOrElse{ children.last.dataType }
-    /*
-    // if a type is supplied are all output expressions compatible with it
-    children.drop(triggerCount).find(e => e.dataType != theType).foreach{ e =>
-      throw new QualityException(s"CollectRunner DataType ${e.dataType.sql} does not match the last OutputExpression type ${theType.sql}")
-    }*/
-    theType
-  }
+  lazy val actualType = outputExpressionType(resultDataType, children, triggerCount)
 
   // only used for compilation compatibility with ruleEngine utils code
   lazy val compiledRealChildren = Array.empty[ExpressionWrapper]
@@ -105,13 +205,13 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
       children.foldLeft(initial) { case (cur, e) =>
          e match {
            case a: CreateArray => a.children.size + cur
+           case a: InPlaceArray => a.children.size + cur
            case _ => cur + 5 // number carefully picked from thin air
          }
       }
     } else
       initial
   }
-
 
   override def nullable: Boolean = false
   override def toString: String = s"${classTagT.runtimeClass.getName}(${children.mkString(", ")})"
@@ -136,8 +236,20 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
   protected def doGenCodeI(ctx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = {
     ctx.references += this
 
+    def hasDefault(when: => String, els: String = ""): String =
+      if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp)
+        when
+      else
+        els
+
+
+    // tester to prove compilation on throughput tests
+    // print("I AM GENERATING CODE!!!!")
+
     // needs resetting every row
     val bufferTerm = ctx.addMutableState(classOf[ArrayBuffer[_]].getName, ctx.freshName("results"))
+
+    val hasAPassTerm = ctx.addMutableState("boolean", ctx.freshName("hasAPass"))
 
     // order by salience
     val salience = com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenSalience(ruleSuite)
@@ -150,30 +262,151 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
     val z = ctx.freshName("z")
     val o = ctx.freshName("o")
 
+    // needs addOne as janino can't compile .$plus$eq( and .addOne only exists on 2.13
+    def wrapperIf(o: String) =
+      if (includeNulls)
+        s"com.sparkutils.quality.impl.CollectRunnerUtils.addOne($bufferTerm, $o);"
+      else
+        s"""
+        if ($o != null) {
+          com.sparkutils.quality.impl.CollectRunnerUtils.addOne($bufferTerm, $o);
+        }
+        """
+
+    def processFlattenResult(i: Int, outArrTerm: String) =
+      if ((canUnroll(i) > 0 && unroll) && isInPlace(i)) {
+        // it may have been replaced by subexpr, but it was at one stage an InPlaceArray
+        val o = ctx.freshName("o")
+        val a = ctx.freshName("a")
+
+        val pre = s"""
+          // flatten and canUnroll for InPlaceArray
+          Object $o = null;
+          Object[] $a = $outArrTerm.array();
+        """
+
+        val groupSize = getConfig(UnrollOutputArraySize, s"$unrollOutputArraySize").toInt
+
+        val entries = (0 until canUnroll(i)).grouped(groupSize).toSeq
+        val hasLastToDrop =
+          entries.lastOption.exists { l =>
+            if (l.size == groupSize)
+              false
+            else
+              true
+          }
+        val ofSize =
+          if (hasLastToDrop)
+            entries.dropRight(1)
+          else
+            entries
+
+        val lastChunks =
+          if (hasLastToDrop)
+            entries.last
+          else
+            Seq.empty
+
+        val loopChunk =
+          (0 until groupSize).foldLeft("") {
+            (cur, i) =>
+
+              s"""
+                $cur
+                $o = $a[($z * $groupSize) + $i];
+                ${wrapperIf(o)}
+               """
+          }
+
+        val lastChunk =
+          lastChunks.indices.foldLeft("") {
+            (cur, i) =>
+
+              s"""
+              $cur
+
+              $o = $a[${ofSize.size * groupSize} + $i];
+              ${wrapperIf(o)}
+            """
+          }
+
+        val loop =
+          if (ofSize.nonEmpty)
+            s"""
+              for (int $z = 0; $z < ${ofSize.size}; $z++) {
+                $loopChunk
+              }
+            """
+          else
+            ""
+
+        val out =
+          s"""
+            $pre
+            $loop
+            $lastChunk
+             """
+        out
+
+      } else {
+        if (isInPlace(i)) { // it may have been replaced but it was at one stage an InPlaceArray
+          val o = ctx.freshName("o")
+          val a = ctx.freshName("a")
+
+          val pre = s"""
+            // flatten case and InPlaceArray - no unroll
+            Object $o = null;
+            Object[] $a = $outArrTerm.array();
+          """
+
+          val out =
+          s"""
+            $pre
+
+            for (int $z = 0; $z < ${canUnroll(i)}; $z++) {
+              $o = $a[$z];
+              ${wrapperIf(o)}
+            }
+          """
+
+          out
+        } else
+          if (canFlatten) s"""
+            // flatten case and native CreateArray
+            ArrayData $arrayData = (ArrayData) $outArrTerm;
+            for (int $z = 0; $z < $arrayData.numElements(); $z++) {
+              Object $o = ${CodeGenerator.getValue(arrayData, elementType, z)};
+              ${wrapperIf(o)}
+            }
+          """
+          else ""
+      }
+
     val compilerTerms =
       RuleEngineRunnerUtils.genCompilerTerms[T](ctx, PassThroughEvalOnly(children), expressionOffsets, children,
         false, variablesPerFunc, variableFuncGroup, false,
         // capture the current
-        extraResult = (outArrTerm: String) =>
+        extraResult = (outArrTerm: String, i: Int, resArrTerm: String) =>
           s"""
              if (($outArrTerm != null) || $includeNulls) {
                 if (($outArrTerm == null) || ${!(flatten && canFlatten)}) {
                   com.sparkutils.quality.impl.CollectRunnerUtils.addOne($bufferTerm, $outArrTerm);
                 } else {
-                  // flatten case and non-null
-                  ArrayData $arrayData = (ArrayData) $outArrTerm;
-                  for (int $z = 0; $z < $arrayData.numElements(); $z++) {
-                    Object $o = ${CodeGenerator.getValue(arrayData, elementType, z)};
-                    if (($o != null) || $includeNulls) {
-                      com.sparkutils.quality.impl.CollectRunnerUtils.addOne($bufferTerm, $o);
-                    }
-                  }
+                  ${ processFlattenResult(i, outArrTerm) }
                 }
+             }
+             if ($resArrTerm[$i] != null && ((Integer) $resArrTerm[$i]) == $PassedInt) {
+               $hasAPassTerm = true;
              }
            """,
         orderOffset = (idx: Int) => reordered(idx),
         // we shouldn't check salience as we are already ordered by it
-        salienceCheck = false
+        salienceCheck = false,
+        sizeAdjustment =
+          if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp)
+            -1 // don't generate the default, there isn't a trigger
+          else
+            0
       )
 
     import compilerTerms._
@@ -181,6 +414,7 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
     val pre = s"""
           $currentSalience = java.lang.Integer.MAX_VALUE;
           $currentOutputIndex = -1;
+          $hasAPassTerm = false;
           $pushToTop
           $bufferTerm = new ${classOf[ArrayBuffer[_]].getName}($starterSize);
 
@@ -191,13 +425,50 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
           boolean ${ev.isNull} = false;
       """
 
+    val rsres = ctx.freshName("ruleSuiteRes")
+
     val res =
       ev.copy(code = code"""
         $pre
 
+        ${hasDefault{
+        s"""
+            if (!$hasAPassTerm) {
+              ${
+                val defP = children.last.genCode(ctx)
+                s"""
+                    ${defP.code}
+
+                    //System.out.println("DefaultProcessor result is ${defP.value}" + ${defP.value});
+
+                    if ((${defP.value} == null) || ${!(flatten && canFlatten)}) {
+                      com.sparkutils.quality.impl.CollectRunnerUtils.addOne($bufferTerm, ${defP.value});
+                    } else {
+                      ${ // -1 for normal last
+                        processFlattenResult(canUnroll.length - 1, defP.value)
+                        }
+                    }
+                  """
+              }
+            }
+        """
+        }}
+
+        InternalRow $rsres = $utilsName.evalArrayForDefault($ruleSuitTerm, $ruleSuiteArrays, $resArrTerm);
+
+        ${
+          hasDefault(
+            // if we have a default the result type should be DefaultRule
+            s"""
+            if (!$hasAPassTerm) {
+              $rsres.update(1, ${DefaultRuleInt});
+            }
+            """)
+        }
+
         InternalRow ${ev.value} =
           com.sparkutils.quality.impl.CollectRunnerUtils.compiledEval(
-            $utilsName.evalArray($ruleSuitTerm, $ruleSuiteArrays, $resArrTerm),
+            $rsres,
             $bufferTerm);
 
         $post
@@ -215,8 +486,8 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
  */
 case class CollectRunnerRunner(ruleSuite: RuleSuite, children: Seq[Expression], resultDataType: Option[DataType],
                                 variablesPerFunc: Int, variableFuncGroup: Int, expressionOffsets: Array[Int],
-                               triggerCount: Int,
-                               flatten: Boolean, includeNulls: Boolean
+                               triggerCount: Int, flatten: Boolean, includeNulls: Boolean, canUnroll: Array[Int],
+                               isInPlace: Array[Boolean], unroll: Boolean, unrollOutputArraySize: Int
                                ) extends CollectRunnerBase[CollectRunnerRunner] {
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = {

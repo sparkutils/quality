@@ -2,7 +2,7 @@ package com.sparkutils.quality.impl
 
 import com.sparkutils.quality
 import com.sparkutils.quality.impl.imports.RuleResultsImports.{DisabledRuleInt, FailedInt, IgnoredRuleInt, PassedInt, SoftFailedInt}
-import com.sparkutils.quality.{DisabledRule, Failed, Id, IgnoredRule, OutputExpression, Passed, Probability, RuleResult, RuleResultWithProcessor, RuleSuite, RunOnPassProcessor, SoftFailed}
+import com.sparkutils.quality.{DefaultProcessor, DefaultRule, DefaultRuleInt, DisabledRule, Failed, Id, IgnoredRule, OutputExpression, Passed, Probability, RuleResult, RuleResultWithProcessor, RuleSuite, RunOnPassProcessor, SoftFailed}
 import com.sparkutils.quality.impl.util.Serializing.toSeq
 import org.apache.spark.sql.SparkSession
 
@@ -40,6 +40,7 @@ object RuleSuiteHelpers {
       case SoftFailed => SoftFailedInt
       case DisabledRule => DisabledRuleInt
       case IgnoredRule => IgnoredRuleInt
+      case DefaultRule => DefaultRuleInt
       case Passed => PassedInt
       case Probability(percentage) => (percentage * PassedInt).toInt
       case RuleResultWithProcessor(res, _) => ruleResultToInt(res)
@@ -58,6 +59,19 @@ case class RunOnPassProcessorHolder(salience: Int, id: Id) extends quality.RunOn
 
   override def withExpr(expr: quality.OutputExpression): quality.RunOnPassProcessor =
     RunOnPassProcessor.RunOnPassProcessorImpl(salience, id, expr match {
+      case h: quality.HasRuleText => h.rule
+      case _ => ""
+    }, expr)
+}
+
+@SerialVersionUID(1L)
+case class DefaultProcessorHolder(id: Id) extends quality.DefaultProcessor with Serializable {
+
+  lazy val rule: String = throw HolderUsedInsteadIfImpl(id)
+  lazy val outputExpression: OutputExpression = throw HolderUsedInsteadIfImpl(id)
+
+  override def withExpr(expr: quality.OutputExpression): quality.DefaultProcessor =
+    DefaultProcessor.DefaultProcessorImpl(id, expr match {
       case h: quality.HasRuleText => h.rule
       case _ => ""
     }, expr)

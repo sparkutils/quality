@@ -230,7 +230,7 @@ object Validation {
 
           val (ruleErrors, exprLookup) = doRule(r.id, r.expression.toImpl.expr, false, viewLookup)
           exprLookups += RuleId(r.id) -> exprLookup
-
+          // TODO add defaultProcessor here
           val outputErrors =
             if (r.runOnPassProcessor != NoOpRunOnPassProcessor.noOp) {
               outputExpressions += addDocs[impl.RunOnPassProcessor](r.runOnPassProcessor.id, r.runOnPassProcessor.toImpl, r.runOnPassProcessor.returnIfPassed.asInstanceOf[quality.HasRuleText])

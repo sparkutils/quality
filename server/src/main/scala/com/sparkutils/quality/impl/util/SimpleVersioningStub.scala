@@ -85,4 +85,19 @@ protected[quality] object SimpleVersioningStub {
       outputExpressionVersion, outputExpressionRuleSuiteId, outputExpressionRuleSuiteVersion)
   )
 
+  /**
+   * Reads RuleSuite attributes including probablePass and defaultProcessor
+   *
+   * @return
+   */
+  protected[quality] def readVersionedRuleSuitesFromDF(ruleSuiteDF: DataFrame,
+                                    ruleSuiteId: Column,
+                                    ruleSuiteVersion: Column,
+                                    defaultProcessorId: Column,
+                                    defaultProcessorVersion: Column,
+                                    probablePass: Column
+                                   ): Option[DataFrame] = someOrForcedConnect(
+    SimpleVersioning.readVersionedRuleSuitesFromDF(ruleSuiteDF, ruleSuiteId, ruleSuiteVersion,
+      defaultProcessorId, defaultProcessorVersion, probablePass)
+  )
 }

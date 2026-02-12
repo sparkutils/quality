@@ -20,7 +20,7 @@ trait ClassicSharedTests extends FunSuite with TestSetup {
   /**
    * enable funN rewrites, runs the test twice, once under the optimisation, once without
    */
-  def funNRewrites: Unit => Unit = (u:Unit) => {
+  def funNRewrites(u: => Unit): Unit = {
     if (!inConnect.get()) {
       testPlan(FunNRewrite)(u)
     } else {
@@ -30,7 +30,7 @@ trait ClassicSharedTests extends FunSuite with TestSetup {
   /**
    * enable funN rewrites for one test run only
    */
-  def justfunNRewrite: Unit => Unit = (u:Unit) => {
+  def justfunNRewrite(u: => Unit): Unit = {
     if (!inConnect.get()) {
       testPlan(FunNRewrite, secondRunWithoutPlan = false)(u)
     } else {

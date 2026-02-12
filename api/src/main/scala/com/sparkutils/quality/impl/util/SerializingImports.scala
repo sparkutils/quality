@@ -250,11 +250,39 @@ trait SerializingImports {
   def integrateLambdas(ruleSuiteMap: RuleSuiteMap, lambdas: Map[Id, Seq[LambdaFunction]], globalLibrary: Option[Id] = None): RuleSuiteMap =
     iIntegrateLambdas(ruleSuiteMap, lambdas, globalLibrary, r => lambdas.get(r))
 
+  /**
+   * Returns an integrated ruleSuiteMap with probablePass and defaultOutputExpression applied
+   *
+   * Call this before calling integrateOutputExpressions.
+   *
+   * @param ruleSuiteMap
+   * @param outputs
+   * @param globalLibrary
+   * @return
+   */
+  def integrateRuleSuites(ruleSuiteMap: RuleSuiteMap, ruleSuites: Map[Id, RuleSuiteRow]): RuleSuiteMap =
+    Serializing.integrateRuleSuites(ruleSuiteMap, ruleSuites)
+
+  /**
+   * Loads RuleSuite specific attributes to use with integrateRuleSuites
+   * @param ruleSuites
+   * @return
+   */
+  def readRuleSuitesFromDF(ruleSuites: Dataset[RuleSuiteRow]): Map[Id, RuleSuiteRow] =
+    ruleSuites.collect().map(r => Id(r.ruleSuiteId, r.ruleSuiteVersion) -> r).toMap
+
+  /**
+   * Identify if the missing OutputExpression from a RuleSuite is from a defaultProcessor
+   * @param rule
+   * @return
+   */
+  def isAMissingRuleSuiteRule(rule: Rule): Boolean = Serializing.isAMissingRuleSuiteRule(rule)
 
   /**
    * Returns an integrated ruleSuiteMap with a set of RuleSuite Id -> Rule mappings where the OutputExpression didn't exist.
+   * If defaultProcessor is expected to be used then call integrateRuleSuites *before*.
    *
-   * Users should check if their RuleSuite is in the "error" map.
+   * Users should check if their RuleSuite is in the "error" map.  The isAMissingRuleSuiteRule can be used to identify if a Rule is referring to a missing RuleSuite.defaultProcessor
    *
    * @param ruleSuiteMap
    * @param outputs
@@ -291,6 +319,20 @@ trait SerializingImports {
    */
   def toDS(ruleSuite: RuleSuite): Dataset[RuleRow] =
     Serializing.toDS(ruleSuite)
+
+  /**
+   * Creates a RuleSuiteRow from a RuleSuite for RuleSuite specific attributes and an optional defaultProcessor
+   * @param ruleSuite
+   */
+  def toRuleSuiteRow(ruleSuite: RuleSuite): (RuleSuiteRow, Option[OutputExpressionRow]) =
+    (RuleSuiteRow(ruleSuite.id.id, ruleSuite.id.version, ruleSuite.probablePass,
+      ruleSuite.defaultProcessor.id.id, ruleSuite.defaultProcessor.id.version),
+      if (ruleSuite.defaultProcessor == NoOpDefaultProcessor.noOp)
+        None
+      else
+        Some(OutputExpressionRow(ruleSuite.defaultProcessor.rule, ruleSuite.defaultProcessor.id.id,
+          ruleSuite.defaultProcessor.id.version, ruleSuite.id.id, ruleSuite.id.version))
+      )
 
   /**
    * Must have an active sparksession before calling and only works with ExpressionRule's, all other rules are converted to 1=1

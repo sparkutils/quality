@@ -157,7 +157,7 @@ ${any.asInstanceOf[HasRuleText[_]].rule}
         trl(LambdaId(lambda._1)) = set
       }
       rsd.rules.foreach { pair =>
-        if (pair._2.t.runOnPassProcessor ne NoOpRunOnPassProcessor.noOp) {
+        if (pair._2.t.runOnPassProcessor != NoOpRunOnPassProcessor.noOp) {
           val outid = pair._2.t.runOnPassProcessor.id
           var set = trl.getOrElse(OutputExpressionId(outid), Set.empty[IdTrEither])
           set += RuleId(pair._1)
@@ -191,7 +191,7 @@ ${if (docs.returnDescription.nonEmpty) s"__Returns__: ${docs.returnDescription}"
 ${genDocs(docs)}
 ${genRule(rule.expression, RuleId(id), expressionLookups, idGen, rsd, extraFunctionListClass, qualityDocLink)}
 ${
-          if (rule.runOnPassProcessor ne NoOpRunOnPassProcessor.noOp)
+          if (rule.runOnPassProcessor != NoOpRunOnPassProcessor.noOp)
             s"""
 __Triggers__ output rule with id <a href="#${idGen("outputRule", rule.runOnPassProcessor.id)}">${rule.runOnPassProcessor.id.id}, ${rule.runOnPassProcessor.id.version}</a> _Salience_ ${rule.runOnPassProcessor.salience}
 """ else ""
