@@ -1,5 +1,6 @@
 package com.sparkutils.quality.impl.extension
 
+import com.sparkutils.quality.impl.extension.QualitySparkExtension.disabledOptimiserRules
 import org.apache.spark.sql.QualitySparkUtils
 import org.apache.spark.sql.catalyst.expressions.{Expression, LambdaFunction, NamedLambdaVariable}
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
@@ -21,20 +22,50 @@ import org.apache.spark.sql.qualityFunctions.LambdaCompilationUtils.compilationH
  *
  * IMPORTANT: This only works on 3.2 and above as it introduced transformDownWithPruning
  */
-object FunNRewrite extends Rule[LogicalPlan] {
+object FunNRewrite extends FunNRewriteBase {
+
+  override def className = "com.sparkutils.quality.impl.extension.FunNRewrite"
+
+  lazy val disabled: Boolean = shouldBeDisabled
+
+}
+
+trait FunNRewriteBase extends Rule[LogicalPlan] {
+  def className: String
+
+  def shouldBeDisabled: Boolean = {
+    val (all, disabledRules) = disabledOptimiserRules()
+    if (all)
+      true
+    else
+      disabledRules.contains(className)
+  }
+
+  def disabled: Boolean
+
+  def funNHandled(f: FunN): Boolean = f.name.isDefined && compilationHandlers.contains(f.name.get)
 
   override def apply(plan: LogicalPlan): LogicalPlan =
-    QualitySparkUtils.funNRewrite(plan, {
-      case f: FunN if !f.usedAsLambda &&
-        // if a direct child is a rewrite HoF then we shouldn't disable compilation by ripping it out (#83)
-        !f.children.exists( t => t.collect{
-          case e => compilationHandlers.contains(e.getClass.getName)
-        }.nonEmpty ) =>
-        val pairs = f.elementVars.zip(f.arguments).toMap
-        val r =
-          f.function.asInstanceOf[LambdaFunction].function.transform{
-            case e: NamedLambdaVariable if pairs.contains(e) => pairs(e)
-          }
-        r
-    })
+    if (disabled)
+      plan
+    else
+      QualitySparkUtils.funNRewrite(plan, {
+        case f: FunN if !f.usedAsLambda &&
+          // if a direct child is a rewrite HoF then we shouldn't disable compilation by ripping it out (#83)
+          !f.children.exists( t => t.collect {
+            // full class type for HoF
+            case e if compilationHandlers.contains(e.getClass.getName) => true
+            // specific FunN name
+            case f: FunN if funNHandled(f) => true
+          }.nonEmpty )
+          &&
+          // if this FunN should be handled then we shouldn't rewrite
+          !(funNHandled(f)) =>
+          val pairs = f.elementVars.zip(f.arguments).toMap
+          val r =
+            f.function.asInstanceOf[LambdaFunction].function.transform{
+              case e: NamedLambdaVariable if pairs.contains(e) => pairs(e)
+            }
+          r
+      })
 }

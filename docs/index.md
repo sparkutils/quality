@@ -17,8 +17,9 @@ Write rules using simple SQL or create re-usable functions via SQL Lambdas.
 
 Your rules are just versioned data, store them wherever convenient, use them by simply defining a column.
 
-* :new:{.pulseABit} [collectRunner](advanced/collectRunner.md), optimally collect all results which match a given row 
+* :new:{.pulseABit} [collectRunner](advanced/collectRunner.md), optimally collect all results which match a given row, with an optional default output expression 
 * :new:{.pulseABit} ignoredRule function and return types, signalling that a rule wasn't actually appropriate to run for a row
+* :new:{.pulseABit} [rule_suite_statistics](sqlfunctions.md#rule_suite_statistics) function, which collects a RuleSuiteGroupStatistics object over a given dataset's RuleSuiteResult column 
 
 Rules are evaluated lazily during Spark actions, such as writing a row, with results saved in a single predictable column.
 

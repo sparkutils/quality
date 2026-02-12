@@ -33,7 +33,8 @@ Single argument lambdas should not use brackets around the parameters and zero a
 !!! info "0.1.3.1 optimisations can be enabled"
     0.1.3.1 introduces the expansion of Qualitylambda functions, allowing sub expression elimination to take place.  The entire rewrite plan must be enabled by calling `com.sparkutils.quality.enableFunNRewrites()` within your SparkSession or by default via the Quality extensions.
 
-    You can put the comment `/* USED_AS_LAMBDA */` in an individual rule definition to disable expansion for the entire user function subtree.  This is unlikely to be needed, but is provided to allow overriding should issues arise.
+    You can put the comment `/* USED_AS_LAMBDA */` in an individual rule definition to disable expansion for the entire user function subtree.  This is unlikely to be needed, but is provided to allow specific overriding should issues arise.
+    All rewrites can be disabled for a cluster by using quality_disable_optimiser_rules=com.sparkutils.quality.impl.extension.FunNRewrite config.
 
     The use of re-writes with 3.2.x has been identified in one test case (testSimpleProductionRules) as problematic for codegen, please use more recent Spark versions.    
 

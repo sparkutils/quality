@@ -2,7 +2,7 @@ package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.functions._
-import com.sparkutils.quality.impl.aggregates.AggregateExpressions
+import com.sparkutils.quality.impl.aggregates.{AggregateExpressions, Statistics}
 import com.sparkutils.quality.impl.bloom.{BucketedArrayParquetAggregator, ParquetAggregator}
 import com.sparkutils.quality.impl.hash.{HashFunctionFactory, HashFunctionsExpression}
 import com.sparkutils.quality.impl.id.{GenericLongBasedIDExpression, model}
@@ -510,6 +510,8 @@ object RuleRegistrationFunctions {
     register("drop_field", exps => {
       expression(drop_field(column(exps.head), exps.tail.zipWithIndex.map{case (p, i) => getString(p, i+1)} : _*))
     }, minimum = 2)
+
+    register("rule_suite_statistics", exps => Statistics(exps.head), Set(1))
 
     def msgAndExpr(msgDefault: String, exps: Seq[Expression]) = exps match {
       case Seq(Literal(str: UTF8String, StringType), e: Expression) =>

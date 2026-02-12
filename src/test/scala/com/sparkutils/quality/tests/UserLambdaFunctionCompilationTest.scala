@@ -1,10 +1,11 @@
 package com.sparkutils.quality.tests
 
 import com.sparkutils.quality._
+import com.sparkutils.quality.impl.extension.{FunNRewrite, FunNRewriteBase, QualitySparkExtension}
 import com.sparkutils.quality.impl.util.Testing
 import com.sparkutils.quality.tests.TestHandler._
 import com.sparkutils.qualityTests.{RowTools, SparkTestUtils, TestUtils}
-import org.apache.spark.sql.catalyst.expressions.{ArrayFilter, ExprId, Expression, NamedLambdaVariable, ZipWith}
+import org.apache.spark.sql.catalyst.expressions.{Alias, ArrayFilter, CreateArray, ExprId, Expression, Flatten, Literal, NamedLambdaVariable, ZipWith}
 import org.apache.spark.sql.qualityFunctions.LambdaCompilationUtils.{LambdaCompilationHandler, convertToCompilationHandlers, envLambdaHandlers, loadLambdaCompilationHandlers}
 import org.apache.spark.sql.qualityFunctions.{DoCodegenFallbackHandler, FunN, NamedLambdaVariableCodeGen}
 import org.junit.{Before, Test}
@@ -180,6 +181,89 @@ class UserLambdaFunctionCompilationTest extends FunSuite with TestUtils {
     }
   }
 
+  // FunNRewriteD needed to allow swapping the config out to test disabling the entire plugin
+  lazy val justfunNRewriteD = testPlan(FunNRewriteD, secondRunWithoutPlan = false) _
+
+  @Test
+  def disabledRewriteNestedArray(): Unit = v3_2_and_above { justfunNRewriteD {
+
+    val before = System.getProperty(QualitySparkExtension.disableRulesConf)
+    try {
+      System.setProperty(QualitySparkExtension.disableRulesConf, FunNRewriteD.className)
+
+      val toarr = LambdaFunction("toarr", "(a, b) -> array(a, b)", Id(1, 2))
+      val toarr2 = LambdaFunction("toarr2", "(a, b) -> flatten(array(array(b, a, b), toarr(a,b)))", Id(1, 2))
+      registerLambdaFunctions(Seq(toarr, toarr2))
+
+      import sparkSession.implicits._
+
+      val ds = sparkSession.sql("select toarr2(1,2) as o").as[Seq[Int]]
+
+      val a = ds.queryExecution.executedPlan.collect {
+        case p => p.expressions.collect {
+          case a: Alias if a.name == "o" => a
+        }
+      }.flatten
+
+      assert(a.size == 1)
+      // all rewrites should be disabled, so FunN should be present
+      assert(a.head.child match {
+        case _: FunN => true
+        case _ => false
+      })
+
+      val threeUsages = ds.head
+      assert(threeUsages == Seq(2, 1, 2, 1, 2))
+
+    } finally {
+      if (before eq null)
+        System.clearProperty(QualitySparkExtension.disableRulesConf)
+      else
+        System.setProperty(QualitySparkExtension.disableRulesConf, before)
+    }
+  } }
+
+  @Test
+  def rewriteNestedArray(): Unit = v3_2_and_above { justfunNRewrite {
+    val toarr = LambdaFunction("toarr", "(a, b) -> array(a, b)", Id(1,2))
+    val toarr2 = LambdaFunction("toarr2", "(a, b) -> flatten(array(array(b, a, b), toarr(a,b)))", Id(1,2))
+    registerLambdaFunctions(Seq(toarr, toarr2))
+
+    import sparkSession.implicits._
+
+    val ds = sparkSession.sql("select toarr2(1,2) as o").as[Seq[Int]]
+
+    val a = ds.queryExecution.executedPlan.collect{
+      case p => p.expressions.collect {
+        case a: Alias if a.name == "o" => a
+      }
+    }.flatten
+
+    assert(a.size == 1)
+    // where both swapped out?
+    assert(a.head.child match {
+      case f: Flatten if f.children.size == 1 && f.children.head.isInstanceOf[CreateArray] =>
+        f.children.head.children match {
+          case Seq(a: CreateArray, b: CreateArray) if a.children.size == 3 && b.children.size == 2 =>
+            (
+              a.children match {
+                case Seq(a: Literal, b: Literal, c: Literal) if a.value == 2 && b.value == 1 && c.value == 2 => true
+                case _ => false
+              }
+              ) && (
+              b.children match {
+                case Seq(a: Literal, b: Literal) if a.value == 1 && b.value == 2 => true
+                case _=> false
+              }
+              )
+          case _ => false
+        }
+      case _ => false
+    })
+
+    val threeUsages = ds.head
+    assert(threeUsages == Seq(2,1,2,1,2))
+  } }
 
 }
 
@@ -222,5 +306,14 @@ case class TestHandler() extends LambdaCompilationHandler {
 }
 
 class TestMe() {
+
+}
+
+// only difference is disabled is always evaluated so disabling can be tested
+object FunNRewriteD extends FunNRewriteBase {
+
+  override def className = "com.sparkutils.quality.tests.FunNRewriteD"
+
+  def disabled: Boolean = shouldBeDisabled
 
 }

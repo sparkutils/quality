@@ -27,7 +27,7 @@ Filtering on a nested column with deep queries (shown in red) is as expected fas
 ![Performance of JSON vs UDF Structure Writing](../../img/filtering_json_vs_struct.png)
 
 !!! note
-    Depending on the Databricks runtime used the benefit from seperating the overallResult field to a top level field can be 10-20% faster.  While each new release of Spark and DBR closes this gap it is recommended to use addOverallResultsAndDetailsF to split the fields.  
+    Depending on the Databricks runtime used the benefit from separating the overallResult field to a top level field can be 10-20% faster.  While each new release of Spark and DBR closes this gap it is recommended to use addOverallResultsAndDetailsF to split the fields.  
 	This not only improves filter speed but also benefits with a simpler filter sql.
 	
 ## Structure Model - storage costs

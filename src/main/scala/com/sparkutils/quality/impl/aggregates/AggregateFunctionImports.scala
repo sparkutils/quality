@@ -132,4 +132,11 @@ trait AggregateFunctionImports {
    */
   def map_with(id: Column, sum: Column => Column, zero: DataType => Option[Any] = defaultZero _): SumExpression =
     SumWithMap(id, createLambda(sum), zero)
+
+  /**
+   * Aggregates over RuleSuiteResults columns and returns a RuleSuiteGroupStatistics row
+   * @param results
+   */
+  def rule_suite_statistics(results: Column): Column =
+    column( Statistics(expression(results)) )
 }

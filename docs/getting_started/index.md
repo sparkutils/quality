@@ -222,6 +222,8 @@ In order to use the query optimisations within normal job / calculator writing y
 
 The extension also enables the FunNRewrite optimisation (as of 0.1.3.1 and Spark 3.2 and higher) which expands user functions allowing sub expression elimination.
 
+Optimisations may be disabled through the quality_disable_optimiser_rules spark configuration with comma separated fully qualified class names. 
+
 ### Configuring on Databricks runtimes
 
 In order to register the extensions on Databricks runtimes you need to additionally create a cluster init script much like:

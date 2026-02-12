@@ -114,5 +114,6 @@ object utils {
         sys.error(s"Could not find compare function for ${dataType}")
       )
     }
+
 }
 

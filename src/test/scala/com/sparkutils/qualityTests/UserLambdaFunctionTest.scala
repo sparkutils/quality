@@ -11,6 +11,7 @@ import org.junit.Test
 import org.scalatest.FunSuite
 import com.sparkutils.qualityTests.mapLookup.TradeTests._
 import org.apache.spark.sql.ShimUtils.expression
+import org.apache.spark.sql.catalyst.expressions.{Alias, CreateArray, Flatten, Literal}
 
 class UserLambdaFunctionTest extends FunSuite with TestUtils {
   @Test
@@ -457,7 +458,14 @@ class UserLambdaFunctionTest extends FunSuite with TestUtils {
   @Test
   def testCallFunForward(): Unit = evalCodeGensNoResolve { funNRewrites {
     val plus = LambdaFunction("plus", "(a, b) -> a + b", Id(1,2))
-    val opargs = LambdaFunction("opargs", "(op, a, b) -> callFun(op, a, b)", Id(1,2))
+    val opargs = LambdaFunction("opargs",
+      """(op, a, b) ->
+        /* comments */
+        -- comments
+
+        callFun(op, a, b)
+        -- comments
+        """.stripMargin, Id(1,2))
     // this is utter nonsense -
     val test = LambdaFunction("plusTest", "(f, a) -> callFun(callFun(f, _(), 1L), a)", Id(3,2))
     registerLambdaFunctions(Seq(plus, test, opargs))
