@@ -110,4 +110,11 @@ trait AggregateFunctionImports {
    */
   def map_with(id: Column, sum: Column => Column): SumExpression =
     SumWithMap(id, createLambda(sum))
+
+  /**
+   * Aggregates over RuleSuiteResults columns and returns a RuleSuiteGroupStatistics row
+   * @param results
+   */
+  def rule_suite_statistics(results: Column): Column =
+    ShimUtils.callFunction("rule_suite_statistics", results)
 }

@@ -4,9 +4,8 @@ import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.classicFunctions._
 import com.sparkutils.quality.impl.CollectRunner.collectRunnerClassic
 import com.sparkutils.quality.impl.ReWriteConstants.INC_REWRITE_GENEXP_ERR_MSG
-import com.sparkutils.quality.impl.RuleSuiteHelpers.deserialize
 import com.sparkutils.quality.impl.VariableProcessIfMissingFunctions.registerProcessIfAttributeMissingForAgnostic
-import com.sparkutils.quality.impl.aggregates.AggregateExpressions
+import com.sparkutils.quality.impl.aggregates.{AggregateExpressions, Statistics}
 import com.sparkutils.quality.impl.bloom.{BucketedArrayParquetAggregator, ParquetAggregator}
 import com.sparkutils.quality.impl.hash.{HashFunctionFactory, HashFunctionsExpression, MessageDigestFactory, ZALongHashFunctionFactory, ZALongTupleHashFunctionFactory}
 import com.sparkutils.quality.impl.id.{AsBase64Fields, AsBase64Struct, GenericLongBasedIDExpression, GuaranteedUniqueID, GuaranteedUniqueIdIDExpression, IDFromBase64, IDToRawIDDataType, SizeOfIDString, model}
@@ -228,6 +227,8 @@ object RuleRegistrationFunctions {
     register("unpack_Id_Triple", exps => UnPackIdTriple(exps.head), Set(1))
 
     register("soft_Fail", exps => SoftFailExpr(exps.head), Set(1))
+
+    register("rule_suite_statistics", exps => Statistics(exps.head), Set(1))
 
     def strType(exp: Expression) = {
       val Literal(str: UTF8String, StringType) = exp // only accept type as string

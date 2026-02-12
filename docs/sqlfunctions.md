@@ -444,7 +444,7 @@ functions:
       you should however use a top level object and var to write into (or stream), printCode will not be able to write to std out properly (spark redirects / captures stdout) or non top level objects (due to classloader / function instance issues).  Testing on other hosts
       without using stdout should do so to a shared file location or similar.
 
-      !!! "information" It is not compatible with every expression
+      ??? note "It is not compatible with every expression"
           Aggregate expressions like aggExpr or sum etc. won't generate code so they aren't compatible with printCode.
 
           \_lambda\_ is also incompatible with printCode both wrapping a user function and the \_lambda\_ function.  Similarly the \_() placeholder function cannot be wrapped.
@@ -575,6 +575,22 @@ functions:
       - variable
       - runner
       - Spark4
+  rule_suite_statistics:
+    description: |
+      The rule_suite_statistics(ruleSuiteResult) aggregate function collects a RuleSuiteGroupStatistics object for a given dataset using the default 0.8 probability.
+      When using a split details and overall pair, recombine them via:
+
+      ```sql
+      rule_suite_statistics(struct(resultDetails.id, overallResult, resultDetails.ruleSetResults))
+      ```
+
+      ??? warning "It is not recommended to use with 2.4"
+          The aggregate function is based on Aggregator which, in 2.4, is not possible to apply on specific columns.
+
+          Quality provides a backport of Spark 3 functionality to enable this and, in addition to the last Quality 2.4 release, this is not an intended Spark 2.4 pattern, although it works in local testing it has not been tested against clusters. 
+
+    tags:
+      - rule
 ---
 
 {% macro divstart(clazz) -%}<t class="{{ clazz }}" >{%- endmacro %}

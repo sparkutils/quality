@@ -41,21 +41,25 @@ class BaseFunctionalityClassicTest extends SharedConnectTests with RowTools with
           val s = sparkSession
 
           // using eval we shouldn't get output
-          forceInterpreted {
-            {
-              doTestPrint(null, "my message is", null, null, "printCode")
-            }
-          }
+          forceInterpreted {  {
+            doTestPrint(null, "my message is", null, null, "printCode")
+          } }
 
           // should generate output for code gen
           forceCodeGen {
             doTestPrint(PrintCode(expression(lit(""))).msg, "my message is", "my message is", "private int FunN_0(InternalRow i)", "printCode")
+            // irrespective of version we are outputting the lambda variables
+            doTestPrint(PrintCode(expression(lit(""))).msg, "my message is", "my message is", "LambdaVariable - b", "printCode")
           }
 
-          // irrespective of version we are outputting the lambda variables
+          // rewrite can be Math or +
           forceCodeGen {
             justfunNRewrite {
-              doTestPrint(PrintCode(expression(lit(""))).msg, "my message is", "my message is", "LambdaVariable - b", "printCode")
+              if (sparkVersionNumericMajor >= 40) {
+                doTestPrint(PrintCode(expression(lit(""))).msg, "my message is", "my message is", "MathUtils.addExact", "printCode")
+              } else {
+                doTestPrint(PrintCode(expression(lit(""))).msg, "my message is", "my message is", "1 + 1", "printCode")
+              }
             }
           }
         }
