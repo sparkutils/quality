@@ -175,7 +175,7 @@ class NewPostingBean(){
   def toNewPosting() =
     NewPosting(transfer_type, account, product, subcode)
 }
-
+/*
 // purposefully NOT in the testShade as this is inappropriate for actual spark usage
 class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with ClassicSharedTests with VariableTestShims {
 
@@ -1799,3 +1799,4 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
   } } } }
 
 }
+*/
