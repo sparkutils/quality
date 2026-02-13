@@ -25,169 +25,312 @@
             <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality
 </span>2 <span style=''>
 </span>3 <span style=''>import com.sparkutils.quality.impl.util.Optional
-</span>4 <span style=''>
-</span>5 <span style=''>import scala.collection.JavaConverters._
-</span>6 <span style=''>
-</span>7 <span style=''>@SerialVersionUID(1L)
-</span>8 <span style=''>sealed trait RuleResult extends Serializable
-</span>9 <span style=''>
-</span>10 <span style=''>@SerialVersionUID(1L)
-</span>11 <span style=''>case object Failed extends RuleResult
+</span>4 <span style=''>import com.sparkutils.quality.impl.util.MapOps._
+</span>5 <span style=''>
+</span>6 <span style=''>import scala.annotation.tailrec
+</span>7 <span style=''>import scala.collection.JavaConverters._
+</span>8 <span style=''>
+</span>9 <span style=''>@SerialVersionUID(1L)
+</span>10 <span style=''>sealed trait RuleResult extends Serializable
+</span>11 <span style=''>
 </span>12 <span style=''>@SerialVersionUID(1L)
-</span>13 <span style=''>case object Passed extends RuleResult
-</span>14 <span style=''>
-</span>15 <span style=''>/**
-</span>16 <span style=''> * This shouldn't evaluate to a fail, think of it as Amber / Warn
-</span>17 <span style=''> */
-</span>18 <span style=''>@SerialVersionUID(1L)
-</span>19 <span style=''>case object SoftFailed extends RuleResult
-</span>20 <span style=''>
-</span>21 <span style=''>/**
-</span>22 <span style=''> * This shouldn't evaluate to a fail, allows signalling a rule has been disabled
-</span>23 <span style=''> */
-</span>24 <span style=''>@SerialVersionUID(1L)
-</span>25 <span style=''>case object DisabledRule extends RuleResult
-</span>26 <span style=''>
-</span>27 <span style=''>/**
-</span>28 <span style=''> * This shouldn't evaluate to a fail, allows signalling a rule has been ignored
-</span>29 <span style=''> */
-</span>30 <span style=''>@SerialVersionUID(1L)
-</span>31 <span style=''>case object IgnoredRule extends RuleResult
-</span>32 <span style=''>
-</span>33 <span style=''>/**
-</span>34 <span style=''> * Returned for RuleSuiteResult.overallResult when no other trigger rule has passed and a defaultProcessor has been configured (otherwise it's Failed)
-</span>35 <span style=''> */
-</span>36 <span style=''>@SerialVersionUID(1L)
-</span>37 <span style=''>case object DefaultRule extends RuleResult
-</span>38 <span style=''>
-</span>39 <span style=''>/**
-</span>40 <span style=''>  * 0-1 with 1 being absolutely likely a pass
-</span>41 <span style=''>  * @param percentage
-</span>42 <span style=''>  */
-</span>43 <span style=''>@SerialVersionUID(1L)
-</span>44 <span style=''>case class Probability(percentage: Double) extends RuleResult
-</span>45 <span style=''>
-</span>46 <span style=''>/**
-</span>47 <span style=''> * Packs a rule result with a RunOnPassProcessor processor
-</span>48 <span style=''> */
-</span>49 <span style=''>@SerialVersionUID(1L)
-</span>50 <span style=''>case class RuleResultWithProcessor(ruleResult: RuleResult, runOnPassProcessor: RunOnPassProcessor) extends RuleResult
-</span>51 <span style=''>
-</span>52 <span style=''>/**
-</span>53 <span style=''>  * Result collection for a number of rules
-</span>54 <span style=''>  * @param overallResult
-</span>55 <span style=''>  * @param ruleResults rule id -&gt; ruleresult
-</span>56 <span style=''>  */
-</span>57 <span style=''>@SerialVersionUID(1L)
-</span>58 <span style=''>case class RuleSetResult(overallResult: RuleResult, ruleResults: Map[VersionedId, RuleResult]) extends Serializable {
-</span>59 <span style=''>  def getRuleResults: java.util.Map[VersionedId, RuleResult] = </span><span style='background: #AEF1AE'>ruleResults.asJava</span><span style=''>
-</span>60 <span style=''>}
-</span>61 <span style=''>
-</span>62 <span style=''>/**
-</span>63 <span style=''> * Results for all rules run against a dataframe without the overallResult.  Performance differences for filtering on top level fields
-</span>64 <span style=''> * are significant over nested structures even under Spark 3, in the region of 30-50% depending on op.
-</span>65 <span style=''> * @param id
-</span>66 <span style=''> * @param ruleSetResults
-</span>67 <span style=''> */
-</span>68 <span style=''>@SerialVersionUID(1L)
-</span>69 <span style=''>case class RuleSuiteResultDetails(id: VersionedId, ruleSetResults: Map[VersionedId, RuleSetResult]) extends Serializable {
-</span>70 <span style=''>  def getRuleSetResults: java.util.Map[VersionedId, RuleSetResult] = </span><span style='background: #AEF1AE'>ruleSetResults.asJava</span><span style=''>
-</span>71 <span style=''>}
-</span>72 <span style=''>
-</span>73 <span style=''>object RuleSuiteResultDetails {
-</span>74 <span style=''>  /**
-</span>75 <span style=''>   * Creates a RuleSuiteResultDetails for this ruleSuite as if all rules Passed, it may be applicable for dqLazyDetailsFactory usage.
-</span>76 <span style=''>   * @param ruleSuite
-</span>77 <span style=''>   * @return
-</span>78 <span style=''>   */
-</span>79 <span style=''>  def ifAllPassed(ruleSuite: RuleSuite): RuleSuiteResultDetails =
-</span>80 <span style=''>    </span><span style='background: #AEF1AE'>RuleSuiteResultDetails(ruleSuite.id, ruleSuite.ruleSets.map{
-</span>81 <span style=''></span><span style='background: #AEF1AE'>      ruleSet =&gt; (ruleSet.id, RuleSetResult(Passed, ruleSet.rules.map(r =&gt; (r.id, Passed)).toMap))
-</span>82 <span style=''></span><span style='background: #AEF1AE'>    }.toMap)</span><span style=''>
-</span>83 <span style=''>}
-</span>84 <span style=''>
-</span>85 <span style=''>/**
-</span>86 <span style=''> * A lazy proxy for RuleSuiteResultDetails
-</span>87 <span style=''> */
-</span>88 <span style=''>@SerialVersionUID(1L)
-</span>89 <span style=''>trait LazyRuleSuiteResultDetails extends Serializable {
-</span>90 <span style=''>  def ruleSuiteResultDetails: RuleSuiteResultDetails
-</span>91 <span style=''>}
-</span>92 <span style=''>
-</span>93 <span style=''>/**
-</span>94 <span style=''>  * Results for all rules run against a dataframe
-</span>95 <span style=''>  * @param id - the Id of the suite, all other content is mapped
-</span>96 <span style=''>  * @param overallResult
-</span>97 <span style=''>  * @param ruleSetResults
-</span>98 <span style=''>  */
-</span>99 <span style=''>@SerialVersionUID(1L)
-</span>100 <span style=''>case class RuleSuiteResult(id: VersionedId, overallResult: RuleResult, ruleSetResults: Map[VersionedId, RuleSetResult]) extends Serializable {
-</span>101 <span style=''>  def details: RuleSuiteResultDetails = </span><span style='background: #AEF1AE'>RuleSuiteResultDetails(id, ruleSetResults)</span><span style=''>
-</span>102 <span style=''>  def getRuleSetResults: java.util.Map[VersionedId, RuleSetResult] = </span><span style='background: #AEF1AE'>ruleSetResults.asJava</span><span style=''>
-</span>103 <span style=''>}
-</span>104 <span style=''>
-</span>105 <span style=''>/**
-</span>106 <span style=''> * Represents the expression results of ExpressionRunner
-</span>107 <span style=''> * @param result the result casted to string
-</span>108 <span style=''> * @param resultDDL the result type in ddl
-</span>109 <span style=''> */
-</span>110 <span style=''>@SerialVersionUID(1L)
-</span>111 <span style=''>case class GeneralExpressionResult(result: String, resultDDL: String) {
-</span>112 <span style=''>  // provided for compatibility
-</span>113 <span style=''>  def ruleResult: String = </span><span style='background: #AEF1AE'>result</span><span style=''>
-</span>114 <span style=''>}
-</span>115 <span style=''>
-</span>116 <span style=''>/**
-</span>117 <span style=''> * Represents the results of the ExpressionRunner
-</span>118 <span style=''> * @param id
-</span>119 <span style=''> * @param ruleSetResults
-</span>120 <span style=''> */
-</span>121 <span style=''>@SerialVersionUID(1L)
-</span>122 <span style=''>case class GeneralExpressionsResult[R](id: VersionedId, ruleSetResults: Map[VersionedId, Map[VersionedId, R]]) extends Serializable {
-</span>123 <span style=''>  def getRuleSetResults: java.util.Map[VersionedId, Map[VersionedId, R]] = </span><span style='background: #AEF1AE'>ruleSetResults.asJava</span><span style=''>
-</span>124 <span style=''>}
-</span>125 <span style=''>
-</span>126 <span style=''>/**
-</span>127 <span style=''> * Represents the results of the ExpressionRunner after calling strip_result_ddl
-</span>128 <span style=''> * @param id
-</span>129 <span style=''> * @param ruleSetResults
-</span>130 <span style=''> */
-</span>131 <span style=''>@SerialVersionUID(1L)
-</span>132 <span style=''>case class GeneralExpressionsResultNoDDL(id: VersionedId, ruleSetResults: Map[VersionedId, Map[VersionedId, String]]) extends Serializable {
-</span>133 <span style=''>  def getRuleSetResults: java.util.Map[VersionedId, Map[VersionedId, String]] = </span><span style='background: #AEF1AE'>ruleSetResults.asJava</span><span style=''>
-</span>134 <span style=''>}
-</span>135 <span style=''>
-</span>136 <span style=''>/**
-</span>137 <span style=''> * Represents the rule that matched a given RuleEngine result
-</span>138 <span style=''> * @param ruleSuiteId
-</span>139 <span style=''> * @param ruleSetId
-</span>140 <span style=''> * @param ruleId
-</span>141 <span style=''> */
-</span>142 <span style=''>@SerialVersionUID(1L)
-</span>143 <span style=''>case class SalientRule(ruleSuiteId: VersionedId, ruleSetId: VersionedId, ruleId: VersionedId)
-</span>144 <span style=''>
-</span>145 <span style=''>/**
-</span>146 <span style=''> * Results for all rules run against a DataFrame.  Note in debug mode the type of T must be Seq[(Int, ActualType)]
-</span>147 <span style=''> * @param ruleSuiteResults Overall results from applying the engine
-</span>148 <span style=''> * @param salientRule if it's None there is no rule which matched for this row or it's in Debug mode which will return all results.
-</span>149 <span style=''> * @param result The result type for this row, if no rule matched this will be None, if a rule matched but the outputexpression returned null this will also be None
-</span>150 <span style=''> */
-</span>151 <span style=''>@SerialVersionUID(1L)
-</span>152 <span style=''>case class RuleEngineResult[T](ruleSuiteResults: RuleSuiteResult, salientRule: Option[SalientRule], result: Option[T]) extends Serializable {
-</span>153 <span style=''>  def getSalientRule: java.util.Optional[SalientRule] = </span><span style='background: #AEF1AE'>Optional.toOptional(salientRule)</span><span style=''>
-</span>154 <span style=''>
-</span>155 <span style=''>  def getResult: java.util.Optional[T] = </span><span style='background: #AEF1AE'>Optional.toOptional(result)</span><span style=''>
-</span>156 <span style=''>}
-</span>157 <span style=''>
-</span>158 <span style=''>/**
-</span>159 <span style=''> * Results for all rules run against a DataFrame.  Note in debug mode the type of T must be Seq[(Int, ActualType)]
-</span>160 <span style=''> * @param ruleSuiteResults Overall results from applying the engine
-</span>161 <span style=''> * @param result The result type for this row, if no rule matched this will be None, if a rule matched but the outputexpression returned null this will also be None
-</span>162 <span style=''> */
-</span>163 <span style=''>@SerialVersionUID(1L)
-</span>164 <span style=''>case class RuleFolderResult[T](ruleSuiteResults: RuleSuiteResult, result: Option[T]) extends Serializable {
-</span>165 <span style=''>  def getResult: java.util.Optional[T] = </span><span style='background: #AEF1AE'>Optional.toOptional(result)</span><span style=''>
-</span>166 <span style=''>}
+</span>13 <span style=''>case object Failed extends RuleResult
+</span>14 <span style=''>@SerialVersionUID(1L)
+</span>15 <span style=''>case object Passed extends RuleResult
+</span>16 <span style=''>
+</span>17 <span style=''>/**
+</span>18 <span style=''> * This shouldn't evaluate to a fail, think of it as Amber / Warn
+</span>19 <span style=''> */
+</span>20 <span style=''>@SerialVersionUID(1L)
+</span>21 <span style=''>case object SoftFailed extends RuleResult
+</span>22 <span style=''>
+</span>23 <span style=''>/**
+</span>24 <span style=''> * This shouldn't evaluate to a fail, allows signalling a rule has been disabled
+</span>25 <span style=''> */
+</span>26 <span style=''>@SerialVersionUID(1L)
+</span>27 <span style=''>case object DisabledRule extends RuleResult
+</span>28 <span style=''>
+</span>29 <span style=''>/**
+</span>30 <span style=''> * This shouldn't evaluate to a fail, allows signalling a rule has been ignored
+</span>31 <span style=''> */
+</span>32 <span style=''>@SerialVersionUID(1L)
+</span>33 <span style=''>case object IgnoredRule extends RuleResult
+</span>34 <span style=''>
+</span>35 <span style=''>/**
+</span>36 <span style=''> * Returned for RuleSuiteResult.overallResult when no other trigger rule has passed and a defaultProcessor has been configured (otherwise it's Failed)
+</span>37 <span style=''> */
+</span>38 <span style=''>@SerialVersionUID(1L)
+</span>39 <span style=''>case object DefaultRule extends RuleResult
+</span>40 <span style=''>
+</span>41 <span style=''>/**
+</span>42 <span style=''>  * 0-1 with 1 being absolutely likely a pass
+</span>43 <span style=''>  * @param percentage
+</span>44 <span style=''>  */
+</span>45 <span style=''>@SerialVersionUID(1L)
+</span>46 <span style=''>case class Probability(percentage: Double) extends RuleResult
+</span>47 <span style=''>
+</span>48 <span style=''>/**
+</span>49 <span style=''> * Packs a rule result with a RunOnPassProcessor processor
+</span>50 <span style=''> */
+</span>51 <span style=''>@SerialVersionUID(1L)
+</span>52 <span style=''>case class RuleResultWithProcessor(ruleResult: RuleResult, runOnPassProcessor: RunOnPassProcessor) extends RuleResult
+</span>53 <span style=''>
+</span>54 <span style=''>/**
+</span>55 <span style=''>  * Result collection for a number of rules
+</span>56 <span style=''>  * @param overallResult
+</span>57 <span style=''>  * @param ruleResults rule id -&gt; ruleresult
+</span>58 <span style=''>  */
+</span>59 <span style=''>@SerialVersionUID(1L)
+</span>60 <span style=''>case class RuleSetResult(overallResult: RuleResult, ruleResults: Map[VersionedId, RuleResult]) extends Serializable {
+</span>61 <span style=''>  def getRuleResults: java.util.Map[VersionedId, RuleResult] = </span><span style='background: #F0ADAD'>ruleResults.asJava</span><span style=''>
+</span>62 <span style=''>}
+</span>63 <span style=''>
+</span>64 <span style=''>/**
+</span>65 <span style=''> * Results for all rules run against a dataframe without the overallResult.  Performance differences for filtering on top level fields
+</span>66 <span style=''> * are significant over nested structures even under Spark 3, in the region of 30-50% depending on op.
+</span>67 <span style=''> * @param id
+</span>68 <span style=''> * @param ruleSetResults
+</span>69 <span style=''> */
+</span>70 <span style=''>@SerialVersionUID(1L)
+</span>71 <span style=''>case class RuleSuiteResultDetails(id: VersionedId, ruleSetResults: Map[VersionedId, RuleSetResult]) extends Serializable {
+</span>72 <span style=''>  def getRuleSetResults: java.util.Map[VersionedId, RuleSetResult] = </span><span style='background: #F0ADAD'>ruleSetResults.asJava</span><span style=''>
+</span>73 <span style=''>}
+</span>74 <span style=''>
+</span>75 <span style=''>object RuleSuiteResultDetails {
+</span>76 <span style=''>  /**
+</span>77 <span style=''>   * Creates a RuleSuiteResultDetails for this ruleSuite as if all rules Passed, it may be applicable for dqLazyDetailsFactory usage.
+</span>78 <span style=''>   * @param ruleSuite
+</span>79 <span style=''>   * @return
+</span>80 <span style=''>   */
+</span>81 <span style=''>  def ifAllPassed(ruleSuite: RuleSuite): RuleSuiteResultDetails =
+</span>82 <span style=''>    </span><span style='background: #F0ADAD'>RuleSuiteResultDetails(ruleSuite.id, ruleSuite.ruleSets.map{
+</span>83 <span style=''></span><span style='background: #F0ADAD'>      ruleSet =&gt; (ruleSet.id, RuleSetResult(Passed, ruleSet.rules.map(r =&gt; (r.id, Passed)).toMap))
+</span>84 <span style=''></span><span style='background: #F0ADAD'>    }.toMap)</span><span style=''>
+</span>85 <span style=''>}
+</span>86 <span style=''>
+</span>87 <span style=''>/**
+</span>88 <span style=''> * A lazy proxy for RuleSuiteResultDetails
+</span>89 <span style=''> */
+</span>90 <span style=''>@SerialVersionUID(1L)
+</span>91 <span style=''>trait LazyRuleSuiteResultDetails extends Serializable {
+</span>92 <span style=''>  def ruleSuiteResultDetails: RuleSuiteResultDetails
+</span>93 <span style=''>}
+</span>94 <span style=''>
+</span>95 <span style=''>/**
+</span>96 <span style=''>  * Results for all rules run against a dataframe
+</span>97 <span style=''>  * @param id - the Id of the suite, all other content is mapped
+</span>98 <span style=''>  * @param overallResult
+</span>99 <span style=''>  * @param ruleSetResults
+</span>100 <span style=''>  */
+</span>101 <span style=''>@SerialVersionUID(1L)
+</span>102 <span style=''>case class RuleSuiteResult(id: VersionedId, overallResult: RuleResult, ruleSetResults: Map[VersionedId, RuleSetResult]) extends Serializable {
+</span>103 <span style=''>  def details: RuleSuiteResultDetails = </span><span style='background: #AEF1AE'>RuleSuiteResultDetails(id, ruleSetResults)</span><span style=''>
+</span>104 <span style=''>  def getRuleSetResults: java.util.Map[VersionedId, RuleSetResult] = </span><span style='background: #F0ADAD'>ruleSetResults.asJava</span><span style=''>
+</span>105 <span style=''>}
+</span>106 <span style=''>
+</span>107 <span style=''>/**
+</span>108 <span style=''> * Represents the expression results of ExpressionRunner
+</span>109 <span style=''> * @param result the result casted to string
+</span>110 <span style=''> * @param resultDDL the result type in ddl
+</span>111 <span style=''> */
+</span>112 <span style=''>@SerialVersionUID(1L)
+</span>113 <span style=''>case class GeneralExpressionResult(result: String, resultDDL: String) {
+</span>114 <span style=''>  // provided for compatibility
+</span>115 <span style=''>  def ruleResult: String = </span><span style='background: #AEF1AE'>result</span><span style=''>
+</span>116 <span style=''>}
+</span>117 <span style=''>
+</span>118 <span style=''>/**
+</span>119 <span style=''> * Represents the results of the ExpressionRunner
+</span>120 <span style=''> * @param id
+</span>121 <span style=''> * @param ruleSetResults
+</span>122 <span style=''> */
+</span>123 <span style=''>@SerialVersionUID(1L)
+</span>124 <span style=''>case class GeneralExpressionsResult[R](id: VersionedId, ruleSetResults: Map[VersionedId, Map[VersionedId, R]]) extends Serializable {
+</span>125 <span style=''>  def getRuleSetResults: java.util.Map[VersionedId, Map[VersionedId, R]] = </span><span style='background: #F0ADAD'>ruleSetResults.asJava</span><span style=''>
+</span>126 <span style=''>}
+</span>127 <span style=''>
+</span>128 <span style=''>/**
+</span>129 <span style=''> * Represents the results of the ExpressionRunner after calling strip_result_ddl
+</span>130 <span style=''> * @param id
+</span>131 <span style=''> * @param ruleSetResults
+</span>132 <span style=''> */
+</span>133 <span style=''>@SerialVersionUID(1L)
+</span>134 <span style=''>case class GeneralExpressionsResultNoDDL(id: VersionedId, ruleSetResults: Map[VersionedId, Map[VersionedId, String]]) extends Serializable {
+</span>135 <span style=''>  def getRuleSetResults: java.util.Map[VersionedId, Map[VersionedId, String]] = </span><span style='background: #F0ADAD'>ruleSetResults.asJava</span><span style=''>
+</span>136 <span style=''>}
+</span>137 <span style=''>
+</span>138 <span style=''>/**
+</span>139 <span style=''> * Represents the rule that matched a given RuleEngine result
+</span>140 <span style=''> * @param ruleSuiteId
+</span>141 <span style=''> * @param ruleSetId
+</span>142 <span style=''> * @param ruleId
+</span>143 <span style=''> */
+</span>144 <span style=''>@SerialVersionUID(1L)
+</span>145 <span style=''>case class SalientRule(ruleSuiteId: VersionedId, ruleSetId: VersionedId, ruleId: VersionedId)
+</span>146 <span style=''>
+</span>147 <span style=''>/**
+</span>148 <span style=''> * Results for all rules run against a DataFrame.  Note in debug mode the type of T must be Seq[(Int, ActualType)]
+</span>149 <span style=''> * @param ruleSuiteResults Overall results from applying the engine
+</span>150 <span style=''> * @param salientRule if it's None there is no rule which matched for this row or it's in Debug mode which will return all results.
+</span>151 <span style=''> * @param result The result type for this row, if no rule matched this will be None, if a rule matched but the outputexpression returned null this will also be None
+</span>152 <span style=''> */
+</span>153 <span style=''>@SerialVersionUID(1L)
+</span>154 <span style=''>case class RuleEngineResult[T](ruleSuiteResults: RuleSuiteResult, salientRule: Option[SalientRule], result: Option[T]) extends Serializable {
+</span>155 <span style=''>  def getSalientRule: java.util.Optional[SalientRule] = </span><span style='background: #F0ADAD'>Optional.toOptional(salientRule)</span><span style=''>
+</span>156 <span style=''>
+</span>157 <span style=''>  def getResult: java.util.Optional[T] = </span><span style='background: #F0ADAD'>Optional.toOptional(result)</span><span style=''>
+</span>158 <span style=''>}
+</span>159 <span style=''>
+</span>160 <span style=''>/**
+</span>161 <span style=''> * Results for all rules run against a DataFrame.  Note in debug mode the type of T must be Seq[(Int, ActualType)]
+</span>162 <span style=''> * @param ruleSuiteResults Overall results from applying the engine
+</span>163 <span style=''> * @param result The result type for this row, if no rule matched this will be None, if a rule matched but the outputexpression returned null this will also be None
+</span>164 <span style=''> */
+</span>165 <span style=''>@SerialVersionUID(1L)
+</span>166 <span style=''>case class RuleFolderResult[T](ruleSuiteResults: RuleSuiteResult, result: Option[T]) extends Serializable {
+</span>167 <span style=''>  def getResult: java.util.Optional[T] = </span><span style='background: #F0ADAD'>Optional.toOptional(result)</span><span style=''>
+</span>168 <span style=''>}
+</span>169 <span style=''>
+</span>170 <span style=''>trait ResultStatistics[T &lt;: ResultStatistics[_]] extends Serializable {
+</span>171 <span style=''>  def failed: Long
+</span>172 <span style=''>  def passed: Long
+</span>173 <span style=''>  def softFailed: Long
+</span>174 <span style=''>  def disabled: Long
+</span>175 <span style=''>  def ignored: Long
+</span>176 <span style=''>  def defaulted: Long
+</span>177 <span style=''>  def probabilityPassed: Long
+</span>178 <span style=''>  def probabilityFailed: Long
+</span>179 <span style=''>
+</span>180 <span style=''>  def update(failed: Long = failed, passed: Long = passed, softFailed: Long = softFailed, disabled: Long = disabled,
+</span>181 <span style=''>             ignored: Long = ignored, defaulted: Long = defaulted, probabilityPassed: Long = probabilityPassed,
+</span>182 <span style=''>             probabilityFailed: Long = probabilityFailed): T
+</span>183 <span style=''>
+</span>184 <span style=''>  def combineResults(other: T): T =
+</span>185 <span style=''>    </span><span style='background: #AEF1AE'>update(failed = failed + other.failed, passed = passed + other.passed, softFailed = softFailed + other.softFailed,
+</span>186 <span style=''></span><span style='background: #AEF1AE'>      disabled = disabled + other.disabled, ignored = ignored + other.ignored, defaulted = defaulted + other.defaulted,
+</span>187 <span style=''></span><span style='background: #AEF1AE'>      probabilityPassed = probabilityPassed + other.probabilityPassed,
+</span>188 <span style=''></span><span style='background: #AEF1AE'>      probabilityFailed = probabilityFailed + other.probabilityFailed)</span><span style=''>
+</span>189 <span style=''>
+</span>190 <span style=''>  def combine(other: T): T
+</span>191 <span style=''>
+</span>192 <span style=''>  @tailrec
+</span>193 <span style=''>  final def processResult(ruleResult: RuleResult, probabilityPass: Double = 0.8d): T =
+</span>194 <span style=''>    ruleResult match {
+</span>195 <span style=''>      case Failed =&gt; </span><span style='background: #AEF1AE'>update(failed = failed + 1)</span><span style=''>
+</span>196 <span style=''>      case Passed =&gt; </span><span style='background: #AEF1AE'>update(passed = passed + 1)</span><span style=''>
+</span>197 <span style=''>      case SoftFailed =&gt; </span><span style='background: #AEF1AE'>update(softFailed = softFailed + 1)</span><span style=''>
+</span>198 <span style=''>      case DisabledRule =&gt; </span><span style='background: #AEF1AE'>update(disabled = disabled + 1)</span><span style=''>
+</span>199 <span style=''>      case IgnoredRule =&gt; </span><span style='background: #AEF1AE'>update(ignored = ignored + 1)</span><span style=''>
+</span>200 <span style=''>      case DefaultRule =&gt; </span><span style='background: #AEF1AE'>update(defaulted = defaulted + 1)</span><span style=''>
+</span>201 <span style=''>      case Probability(percentage) if (</span><span style='background: #AEF1AE'>percentage &gt;= probabilityPass</span><span style=''>) =&gt; </span><span style='background: #AEF1AE'>update(probabilityPassed = probabilityPassed + 1)</span><span style=''>
+</span>202 <span style=''>      case Probability(_) =&gt; </span><span style='background: #AEF1AE'>update(probabilityFailed = probabilityFailed + 1)</span><span style=''>
+</span>203 <span style=''>      case RuleResultWithProcessor(ruleResult: RuleResult, _) =&gt;
+</span>204 <span style=''>        </span><span style='background: #F0ADAD'>processResult(ruleResult, probabilityPass)</span><span style=''>
+</span>205 <span style=''>    }
+</span>206 <span style=''>
+</span>207 <span style=''>}
+</span>208 <span style=''>
+</span>209 <span style=''>/**
+</span>210 <span style=''> * Rule level results aggregated across a set of rows
+</span>211 <span style=''> */
+</span>212 <span style=''>case class RuleStatistics(rule: VersionedId, failed: Long = 0, passed: Long = 0, softFailed: Long = 0, disabled: Long = 0, ignored: Long = 0,
+</span>213 <span style=''>                                defaulted: Long = 0, probabilityPassed: Long = 0, probabilityFailed: Long = 0) extends ResultStatistics[RuleStatistics] {
+</span>214 <span style=''>
+</span>215 <span style=''>  override def update(failed: Long, passed: Long, softFailed: Long, disabled: Long, ignored: Long, defaulted: Long,
+</span>216 <span style=''>                      probabilityPassed: Long, probabilityFailed: Long): RuleStatistics =
+</span>217 <span style=''>    </span><span style='background: #AEF1AE'>copy(failed = failed, passed = passed, softFailed = softFailed, disabled = disabled, ignored = ignored,
+</span>218 <span style=''></span><span style='background: #AEF1AE'>      defaulted = defaulted, probabilityPassed = probabilityPassed, probabilityFailed = probabilityFailed)</span><span style=''>
+</span>219 <span style=''>
+</span>220 <span style=''>  override def combine(other: RuleStatistics): RuleStatistics = </span><span style='background: #AEF1AE'>combineResults(other)</span><span style=''>
+</span>221 <span style=''>}
+</span>222 <span style=''>
+</span>223 <span style=''>/**
+</span>224 <span style=''> * Aggregated RuleStatistics for a RuleSet
+</span>225 <span style=''> */
+</span>226 <span style=''>case class RuleSetStatistics(ruleSet: VersionedId, failed: Long = 0, passed: Long = 0, softFailed: Long = 0, disabled: Long = 0, ignored: Long = 0,
+</span>227 <span style=''>                             defaulted: Long = 0, probabilityPassed: Long = 0, probabilityFailed: Long = 0, rules: Map[VersionedId, RuleStatistics] = Map.empty) extends ResultStatistics[RuleSetStatistics] {
+</span>228 <span style=''>
+</span>229 <span style=''>  override def update(failed: Long, passed: Long, softFailed: Long, disabled: Long, ignored: Long, defaulted: Long, probabilityPassed: Long, probabilityFailed: Long): RuleSetStatistics =
+</span>230 <span style=''>    </span><span style='background: #AEF1AE'>copy(failed = failed, passed = passed, softFailed = softFailed, disabled = disabled, ignored = ignored,
+</span>231 <span style=''></span><span style='background: #AEF1AE'>      defaulted = defaulted, probabilityPassed = probabilityPassed, probabilityFailed = probabilityFailed)</span><span style=''>
+</span>232 <span style=''>
+</span>233 <span style=''>  def process(setResult: RuleSetResult): RuleSetStatistics =
+</span>234 <span style=''>    </span><span style='background: #AEF1AE'>processResult(setResult.overallResult).copy(
+</span>235 <span style=''></span><span style='background: #AEF1AE'>      rules = setResult.ruleResults.foldLeft(rules){
+</span>236 <span style=''></span><span style='background: #AEF1AE'>        case (cur, (id, ruleResult)) =&gt;
+</span>237 <span style=''></span><span style='background: #AEF1AE'>          cur.updatedWithF(id)(_.map{
+</span>238 <span style=''></span><span style='background: #AEF1AE'>            rs =&gt;
+</span>239 <span style=''></span><span style='background: #AEF1AE'>              rs.processResult(ruleResult)
+</span>240 <span style=''></span><span style='background: #AEF1AE'>          }.orElse(Some(RuleStatistics(id).processResult(ruleResult))))
+</span>241 <span style=''></span><span style='background: #AEF1AE'>      })</span><span style=''>
+</span>242 <span style=''>
+</span>243 <span style=''>  override def combine(other: RuleSetStatistics): RuleSetStatistics = </span><span style='background: #AEF1AE'>combineResults(other).copy(
+</span>244 <span style=''></span><span style='background: #AEF1AE'>    rules = other.rules.foldLeft(rules){
+</span>245 <span style=''></span><span style='background: #AEF1AE'>      case (cur, (id, ruleResult)) =&gt;
+</span>246 <span style=''></span><span style='background: #AEF1AE'>        cur.updatedWithF(id)(_.map{
+</span>247 <span style=''></span><span style='background: #AEF1AE'>          rs =&gt;
+</span>248 <span style=''></span><span style='background: #AEF1AE'>            rs.combine(ruleResult)
+</span>249 <span style=''></span><span style='background: #AEF1AE'>        }.orElse(Some(ruleResult)))
+</span>250 <span style=''></span><span style='background: #AEF1AE'>    }
+</span>251 <span style=''></span><span style='background: #AEF1AE'>  )</span><span style=''>
+</span>252 <span style=''>
+</span>253 <span style=''>}
+</span>254 <span style=''>
+</span>255 <span style=''>/**
+</span>256 <span style=''> * Aggregated RuleSetStatistics for a complete RuleSuite
+</span>257 <span style=''> */
+</span>258 <span style=''>case class RuleSuiteStatistics(ruleSuite: VersionedId, failed: Long = 0, passed: Long = 0, softFailed: Long = 0, disabled: Long = 0, ignored: Long = 0,
+</span>259 <span style=''>                               defaulted: Long = 0, probabilityPassed: Long = 0, probabilityFailed: Long = 0, rowCount: Long = 0, ruleSets: Map[VersionedId, RuleSetStatistics] = Map.empty) extends ResultStatistics[RuleSuiteStatistics] {
+</span>260 <span style=''>
+</span>261 <span style=''>  override def update(failed: Long, passed: Long, softFailed: Long, disabled: Long, ignored: Long, defaulted: Long, probabilityPassed: Long, probabilityFailed: Long): RuleSuiteStatistics =
+</span>262 <span style=''>    </span><span style='background: #AEF1AE'>copy(failed = failed, passed = passed, softFailed = softFailed, disabled = disabled, ignored = ignored,
+</span>263 <span style=''></span><span style='background: #AEF1AE'>      defaulted = defaulted, probabilityPassed = probabilityPassed, probabilityFailed = probabilityFailed)</span><span style=''>
+</span>264 <span style=''>
+</span>265 <span style=''>  def process(ruleSuiteResult: RuleSuiteResult): RuleSuiteStatistics = {
+</span>266 <span style=''>    </span><span style='background: #AEF1AE'>processResult(ruleSuiteResult.overallResult).copy(rowCount = rowCount + 1,
+</span>267 <span style=''></span><span style='background: #AEF1AE'>      ruleSets = ruleSuiteResult.ruleSetResults.foldLeft(ruleSets){
+</span>268 <span style=''></span><span style='background: #AEF1AE'>        case (cur, (id, setResult)) =&gt;
+</span>269 <span style=''></span><span style='background: #AEF1AE'>          cur.updatedWithF(id)(_.map{
+</span>270 <span style=''></span><span style='background: #AEF1AE'>            rs =&gt;
+</span>271 <span style=''></span><span style='background: #AEF1AE'>              rs.process(setResult)
+</span>272 <span style=''></span><span style='background: #AEF1AE'>          }.orElse(Some(RuleSetStatistics(id).process(setResult))))
+</span>273 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>274 <span style=''></span><span style='background: #AEF1AE'>    )</span><span style=''>
+</span>275 <span style=''>  }
+</span>276 <span style=''>
+</span>277 <span style=''>  override def combine(other: RuleSuiteStatistics): RuleSuiteStatistics = </span><span style='background: #AEF1AE'>combineResults(other).copy(
+</span>278 <span style=''></span><span style='background: #AEF1AE'>    rowCount = rowCount + other.rowCount,
+</span>279 <span style=''></span><span style='background: #AEF1AE'>    ruleSets = other.ruleSets.foldLeft(ruleSets){
+</span>280 <span style=''></span><span style='background: #AEF1AE'>      case (cur, (id, setResult)) =&gt;
+</span>281 <span style=''></span><span style='background: #AEF1AE'>        cur.updatedWithF(id)(_.map{
+</span>282 <span style=''></span><span style='background: #AEF1AE'>          rs =&gt;
+</span>283 <span style=''></span><span style='background: #AEF1AE'>            rs.combine(setResult)
+</span>284 <span style=''></span><span style='background: #AEF1AE'>        }.orElse(Some(setResult)))
+</span>285 <span style=''></span><span style='background: #AEF1AE'>    }
+</span>286 <span style=''></span><span style='background: #AEF1AE'>  )</span><span style=''>
+</span>287 <span style=''>
+</span>288 <span style=''>}
+</span>289 <span style=''>
+</span>290 <span style=''>/**
+</span>291 <span style=''> * Convenience as a dataset may contain more than one rule suite
+</span>292 <span style=''> */
+</span>293 <span style=''>case class RuleSuiteGroupStatistics(ruleSuites: Map[VersionedId, RuleSuiteStatistics] = Map.empty, rowCount: Long = 0) extends Serializable {
+</span>294 <span style=''>// TODO - probable pass may be different for each rulesuite, so link that in 0.2
+</span>295 <span style=''>  def process(ruleSuiteResult: RuleSuiteResult): RuleSuiteGroupStatistics =
+</span>296 <span style=''>    </span><span style='background: #AEF1AE'>copy(rowCount = rowCount + 1, ruleSuites = ruleSuites.updatedWithF(ruleSuiteResult.id){
+</span>297 <span style=''></span><span style='background: #AEF1AE'>      _.map( _.process(ruleSuiteResult)).orElse(Some(RuleSuiteStatistics(ruleSuiteResult.id).process(ruleSuiteResult)))
+</span>298 <span style=''></span><span style='background: #AEF1AE'>    })</span><span style=''>
+</span>299 <span style=''>
+</span>300 <span style=''>  def combine(other: RuleSuiteGroupStatistics): RuleSuiteGroupStatistics =
+</span>301 <span style=''>    </span><span style='background: #AEF1AE'>copy(rowCount = rowCount + other.rowCount,
+</span>302 <span style=''></span><span style='background: #AEF1AE'>      ruleSuites = other.ruleSuites.foldLeft(ruleSuites){
+</span>303 <span style=''></span><span style='background: #AEF1AE'>        case (cur, (id, rs)) =&gt;
+</span>304 <span style=''></span><span style='background: #AEF1AE'>          cur.updatedWithF(id){
+</span>305 <span style=''></span><span style='background: #AEF1AE'>            _.map( _.combine(rs)).orElse(Some(rs))
+</span>306 <span style=''></span><span style='background: #AEF1AE'>          }
+</span>307 <span style=''></span><span style='background: #AEF1AE'>      })</span><span style=''>
+</span>308 <span style=''>
+</span>309 <span style=''>}
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -202,15 +345,15 @@
         <th>Code</th>
       </tr><tr>
         <td>
-          59
+          61
         </td>
         <td>
-          407
+          539
         </td>
         <td>
-          1683
+          1764
           -
-          1694
+          1775
         </td>
         <td>
           Select
@@ -221,20 +364,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           RuleSetResult.this.ruleResults
         </td>
       </tr><tr>
         <td>
-          59
+          61
         </td>
         <td>
-          408
+          540
         </td>
         <td>
-          1683
+          1764
           -
-          1701
+          1782
         </td>
         <td>
           Select
@@ -245,20 +388,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           scala.collection.JavaConverters.mapAsJavaMapConverter[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleResult](RuleSetResult.this.ruleResults).asJava
         </td>
       </tr><tr>
         <td>
-          70
+          72
         </td>
         <td>
-          409
+          541
         </td>
         <td>
-          2203
+          2284
           -
-          2217
+          2298
         </td>
         <td>
           Select
@@ -269,20 +412,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           RuleSuiteResultDetails.this.ruleSetResults
         </td>
       </tr><tr>
         <td>
-          70
+          72
         </td>
         <td>
-          410
+          542
         </td>
         <td>
-          2203
+          2284
           -
-          2224
+          2305
         </td>
         <td>
           Select
@@ -293,20 +436,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           scala.collection.JavaConverters.mapAsJavaMapConverter[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetResult](RuleSuiteResultDetails.this.ruleSetResults).asJava
         </td>
       </tr><tr>
         <td>
-          80
+          82
         </td>
         <td>
-          411
+          543
         </td>
         <td>
-          2534
+          2615
           -
-          2546
+          2627
         </td>
         <td>
           Select
@@ -317,20 +460,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           ruleSuite.id
         </td>
       </tr><tr>
         <td>
-          80
+          82
         </td>
         <td>
-          421
+          553
         </td>
         <td>
-          2511
+          2592
           -
-          2683
+          2764
         </td>
         <td>
           Apply
@@ -341,20 +484,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           RuleSuiteResultDetails.apply(ruleSuite.id, ruleSuite.ruleSets.map[(com.sparkutils.quality.Id, com.sparkutils.quality.RuleSetResult)](((ruleSet: com.sparkutils.quality.RuleSet) =&gt; scala.Tuple2.apply[com.sparkutils.quality.Id, com.sparkutils.quality.RuleSetResult](ruleSet.id, RuleSetResult.apply(Passed, ruleSet.rules.map[(com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type)](((r: com.sparkutils.quality.Rule) =&gt; scala.Tuple2.apply[com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type](r.id, Passed))).toMap[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleResult](scala.this.&lt;:&lt;.refl[(com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type)]))))).toMap[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetResult](scala.this.&lt;:&lt;.refl[(com.sparkutils.quality.Id, com.sparkutils.quality.RuleSetResult)]))
         </td>
       </tr><tr>
         <td>
-          81
+          83
         </td>
         <td>
-          412
+          544
         </td>
         <td>
-          2590
+          2671
           -
-          2600
+          2681
         </td>
         <td>
           Select
@@ -365,20 +508,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           ruleSet.id
         </td>
       </tr><tr>
         <td>
-          81
+          83
         </td>
         <td>
-          413
+          545
         </td>
         <td>
-          2648
+          2729
           -
-          2652
+          2733
         </td>
         <td>
           Select
@@ -389,20 +532,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           r.id
         </td>
       </tr><tr>
         <td>
-          81
+          83
         </td>
         <td>
-          414
+          546
         </td>
         <td>
-          2647
+          2728
           -
-          2661
+          2742
         </td>
         <td>
           Apply
@@ -413,20 +556,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           scala.Tuple2.apply[com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type](r.id, Passed)
         </td>
       </tr><tr>
         <td>
-          81
+          83
         </td>
         <td>
-          415
+          547
         </td>
         <td>
-          2663
+          2744
           -
-          2663
+          2744
         </td>
         <td>
           TypeApply
@@ -437,20 +580,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           scala.this.&lt;:&lt;.refl[(com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type)]
         </td>
       </tr><tr>
         <td>
-          81
+          83
         </td>
         <td>
-          416
+          548
         </td>
         <td>
-          2624
+          2705
           -
-          2668
+          2749
         </td>
         <td>
           ApplyToImplicitArgs
@@ -461,20 +604,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           ruleSet.rules.map[(com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type)](((r: com.sparkutils.quality.Rule) =&gt; scala.Tuple2.apply[com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type](r.id, Passed))).toMap[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleResult](scala.this.&lt;:&lt;.refl[(com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type)])
         </td>
       </tr><tr>
         <td>
-          81
+          83
         </td>
         <td>
-          417
+          549
         </td>
         <td>
-          2602
+          2683
           -
-          2669
+          2750
         </td>
         <td>
           Apply
@@ -485,20 +628,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           RuleSetResult.apply(Passed, ruleSet.rules.map[(com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type)](((r: com.sparkutils.quality.Rule) =&gt; scala.Tuple2.apply[com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type](r.id, Passed))).toMap[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleResult](scala.this.&lt;:&lt;.refl[(com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type)]))
         </td>
       </tr><tr>
         <td>
-          81
+          83
         </td>
         <td>
-          418
+          550
         </td>
         <td>
-          2589
-          -
           2670
+          -
+          2751
         </td>
         <td>
           Apply
@@ -509,20 +652,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           scala.Tuple2.apply[com.sparkutils.quality.Id, com.sparkutils.quality.RuleSetResult](ruleSet.id, RuleSetResult.apply(Passed, ruleSet.rules.map[(com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type)](((r: com.sparkutils.quality.Rule) =&gt; scala.Tuple2.apply[com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type](r.id, Passed))).toMap[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleResult](scala.this.&lt;:&lt;.refl[(com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type)])))
         </td>
       </tr><tr>
         <td>
-          82
+          84
         </td>
         <td>
-          419
+          551
         </td>
         <td>
-          2677
+          2758
           -
-          2677
+          2758
         </td>
         <td>
           TypeApply
@@ -533,20 +676,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           scala.this.&lt;:&lt;.refl[(com.sparkutils.quality.Id, com.sparkutils.quality.RuleSetResult)]
         </td>
       </tr><tr>
         <td>
-          82
+          84
         </td>
         <td>
-          420
+          552
         </td>
         <td>
-          2548
+          2629
           -
-          2682
+          2763
         </td>
         <td>
           ApplyToImplicitArgs
@@ -557,20 +700,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           ruleSuite.ruleSets.map[(com.sparkutils.quality.Id, com.sparkutils.quality.RuleSetResult)](((ruleSet: com.sparkutils.quality.RuleSet) =&gt; scala.Tuple2.apply[com.sparkutils.quality.Id, com.sparkutils.quality.RuleSetResult](ruleSet.id, RuleSetResult.apply(Passed, ruleSet.rules.map[(com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type)](((r: com.sparkutils.quality.Rule) =&gt; scala.Tuple2.apply[com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type](r.id, Passed))).toMap[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleResult](scala.this.&lt;:&lt;.refl[(com.sparkutils.quality.Id, com.sparkutils.quality.Passed.type)]))))).toMap[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetResult](scala.this.&lt;:&lt;.refl[(com.sparkutils.quality.Id, com.sparkutils.quality.RuleSetResult)])
         </td>
       </tr><tr>
         <td>
-          101
+          103
         </td>
         <td>
-          422
+          554
         </td>
         <td>
-          3275
+          3356
           -
-          3277
+          3358
         </td>
         <td>
           Select
@@ -586,15 +729,15 @@
         </td>
       </tr><tr>
         <td>
-          101
+          103
         </td>
         <td>
-          423
+          555
         </td>
         <td>
-          3279
+          3360
           -
-          3293
+          3374
         </td>
         <td>
           Select
@@ -610,15 +753,15 @@
         </td>
       </tr><tr>
         <td>
-          101
+          103
         </td>
         <td>
-          424
+          556
         </td>
         <td>
-          3252
+          3333
           -
-          3294
+          3375
         </td>
         <td>
           Apply
@@ -634,15 +777,15 @@
         </td>
       </tr><tr>
         <td>
-          102
+          104
         </td>
         <td>
-          425
+          557
         </td>
         <td>
-          3364
+          3445
           -
-          3378
+          3459
         </td>
         <td>
           Select
@@ -653,20 +796,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           RuleSuiteResult.this.ruleSetResults
         </td>
       </tr><tr>
         <td>
-          102
+          104
         </td>
         <td>
-          426
+          558
         </td>
         <td>
-          3364
+          3445
           -
-          3385
+          3466
         </td>
         <td>
           Select
@@ -677,20 +820,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           scala.collection.JavaConverters.mapAsJavaMapConverter[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetResult](RuleSuiteResult.this.ruleSetResults).asJava
         </td>
       </tr><tr>
         <td>
-          113
+          115
         </td>
         <td>
-          427
+          559
         </td>
         <td>
-          3695
+          3776
           -
-          3701
+          3782
         </td>
         <td>
           Select
@@ -706,15 +849,15 @@
         </td>
       </tr><tr>
         <td>
-          123
+          125
         </td>
         <td>
-          428
+          560
         </td>
         <td>
-          4032
+          4113
           -
-          4046
+          4127
         </td>
         <td>
           Select
@@ -725,20 +868,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           GeneralExpressionsResult.this.ruleSetResults
         </td>
       </tr><tr>
         <td>
-          123
+          125
         </td>
         <td>
-          429
+          561
         </td>
         <td>
-          4032
+          4113
           -
-          4053
+          4134
         </td>
         <td>
           Select
@@ -749,20 +892,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           scala.collection.JavaConverters.mapAsJavaMapConverter[com.sparkutils.quality.VersionedId, Map[com.sparkutils.quality.VersionedId,R]](GeneralExpressionsResult.this.ruleSetResults).asJava
         </td>
       </tr><tr>
         <td>
-          133
+          135
         </td>
         <td>
-          430
+          562
         </td>
         <td>
-          4427
+          4508
           -
-          4441
+          4522
         </td>
         <td>
           Select
@@ -773,20 +916,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           GeneralExpressionsResultNoDDL.this.ruleSetResults
         </td>
       </tr><tr>
         <td>
-          133
+          135
         </td>
         <td>
-          431
+          563
         </td>
         <td>
-          4427
+          4508
           -
-          4448
+          4529
         </td>
         <td>
           Select
@@ -797,20 +940,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           scala.collection.JavaConverters.mapAsJavaMapConverter[com.sparkutils.quality.VersionedId, Map[com.sparkutils.quality.VersionedId,String]](GeneralExpressionsResultNoDDL.this.ruleSetResults).asJava
         </td>
       </tr><tr>
         <td>
-          153
+          155
         </td>
         <td>
-          432
+          564
         </td>
         <td>
-          5426
+          5507
           -
-          5437
+          5518
         </td>
         <td>
           Select
@@ -821,20 +964,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           RuleEngineResult.this.salientRule
         </td>
       </tr><tr>
         <td>
-          153
+          155
         </td>
         <td>
-          433
+          565
         </td>
         <td>
-          5406
+          5487
           -
-          5438
+          5519
         </td>
         <td>
           Apply
@@ -845,20 +988,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           com.sparkutils.quality.impl.util.Optional.toOptional[com.sparkutils.quality.SalientRule](RuleEngineResult.this.salientRule)
         </td>
       </tr><tr>
         <td>
-          155
+          157
         </td>
         <td>
-          434
+          566
         </td>
         <td>
-          5501
+          5582
           -
-          5507
+          5588
         </td>
         <td>
           Select
@@ -869,20 +1012,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           RuleEngineResult.this.result
         </td>
       </tr><tr>
         <td>
-          155
+          157
         </td>
         <td>
-          435
+          567
         </td>
         <td>
-          5481
+          5562
           -
-          5508
+          5589
         </td>
         <td>
           Apply
@@ -893,20 +1036,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           com.sparkutils.quality.impl.util.Optional.toOptional[T](RuleEngineResult.this.result)
         </td>
       </tr><tr>
         <td>
-          165
+          167
         </td>
         <td>
-          436
+          568
         </td>
         <td>
-          6059
+          6140
           -
-          6065
+          6146
         </td>
         <td>
           Select
@@ -917,20 +1060,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           RuleFolderResult.this.result
         </td>
       </tr><tr>
         <td>
-          165
+          167
         </td>
         <td>
-          437
+          569
         </td>
         <td>
-          6039
+          6120
           -
-          6066
+          6147
         </td>
         <td>
           Apply
@@ -941,8 +1084,2777 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           com.sparkutils.quality.impl.util.Optional.toOptional[T](RuleFolderResult.this.result)
+        </td>
+      </tr><tr>
+        <td>
+          185
+        </td>
+        <td>
+          570
+        </td>
+        <td>
+          6764
+          -
+          6776
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.failed
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.failed
+        </td>
+      </tr><tr>
+        <td>
+          185
+        </td>
+        <td>
+          571
+        </td>
+        <td>
+          6755
+          -
+          6776
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.failed.+(other.failed)
+        </td>
+      </tr><tr>
+        <td>
+          185
+        </td>
+        <td>
+          572
+        </td>
+        <td>
+          6796
+          -
+          6808
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.passed
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.passed
+        </td>
+      </tr><tr>
+        <td>
+          185
+        </td>
+        <td>
+          573
+        </td>
+        <td>
+          6787
+          -
+          6808
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.passed.+(other.passed)
+        </td>
+      </tr><tr>
+        <td>
+          185
+        </td>
+        <td>
+          574
+        </td>
+        <td>
+          6836
+          -
+          6852
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.softFailed
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.softFailed
+        </td>
+      </tr><tr>
+        <td>
+          185
+        </td>
+        <td>
+          575
+        </td>
+        <td>
+          6823
+          -
+          6852
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.softFailed.+(other.softFailed)
+        </td>
+      </tr><tr>
+        <td>
+          185
+        </td>
+        <td>
+          586
+        </td>
+        <td>
+          6739
+          -
+          7115
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update(ResultStatistics.this.failed.+(other.failed), ResultStatistics.this.passed.+(other.passed), ResultStatistics.this.softFailed.+(other.softFailed), ResultStatistics.this.disabled.+(other.disabled), ResultStatistics.this.ignored.+(other.ignored), ResultStatistics.this.defaulted.+(other.defaulted), ResultStatistics.this.probabilityPassed.+(other.probabilityPassed), ResultStatistics.this.probabilityFailed.+(other.probabilityFailed))
+        </td>
+      </tr><tr>
+        <td>
+          186
+        </td>
+        <td>
+          576
+        </td>
+        <td>
+          6882
+          -
+          6896
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.disabled
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.disabled
+        </td>
+      </tr><tr>
+        <td>
+          186
+        </td>
+        <td>
+          577
+        </td>
+        <td>
+          6871
+          -
+          6896
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.disabled.+(other.disabled)
+        </td>
+      </tr><tr>
+        <td>
+          186
+        </td>
+        <td>
+          578
+        </td>
+        <td>
+          6918
+          -
+          6931
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.ignored
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.ignored
+        </td>
+      </tr><tr>
+        <td>
+          186
+        </td>
+        <td>
+          579
+        </td>
+        <td>
+          6908
+          -
+          6931
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.ignored.+(other.ignored)
+        </td>
+      </tr><tr>
+        <td>
+          186
+        </td>
+        <td>
+          580
+        </td>
+        <td>
+          6957
+          -
+          6972
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.defaulted
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.defaulted
+        </td>
+      </tr><tr>
+        <td>
+          186
+        </td>
+        <td>
+          581
+        </td>
+        <td>
+          6945
+          -
+          6972
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.defaulted.+(other.defaulted)
+        </td>
+      </tr><tr>
+        <td>
+          187
+        </td>
+        <td>
+          582
+        </td>
+        <td>
+          7020
+          -
+          7043
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.probabilityPassed
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.probabilityPassed
+        </td>
+      </tr><tr>
+        <td>
+          187
+        </td>
+        <td>
+          583
+        </td>
+        <td>
+          7000
+          -
+          7043
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.probabilityPassed.+(other.probabilityPassed)
+        </td>
+      </tr><tr>
+        <td>
+          188
+        </td>
+        <td>
+          584
+        </td>
+        <td>
+          7091
+          -
+          7114
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.probabilityFailed
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.probabilityFailed
+        </td>
+      </tr><tr>
+        <td>
+          188
+        </td>
+        <td>
+          585
+        </td>
+        <td>
+          7071
+          -
+          7114
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.probabilityFailed.+(other.probabilityFailed)
+        </td>
+      </tr><tr>
+        <td>
+          195
+        </td>
+        <td>
+          587
+        </td>
+        <td>
+          7303
+          -
+          7313
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.failed.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          195
+        </td>
+        <td>
+          588
+        </td>
+        <td>
+          7287
+          -
+          7314
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update(ResultStatistics.this.failed.+(1), ResultStatistics.this.update$default$2, ResultStatistics.this.update$default$3, ResultStatistics.this.update$default$4, ResultStatistics.this.update$default$5, ResultStatistics.this.update$default$6, ResultStatistics.this.update$default$7, ResultStatistics.this.update$default$8)
+        </td>
+      </tr><tr>
+        <td>
+          195
+        </td>
+        <td>
+          589
+        </td>
+        <td>
+          7287
+          -
+          7314
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update(ResultStatistics.this.failed.+(1), ResultStatistics.this.update$default$2, ResultStatistics.this.update$default$3, ResultStatistics.this.update$default$4, ResultStatistics.this.update$default$5, ResultStatistics.this.update$default$6, ResultStatistics.this.update$default$7, ResultStatistics.this.update$default$8)
+        </td>
+      </tr><tr>
+        <td>
+          196
+        </td>
+        <td>
+          590
+        </td>
+        <td>
+          7352
+          -
+          7362
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.passed.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          196
+        </td>
+        <td>
+          591
+        </td>
+        <td>
+          7336
+          -
+          7363
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update(x$2, x$1, x$3, x$4, x$5, x$6, x$7, x$8)
+        </td>
+      </tr><tr>
+        <td>
+          196
+        </td>
+        <td>
+          592
+        </td>
+        <td>
+          7336
+          -
+          7363
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  &lt;artifact&gt; val x$1: Long = ResultStatistics.this.passed.+(1);
+  &lt;artifact&gt; val x$2: Long = ResultStatistics.this.update$default$1;
+  &lt;artifact&gt; val x$3: Long = ResultStatistics.this.update$default$3;
+  &lt;artifact&gt; val x$4: Long = ResultStatistics.this.update$default$4;
+  &lt;artifact&gt; val x$5: Long = ResultStatistics.this.update$default$5;
+  &lt;artifact&gt; val x$6: Long = ResultStatistics.this.update$default$6;
+  &lt;artifact&gt; val x$7: Long = ResultStatistics.this.update$default$7;
+  &lt;artifact&gt; val x$8: Long = ResultStatistics.this.update$default$8;
+  ResultStatistics.this.update(x$2, x$1, x$3, x$4, x$5, x$6, x$7, x$8)
+}
+        </td>
+      </tr><tr>
+        <td>
+          197
+        </td>
+        <td>
+          593
+        </td>
+        <td>
+          7409
+          -
+          7423
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.softFailed.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          197
+        </td>
+        <td>
+          594
+        </td>
+        <td>
+          7389
+          -
+          7424
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update(x$10, x$11, x$9, x$12, x$13, x$14, x$15, x$16)
+        </td>
+      </tr><tr>
+        <td>
+          197
+        </td>
+        <td>
+          595
+        </td>
+        <td>
+          7389
+          -
+          7424
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  &lt;artifact&gt; val x$9: Long = ResultStatistics.this.softFailed.+(1);
+  &lt;artifact&gt; val x$10: Long = ResultStatistics.this.update$default$1;
+  &lt;artifact&gt; val x$11: Long = ResultStatistics.this.update$default$2;
+  &lt;artifact&gt; val x$12: Long = ResultStatistics.this.update$default$4;
+  &lt;artifact&gt; val x$13: Long = ResultStatistics.this.update$default$5;
+  &lt;artifact&gt; val x$14: Long = ResultStatistics.this.update$default$6;
+  &lt;artifact&gt; val x$15: Long = ResultStatistics.this.update$default$7;
+  &lt;artifact&gt; val x$16: Long = ResultStatistics.this.update$default$8;
+  ResultStatistics.this.update(x$10, x$11, x$9, x$12, x$13, x$14, x$15, x$16)
+}
+        </td>
+      </tr><tr>
+        <td>
+          198
+        </td>
+        <td>
+          596
+        </td>
+        <td>
+          7470
+          -
+          7482
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.disabled.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          198
+        </td>
+        <td>
+          597
+        </td>
+        <td>
+          7452
+          -
+          7483
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update(x$18, x$19, x$20, x$17, x$21, x$22, x$23, x$24)
+        </td>
+      </tr><tr>
+        <td>
+          198
+        </td>
+        <td>
+          598
+        </td>
+        <td>
+          7452
+          -
+          7483
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  &lt;artifact&gt; val x$17: Long = ResultStatistics.this.disabled.+(1);
+  &lt;artifact&gt; val x$18: Long = ResultStatistics.this.update$default$1;
+  &lt;artifact&gt; val x$19: Long = ResultStatistics.this.update$default$2;
+  &lt;artifact&gt; val x$20: Long = ResultStatistics.this.update$default$3;
+  &lt;artifact&gt; val x$21: Long = ResultStatistics.this.update$default$5;
+  &lt;artifact&gt; val x$22: Long = ResultStatistics.this.update$default$6;
+  &lt;artifact&gt; val x$23: Long = ResultStatistics.this.update$default$7;
+  &lt;artifact&gt; val x$24: Long = ResultStatistics.this.update$default$8;
+  ResultStatistics.this.update(x$18, x$19, x$20, x$17, x$21, x$22, x$23, x$24)
+}
+        </td>
+      </tr><tr>
+        <td>
+          199
+        </td>
+        <td>
+          599
+        </td>
+        <td>
+          7527
+          -
+          7538
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.ignored.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          199
+        </td>
+        <td>
+          600
+        </td>
+        <td>
+          7510
+          -
+          7539
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update(x$26, x$27, x$28, x$29, x$25, x$30, x$31, x$32)
+        </td>
+      </tr><tr>
+        <td>
+          199
+        </td>
+        <td>
+          601
+        </td>
+        <td>
+          7510
+          -
+          7539
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  &lt;artifact&gt; val x$25: Long = ResultStatistics.this.ignored.+(1);
+  &lt;artifact&gt; val x$26: Long = ResultStatistics.this.update$default$1;
+  &lt;artifact&gt; val x$27: Long = ResultStatistics.this.update$default$2;
+  &lt;artifact&gt; val x$28: Long = ResultStatistics.this.update$default$3;
+  &lt;artifact&gt; val x$29: Long = ResultStatistics.this.update$default$4;
+  &lt;artifact&gt; val x$30: Long = ResultStatistics.this.update$default$6;
+  &lt;artifact&gt; val x$31: Long = ResultStatistics.this.update$default$7;
+  &lt;artifact&gt; val x$32: Long = ResultStatistics.this.update$default$8;
+  ResultStatistics.this.update(x$26, x$27, x$28, x$29, x$25, x$30, x$31, x$32)
+}
+        </td>
+      </tr><tr>
+        <td>
+          200
+        </td>
+        <td>
+          602
+        </td>
+        <td>
+          7585
+          -
+          7598
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.defaulted.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          200
+        </td>
+        <td>
+          603
+        </td>
+        <td>
+          7566
+          -
+          7599
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update(x$34, x$35, x$36, x$37, x$38, x$33, x$39, x$40)
+        </td>
+      </tr><tr>
+        <td>
+          200
+        </td>
+        <td>
+          604
+        </td>
+        <td>
+          7566
+          -
+          7599
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  &lt;artifact&gt; val x$33: Long = ResultStatistics.this.defaulted.+(1);
+  &lt;artifact&gt; val x$34: Long = ResultStatistics.this.update$default$1;
+  &lt;artifact&gt; val x$35: Long = ResultStatistics.this.update$default$2;
+  &lt;artifact&gt; val x$36: Long = ResultStatistics.this.update$default$3;
+  &lt;artifact&gt; val x$37: Long = ResultStatistics.this.update$default$4;
+  &lt;artifact&gt; val x$38: Long = ResultStatistics.this.update$default$5;
+  &lt;artifact&gt; val x$39: Long = ResultStatistics.this.update$default$7;
+  &lt;artifact&gt; val x$40: Long = ResultStatistics.this.update$default$8;
+  ResultStatistics.this.update(x$34, x$35, x$36, x$37, x$38, x$33, x$39, x$40)
+}
+        </td>
+      </tr><tr>
+        <td>
+          201
+        </td>
+        <td>
+          605
+        </td>
+        <td>
+          7639
+          -
+          7668
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Double.&gt;=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          percentage.&gt;=(probabilityPass)
+        </td>
+      </tr><tr>
+        <td>
+          201
+        </td>
+        <td>
+          606
+        </td>
+        <td>
+          7700
+          -
+          7721
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.probabilityPassed.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          201
+        </td>
+        <td>
+          607
+        </td>
+        <td>
+          7673
+          -
+          7722
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update(x$42, x$43, x$44, x$45, x$46, x$47, x$41, x$48)
+        </td>
+      </tr><tr>
+        <td>
+          201
+        </td>
+        <td>
+          608
+        </td>
+        <td>
+          7673
+          -
+          7722
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  &lt;artifact&gt; val x$41: Long = ResultStatistics.this.probabilityPassed.+(1);
+  &lt;artifact&gt; val x$42: Long = ResultStatistics.this.update$default$1;
+  &lt;artifact&gt; val x$43: Long = ResultStatistics.this.update$default$2;
+  &lt;artifact&gt; val x$44: Long = ResultStatistics.this.update$default$3;
+  &lt;artifact&gt; val x$45: Long = ResultStatistics.this.update$default$4;
+  &lt;artifact&gt; val x$46: Long = ResultStatistics.this.update$default$5;
+  &lt;artifact&gt; val x$47: Long = ResultStatistics.this.update$default$6;
+  &lt;artifact&gt; val x$48: Long = ResultStatistics.this.update$default$8;
+  ResultStatistics.this.update(x$42, x$43, x$44, x$45, x$46, x$47, x$41, x$48)
+}
+        </td>
+      </tr><tr>
+        <td>
+          202
+        </td>
+        <td>
+          609
+        </td>
+        <td>
+          7779
+          -
+          7800
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.probabilityFailed.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          202
+        </td>
+        <td>
+          610
+        </td>
+        <td>
+          7752
+          -
+          7801
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ResultStatistics.this.update(x$50, x$51, x$52, x$53, x$54, x$55, x$56, x$49)
+        </td>
+      </tr><tr>
+        <td>
+          202
+        </td>
+        <td>
+          611
+        </td>
+        <td>
+          7752
+          -
+          7801
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  &lt;artifact&gt; val x$49: Long = ResultStatistics.this.probabilityFailed.+(1);
+  &lt;artifact&gt; val x$50: Long = ResultStatistics.this.update$default$1;
+  &lt;artifact&gt; val x$51: Long = ResultStatistics.this.update$default$2;
+  &lt;artifact&gt; val x$52: Long = ResultStatistics.this.update$default$3;
+  &lt;artifact&gt; val x$53: Long = ResultStatistics.this.update$default$4;
+  &lt;artifact&gt; val x$54: Long = ResultStatistics.this.update$default$5;
+  &lt;artifact&gt; val x$55: Long = ResultStatistics.this.update$default$6;
+  &lt;artifact&gt; val x$56: Long = ResultStatistics.this.update$default$7;
+  ResultStatistics.this.update(x$50, x$51, x$52, x$53, x$54, x$55, x$56, x$49)
+}
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          612
+        </td>
+        <td>
+          7875
+          -
+          7917
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.processResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ResultStatistics.this.processResult(ruleResult, probabilityPass)
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          613
+        </td>
+        <td>
+          7875
+          -
+          7917
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.processResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ResultStatistics.this.processResult(ruleResult, probabilityPass)
+        </td>
+      </tr><tr>
+        <td>
+          217
+        </td>
+        <td>
+          614
+        </td>
+        <td>
+          8497
+          -
+          8707
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleStatistics.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleStatistics.this.copy(x$9, x$1, x$2, x$3, x$4, x$5, x$6, x$7, x$8)
+        </td>
+      </tr><tr>
+        <td>
+          220
+        </td>
+        <td>
+          615
+        </td>
+        <td>
+          8773
+          -
+          8794
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.combineResults
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleStatistics.this.combineResults(other)
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          616
+        </td>
+        <td>
+          9396
+          -
+          9606
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSetStatistics.this.copy(x$9, x$1, x$2, x$3, x$4, x$5, x$6, x$7, x$8, x$10)
+        </td>
+      </tr><tr>
+        <td>
+          234
+        </td>
+        <td>
+          617
+        </td>
+        <td>
+          9687
+          -
+          9710
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetResult.overallResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          setResult.overallResult
+        </td>
+      </tr><tr>
+        <td>
+          234
+        </td>
+        <td>
+          618
+        </td>
+        <td>
+          9673
+          -
+          9711
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.processResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSetStatistics.this.processResult(setResult.overallResult, RuleSetStatistics.this.processResult$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          234
+        </td>
+        <td>
+          628
+        </td>
+        <td>
+          9673
+          -
+          9990
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy(x$4, x$5, x$6, x$7, x$8, x$9, x$10, x$11, x$12, x$3)
+        </td>
+      </tr><tr>
+        <td>
+          235
+        </td>
+        <td>
+          619
+        </td>
+        <td>
+          9763
+          -
+          9768
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.rules
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSetStatistics.this.rules
+        </td>
+      </tr><tr>
+        <td>
+          235
+        </td>
+        <td>
+          627
+        </td>
+        <td>
+          9732
+          -
+          9989
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.foldLeft
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          setResult.ruleResults.foldLeft[Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleStatistics]](RuleSetStatistics.this.rules)(((x0$1: Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleStatistics], x1$1: (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleResult)) =&gt; scala.Tuple2.apply[Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleStatistics], (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleResult)](x0$1, x1$1) match {
+  case (_1: Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleStatistics], _2: (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleResult)): (Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleStatistics], (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleResult))((cur @ _), (_1: com.sparkutils.quality.VersionedId, _2: com.sparkutils.quality.RuleResult): (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleResult)((id @ _), (ruleResult @ _))) =&gt; com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleStatistics](cur).updatedWithF[com.sparkutils.quality.RuleStatistics](id)(((x$1: Option[com.sparkutils.quality.RuleStatistics]) =&gt; x$1.map[com.sparkutils.quality.RuleStatistics](((rs: com.sparkutils.quality.RuleStatistics) =&gt; rs.processResult(ruleResult, rs.processResult$default$2))).orElse[com.sparkutils.quality.RuleStatistics](scala.Some.apply[com.sparkutils.quality.RuleStatistics]({
+    &lt;artifact&gt; val qual$2: com.sparkutils.quality.RuleStatistics = RuleStatistics.apply(id, RuleStatistics.apply$default$2, RuleStatistics.apply$default$3, RuleStatistics.apply$default$4, RuleStatistics.apply$default$5, RuleStatistics.apply$default$6, RuleStatistics.apply$default$7, RuleStatistics.apply$default$8, RuleStatistics.apply$default$9);
+    &lt;artifact&gt; val x$1: com.sparkutils.quality.RuleResult = ruleResult;
+    &lt;artifact&gt; val x$2: Double = qual$2.processResult$default$2;
+    qual$2.processResult(x$1, x$2)
+  }))))
+}))
+        </td>
+      </tr><tr>
+        <td>
+          237
+        </td>
+        <td>
+          625
+        </td>
+        <td>
+          9821
+          -
+          9981
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.MapOps.MapOps.updatedWithF
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleStatistics](cur).updatedWithF[com.sparkutils.quality.RuleStatistics](id)(((x$1: Option[com.sparkutils.quality.RuleStatistics]) =&gt; x$1.map[com.sparkutils.quality.RuleStatistics](((rs: com.sparkutils.quality.RuleStatistics) =&gt; rs.processResult(ruleResult, rs.processResult$default$2))).orElse[com.sparkutils.quality.RuleStatistics](scala.Some.apply[com.sparkutils.quality.RuleStatistics]({
+  &lt;artifact&gt; val qual$2: com.sparkutils.quality.RuleStatistics = RuleStatistics.apply(id, RuleStatistics.apply$default$2, RuleStatistics.apply$default$3, RuleStatistics.apply$default$4, RuleStatistics.apply$default$5, RuleStatistics.apply$default$6, RuleStatistics.apply$default$7, RuleStatistics.apply$default$8, RuleStatistics.apply$default$9);
+  &lt;artifact&gt; val x$1: com.sparkutils.quality.RuleResult = ruleResult;
+  &lt;artifact&gt; val x$2: Double = qual$2.processResult$default$2;
+  qual$2.processResult(x$1, x$2)
+}))))
+        </td>
+      </tr><tr>
+        <td>
+          237
+        </td>
+        <td>
+          626
+        </td>
+        <td>
+          9821
+          -
+          9981
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.MapOps.MapOps.updatedWithF
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleStatistics](cur).updatedWithF[com.sparkutils.quality.RuleStatistics](id)(((x$1: Option[com.sparkutils.quality.RuleStatistics]) =&gt; x$1.map[com.sparkutils.quality.RuleStatistics](((rs: com.sparkutils.quality.RuleStatistics) =&gt; rs.processResult(ruleResult, rs.processResult$default$2))).orElse[com.sparkutils.quality.RuleStatistics](scala.Some.apply[com.sparkutils.quality.RuleStatistics]({
+  &lt;artifact&gt; val qual$2: com.sparkutils.quality.RuleStatistics = RuleStatistics.apply(id, RuleStatistics.apply$default$2, RuleStatistics.apply$default$3, RuleStatistics.apply$default$4, RuleStatistics.apply$default$5, RuleStatistics.apply$default$6, RuleStatistics.apply$default$7, RuleStatistics.apply$default$8, RuleStatistics.apply$default$9);
+  &lt;artifact&gt; val x$1: com.sparkutils.quality.RuleResult = ruleResult;
+  &lt;artifact&gt; val x$2: Double = qual$2.processResult$default$2;
+  qual$2.processResult(x$1, x$2)
+}))))
+        </td>
+      </tr><tr>
+        <td>
+          239
+        </td>
+        <td>
+          620
+        </td>
+        <td>
+          9881
+          -
+          9909
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.processResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          rs.processResult(ruleResult, rs.processResult$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          240
+        </td>
+        <td>
+          621
+        </td>
+        <td>
+          9934
+          -
+          9952
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleStatistics.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleStatistics.apply(id, RuleStatistics.apply$default$2, RuleStatistics.apply$default$3, RuleStatistics.apply$default$4, RuleStatistics.apply$default$5, RuleStatistics.apply$default$6, RuleStatistics.apply$default$7, RuleStatistics.apply$default$8, RuleStatistics.apply$default$9)
+        </td>
+      </tr><tr>
+        <td>
+          240
+        </td>
+        <td>
+          622
+        </td>
+        <td>
+          9934
+          -
+          9978
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.processResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$2.processResult(x$1, x$2)
+        </td>
+      </tr><tr>
+        <td>
+          240
+        </td>
+        <td>
+          623
+        </td>
+        <td>
+          9929
+          -
+          9979
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[com.sparkutils.quality.RuleStatistics]({
+  &lt;artifact&gt; val qual$2: com.sparkutils.quality.RuleStatistics = RuleStatistics.apply(id, RuleStatistics.apply$default$2, RuleStatistics.apply$default$3, RuleStatistics.apply$default$4, RuleStatistics.apply$default$5, RuleStatistics.apply$default$6, RuleStatistics.apply$default$7, RuleStatistics.apply$default$8, RuleStatistics.apply$default$9);
+  &lt;artifact&gt; val x$1: com.sparkutils.quality.RuleResult = ruleResult;
+  &lt;artifact&gt; val x$2: Double = qual$2.processResult$default$2;
+  qual$2.processResult(x$1, x$2)
+})
+        </td>
+      </tr><tr>
+        <td>
+          240
+        </td>
+        <td>
+          624
+        </td>
+        <td>
+          9842
+          -
+          9980
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.orElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$1.map[com.sparkutils.quality.RuleStatistics](((rs: com.sparkutils.quality.RuleStatistics) =&gt; rs.processResult(ruleResult, rs.processResult$default$2))).orElse[com.sparkutils.quality.RuleStatistics](scala.Some.apply[com.sparkutils.quality.RuleStatistics]({
+  &lt;artifact&gt; val qual$2: com.sparkutils.quality.RuleStatistics = RuleStatistics.apply(id, RuleStatistics.apply$default$2, RuleStatistics.apply$default$3, RuleStatistics.apply$default$4, RuleStatistics.apply$default$5, RuleStatistics.apply$default$6, RuleStatistics.apply$default$7, RuleStatistics.apply$default$8, RuleStatistics.apply$default$9);
+  &lt;artifact&gt; val x$1: com.sparkutils.quality.RuleResult = ruleResult;
+  &lt;artifact&gt; val x$2: Double = qual$2.processResult$default$2;
+  qual$2.processResult(x$1, x$2)
+}))
+        </td>
+      </tr><tr>
+        <td>
+          243
+        </td>
+        <td>
+          629
+        </td>
+        <td>
+          10062
+          -
+          10083
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.combineResults
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSetStatistics.this.combineResults(other)
+        </td>
+      </tr><tr>
+        <td>
+          243
+        </td>
+        <td>
+          637
+        </td>
+        <td>
+          10062
+          -
+          10301
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy(x$2, x$3, x$4, x$5, x$6, x$7, x$8, x$9, x$10, x$1)
+        </td>
+      </tr><tr>
+        <td>
+          244
+        </td>
+        <td>
+          630
+        </td>
+        <td>
+          10123
+          -
+          10128
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.rules
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSetStatistics.this.rules
+        </td>
+      </tr><tr>
+        <td>
+          244
+        </td>
+        <td>
+          636
+        </td>
+        <td>
+          10102
+          -
+          10297
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.foldLeft
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.rules.foldLeft[Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleStatistics]](RuleSetStatistics.this.rules)(((x0$1: Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleStatistics], x1$1: (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleStatistics)) =&gt; scala.Tuple2.apply[Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleStatistics], (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleStatistics)](x0$1, x1$1) match {
+  case (_1: Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleStatistics], _2: (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleStatistics)): (Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleStatistics], (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleStatistics))((cur @ _), (_1: com.sparkutils.quality.VersionedId, _2: com.sparkutils.quality.RuleStatistics): (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleStatistics)((id @ _), (ruleResult @ _))) =&gt; com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleStatistics](cur).updatedWithF[com.sparkutils.quality.RuleStatistics](id)(((x$2: Option[com.sparkutils.quality.RuleStatistics]) =&gt; x$2.map[com.sparkutils.quality.RuleStatistics](((rs: com.sparkutils.quality.RuleStatistics) =&gt; rs.combine(ruleResult))).orElse[com.sparkutils.quality.RuleStatistics](scala.Some.apply[com.sparkutils.quality.RuleStatistics](ruleResult))))
+}))
+        </td>
+      </tr><tr>
+        <td>
+          246
+        </td>
+        <td>
+          634
+        </td>
+        <td>
+          10177
+          -
+          10291
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.MapOps.MapOps.updatedWithF
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleStatistics](cur).updatedWithF[com.sparkutils.quality.RuleStatistics](id)(((x$2: Option[com.sparkutils.quality.RuleStatistics]) =&gt; x$2.map[com.sparkutils.quality.RuleStatistics](((rs: com.sparkutils.quality.RuleStatistics) =&gt; rs.combine(ruleResult))).orElse[com.sparkutils.quality.RuleStatistics](scala.Some.apply[com.sparkutils.quality.RuleStatistics](ruleResult))))
+        </td>
+      </tr><tr>
+        <td>
+          246
+        </td>
+        <td>
+          635
+        </td>
+        <td>
+          10177
+          -
+          10291
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.MapOps.MapOps.updatedWithF
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleStatistics](cur).updatedWithF[com.sparkutils.quality.RuleStatistics](id)(((x$2: Option[com.sparkutils.quality.RuleStatistics]) =&gt; x$2.map[com.sparkutils.quality.RuleStatistics](((rs: com.sparkutils.quality.RuleStatistics) =&gt; rs.combine(ruleResult))).orElse[com.sparkutils.quality.RuleStatistics](scala.Some.apply[com.sparkutils.quality.RuleStatistics](ruleResult))))
+        </td>
+      </tr><tr>
+        <td>
+          248
+        </td>
+        <td>
+          631
+        </td>
+        <td>
+          10233
+          -
+          10255
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleStatistics.combine
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          rs.combine(ruleResult)
+        </td>
+      </tr><tr>
+        <td>
+          249
+        </td>
+        <td>
+          632
+        </td>
+        <td>
+          10273
+          -
+          10289
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[com.sparkutils.quality.RuleStatistics](ruleResult)
+        </td>
+      </tr><tr>
+        <td>
+          249
+        </td>
+        <td>
+          633
+        </td>
+        <td>
+          10198
+          -
+          10290
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.orElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$2.map[com.sparkutils.quality.RuleStatistics](((rs: com.sparkutils.quality.RuleStatistics) =&gt; rs.combine(ruleResult))).orElse[com.sparkutils.quality.RuleStatistics](scala.Some.apply[com.sparkutils.quality.RuleStatistics](ruleResult))
+        </td>
+      </tr><tr>
+        <td>
+          262
+        </td>
+        <td>
+          638
+        </td>
+        <td>
+          10954
+          -
+          11164
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteStatistics.this.copy(x$9, x$1, x$2, x$3, x$4, x$5, x$6, x$7, x$8, x$10, x$11)
+        </td>
+      </tr><tr>
+        <td>
+          266
+        </td>
+        <td>
+          639
+        </td>
+        <td>
+          11257
+          -
+          11286
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteResult.overallResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuiteResult.overallResult
+        </td>
+      </tr><tr>
+        <td>
+          266
+        </td>
+        <td>
+          640
+        </td>
+        <td>
+          11243
+          -
+          11287
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.processResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteStatistics.this.processResult(ruleSuiteResult.overallResult, RuleSuiteStatistics.this.processResult$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          266
+        </td>
+        <td>
+          641
+        </td>
+        <td>
+          11304
+          -
+          11316
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteStatistics.this.rowCount.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          266
+        </td>
+        <td>
+          650
+        </td>
+        <td>
+          11243
+          -
+          11598
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy(x$3, x$4, x$5, x$6, x$7, x$8, x$9, x$10, x$11, x$1, x$2)
+        </td>
+      </tr><tr>
+        <td>
+          267
+        </td>
+        <td>
+          642
+        </td>
+        <td>
+          11375
+          -
+          11383
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.ruleSets
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteStatistics.this.ruleSets
+        </td>
+      </tr><tr>
+        <td>
+          267
+        </td>
+        <td>
+          649
+        </td>
+        <td>
+          11335
+          -
+          11592
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.foldLeft
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuiteResult.ruleSetResults.foldLeft[Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleSetStatistics]](RuleSuiteStatistics.this.ruleSets)(((x0$1: Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleSetStatistics], x1$1: (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetResult)) =&gt; scala.Tuple2.apply[Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleSetStatistics], (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetResult)](x0$1, x1$1) match {
+  case (_1: Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleSetStatistics], _2: (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetResult)): (Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleSetStatistics], (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetResult))((cur @ _), (_1: com.sparkutils.quality.VersionedId, _2: com.sparkutils.quality.RuleSetResult): (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetResult)((id @ _), (setResult @ _))) =&gt; com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetStatistics](cur).updatedWithF[com.sparkutils.quality.RuleSetStatistics](id)(((x$3: Option[com.sparkutils.quality.RuleSetStatistics]) =&gt; x$3.map[com.sparkutils.quality.RuleSetStatistics](((rs: com.sparkutils.quality.RuleSetStatistics) =&gt; rs.process(setResult))).orElse[com.sparkutils.quality.RuleSetStatistics](scala.Some.apply[com.sparkutils.quality.RuleSetStatistics](RuleSetStatistics.apply(id, RuleSetStatistics.apply$default$2, RuleSetStatistics.apply$default$3, RuleSetStatistics.apply$default$4, RuleSetStatistics.apply$default$5, RuleSetStatistics.apply$default$6, RuleSetStatistics.apply$default$7, RuleSetStatistics.apply$default$8, RuleSetStatistics.apply$default$9, RuleSetStatistics.apply$default$10).process(setResult)))))
+}))
+        </td>
+      </tr><tr>
+        <td>
+          269
+        </td>
+        <td>
+          647
+        </td>
+        <td>
+          11435
+          -
+          11584
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.MapOps.MapOps.updatedWithF
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetStatistics](cur).updatedWithF[com.sparkutils.quality.RuleSetStatistics](id)(((x$3: Option[com.sparkutils.quality.RuleSetStatistics]) =&gt; x$3.map[com.sparkutils.quality.RuleSetStatistics](((rs: com.sparkutils.quality.RuleSetStatistics) =&gt; rs.process(setResult))).orElse[com.sparkutils.quality.RuleSetStatistics](scala.Some.apply[com.sparkutils.quality.RuleSetStatistics](RuleSetStatistics.apply(id, RuleSetStatistics.apply$default$2, RuleSetStatistics.apply$default$3, RuleSetStatistics.apply$default$4, RuleSetStatistics.apply$default$5, RuleSetStatistics.apply$default$6, RuleSetStatistics.apply$default$7, RuleSetStatistics.apply$default$8, RuleSetStatistics.apply$default$9, RuleSetStatistics.apply$default$10).process(setResult)))))
+        </td>
+      </tr><tr>
+        <td>
+          269
+        </td>
+        <td>
+          648
+        </td>
+        <td>
+          11435
+          -
+          11584
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.MapOps.MapOps.updatedWithF
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetStatistics](cur).updatedWithF[com.sparkutils.quality.RuleSetStatistics](id)(((x$3: Option[com.sparkutils.quality.RuleSetStatistics]) =&gt; x$3.map[com.sparkutils.quality.RuleSetStatistics](((rs: com.sparkutils.quality.RuleSetStatistics) =&gt; rs.process(setResult))).orElse[com.sparkutils.quality.RuleSetStatistics](scala.Some.apply[com.sparkutils.quality.RuleSetStatistics](RuleSetStatistics.apply(id, RuleSetStatistics.apply$default$2, RuleSetStatistics.apply$default$3, RuleSetStatistics.apply$default$4, RuleSetStatistics.apply$default$5, RuleSetStatistics.apply$default$6, RuleSetStatistics.apply$default$7, RuleSetStatistics.apply$default$8, RuleSetStatistics.apply$default$9, RuleSetStatistics.apply$default$10).process(setResult)))))
+        </td>
+      </tr><tr>
+        <td>
+          271
+        </td>
+        <td>
+          643
+        </td>
+        <td>
+          11495
+          -
+          11516
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.process
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          rs.process(setResult)
+        </td>
+      </tr><tr>
+        <td>
+          272
+        </td>
+        <td>
+          644
+        </td>
+        <td>
+          11541
+          -
+          11581
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.process
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSetStatistics.apply(id, RuleSetStatistics.apply$default$2, RuleSetStatistics.apply$default$3, RuleSetStatistics.apply$default$4, RuleSetStatistics.apply$default$5, RuleSetStatistics.apply$default$6, RuleSetStatistics.apply$default$7, RuleSetStatistics.apply$default$8, RuleSetStatistics.apply$default$9, RuleSetStatistics.apply$default$10).process(setResult)
+        </td>
+      </tr><tr>
+        <td>
+          272
+        </td>
+        <td>
+          645
+        </td>
+        <td>
+          11536
+          -
+          11582
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[com.sparkutils.quality.RuleSetStatistics](RuleSetStatistics.apply(id, RuleSetStatistics.apply$default$2, RuleSetStatistics.apply$default$3, RuleSetStatistics.apply$default$4, RuleSetStatistics.apply$default$5, RuleSetStatistics.apply$default$6, RuleSetStatistics.apply$default$7, RuleSetStatistics.apply$default$8, RuleSetStatistics.apply$default$9, RuleSetStatistics.apply$default$10).process(setResult))
+        </td>
+      </tr><tr>
+        <td>
+          272
+        </td>
+        <td>
+          646
+        </td>
+        <td>
+          11456
+          -
+          11583
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.orElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$3.map[com.sparkutils.quality.RuleSetStatistics](((rs: com.sparkutils.quality.RuleSetStatistics) =&gt; rs.process(setResult))).orElse[com.sparkutils.quality.RuleSetStatistics](scala.Some.apply[com.sparkutils.quality.RuleSetStatistics](RuleSetStatistics.apply(id, RuleSetStatistics.apply$default$2, RuleSetStatistics.apply$default$3, RuleSetStatistics.apply$default$4, RuleSetStatistics.apply$default$5, RuleSetStatistics.apply$default$6, RuleSetStatistics.apply$default$7, RuleSetStatistics.apply$default$8, RuleSetStatistics.apply$default$9, RuleSetStatistics.apply$default$10).process(setResult)))
+        </td>
+      </tr><tr>
+        <td>
+          277
+        </td>
+        <td>
+          651
+        </td>
+        <td>
+          11678
+          -
+          11699
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.ResultStatistics.combineResults
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteStatistics.this.combineResults(other)
+        </td>
+      </tr><tr>
+        <td>
+          277
+        </td>
+        <td>
+          661
+        </td>
+        <td>
+          11678
+          -
+          11965
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.copy(x$3, x$4, x$5, x$6, x$7, x$8, x$9, x$10, x$11, x$1, x$2)
+        </td>
+      </tr><tr>
+        <td>
+          278
+        </td>
+        <td>
+          652
+        </td>
+        <td>
+          11732
+          -
+          11746
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.rowCount
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.rowCount
+        </td>
+      </tr><tr>
+        <td>
+          278
+        </td>
+        <td>
+          653
+        </td>
+        <td>
+          11721
+          -
+          11746
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteStatistics.this.rowCount.+(other.rowCount)
+        </td>
+      </tr><tr>
+        <td>
+          279
+        </td>
+        <td>
+          654
+        </td>
+        <td>
+          11787
+          -
+          11795
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.ruleSets
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteStatistics.this.ruleSets
+        </td>
+      </tr><tr>
+        <td>
+          279
+        </td>
+        <td>
+          660
+        </td>
+        <td>
+          11763
+          -
+          11961
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.foldLeft
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.ruleSets.foldLeft[Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleSetStatistics]](RuleSuiteStatistics.this.ruleSets)(((x0$1: Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleSetStatistics], x1$1: (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetStatistics)) =&gt; scala.Tuple2.apply[Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleSetStatistics], (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetStatistics)](x0$1, x1$1) match {
+  case (_1: Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleSetStatistics], _2: (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetStatistics)): (Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleSetStatistics], (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetStatistics))((cur @ _), (_1: com.sparkutils.quality.VersionedId, _2: com.sparkutils.quality.RuleSetStatistics): (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetStatistics)((id @ _), (setResult @ _))) =&gt; com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetStatistics](cur).updatedWithF[com.sparkutils.quality.RuleSetStatistics](id)(((x$4: Option[com.sparkutils.quality.RuleSetStatistics]) =&gt; x$4.map[com.sparkutils.quality.RuleSetStatistics](((rs: com.sparkutils.quality.RuleSetStatistics) =&gt; rs.combine(setResult))).orElse[com.sparkutils.quality.RuleSetStatistics](scala.Some.apply[com.sparkutils.quality.RuleSetStatistics](setResult))))
+}))
+        </td>
+      </tr><tr>
+        <td>
+          281
+        </td>
+        <td>
+          658
+        </td>
+        <td>
+          11843
+          -
+          11955
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.MapOps.MapOps.updatedWithF
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetStatistics](cur).updatedWithF[com.sparkutils.quality.RuleSetStatistics](id)(((x$4: Option[com.sparkutils.quality.RuleSetStatistics]) =&gt; x$4.map[com.sparkutils.quality.RuleSetStatistics](((rs: com.sparkutils.quality.RuleSetStatistics) =&gt; rs.combine(setResult))).orElse[com.sparkutils.quality.RuleSetStatistics](scala.Some.apply[com.sparkutils.quality.RuleSetStatistics](setResult))))
+        </td>
+      </tr><tr>
+        <td>
+          281
+        </td>
+        <td>
+          659
+        </td>
+        <td>
+          11843
+          -
+          11955
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.MapOps.MapOps.updatedWithF
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetStatistics](cur).updatedWithF[com.sparkutils.quality.RuleSetStatistics](id)(((x$4: Option[com.sparkutils.quality.RuleSetStatistics]) =&gt; x$4.map[com.sparkutils.quality.RuleSetStatistics](((rs: com.sparkutils.quality.RuleSetStatistics) =&gt; rs.combine(setResult))).orElse[com.sparkutils.quality.RuleSetStatistics](scala.Some.apply[com.sparkutils.quality.RuleSetStatistics](setResult))))
+        </td>
+      </tr><tr>
+        <td>
+          283
+        </td>
+        <td>
+          655
+        </td>
+        <td>
+          11899
+          -
+          11920
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetStatistics.combine
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          rs.combine(setResult)
+        </td>
+      </tr><tr>
+        <td>
+          284
+        </td>
+        <td>
+          656
+        </td>
+        <td>
+          11938
+          -
+          11953
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[com.sparkutils.quality.RuleSetStatistics](setResult)
+        </td>
+      </tr><tr>
+        <td>
+          284
+        </td>
+        <td>
+          657
+        </td>
+        <td>
+          11864
+          -
+          11954
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.orElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$4.map[com.sparkutils.quality.RuleSetStatistics](((rs: com.sparkutils.quality.RuleSetStatistics) =&gt; rs.combine(setResult))).orElse[com.sparkutils.quality.RuleSetStatistics](scala.Some.apply[com.sparkutils.quality.RuleSetStatistics](setResult))
+        </td>
+      </tr><tr>
+        <td>
+          296
+        </td>
+        <td>
+          662
+        </td>
+        <td>
+          12362
+          -
+          12374
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteGroupStatistics.this.rowCount.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          296
+        </td>
+        <td>
+          663
+        </td>
+        <td>
+          12389
+          -
+          12399
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteGroupStatistics.ruleSuites
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteGroupStatistics.this.ruleSuites
+        </td>
+      </tr><tr>
+        <td>
+          296
+        </td>
+        <td>
+          664
+        </td>
+        <td>
+          12413
+          -
+          12431
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteResult.id
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuiteResult.id
+        </td>
+      </tr><tr>
+        <td>
+          296
+        </td>
+        <td>
+          669
+        </td>
+        <td>
+          12389
+          -
+          12559
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.MapOps.MapOps.updatedWithF
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSuiteStatistics](RuleSuiteGroupStatistics.this.ruleSuites).updatedWithF[com.sparkutils.quality.RuleSuiteStatistics](ruleSuiteResult.id)(((x$5: Option[com.sparkutils.quality.RuleSuiteStatistics]) =&gt; x$5.map[com.sparkutils.quality.RuleSuiteStatistics](((x$6: com.sparkutils.quality.RuleSuiteStatistics) =&gt; x$6.process(ruleSuiteResult))).orElse[com.sparkutils.quality.RuleSuiteStatistics](scala.Some.apply[com.sparkutils.quality.RuleSuiteStatistics](RuleSuiteStatistics.apply(ruleSuiteResult.id, RuleSuiteStatistics.apply$default$2, RuleSuiteStatistics.apply$default$3, RuleSuiteStatistics.apply$default$4, RuleSuiteStatistics.apply$default$5, RuleSuiteStatistics.apply$default$6, RuleSuiteStatistics.apply$default$7, RuleSuiteStatistics.apply$default$8, RuleSuiteStatistics.apply$default$9, RuleSuiteStatistics.apply$default$10, RuleSuiteStatistics.apply$default$11).process(ruleSuiteResult)))))
+        </td>
+      </tr><tr>
+        <td>
+          296
+        </td>
+        <td>
+          670
+        </td>
+        <td>
+          12346
+          -
+          12560
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteGroupStatistics.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteGroupStatistics.this.copy(x$2, x$1)
+        </td>
+      </tr><tr>
+        <td>
+          297
+        </td>
+        <td>
+          665
+        </td>
+        <td>
+          12447
+          -
+          12473
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.process
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$6.process(ruleSuiteResult)
+        </td>
+      </tr><tr>
+        <td>
+          297
+        </td>
+        <td>
+          666
+        </td>
+        <td>
+          12487
+          -
+          12551
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.process
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteStatistics.apply(ruleSuiteResult.id, RuleSuiteStatistics.apply$default$2, RuleSuiteStatistics.apply$default$3, RuleSuiteStatistics.apply$default$4, RuleSuiteStatistics.apply$default$5, RuleSuiteStatistics.apply$default$6, RuleSuiteStatistics.apply$default$7, RuleSuiteStatistics.apply$default$8, RuleSuiteStatistics.apply$default$9, RuleSuiteStatistics.apply$default$10, RuleSuiteStatistics.apply$default$11).process(ruleSuiteResult)
+        </td>
+      </tr><tr>
+        <td>
+          297
+        </td>
+        <td>
+          667
+        </td>
+        <td>
+          12482
+          -
+          12552
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[com.sparkutils.quality.RuleSuiteStatistics](RuleSuiteStatistics.apply(ruleSuiteResult.id, RuleSuiteStatistics.apply$default$2, RuleSuiteStatistics.apply$default$3, RuleSuiteStatistics.apply$default$4, RuleSuiteStatistics.apply$default$5, RuleSuiteStatistics.apply$default$6, RuleSuiteStatistics.apply$default$7, RuleSuiteStatistics.apply$default$8, RuleSuiteStatistics.apply$default$9, RuleSuiteStatistics.apply$default$10, RuleSuiteStatistics.apply$default$11).process(ruleSuiteResult))
+        </td>
+      </tr><tr>
+        <td>
+          297
+        </td>
+        <td>
+          668
+        </td>
+        <td>
+          12440
+          -
+          12553
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.orElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$5.map[com.sparkutils.quality.RuleSuiteStatistics](((x$6: com.sparkutils.quality.RuleSuiteStatistics) =&gt; x$6.process(ruleSuiteResult))).orElse[com.sparkutils.quality.RuleSuiteStatistics](scala.Some.apply[com.sparkutils.quality.RuleSuiteStatistics](RuleSuiteStatistics.apply(ruleSuiteResult.id, RuleSuiteStatistics.apply$default$2, RuleSuiteStatistics.apply$default$3, RuleSuiteStatistics.apply$default$4, RuleSuiteStatistics.apply$default$5, RuleSuiteStatistics.apply$default$6, RuleSuiteStatistics.apply$default$7, RuleSuiteStatistics.apply$default$8, RuleSuiteStatistics.apply$default$9, RuleSuiteStatistics.apply$default$10, RuleSuiteStatistics.apply$default$11).process(ruleSuiteResult)))
+        </td>
+      </tr><tr>
+        <td>
+          301
+        </td>
+        <td>
+          671
+        </td>
+        <td>
+          12668
+          -
+          12682
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteGroupStatistics.rowCount
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.rowCount
+        </td>
+      </tr><tr>
+        <td>
+          301
+        </td>
+        <td>
+          672
+        </td>
+        <td>
+          12657
+          -
+          12682
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteGroupStatistics.this.rowCount.+(other.rowCount)
+        </td>
+      </tr><tr>
+        <td>
+          301
+        </td>
+        <td>
+          680
+        </td>
+        <td>
+          12641
+          -
+          12877
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteGroupStatistics.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteGroupStatistics.this.copy(x$2, x$1)
+        </td>
+      </tr><tr>
+        <td>
+          302
+        </td>
+        <td>
+          673
+        </td>
+        <td>
+          12729
+          -
+          12739
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteGroupStatistics.ruleSuites
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          RuleSuiteGroupStatistics.this.ruleSuites
+        </td>
+      </tr><tr>
+        <td>
+          302
+        </td>
+        <td>
+          679
+        </td>
+        <td>
+          12703
+          -
+          12876
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.foldLeft
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          other.ruleSuites.foldLeft[Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleSuiteStatistics]](RuleSuiteGroupStatistics.this.ruleSuites)(((x0$1: Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleSuiteStatistics], x1$1: (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSuiteStatistics)) =&gt; scala.Tuple2.apply[Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleSuiteStatistics], (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSuiteStatistics)](x0$1, x1$1) match {
+  case (_1: Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleSuiteStatistics], _2: (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSuiteStatistics)): (Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleSuiteStatistics], (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSuiteStatistics))((cur @ _), (_1: com.sparkutils.quality.VersionedId, _2: com.sparkutils.quality.RuleSuiteStatistics): (com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSuiteStatistics)((id @ _), (rs @ _))) =&gt; com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSuiteStatistics](cur).updatedWithF[com.sparkutils.quality.RuleSuiteStatistics](id)(((x$7: Option[com.sparkutils.quality.RuleSuiteStatistics]) =&gt; x$7.map[com.sparkutils.quality.RuleSuiteStatistics](((x$8: com.sparkutils.quality.RuleSuiteStatistics) =&gt; x$8.combine(rs))).orElse[com.sparkutils.quality.RuleSuiteStatistics](scala.Some.apply[com.sparkutils.quality.RuleSuiteStatistics](rs))))
+}))
+        </td>
+      </tr><tr>
+        <td>
+          304
+        </td>
+        <td>
+          677
+        </td>
+        <td>
+          12784
+          -
+          12868
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.MapOps.MapOps.updatedWithF
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSuiteStatistics](cur).updatedWithF[com.sparkutils.quality.RuleSuiteStatistics](id)(((x$7: Option[com.sparkutils.quality.RuleSuiteStatistics]) =&gt; x$7.map[com.sparkutils.quality.RuleSuiteStatistics](((x$8: com.sparkutils.quality.RuleSuiteStatistics) =&gt; x$8.combine(rs))).orElse[com.sparkutils.quality.RuleSuiteStatistics](scala.Some.apply[com.sparkutils.quality.RuleSuiteStatistics](rs))))
+        </td>
+      </tr><tr>
+        <td>
+          304
+        </td>
+        <td>
+          678
+        </td>
+        <td>
+          12784
+          -
+          12868
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.MapOps.MapOps.updatedWithF
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSuiteStatistics](cur).updatedWithF[com.sparkutils.quality.RuleSuiteStatistics](id)(((x$7: Option[com.sparkutils.quality.RuleSuiteStatistics]) =&gt; x$7.map[com.sparkutils.quality.RuleSuiteStatistics](((x$8: com.sparkutils.quality.RuleSuiteStatistics) =&gt; x$8.combine(rs))).orElse[com.sparkutils.quality.RuleSuiteStatistics](scala.Some.apply[com.sparkutils.quality.RuleSuiteStatistics](rs))))
+        </td>
+      </tr><tr>
+        <td>
+          305
+        </td>
+        <td>
+          674
+        </td>
+        <td>
+          12825
+          -
+          12838
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteStatistics.combine
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$8.combine(rs)
+        </td>
+      </tr><tr>
+        <td>
+          305
+        </td>
+        <td>
+          675
+        </td>
+        <td>
+          12847
+          -
+          12855
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[com.sparkutils.quality.RuleSuiteStatistics](rs)
+        </td>
+      </tr><tr>
+        <td>
+          305
+        </td>
+        <td>
+          676
+        </td>
+        <td>
+          12818
+          -
+          12856
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.orElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$7.map[com.sparkutils.quality.RuleSuiteStatistics](((x$8: com.sparkutils.quality.RuleSuiteStatistics) =&gt; x$8.combine(rs))).orElse[com.sparkutils.quality.RuleSuiteStatistics](scala.Some.apply[com.sparkutils.quality.RuleSuiteStatistics](rs))
         </td>
       </tr>
     </table>
