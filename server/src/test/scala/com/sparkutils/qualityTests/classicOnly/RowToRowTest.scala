@@ -1899,7 +1899,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     verify(rc.flatMap(_.result).flatten)
   } } } }
 
-  test("collect runnner processsor bean T") { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+  test("collect runnner processsor bean T") { v4_0_and_above { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     val (verify, rer, testData) = collectBase()
 
     import frameless.TypedExpressionEncoder
@@ -1911,12 +1911,20 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     implicit val enc2 = TypedExpressionEncoder[NewPostingBean]
 
     val processor = ProcessFunctions.collectorFactoryT[TestOn, NewPostingBean](rer,
+      resultDataType = Some(
+        ArrayType(StructType(Seq(
+          StructField("transfer_type", StringType),
+          StructField("account", StringType),
+          StructField("product", StringType),
+          StructField("subcode", IntegerType)
+        )))
+      ),
       compile = inCodegen, forceMutable = forceMutable,
       forceVarCompilation = forceVarCompilation, enableQualityOptimisations = false).instance
 
     val rc = map(testData, processor)
     verify(rc.flatMap(_.result).flatten.map(_.toNewPosting()))
 
-  } } } }
+  } } } } }
 
 }
