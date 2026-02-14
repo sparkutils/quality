@@ -1843,10 +1843,10 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
       NewPosting("from","4201","fxotc", 40)
     )
 
-    (verify(_, expected), rer, testData)
+    (verify(_: Seq[NewPosting], expected), rer, testData)
   }
 
-  test("collect runner processsor") { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+  test("collect runner processsor") { not2_4 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     val (verify, rer, testData) = collectBase()
 
     import frameless.TypedExpressionEncoder
@@ -1860,6 +1860,6 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Te
 
     val rc = map(testData, processor)
     verify(rc.flatMap(_.result).flatten)
-  } } } }
+  } } } } }
 
 }
