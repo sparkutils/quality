@@ -502,4 +502,34 @@ object ProcessFunctions {
       implicitly[Encoder[I]], generalExpressionsResultNoDDLExpEnc)
   }
 
+  protected[sparkless] def star(fieldName: String)(dataFrame: DataFrame => DataFrame): DataFrame => DataFrame =
+    df => {
+      dataFrame(df).selectExpr(s"$fieldName.*")
+    }
+
+  /**
+   * processor for collectRunner
+   * @tparam I
+   * @tparam T result type
+   * @return
+   */
+  def collectorFactory[I: Encoder, T: Encoder](ruleSuite: RuleSuite, resultDataType: Option[DataType] = None, variablesPerFunc: Int = 40,
+                                               variableFuncGroup: Int = 20, flatten: Boolean = true, includeNulls: Boolean = false,
+                                               useInPlaceArray: Boolean = true, unrollInPlaceArray: Boolean = false,
+                                               unrollOutputArraySize: Int = 1, compile: Boolean = true, forceMutable: Boolean = false,
+                                               extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
+                                               forceVarCompilation: Boolean = false)(implicit resEnc: Encoder[RuleFolderResult[Seq[T]]]):
+  ProcessorFactory[I, RuleFolderResult[Seq[T]]] = {
+    val runner = collectRunner(ruleSuite,
+      resultDataType, variablesPerFunc = variablesPerFunc, variableFuncGroup = variableFuncGroup,
+      flatten = flatten, includeNulls = includeNulls,
+      useInPlaceArray = useInPlaceArray, unrollInPlaceArray = unrollInPlaceArray,
+      unrollOutputArraySize = unrollOutputArraySize)
+    processFactory[I, RuleFolderResult[Seq[T]]](
+      star("collected")(_.withColumn("collected", runner)), 2,  compile,
+      forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
+      forceVarCompilation = forceVarCompilation)(
+      implicitly[Encoder[I]], resEnc)
+  }
+
 }

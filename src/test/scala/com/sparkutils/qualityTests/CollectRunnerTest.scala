@@ -1,6 +1,7 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality.impl.RunOnPassProcessor
+import com.sparkutils.qualityTests.CollectRunnerTestUtils.buildRules
 import com.sparkutils.quality.{DefaultProcessor, DefaultRule, ExpressionRule, Failed, Id, LambdaFunction, OutputExpression, Passed, Rule, RuleFolderResult, RuleResult, RuleSet, RuleSuite, RunOnPassProcessor, collectRunner, registerLambdaFunctions, ruleFolderRunner}
 import frameless.TypedEncoder
 import org.apache.spark.sql.{DataFrame, Encoder, SaveMode}
@@ -11,6 +12,20 @@ import org.scalatest.FunSuite
 import org.scalatest.Matchers.convertToAnyShouldWrapper
 
 import scala.reflect.ClassTag
+
+object CollectRunnerTestUtils {
+  def buildRules(expressionRules: Seq[(ExpressionRule, RunOnPassProcessor)]) = {
+    val rules =
+      for {((exp, processor), idOffset) <- expressionRules.zipWithIndex}
+        yield Rule(Id(100 * idOffset, 1), exp, processor)
+
+    val rsId = Id(1, 1)
+    val ruleSuite = RuleSuite(rsId, Seq(
+      RuleSet(Id(50, 1), rules
+      )))
+    ruleSuite
+  }
+}
 
 class CollectRunnerTest  extends FunSuite with TestUtils {
 
@@ -54,18 +69,6 @@ class CollectRunnerTest  extends FunSuite with TestUtils {
         flatten = flatten, includeNulls = includeNulls,
         useInPlaceArray = inPlace.value, unrollInPlaceArray = inPlaceUnroll.value,
         unrollOutputArraySize = inPlaceUnrollSize.value)
-  }
-
-  private def buildRules(expressionRules: Seq[(ExpressionRule, RunOnPassProcessor)]) = {
-    val rules =
-      for {((exp, processor), idOffset) <- expressionRules.zipWithIndex}
-        yield Rule(Id(100 * idOffset, 1), exp, processor)
-
-    val rsId = Id(1, 1)
-    val ruleSuite = RuleSuite(rsId, Seq(
-      RuleSet(Id(50, 1), rules
-      )))
-    ruleSuite
   }
 
   def testBase[T: TypedEncoder: ClassTag, O: Ordering](
