@@ -375,4 +375,59 @@ trait NonLazyProcessFunctions {
       addExpressionRunnerF(ruleSuite, renderOptions = renderOptions, stripDDL = stripDDL, postProcess =
           _.selectExpr(s"processor_input_wrapper($topName, expressionResults) as expressionResults")))(df)
   }
+
+  /**
+   * processor for collectRunner
+   * @tparam I
+   * @tparam T result type
+   * @return
+   */
+  def collectorFactory[I: Encoder, T: Encoder](ruleSuite: RuleSuite, resultDataType: Option[DataType] = None, variablesPerFunc: Int = 40,
+                                               variableFuncGroup: Int = 20, flatten: Boolean = true, includeNulls: Boolean = false,
+                                               useInPlaceArray: Boolean = true, unrollInPlaceArray: Boolean = false,
+                                               unrollOutputArraySize: Int = 1, compile: Boolean = true, forceMutable: Boolean = false,
+                                               extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
+                                               forceVarCompilation: Boolean = false)(implicit resEnc: Encoder[RuleFolderResult[Seq[T]]]):
+  ProcessorFactory[I, RuleFolderResult[Seq[T]]] = {
+    val runner = collectRunner(ruleSuite,
+      resultDataType, variablesPerFunc = variablesPerFunc, variableFuncGroup = variableFuncGroup,
+      flatten = flatten, includeNulls = includeNulls,
+      useInPlaceArray = useInPlaceArray, unrollInPlaceArray = unrollInPlaceArray,
+      unrollOutputArraySize = unrollOutputArraySize)
+    processFactory[I, RuleFolderResult[Seq[T]]](
+      star("collected")(_.withColumn("collected", runner)), ofRuleFolder[T],  compile,
+      forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
+      forceVarCompilation = forceVarCompilation)(
+      implicitly[Encoder[I]], resEnc)
+  }
+
+  /**
+   * processor for collectRunner for derived encoders over the nested T, e.g. Beans
+   * @tparam I
+   * @tparam T result type
+   * @return
+   */
+  def collectorFactoryT[I: Encoder, T: Encoder](ruleSuite: RuleSuite, resultDataType: Option[DataType] = None, variablesPerFunc: Int = 40,
+                                               variableFuncGroup: Int = 20, flatten: Boolean = true, includeNulls: Boolean = false,
+                                               useInPlaceArray: Boolean = true, unrollInPlaceArray: Boolean = false,
+                                               unrollOutputArraySize: Int = 1, compile: Boolean = true, forceMutable: Boolean = false,
+                                               extraProjection: DataFrame => DataFrame = identity, enableQualityOptimisations: Boolean = true,
+                                               forceVarCompilation: Boolean = false)(implicit resEnc: Encoder[RuleFolderResult[Seq[T]]]):
+  ProcessorFactory[I, RuleFolderResult[Seq[T]]] = {
+    import com.sparkutils.quality.implicits._
+    import com.sparkutils.quality.impl.util.Encoding._
+    implicit val ttyped: TypedEncoder[T] = fromNormalEncoder[T]
+    implicit val enc = TypedExpressionEncoder[RuleFolderResult[Seq[T]]]
+
+    val runner = collectRunner(ruleSuite,
+      resultDataType, variablesPerFunc = variablesPerFunc, variableFuncGroup = variableFuncGroup,
+      flatten = flatten, includeNulls = includeNulls,
+      useInPlaceArray = useInPlaceArray, unrollInPlaceArray = unrollInPlaceArray,
+      unrollOutputArraySize = unrollOutputArraySize)
+    processFactory[I, RuleFolderResult[Seq[T]]](
+      star("collected")(_.withColumn("collected", runner)), ofRuleFolder[T],  compile,
+      forceMutable = forceMutable, extraProjection = extraProjection, enableQualityOptimisations = enableQualityOptimisations,
+      forceVarCompilation = forceVarCompilation)(
+      implicitly[Encoder[I]], resEnc)
+  }
 }

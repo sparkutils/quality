@@ -11,7 +11,7 @@ import com.sparkutils.testing.{ClassicOnly, ConnectionType, Sessions, Testing}
 import org.apache.avro.SchemaBuilder
 import org.apache.avro.generic.{GenericData, GenericDatumWriter, GenericRecord}
 import org.apache.avro.io.EncoderFactory
-import org.apache.spark.sql.{Encoders, ClassicQualitySparkUtils, ShimUtils, SparkSession}
+import org.apache.spark.sql.{ClassicQualitySparkUtils, Encoders, ShimUtils, SparkSession}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode}
@@ -1798,7 +1798,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
   test("via ProcessFactory map's") { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     val s = sparkSession
     import s.implicits._
-
+    import com.sparkutils.quality.implicits._
     val theMap = Seq((40, true),
       (50, false),
       (60, true)
@@ -1823,6 +1823,100 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
 
     val rc = map(testData, processor)
     rc.map(_.overallResult)  shouldBe Seq(Failed, Passed, Failed, Passed, Passed, Failed)
+  } } } }
+
+  def collectBase() = {
+    val testData=Seq(
+      TestOn("edt", "4201", 40),
+      TestOn("otc", "5201", 40),
+      TestOn("fi", "4251", 50),
+      TestOn("fx", "4206", 90),
+      TestOn("fxotc", "4201", 40),
+      TestOn("eqotc", "4201", 60)
+    )
+
+    def irules(expressionRules: Seq[(ExpressionRule, RunOnPassProcessor)]) = {
+      registerLambdaFunctions(Seq(
+        LambdaFunction("account_row", "(transfer_type, account) -> named_struct('transfer_type', transfer_type, 'account', account, 'product', product, 'subcode', subcode)", Id(123, 23)),
+        LambdaFunction("account_row", "transfer_type -> account_row(transfer_type, account)", Id(123, 24)),
+        LambdaFunction("subcodeF", "(transfer_type, sub) -> account_row(transfer_type, string(sub))", Id(123, 25))
+      ))
+      val ruleSuite: RuleSuite = CollectRunnerTestUtils.buildRules(expressionRules)
+      ruleSuite
+    }
+
+    val rer = irules(
+      Seq(
+        (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1001, Id(1044,1),
+          OutputExpression("array(account_row('whoknows', 'money'))"))),
+        (ExpressionRule("product = 'fred'"), RunOnPassProcessor(1001, Id(1044,1),
+          OutputExpression("array(account_row('whoknows', 'money'))"))),
+
+        (ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(995, Id(1040,1),
+          OutputExpression("array(subcodeF('from', 1234), account_row('to'))"))),
+        (ExpressionRule("product like '%fx%'"), RunOnPassProcessor(996, Id(1042,1),
+          OutputExpression("array(account_row('to'), account_row('from'))"))),
+        (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1000, Id(1043,1),
+          OutputExpression(s"array(account_row('from'), account_row('to'))")))
+
+      )
+    )
+
+    def verify(got: Seq[NewPosting], expected: Seq[NewPosting]): Unit = {
+      val sortedGot = got.sortBy( NewPosting.unapply )
+      val sortedExp = expected.sortBy( NewPosting.unapply ).toVector
+      sortedGot shouldBe sortedExp
+    }
+
+    val expected = Seq(
+      NewPosting("from","1234","edt", 40),
+      NewPosting("whoknows","money","eqotc", 60), // our extra eqotc case
+      NewPosting("to","4206","fx", 90),
+      NewPosting("from","4206","fx", 90),
+      NewPosting("to","4201","edt", 40),
+      NewPosting("from","4201","eqotc", 60),
+      NewPosting("to","4201","eqotc", 60),
+      NewPosting("to","4201","fxotc", 40),
+      NewPosting("from","4201","fxotc", 40)
+    )
+
+    (verify(_, expected), rer, testData)
+  }
+
+  test("collect runnner processsor") { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+    val (verify, rer, testData) = collectBase()
+
+    import frameless.TypedExpressionEncoder
+    import com.sparkutils.quality.implicits._
+    implicit val enc = TypedExpressionEncoder[TestOn]
+    implicit val enc2 = TypedExpressionEncoder[NewPosting]
+
+    val processor = ProcessFunctions.collectorFactory[TestOn, NewPosting](rer,
+      compile = inCodegen, forceMutable = forceMutable,
+      forceVarCompilation = forceVarCompilation, enableQualityOptimisations = false).instance
+
+    val rc = map(testData, processor)
+    verify(rc.flatMap(_.result).flatten)
+  } } } }
+
+  test("collect runnner processsor bean T") { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+    val (verify, rer, testData) = collectBase()
+
+    import frameless.TypedExpressionEncoder
+    import com.sparkutils.quality.implicits._
+    implicit val enc = TypedExpressionEncoder[TestOn]
+    implicit val from = com.sparkutils.quality.impl.util.Encoding.fromNormalEncoder(
+      Encoders.bean(classOf[NewPostingBean])
+    )
+    implicit val enc2 = TypedExpressionEncoder[NewPostingBean]
+
+    val processor = ProcessFunctions.collectorFactoryT[TestOn, NewPostingBean](rer,
+      compile = inCodegen, forceMutable = forceMutable,
+      forceVarCompilation = forceVarCompilation, enableQualityOptimisations = false).instance
+
+    val rc = map(testData, processor)
+    verify(rc.flatMap(_.result).flatten.map(_.toNewPosting()))
+
   } } } }
 
 }
