@@ -149,7 +149,6 @@ object ResultStatisticsProvider {
 
   implicit val ruleSuiteGroupStatistics = new ResultStatisticsProvider[RuleSuiteGroupStatistics, RuleSuiteResult] {
 
-    // TODO - probable pass may be different for each rulesuite, so link that in 0.2
     def process(t: RuleSuiteGroupStatistics, ruleSuiteResult: RuleSuiteResult): RuleSuiteGroupStatistics =
       t.copy(rowCount = t.rowCount + 1, ruleSuites = t.ruleSuites.updatedWithF(ruleSuiteResult.id){
         _.map( t => ruleSuiteStatistics.process(t, ruleSuiteResult)).orElse(
