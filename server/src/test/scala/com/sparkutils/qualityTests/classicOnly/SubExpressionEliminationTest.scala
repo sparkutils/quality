@@ -1,17 +1,17 @@
 package com.sparkutils.qualityTests
 
-import org.apache.spark.sql.{Column, ShimUtils, SparkSession}
+import com.sparkutils.quality.RuleSuite.mapRules
+import org.apache.spark.sql.{Column, ShimUtils}
 import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
-import org.scalatest.FunSuite
 import com.sparkutils.quality.{LambdaFunction, _}
 import com.sparkutils.quality.impl.ExpressionRunner
-import com.sparkutils.quality.impl.RuleLogicUtils.mapRules
 import com.sparkutils.qualityTests.util.ClassicSharedTests
 import com.sparkutils.shim.expressions.NullIntolerant
+import com.sparkutils.testing.TestUtilsEnvironment
 import org.apache.spark.sql
 import org.apache.spark.sql.catalyst.util.TypeUtils
-import org.apache.spark.sql.types.{BooleanType, DataType, IntegerType}
+import org.apache.spark.sql.types.{BooleanType, DataType}
 import org.scalatest.Matchers.convertToAnyShouldWrapper
 
 import java.util.concurrent.atomic.AtomicInteger
@@ -70,12 +70,20 @@ class SubExpressionEliminationTest extends ClassicSharedTests {
   val expectedTriggerRules = 12*rows // (4 rows, 12 times called per each)
   val expectedEliminatedTriggerRules = 6*rows // 4 rows, 6 _unique_
 
-  test("controlRunner") { evalCodeGensNoResolve{ doRunner(expectedTriggerRules, ruleRunner(_)) }   }// defaults may change later
+  test("controlRunner") {
+    if (sparkVersionNumericMajor != 30) {
+      evalCodeGensNoResolve {
+        doRunner(expectedTriggerRules / 2, ruleRunner(_))
+      }
+    }
+  }
+
+  test("controlRunner old defaults") { evalCodeGensNoResolve{ doRunner(expectedTriggerRules , classicFunctions.ruleRunner(_, compileEvals = true)) }   }
 
   // forceRunnerEval disables codegen elimination as CodeGenFallback is also ignored for interpreted
-  test("runnerShouldNotEliminateWithRunnerEval") { evalCodeGensNoResolve { doRunner(expectedTriggerRules, ruleRunner(_, compileEvals = false, forceRunnerEval = true)) } }
+  test("runnerShouldNotEliminateWithRunnerEval") { evalCodeGensNoResolve { doRunner(expectedTriggerRules, classicFunctions.ruleRunner(_, compileEvals = false, forceRunnerEval = true)) } }
 
-  test("runnerShouldEliminate") { v3_2_and_above { evalCodeGensNoResolve { doRunner(expectedEliminatedTriggerRules, ruleRunner(_, compileEvals = false)) } } }
+  test("runnerShouldEliminate") { v3_2_and_above { evalCodeGensNoResolve { doRunner(expectedEliminatedTriggerRules, classicFunctions.ruleRunner(_, compileEvals = false)) } } }
 
   // adds an output expression
   def doOutput(count: Int, rsf: RuleSuite => Column, expr: String): Unit =
@@ -83,18 +91,25 @@ class SubExpressionEliminationTest extends ClassicSharedTests {
       _.copy(runOnPassProcessor = RunOnPassProcessor(1000, Id(1042,1),OutputExpression(expr)))
     )))
 
-
   val outputExpr = "if(myequal(product, 'p1'), 1, 0)"
 
   val expectedOutputRules = rows // one for each row is extra called
 
-  test("controlEngine") { evalCodeGensNoResolve{ doOutput(expectedTriggerRules + expectedOutputRules, ruleEngineRunner(_), outputExpr) }  } // defaults may change later
+  test("controlEngine") {
+    if (sparkVersionNumericMajor != 30) {
+      evalCodeGensNoResolve {
+        doOutput((expectedTriggerRules / 2), ruleEngineRunner(_), outputExpr)
+      }
+    }
+  }
+
+  test("controlEngine old defaults") { evalCodeGensNoResolve{ doOutput(expectedTriggerRules + expectedOutputRules , classicFunctions.ruleEngineRunner(_, compileEvals = true, forceTriggerEval = true), outputExpr) }  }
 
   // forceRunnerEval disables codegen elimination as CodeGenFallback is also ignored for interpreted
-  test("engineShouldNotEliminateWithRunnerEval") { evalCodeGensNoResolve { doOutput(expectedTriggerRules + expectedOutputRules, ruleEngineRunner(_, compileEvals = false, forceRunnerEval = true), outputExpr) } }
+  test("engineShouldNotEliminateWithRunnerEval") { evalCodeGensNoResolve { doOutput(expectedTriggerRules + expectedOutputRules, classicFunctions.ruleEngineRunner(_, compileEvals = false, forceRunnerEval = true), outputExpr) } }
 
   // note there should be no more calls as the outputexpr is already eliminated
-  test("engineShouldEliminate") { v3_2_and_above { evalCodeGensNoResolve{ doOutput(expectedEliminatedTriggerRules, ruleEngineRunner(_, forceTriggerEval = false, compileEvals = false), outputExpr) } } }
+  test("engineShouldEliminate") { v3_2_and_above { evalCodeGensNoResolve{ doOutput(expectedEliminatedTriggerRules, classicFunctions.ruleEngineRunner(_, forceTriggerEval = false, compileEvals = false), outputExpr) } } }
 
   test("controlExpression") { evalCodeGensNoResolve{ doRunner(expectedTriggerRules, ExpressionRunner(_, ddlType = "boolean", forceRunnerEval = true)) }  } // defaults may change later
 
@@ -108,15 +123,15 @@ class SubExpressionEliminationTest extends ClassicSharedTests {
   val starter = sql.functions.struct(sql.functions.lit(1).as("r"))
   val folderOverhead = rows // not entirely sure why
 
-  test("controlFolder") { evalCodeGensNoResolve{ doOutput(expectedTriggerRules + expectedOutputRules + folderOverhead, ruleFolderRunner(_, starter, forceRunnerEval = true), folderExpr) }  } // defaults may change later
+  test("controlFolder") { evalCodeGensNoResolve{ doOutput(expectedTriggerRules + expectedOutputRules + folderOverhead, classicFunctions.ruleFolderRunner(_, starter, forceRunnerEval = true), folderExpr) }  } // defaults may change later
 
   // forceRunnerEval disables codegen elimination as CodeGenFallback is also ignored for interpreted
-  test("folderShouldNotEliminateWithRunnerEval") { evalCodeGensNoResolve { doOutput(expectedTriggerRules + expectedOutputRules + folderOverhead, ruleFolderRunner(_, starter, compileEvals = false, forceRunnerEval = true), folderExpr) } }
+  test("folderShouldNotEliminateWithRunnerEval") { evalCodeGensNoResolve { doOutput(expectedTriggerRules + expectedOutputRules + folderOverhead, classicFunctions.ruleFolderRunner(_, starter, compileEvals = false, forceRunnerEval = true), folderExpr) } }
 
   // note there should be no more calls as the outputexpr is already eliminated
-  test("folderShouldEliminate") { v3_2_and_above { evalCodeGensNoResolve{ doOutput(expectedEliminatedTriggerRules, ruleFolderRunner(_, starter, compileEvals = false), folderExpr) } } }
+  test("folderShouldEliminate") { v3_2_and_above { evalCodeGensNoResolve{ doOutput(expectedEliminatedTriggerRules, classicFunctions.ruleFolderRunner(_, starter, compileEvals = false), folderExpr) } } }
 
-  test("folderShouldEliminateWithTriggersFalse") { v3_2_and_above { evalCodeGensNoResolve{ doOutput(expectedEliminatedTriggerRules, ruleFolderRunner(_, starter, compileEvals = false, forceTriggerEval = false), folderExpr) }  }}
+  test("folderShouldEliminateWithTriggersFalse") { v3_2_and_above { evalCodeGensNoResolve{ doOutput(expectedEliminatedTriggerRules, classicFunctions.ruleFolderRunner(_, starter, compileEvals = false, forceTriggerEval = false), folderExpr) }  }}
 
 }
 

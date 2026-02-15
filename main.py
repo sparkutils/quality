@@ -33,3 +33,19 @@ def define_env(env):
   @env.macro
   def branch_coverage():
     return withPath("coverage.txt", lambda f: readTwiceAndStrip(f))
+
+  @env.macro
+  def server_id_version():
+    return withPath("server_id.txt", lambda f: readAndStrip(f))
+
+  @env.macro
+  def api_version():
+    return withPath("api.txt", lambda f: readAndStrip(f))
+
+  @env.macro
+  def api_stub_version():
+    return withPath("api_stub.txt", lambda f: readAndStrip(f))
+
+  @env.macro
+  def core_version():
+    return withPath("core.txt", lambda f: readAndStrip(f))

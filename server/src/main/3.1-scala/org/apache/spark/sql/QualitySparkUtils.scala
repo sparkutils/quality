@@ -7,7 +7,7 @@ import com.sparkutils.quality.impl.{LambdaFunction, RuleEngineRunnerBase, RuleFo
 import org.apache.spark.sql.qualityFunctions.{FunN, LambdaFunctions}
 import com.sparkutils.shim.expressions.PredicateHelperPlus
 import org.apache.spark.sql.QualityStructFunctions.UpdateFields
-import org.apache.spark.sql.ShimUtils.{column, toSQLExpr, toSQLType}
+import org.apache.spark.sql.ShimUtils.{column, toSQLExpr, toSQLType, expressionEncoder}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, ResolveCatalogs, ResolveHigherOrderFunctions, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTableValuedFunctions, ResolveTimeZone, ResolveUnion, Resolver, TimeWindowing, TypeCheckResult, TypeCoercion, UnresolvedAttribute, UnresolvedExtractValue}
 import org.apache.spark.sql.catalyst.catalog.SessionCatalog
@@ -18,6 +18,8 @@ import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeRef
 import org.apache.spark.sql.catalyst.optimizer.{BooleanSimplification, CollapseProject, CombineConcats, CombineTypedFilters, ConstantFolding, ConstantPropagation, EliminateMapObjects, EliminateSerialization, FoldablePropagation, LikeSimplification, NormalizeFloatingNumbers, NullPropagation, ObjectSerializerPruning, OptimizeIn, OptimizeUpdateFields, ReassignLambdaVariableID, RemoveDispensableExpressions, RemoveNoopOperators, RemoveRedundantAliases, ReorderAssociativeOperator, ReplaceExpressions, ReplaceNullWithFalseInPredicate, ReplaceUpdateFieldsExpression, SimplifyBinaryComparison, SimplifyCaseConversionExpressions, SimplifyCasts, SimplifyConditionals, SimplifyExtractValueOps, UnwrapCastInBinaryComparison}
 import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, LogicalPlan, Project, UnaryNode}
 import org.apache.spark.sql.catalyst.rules.Rule
+import org.apache.spark.sql.execution.aggregate.{ScalaAggregator, TypedAggregateExpression}
+import org.apache.spark.sql.expressions.{Aggregator, UserDefinedAggregator}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{DataType, StructField, StructType}
 import org.apache.spark.util.Utils
@@ -445,13 +447,22 @@ object ClassicQualitySparkUtils {
       }
     )
 
-}
+  def aggregator[I: Encoder, B, O](agg: Aggregator[I,B,O], exps: Seq[Expression]) =
+    ScalaAggregator(UserDefinedAggregator(agg, implicitly[Encoder[I]]), exps).toAggregateExpression()
 
-object QualitySparkUtils {
-
-
-  def registerLambdaFunctions(functions: Seq[LambdaFunction]): Unit =
-    LambdaFunctions.registerLambdaFunctions(functions)
+  object ScalaAggregator {
+    def apply[IN, BUF, OUT](
+                             uda: UserDefinedAggregator[IN, BUF, OUT],
+                             children: Seq[Expression]): ScalaAggregator[IN, BUF, OUT] = {
+      new ScalaAggregator(
+        children = children,
+        agg = uda.aggregator,
+        inputEncoder = expressionEncoder(uda.inputEncoder),
+        bufferEncoder = expressionEncoder(uda.aggregator.bufferEncoder),
+        nullable = uda.nullable,
+        isDeterministic = uda.deterministic)
+    }
+  }
 }
 
 object QualityStructFunctions {

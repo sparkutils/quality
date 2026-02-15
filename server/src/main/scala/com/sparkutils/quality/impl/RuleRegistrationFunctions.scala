@@ -1,20 +1,20 @@
 package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.QualityException.qualityException
-import com.sparkutils.quality.functions._
+import com.sparkutils.quality.classicFunctions._
+import com.sparkutils.quality.impl.CollectRunner.collectRunnerClassic
 import com.sparkutils.quality.impl.ReWriteConstants.INC_REWRITE_GENEXP_ERR_MSG
-import com.sparkutils.quality.impl.RuleSuiteHelpers.deserialize
-import com.sparkutils.quality.impl.VariableProcessIfMissing.registerProcessIfAttributeMissingForAgnostic
-import com.sparkutils.quality.impl.aggregates.AggregateExpressions
+import com.sparkutils.quality.impl.VariableProcessIfMissingFunctions.registerProcessIfAttributeMissingForAgnostic
+import com.sparkutils.quality.impl.aggregates.{AggregateExpressions, Statistics}
 import com.sparkutils.quality.impl.bloom.{BucketedArrayParquetAggregator, ParquetAggregator}
 import com.sparkutils.quality.impl.hash.{HashFunctionFactory, HashFunctionsExpression, MessageDigestFactory, ZALongHashFunctionFactory, ZALongTupleHashFunctionFactory}
 import com.sparkutils.quality.impl.id.{AsBase64Fields, AsBase64Struct, GenericLongBasedIDExpression, GuaranteedUniqueID, GuaranteedUniqueIdIDExpression, IDFromBase64, IDToRawIDDataType, SizeOfIDString, model}
 import com.sparkutils.quality.impl.longPair.{AsUUID, LongPairExpression, PrefixedToLongPair}
-import com.sparkutils.quality.impl.mapLookup.MapLookupFunctions.registerMapLookupsForAgnostic
+import com.sparkutils.quality.impl.mapLookup.MapLookupFunctionsImpl.registerMapLookupsForAgnostic
 import com.sparkutils.quality.impl.rng.{RandLongsWithJump, RandomBytes, RandomLongs}
 import com.sparkutils.quality.impl.util.{ComparableMapConverter, ComparableMapReverser, InputWrapper, PrintCode}
 import com.sparkutils.quality.impl.yaml.{YamlDecoderExpr, YamlEncoderExpr}
-import com.sparkutils.quality.{QualityException, impl, ruleFolderRunnerClassic}
+import com.sparkutils.quality.{QualityException, impl}
 import org.apache.commons.rng.simple.RandomSource
 import org.apache.spark.sql.ShimUtils.{add, column, expression}
 import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
@@ -149,7 +149,9 @@ object RuleRegistrationFunctions {
           }
           argsf(exps)
         }
+
     registerFunction(name, create)
+    
     if (!mustKeepNames(name)) {
       registerFunction(name.replaceAll("_",""), create)
     }
@@ -211,10 +213,12 @@ object RuleRegistrationFunctions {
     register("flatten_Rule_Results", exps => FlattenRulesResultsExpression(exps.head, FlattenStruct.ruleSuiteDeserializer), Set(1))
     register("flatten_Folder_Results", exps => FlattenFolderResultsExpression(exps.head, FlattenStruct.ruleSuiteDeserializer), Set(1))
 
-    register("passed", _ => com.sparkutils.quality.impl.imports.RuleResultsImports.PassedExpr, Set(0))
-    register("failed", _ => com.sparkutils.quality.impl.imports.RuleResultsImports.FailedExpr, Set(0))
-    register("soft_Failed", _ => com.sparkutils.quality.impl.imports.RuleResultsImports.SoftFailedExpr, Set(0))
-    register("disabled_Rule", _ => com.sparkutils.quality.impl.imports.RuleResultsImports.DisabledRuleExpr, Set(0))
+    register("passed", _ => com.sparkutils.quality.impl.imports.ClassicRuleResultsImports.PassedExpr, Set(0))
+    register("failed", _ => com.sparkutils.quality.impl.imports.ClassicRuleResultsImports.FailedExpr, Set(0))
+    register("soft_Failed", _ => com.sparkutils.quality.impl.imports.ClassicRuleResultsImports.SoftFailedExpr, Set(0))
+    register("disabled_Rule", _ => com.sparkutils.quality.impl.imports.ClassicRuleResultsImports.DisabledRuleExpr, Set(0))
+    register("ignored_rule", _ => com.sparkutils.quality.impl.imports.ClassicRuleResultsImports.IgnoredRuleExpr, Set(0))
+    register("default_rule", _ => com.sparkutils.quality.impl.imports.ClassicRuleResultsImports.DefaultRuleExpr, Set(0))
 
     register("pack_Ints", exps => Pack(exps(0), exps(1)), Set(2))
 
@@ -223,6 +227,8 @@ object RuleRegistrationFunctions {
     register("unpack_Id_Triple", exps => UnPackIdTriple(exps.head), Set(1))
 
     register("soft_Fail", exps => SoftFailExpr(exps.head), Set(1))
+
+    register("rule_suite_statistics", exps => Statistics(exps.head), Set(1))
 
     def strType(exp: Expression) = {
       val Literal(str: UTF8String, StringType) = exp // only accept type as string
@@ -596,26 +602,20 @@ object RuleRegistrationFunctions {
     register("dq_rule_runner", {
       case Seq(OfRuleSuite(rs)) =>
         expression(RuleRunnerImpl.ruleRunnerImplClassic(rs))
-      case Seq(OfRuleSuite(rs), comp) =>
-        expression(RuleRunnerImpl.ruleRunnerImplClassic(rs, getBoolean(comp, 1)))
-      case Seq(OfRuleSuite(rs), comp, varPer, varG) =>
-        expression(RuleRunnerImpl.ruleRunnerImplClassic(rs, getBoolean(comp, 1), None,
+      case Seq(OfRuleSuite(rs), varPer, varG) =>
+        expression(RuleRunnerImpl.ruleRunnerImplClassic(rs, false, None,
           variablesPerFunc = getInteger(varPer, 2), variableFuncGroup = getInteger(varG, 3)))
-      case Seq(OfRuleSuite(rs), comp, varPer, varG, force) =>
-        expression(RuleRunnerImpl.ruleRunnerImplClassic(rs, getBoolean(comp, 1), None,
-          variablesPerFunc = getInteger(varPer, 2), variableFuncGroup = getInteger(varG, 3),
-          forceRunnerEval = getBoolean(force, 4)))
-    }, Set(1, 2, 4, 5))
+    }, Set(1, 3))
 
     register("typed_expression_runner", {
       case Seq(OfRuleSuite(rs), ddl) =>
         expression(ExpressionRunner(rs, ddlType = getString(ddl, 1)))
       case Seq(OfRuleSuite(rs), ddl, name) =>
         expression(ExpressionRunner(rs, ddlType = getString(ddl, 1), name = getString(name, 2)))
-      case Seq(OfRuleSuite(rs), ddl, name, force) =>
+      case Seq(OfRuleSuite(rs), ddl, name, varPer, varG) =>
         expression(ExpressionRunner(rs, ddlType = getString(ddl, 1), name = getString(name, 2),
-          forceRunnerEval = getBoolean(force, 3)))
-    }, Set(2, 3, 4))
+          variablesPerFunc = getInteger(varPer, 3), variableFuncGroup = getInteger(varG, 4)))
+    }, Set(2, 3, 5))
 
     register("expression_runner", {
       case Seq(OfRuleSuite(rs)) =>
@@ -624,10 +624,10 @@ object RuleRegistrationFunctions {
         expression(ExpressionRunner(rs, name = getString(name, 1)))
       case Seq(OfRuleSuite(rs), name, options) =>
         expression(ExpressionRunner(rs, name = getString(name, 1), renderOptions = getMap(options, 2)))
-      case Seq(OfRuleSuite(rs), name, options, force) =>
+      case Seq(OfRuleSuite(rs), name, options, varp, varg) =>
         expression(ExpressionRunner(rs, name = getString(name, 1), renderOptions = getMap(options, 2),
-          forceRunnerEval = getBoolean(force, 3)))
-    }, Set(1, 2, 3, 4))
+          variablesPerFunc = getInteger(varp, 3), variableFuncGroup = getInteger(varg, 4)))
+    }, Set(1, 2, 3, 5))
 
     register("rule_engine_runner", {
       case Seq(OfRuleOutputSuite(rs)) =>
@@ -637,29 +637,54 @@ object RuleRegistrationFunctions {
       case Seq(OfRuleOutputSuite(rs), dt, debug) =>
         expression(RuleEngineRunnerImpl.ruleEngineRunnerImpl(rs, defaultParseTypes(getString(dt, 1)),
           debugMode = getBoolean(debug, 2)))
-      case Seq(OfRuleOutputSuite(rs), dt, compe, debug, varp, varg, forr, fort) =>
+      case Seq(OfRuleOutputSuite(rs), dt, debug, varp, varg) =>
         expression(RuleEngineRunnerImpl.ruleEngineRunnerImpl(rs, defaultParseTypes(getString(dt, 1)),
-          compileEvals = getBoolean(compe, 2), debugMode = getBoolean(debug, 3), variablesPerFunc = getInteger(varp, 4),
-          variableFuncGroup = getInteger(varg, 5), forceRunnerEval = getBoolean(forr, 6), forceTriggerEval = getBoolean(fort, 7)
+          debugMode = getBoolean(debug, 2), variablesPerFunc = getInteger(varp, 3),
+          variableFuncGroup = getInteger(varg, 4)
         ))
-    }, Set(1, 2, 3, 8))
+    }, Set(1, 2, 3, 5))
 
     register("rule_folder_runner", {
       case Seq(OfRuleOutputSuite(rs), starter) =>
-        expression(ruleFolderRunnerClassic(rs, column(starter)))
+        expression(com.sparkutils.quality.classicFunctions.ruleFolderRunnerClassic(rs, column(starter)))
       case Seq(OfRuleOutputSuite(rs), starter, dt) =>
         expression(ruleFolderRunnerClassic(rs, column(starter),
           useType = defaultParseTypes(getString(dt, 2)).map(_.asInstanceOf[StructType])))
-      case Seq(OfRuleOutputSuite(rs), starter, debug, dt) =>
+      case Seq(OfRuleOutputSuite(rs), starter, dt, debug) =>
         expression(ruleFolderRunnerClassic(rs, column(starter),
-          debugMode = getBoolean(debug, 2), useType = defaultParseTypes(getString(dt, 3)).map(_.asInstanceOf[StructType])))
-      case Seq(OfRuleOutputSuite(rs), starter, compe, debug, varp, varg, forr, dt, fort) =>
+          debugMode = getBoolean(debug, 3), useType = defaultParseTypes(getString(dt, 2)).map(_.asInstanceOf[StructType])))
+      case Seq(OfRuleOutputSuite(rs), starter, dt, debug, varp, varg) =>
         expression(ruleFolderRunnerClassic(rs, column(starter),
-          compileEvals = getBoolean(compe, 2), debugMode = getBoolean(debug, 3), variablesPerFunc = getInteger(varp, 4),
-          variableFuncGroup = getInteger(varg, 5), forceRunnerEval = getBoolean(forr, 6),
-          useType = defaultParseTypes(getString(dt, 7)).map(_.asInstanceOf[StructType]), forceTriggerEval = getBoolean(fort, 8)
+          debugMode = getBoolean(debug, 3), variablesPerFunc = getInteger(varp, 4),
+          variableFuncGroup = getInteger(varg, 5),
+          useType = defaultParseTypes(getString(dt, 2)).map(_.asInstanceOf[StructType])
         ))
-    }, Set(2, 3, 4, 9))
+    }, Set(2, 3, 4, 6))
+
+    register("collect_runner", {
+      case Seq(OfRuleOutputSuite(rs)) =>
+        expression(collectRunnerClassic(rs, None))
+      case Seq(OfRuleOutputSuite(rs), dt) =>
+        expression(collectRunnerClassic(rs, defaultParseTypes(getString(dt, 1))))
+      case Seq(OfRuleOutputSuite(rs), dt, flatten) =>
+        expression(collectRunnerClassic(rs, defaultParseTypes(getString(dt, 1)), flatten = getBoolean(flatten, 2)))
+      case Seq(OfRuleOutputSuite(rs), dt, flatten, includeNulls) =>
+        expression(collectRunnerClassic(rs, defaultParseTypes(getString(dt, 1)),
+          flatten = getBoolean(flatten, 2), includeNulls = getBoolean(includeNulls, 3)))
+      case Seq(OfRuleOutputSuite(rs), dt, flatten, includeNulls, varp, varg) =>
+        expression(collectRunnerClassic(rs, defaultParseTypes(getString(dt, 1)),
+          flatten = getBoolean(flatten, 2), includeNulls = getBoolean(includeNulls, 3),
+          variablesPerFunc = getInteger(varp, 4), variableFuncGroup = getInteger(varg, 5)
+        ))
+      case Seq(OfRuleOutputSuite(rs), dt, flatten, includeNulls, varp, varg,
+        useInPlaceArray, unrollInPlaceArray, unrollOutputArraySize) =>
+        expression(collectRunnerClassic(rs, defaultParseTypes(getString(dt, 1)),
+          flatten = getBoolean(flatten, 2), includeNulls = getBoolean(includeNulls, 3),
+          variablesPerFunc = getInteger(varp, 4), variableFuncGroup = getInteger(varg, 5),
+          useInPlaceArray = getBoolean(useInPlaceArray, 6), unrollInPlaceArray = getBoolean(unrollInPlaceArray, 7),
+          unrollOutputArraySize = getInteger(unrollOutputArraySize, 8)
+        ))
+    }, Set(1, 2, 3, 4, 6, 9))
 
     // coalesce support
     registerProcessIfAttributeMissingForAgnostic(registerFunction)

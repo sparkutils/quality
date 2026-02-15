@@ -1,11 +1,18 @@
 package com.sparkutils.quality.impl.util
 
-import com.sparkutils.quality.impl.NamedStruct
 import com.sparkutils.quality.{RuleSuite, ruleFolderRunner}
-import com.sparkutils.shim.expressions.CreateNamedStruct1
-import org.apache.spark.sql.{Column, DataFrame, ShimUtils, Row => SRow}
-import org.apache.spark.sql.ClassicQualitySparkUtils.DatasetBase
+import org.apache.spark.sql.functions.lit
+import org.apache.spark.sql.{Column, DataFrame, Dataset, ShimUtils, Row => SRow}
 import org.apache.spark.sql.types.StructType
+
+import scala.language.higherKinds
+
+object NamedStruct {
+  def apply(pairs: Seq[(String, Column)]): Column =
+    ShimUtils.callFunction("named_struct",
+      pairs.flatMap(p => Seq(lit(p._1), p._2)) :_*
+    )
+}
 
 protected[quality] object AddDataFunctions {
 
@@ -21,10 +28,8 @@ protected[quality] object AddDataFunctions {
    * @param useType In the case you must use select and can't use withColumn you may provide a type directly to stop the NPE
    * @return
    */
-  def ifoldAndReplaceFields[P[R] >: DatasetBase[R]](rules: RuleSuite, fields: Either[Seq[String], Seq[(String, Column)]], foldFieldName: String = "foldedFields",
-                           debugMode: Boolean = false, maintainOrder: Boolean = true, useType: Option[StructType] = None,
-                           compileEvals: Boolean = false, forceRunnerEval: Boolean = false,
-                           forceTriggerEval: Boolean = false, alias: String = "main"): P[SRow] => P[SRow] = rdf => {
+  def ifoldAndReplaceFields[P[R] >: Dataset[R]](rules: RuleSuite, fields: Either[Seq[String], Seq[(String, Column)]], foldFieldName: String = "foldedFields",
+                           debugMode: Boolean = false, maintainOrder: Boolean = true, useType: Option[StructType] = None, alias: String = "main"): P[SRow] => P[SRow] = rdf => {
     val df = rdf.asInstanceOf[DataFrame]
     import org.apache.spark.sql.functions._
 
@@ -35,8 +40,7 @@ protected[quality] object AddDataFunctions {
       pairs => NamedStruct(pairs)
     )
     val withFolder =
-      df.as(alias).withColumn(foldFieldName, ruleFolderRunner(rules, theStruct, debugMode = debugMode, useType = useType,
-        compileEvals = compileEvals, forceRunnerEval = forceRunnerEval, forceTriggerEval = forceTriggerEval))
+      df.as(alias).withColumn(foldFieldName, ruleFolderRunner(rules, theStruct, debugMode = debugMode, useType = useType))
 
     val schema = withFolder.schema
     val dfFields = schema.map(_.name)

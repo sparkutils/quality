@@ -1,6 +1,5 @@
 package com.sparkutils.quality.impl.imports
 
-import com.sparkutils.quality.impl.RuleResultExpression
 import org.apache.spark.sql.{Column, ShimUtils}
 
 trait RuleResultImport {

@@ -40,5 +40,5 @@ trait VariableTestShims {
 
   val idRange = 500 // 6000 was original, but it takes a while, connect has to drag everything to the client
 
-  val aggregatesTestSTooFastBuffer = 4000 // no issue on classic, so we need to make it more expensive for connect due to SPARK-53900
+  val aggregatesTestSTooFastBuffer = 20 // no issue on classic, so we need to make it more expensive for connect due to SPARK-53900
 }

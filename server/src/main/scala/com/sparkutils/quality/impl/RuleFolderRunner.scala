@@ -1,8 +1,8 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality._
+import com.sparkutils.quality.{impl, _}
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
-import com.sparkutils.quality.impl.imports.RuleFolderRunnerImports
+import com.sparkutils.quality.impl.imports.ClassicRuleFolderRunnerImports
 import com.sparkutils.quality.impl.util.PassThroughEvalOnly
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
@@ -14,7 +14,7 @@ import org.apache.spark.sql.types._
 import java.util.concurrent.atomic.AtomicReference
 import scala.reflect.ClassTag
 
-private[quality] object RuleFolderRunnerUtils extends RuleFolderRunnerImports {
+private[quality] object RuleFolderRunnerUtils extends ClassicRuleFolderRunnerImports {
 
   /**
    * Needs sorting in salience order for output processing but NOT for result's.
@@ -50,6 +50,7 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression {
   val expressionOffsets: Array[Int]
   val dataRef: AtomicReference[DataType]
   val forceTriggerEval: Boolean
+  val triggerCount: Int
 
   implicit val classTagT: ClassTag[T]
   val tClass: Class[T]
@@ -86,7 +87,7 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression {
   }
 
   def dataType: DataType = StructType( Seq(
-      StructField(name = "ruleSuiteResults", dataType = com.sparkutils.quality.types.ruleSuiteResultType),
+      StructField(name = "ruleSuiteResults", dataType = impl.types.ruleSuiteResultType),
       StructField(name = "result", dataType = resultDataType(), nullable = true)
     ))
 
@@ -113,8 +114,8 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression {
       RuleEngineRunnerUtils.genCompilerTerms[T](ctx, PassThroughEvalOnly(realChildren), expressionOffsets, realChildren,
         debugMode, variablesPerFunc, variableFuncGroup, forceTriggerEval,
         // capture the current
-        extraResult = (outArrTerm: String) => s"$folderV = $outArrTerm;",
-        extraSetup = (idx: String, i: Int) =>
+        extraResult = (outArrTerm: String, _, _) => s"$folderV = $outArrTerm;",
+        extraSetup = (_, i: Int) =>
           s"""
           // set the current row for the fold for flattened rule $i
           ${lazyRefsGenCode(i).value} = $folderV;
@@ -204,7 +205,8 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression {
 case class RuleFolderRunnerEval(ruleSuite: RuleSuite, children: Seq[Expression], resultDataType: () => DataType,
                             compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
                             variableFuncGroup: Int, expressionOffsets: Array[Int],
-                            dataRef: AtomicReference[DataType], forceTriggerEval: Boolean
+                            dataRef: AtomicReference[DataType], forceTriggerEval: Boolean,
+                            triggerCount: Int
                            ) extends RuleFolderRunnerBase[RuleFolderRunnerEval] with CodegenFallback {
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
@@ -221,9 +223,10 @@ case class RuleFolderRunnerEval(ruleSuite: RuleSuite, children: Seq[Expression],
  * expressionOffsets.length is the length of the trigger expressions in realChildren, realChildren(expressionOffsets.length + expressionOffsets(x)) will be the correct OutputExpression
  */
 case class RuleFolderRunner(ruleSuite: RuleSuite, children: Seq[Expression], resultDataType: () => DataType,
-                                compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
-                                variableFuncGroup: Int, expressionOffsets: Array[Int],
-                                dataRef: AtomicReference[DataType], forceTriggerEval: Boolean
+                            compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
+                            variableFuncGroup: Int, expressionOffsets: Array[Int],
+                            dataRef: AtomicReference[DataType], forceTriggerEval: Boolean,
+                            triggerCount: Int
                                ) extends RuleFolderRunnerBase[RuleFolderRunner] {
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =

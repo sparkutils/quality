@@ -1,9 +1,8 @@
 package com.sparkutils.quality.impl.imports
 
 import com.sparkutils.quality.RuleSuite
-import com.sparkutils.quality.impl.{ExpressionRunner, RuleSuiteHelpers, StripResultTypes}
+import com.sparkutils.quality.impl.RuleSuiteHelpers
 import org.apache.spark.sql.{Column, ShimUtils}
-import org.apache.spark.sql.ShimUtils.{column, expression}
 import org.apache.spark.sql.functions.{lit, typedLit}
 
 trait ExpressionRunnerImports {
@@ -14,11 +13,11 @@ trait ExpressionRunnerImports {
    * @param name
    * @return
    */
-  def typedExpressionRunner(ruleSuite: RuleSuite, ddlType: String, name: String = "expressionResults", forceRunnerEval: Boolean = false) =
-    ShimUtils.callFunction("typed_expression_runner", lit(RuleSuiteHelpers.serialize(ruleSuite)), lit(ddlType), lit(name), lit(forceRunnerEval))
+  def typedExpressionRunner(ruleSuite: RuleSuite, ddlType: String, name: String = "expressionResults"): Column =
+    ShimUtils.callFunction("typed_expression_runner", lit(RuleSuiteHelpers.serialize(ruleSuite)), lit(ddlType), lit(name))
 
-  def expressionRunner(ruleSuite: RuleSuite, name: String = "expressionResults", renderOptions: Map[String, String] = Map.empty, forceRunnerEval: Boolean = false) =
-    ShimUtils.callFunction("expression_runner", lit(RuleSuiteHelpers.serialize(ruleSuite)), lit(name), typedLit(renderOptions), lit(forceRunnerEval))
+  def expressionRunner(ruleSuite: RuleSuite, name: String = "expressionResults", renderOptions: Map[String, String] = Map.empty): Column =
+    ShimUtils.callFunction("expression_runner", lit(RuleSuiteHelpers.serialize(ruleSuite)), lit(name), typedLit(renderOptions))
 
 }
 

@@ -1,12 +1,9 @@
 package com.sparkutils.quality.impl.id
 
-import com.sparkutils.quality.impl.hash.{HashFunctionFactory, HashFunctionsExpression, MessageDigestFactory}
-import com.sparkutils.quality.impl.rng.RandLongsWithJump
 import org.apache.commons.rng.simple.RandomSource
-import org.apache.spark.sql.{Column, ShimUtils}
-import org.apache.spark.sql.ShimUtils.{callFunction, column, expression}
+import org.apache.spark.sql.Column
+import org.apache.spark.sql.ShimUtils.callFunction
 import org.apache.spark.sql.functions.lit
-import org.apache.spark.sql.shim.hash.DigestFactory
 
 trait GenericLongBasedImports {
   /**
@@ -26,7 +23,7 @@ trait GenericLongBasedImports {
    * @param prefix
    * @return
    */
-  @deprecated(since = "0.1.0", message = "migrate to provided_id, providedID will be removed in 0.3.0")
+  @deprecated(message = "migrate to provided_id, providedID will be removed in 0.3.0", since = "0.1.0")
   def providedID(prefix: String, child: Column): Column =
     provided_id(prefix, child)
 

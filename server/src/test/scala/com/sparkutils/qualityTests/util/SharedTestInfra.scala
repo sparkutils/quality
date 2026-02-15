@@ -1,19 +1,51 @@
 package com.sparkutils.qualityTests.util
 
-import com.sparkutils.quality.impl.extension.{FunNRewrite, QualitySparkExtension}
-import com.sparkutils.quality.{RuleSuite, ruleRunner}
+import com.sparkutils.quality
+import com.sparkutils.quality.impl.extension.FunNRewrite
+import com.sparkutils.quality.{RuleSuite, classicFunctions, ruleRunner}
 import com.sparkutils.testing.SparkTestUtils.{connectMemory, scoverageClassPathsConfig, useDebugConnectLogs}
 import com.sparkutils.testing._
+import com.sparkutils.testing.markers.{ConnectSafe, DontRunOnPureConnect}
 import com.sparkutils.testing.sessionStrategies.{GlobalSession, SharedSessions}
 import org.apache.spark.sql.ClassicQualitySparkUtils.DatasetBase
 import org.apache.spark.sql.{Dataset, Row}
-import org.scalatest.{BeforeAndAfterAll, FunSuite}
+import org.scalatest.{BeforeAndAfterAll, FunSuite, TestSuite}
 
-trait ClassicSharedTests extends FunSuite with TestUtilsBase with SharedSessions with BeforeAndAfterAll {
+trait ClassicSharedTests extends FunSuite with TestSetup {
 
   override val currentSessionsHolder: SessionsStateHolder = GlobalSession
 
   override val runWith: ConnectionType = ClassicOnly
+
+  /**
+   * enable funN rewrites, runs the test twice, once under the optimisation, once without
+   */
+  def funNRewrites(u: => Unit): Unit = {
+    if (!inConnect.get()) {
+      testPlan(FunNRewrite)(u)
+    } else {
+      u
+    }
+  }
+  /**
+   * enable funN rewrites for one test run only
+   */
+  def justfunNRewrite(u: => Unit): Unit = {
+    if (!inConnect.get()) {
+      testPlan(FunNRewrite, secondRunWithoutPlan = false)(u)
+    } else {
+      u
+    }
+  }
+
+}
+
+
+trait SharedConnectTests extends SharedPureConnectTests with ClassicSharedTests with DontRunOnPureConnect {
+
+}
+
+trait TestSetup extends SparkTestSuite with TestUtilsBase with SharedSessions { self: TestSuite =>
 
   override def beforeAll(): Unit = {
     // no-op to force it to be created
@@ -23,22 +55,24 @@ trait ClassicSharedTests extends FunSuite with TestUtilsBase with SharedSessions
     cleanupOutput()
 
     withClassicAsActive({
-      com.sparkutils.quality.registerQualityFunctions()
+      quality.registerQualityFunctions()
     })
   }
 
   override def connectServerLoggingLevel = "DEBUG"
 
   override def sparkConnectServerConfig(): Map[String, String] =
-    super.sparkConnectServerConfig() +  // useDebugConnectLogs +
+    super.sparkConnectServerConfig() + //useDebugConnectLogs +
       scoverageClassPathsConfig + connectMemory("4g") +
-      (("spark.sql.extensions", classOf[QualitySparkExtension].getName)) +
+      (("spark.sql.extensions", "com.sparkutils.quality.impl.extension.QualitySparkExtension")) + // text used for connect only tests in dbr
       (("javax.jdo.option.ConnectionURL", "jdbc:derby:;databaseName=connect_metastore_db;create=true")) +
       (("spark.sql.codegen.factoryMode", "NO_CODEGEN"))
 
 }
 
-trait SharedConnectTests extends ClassicSharedTests {
+trait SharedPureConnectTests extends FunSuite with TestSetup with ConnectSafe {
+
+  override val currentSessionsHolder: SessionsStateHolder = GlobalSession
 
   override val runWith: ConnectionType = UseBoth
 
@@ -56,7 +90,7 @@ trait TestUtilsBase extends SparkTestSuite {
   def taddDataQuality(dataFrame: Dataset[Row], rules: RuleSuite, name: String = "DataQuality", compileEvals: Boolean = true): Dataset[Row] = {
     import org.apache.spark.sql.functions.expr
     val tdf = dataFrame.drop(name) // some gen tests add this
-    val rr = ruleRunner(rules, compileEvals, resolveWith = if (doResolve.get()) Some(tdf) else None, forceRunnerEval = false)
+    val rr = classicFunctions.ruleRunner(rules, compileEvals, resolveWith = if (doResolve.get()) Some(tdf) else None, forceRunnerEval = false)
     tdf.select(expr("*"), rr.as(name))
   }
 
@@ -108,27 +142,6 @@ trait TestUtilsBase extends SparkTestSuite {
       }
     }
     assert(passed == runs, "Should have passed all of them, nothing has changed in between runs")
-  }
-
-  /**
-   * enable funN rewrites, runs the test twice, once under the optimisation, once without
-   */
-  def funNRewrites: Unit => Unit = (u:Unit) => {
-    if (!inConnect.get()) {
-      testPlan(FunNRewrite)(u)
-    } else {
-      u
-    }
-  }
-  /**
-   * enable funN rewrites for one test run only
-   */
-  def justfunNRewrite: Unit => Unit = (u:Unit) => {
-    if (!inConnect.get()) {
-      testPlan(FunNRewrite, secondRunWithoutPlan = false)(u)
-    } else {
-      u
-    }
   }
 
 }

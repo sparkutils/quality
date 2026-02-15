@@ -1,6 +1,5 @@
 package com.sparkutils.quality.impl.views
 
-import com.sparkutils.quality.impl.Validation
 import com.sparkutils.quality.impl.util.{Config, ConfigFactory, Row}
 import org.apache.spark.sql._
 
@@ -38,13 +37,16 @@ case class ViewLoadResults( replaced: Set[String], failedToLoadDueToCycles: Bool
 
 object ViewLoader {
 
-  implicit val factory =
+  implicit val factory: ConfigFactory[ViewConfig, ViewRow] =
     new ConfigFactory[ViewConfig, ViewRow] {
       override def create(base: Config, row: ViewRow): ViewConfig =
         ViewConfig(base.name, base.source)
     }
 
   implicit val viewRowEncoder: Encoder[ViewRow] = Encoders.product[ViewRow]
+
+  protected[quality] val defaultViewLookup: String => Boolean =
+    SparkSession.active.catalog.tableExists(_)
 
   /**
    * Attempts to load all the views present in the config.  If a view is already registered in that name it will be replaced.
@@ -67,12 +69,12 @@ object ViewLoader {
       if (attemptCount < (viewConfigs.size * 2)) {
         try {
           val (name, config) = (viewPair.name, viewPair)
-          if (Validation.defaultViewLookup(name)) {
+          if (defaultViewLookup(name)) {
             replaced += name
           }
 
           config.source.fold(identity, SparkSession.active.sql)
-           .toDF.createOrReplaceTempView(name)
+           .toDF().createOrReplaceTempView(name)
 
           // it worked, remove it
           leftToProcess = leftToProcess - name

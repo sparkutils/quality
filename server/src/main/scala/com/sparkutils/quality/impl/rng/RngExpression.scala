@@ -1,6 +1,6 @@
 package com.sparkutils.quality.impl.rng
 
-import com.sparkutils.shim.expressions.StatefulLike
+import com.sparkutils.shim.expressions.{ExpressionWithRandomSeedLike, StatefulLike}
 import org.apache.commons.rng.simple.RandomSource
 import org.apache.spark.sql.Column
 import org.apache.spark.sql.ShimUtils.column
@@ -18,8 +18,11 @@ object RandomBytes {
    * @param seed the seed to use / mixin
    * @return a column with the appropriate rng defined
    */
+  // $COVERAGE-OFF$
+  @deprecated(message = "Please use rng_bytes instead", since = "0.2.0")
   def apply(randomSource: RandomSource, numBytes: Int = 16, seed: Long = 0): Column =
     column( apply(numBytes, randomSource, seed) )
+  // $COVERAGE-ON$
 
   def apply(numBytes: Int, randomSource: RandomSource, seed: Long): Expression =
     if (randomSource.isJumpable)
@@ -48,7 +51,7 @@ case class RandBytesNonJump(definedSeed: Long, numBytes: Int, source: RandomSour
  * Base implementation for random number byte generation with pluggable implementations
  */
 abstract class RandBytes extends Expression with StatefulLike
-  with ExpressionWithRandomSeed with CodegenFallback with RngImpl {
+  with ExpressionWithRandomSeedLike with CodegenFallback with RngImpl {
 
   type ThisType <: RandBytes
 
@@ -124,7 +127,7 @@ case class RandLongsNonJump(definedSeed: Long, source: RandomSource) extends Ran
  * Base implementation for random number two long (128 bit) generation with pluggable implementations
  */
 abstract class RandLongs extends Expression with StatefulLike
-  with ExpressionWithRandomSeed with CodegenFallback with RngImpl {
+  with ExpressionWithRandomSeedLike with CodegenFallback with RngImpl {
 
   type ThisType <: RandLongs
 

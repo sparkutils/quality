@@ -1,7 +1,6 @@
 package com.sparkutils.quality
 
 import com.sparkutils.quality.impl.aggregates.AggregateFunctionImports
-import com.sparkutils.quality.impl.bloom.{BloomExpressionFunctions, BloomFilterLookupFunctionImport}
 import com.sparkutils.quality.impl.hash.HashRelatedFunctionImports
 import com.sparkutils.quality.impl.id.{GenericLongBasedImports, GuaranteedUniqueIDImports}
 import com.sparkutils.quality.impl.imports._
@@ -17,8 +16,8 @@ import org.apache.spark.sql.functions.lit
  * Collection of the Quality Spark Expressions for use in select( Column * )
  */
 package object functions extends ComparableMapsImports with GuaranteedUniqueIDImports with GenericLongBasedImports
-  with BloomFilterLookupFunctionImport with StripResultTypesFunction with RuleResultImport with PackIdImports
-  with RuleRunnerFunctionImports with RngFunctionImports with LongPairImports with BloomExpressionFunctions
+  with StripResultTypesFunction with RuleResultImport with PackIdImports
+  with RuleRunnerFunctionImports with RngFunctionImports with LongPairImports
   with HashRelatedFunctionImports with StructFunctionsImport with AggregateFunctionImports with MapLookupFunctionImports
   with YamlFunctionImports {
 

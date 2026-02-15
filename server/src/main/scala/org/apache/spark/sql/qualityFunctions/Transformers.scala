@@ -63,7 +63,7 @@ case class MapTransform(argument: Expression, key: Expression, function: Express
     val iMap = indexMap.get()
 
     def resetIndex = {
-      val i = theMap.keyArray.array.indexOf(theKey)
+      val i = theMap.keyArray().array.indexOf(theKey)
       if (i < 0) {
         iMap.put(theKey, i)
       }
@@ -87,25 +87,25 @@ case class MapTransform(argument: Expression, key: Expression, function: Express
 
     if (indexIsBroken) {
       // reset it, won't be useful groupBy agg usage
-      val i = theMap.keyArray.array.indexOf(theKey)
+      val i = theMap.keyArray().array.indexOf(theKey)
       iMap.put(theKey, i)
       index = i
     }
 
     if (index > -1) {
-      val theValue = theMap.valueArray.array(index)
+      val theValue = theMap.valueArray().array(index)
       elementVar.value.set(theValue)
       val theRes = function.eval(inputRow)
       if (theRes != null) {
-        theMap.valueArray.update(index, theRes)
+        theMap.valueArray().update(index, theRes)
       }
       theMap
     } else {
       iMap.put(theKey, theMap.numElements() )
 
       // first time, needs to be added in
-      val keyAr = theMap.keyArray.array
-      val valAr = theMap.valueArray.array
+      val keyAr = theMap.keyArray().array
+      val valAr = theMap.valueArray().array
       elementVar.value.set(zero)
       val theRes = function.eval(inputRow)
       val toAdd = if (theRes == null) zero else theRes

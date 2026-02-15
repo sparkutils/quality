@@ -2,29 +2,133 @@ package com.sparkutils.qualityTests
 
 import com.sparkutils.manual.RowId
 import com.sparkutils.quality
-import com.sparkutils.quality._
+import com.sparkutils.quality.{IgnoredRuleInt, _}
+import com.sparkutils.quality.classicFunctions.{processIfAttributeMissing, validate}
 import com.sparkutils.quality.impl.YamlDecoder
-import functions._
-import types._
-import impl.imports.RuleResultsImports.packId
-import com.sparkutils.quality.impl.util.{Arrays, PrintCode}
-import org.apache.spark.sql.catalyst.util.ArrayData
+import com.sparkutils.quality.impl.types._
+import functions.{ignored_rule, _}
+import impl.PackId.packId
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.types.{DataType, IntegerType, StructType}
+import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.{Column, DataFrame, Encoder, SaveMode}
-import org.scalatest.FunSuite
 
 import java.util.UUID
-import com.sparkutils.quality.impl.yaml.{YamlDecoderExpr, YamlEncoderExpr}
-import com.sparkutils.qualityTests.util.{ClassicSharedTests, RowTools, SharedConnectTests}
-import com.sparkutils.testing.TestUtils.{anyCauseHas, debug}
-import frameless.TypedExpressionEncoder
-import org.apache.spark.sql.ShimUtils.expression
+import com.sparkutils.qualityTests.util.{RowTools, SharedPureConnectTests}
+import com.sparkutils.testing.TestUtils.debug
 import org.scalatest.Matchers.convertToAnyShouldWrapper
 
 import scala.language.postfixOps
 
-class BaseFunctionalityTest extends SharedConnectTests with RowTools {
+trait BaseFunctionalityShared extends SharedPureConnectTests with RowTools {
+
+  def doTheRuleResultTest(df: DataFrame, toWrite: Int): Unit = {
+    val s = sparkSession
+    import s.implicits._
+
+    // using a lambda to ensure it works to reduce code duplication
+    val l = LambdaFunction("dq_rule_result", "(a, b) -> rule_result(DataQuality, pack_ints(1,1), a, b)", Id(0,0))
+    registerLambdaFunctions(Seq(l))
+
+    // count_if not on 2.4
+    def count_if(cond: String) = s"aggExpr($cond, inc(), returnSum())"
+
+    val theRule = df.selectExpr(
+      count_if("dq_rule_result(pack_ints(52,1), pack_ints(100,1)) == passed()"),
+      count_if("rule_result(DataQuality, pack_ints(100, 1), pack_ints(52,1), pack_ints(100,1)) == passed()"),
+      count_if("dq_rule_result(pack_ints(152,1), pack_ints(100,1)) == passed()"),
+      count_if("dq_rule_result(pack_ints(52,1), pack_ints(10000,1)) == passed()"),
+      count_if("dq_rule_result(pack_ints(52,1), null) == passed()")
+    )
+    val (shouldBeHalfPassed, shouldNotBeFoundSuite, shouldNotBeFoundSet, shouldNotBeFoundRule, hasNulls) = theRule.as[(Long, Long, Long, Long, Long)].head()
+    assert(shouldBeHalfPassed == ((toWrite / 2) + 1))
+
+    assert(shouldNotBeFoundSuite == 0)
+    assert(shouldNotBeFoundSet == 0)
+    assert(shouldNotBeFoundRule == 0)
+    assert(hasNulls == 0)
+  }
+
+  def doTestRuleResult(): Unit = {
+    val rules = genRules(27, 27)
+
+    val toWrite = 1400 // writeRows
+
+    defaultAndForceConnect {
+      val df = taddDataQuality(dataFrameLong(toWrite, 27, ruleSuiteResultType, null), rules)
+
+      doTheRuleResultTest(df, toWrite)
+    }
+  }
+
+  def doTestRuleResultDetails(): Unit = {
+    val rules = genRules(27, 27)
+
+    val toWrite = 1400 // writeRows
+
+    val df = taddDataQuality(dataFrameLong(toWrite, 27, ruleSuiteResultType, null), rules)
+
+    doTheRuleResultTest(df.selectExpr("rule_Suite_Result_Details(DataQuality) DataQuality"), toWrite)
+    doTheRuleResultTest(df.select(rule_suite_result_details(col("DataQuality")) as "DataQuality"), toWrite)
+  }
+
+  def doTestExpressionsWithAggregate(): GeneralExpressionsResult[GeneralExpressionResult] = {
+    val rowrs = RuleSuite(Id(11, 2), Seq(RuleSet(Id(21, 1), Seq(
+      Rule(Id(40, 3), ExpressionRule("iseven(id)"))
+    ))), lambdaFunctions = Seq(LambdaFunction("iseven", "p -> p % 2 = 0", Id(1020, 2))))
+
+    val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+      Rule(Id(30, 3), ExpressionRule("sum(id)")),
+      Rule(Id(31, 3), ExpressionRule("aggExpr(rule_result(DataQuality, pack_ints(11,2), pack_ints(21,1), pack_ints(40,3)) == passed(), inc(), returnSum())"))
+    ))))
+
+    import quality.implicits._
+
+    val processed = taddDataQuality(sparkSession.range(1000).toDF(), rowrs).select(expressionRunner(rs, renderOptions = Map("useFullScalarType" -> "true")))
+
+    val firstId = Id(30,3)
+    val firstRes = "!!java.lang.Long '499500'\n"
+    val res = processed.selectExpr("expressionResults.*").as[GeneralExpressionsResult[GeneralExpressionResult]].head()
+    assert(res == GeneralExpressionsResult[GeneralExpressionResult](Id(10, 2), Map(Id(20, 1) -> Map(
+      firstId -> GeneralExpressionResult(firstRes, "BIGINT"),
+      Id(31, 3) -> GeneralExpressionResult("!!java.lang.Long '500'\n", "BIGINT")
+    ))))
+
+    // just to test the forwarder for code compat
+    assert(res.ruleSetResults.head._2(firstId).ruleResult == firstRes)
+
+    val gres =
+      processed.selectExpr("rule_result(expressionResults, pack_ints(10,2), pack_ints(20,1), pack_ints(31,3)) rr")
+        .selectExpr("rr.*")
+        .as[GeneralExpressionResult].head()
+
+    assert(gres == GeneralExpressionResult("!!java.lang.Long '500'\n", "BIGINT"))
+
+    val stripped = processed.selectExpr("strip_result_ddl(expressionResults) rr")
+    val stripped2 = processed.select(strip_result_ddl(col("expressionResults")) as "rr")
+    assert(stripped.select(comparable_maps(col("rr"))).union( stripped2.select(comparable_maps(col("rr"))) ).distinct().count() == 1)
+
+    val strippedRes = stripped.selectExpr("rr.*").as[GeneralExpressionsResultNoDDL].head()
+    assert(strippedRes == GeneralExpressionsResultNoDDL(Id(10, 2), Map(Id(20, 1) -> Map(
+      Id(30, 3) -> "!!java.lang.Long '499500'\n",
+      Id(31, 3) -> "!!java.lang.Long '500'\n")
+    )))
+
+    val strippedGres = {
+      val s = sparkSession
+      import s.implicits._
+      stripped.select(rule_result(col("rr"), pack_ints(10,2), pack_ints(20,1), pack_ints(Id(31,3))))
+        .as[String].head()
+    }
+
+    assert(strippedGres == "!!java.lang.Long '500'\n")
+    res
+  }
+
+}
+
+
+
+class BaseFunctionalityTest extends SharedPureConnectTests with RowTools with BaseFunctionalityShared {
 
   test("flattenResultsTest") { evalCodeGensNoResolve {
     val rules = genRules(27, 27)
@@ -36,7 +140,7 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
 
     val exploded = df.select(expr("*"), expr("explode(flattenResults(DataQuality))").as("struct")).select("struct.*")
     val exploded2 = df.select(expr("*"), explode(flatten_results(col("DataQuality"))).as("struct")).select("struct.*")
-    assert(exploded.union(exploded2).distinct().count == exploded.distinct().count)
+    assert(exploded.union(exploded2).distinct().count() == exploded.distinct().count())
 
     // verify fields are there
     assert(!exploded.select("ruleSuiteId", "ruleSuiteVersion", "ruleSuiteResult", "ruleSetResult", "ruleSetId", "ruleSetVersion", "ruleId", "ruleVersion", "ruleResult").isEmpty, "Flattened fields should be present")
@@ -76,16 +180,16 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
   } } }
 
   test("verifyResultExprDSL") {  evalCodeGens {
-    assert(sparkSession.range(1).selectExpr("passed() p", "soft_failed() s", "disabled_rule() d", "failed() f")
-      .select(expr("*"), passed as "p1", soft_failed as "s1", disabled_rule as "d1", failed as "f1")
-      .filter("p1 = p and s1 = s and d1 = d and f1 = f").count == 1)
+    assert(sparkSession.range(1).selectExpr("passed() p", "soft_failed() s", "disabled_rule() d", "failed() f", "ignored_rule() i")
+      .select(expr("*"), passed as "p1", soft_failed as "s1", disabled_rule as "d1", failed as "f1", ignored_rule as "i1")
+      .filter("p1 = p and s1 = s and d1 = d and f1 = f and i1 = i").count() == 1)
   }}
 
   test("longPairEqual") { evalCodeGens {
     val s = sparkSession
     import s.implicits._
     val (seq, ceq) = sparkSession.range(1).selectExpr("120 a_lower", "304 a_higher", "120 b_lower", "304 b_higher").
-      select(expr("long_pair_equal('a','b') seq"), long_pair_equal("a","b") as "ceq").as[(Boolean, Boolean)].head
+      select(expr("long_pair_equal('a','b') seq"), long_pair_equal("a","b") as "ceq").as[(Boolean, Boolean)].head()
 
     assert(ceq)
     assert(seq)
@@ -105,7 +209,8 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
     val id = Id(1024, 9084)
     val Packed = packId(id)
 
-    val starter = sparkSession.range(1,500).selectExpr("cast(id as int) as id").selectExpr("*","failed() * id as a", "passed() * id as b", "softFailed() * 1 as c", "disabledRule() as dis")
+    val starter = sparkSession.range(1,500).selectExpr("cast(id as int) as id").selectExpr("*","failed() * id as a",
+      "passed() * id as b", "softFailed() * 1 as c", "disabledRule() as dis", "ignored_rule() as ignored")
     val df = starter.selectExpr("*", "packInts(1024 * id, 9084 * id) as d", "cast(softFail( (1 * id) > 2 ) as int) as e", s"longPairFromUUID('$uuid') as fparts").
       selectExpr("*", "rngUUID(longPairFromUUID(uuid())) throwaway").
       selectExpr("*", "rngUUID(named_struct('lower', fparts.lower + id, 'higher', fparts.higher)) as f"," longPair(`id` + 0L, `id` + 1L) as rowid", "unpack(d) as g", "probability(1000) as prob",
@@ -114,19 +219,19 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
 
     val s = sparkSession
     import s.implicits._
-    val unpackCheck = df.selectExpr("g", "g2").as[((Int, Int), (Int, Int))].head
+    val unpackCheck = df.selectExpr("g", "g2").as[((Int, Int), (Int, Int))].head()
     assert(unpackCheck._1 == unpackCheck._2)
 
     df.drop("g2").write.mode(SaveMode.Overwrite).parquet(outputDir + "/simpleExprs")
     val re = sparkSession.read.parquet(outputDir + "/simpleExprs")
     val res = re.as[SimpleRes].orderBy(col("id").asc).head()
     assert(res match {
-      case SimpleRes(1, FailedInt, PassedInt, SoftFailedInt, Packed, SoftFailedInt, DisabledRuleInt, ModifiedString, _, TestId, id, 0.01, ModifiedString, ModifiedString) => true
+      case SimpleRes(1, FailedInt, PassedInt, SoftFailedInt, Packed, SoftFailedInt, DisabledRuleInt, IgnoredRuleInt, ModifiedString, _, TestId, id, 0.01, ModifiedString, ModifiedString) => true
       case _ => false
     })
     val revres = re.as[SimpleRes].orderBy(col("id").desc).head()
     assert(revres match {
-      case SimpleRes(_, _, _, -1, _, 1, _, _, _, _, _, _, _, _) => true
+      case SimpleRes(_, _, _, -1, _, 1, _, _, _, _, _, _, _, _, _) => true
       case _ => false
     })
   }}
@@ -157,7 +262,7 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
     var failed = false
     try {
       val exploded = df.select(expr)
-      exploded.count
+      exploded.count()
       failed = true
     } catch {
       case t: Throwable =>
@@ -239,66 +344,6 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
     assert(res2.head._2 == res.head.details)
   }
 
-  test("testPrintExpr") { classicOnly { funNRewrites {
-    doTestPrint("Expression toStr is ->", "my message is", "my message is", "plus(1, 1, lambda", "printExpr")
-  }} }
-
-  // 2.4 doesn't support forceInterpreted so we can't test that it _doesn't_ compile, databricks is cluster based so we'll not be able to capture it without dumping to files
-  test("testPrintCode") { classicOnly { not_Cluster{ v3_2_and_above {
-
-    val s = sparkSession
-    import s.implicits._
-
-    // using eval we shouldn't get output
-    forceInterpreted {  {
-      doTestPrint(null, "my message is", null, null, "printCode")
-    } }
-
-    // should generate output for code gen
-    forceCodeGen {
-      doTestPrint(PrintCode(expression(lit(""))).msg, "my message is", "my message is", "private int FunN_0(InternalRow i)", "printCode")
-    }
-
-    // irrespective of version we are outputting the lambda variables
-    forceCodeGen {
-      justfunNRewrite {
-        doTestPrint(PrintCode(expression(lit(""))).msg, "my message is", "my message is", "LambdaVariable - b", "printCode")
-      }
-    }
-  }}}}
-
-  def doTestPrint(default: String, custom: String, customTest: String, addTest: String, expr: String): Unit = {
-    import com.sparkutils.quality._
-    val s = sparkSession
-    import s.implicits._
-    val plus = LambdaFunction("plus", "(a, b) -> a + b", Id(3,2)) // force compile with codegen
-    registerLambdaFunctions(Seq(plus))
-    Holder.res = ""
-    registerQualityFunctions(writer = {Holder.res = _})
-
-    import Holder.res
-    assert(2 == sparkSession.sql(s"select $expr(plus(1, 1)) as res").as[Long].head)
-
-    def assertAdd() = if (addTest ne null) {
-      assert(res.contains(addTest))
-    }
-
-    if (default ne null)
-      assert(res.indexOf(default) == 0)
-    else
-      assert(res.isEmpty)
-    assertAdd()
-
-    assert(2 == sparkSession.sql(s"select $expr('$custom', plus(1, 1)) as res").as[Long].head)
-
-    if (customTest ne null)
-      assert(res.indexOf(customTest) == 0)
-    else
-      assert(res.isEmpty)
-
-    assertAdd()
-  }
-
   test("testComparableResults") { evalCodeGensNoResolve {
     val rules = genRules(27, 27)
     val rulecount = rules.ruleSets.map( s => s.rules.size).sum
@@ -310,7 +355,7 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
 
     // should fail
     try {
-      (df union df2 distinct).head//show
+      (df union df2).distinct().head()//show
       fail("Is assumed to fail as spark doesn't order maps")
     } catch {
       case t: Throwable =>
@@ -322,10 +367,10 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
     val comparable2 = df2.select(expr("*"), comparable_maps(col("DataQuality")).as("compDQ")).drop("DataQuality")
 
     //comparable.show
-    val unioned = comparable union comparable2 distinct
+    val unioned = (comparable union comparable2).distinct()
 
-    unioned.head
-    assert(unioned.count == df.count)
+    unioned.head()
+    assert(unioned.count() == df.count())
   }}
 
   test("testComparableResultsDifferentKeysAndMapValue") { evalCodeGensNoResolve {
@@ -338,7 +383,7 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
 
       // should fail
       try {
-        (df union df2 distinct).head
+        (df union df2).distinct().head()
         fail("Is assumed to fail as spark doesn't order maps")
       } catch {
         case t: Throwable =>
@@ -355,15 +400,15 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
       val comparable2 = df2.select(comparable_maps(col("value")).as("v"))
 
       //comparable.show
-      val unioned = comparable union comparable2 distinct
+      val unioned = (comparable union comparable2).distinct()
 
-      unioned.head
+      unioned.head() // called for side effect
       if (thereCanBeOnlyOne)
-        assert(unioned.count == 1)
+        assert(unioned.count() == 1)
       else
-        assert(unioned.count == df.count)
+        assert(unioned.count() == df.count())
 
-      debug(unioned.sort("v").show)
+      debug(unioned.sort("v").show())
     }
 
     // arrays
@@ -408,7 +453,7 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
 
     // should fail
     try {
-      (ds1 union ds2 distinct).head
+      (ds1 union ds2).distinct().head()
       fail("Is assumed to fail as spark doesn't order maps")
     } catch {
       case t: Throwable =>
@@ -416,14 +461,14 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
     }
 
     // can't resolve DataQuality here, manages quite nicely on it's own
-    val comparable = ds1.toDF.selectExpr("comparableMaps(seq) comp").drop("seq")
-    val comparable2 = ds2.toDF.selectExpr("comparableMaps(seq) comp").drop("seq")
+    val comparable = ds1.toDF().selectExpr("comparableMaps(seq) comp").drop("seq")
+    val comparable2 = ds2.toDF().selectExpr("comparableMaps(seq) comp").drop("seq")
 
     //comparable.show
-    val unioned = comparable union comparable2 distinct
+    val unioned = (comparable union comparable2).distinct()
 
-    unioned.head
-    assert(unioned.count == 1) // because all 4 are identical
+    unioned.head()
+    assert(unioned.count() == 1) // because all 4 are identical
   }}
 
   test("testCompareWithArraysOrderingAndReverse") { evalCodeGensNoResolve {
@@ -435,11 +480,11 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
     val s = sparkSession
     import s.implicits._
     val ds = maps.reverse.map(m => MapArray(Seq(m.toMap))).toDS()
-    ds.head
+    ds.head()
 
     // should fail
     try {
-      ds.sort("seq").head
+      ds.sort("seq").head()
       fail("Is assumed to fail as spark doesn't order maps")
     } catch {
       case t: Throwable =>
@@ -447,10 +492,10 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
     }
 
     // can't resolve DataQuality here, manages quite nicely on it's own
-    val comparable = ds.toDF.selectExpr("comparableMaps(seq) seq")
+    val comparable = ds.toDF().selectExpr("comparableMaps(seq) seq")
 
     val sorted = comparable.sort("seq").selectExpr("reverseComparableMaps(seq) seq").as[MapArray]
-    sorted.head
+    sorted.head()
     sorted.collect().zipWithIndex.foreach{
       case (map,index) =>
         assert(map.seq(0) == maps(index).toMap) // because all 4 are identical
@@ -471,11 +516,11 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
     val s = sparkSession
     import s.implicits._
     val ds = maps.reverse.map(m => NestedMapStruct(NestedStruct(m.head._1, Map( m.head._1 -> MapArray(Seq(m.toMap)))))).toDS()
-    ds.head
+    ds.head()
 
     // should fail
     try {
-      ds.sort("nested").head
+      ds.sort("nested").head()
       fail("Is assumed to fail as spark doesn't order maps")
     } catch {
       case t: Throwable =>
@@ -483,10 +528,10 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
     }
 
     // can't resolve DataQuality here, manages quite nicely on it's own
-    val comparable = ds.toDF.selectExpr("comparableMaps(nested) seq")
+    val comparable = ds.toDF().selectExpr("comparableMaps(nested) seq")
 
     val sorted = comparable.sort("seq").selectExpr("reverseComparableMaps(seq) nested").as[NestedMapStruct]
-    sorted.head
+    sorted.head()
     sorted.collect().zipWithIndex.foreach {
       case (struct, index) =>
         assert(struct.nested.nested.head._2.seq(0) == maps(index).toMap) // because all 4 are identical
@@ -494,16 +539,6 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
     }
 
   }}
-
-  test("mapArrays") {
-    val ar = ArrayData.toArrayData(Seq(0,1,2,3,4)) // Force GenericArrayData instead of UnsafeArrayData
-    val nar = Arrays.mapArray(ar, IntegerType, _.asInstanceOf[Integer] + 1)
-    assert((0 until 5).forall(i => nar(i) == i + 1))
-
-    // verify with simple toArray
-    val nar2 = Arrays.toArray(ar, IntegerType)
-    assert((0 until 5).forall(i => nar2(i) == i))
-  }
 
   test("scalarSubqueryAsTrigger") { evalCodeGensNoResolve {
     v3_4_and_above {
@@ -547,110 +582,17 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
     case e: Throwable if e.getMessage.contains("counts are 1, 0, 2") => ()
   }}
 
-  test("testRuleResult") {  evalCodeGensNoResolve { funNRewrites {
-    val rules = genRules(27, 27)
-
-    val toWrite = 1400 // writeRows
-
-    val df = taddDataQuality(dataFrameLong(toWrite, 27, ruleSuiteResultType, null), rules)
-
-    doTheRuleResultTest(df, toWrite)
-  } }}
-
-  test("testRuleResultDetails") { evalCodeGensNoResolve { funNRewrites {
-    val rules = genRules(27, 27)
-
-    val toWrite = 1400 // writeRows
-
-    val df = taddDataQuality(dataFrameLong(toWrite, 27, ruleSuiteResultType, null), rules)
-
-    doTheRuleResultTest(df.selectExpr("rule_Suite_Result_Details(DataQuality) DataQuality"), toWrite)
-    doTheRuleResultTest(df.select(rule_suite_result_details(col("DataQuality")) as "DataQuality"), toWrite)
-  } } }
-
-  def doTheRuleResultTest(df: DataFrame, toWrite: Int): Unit = {
-    val s = sparkSession
-    import s.implicits._
-
-    // using a lambda to ensure it works to reduce code duplication
-    val l = LambdaFunction("dq_rule_result", "(a, b) -> rule_result(DataQuality, pack_ints(1,1), a, b)", Id(0,0))
-    registerLambdaFunctions(Seq(l))
-
-    // count_if not on 2.4
-    def count_if(cond: String) = s"aggExpr($cond, inc(), returnSum())"
-
-    val theRule = df.selectExpr(
-      count_if("dq_rule_result(pack_ints(52,1), pack_ints(100,1)) == passed()"),
-      count_if("rule_result(DataQuality, pack_ints(100, 1), pack_ints(52,1), pack_ints(100,1)) == passed()"),
-      count_if("dq_rule_result(pack_ints(152,1), pack_ints(100,1)) == passed()"),
-      count_if("dq_rule_result(pack_ints(52,1), pack_ints(10000,1)) == passed()"),
-      count_if("dq_rule_result(pack_ints(52,1), null) == passed()")
-    )
-    val (shouldBeHalfPassed, shouldNotBeFoundSuite, shouldNotBeFoundSet, shouldNotBeFoundRule, hasNulls) = theRule.as[(Long, Long, Long, Long, Long)].head()
-    assert(shouldBeHalfPassed == ((toWrite / 2) + 1))
-
-    assert(shouldNotBeFoundSuite == 0)
-    assert(shouldNotBeFoundSet == 0)
-    assert(shouldNotBeFoundRule == 0)
-    assert(hasNulls == 0)
+  test("testRuleResult") {
+    doTestRuleResult()
   }
 
-  test("testExpressionsWithAggregate") { evalCodeGensNoResolve { funNRewrites {
-    val rowrs = RuleSuite(Id(11, 2), Seq(RuleSet(Id(21, 1), Seq(
-      Rule(Id(40, 3), ExpressionRule("iseven(id)"))
-    ))), lambdaFunctions = Seq(LambdaFunction("iseven", "p -> p % 2 = 0", Id(1020, 2))))
+  test("testRuleResultDetails") {
+    doTestRuleResultDetails()
+  }
 
-    val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
-      Rule(Id(30, 3), ExpressionRule("sum(id)")),
-      Rule(Id(31, 3), ExpressionRule("aggExpr(rule_result(DataQuality, pack_ints(11,2), pack_ints(21,1), pack_ints(40,3)) == passed(), inc(), returnSum())"))
-    ))))
-
-    import quality.implicits._
-
-    val processed = taddDataQuality(sparkSession.range(1000).toDF, rowrs).select(expressionRunner(rs, renderOptions = Map("useFullScalarType" -> "true")))
-
-    val firstId = Id(30,3)
-    val firstRes = "!!java.lang.Long '499500'\n"
-    val res = processed.selectExpr("expressionResults.*").as[GeneralExpressionsResult[GeneralExpressionResult]].head()
-    assert(res == GeneralExpressionsResult[GeneralExpressionResult](Id(10, 2), Map(Id(20, 1) -> Map(
-      firstId -> GeneralExpressionResult(firstRes, "BIGINT"),
-      Id(31, 3) -> GeneralExpressionResult("!!java.lang.Long '500'\n", "BIGINT")
-    ))))
-
-    // just to test the forwarder for code compat
-    assert(res.ruleSetResults.head._2(firstId).ruleResult == firstRes)
-
-    val gres =
-      processed.selectExpr("rule_result(expressionResults, pack_ints(10,2), pack_ints(20,1), pack_ints(31,3)) rr")
-        .selectExpr("rr.*")
-        .as[GeneralExpressionResult].head
-
-    assert(gres == GeneralExpressionResult("!!java.lang.Long '500'\n", "BIGINT"))
-
-    val stripped = processed.selectExpr("strip_result_ddl(expressionResults) rr")
-    val stripped2 = processed.select(strip_result_ddl(col("expressionResults")) as "rr")
-    assert(stripped.select(comparable_maps(col("rr"))).union( stripped2.select(comparable_maps(col("rr"))) ).distinct.count == 1)
-
-    val strippedRes = stripped.selectExpr("rr.*").as[GeneralExpressionsResultNoDDL].head()
-    assert(strippedRes == GeneralExpressionsResultNoDDL(Id(10, 2), Map(Id(20, 1) -> Map(
-      Id(30, 3) -> "!!java.lang.Long '499500'\n",
-      Id(31, 3) -> "!!java.lang.Long '500'\n")
-    )))
-
-    val strippedGres = {
-      val s = sparkSession
-      import s.implicits._
-      stripped.select(rule_result(col("rr"), pack_ints(10,2), pack_ints(20,1), pack_ints(Id(31,3))))
-        .as[String].head
-    }
-
-    assert(strippedGres == "!!java.lang.Long '500'\n")
-
-    val yaml = YamlDecoder.yaml
-
-    val obj = yaml.load[Long](res.ruleSetResults(Id(20,1))(Id(30,3)).ruleResult);
-    assert(obj == 499500L)
-  } }}
+  test("testExpressionsWithAggregate") {
+    doTestExpressionsWithAggregate()
+  }
 
   test("testExpressionsWithFields") { evalCodeGensNoResolve {
     val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
@@ -661,22 +603,24 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
 
     import quality.implicits._
 
-    val processed = sparkSession.sql("select 'a' a, 'b' b, null c").select(
-      typedExpressionRunner(rs, ddlType = "STRING"))
+    defaultAndForceConnect {
+      val processed = sparkSession.sql("select 'a' a, 'b' b, null c").select(
+        typedExpressionRunner(rs, ddlType = "STRING"))
 
-    val res = processed.selectExpr("expressionResults.*").as[GeneralExpressionsResult[String]].head()
-    assert(res == GeneralExpressionsResult[String](Id(10, 2), Map(Id(20, 1) -> Map(
-      Id(30, 3) -> "a",
-      Id(31, 3) -> "b",
-      Id(32, 3) -> null
-    ))))
+      val res = processed.selectExpr("expressionResults.*").as[GeneralExpressionsResult[String]].head()
+      assert(res == GeneralExpressionsResult[String](Id(10, 2), Map(Id(20, 1) -> Map(
+        Id(30, 3) -> "a",
+        Id(31, 3) -> "b",
+        Id(32, 3) -> null
+      ))))
 
-    val s = sparkSession
-    import s.implicits._
-    val gres =
-      processed.selectExpr("rule_result(expressionResults, pack_ints(10,2), pack_ints(20,1), pack_ints(31,3)) rr")
-        .as[String].head
-    assert(gres == "b")
+      val s = sparkSession
+      import s.implicits._
+      val gres =
+        processed.selectExpr("rule_result(expressionResults, pack_ints(10,2), pack_ints(20,1), pack_ints(31,3)) rr")
+          .as[String].head()
+      assert(gres == "b")
+    }
   }}
 
   test("updateFields") { evalCodeGens {
@@ -710,7 +654,7 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
 
   test("checkMinimumLengthWorks") {
     try {
-      sparkSession.range(1).selectExpr("hash_with()").head
+      sparkSession.range(1).selectExpr("hash_with()").head()
       fail("should have thrown")
     } catch {
       case t: Throwable if t.getMessage.contains("A minimum of 2 parameters is required") =>
@@ -746,9 +690,18 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
     resultChecker(
       rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
         Rule(Id(30, 3), ExpressionRule("'disabled'")),
-        Rule(Id(31, 3), ExpressionRule("'disabled'")),
-        Rule(Id(32, 3), ExpressionRule("'disabled'"))
+        Rule(Id(31, 3), ExpressionRule("'disabledrule'")),
+        Rule(Id(32, 3), ExpressionRule("-2"))
       )))), (Passed, Passed), _.toSeq == Seq(DisabledRule, DisabledRule, DisabledRule))
+  }
+
+  test("ignored") {
+    resultChecker(
+      rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
+        Rule(Id(30, 3), ExpressionRule("'ignored'")),
+        Rule(Id(31, 3), ExpressionRule("'ignoredrule'")),
+        Rule(Id(32, 3), ExpressionRule("-3"))
+      )))), (Passed, Passed), _.toSeq == Seq(IgnoredRule, IgnoredRule, IgnoredRule))
   }
 
   test("mixedIgnore") {
@@ -773,7 +726,7 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
     assert(comparison(rsres.ruleResults.values))
   }
 
-  test("softShouldShowPassed") { not2_4{ evalCodeGens {
+  test("softShouldShowPassed") { evalCodeGens {
     val rs =
       RuleSuite(Id(101, 1), List(RuleSet(Id(101, 1), List(
         Rule(Id(202, 2), ExpressionRule(s"""softFail(
@@ -849,31 +802,8 @@ class BaseFunctionalityTest extends SharedConnectTests with RowTools {
       Map(Passed -> 6, SoftFailed -> 2),
       Map(Passed -> 6, SoftFailed -> 2)
     ))
-  } } }
+  } }
 
-  test("Resolve should work correctly") {
-    val rules = genRules(27, 27)
-
-    val toWrite = 1 // writeRows
-
-    var df: DataFrame = null
-    classicOnly {
-      evalCodeGens {
-        df = taddDataQuality(dataFrameLong(toWrite, 27, ruleSuiteResultType, null), rules)
-      }
-    }
-    connectOnly {
-      try {
-        doWithResolve {
-          df = taddDataQuality(dataFrameLong(toWrite, 27, ruleSuiteResultType, null), rules)
-        }
-        fail("resolveWith isn't possible with connect so this should have thrown")
-      } catch {
-        case t: Throwable => t.getMessage.contains("resolveWith is being used with Connect, this is not a valid combination") shouldBe true
-          df = taddDataQuality(dataFrameLong(toWrite, 27, ruleSuiteResultType, null), rules)
-      }
-    }
-  }
 }
 
 object Holder {
@@ -890,4 +820,4 @@ case class NestedMapStruct( nested: NestedStruct)
 case class TestIdLeft(left_lower: Long, left_higher: Long)
 case class TestIdRight(right_lower: Long, right_higher: Long)
 
-case class SimpleRes(id: Int, a: Int, b: Int, c: Int, d: Long, e: Int, dis: Int, f: String, throwaway: String, rowId: RowId, g: Id, prob: Double, asUUIDExpr: String, asUUIDCol: String)
+case class SimpleRes(id: Int, a: Int, b: Int, c: Int, d: Long, e: Int, dis: Int, ignored: Int, f: String, throwaway: String, rowId: RowId, g: Id, prob: Double, asUUIDExpr: String, asUUIDCol: String)

@@ -1,17 +1,15 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
-import com.sparkutils.quality.impl.VersionedId
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions._
 import com.sparkutils.qualityTests.mapLookup.TradeTests._
-import com.sparkutils.qualityTests.util.SharedConnectTests
-import com.sparkutils.testing.{SparkTestUtils, TestUtils}
-import com.sparkutils.testing.TestUtils.debug
-import org.apache.spark.sql.ShimUtils.expression
+import com.sparkutils.qualityTests.util.SharedPureConnectTests
 
-class UserLambdaFunctionTest extends SharedConnectTests {
-  test("nullInParam") { evalCodeGensNoResolve { funNRewrites {
+import com.sparkutils.testing.TestUtils.debug
+
+trait UserLambdaFunctionTestBase extends SharedPureConnectTests {
+  def doNullInParam(): Unit = {
     val funs = Seq(
       LambdaFunction("posting_string_to_date",
         """(RULE_NO,TRANSACTION_CURRENCY_AMOUNT) -> named_struct('RULE_NO', RULE_NO,'TRANSACTION_AMOUNT', CAST(TRANSACTION_CURRENCY_AMOUNT AS DECIMAL(38,18)))""".stripMargin, Id(5, 2)),
@@ -25,11 +23,11 @@ class UserLambdaFunctionTest extends SharedConnectTests {
     val ndf =
       sparkSession.range(1).selectExpr("simple_bp_posting('a_rule', null) as test")
 
-    ndf.head
+    ndf.head()
 
-  } } }
+  }
 
-  test("lambdaRuleTest") { evalCodeGensNoResolve { funNRewrites {
+  def doLambdaRuleTest(): Unit = {
 
     val s = sparkSession
     import s.implicits._
@@ -41,9 +39,9 @@ class UserLambdaFunctionTest extends SharedConnectTests {
     val ndf = df.withColumn("newcalc", expr("multValCCY(value, ccyrate)"))
 
     doTest(ndf)
-  } } }
+  }
 
-  test("lambdaNoParamsRuleTest") { evalCodeGensNoResolve { funNRewrites {
+  def doLambdaNoParamsRuleTest(): Unit = {
 
     val s = sparkSession
     import s.implicits._
@@ -55,14 +53,14 @@ class UserLambdaFunctionTest extends SharedConnectTests {
     val ndf = df.withColumn("newcalc", expr("multValCCY()"))
 
     doTest(ndf)
-  } } }
+  }
 
   def doTest(ndf: DataFrame): Unit = {
     debug {ndf.show()}
     ndf.collect().foreach{r => assert(r.getAs[Double]("newcalc") == r.getAs[Int]("value") * r.getAs[Double]("ccyrate")) }
   }
 
-  test("lambdaMultiParamLengthExpandedTest") { evalCodeGensNoResolve { funNRewrites {
+  def doLambdaMultiParamLengthExpandedTest():Unit = {
 
     val s = sparkSession
     import s.implicits._
@@ -77,9 +75,9 @@ class UserLambdaFunctionTest extends SharedConnectTests {
     doTest(df.withColumn("newcalc", expr("multValCCY()")))
     doTest(df.withColumn("newcalc", expr("multValCCY(value)")))
     doTest(df.withColumn("newcalc", expr("multValCCY(value, ccyrate)")))
-  } } }
+  }
 
-  test("lambdaMultiParamLengthSelfReferenceTest") { evalCodeGensNoResolve { funNRewrites {
+  def doLambdaMultiParamLengthSelfReferenceTest(): Unit = {
 
     val s = sparkSession
     import s.implicits._
@@ -94,9 +92,9 @@ class UserLambdaFunctionTest extends SharedConnectTests {
     doTest(df.withColumn("newcalc", expr("multValCCY()")))
     doTest(df.withColumn("newcalc", expr("multValCCY(value)")))
     doTest(df.withColumn("newcalc", expr("multValCCY(value, ccyrate)")))
-  } } }
+  }
 
-  test("lambdaMultiParamDupeLengthTest") { evalCodeGensNoResolve { funNRewrites {
+  def doLambdaMultiParamDupeLengthTest(): Unit = {
 
     val s = sparkSession
     import s.implicits._
@@ -109,9 +107,9 @@ class UserLambdaFunctionTest extends SharedConnectTests {
     } catch {
       case e: Exception => assert(e.getMessage.contains("Lambda function multValCCY has 2 implementations with 2 arguments: "))
     }
-  } } }
+  }
 
-  test("lambdaMissing0LengthTest") { evalCodeGensNoResolve { funNRewrites {
+  def doLambdaMissing0LengthTest(): Unit = {
 
     val s = sparkSession
     import s.implicits._
@@ -125,9 +123,9 @@ class UserLambdaFunctionTest extends SharedConnectTests {
     } catch {
       case e: Exception => assert(e.getMessage.contains("0 arguments requested for multValCCY but no implementation with this argument count exists"))
     }
-  } } }
+  }
 
-  test("nestedLambdaRuleTest") { evalCodeGensNoResolve { funNRewrites {
+  def doNestedLambdaRuleTest(): Unit = {
 
     val s = sparkSession
     import s.implicits._
@@ -141,14 +139,14 @@ class UserLambdaFunctionTest extends SharedConnectTests {
 
     debug(ndf.show())
     ndf.collect().foreach{r => assert( r.getAs[Double]("newcalc") == (if (r.getAs[String]("ccy") == "CHF")
-        (r.getAs[Int]("value") * r.getAs[Double]("ccyrate")) + r.getAs[Int]("value")
-      else
-        r.getAs[Int]("value")
+      (r.getAs[Int]("value") * r.getAs[Double]("ccyrate")) + r.getAs[Int]("value")
+    else
+      r.getAs[Int]("value")
       )
     ) }
-  } } }
+  }
 
-  test("globalLambdasTest") { funNRewrites {
+  def doGlobalLambdasTest(): Unit = {
     val rs = Map( (Id(0,1): VersionedId )-> RuleSuite(Id(0,1), Seq(RuleSet(Id(1,1), Seq(
       Rule(Id(2,1), ExpressionRule("fielda > fieldb"), RunOnPassProcessor(0, Id(100,1), OutputExpression("fielda > b"))),
       Rule(Id(3,1), ExpressionRule("fielda > fieldb"), RunOnPassProcessor(0, Id(100,1), OutputExpression("fielda >> fieldb"))),
@@ -171,13 +169,13 @@ class UserLambdaFunctionTest extends SharedConnectTests {
     val withGlobalThatDoesntExist = integrateLambdas(rs, lambdas(Id(-2,-2)), Some(Id(-1,-1))).head
     assert(!withGlobalThatDoesntExist._2.lambdaFunctions.exists(l => l.name == "I_AM_GLOBAL"))
 
-  } }
+  }
 
   /**
    * test's functions as params to lambdas, partial application cases are also
    * tested in the AggregatesTest - impl needs interpreted as the type of FunForward really isn't long
    */
-  test("hofTest") { evalCodeGensNoResolve { funNRewrites {
+  def doHofTest(): Unit = {
     val mult = LambdaFunction("mult", "(theValue, ccy) -> theValue * ccy", Id(1,2))
     val plus = LambdaFunction("plus", "(theValue, ccy) -> theValue + ccy", Id(3,2))
     val user = LambdaFunction("use", "(func, a, b) -> callFun(func, a, b)", Id(2,2))
@@ -190,34 +188,34 @@ class UserLambdaFunctionTest extends SharedConnectTests {
     import s.implicits._
 
     // types per default placeholder of LongType
-    assert(2L == sparkSession.sql("select use(mult(_(), _()), 1L, 2L) as res").as[Long].head)
-    assert(3L == sparkSession.sql("select use(plus(_(), _()), 1L, 2L) as res").as[Long].head)
+    assert(2L == sparkSession.sql("select use(mult(_(), _()), 1L, 2L) as res").as[Long].head())
+    assert(3L == sparkSession.sql("select use(plus(_(), _()), 1L, 2L) as res").as[Long].head())
 
     // specify types in placeholder
-    assert(2 == sparkSession.sql("select use(mult(_('int'), _('int')), 1, 2) as res").as[Int].head)
-    assert(3 == sparkSession.sql("select use(plus(_('int'), _('int')), 1, 2) as res").as[Int].head)
+    assert(2 == sparkSession.sql("select use(mult(_('int'), _('int')), 1, 2) as res").as[Int].head())
+    assert(3 == sparkSession.sql("select use(plus(_('int'), _('int')), 1, 2) as res").as[Int].head())
 
     // partially apply 1st arg
-    assert(2L == sparkSession.sql("select use1(mult(1L, _()), 2L) as res").as[Long].head)
-    assert(3L == sparkSession.sql("select use1(plus(1L, _()), 2L) as res").as[Long].head)
+    assert(2L == sparkSession.sql("select use1(mult(1L, _()), 2L) as res").as[Long].head())
+    assert(3L == sparkSession.sql("select use1(plus(1L, _()), 2L) as res").as[Long].head())
 
     // partially apply 2nd arg
     assert(2L == {
       val df = sparkSession.sql("select use1(mult(_(), 2L), 1L) as res")
       df
-    }.as[Long].head)
-    assert(3L == sparkSession.sql("select use1(plus(_(), 2L), 1L) as res").as[Long].head)
+    }.as[Long].head())
+    assert(3L == sparkSession.sql("select use1(plus(_(), 2L), 1L) as res").as[Long].head())
 
     // nested
-    assert(2 == sparkSession.sql("select deep(mult(_('int'), _('int')), 1, 2) as res").as[Int].head)
-    assert(3 == sparkSession.sql("select deep(plus(_('int'), _('int')), 1, 2) as res").as[Int].head)
+    assert(2 == sparkSession.sql("select deep(mult(_('int'), _('int')), 1, 2) as res").as[Int].head())
+    assert(3 == sparkSession.sql("select deep(plus(_('int'), _('int')), 1, 2) as res").as[Int].head())
 
     // nested partial
-    assert(2 == sparkSession.sql("select deep1(mult(1, _('int')), 2) as res").as[Int].head)
-    assert(3 == sparkSession.sql("select deep1(plus(1, _('int')), 2) as res").as[Int].head)
-  } } }
+    assert(2 == sparkSession.sql("select deep1(mult(1, _('int')), 2) as res").as[Int].head())
+    assert(3 == sparkSession.sql("select deep1(plus(1, _('int')), 2) as res").as[Int].head())
+  }
 
-  test("deepPartialTest") { evalCodeGensNoResolve { funNRewrites {
+  def doDeepPartialTest(): Unit = {
     val plus2 = LambdaFunction("plus", "(a, b) -> a + b", Id(3,2))
     val plus3 = LambdaFunction("plus", "(a, b, c) -> plus(plus(a, b), c)", Id(3,2))
     val papplyt = LambdaFunction("papplyt", "(func, a, b, c) -> callFun(callFun(func, _(), _(), c), a, b)", Id(2,2))
@@ -227,10 +225,10 @@ class UserLambdaFunctionTest extends SharedConnectTests {
     import s.implicits._
 
     assert(6L == { val sql = sparkSession.sql("select papplyt(plus(_(), _(), _()), 1L, 2L, 3L) as res")
-      sql.as[Long].head})
-  } } }
+      sql.as[Long].head()})
+  }
 
-  test("returnLambdaTest") { evalCodeGensNoResolve { funNRewrites {
+  def doReturnLambdaTest(): Unit = {
     val plus2 = LambdaFunction("plus", "(a, b) -> a + b", Id(3,2))
     val plus3 = LambdaFunction("plus", "(a, b, c) -> plus(plus(a, b), c)", Id(3,2))
     val retLambda = LambdaFunction("retLambda", "(a, b) -> plus(a, b, _())", Id(2,2))
@@ -240,8 +238,8 @@ class UserLambdaFunctionTest extends SharedConnectTests {
     import s.implicits._
 
     assert(6L == { val sql = sparkSession.sql("select callFun(retLambda(1L, 2L), 3L) as res")
-      sql.as[Long].head})
-  } } }
+      sql.as[Long].head()})
+  }
 
   def doHOFLambdaDropin() = {
     val plus = LambdaFunction("plus", "(theValue, ccy) -> theValue + ccy", Id(1,2))
@@ -254,22 +252,20 @@ class UserLambdaFunctionTest extends SharedConnectTests {
 
     // attempt to dropping a reference to a function where simple lambdas are expected.
     // control
-    assert(6 == sparkSession.sql("SELECT aggregate(array(1, 2, 3), 0, (acc, x) -> acc + x) as res").as[Int].head)
+    assert(6 == sparkSession.sql("SELECT aggregate(array(1, 2, 3), 0, (acc, x) -> acc + x) as res").as[Int].head())
     // all params would be needed with multiple aritys
-    assert(6 == sparkSession.sql("SELECT aggregate(array(1, 2, 3), 0, _lambda_(plus(_('int'), _('int')))) as res").as[Int].head)
+    assert(6 == sparkSession.sql("SELECT aggregate(array(1, 2, 3), 0, _lambda_(plus(_('int'), _('int')))) as res").as[Int].head())
     // can we play with partials?
-    assert(21 == sparkSession.sql("SELECT aggregate(array(1, 2, 3), 0, _lambda_(plus3(_('int'), _('int'), 5))) as res").as[Int].head)
+    assert(21 == sparkSession.sql("SELECT aggregate(array(1, 2, 3), 0, _lambda_(plus3(_('int'), _('int'), 5))) as res").as[Int].head())
     // hof'd
-    assert(6 == sparkSession.sql("SELECT hof(plus(_('int'), _('int'))) as res").as[Int].head)
+    assert(6 == sparkSession.sql("SELECT hof(plus(_('int'), _('int'))) as res").as[Int].head())
   }
-
-  test("testHOFLambdaDropin") { evalCodeGensNoResolve {  funNRewrites { doHOFLambdaDropin() } } }
 
   /**
    * Although Dropin tests aggregate and combinations to prove overall behaviour, in light of the issue detected in DBRs
    * this tests all the other in built hofs.  Examples taken from the usage guide annotations
    */
-  test("testHOFDropins") { evalCodeGensNoResolve { funNRewrites {
+  def doTestHOFDropins(): Unit = {
     val plus = LambdaFunction("plus", "(a, b) -> a + b", Id(1, 2))
     val times = LambdaFunction("times", "(a, b) -> a * b", Id(2, 2))
     val sort1 = LambdaFunction("sort1", "(lefty, righty) -> case when lefty < righty then -1 when lefty > righty then 1 else 0 end", Id(3, 2))
@@ -285,26 +281,23 @@ class UserLambdaFunctionTest extends SharedConnectTests {
     val s = sparkSession
     import s.implicits._
     // SELECT _FUNC_(array(1, 2, 3), 0, (acc, x) -> acc + x, acc -> acc * 10);
-    assert(60 == sparkSession.sql("SELECT aggregate(array(1, 2, 3), 0, _lambda_(plus(_('int'), _('int'))), _lambda_(times(_('int'), 10))) as res").as[Int].head)
+    assert(60 == sparkSession.sql("SELECT aggregate(array(1, 2, 3), 0, _lambda_(plus(_('int'), _('int'))), _lambda_(times(_('int'), 10))) as res").as[Int].head())
     // SELECT _FUNC_(array(1, 2, 3), x -> x + 1);
-    assert(Seq(2, 3, 4) == sparkSession.sql("SELECT transform(array(1, 2, 3), _lambda_(plus(_('int'), 1))) as res").as[Seq[Int]].head)
+    assert(Seq(2, 3, 4) == sparkSession.sql("SELECT transform(array(1, 2, 3), _lambda_(plus(_('int'), 1))) as res").as[Seq[Int]].head())
     //> SELECT _FUNC_(array(1, 2, 3), (x, i) -> x + i);
-    assert(Seq(1, 3, 5) == sparkSession.sql("SELECT transform(array(1, 2, 3), _lambda_(plus(_('int'), _('int')))) as res").as[Seq[Int]].head)
+    assert(Seq(1, 3, 5) == sparkSession.sql("SELECT transform(array(1, 2, 3), _lambda_(plus(_('int'), _('int')))) as res").as[Seq[Int]].head())
 
-    not2_4 {
-      //> SELECT _FUNC_(array(5, 6, 1), (left, right) -> case when left < right then -1 when left > right then 1 else 0 end);
-      //[1,5,6]
-      assert(Seq(1, 5, 6) == sparkSession.sql("SELECT array_sort(array(5, 6, 1), _lambda_(sort1(_('int'), _('int')))) as res").as[Seq[Int]].head)
-      //> SELECT _FUNC_(array('bc', 'ab', 'dc'), (left, right) -> case when left is null and right is null then 0 when left is null then -1 when right is null then 1 when left < right then 1 when left > right then -1 else 0 end);
-      //["dc","bc","ab"]
-      assert(Seq("dc", "bc", "ab") == sparkSession.sql("SELECT array_sort(array('bc', 'ab', 'dc'), _lambda_(sort2(_('string'), _('string')))) as res").as[Seq[String]].head)
-    }
+    //> SELECT _FUNC_(array(5, 6, 1), (left, right) -> case when left < right then -1 when left > right then 1 else 0 end);
+    //[1,5,6]
+    assert(Seq(1, 5, 6) == sparkSession.sql("SELECT array_sort(array(5, 6, 1), _lambda_(sort1(_('int'), _('int')))) as res").as[Seq[Int]].head())
+    //> SELECT _FUNC_(array('bc', 'ab', 'dc'), (left, right) -> case when left is null and right is null then 0 when left is null then -1 when right is null then 1 when left < right then 1 when left > right then -1 else 0 end);
+    //["dc","bc","ab"]
+    assert(Seq("dc", "bc", "ab") == sparkSession.sql("SELECT array_sort(array('bc', 'ab', 'dc'), _lambda_(sort2(_('string'), _('string')))) as res").as[Seq[String]].head())
 
-    not2_4 {
-      //> SELECT _FUNC_(map(1, 0, 2, 2, 3, -1), (k, v) -> k > v);
-      //       {1:0,3:-1}
-      assert(Map(1 -> 0, 3 -> -1) == sparkSession.sql("SELECT map_filter(map(1, 0, 2, 2, 3, -1), _lambda_(gt(_('int'), _('int')))) as res").as[Map[Int, Int]].head)
-    }
+    //> SELECT _FUNC_(map(1, 0, 2, 2, 3, -1), (k, v) -> k > v);
+    //       {1:0,3:-1}
+    assert(Map(1 -> 0, 3 -> -1) == sparkSession.sql("SELECT map_filter(map(1, 0, 2, 2, 3, -1), _lambda_(gt(_('int'), _('int')))) as res").as[Map[Int, Int]].head())
+
 
     //> SELECT _FUNC_(array(1, 2, 3), x -> x % 2 == 1);
     //       [1,3]
@@ -312,11 +305,9 @@ class UserLambdaFunctionTest extends SharedConnectTests {
     //       [2,3]
     //      > SELECT _FUNC_(array(0, null, 2, 3, null), x -> x IS NOT NULL);
     //       [0,2,3]
-    assert(Seq(1, 3) == sparkSession.sql("SELECT filter(array(1, 2, 3), _lambda_(ismod(_('int'), 2, 1))) as res").as[Seq[Int]].head)
-    not2_4 {
-      assert(Seq(2, 3) == sparkSession.sql("SELECT filter(array(0, 2, 3), _lambda_(gt(_('int'), _('int')))) as res").as[Seq[Int]].head)
-    }
-    assert(Seq(0, 2, 3) == sparkSession.sql("SELECT filter(array(0, null, 2, 3, null), _lambda_(notnull(_('int')))) as res").as[Seq[Int]].head)
+    assert(Seq(1, 3) == sparkSession.sql("SELECT filter(array(1, 2, 3), _lambda_(ismod(_('int'), 2, 1))) as res").as[Seq[Int]].head())
+    assert(Seq(2, 3) == sparkSession.sql("SELECT filter(array(0, 2, 3), _lambda_(gt(_('int'), _('int')))) as res").as[Seq[Int]].head())
+    assert(Seq(0, 2, 3) == sparkSession.sql("SELECT filter(array(0, null, 2, 3, null), _lambda_(notnull(_('int')))) as res").as[Seq[Int]].head())
 
     // > SELECT _FUNC_(array(1, 2, 3), x -> x % 2 == 0);
     //       true
@@ -328,28 +319,22 @@ class UserLambdaFunctionTest extends SharedConnectTests {
     //       true
     //      > SELECT _FUNC_(array(1, 2, 3), x -> x IS NULL);
     //       false
-    assert(sparkSession.sql("SELECT exists(array(1, 2, 3), _lambda_(ismod(_('int'), 2, 0))) as res").as[Boolean].head)
-    assert(!sparkSession.sql("SELECT exists(array(1, 2, 3), _lambda_(ismod(_('int'), 2, 10))) as res").as[Boolean].head)
-    not2_4 {
-      assert(sparkSession.sql("SELECT exists(array(1, null, 3), _lambda_(ismod(_('int'), 2, 0))) as res").head.isNullAt(0))
-      assert(sparkSession.sql("SELECT exists(array(0, null, 2, 3, null), _lambda_(isnull(_('int')))) as res").as[Boolean].head)
-    }
-    only2_4 {
-      assert(!sparkSession.sql("SELECT exists(array(1, null, 3), _lambda_(ismod(_('int'), 2, 0))) as res").as[Boolean].head)
-      assert(sparkSession.sql("SELECT exists(array(0, null, 2, 3, null), _lambda_(isnull(_('int')))) as res").as[Boolean].head)
-    }
-    assert(!sparkSession.sql("SELECT exists(array(1, 2, 3), _lambda_(isnull(_('int')))) as res").as[Boolean].head)
+    assert(sparkSession.sql("SELECT exists(array(1, 2, 3), _lambda_(ismod(_('int'), 2, 0))) as res").as[Boolean].head())
+    assert(!sparkSession.sql("SELECT exists(array(1, 2, 3), _lambda_(ismod(_('int'), 2, 10))) as res").as[Boolean].head())
 
-    not2_4 {
-      //> SELECT _FUNC_(array(1, null, 3), x -> x % 2 == 0);
-      //       false
-      //      > SELECT _FUNC_(array(2, null, 8), x -> x % 2 == 0);
-      //       NULL
-      assert(!sparkSession.sql("SELECT forall(array(1, null, 3), _lambda_(ismod(_('int'), 2, 0))) as res").as[Boolean].head)
-      assert(sparkSession.sql("SELECT forall(array(2, null, 8), _lambda_(ismod(_('int'), 2, 0))) as res").head.isNullAt(0))
-    }
+    assert(sparkSession.sql("SELECT exists(array(1, null, 3), _lambda_(ismod(_('int'), 2, 0))) as res").head().isNullAt(0))
+    assert(sparkSession.sql("SELECT exists(array(0, null, 2, 3, null), _lambda_(isnull(_('int')))) as res").as[Boolean].head())
 
-    not2_4_or_3_0_or_3_1 {
+    assert(!sparkSession.sql("SELECT exists(array(1, 2, 3), _lambda_(isnull(_('int')))) as res").as[Boolean].head())
+
+    //> SELECT _FUNC_(array(1, null, 3), x -> x % 2 == 0);
+    //       false
+    //      > SELECT _FUNC_(array(2, null, 8), x -> x % 2 == 0);
+    //       NULL
+    assert(!sparkSession.sql("SELECT forall(array(1, null, 3), _lambda_(ismod(_('int'), 2, 0))) as res").as[Boolean].head())
+    assert(sparkSession.sql("SELECT forall(array(2, null, 8), _lambda_(ismod(_('int'), 2, 0))) as res").head().isNullAt(0))
+
+    not3_0_or_3_1 {
 
       //  3.0 / 3.1 for transform_keys and transform_values
       //@transient lazy val LambdaFunction(
@@ -372,76 +357,132 @@ class UserLambdaFunctionTest extends SharedConnectTests {
       //      > SELECT _FUNC_(map_from_arrays(array(1, 2, 3), array(1, 2, 3)), (k, v) -> k + v);
       //       {2:1,4:2,6:3}
       //transform_keys
-      assert(Map(2 -> 1, 3 -> 2, 4 -> 3) == sparkSession.sql("SELECT transform_keys(map_from_arrays(array(1, 2, 3), array(1, 2, 3)), _lambda_(drop2nd(plus(_('int'), 1),_('int'), _('int')))) as res").as[Map[Int, Int]].head)
-      assert(Map(2 -> 1, 4 -> 2, 6 -> 3) == sparkSession.sql("SELECT transform_keys(map_from_arrays(array(1, 2, 3), array(1, 2, 3)), _lambda_(plus(_('int'), _('int')))) as res").as[Map[Int, Int]].head)
+      assert(Map(2 -> 1, 3 -> 2, 4 -> 3) == sparkSession.sql("SELECT transform_keys(map_from_arrays(array(1, 2, 3), array(1, 2, 3)), _lambda_(drop2nd(plus(_('int'), 1),_('int'), _('int')))) as res").as[Map[Int, Int]].head())
+      assert(Map(2 -> 1, 4 -> 2, 6 -> 3) == sparkSession.sql("SELECT transform_keys(map_from_arrays(array(1, 2, 3), array(1, 2, 3)), _lambda_(plus(_('int'), _('int')))) as res").as[Map[Int, Int]].head())
 
       // > SELECT _FUNC_(map_from_arrays(array(1, 2, 3), array(1, 2, 3)), (k, v) -> v + 1);
       //       {1:2,2:3,3:4}
       //      > SELECT _FUNC_(map_from_arrays(array(1, 2, 3), array(1, 2, 3)), (k, v) -> k + v);
       //       {1:2,2:4,3:6}
-      assert(Map(1 -> 2, 2 -> 3, 3 -> 4) == sparkSession.sql("SELECT transform_values(map_from_arrays(array(1, 2, 3), array(1, 2, 3)), _lambda_(drop2nd(plus(_('int'), 1),_('int'), _('int')))) as res").as[Map[Int, Int]].head)
-      assert(Map(1 -> 2, 2 -> 4, 3 -> 6) == sparkSession.sql("SELECT transform_values(map_from_arrays(array(1, 2, 3), array(1, 2, 3)), _lambda_(plus(_('int'), _('int')))) as res").as[Map[Int, Int]].head)
+      assert(Map(1 -> 2, 2 -> 3, 3 -> 4) == sparkSession.sql("SELECT transform_values(map_from_arrays(array(1, 2, 3), array(1, 2, 3)), _lambda_(drop2nd(plus(_('int'), 1),_('int'), _('int')))) as res").as[Map[Int, Int]].head())
+      assert(Map(1 -> 2, 2 -> 4, 3 -> 6) == sparkSession.sql("SELECT transform_values(map_from_arrays(array(1, 2, 3), array(1, 2, 3)), _lambda_(plus(_('int'), _('int')))) as res").as[Map[Int, Int]].head())
     }
 
-    not2_4 {
-      // > SELECT _FUNC_(map(1, 'a', 2, 'b'), map(1, 'x', 2, 'y'), (k, v1, v2) -> concat(v1, v2));
-      //       {1:"ax",2:"by"}
-      // map_zip_with
-      assert(Map(1 -> "ax", 2 -> "by") == sparkSession.sql("SELECT map_zip_with(map(1, 'a', 2, 'b'), map(1, 'x', 2, 'y'), _lambda_(dropNConcat(_('int'), _('string'), _('string')))) as res").as[Map[Int, String]].head)
-    }
+    // > SELECT _FUNC_(map(1, 'a', 2, 'b'), map(1, 'x', 2, 'y'), (k, v1, v2) -> concat(v1, v2));
+    //       {1:"ax",2:"by"}
+    // map_zip_with
+    assert(Map(1 -> "ax", 2 -> "by") == sparkSession.sql("SELECT map_zip_with(map(1, 'a', 2, 'b'), map(1, 'x', 2, 'y'), _lambda_(dropNConcat(_('int'), _('string'), _('string')))) as res").as[Map[Int, String]].head())
 
 
-  //> SELECT _FUNC_(array(1, 2), array(3, 4), (x, y) -> x + y);
+    //> SELECT _FUNC_(array(1, 2), array(3, 4), (x, y) -> x + y);
     //       [4,6]
-    assert(Seq(4,6) == sparkSession.sql("SELECT zip_With(array(1, 2), array(3, 4), _lambda_(plus(_('int'), _('int')))) as res").as[Seq[Int]].head)
-  } } }
+    assert(Seq(4,6) == sparkSession.sql("SELECT zip_With(array(1, 2), array(3, 4), _lambda_(plus(_('int'), _('int')))) as res").as[Seq[Int]].head())
+  }
 
-  test("testHOFFunForwardDropin") { evalCodeGensNoResolve { funNRewrites {
+  def doTestHOFFunForwardDropin(): Unit = {
     val plus = LambdaFunction("plus", "(a, b, c) -> a + b", Id(1, 2))
     val funF = LambdaFunction("funf", "f -> aggregate(array(1, 2, 3), 0, _lambda_(f) )", Id(1, 2)) // ignore the params but keep the shape
     registerLambdaFunctions(Seq(plus, funF))
 
     val s = sparkSession
     import s.implicits._
-    assert(9 == sparkSession.sql("SELECT funf(plus(_('int'), 3, _('int'))) as res").as[Int].head)
-  } } }
+    assert(9 == sparkSession.sql("SELECT funf(plus(_('int'), 3, _('int'))) as res").as[Int].head())
+  }
 
-  test("testPlaceHolderNullableOverrides") { classicOnly { evalCodeGensNoResolve { funNRewrites {
-    val resolve = TestUtils.resolveBuiltinOrTempFunction(sparkSession) _
-    // as these cannot be tested as part of runtimes with aggregate bug resolve is used to directly test
-    val actualDefaultCall = resolve("_", Seq(expression(lit("int")))).get
-    assert(actualDefaultCall.nullable)
-    val actualOverriddenCall = resolve("_", Seq(expression(lit("int")), expression(lit(false)))).get
-    assert(!actualOverriddenCall.nullable)
-
-    // this one is actually passed around as a lambda so it cannot be re-written.
+  def doTestCallFunForward(): Unit = {
     val plus = LambdaFunction("plus", "(a, b) -> a + b", Id(1,2))
-    // this isn't actually tested for false or true as the top level binding overrides it, but it's tested to prove coverage
-    val test = LambdaFunction("plusTest", "(f, a) -> callFun(callFun(f, _('long', false), 1), a)", Id(3,2))
-    val test2 = LambdaFunction("plusTest2", "(f, a) -> callFun(callFun(f, _('long'), 1), a)", Id(3,2))
-    registerLambdaFunctions(Seq(plus, test, test2))
+    val opargs = LambdaFunction("opargs",
+      """(op, a, b) ->
+        /* comments */
+        -- comments
 
-    var shouldBeNull = sparkSession.sql("select plusTest(plus(_(), _()), null)").head
-    assert(shouldBeNull.isNullAt(0))
-    shouldBeNull = sparkSession.sql("select plusTest(plus(_(), _('int', false)), null)").head
-    assert(shouldBeNull.isNullAt(0))
-    val control = sparkSession.sql("select plusTest(plus(_(), _()), 1L)").head
-    assert(!control.isNullAt(0))
-    assert(control.get(0) == 2)
-    val control2 = sparkSession.sql("select plusTest2(plus(_(), _()), 1L)").head
-    assert(!control2.isNullAt(0))
-    assert(control2.get(0) == 2)
-  } } } }
-
-  test("testCallFunForward") { evalCodeGensNoResolve { funNRewrites {
-    val plus = LambdaFunction("plus", "(a, b) -> a + b", Id(1,2))
-    val opargs = LambdaFunction("opargs", "(op, a, b) -> callFun(op, a, b)", Id(1,2))
+        callFun(op, a, b)
+        -- comments
+        """.stripMargin, Id(1,2))
     // this is utter nonsense -
     val test = LambdaFunction("plusTest", "(f, a) -> callFun(callFun(f, _(), 1L), a)", Id(3,2))
     registerLambdaFunctions(Seq(plus, test, opargs))
 
-    val control = sparkSession.sql("select plusTest(opargs(plus(_(), _()), _(), _()), 1L)").head
+    val control = sparkSession.sql("select plusTest(opargs(plus(_(), _()), _(), _()), 1L)").head()
     assert(!control.isNullAt(0))
     assert(control.get(0) == 2)
-  } } }
+  }
+
+}
+
+
+
+class UserLambdaFunctionTest extends UserLambdaFunctionTestBase {
+
+  test("nullInParam") {
+    doNullInParam()
+  }
+
+  test("lambdaRuleTest") {
+    doLambdaRuleTest()
+  }
+
+  test("lambdaNoParamsRuleTest") {
+    doLambdaNoParamsRuleTest()
+  }
+
+  test("lambdaMultiParamLengthExpandedTest") {
+    doLambdaMultiParamLengthExpandedTest()
+  }
+
+  test("lambdaMultiParamLengthSelfReferenceTest") {
+    doLambdaMultiParamLengthSelfReferenceTest()
+  }
+
+  test("lambdaMultiParamDupeLengthTest") {
+    doLambdaMultiParamDupeLengthTest()
+  }
+
+  test("lambdaMissing0LengthTest") {
+    doLambdaMissing0LengthTest()
+  }
+
+  test("nestedLambdaRuleTest") {
+    doNestedLambdaRuleTest()
+  }
+
+  test("globalLambdasTest") {
+    doGlobalLambdasTest()
+  }
+
+  /**
+   * test's functions as params to lambdas, partial application cases are also
+   * tested in the AggregatesTest - impl needs interpreted as the type of FunForward really isn't long
+   */
+  test("hofTest") {
+    doHofTest()
+  }
+
+  test("deepPartialTest") {
+    doDeepPartialTest()
+  }
+
+  test("returnLambdaTest") {
+    doReturnLambdaTest()
+  }
+
+  test("testHOFLambdaDropin") {
+    doHOFLambdaDropin()
+  }
+
+  /**
+   * Although Dropin tests aggregate and combinations to prove overall behaviour, in light of the issue detected in DBRs
+   * this tests all the other in built hofs.  Examples taken from the usage guide annotations
+   */
+  test("HOFDropins") {
+    doTestHOFDropins()
+  }
+
+  test("HOFFunForwardDropin") {
+    doTestHOFFunForwardDropin()
+  }
+
+  test("CallFunForward") {
+    doTestCallFunForward()
+  }
 }

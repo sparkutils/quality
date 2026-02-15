@@ -11,7 +11,7 @@ import com.sparkutils.testing.{ClassicOnly, ConnectionType, Sessions, Testing}
 import org.apache.avro.SchemaBuilder
 import org.apache.avro.generic.{GenericData, GenericDatumWriter, GenericRecord}
 import org.apache.avro.io.EncoderFactory
-import org.apache.spark.sql.{Encoders, ClassicQualitySparkUtils, ShimUtils, SparkSession}
+import org.apache.spark.sql.{ClassicQualitySparkUtils, Encoders, ShimUtils, SparkSession}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode}
@@ -188,17 +188,21 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
   def forceProcessors[T](thunk: => T): T = {
     // use projections
     forceMutable = true
-    var r = thunk
-    // only do in compile
-    if (inCodegen) {
-      // use mutable projection compilation approach
-      forceMutable = false
-      forceVarCompilation = false
+    var r: T = null.asInstanceOf[T]
+    // disabled optimisations in the tests, force it anyway
+    funNRewrites {
       r = thunk
-      // use current vars
-      forceMutable = false
-      forceVarCompilation = true
-      r = thunk
+      // only do in compile
+      if (inCodegen) {
+        // use mutable projection compilation approach
+        forceMutable = false
+        forceVarCompilation = false
+        r = thunk
+        // use current vars
+        forceMutable = false
+        forceVarCompilation = true
+        r = thunk
+      }
     }
     r
   }
@@ -218,7 +222,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     StructField("subcode", IntegerType, nullable = false)
   ))
 
-  test("simple projection") { not2_4 { not_Cluster { evalCodeGensNoResolve {
+  test("simple projection") { not_Cluster { evalCodeGensNoResolve {
     def map(seq: Seq[TestOn], projection: Projection, resi: Int): Seq[Int] = seq.map{ s =>
       val i = InternalRow(UTF8String.fromString(s.product), UTF8String.fromString(s.account), s.subcode)
       val r = projection(i)
@@ -243,9 +247,9 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     ro shouldBe Seq(PassedInt, PassedInt, PassedInt, FailedInt, PassedInt, FailedInt)
     val rc = map(testData, cprocessor, exprs.length - 2)
     rc shouldBe Seq(PassedInt, PassedInt, PassedInt, FailedInt, PassedInt, FailedInt)
-  } } } }
+  } } }
 
-  test("encoder output projection") { not2_4 { not_Cluster { evalCodeGensNoResolve {
+  test("encoder output projection") { not_Cluster { evalCodeGensNoResolve {
     val enc = ClassicQualitySparkUtils.rowProcessor(Seq(ruleSuiteDeserializer), inCodegen).asInstanceOf[MutableProjection]
     enc.target(InternalRow(null))
 
@@ -273,13 +277,13 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     ro.map(_.overallResult) shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
     val rc = map(testData, cprocessor, exprs.length - 1)
     rc.map(_.overallResult)  shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
-  } } } }
+  } } }
 
   def map[I,O](seq: Seq[I], process: Processor[I, O]): Seq[O] = seq.map{ s =>
     process(s)
   }
 
-  test("via ProcessFactory") { not2_4 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+  test("via ProcessFactory") { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     val s = sparkSession
     import s.implicits._
 
@@ -290,14 +294,14 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     ))
 
     val processor = ProcessFunctions.dqFactory[TestOn](rs, inCodegen, forceMutable = forceMutable,
-      forceVarCompilation = forceVarCompilation).instance
+      forceVarCompilation = forceVarCompilation, enableQualityOptimisations = false).instance
 
     val rc = map(testData, processor)
     rc.map(_.overallResult)  shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
     rc.map(_.getRuleSetResults.asScala.flatMap(_._2.getRuleResults.asScala)) shouldBe rc.map(_.ruleSetResults.flatMap(_._2.ruleResults))
-  } } } } }
+  } } } }
 
-  test("via ProcessFactory rule details") { not2_4 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+  test("via ProcessFactory rule details") { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     val s = sparkSession
     import s.implicits._
 
@@ -308,14 +312,14 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     ))
 
     val processor = ProcessFunctions.dqDetailsFactory[TestOn](rs, inCodegen, forceMutable = forceMutable,
-      forceVarCompilation = forceVarCompilation).instance
+      forceVarCompilation = forceVarCompilation, enableQualityOptimisations = false).instance
 
     val rc = map(testData, processor)
     rc.map(_._1) shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
     rc.map(_._2.getRuleSetResults.asScala.toMap) shouldBe rc.map(_._2.ruleSetResults)
-  } } } } }
+  } } } }
 
-  test("via ProcessFactory rule lazy details") { not2_4 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+  test("via ProcessFactory rule lazy details") { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     val s = sparkSession
     import s.implicits._
 
@@ -326,15 +330,15 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     ))
 
     val processor = ProcessFunctions.lazyDQDetailsFactory[TestOn](rs, inCodegen, forceMutable = forceMutable,
-      forceVarCompilation = forceVarCompilation).instance
+      forceVarCompilation = forceVarCompilation, enableQualityOptimisations = false).instance
 
     val rc = map(testData, processor)
     rc.map(_._1) shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
     rc.map(_._2.ruleSuiteResultDetails.getRuleSetResults.asScala.toMap) shouldBe rc.map(_._2.ruleSuiteResultDetails.ruleSetResults)
     rc.map(_._2.ruleSuiteResultDetails.id) shouldBe Seq.fill(6)(Id(1,1))
-  } } } } }
+  } } } }
 
-  test("via ProcessFactory rule lazy details defaultIfPassed") { not2_4 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+  test("via ProcessFactory rule lazy details defaultIfPassed") { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     val s = sparkSession
     import s.implicits._
 
@@ -347,16 +351,16 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     val default = RuleSuiteResultDetails.ifAllPassed(rs)
 
     val processor = ProcessFunctions.lazyDQDetailsFactory[TestOn](rs, inCodegen, forceMutable = forceMutable,
-      forceVarCompilation = forceVarCompilation, defaultIfPassed = Some(default)).instance
+      forceVarCompilation = forceVarCompilation, defaultIfPassed = Some(default), enableQualityOptimisations = false).instance
 
     val rc = map(testData, processor)
     rc.map(_._1) shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
     rc.map(_._2.ruleSuiteResultDetails.id) shouldBe Seq.fill(6)(Id(1,1))
     (rc.take(3) :+ rc(4) ).map(_._2.ruleSuiteResultDetails) shouldBe Seq.fill(4)(default)
     Seq(rc(3), rc(5)).map(_._2.ruleSuiteResultDetails) shouldNot be (Seq.fill(2)(default))
-  } } } } }
+  } } } }
 
-  test("via ProcessFactory rule engine") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+  test("via ProcessFactory rule engine") { not3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     val s = sparkSession
     import s.implicits._
 
@@ -387,7 +391,8 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     import com.sparkutils.quality.implicits._
 
     val processor = ProcessFunctions.ruleEngineFactory[TestOn, Seq[NewPosting]](ruleSuite,
-      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation).instance
+      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation,
+      enableQualityOptimisations = false).instance
 
     val res = map(testData, processor)
 
@@ -414,7 +419,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
   } } } } }
 
 
-  test("via ProcessFactory rule engine lazy") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+  test("via ProcessFactory rule engine lazy") { not3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     val s = sparkSession
     import s.implicits._
 
@@ -443,7 +448,8 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
       )))
 
     val processor = ProcessFunctions.lazyRuleEngineFactory[TestOn, Seq[NewPosting]](ruleSuite,
-      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation).instance
+      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation,
+      enableQualityOptimisations = false).instance
 
     val res = map(testData, processor)
 
@@ -472,7 +478,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     res(5).salientRule shouldBe Some(SalientRule(Id(1,1),Id(50,1),Id(200,1)))
   } } } } }
 
-  test("via ProcessFactory rule engine T array") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+  test("via ProcessFactory rule engine T array") { not3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     val s = sparkSession
     import s.implicits._
 
@@ -501,7 +507,8 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
       )))
 
     val processor = ProcessFunctions.ruleEngineFactoryT[TestOn, Seq[NewPosting]](ruleSuite,
-      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation).instance
+      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation,
+      enableQualityOptimisations = false).instance
 
     val res = map(testData, processor)
 
@@ -527,7 +534,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     res(5).salientRule shouldBe Some(SalientRule(Id(1,1),Id(50,1),Id(200,1)))
   } } } } }
 
-  test("via ProcessFactory rule engine T product") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+  test("via ProcessFactory rule engine T product") { not3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     val s = sparkSession
     import s.implicits._
 
@@ -556,7 +563,8 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
       )))
 
     val processor = ProcessFunctions.ruleEngineFactoryT[TestOn, NewPosting](ruleSuite,
-      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation).instance
+      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation,
+      enableQualityOptimisations = false).instance
 
     val res = map(testData, processor)
 
@@ -583,7 +591,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
   } } } } }
 
 
-  test("via ProcessFactory rule engine product") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+  test("via ProcessFactory rule engine product") { not3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     val s = sparkSession
     import s.implicits._
 
@@ -614,7 +622,8 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     import com.sparkutils.quality.implicits._
 
     val processor = ProcessFunctions.ruleEngineFactory[TestOn, NewPosting](ruleSuite,
-      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation).instance
+      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation,
+      enableQualityOptimisations = false).instance
 
     val res = map(testData, processor)
 
@@ -640,7 +649,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     res(5).salientRule shouldBe Some(SalientRule(Id(1,1),Id(50,1),Id(200,1)))
   } } } } }
 
-  test("via ProcessFactory rule engine T bean") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+  test("via ProcessFactory rule engine T bean") { not3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     val s = sparkSession
     import s.implicits._
 
@@ -671,7 +680,8 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     implicit val beany = Encoders.bean(classOf[NewPostingBean])
 
     val processor = ProcessFunctions.ruleEngineFactoryT[TestOn, NewPostingBean](ruleSuite,
-      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation).instance
+      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation,
+      enableQualityOptimisations = false).instance
 
     val res = map(testData, processor)
 
@@ -698,7 +708,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
   } } } } }
 
 
-  test("via ProcessFactory rule engine T string") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+  test("via ProcessFactory rule engine T string") { not3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     val s = sparkSession
     import s.implicits._
 
@@ -722,7 +732,8 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
       )))
 
     val processor = ProcessFunctions.ruleEngineFactoryT[TestOn, String](ruleSuite,
-      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation).instance
+      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation,
+      enableQualityOptimisations = false).instance
 
     val res = map(testData, processor)
 
@@ -748,7 +759,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     res(5).salientRule shouldBe Some(SalientRule(Id(1,1),Id(50,1),Id(200,1)))
   } } } } }
 
-  test("via ProcessFactory rule engine T string debug") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+  test("via ProcessFactory rule engine T string debug") { not3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     val s = sparkSession
     import s.implicits._
 
@@ -772,7 +783,8 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
       )))
 
     val processor = ProcessFunctions.ruleEngineFactoryDebugT[TestOn, String](ruleSuite,
-      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation).instance
+      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation,
+      enableQualityOptimisations = false).instance
 
     val res = map(testData, processor)
 
@@ -796,7 +808,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
 
   } } } } }
 
-  test("via ProcessFactory rule engine T map") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+  test("via ProcessFactory rule engine T map") { not3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     val s = sparkSession
     import s.implicits._
 
@@ -820,7 +832,8 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
       )))
 
     val processor = ProcessFunctions.ruleEngineFactoryT[TestOn, Map[String,String]](ruleSuite,
-      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation).instance
+      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation,
+      enableQualityOptimisations = false).instance
 
     val res = map(testData, processor)
 
@@ -849,7 +862,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     res(5).salientRule shouldBe Some(SalientRule(Id(1,1),Id(50,1),Id(200,1)))
   } } } } }
 
-  test("via ProcessFactory folder engine T product") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+  test("via ProcessFactory folder engine T product") { not3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     val s = sparkSession
     import s.implicits._
 
@@ -886,7 +899,8 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
       )))
 
     val processor = ProcessFunctions.ruleFolderFactoryT[TestOn, TestOn](ruleSuite, DataType.fromDDL(DDL).asInstanceOf[StructType],
-      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation).instance
+      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation,
+      enableQualityOptimisations = false).instance
 
     val res = map(testData, processor)
 
@@ -908,7 +922,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     res(5).result shouldBe Some(TestOn("from", "4200_fruit", 60))
   } } } } }
 
-  test("via ProcessFactory folder engine T struct product debug no fields in outputs or filters") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+  test("via ProcessFactory folder engine T struct product debug no fields in outputs or filters") { not3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     val s = sparkSession
     import s.implicits._
 
@@ -929,7 +943,8 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
 
     val processor = ProcessFunctions.ruleFolderFactoryWithStructStarterDebugT[TestOn, TestOn](ruleSuite,
       Seq(("account", col("account")), ("product", lit("prod")), ("subcode", lit(1))), DataType.fromDDL(DDL).asInstanceOf[StructType],
-      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation).instance
+      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation,
+      enableQualityOptimisations = false).instance
 
     val res = map(testData, processor)
 
@@ -938,7 +953,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
   } } } } }
 
 
-  test("via ProcessFactory folder engine product lazy") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+  test("via ProcessFactory folder engine product lazy") { not3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     val s = sparkSession
     import s.implicits._
 
@@ -970,7 +985,8 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
       )))
 
     val processor = ProcessFunctions.lazyRuleFolderFactory[TestOn, TestOn](ruleSuite, DataType.fromDDL(DDL).asInstanceOf[StructType],
-      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation).instance
+      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation,
+      enableQualityOptimisations = false).instance
 
     val res = map(testData, processor)
 
@@ -993,7 +1009,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
   } } } } }
 
 
-  test("via ProcessFactory folder engine T bean extra output fields") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+  test("via ProcessFactory folder engine T bean extra output fields") { not3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     val s = sparkSession
     import s.implicits._
 
@@ -1029,7 +1045,8 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     val processor = ProcessFunctions.ruleFolderFactoryWithStructStarterT[TestOn, NewPostingBean](ruleSuite,
       Seq(("transfer_type", lit("dummy")), ("account", col("account")), ("product", col("product")), ("subcode", col("subcode"))),
       DataType.fromDDL(DDL).asInstanceOf[StructType],
-      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation).instance
+      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation,
+      enableQualityOptimisations = false).instance
 
     val res = map(testData, processor)
 
@@ -1051,7 +1068,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
   } } } } }
 
 
-  test("via ProcessFactory folder engine lazy bean extra output fields") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+  test("via ProcessFactory folder engine lazy bean extra output fields") { not3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     val s = sparkSession
     import s.implicits._
 
@@ -1087,7 +1104,8 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     val processor = ProcessFunctions.lazyRuleFolderFactoryWithStructStarter[TestOn, NewPostingBean](ruleSuite,
       Seq(("transfer_type", lit("dummy")), ("account", col("account")), ("product", col("product")), ("subcode", col("subcode"))),
       DataType.fromDDL(DDL).asInstanceOf[StructType],
-      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation).instance
+      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation,
+      enableQualityOptimisations = false).instance
 
     val res = map(testData, processor)
 
@@ -1109,7 +1127,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
   } } } } }
 
 
-  test("via ProcessFactory expression T ") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+  test("via ProcessFactory expression T ") { not3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     val s = sparkSession
     import s.implicits._
 
@@ -1122,7 +1140,8 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     implicit val bool = Encoders.BOOLEAN
 
     val processor = ProcessFunctions.expressionRunnerFactoryT[TestOn, Boolean](rs, BooleanType,
-      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation).instance
+      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation,
+      enableQualityOptimisations = false).instance
 
     val res = map(testData, processor)
     res.map(_.getRuleSetResults.asScala) shouldBe res.map(_.ruleSetResults)
@@ -1156,7 +1175,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     )
   } } } } }
 
-  test("codegenfallback stateful handling on instance/setpartition") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+  test("codegenfallback stateful handling on instance/setpartition") { not3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     val s = sparkSession
     import s.implicits._
 
@@ -1172,7 +1191,8 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     StatefulTest.partitionCount = 0
 
     val processorF = ProcessFunctions.expressionRunnerFactoryT[TestOn, Int](rs, IntegerType,
-      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation)
+      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation,
+      enableQualityOptimisations = false)
 
     def testProcessor(processor: Processor[TestOn, GeneralExpressionsResult[Int]], expectedPartition: Int): Unit = {
       val res = map(testData, processor)
@@ -1193,7 +1213,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     StatefulTest.initCount should be >= 3
   } } } } }
 
-  test("codegenfallback stateful handling on instance/setpartition funn") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+  test("codegenfallback stateful handling on instance/setpartition funn") { not3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     val s = sparkSession
     import s.implicits._
 
@@ -1209,7 +1229,8 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     StatefulTest.partitionCount = 0
 
     val processorF = ProcessFunctions.expressionRunnerFactoryT[TestOn, Int](rs, IntegerType,
-      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation)
+      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation,
+      enableQualityOptimisations = false)
 
     def testProcessor(processor: Processor[TestOn, GeneralExpressionsResult[Int]], expectedPartition: Int): Unit =  {
       val res = map(testData, processor)
@@ -1231,7 +1252,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     StatefulTest.initCount should be >= 3
   } } } } }
 
-  test("codegenfallback stateful handling on instance/setpartition codegen") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+  test("codegenfallback stateful handling on instance/setpartition codegen") { not3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     val s = sparkSession
     import s.implicits._
 
@@ -1247,7 +1268,8 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     StatefulTest.partitionCount = 0
 
     val processorF = ProcessFunctions.expressionRunnerFactoryT[TestOn, Int](rs, IntegerType,
-      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation)
+      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation,
+      enableQualityOptimisations = false)
 
     def testProcessor(processor: Processor[TestOn, GeneralExpressionsResult[Int]], expectedPartition: Int): Unit =  {
       val res = map(testData, processor)
@@ -1279,7 +1301,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
   } } } } }
 
 
-  test("codegenfallback stateful handling on instance/setpartition codegen - forced copy") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+  test("codegenfallback stateful handling on instance/setpartition codegen - forced copy") { not3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     val s = sparkSession
     import s.implicits._
 
@@ -1297,7 +1319,8 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
       System.setProperty(Processors.forceCopyOverrideENV, "true")
 
       val processorF = ProcessFunctions.expressionRunnerFactoryT[TestOn, Int](rs, IntegerType,
-        compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation)
+        compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation,
+        enableQualityOptimisations = false)
 
       def testProcessor(processor: Processor[TestOn, GeneralExpressionsResult[Int]], expectedPartition: Int): Unit =  {
         val res = map(testData, processor)
@@ -1324,7 +1347,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     }
   } } } } }
 
-  test("codegenfallback stateful handling on instance/setpartition codegen funn") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+  test("codegenfallback stateful handling on instance/setpartition codegen funn") { not3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     val s = sparkSession
     import s.implicits._
 
@@ -1340,7 +1363,8 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     StatefulTest.partitionCount = 0
 
     val processorF = ProcessFunctions.expressionRunnerFactoryT[TestOn, Int](rs, IntegerType,
-      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation)
+      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation,
+      enableQualityOptimisations = false)
 
     def testProcessor(processor: Processor[TestOn, GeneralExpressionsResult[Int]], expectedPartition: Int): Unit =  {
       val res = map(testData, processor)
@@ -1372,7 +1396,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
   } } } } }
 
 
-  test("codegenfallback stateful handling on instance/setpartition codegen spark hof") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+  test("codegenfallback stateful handling on instance/setpartition codegen spark hof") { not3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     val s = sparkSession
     import s.implicits._
 
@@ -1388,7 +1412,8 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     StatefulTest.partitionCount = 0
 
     val processorF = ProcessFunctions.expressionRunnerFactoryT[TestOn, Int](rs, IntegerType,
-      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation)
+      compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation,
+      enableQualityOptimisations = false)
 
     def testProcessor(processor: Processor[TestOn, GeneralExpressionsResult[Int]], expectedPartition: Int): Unit =  {
       val res = map(testData, processor)
@@ -1412,7 +1437,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
   } } } } }
 
 
-  test("codegenfallback stateful handling on instance/setpartition codegen spark hof - forced no copy") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+  test("codegenfallback stateful handling on instance/setpartition codegen spark hof - forced no copy") { not3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     val s = sparkSession
     import s.implicits._
 
@@ -1431,7 +1456,8 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
       System.setProperty(Processors.forceCopyOverrideENV, "false")
 
       val processorF = ProcessFunctions.expressionRunnerFactoryT[TestOn, Int](rs, IntegerType,
-        compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation)
+        compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation,
+        enableQualityOptimisations = false)
 
       def testProcessor(processor: Processor[TestOn, GeneralExpressionsResult[Int]], expectedPartition: Int): Unit =  {
         val res = map(testData, processor)
@@ -1493,7 +1519,8 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
       System.setProperty("quality.lambdaHandlers", s"${classOf[ArrayTransform].getName}=${classOf[ArrayTransformHandler].getName}")
 
       val processorF = ProcessFunctions.expressionRunnerFactoryT[TestOn, Int](rs, IntegerType,
-        compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation)
+        compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation,
+        enableQualityOptimisations = false)
 
       def testProcessor(processor: Processor[TestOn, GeneralExpressionsResult[Int]], expectedPartition: Int): Unit =  {
         val res = map(testData, processor)
@@ -1534,14 +1561,14 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
 
   }
 
-  test("codegenfallback stateful handling on instance/setpartition codegen spark hof with compilation handler") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+  test("codegenfallback stateful handling on instance/setpartition codegen spark hof with compilation handler") { not3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     // trigger FunNRewrite to ignore via use as lambda
     handlerTest("/* USED_AS_LAMBDA */")
     // should still work because it's got a handler
     handlerTest("")
   } } } } }
 
-  test("codegenfallback stateful handling on instance/setpartition lazy") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+  test("codegenfallback stateful handling on instance/setpartition lazy") { not3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     val s = sparkSession
     import s.implicits._
 
@@ -1564,10 +1591,10 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
 
     val processorF = ProcessFunctions.lazyDQDetailsFactory[TestOn](rs,
       compile = inCodegen, forceMutable = forceMutable, forceVarCompilation = forceVarCompilation,
-      defaultIfPassed = Some(allGood)
+      defaultIfPassed = Some(allGood), enableQualityOptimisations = false
     )
 
-    def testProcessor(processor: Processor[TestOn, (RuleResult, LazyRuleSuiteResultDetails)]) {
+    def testProcessor(processor: Processor[TestOn, (RuleResult, LazyRuleSuiteResultDetails)]): Unit = {
       val res = map(testData, processor)
       res.map(_._1) shouldBe Seq.fill(6)(Passed)
       res.map(_._2.ruleSuiteResultDetails) shouldBe Seq.fill(6)(allGood)
@@ -1586,7 +1613,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     StatefulTest.initCount should be >= 4
   } } } } }
 
-  test("via ProcessFactory expression yaml") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+  test("via ProcessFactory expression yaml") { not3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     val s = sparkSession
     import s.implicits._
 
@@ -1597,7 +1624,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     ))))
 
     val processor = ProcessFunctions.expressionYamlRunnerFactory[TestOn](rs, compile = inCodegen, forceMutable = forceMutable,
-      forceVarCompilation = forceVarCompilation).instance
+      forceVarCompilation = forceVarCompilation, enableQualityOptimisations = false).instance
 
     val res = map(testData, processor)
 
@@ -1635,7 +1662,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     )
   } } } } }
 
-  test("via ProcessFactory expression yaml noddl") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+  test("via ProcessFactory expression yaml noddl") { not3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     val s = sparkSession
     import s.implicits._
 
@@ -1646,7 +1673,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     ))))
 
     val processor = ProcessFunctions.expressionYamlNoDDLRunnerFactory[TestOn](rs, compile = inCodegen, forceMutable = forceMutable,
-      forceVarCompilation = forceVarCompilation).instance
+      forceVarCompilation = forceVarCompilation, enableQualityOptimisations = false).instance
 
     val res = map(testData, processor)
 
@@ -1681,7 +1708,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     )
   } } } } }
 
-  test("via ProcessFactory expression yaml noddl no fields") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+  test("via ProcessFactory expression yaml noddl no fields") { not3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     val s = sparkSession
     import s.implicits._
 
@@ -1692,7 +1719,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     ))))
 
     val processor = ProcessFunctions.expressionYamlNoDDLRunnerFactory[TestOn](rs, compile = inCodegen, forceMutable = forceMutable,
-      forceVarCompilation = forceVarCompilation).instance
+      forceVarCompilation = forceVarCompilation, enableQualityOptimisations = false).instance
 
     val res = map(testData, processor)
 
@@ -1706,11 +1733,11 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
   } } } } }
 
 
-  test("prove processors can't have subqueries") { not2_4_or_3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+  test("prove processors can't have subqueries") { not3_0_or_3_1 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     val s = sparkSession
     import s.implicits._
 
-    testData.toDS.createOrReplaceTempView("testData")
+    testData.toDS().createOrReplaceTempView("testData")
 
     val rs = RuleSuite(Id(10, 2), Seq(RuleSet(Id(20, 1), Seq(
       Rule(Id(30, 3), ExpressionRule("select max(account) from testData t where t.account = account")),
@@ -1720,12 +1747,12 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
 
     val e = intercept[QualityException] {
       ProcessFunctions.expressionYamlNoDDLRunnerFactory[TestOn](rs, compile = inCodegen, forceMutable = forceMutable,
-        forceVarCompilation = forceVarCompilation).instance
+        forceVarCompilation = forceVarCompilation, enableQualityOptimisations = false).instance
     }
     e.msg shouldBe NO_QUERY_PLANS
   } } } } }
 
-  test("via ProcessFactory with Avro inputs") { not2_4 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+  test("via ProcessFactory with Avro inputs") { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     val testOnAvro = SchemaBuilder.record("testOnAvro")
       .namespace("com.teston")
       .fields()
@@ -1762,16 +1789,16 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     val processor = ProcessFunctions.dqFactory[Array[Byte]](rs, inCodegen, extraProjection =
       _.withColumn("vals", org.apache.spark.sql.avro.functions.from_avro(col("value"), testOnAvro.toString)).
         select("vals.*"), forceMutable = forceMutable,
-      forceVarCompilation = forceVarCompilation).instance
+      forceVarCompilation = forceVarCompilation, enableQualityOptimisations = false).instance
 
     val ro = map(avroTestData, processor)
     ro.map(_.overallResult) shouldBe Seq(Passed, Passed, Passed, Failed, Passed, Failed)
-  } } } } }
+  } } } }
 
-  test("via ProcessFactory map's") { not2_4 { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+  test("via ProcessFactory map's") { not_Cluster { evalCodeGensNoResolve { forceProcessors {
     val s = sparkSession
     import s.implicits._
-
+    import com.sparkutils.quality.implicits._
     val theMap = Seq((40, true),
       (50, false),
       (60, true)
@@ -1792,10 +1819,112 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     ))
 
     val processor = ProcessFunctions.dqFactory[TestOn](rs, inCodegen, forceMutable = forceMutable,
-      forceVarCompilation = forceVarCompilation).instance
+      forceVarCompilation = forceVarCompilation, enableQualityOptimisations = false).instance
 
     val rc = map(testData, processor)
     rc.map(_.overallResult)  shouldBe Seq(Failed, Passed, Failed, Passed, Passed, Failed)
+  } } } }
+
+  def collectBase() = {
+    val testData=Seq(
+      TestOn("edt", "4201", 40),
+      TestOn("otc", "5201", 40),
+      TestOn("fi", "4251", 50),
+      TestOn("fx", "4206", 90),
+      TestOn("fxotc", "4201", 40),
+      TestOn("eqotc", "4201", 60)
+    )
+
+    def irules(expressionRules: Seq[(ExpressionRule, RunOnPassProcessor)]) = {
+      registerLambdaFunctions(Seq(
+        LambdaFunction("account_row", "(transfer_type, account) -> named_struct('transfer_type', transfer_type, 'account', account, 'product', product, 'subcode', subcode)", Id(123, 23)),
+        LambdaFunction("account_row", "transfer_type -> account_row(transfer_type, account)", Id(123, 24)),
+        LambdaFunction("subcodeF", "(transfer_type, sub) -> account_row(transfer_type, string(sub))", Id(123, 25))
+      ))
+      val ruleSuite: RuleSuite = CollectRunnerTestUtils.buildRules(expressionRules)
+      ruleSuite
+    }
+
+    val rer = irules(
+      Seq(
+        (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1001, Id(1044,1),
+          OutputExpression("array(account_row('whoknows', 'money'))"))),
+        (ExpressionRule("product = 'fred'"), RunOnPassProcessor(1001, Id(1044,1),
+          OutputExpression("array(account_row('whoknows', 'money'))"))),
+
+        (ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(995, Id(1040,1),
+          OutputExpression("array(subcodeF('from', 1234), account_row('to'))"))),
+        (ExpressionRule("product like '%fx%'"), RunOnPassProcessor(996, Id(1042,1),
+          OutputExpression("array(account_row('to'), account_row('from'))"))),
+        (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1000, Id(1043,1),
+          OutputExpression(s"array(account_row('from'), account_row('to'))")))
+
+      )
+    )
+
+    def verify(got: Seq[NewPosting], expected: Seq[NewPosting]): Unit = {
+      val sortedGot = got.sortBy( NewPosting.unapply )
+      val sortedExp = expected.sortBy( NewPosting.unapply ).toVector
+      sortedGot shouldBe sortedExp
+    }
+
+    val expected = Seq(
+      NewPosting("from","1234","edt", 40),
+      NewPosting("whoknows","money","eqotc", 60), // our extra eqotc case
+      NewPosting("to","4206","fx", 90),
+      NewPosting("from","4206","fx", 90),
+      NewPosting("to","4201","edt", 40),
+      NewPosting("from","4201","eqotc", 60),
+      NewPosting("to","4201","eqotc", 60),
+      NewPosting("to","4201","fxotc", 40),
+      NewPosting("from","4201","fxotc", 40)
+    )
+
+    (verify(_, expected), rer, testData)
+  }
+
+  test("collect runnner processsor") { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+    val (verify, rer, testData) = collectBase()
+
+    import frameless.TypedExpressionEncoder
+    import com.sparkutils.quality.implicits._
+    implicit val enc = TypedExpressionEncoder[TestOn]
+    implicit val enc2 = TypedExpressionEncoder[NewPosting]
+
+    val processor = ProcessFunctions.collectorFactory[TestOn, NewPosting](rer,
+      compile = inCodegen, forceMutable = forceMutable,
+      forceVarCompilation = forceVarCompilation, enableQualityOptimisations = false).instance
+
+    val rc = map(testData, processor)
+    verify(rc.flatMap(_.result).flatten)
+  } } } }
+
+  test("collect runnner processsor bean T") { v4_0_and_above { not_Cluster { evalCodeGensNoResolve { forceProcessors {
+    val (verify, rer, testData) = collectBase()
+
+    import frameless.TypedExpressionEncoder
+    import com.sparkutils.quality.implicits._
+    implicit val enc = TypedExpressionEncoder[TestOn]
+    implicit val from = com.sparkutils.quality.impl.util.Encoding.fromNormalEncoder(
+      Encoders.bean(classOf[NewPostingBean])
+    )
+    implicit val enc2 = TypedExpressionEncoder[NewPostingBean]
+
+    val processor = ProcessFunctions.collectorFactoryT[TestOn, NewPostingBean](rer,
+      resultDataType = Some(
+        ArrayType(StructType(Seq(
+          StructField("transfer_type", StringType),
+          StructField("account", StringType),
+          StructField("product", StringType),
+          StructField("subcode", IntegerType)
+        )))
+      ),
+      compile = inCodegen, forceMutable = forceMutable,
+      forceVarCompilation = forceVarCompilation, enableQualityOptimisations = false).instance
+
+    val rc = map(testData, processor)
+    verify(rc.flatMap(_.result).flatten.map(_.toNewPosting()))
+
   } } } } }
 
 }

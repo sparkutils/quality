@@ -1,22 +1,14 @@
 package com.sparkutils.quality.impl
 
+import com.sparkutils.quality
 import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.impl.RuleRegistrationFunctions.{defaultParseTypes, getString}
-import com.sparkutils.quality.impl.util.VersionSpecificSerializingImports.uniqueName
-import com.sparkutils.quality.{Id, RuleSuite, validate}
-import org.apache.spark.sql.catalyst.analysis.FakeSystemCatalog
-import org.apache.spark.sql.catalyst.catalog.{TempVariableManager, VariableDefinition}
-import org.apache.spark.sql.catalyst.expressions.{Expression, Literal, VariableReference}
-import org.apache.spark.sql.catalyst.util.AttributeNameParser
-import org.apache.spark.sql.connector.catalog.Identifier
-import org.apache.spark.sql.{Column, ShimUtils, SparkSession}
-import org.apache.spark.sql.functions.lit
-import org.apache.spark.sql.internal.SQLConf
+import com.sparkutils.quality.{Id, NoOpRunOnPassProcessor, RuleSuite}
+import org.apache.spark.sql.catalyst.expressions.{Expression, Literal}
+import org.apache.spark.sql.ShimUtils
 import org.apache.spark.sql.types.{BinaryType, StructType}
 
-import java.util.Locale
-
-object VariableProcessIfMissing {
+object VariableProcessIfMissingFunctions {
 
   val process_if_attribute_missing_name = "process_if_attribute_missing"
 
@@ -31,10 +23,10 @@ object VariableProcessIfMissing {
     // unlike classic rulesuite calls these will still have rule text
     ruleSuite.ruleSets.foreach(ruleSet => ruleSet.rules.map { rule =>
       rule.expression match {
-        case h: HasRuleText =>
+        case h: quality.HasRuleText =>
           checkRuleSuiteHasProcess(h.rule, rule.id, "trigger rule")
       }
-      if (rule.runOnPassProcessor ne NoOpRunOnPassProcessor.noOp) {
+      if (rule.runOnPassProcessor != NoOpRunOnPassProcessor.noOp) {
         checkRuleSuiteHasProcess(rule.runOnPassProcessor.rule, rule.runOnPassProcessor.id, "output expression")
       }
     })
@@ -55,63 +47,13 @@ object VariableProcessIfMissing {
         checkNestedCallsInSuite(ruleSuite)
 
         // call for side effect
-        com.sparkutils.quality.validate(s, ruleSuite)
+        com.sparkutils.quality.classicFunctions.validate(s, ruleSuite)
 
         // the resulting rulesuite will have the corrected unresolved expressions already available,
         // the raw sql remains untouched
-        val r = com.sparkutils.quality.processIfAttributeMissing(ruleSuite, s)
+        val r = com.sparkutils.quality.classicFunctions.processIfAttributeMissing(ruleSuite, s)
 
         ShimUtils.createVariable(getString(name, 2), Literal.create(RuleSuiteHelpers.serialize(r), BinaryType), true)
     })
   }
-}
-
-trait VariableProcessIfMissing {
-
-  /**
-   * Processes a given RuleSuite to replace any coalesceIfMissingAttributes.  This may be called before validate / docs but
-   * *must* be called *before* adding the ruleSuite to a dataframe.
-   *
-   * @param ruleSuite a Column representing a rule suite from register_rule_suite_variable
-   * @param schema    The names to validate against, if empty no attempt to process coalesceIfAttributeMissing will be made
-   * @return
-   */
-  def process_if_attribute_missing_col(ruleSuite: Column, schema: StructType, stableName: String): Column =
-    ShimUtils.callFunction("process_if_attribute_missing", ruleSuite, lit(schema.toDDL), lit(stableName))
-
-  /**
-   * Processes a given RuleSuite to replace any coalesceIfMissingAttributes.  This may be called before validate / docs but
-   * *must* be called *before* adding the ruleSuite to a dataframe.
-   *
-   * @param ruleSuite a Column representing a rule suite from register_rule_suite_variable
-   * @param schema    The names to validate against, if empty no attempt to process coalesceIfAttributeMissing will be made
-   * @return
-   */
-  def process_if_attribute_missing(ruleSuite: Column, schema: StructType, stableName: String): String = {
-    // call count for side effect without transferring binary to client
-    SparkSession.active.sql("select 1").select( process_if_attribute_missing_col(ruleSuite, schema, stableName) ).count()
-    stableName
-  }
-
-  /**
-   * Processes a given RuleSuite to replace any coalesceIfMissingAttributes.  This may be called before validate / docs but
-   * *must* be called *before* adding the ruleSuite to a dataframe.
-   *
-   * @param ruleSuite a Column representing a rule suite from register_rule_suite_variable
-   * @param schema    The names to validate against, if empty no attempt to process coalesceIfAttributeMissing will be made
-   * @return
-   */
-  def process_if_attribute_missing(ruleSuite: Column, schema: StructType): String =
-    process_if_attribute_missing(ruleSuite, schema, uniqueName())
-
-
-  /**
-   * Processes a given RuleSuite to replace any coalesceIfMissingAttributes.  This may be called before validate / docs but
-   * *must* be called *before* adding the ruleSuite to a dataframe.
-   *
-   * @param ruleSuite a Column representing a rule suite from register_rule_suite_variable
-   * @return
-   */
-  def process_if_attribute_missing(ruleSuite: Column): String =
-    process_if_attribute_missing(ruleSuite, StructType(Seq()))
 }

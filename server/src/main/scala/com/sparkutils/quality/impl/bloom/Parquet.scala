@@ -19,7 +19,7 @@ trait ParquetBloomAggregator[T <: Bloom[_]] extends InputTypeChecks {
     Seq(LongType, IntegerType, ShortType), Seq(DoubleType))
 
   protected lazy val expectedSize: Int =
-    com.sparkutils.quality.optimalNumOfBits(
+    com.sparkutils.quality.classicFunctions.optimalNumOfBits(
       { val eSize = expectedSizeE.eval()
         eSize match {
           case e: Long => e.toInt
@@ -100,12 +100,12 @@ case class ParquetAggregator(child: Expression, expectedSizeE: Expression, expec
 case class BucketedArrayParquetAggregator(child: Expression, expectedSizeE: Expression, expectedFPPE: Expression, id: Expression,
                                      override val mutableAggBufferOffset: Int = 0,
                                      override val inputAggBufferOffset: Int = 0,
-                                     bucketedFilesRoot: BucketedFilesRoot = BucketedFilesRoot(FileRoot(com.sparkutils.quality.bloomFileLocation)))
+                                     bucketedFilesRoot: BucketedFilesRoot = BucketedFilesRoot(FileRoot(com.sparkutils.quality.classicFunctions.bloomFileLocation)))
   extends TypedParquetBloomAggregator[ BucketedCreator[BucketedFilesRoot, Array[Array[Byte]]] ]
   with ParquetBloomFPP {
 
   protected lazy val numBuckets: Int = {
-    val longRes = com.sparkutils.quality.optimalNumberOfBuckets(
+    val longRes = com.sparkutils.quality.classicFunctions.optimalNumberOfBuckets(
       expectedSizeE.dataType match {
         case LongType => expectedSizeE.eval().asInstanceOf[Long]
         case IntegerType => expectedSizeE.eval().asInstanceOf[Int]
@@ -145,11 +145,11 @@ trait BloomDeserializer[T] {
 // TODO bring this to top level imports
 object Parquet {
 
-  implicit val blockDes = new BloomDeserializer[BlockSplitBloomFilterImpl] {
+  implicit val blockDes: BloomDeserializer[BlockSplitBloomFilterImpl] = new BloomDeserializer[BlockSplitBloomFilterImpl] {
     override def deserialize(storageFormat: Array[Byte]) = BlockSplitBloomFilterImpl(storageFormat)
   }
 
-  implicit val largeBucketFileDes = new BloomDeserializer[BucketedCreator[BucketedFilesRoot, Array[Array[Byte]]]] {
+  implicit val largeBucketFileDes: BloomDeserializer[BucketedCreator[BucketedFilesRoot, Array[Array[Byte]]]] = new BloomDeserializer[BucketedCreator[BucketedFilesRoot, Array[Array[Byte]]]] {
     override def deserialize(storageFormat: Array[Byte]) = {
       val ios = new ByteArrayInputStream(storageFormat)
       val oos = new ObjectInputStream(ios)

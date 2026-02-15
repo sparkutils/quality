@@ -19,25 +19,13 @@
 
 __RuleNameError__ Name nonExistentFielda is missing occurred when processing id Id(16,1) against <a href="../sampleDocsOutput/#rule_16_1">expression</a>
 
-```sql
-nonExistentFunction(fielda) and nonExistentFielda > nonExistentFieldb
-```
-
 
 
 __RuleNameError__ Name nonExistentFieldb is missing occurred when processing id Id(16,1) against <a href="../sampleDocsOutput/#rule_16_1">expression</a>
 
-```sql
-nonExistentFunction(fielda) and nonExistentFielda > nonExistentFieldb
-```
-
 
 
 __SparkFunctionNameError__ Name nonExistentFunction is missing occurred when processing id Id(16,1) against <a href="../sampleDocsOutput/#rule_16_1">expression</a>
-
-```sql
-nonExistentFunction(fielda) and nonExistentFielda > nonExistentFieldb
-```
 
 
 
@@ -57,10 +45,6 @@ __NonLambdaDocParameters__ Parameter documentation is present on a non lambda ex
 ### Id 2, 1 <a name="Warnings_0_1"></a>
 
 __NonLambdaDocParameters__ Parameter documentation is present on a non lambda expression, occurred when processing id Id(2,1) against <a href="../sampleDocsOutput/#rule_2_1">expression</a>
-
-```sql
-/** description @param fielda desc */ concat(fielda, fieldb)
-```
 
 
 

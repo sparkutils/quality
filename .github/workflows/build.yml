@@ -26,7 +26,7 @@ jobs:
           "profile": ["Spark3", "Spark32", "Spark321", "Spark313", "Spark332", "Spark341", "Spark350"],
           "scala": [ "dummy" ]
         }
-      jdk: 8
+      jdk: 11
       mvnCliOpts: *MAVEN_CLI_OPTS
       mvnOpts: *MAVEN_OPTS_8
     secrets: inherit
@@ -68,82 +68,28 @@ jobs:
       testString: -DskipTests # use tests for verifying only the delta tests have issues testString: test
       theMatrix: |
         {
-          "profile": ["12.2.dbr", "13.1.dbr", "13.3.dbr", "14.0.dbr", "14.3.dbr", "15.4.dbr", "16.4.dbr"],
+          "profile": ["12.2.dbr", "13.3.dbr", "14.3.dbr", "15.4.dbr", "16.4.dbr"],
           "scala": [ "dummy" ]
         }
-      jdk: 8
+      jdk: 11
       mvnCliOpts: *MAVEN_CLI_OPTS
       mvnOpts: *MAVEN_OPTS_8
     secrets: inherit
-
-  # does coverage tests for jdk8
-  jdk8_coverage:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4.1.2
-      - uses: sparkutils/spark-maven-action@main
-        with:
-          title: Building Spark332 and Spark350 coverage
-          script: |
-            if [ "${{ github.event_name }}" == "pull_request" ]; then
-              echo Skipping GPG from PR
-              SKIP_GPG="-Dgpg.skip"
-            else
-              echo Running GPG
-              SKIP_GPG=""
-            fi
-
-            export QUALITY_SPARK_HOSTS=1
-            export QUALITY_LAMBDA_SUBS=true
-            mvn $MAVEN_CLI_OPTS clean scoverage:test $SKIP_GPG -P Spark332
-
-            mkdir tmpSCoverage
-            rm ./target/scoverage-data/scoverage.coverage
-            cp ./target/scoverage-data/* tmpSCoverage
-
-            mvn $MAVEN_CLI_OPTS clean scoverage:test $SKIP_GPG -P Spark350
-
-            rm ./target/scoverage-data/scoverage.coverage
-            cp -r ./target/scoverage-data/* tmpSCoverage
-            
-            mkdir tmpSCoverage_dir
-            mv tmpSCoverage tmpSCoverage_dir/
-
-          jdk: 8
-          mvnCliOpts: *MAVEN_CLI_OPTS
-          mvnOpts: *MAVEN_OPTS_8
-          gpgKey: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
-        env:
-          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
-          CENTRAL_TOKEN: ${{ secrets.CENTRAL_TOKEN }}
-          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
-      - name: coverageCopy
-        uses: actions/upload-artifact@v4
-        with:
-          name: target-tmpSCoverage
-          path: tmpSCoverage_dir
 
   # prove tests run with single thread, ensures compilation issues aren't hidden by being run on multiple threads instead of re-used in the same thread (e.g. state resetting etc.)
   # build scoverage tests on 3.3.2 first, then 3.5.0 and finally 4 with aggregate, the copy the data out, not doing a clean build fails on site.  Also needs single threading to work, have noticed multiple failures and inconsistent coverage.
   mvn_site:
     runs-on: ubuntu-latest
-    needs: [ jdk8_coverage ]
     steps:
       - uses: actions/checkout@v4.1.2
       - uses: s-weigand/setup-conda@v1
         with:
           python-version: '3.10'
-      - uses: actions/download-artifact@v4
-        with:
-          name: target-tmpSCoverage
       - uses: sparkutils/spark-maven-action@main
         with:
           title: Building Spark4 coverage and site, including Spark332 and Spark350 coverage
           noCheckout: true # checkout removes tmpSCoverage
           script: |
-            echo tmpSCoverage contents number of files:
-            ls tmpSCoverage/ | wc -l
-                        
             export MAVEN_OPTS="${{ inputs.mvnOpts }}"
             if [ "${{ github.event_name }}" == "pull_request" ]; then
               echo Skipping GPG from PR
@@ -165,10 +111,20 @@ jobs:
 
             mvn $MAVEN_CLI_OPTS clean scoverage:test $SKIP_GPG -P Spark4
             
-            cp tmpSCoverage/* ./target/scoverage-data
-            
             mvn $MAVEN_CLI_OPTS site $SKIP_GPG -P Spark4
+        
+            # copy over the jar sites
+            mv server/target/site target/site/$(mvn -f server help:evaluate -Dexpression=project.artifactId -q -DforceStdout $SKIP_GPG -P Spark4)
+            mv api/target/site target/site/$(mvn -f api help:evaluate -Dexpression=project.artifactId -q -DforceStdout $SKIP_GPG -P Spark4)
+            mv api_stub/target/site target/site/$(mvn -f api_stub help:evaluate -Dexpression=project.artifactId -q -DforceStdout $SKIP_GPG -P Spark4)
+            mv core/target/site target/site/$(mvn -f core help:evaluate -Dexpression=project.artifactId -q -DforceStdout $SKIP_GPG -P Spark4)
 
+            # prepare ids for the 
+            echo $(mvn -f server help:evaluate -Dexpression=project.artifactId -q -DforceStdout $SKIP_GPG -P Spark4) > target/server_id.txt
+            echo $(mvn -f api help:evaluate -Dexpression=project.artifactId -q -DforceStdout $SKIP_GPG -P Spark4) > target/api.txt
+            echo $(mvn -f api_stub help:evaluate -Dexpression=project.artifactId -q -DforceStdout $SKIP_GPG -P Spark4) > target/api_stub.txt
+            echo $(mvn -f core help:evaluate -Dexpression=project.artifactId -q -DforceStdout $SKIP_GPG -P Spark4) > target/core.txt
+                       
             echo $(mvn help:evaluate -Dexpression=project.version -q -DforceStdout $SKIP_GPG -P Spark4) > target/version.txt
 
             grep -A 3 'Statement coverage:' target/site/scoverage/overview.html | tail -1 | sed 's/[[:space:]]\+//g' > target/coverage.txt
@@ -193,6 +149,10 @@ jobs:
             target/site
             target/coverage.txt
             target/version.txt
+            target/server_id.txt
+            target/api.txt
+            target/api_stub.txt
+            target/core.txt
     outputs:
       version: ${{ steps.version.outputs.version }}
 
@@ -203,10 +163,10 @@ jobs:
     with:
       theMatrix: |
         {
-          "profile": ["Spark3", "Spark32", "Spark321", "Spark313", "Spark332", "Spark341", "Spark350", "12.2.dbr", "13.1.dbr", "13.3.dbr", "14.0.dbr", "14.3.dbr", "15.4.dbr", "16.4.dbr"],
+          "profile": ["Spark3", "Spark32", "Spark321", "Spark313", "Spark332", "Spark341", "Spark350", "12.2.dbr", "13.3.dbr", "14.3.dbr", "15.4.dbr", "16.4.dbr"],
           "scala": [ "dummy" ]
         }
-      jdk: 8
+      jdk: 11
       mvnCliOpts: *MAVEN_CLI_OPTS
       mvnOpts: *MAVEN_OPTS_8
     secrets: inherit
@@ -217,10 +177,10 @@ jobs:
     with:
       theMatrix: |
         {
-          "profile": ["Spark3", "Spark32", "Spark321", "Spark313", "Spark332", "Spark341", "Spark350", "12.2.dbr", "13.1.dbr", "13.3.dbr", "14.0.dbr", "14.3.dbr", "15.4.dbr", "16.4.dbr"],
-          "scala": [ "dummy" ]
+          "profile": ["Spark3", "Spark32", "Spark321", "Spark313", "Spark332", "Spark341", "Spark350", "12.2.dbr", "13.3.dbr", "14.3.dbr", "15.4.dbr", "16.4.dbr"],
+          "scala": [ "server" ]
         }
-      jdk: 8
+      jdk: 11
       mvnCliOpts: *MAVEN_CLI_TESTSHADES_OPTS
       mvnOpts: *MAVEN_OPTS_8
     secrets: inherit
@@ -247,7 +207,7 @@ jobs:
       theMatrix: |
         {
           "profile": [ "Spark4", "17.3.dbr" ],
-          "scala": [ "dummy" ]
+          "scala": [ "server", "client" ]
         }
       jdk: 21
       mvnCliOpts: *MAVEN_CLI_TESTSHADES_OPTS
@@ -271,3 +231,8 @@ jobs:
             cp target/coverage.txt docs/
             cp target/version.txt .
             cp target/coverage.txt .
+            
+            cp target/server_id.txt .
+            cp target/api.txt .
+            cp target/api_stub.txt .
+            cp target/core.txt .

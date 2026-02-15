@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl.id
 
-import org.apache.spark.sql.{Column, ShimUtils}
-import org.apache.spark.sql.ShimUtils.{callFunction, column, expression}
+import org.apache.spark.sql.Column
+import org.apache.spark.sql.ShimUtils.callFunction
 import org.apache.spark.sql.functions.lit
 
 trait GuaranteedUniqueIDImports {

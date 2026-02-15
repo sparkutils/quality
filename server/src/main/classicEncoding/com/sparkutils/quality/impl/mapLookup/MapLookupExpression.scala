@@ -10,7 +10,6 @@ import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionDescript
 import org.apache.spark.sql.catalyst.util.MapData
 import org.apache.spark.sql.types.DataType
 
-
 object MapLookup {
   /**
    * For withColumn / select usage, the map generation and lookup expressions must be of the same type

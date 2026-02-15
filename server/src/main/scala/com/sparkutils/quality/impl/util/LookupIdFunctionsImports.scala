@@ -18,5 +18,5 @@ trait LookupIdFunctionsImports {
    * collects all rules that are using lookup functions but without constant expressions and the list of lookups that are constants.
    *
    */
-  def identifyLookups(ruleSuite: RuleSuite): LookupResults = LookupIdFunctions.identifyLookups(ruleSuite)
+  def identifyLookups(ruleSuite: RuleSuite): LookupResults = ClassicLookupIdFunctions.identifyLookups(ruleSuite)
 }

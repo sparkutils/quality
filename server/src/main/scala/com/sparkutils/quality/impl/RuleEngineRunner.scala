@@ -1,23 +1,27 @@
 package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.impl.RuleRunnerUtils.RuleSuiteResultArray
-import com.sparkutils.quality.Id
+import com.sparkutils.quality.{Id, impl, _}
 import com.sparkutils.quality.QualityException.qualityException
-import com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenExpressions
+import com.sparkutils.quality.impl.RuleEngineRunnerUtils.{flattenExpressions, outputExpressionType}
 import com.sparkutils.quality.impl.RuleRunnerUtils.{genRuleSuiteTerm, packTheId}
-import com.sparkutils.quality._
-import com.sparkutils.quality.impl.imports.{RuleEngineRunnerImports, RuleResultsImports}
-import RuleResultsImports.packId
+import com.sparkutils.quality.impl.imports.RuleEngineRunnerImports
+import PackId.packId
+import com.sparkutils.quality
+import com.sparkutils.quality.impl.DefaultProcessorImpl.DefaultProcessorImplOps
+import com.sparkutils.quality.impl.ExpressionRuleExpr.ExpressionRuleOps
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
+import com.sparkutils.quality.impl.RunOnPassProcessorImpl.RunOnPassProcessorImplOps
 import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals, PassThroughEvalOnly}
 import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.analysis.TypeCoercion
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode}
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression}
 import org.apache.spark.sql.catalyst.util.GenericArrayData
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.{Column, DataFrame, ClassicQualitySparkUtils, ShimUtils}
+import org.apache.spark.sql.{ClassicQualitySparkUtils, Column, DataFrame, ShimUtils}
 
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
@@ -49,7 +53,7 @@ object RuleEngineRunnerImpl {
                        variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false): Column = {
     com.sparkutils.quality.registerLambdaFunctions( ruleSuite.lambdaFunctions )
 
-    val (expressions, indexes) = flattenExpressions(ruleSuite)
+    val (expressions, indexes, triggerCount) = flattenExpressions(ruleSuite)
 
     val cleaned = RuleLogicUtils.cleanExprs(ruleSuite)
     val exprs =
@@ -63,10 +67,12 @@ object RuleEngineRunnerImpl {
     val runner =
       if (forceRunnerEval || resolveWith.isDefined)
         new RuleEngineRunnerEval(cleaned, exprs, resultDataType, compileEvals,
-          debugMode, variablesPerFunc, variableFuncGroup, expressionOffsets = indexes, forceTriggerEval)
+          debugMode, variablesPerFunc, variableFuncGroup, expressionOffsets = indexes,
+          forceTriggerEval, triggerCount = triggerCount)
       else
         new RuleEngineRunner(cleaned, exprs, resultDataType, compileEvals,
-          debugMode, variablesPerFunc, variableFuncGroup, expressionOffsets = indexes, forceTriggerEval)
+          debugMode, variablesPerFunc, variableFuncGroup, expressionOffsets = indexes,
+          forceTriggerEval, triggerCount = triggerCount)
 
     ShimUtils.column(
       ClassicQualitySparkUtils.resolveWithOverride(resolveWith).map { df =>
@@ -84,7 +90,17 @@ object RuleEngineRunnerImpl {
 
 private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
 
-  protected[quality] def flattenExpressions(ruleSuite: RuleSuite, transformOutputExpression: Expression => Expression = identity): (Seq[Expression], Array[Int]) = {
+  // derive the correct output expression type
+  def outputExpressionType(resultDataType: Option[DataType], children: Seq[Expression], triggerCount: Int): DataType =
+    resultDataType.getOrElse {
+      // CreateArray uses this approach, pretty much what we are looking for
+      // as Output Expressions can contain null they must be filtered out or it will default to NullType
+      TypeCoercion.findCommonTypeDifferentOnlyInNullFlags(
+        children.drop(triggerCount).filterNot(_.dataType == NullType).map(_.dataType)
+      ).getOrElse(NullType)
+    }
+
+  protected[quality] def flattenExpressions(ruleSuite: RuleSuite, transformOutputExpression: Expression => Expression = identity): (Seq[Expression], Array[Int], Int) = {
     val outputs = mutable.Map.empty[Id, Int]
     var pos = 0
     val outputExpressions = new mutable.ArrayBuffer[Expression](10)
@@ -92,15 +108,12 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
 
     val expressions =
       ruleSuite.ruleSets.flatMap( ruleSet => ruleSet.rules.map(rule => {
-        val expr =
-          rule.expression match {
-            case r: ExprLogic => r.expr// only ExprLogic are possible here
-          }
+        val expr = rule.expression.toImpl.expr
 
         val idx = outputs.getOrElse(rule.runOnPassProcessor.id, {
             val expr = rule.runOnPassProcessor match {
               case NoOpRunOnPassProcessor.noOp => qualityException(s"You cannot use a RuleEngine, RuleFolder or ExpressionRunner if any of the rules do not have RunOnPassProcessors set ruleSet ${ruleSet.id}, rule ${rule.id}}")
-              case r: RunOnPassProcessor => r.returnIfPassed.expr
+              case r: quality.RunOnPassProcessor => r.toImpl.returnIfPassed.expr
             }
             outputs.put(rule.runOnPassProcessor.id, pos)
 
@@ -116,7 +129,13 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
         expr
       }))
 
-    (expressions ++ outputExpressions, indexes.toArray)
+    if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp) {
+      val expr = ruleSuite.defaultProcessor.toImpl.outputExpression.expr
+      outputExpressions += transformOutputExpression(expr)
+      indexes += pos
+    }
+
+    (expressions ++ outputExpressions, indexes.toArray, expressions.size)
   }
 
   // count is not to be trusted, seems some funcs are evaluated twice
@@ -153,7 +172,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
   def reincorporateExpressions(ruleSuite: RuleSuite, expr: Seq[Expression], compileEvals: Boolean, expressionOffsets: Array[Int]): RuleSuite =
     reincorporateExpressionsF(ruleSuite, expr, (expr: Expression) => ExpressionWrapper(expr, compileEvals), (e: Expression)=>e, compileEvals, expressionOffsets)
 
-  def reincorporateExpressionsF[T](ruleSuite: RuleSuite, expr: Seq[T], f: T => RuleLogic, processorExpression: T => Expression, compileEvals: Boolean, expressionOffsets: Array[Int]): RuleSuite = {
+  def reincorporateExpressionsF[T](ruleSuite: RuleSuite, expr: Seq[T], f: T => RuleLogic[_], processorExpression: T => Expression, compileEvals: Boolean, expressionOffsets: Array[Int]): RuleSuite = {
     val offset = expressionOffsets.length
     val itr = expr.zipWithIndex.iterator
     ruleSuite.copy(ruleSets = ruleSuite.ruleSets.map(
@@ -163,10 +182,15 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
             val (nexpr, index) = itr.next()
             val outexpr = expr(offset + expressionOffsets(index))
             rule.copy(expression = f(nexpr), runOnPassProcessor =
-              rule.runOnPassProcessor.withExpr(OutputExpressionWrapper(processorExpression(outexpr), compileEvals)))
+              rule.runOnPassProcessor.toImpl.withExpr(OutputExpressionWrapper(processorExpression(outexpr), compileEvals)))
           }
         ))
-    ))
+    ), defaultProcessor =
+      if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp)
+        ruleSuite.defaultProcessor.toImpl.withExpr(OutputExpressionWrapper(processorExpression(expr.last), compileEvals))
+      else
+        ruleSuite.defaultProcessor
+    )
   }
 
   def compiledEvalDebug[T](results: InternalRow, output: T): InternalRow =
@@ -193,10 +217,10 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
   def genCompilerTerms[T: ClassTag](ctx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext,
                   child: Expression, expressionOffsets: Array[Int], realChildren: Seq[Expression],
                        debugMode: Boolean, variablesPerFunc: Int, variableFuncGroup: Int, forceTriggerEval: Boolean,
-                       extraResult: String => String = (_ : String) => "",
+                       extraResult: (String, Int, String) => String = (_ : String, _: Int, _: String) => "",
                        extraSetup: (String, Int) => String = (_ : String, _: Int) => "",
                        orderOffset: Int => Int = identity,
-                       salienceCheck: Boolean = true
+                       salienceCheck: Boolean = true, sizeAdjustment: Int = 0
                       ):
     CompilerTerms = {
     val i = ctx.INPUT_ROW
@@ -221,7 +245,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
       v => s"$v = -1;"
     )
 
-    val offset = expressionOffsets.size
+    val offset = expressionOffsets.size + sizeAdjustment
 
     val ruleRes = "java.lang.Object"
     val resArrTerm = ctx.addMutableState(ruleRes+"[]", ctx.freshName("results"),
@@ -254,7 +278,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
     def codeGen(exp: Expression, idx: Int, funName: String) = {
       val (evalPre, eval) =
         if (forceTriggerEval)
-          ("", s"$utilsName.ruleResultToInt($childrenFuncTerm[$idx].eval($i))")
+          ("", s"com.sparkutils.quality.impl.RuleSuiteHelpers.ruleResultToInt($childrenFuncTerm[$idx].eval($i))")
         else {
           val eval = exp.genCode(ctx)
 
@@ -298,7 +322,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
               ${eval.code} \n
 
               $outArrTerm[$i] = ${eval.isNull} ? null : ($output)${eval.value}; \n
-              ${extraResult(s"$outArrTerm[$i]")}
+              ${extraResult(s"$outArrTerm[$i]", i, resArrTerm)}
         """
 
         ctx.addNewFunction(exprFuncName,
@@ -362,29 +386,12 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression {
   val forceTriggerEval: Boolean
   val expressionOffsets: Array[Int]
   val userResultDataType: Option[DataType]
+  val triggerCount: Int
 
   implicit val classTagT: ClassTag[T]
 
-  def structToNullable(struct: StructType): StructType = {
-    StructType(
-      struct.fields.map(f =>
-        f.copy(nullable = true, metadata = Metadata.empty, dataType = nonNullableDataType(f.dataType))
-      )
-    ) // Spark 4 puts metadata in _2 in schema test
-  }
-
-  def nonNullableDataType(dataType: DataType): DataType =
-    dataType match {
-      case s: StructType => structToNullable(s)
-      case _ => dataType
-    }
-
   lazy val resultDataType = {
-    val resultDataType = userResultDataType.getOrElse(nonNullableDataType(realChildren.last.dataType))
-// TODO - Correct this type checking and re-enable the DDL to force nullability etc.
-/*    realChildren.drop(realChildren.length / 2).find(e => nonNullableDataType(e.dataType) != resultDataType).foreach{ e =>
-      throw new QualityException(s"RuleEngine DataType ${e.dataType.sql} does not match the first OutputExpression type ${resultDataType.sql}")
-    }*/
+    val resultDataType = outputExpressionType(userResultDataType, realChildren, triggerCount)
 
     if (debugMode)
       // wrap it in an array with the priority result
@@ -415,8 +422,8 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression {
   }
 
   def dataType: DataType = StructType( Seq(
-      StructField(name = "ruleSuiteResults", dataType = com.sparkutils.quality.types.ruleSuiteResultType),
-      StructField(name = "salientRule", dataType = com.sparkutils.quality.types.fullRuleIdType, nullable = true),
+      StructField(name = "ruleSuiteResults", dataType = impl.types.ruleSuiteResultType),
+      StructField(name = "salientRule", dataType = impl.types.fullRuleIdType, nullable = true),
       StructField(name = "result", dataType = resultDataType, nullable = true)
     ))
 
@@ -476,7 +483,7 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression {
 case class RuleEngineRunnerEval(ruleSuite: RuleSuite, children: Seq[Expression], userResultDataType: Option[DataType],
                             compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
                             variableFuncGroup: Int, expressionOffsets: Array[Int],
-                            forceTriggerEval: Boolean) extends RuleEngineRunnerBase[RuleEngineRunnerEval] with CodegenFallback {
+                            forceTriggerEval: Boolean, triggerCount: Int) extends RuleEngineRunnerBase[RuleEngineRunnerEval] with CodegenFallback {
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
 
@@ -487,7 +494,7 @@ case class RuleEngineRunnerEval(ruleSuite: RuleSuite, children: Seq[Expression],
 case class RuleEngineRunner(ruleSuite: RuleSuite, children: Seq[Expression], userResultDataType: Option[DataType],
                                 compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
                                 variableFuncGroup: Int, expressionOffsets: Array[Int],
-                                forceTriggerEval: Boolean) extends RuleEngineRunnerBase[RuleEngineRunner] {
+                                forceTriggerEval: Boolean, triggerCount: Int) extends RuleEngineRunnerBase[RuleEngineRunner] {
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
 

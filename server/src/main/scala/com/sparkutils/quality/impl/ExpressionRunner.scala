@@ -1,13 +1,13 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
 import com.sparkutils.quality.impl.RuleRunnerUtils.{RuleSuiteResultArray, flattenExpressions, genRuleSuiteTerm, nonOutputRuleGen, reincorporateExpressions}
-import com.sparkutils.quality.impl.imports.RuleResultsImports.packId
-import com.sparkutils.quality.impl.util.{Arrays, NonPassThrough, PassThroughCompileEvals}
+import com.sparkutils.quality.impl.PackId.packId
+import com.sparkutils.quality.impl.util.{Arrays, PassThroughCompileEvals}
 import com.sparkutils.quality.impl.yaml.YamlEncoderExpr
-import com.sparkutils.quality.types._
+import com.sparkutils.quality.impl.types._
+
 import org.apache.spark.sql.{Column, ShimUtils}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode, ExprValue}
@@ -70,10 +70,10 @@ private[quality] object ExpressionRunnerUtils {
     InternalRow(
       packId(ruleSuiteResult.id),
       ArrayBasedMapData(
-        ruleSuiteResult.ruleSetResults, packId, (a: Any) => {
+        ruleSuiteResult.ruleSetResults, packId _, (a: Any) => {
           val v = a.asInstanceOf[Map[VersionedId, GeneralExpressionResult]]
           ArrayBasedMapData(
-            v, packId, (a: Any) => a match {
+            v, packId _, (a: Any) => a match {
               case r: GeneralExpressionResult =>
                 InternalRow(UTF8String.fromString( r.ruleResult ), UTF8String.fromString( r.resultDDL) )
               case s: String =>  UTF8String.fromString( s )
@@ -158,7 +158,7 @@ trait ExpressionRunnerBase[T] extends NonSQLExpression {
     val strType = classOf[UTF8String].getName
     val ddlArrTerm = ctx.addMutableState(ruleRes+"[]", ctx.freshName("ddlArr"),
       v =>
-        if (ddlType == quality.types.expressionResultTypeYaml)
+        if (ddlType == impl.types.expressionResultTypeYaml)
           s"""
             $v = new $strType[${realChildren.size}];\n
             \n
@@ -171,7 +171,7 @@ trait ExpressionRunnerBase[T] extends NonSQLExpression {
     )
 
     def yamlOrType(code: ExprValue, idx: Int): String =
-      if (ddlType == quality.types.expressionResultTypeYaml)
+      if (ddlType == impl.types.expressionResultTypeYaml)
         s"new GenericInternalRow(new Object[]{$code, $ddlArrTerm[$idx]})"
       else
         s"$code"

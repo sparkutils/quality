@@ -1,13 +1,11 @@
 package com.sparkutils.qualityTests.bloom
 
 import com.sparkutils.quality._
-import functions._
-import com.sparkutils.qualityTests._
+import classicFunctions.{registerQualityFunctions => _, _}
 import com.sparkutils.qualityTests.util.ClassicSharedTests
 import com.sparkutils.testing.TestUtils.{anyCauseHas, debug}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.{Column, DataFrame, SaveMode, SparkSession}
-import org.scalatest.FunSuite
 
 case class Pair(a: Long, b: Long)
 
@@ -243,7 +241,7 @@ class BloomTests extends ClassicSharedTests {
     val orig = sqlContext.range(1, 20)
 
     try {
-      val interim = orig.select(expr(s"bigBloom(id, 'a', cast(1 as double),'superBloom') as bloom")).head.getAs[Array[Byte]](0)
+      val interim = orig.select(expr(s"bigBloom(id, 'a', cast(1 as double),'superBloom') as bloom")).head().getAs[Array[Byte]](0)
       fail("should not have got here a not valid")
     } catch {
       case t: Throwable =>
@@ -255,7 +253,7 @@ class BloomTests extends ClassicSharedTests {
         assert(spark2_and_3 || spark32 || spark34 || early_spark34_dbr11_n_12)
     }
     try {
-      val interim = orig.select(expr(s"bigBloom(id, 1, 1,'superBloom') as bloom")).head.getAs[Array[Byte]](0)
+      val interim = orig.select(expr(s"bigBloom(id, 1, 1,'superBloom') as bloom")).head().getAs[Array[Byte]](0)
       fail("should not have got here a not valid")
     } catch {
       case t: Throwable =>

@@ -361,7 +361,7 @@ object model {
     val ni = NetworkInterface.getByInetAddress(localHost)
     val hardwareAddress: Array[Byte] = ni.getHardwareAddress()
     */
-    val hardwareAddress: Array[Byte] = nonNulls.next
+    val hardwareAddress: Array[Byte] = nonNulls.next()
     //dumpMap(hardwareAddress, "model.localMAC")
     hardwareAddress
   }

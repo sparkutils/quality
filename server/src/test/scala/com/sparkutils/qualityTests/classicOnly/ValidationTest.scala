@@ -1,11 +1,15 @@
 package com.sparkutils.qualityTests.classicOnly
 
 import com.sparkutils.quality.impl.Validation.emptyDocs
-import com.sparkutils.quality.impl.imports.RuleResultsImports.packId
 import com.sparkutils.quality.impl.util.RuleSuiteDocs.{LambdaId, OutputExpressionId, RuleId}
 import com.sparkutils.quality.impl.util.{Docs, RuleSuiteDocs, WithDocs}
+import com.sparkutils.quality.{ExpressionRule, Id, LambdaFunction, OutputExpression, Rule, RuleSet, RuleSuite, RunOnPassProcessor}
 import com.sparkutils.quality.impl._
-import com.sparkutils.quality.{LambdaFunction, RunOnPassProcessor, _}
+import com.sparkutils.quality.classicFunctions._
+import com.sparkutils.quality.impl.LambdaFunctionImpl.LambdaFunctionOps
+import com.sparkutils.quality.impl.PackId.packId
+import com.sparkutils.quality.impl.RunOnPassProcessorImpl.RunOnPassProcessorImplOps
+import com.sparkutils.quality.impl.{HasId, RuleError}
 import com.sparkutils.qualityTests.VariableTestShims
 import com.sparkutils.qualityTests.util.ClassicSharedTests
 import com.sparkutils.testing.TestUtils.debug
@@ -49,9 +53,9 @@ class ValidationTest extends ClassicSharedTests with VariableTestShims {
 
     assert(errors match {
       // for < 3.2.0 oss and 10.4 lts Databricks
-      case Seq(LambdaSyntaxError(Id(1,1), err)) if err.contains(ossLT330SingleParam) => true
+      case Seq(e@LambdaSyntaxError(Id(1,1), err)) if err.contains(ossLT330SingleParam) && e.syntax  => true
       // for 3.3.0 oss
-      case Seq(LambdaSyntaxError(Id(1,1), err)) if err.contains(ossGT320SingleParam) => true
+      case Seq(e@LambdaSyntaxError(Id(1,1), err)) if err.contains(ossGT320SingleParam) && e.syntax => true
       case _ => false
     } )
   }
@@ -75,7 +79,7 @@ class ValidationTest extends ClassicSharedTests with VariableTestShims {
       case _ => false
     } )
     assert(warns.toSeq match {
-      case Seq(LambdaPossibleSOE(Id(1,1))) => true
+      case Seq(l@LambdaPossibleSOE(Id(1,1))) if !l.syntax => true
       case _ => false
     } )
 
@@ -371,9 +375,9 @@ class ValidationTest extends ClassicSharedTests with VariableTestShims {
     assert(sorted match {
       case Seq(
       NonLambdaDocParameters(Id(2,1)),
-      ExtraDocParameter(Id(6,1), "fielda"),
-      NonLambdaDocParameters(Id(1002,1))
-      )
+      e@ExtraDocParameter(Id(6,1), "fielda"),
+      n@NonLambdaDocParameters(Id(1002,1))
+      ) if e.syntax && n.syntax
       => true
       case _ => false
     } )
@@ -383,12 +387,12 @@ class ValidationTest extends ClassicSharedTests with VariableTestShims {
         rule3.id -> WithDocs(rule3, emptyDocs),
         rule4.id -> WithDocs(rule4, emptyDocs)
       ),
-      outputExpressions = Map(Id(1002,1) -> WithDocs(output1, Docs("description 2", Map("fielda" -> "desc 2"))),
-        output2.id -> WithDocs(output2, emptyDocs)
+      outputExpressions = Map(Id(1002,1) -> WithDocs(output1.toImpl, Docs("description 2", Map("fielda" -> "desc 2"))),
+        output2.id -> WithDocs(output2.toImpl, emptyDocs)
       ),
-      lambdas = Map(Id(6,1) -> WithDocs(lambda1, Docs("lambda description", Map("fielda" -> "lambda desc"))),
-        lambda2.id -> WithDocs(lambda2, emptyDocs),
-        Id(8,1) -> WithDocs(lambda3,Docs("lambda description only"))
+      lambdas = Map(Id(6,1) -> WithDocs(lambda1.parsed, Docs("lambda description", Map("fielda" -> "lambda desc"))),
+        lambda2.id -> WithDocs(lambda2.parsed, emptyDocs),
+        Id(8,1) -> WithDocs(lambda3.parsed,Docs("lambda description only"))
     )))
   }
 
@@ -448,9 +452,9 @@ class ValidationTest extends ClassicSharedTests with VariableTestShims {
     assert(sorted match {
       case Seq(
         RuleViewError("theview", Id(4,1)),
-        OutputRuleViewError("theview", Id(7,1)),
+        o @ OutputRuleViewError("theview", Id(7,1)),
         LambdaViewError("theview", Id(16,1))
-        )
+        ) if !o.syntax
         => true
       case _ => false
     } )

@@ -1,6 +1,5 @@
 package org.apache.spark.sql
 
-import com.sparkutils.quality.impl.extension.QualityFunctionParser.{CREATE_FUNCTION_PREFIX, DIVIDER, WITH_TOKEN}
 import org.apache.spark.sql.ShimUtils.{column, expression}
 import com.sparkutils.quality.impl.util.DebugTime.debugTime
 import com.sparkutils.quality.impl.util.Params.formatParams
@@ -14,6 +13,8 @@ import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferenc
 import org.apache.spark.sql.catalyst.optimizer.{BooleanSimplification, CollapseProject, CombineConcats, CombineTypedFilters, ConstantFolding, ConstantPropagation, EliminateMapObjects, EliminateSerialization, FoldablePropagation, LikeSimplification, NormalizeFloatingNumbers, NullDownPropagation, NullPropagation, ObjectSerializerPruning, OptimizeCsvJsonExprs, OptimizeIn, OptimizeRand, OptimizeUpdateFields, PruneFilters, PushFoldableIntoBranches, ReassignLambdaVariableID, RemoveNoopOperators, RemoveRedundantAggregates, RemoveRedundantAliases, ReorderAssociativeOperator, ReplaceExpressions, ReplaceNullWithFalseInPredicate, ReplaceUpdateFieldsExpression, RewriteCorrelatedScalarSubquery, RewriteLateralSubquery, SimplifyBinaryComparison, SimplifyCaseConversionExpressions, SimplifyCasts, SimplifyConditionals, SimplifyExtractValueOps, UnwrapCastInBinaryComparison}
 import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, LogicalPlan, Project, UnaryNode}
 import org.apache.spark.sql.catalyst.rules.Rule
+import org.apache.spark.sql.execution.aggregate.ScalaAggregator
+import org.apache.spark.sql.expressions.{Aggregator, UserDefinedAggregator}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.qualityFunctions.{FunN, LambdaFunctions}
 import org.apache.spark.sql.types.StructType
@@ -333,25 +334,6 @@ object ClassicQualitySparkUtils {
       }
     )
 
-}
-
-object QualitySparkUtils {
-
-  def registerLambdaFunctions(functions: Seq[LambdaFunction]): Unit =
-    if (functions.nonEmpty)
-      SparkSession.active match {
-        case s: classic.SparkSession =>
-          LambdaFunctions.registerLambdaFunctions(functions)
-        case _  =>
-          val s = SparkSession.active
-          val command = s"$CREATE_FUNCTION_PREFIX\n" +
-            functions.map{
-              f =>
-                // needs to be registered via the extension
-                s"${f.name}$WITH_TOKEN${f.rule}"
-            }.mkString(DIVIDER)
-          s.sql(command)
-      }
-    else
-      ()
+  def aggregator[I: Encoder, B, O](agg: Aggregator[I,B,O], exps: Seq[Expression]) =
+    ScalaAggregator(UserDefinedAggregator(agg, implicitly[Encoder[I]]), exps)
 }

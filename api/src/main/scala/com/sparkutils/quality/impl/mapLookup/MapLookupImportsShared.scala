@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl.mapLookup
 
 import com.sparkutils.quality.impl.mapLookup.MapLookupFunctions.{MapCreator, MapLookups}
-import com.sparkutils.quality.{DataFrameLoader, Id}
+import com.sparkutils.quality.{DataFrameLoader, Id, MapLookups}
 import com.sparkutils.quality.impl.util.ConfigLoader
 import org.apache.spark.sql.functions.lit
 import org.apache.spark.sql.{Column, DataFrame}
@@ -14,9 +14,6 @@ trait MapLookupImportsShared {
   type MapLookups = MapLookupFunctions.MapLookups
 
   type MapCreator = MapLookupFunctions.MapCreator
-
-  def registerMapLookupsAndFunction(mapLookups: MapLookups) =
-    MapLookupFunctions.registerMapLookupsAndFunction(mapLookups)
 
   /**
    * Loads maps to broadcast, each individual dataframe may have different associated expressions
@@ -93,7 +90,7 @@ trait MapLookupFunctionImports {
    * @return
    */
   def map_lookup(mapLookupName: String, lookupKey: Column, mapLookups: MapLookups): Column =
-    MapLookup(lit(mapLookupName), lookupKey, mapLookups)
+    com.sparkutils.quality.impl.mapLookup.MapLookup(lit(mapLookupName), lookupKey, mapLookups)
 
   /**
    * Tests if there is a stored value from a map via the name mapLookupName and 'key' lookupKey.  Implementation is map_lookup.isNotNull

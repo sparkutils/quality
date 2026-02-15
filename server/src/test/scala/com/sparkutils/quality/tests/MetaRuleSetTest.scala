@@ -39,7 +39,7 @@ class MetaRuleSetTest extends ClassicSharedTests {
     import s.implicits._
     import org.apache.spark.sql.functions.col
     // force the name field to be non-nullable
-    val df = sparkSession.createDataset(persons).toDF.withColumn("name", column(AssertNotNull(expression(col("name")))))
+    val df = sparkSession.createDataset(persons).toDF().withColumn("name", column(AssertNotNull(expression(col("name")))))
 
     val rs = Seq(
       (ruleFilter("name = 'name'"), df, Set("name") ),
@@ -55,11 +55,11 @@ class MetaRuleSetTest extends ClassicSharedTests {
     import s.implicits._
     import org.apache.spark.sql.functions.col
     // force the name field to be non-nullable
-    val df = sparkSession.createDataset(persons).toDF.withColumn("name", column(AssertNotNull(expression(col("name")))))
+    val df = sparkSession.createDataset(persons).toDF().withColumn("name", column(AssertNotNull(expression(col("name")))))
 
     val msr = MetaRuleSetRow(1,2,3,4, columnFilter, "col -> isNull(col)")
 
-    val metaRuleDF = sparkSession.createDataset(Seq(msr)).toDF
+    val metaRuleDF = sparkSession.createDataset(Seq(msr)).toDF()
     val themap = readMetaRuleSetsFromDF(metaRuleDF,
       col("columnFilter"),
       col("ruleExpr"),

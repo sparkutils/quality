@@ -42,9 +42,17 @@ so for compiled at a mean of 174,583ms we have 15m rules run at 0.011ms per rule
 
 When using RuleEngineRunners you should try to re-use output expressions (RunOnPassProcessor) wherever possible to improve performance.
 
+!!! warn "Using custom compilation settings (compileEvals = true, forceTriggerEval = true, forceRunnerEval = true) and chaining runner is not supported"
+    Chaining calls to runners using the result of a runner in another runner can lead to nesting of runners, as if you called runners via sql directly within a trigger or an output expression.
+    This is only supported when using the default compilation options and correctly working as part of wholestage codegen, allowing Spark to "do it's thing" will also allow for higher degrees of sub expression elimination, constant folding etc..
+
+    If you must use this, or if compilation - despite Quality's function grouping approach - becomes impossible (due to time or code size) you may use .cache or write out intermediatary results. (see #110)
+
 !!! note "Sometimes Interpreted Is Better"
     For very large complex rules (tested sample is 1k rules with over 50k expressions - over 30s compilation for a show and write) compilation can dominate time, as such you can set forceRunnerEval to true on RuleRunner and RuleEngineRunner to skip compilation.
     While compilation can be slow the execution is heavily optimised with minimal memory allocation, as such you should balance this out when using huge RuleSuites.
+
+    Make sure to .cache or write out intermediate results if you are chaining calls and never directly nest calls to runners without the supported defaults. (see #110)
 
 !!! info "Disabling compilation entirely is not a great idea"
     Disabled generation, via `#!scala ruleRunner(ruleSuite, compileEvals = false, forceRunnerEval = true)`, takes 208,518ms for 150 rules over 100k data - 34s longer than the default, this of course adds up fast over millions of rows. 

@@ -1,14 +1,10 @@
 package com.sparkutils.quality.impl.mapLookup
 
-import com.sparkutils.quality.impl.RuleRegistrationFunctions.registerWithChecks
 import com.sparkutils.quality.impl.util.{Config, ConfigFactory}
 import com.sparkutils.shim.toCatalyst
-import org.apache.spark.sql.catalyst.expressions.{Expression, IsNotNull}
+import org.apache.spark.sql._
 import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, MapData}
 import org.apache.spark.sql.functions.expr
-import org.apache.spark.sql.types.DataType
-import org.apache.spark.sql._
-
 
 import scala.collection.JavaConverters._
 import scala.collection.Map
@@ -18,35 +14,9 @@ object MapLookupFunctions {
   /**
    * Used as a param to load the map lookups - note the type of the broadcast is always Map[AnyRef, AnyRef]
    */
-  type MapLookups = Map[String, (MapData, DataType)]
+  type MapLookups = MapTypes.MapLookups
 
   type MapCreator = () => (DataFrame, Column, Column)
-
-  /**
-   *  Noop on classic (pre 0.2.0 4.0)
-   */
-  protected[quality] def registerMapLookupsForAgnostic(registerFunction: (String, Seq[Expression] => Expression) => Unit): Unit = {}
-
-  /**
-   * On classic (pre 0.2.0 4.0) the map_lookup and map_contains functions are bound to this MapLookups instance
-   * @param mapLookups
-   */
-  def registerMapLookupsAndFunction(mapLookups: MapLookups) {
-    val funcReg = {
-      val f = ShimUtils.registerFunction(SparkSession.getActiveSession.get) _
-      ((n: String, builder: scala.collection.immutable.Seq[Expression] => Expression) =>
-        f(n, s => builder(s.toIndexedSeq)))
-    }
-
-    def register(name: String, argsf: scala.Seq[Expression] => Expression, paramNumbers: Set[Int] = Set.empty, minimum: Int = -1) =
-      registerWithChecks(funcReg, name, argsf, paramNumbers, minimum)
-
-    val f = (exps: Seq[Expression]) => MapLookup(exps(0), exps(1), mapLookups)
-    register("map_lookup", f, Set(2))
-
-    val sf = (exps: Seq[Expression]) => IsNotNull(  MapLookup(exps(0), exps(1), mapLookups) )
-    register("map_contains", sf, Set(2))
-  }
 
   /**
     * Loads maps to broadcast, each individual dataframe may have different associated expressions
@@ -74,7 +44,7 @@ object MapLookupFunctions {
     id -> (mapData, translated.schema.last.dataType)
   }
 
-  implicit val factory =
+  implicit val factory: ConfigFactory[MapConfig, MapRow] =
     new ConfigFactory[MapConfig, MapRow] {
       override def create(base: Config, row: MapRow): MapConfig =
         MapConfig(base.name, base.source, row.key, row.value)

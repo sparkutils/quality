@@ -3,9 +3,10 @@ package com.sparkutils.quality.sparkless.impl
 import com.sparkutils.quality.impl.extension.FunNRewrite
 import com.sparkutils.quality.impl.util.EmbeddedTypeCorrection
 import com.sparkutils.quality.sparkless.impl.Processors.{NO_QUERY_PLANS, isCopyNeeded}
-import com.sparkutils.quality.{QualityException, enableOptimizations}
+import com.sparkutils.quality.QualityException
+import com.sparkutils.quality.classicFunctions.enableOptimizations
 import com.sparkutils.quality.sparkless.{Processor, ProcessorFactory}
-import org.apache.spark.sql.{DataFrame, Encoder, ClassicQualitySparkUtils, ShimUtils}
+import org.apache.spark.sql.{ClassicQualitySparkUtils, DataFrame, Encoder, ShimUtils}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{MutableProjection, PlanExpression}
 import org.apache.spark.sql.catalyst.optimizer.ConstantFolding

@@ -1,9 +1,10 @@
 package com.sparkutils.qualityTests.classicOnly
 
 import com.sparkutils.quality._
-import com.sparkutils.quality.types._
 import com.sparkutils.qualityTests.util.{ClassicSharedTests, RowTools}
+import com.sparkutils.quality.impl.types._
 import com.sparkutils.testing.TestUtils.anyCauseHas
+
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions.expr
 import org.apache.spark.sql.types.DataType
@@ -40,7 +41,7 @@ class CodeGenTest extends ClassicSharedTests with RowTools {
         val temporaryDQname: String = "DQ_TEMP_Quality"
 
         df.transform { ndf =>
-          val rr = ruleRunner(genRules(rules, cols),
+          val rr = classicFunctions.ruleRunner(genRules(rules, cols),
             compileEvals = false,
             variablesPerFunc = variablesPerFunc, variableFuncGroup = variableFuncGroup,
             resolveWith = Some(df)) // also needed to force code gen
@@ -73,16 +74,9 @@ class CodeGenTest extends ClassicSharedTests with RowTools {
     }
   }
 
-  /* GC's on 3.4, taking 2m locally, after 0.1.3.1-RC5 no longer happens with new compilation approach
-  test("ruleRunnerTooMuchPerFunc") { not3_4_or_above{ not_Cluster{ not2_4{ forceCodeGen {
-    shouldAssert64kb{
-      doRunnerGen(variablesPerFunc= 30000, variableFuncGroup = 12)
-    }
-  }}}}*/
-
-  test("ruleRunnerDefault") { not2_4{ forceCodeGen {
+  test("ruleRunnerDefault") { forceCodeGen {
     doRunnerGen(variablesPerFunc = 40, variableFuncGroup = 20)
-  }}}
+  }}
 
   def doEngineRunnerGen(variablesPerFunc: Int, variableFuncGroup: Int, set: Int = 10, rules: Int = 1600): Unit = {
     def genEngineRules(rules: Int, cols: Int) = {
@@ -103,7 +97,7 @@ class CodeGenTest extends ClassicSharedTests with RowTools {
       val temporaryDQname: String = "DQ_TEMP_Quality"
 
       df.transform { ndf =>
-        val rr = ruleEngineRunner(genEngineRules(rules, cols),
+        val rr = classicFunctions.ruleEngineRunner(genEngineRules(rules, cols),
           compileEvals = false,
           variablesPerFunc = variablesPerFunc, variableFuncGroup = variableFuncGroup,
           resolveWith = Some(df)) // also needed to force code gen
@@ -124,15 +118,15 @@ class CodeGenTest extends ClassicSharedTests with RowTools {
   }
 
   // as of e149d590 (#71) no longer triggered on Spark4
-  def ruleEngineRunnerTooMuchPerFunc: Unit = not_Cluster{ not2_4{ forceCodeGen {
+  def ruleEngineRunnerTooMuchPerFunc: Unit = not_Cluster{ forceCodeGen {
     // as of eec8842 does not hit 64k on the server at 900
     shouldAssert64kb{
       doEngineRunnerGen(variablesPerFunc= 3000, variableFuncGroup = 12)
     }
-  }}}
+  }}
 
-  test("ruleEngineRunnerDefault") { not2_4{ forceCodeGen {
+  test("ruleEngineRunnerDefault") { forceCodeGen {
     doEngineRunnerGen(variablesPerFunc = 40, variableFuncGroup = 20)//, set = 2, rules = 4)
-  }}}
+  }}
 
 }

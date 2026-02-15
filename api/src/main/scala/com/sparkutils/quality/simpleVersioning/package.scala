@@ -1,11 +1,11 @@
 package com.sparkutils.quality
 
 import com.sparkutils.quality.impl.util.RuleModel.RuleSuiteMap
-import com.sparkutils.quality.impl.LambdaFunction
-import com.sparkutils.quality.impl.util.{OutputExpressionRow, RuleRow, Serializing}
+import com.sparkutils.quality.impl.util.{GeneratedUniqueName, OutputExpressionRow, Serializing, SimpleVersioningStub}
 import org.apache.spark.sql.types.IntegerType
-import org.apache.spark.sql.{Column, DataFrame, Dataset}
+import org.apache.spark.sql.{Column, DataFrame}
 import org.apache.spark.sql.functions.col
+import com.sparkutils.quality.impl.extension.QualityVersionedRulesConstants.{QUALITY_VERSIONED_LAMBDAS_FROM_DF, QUALITY_VERSIONED_OUTPUT_EXPRESSIONS_FROM_DF, QUALITY_VERSIONED_RULES_FROM_DF}
 
 import scala.collection.immutable.TreeMap
 
@@ -15,7 +15,9 @@ import cats.implicits._
 /**
  * A simple versioning scheme that allows management of versions
  */
-package object simpleVersioning {
+package object simpleVersioning extends GeneratedUniqueName {
+
+  protected val GENERATED_NAME_PREFIX = "QUALITY_VERSIONING_GENERATED_NAME_"
 
   /**
    * Reads the rules table and builds complete rule versions by adding together all changes below that rulesuiteVersion
@@ -44,41 +46,24 @@ package object simpleVersioning {
                                   ruleEngineSalience: Column,
                                   ruleEngineId: Column,
                                   ruleEngineVersion: Column
-                                 ): DataFrame = {
-    df.select(
-      ruleSuiteId.as("ruleSuiteId").cast(IntegerType),
-      ruleSuiteVersion.as("ruleSuiteVersion").cast(IntegerType),
-      ruleSetId.as("ruleSetId").cast(IntegerType),
-      ruleSetVersion.as("ruleSetVersion").cast(IntegerType),
-      ruleId.as("ruleId").cast(IntegerType),
-      ruleVersion.as("ruleVersion").cast(IntegerType),
-      ruleExpr.as("ruleExpr"),
-      ruleEngineSalience.as("ruleEngineSalience").cast(IntegerType),
-      ruleEngineId.as("ruleEngineId").cast(IntegerType),
-      ruleEngineVersion.as("ruleEngineVersion").cast(IntegerType)
-    ).createOrReplaceTempView("rules")
+                                 ): DataFrame =
+    SimpleVersioningStub.readVersionedRuleRowsFromDF(df, ruleSuiteId, ruleSuiteVersion, ruleSetId, ruleSetVersion,
+      ruleId, ruleVersion, ruleExpr, ruleEngineSalience, ruleEngineId, ruleEngineVersion).getOrElse{
+      val name = uniqueName()
+      df.select(
+        ruleSuiteId.as("ruleSuiteId").cast(IntegerType),
+        ruleSuiteVersion.as("ruleSuiteVersion").cast(IntegerType),
+        ruleSetId.as("ruleSetId").cast(IntegerType),
+        ruleSetVersion.as("ruleSetVersion").cast(IntegerType),
+        ruleId.as("ruleId").cast(IntegerType),
+        ruleVersion.as("ruleVersion").cast(IntegerType),
+        ruleExpr.as("ruleExpr"),
+        ruleEngineSalience.as("ruleEngineSalience").cast(IntegerType),
+        ruleEngineId.as("ruleEngineId").cast(IntegerType),
+        ruleEngineVersion.as("ruleEngineVersion").cast(IntegerType)).createOrReplaceGlobalTempView(name)
 
-    val versionedRules = df.sparkSession.sql(
-      """
-       select ruleExpr, ruleId, ruleVersion, ruleEngineSalience, ruleEngineId, ruleEngineVersion,
-       ruleSetId, ruleSetVersion, -- don't need to bump versions as they can coexist
-        suiteversions.ruleSuiteId, suiteversions.ruleSuiteVersion -- force the versions to be bumped to latest ruleSuite Versions
-        from
-         (select distinct ruleSuiteId, ruleSuiteVersion from rules) suiteversions join
-         rules l0 on l0.ruleSuiteId = suiteversions.ruleSuiteId and l0.ruleSuiteVersion <= suiteversions.ruleSuiteVersion
-         where
-          not exists (
-            select 0 from rules l1
-            where l1.ruleSuiteId = l0.ruleSuiteId
-             and l1.ruleId = l0.ruleId
-             and l1.ruleSetId = l0.ruleSetId
-             and l1.ruleSuiteVersion <= suiteversions.ruleSuiteVersion
-             and l1.ruleVersion > l0.ruleVersion
-          )
-          and l0.ruleExpr != "DELETED"
-       """)
-    versionedRules
-  }
+      df.sparkSession.sql(QUALITY_VERSIONED_RULES_FROM_DF + name)
+    }
 
   /**
    * Reads the rules table and builds complete rule versions by adding together all changes below that rulesuiteVersion
@@ -148,21 +133,21 @@ package object simpleVersioning {
                                 lambdaFunctionVersion: Column,
                                 lambdaFunctionRuleSuiteId: Column,
                                 lambdaFunctionRuleSuiteVersion: Column
-                              ): DataFrame = {
-    lambdaFunctionDF.select(
-      lambdaFunctionName.as("name"),
-      lambdaFunctionExpression.as("ruleExpr"),
-      lambdaFunctionId.as("functionId").cast(IntegerType),
-      lambdaFunctionVersion.as("functionVersion").cast(IntegerType),
-      lambdaFunctionRuleSuiteId.as("ruleSuiteId").cast(IntegerType),
-      lambdaFunctionRuleSuiteVersion.as("ruleSuiteVersion").cast(IntegerType)
-    ).createOrReplaceTempView("lambdas")
+                              ): DataFrame =
+    SimpleVersioningStub.readVersionedLambdaRowsFromDF(lambdaFunctionDF, lambdaFunctionName, lambdaFunctionExpression,
+      lambdaFunctionId, lambdaFunctionVersion, lambdaFunctionRuleSuiteId, lambdaFunctionRuleSuiteVersion).getOrElse{
+      val name = uniqueName()
+      lambdaFunctionDF.select(
+        lambdaFunctionName.as("name"),
+        lambdaFunctionExpression.as("ruleExpr"),
+        lambdaFunctionId.as("functionId").cast(IntegerType),
+        lambdaFunctionVersion.as("functionVersion").cast(IntegerType),
+        lambdaFunctionRuleSuiteId.as("ruleSuiteId").cast(IntegerType),
+        lambdaFunctionRuleSuiteVersion.as("ruleSuiteVersion").cast(IntegerType)
+      ).createOrReplaceGlobalTempView(name)
 
-    val versionedLambdas = lambdaFunctionDF.sparkSession.sql(
-      lambdaOutputSQL("lambdas", "name, "))
-
-    versionedLambdas
-  }
+      lambdaFunctionDF.sparkSession.sql(QUALITY_VERSIONED_LAMBDAS_FROM_DF + name)
+    }
 
   /**
    * Reads the lambda table and builds lambda versions by adding together all changes below that rulesuiteVersion
@@ -198,23 +183,6 @@ package object simpleVersioning {
       col("ruleSuiteVersion")
     )
 
-  protected[quality] def lambdaOutputSQL(tableName: String, extra: String ="") =
-    s"""
-     select $extra ruleExpr, functionId, functionVersion,
-      versions.ruleSuiteId, versions.ruleSuiteVersion -- force the versions to be bumped to latest ruleSuiteVersions
-      from
-       (select distinct ruleSuiteId, ruleSuiteVersion from $tableName) versions join
-       $tableName l0 on l0.ruleSuiteId = versions.ruleSuiteId and l0.ruleSuiteVersion <= versions.ruleSuiteVersion
-       where
-        not exists (
-          select 0 from $tableName l1
-          where l1.ruleSuiteId = l0.ruleSuiteId and
-           l1.functionId = l0.functionId and
-           l1.ruleSuiteVersion <= versions.ruleSuiteVersion
-           and l1.functionVersion > l0.functionVersion
-        )
-        and l0.ruleExpr != "DELETED"
-     """
 
   /**
    * Reads the output expression table and builds output expression versions by adding together all changes below that rulesuiteVersion
@@ -233,20 +201,20 @@ package object simpleVersioning {
                                               outputExpressionVersion: Column,
                                               outputExpressionRuleSuiteId: Column,
                                               outputExpressionRuleSuiteVersion: Column
-                                             ): DataFrame = {
-    outputExpressionDF.select(
-      outputExpression.as("ruleExpr"),
-      outputExpressionId.as("functionId").cast(IntegerType),
-      outputExpressionVersion.as("functionVersion").cast(IntegerType),
-      outputExpressionRuleSuiteId.as("ruleSuiteId").cast(IntegerType),
-      outputExpressionRuleSuiteVersion.as("ruleSuiteVersion").cast(IntegerType)
-    ).createOrReplaceTempView("outputExpressions")
+                                             ): DataFrame =
+    SimpleVersioningStub.readVersionedOutputExpressionRowsFromDF(outputExpressionDF, outputExpression,
+      outputExpressionId, outputExpressionVersion, outputExpressionRuleSuiteId, outputExpressionRuleSuiteVersion).getOrElse{
+      val name = uniqueName()
+      outputExpressionDF.select(
+        outputExpression.as("ruleExpr"),
+        outputExpressionId.as("functionId").cast(IntegerType),
+        outputExpressionVersion.as("functionVersion").cast(IntegerType),
+        outputExpressionRuleSuiteId.as("ruleSuiteId").cast(IntegerType),
+        outputExpressionRuleSuiteVersion.as("ruleSuiteVersion").cast(IntegerType)
+      ).createOrReplaceGlobalTempView(name)
 
-    val versionedOutputs = outputExpressionDF.sparkSession.sql(
-      lambdaOutputSQL("outputExpressions"))
-
-    versionedOutputs
-  }
+      outputExpressionDF.sparkSession.sql(QUALITY_VERSIONED_OUTPUT_EXPRESSIONS_FROM_DF + name)
+    }
 
   /**
    * Reads the output expression table and builds output expression versions by adding together all changes below that rulesuiteVersion

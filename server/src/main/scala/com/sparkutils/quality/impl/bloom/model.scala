@@ -1,9 +1,9 @@
 package com.sparkutils.quality.impl.bloom
 
 import java.io.{ByteArrayInputStream, ByteArrayOutputStream}
-
 import com.sparkutils.quality.impl.bloom.parquet.BucketedCreator
-import com.sparkutils.quality.{BloomLookup, bloomLookup}
+import com.sparkutils.quality.BloomLookup
+import com.sparkutils.quality.classicFunctions.{BloomFilterMap, bloomLookup}
 import com.sparkutils.quality.impl.rng.RandomLongs
 import com.sparkutils.quality.impl.util.{Config, ConfigFactory, Row}
 import org.apache.spark.sql._
@@ -52,17 +52,17 @@ case class BloomArrayRaw(bloom_id: String, bloom: BloomStruct)
 object BloomStruct {
   import frameless._
 
-  implicit val typedEnc = TypedEncoder[BloomStruct]
+  implicit val typedEnc: TypedEncoder[BloomStruct] = TypedEncoder[BloomStruct]
 
-  implicit val enc = TypedExpressionEncoder[BloomStruct]
+  implicit val enc: Encoder[BloomStruct] = TypedExpressionEncoder[BloomStruct]
 }
 
 object BloomArrayRaw {
   import frameless._
 
-  implicit val typedEnc = TypedEncoder[BloomArrayRaw]
+  implicit val typedEnc: TypedEncoder[BloomArrayRaw] = TypedEncoder[BloomArrayRaw]
 
-  implicit val enc = TypedExpressionEncoder[BloomArrayRaw]
+  implicit val enc: Encoder[BloomArrayRaw] = TypedExpressionEncoder[BloomArrayRaw]
 }
 
 trait BloomSerializer[Storage, T] {
@@ -108,9 +108,8 @@ case object SparkBloomFilterSerializer extends BloomSerializer[Array[Byte], com.
 }
 
 object Serializing {
-  import com.sparkutils.quality.BloomFilterMap
 
-  implicit val sparkBloomFilterSerializer = SparkBloomFilterSerializer
+  implicit val sparkBloomFilterSerializer: SparkBloomFilterSerializer.type = SparkBloomFilterSerializer
 
   /**
     * Loads bloomfilters from a dataframe with string id and binary bloomfilter bloom
@@ -147,7 +146,7 @@ object Serializing {
     sess.createDataset(blooms).asInstanceOf[Dataset[BloomSerializer[SerializedType, T]#SerType]]
   }
 
-  implicit val factory =
+  implicit val factory: ConfigFactory[BloomConfig, BloomRow] =
     new ConfigFactory[BloomConfig, BloomRow] {
       override def create(base: Config, row: BloomRow): BloomConfig =
         BloomConfig(base.name, base.source, row.bigBloom, row.value, row.numberOfElements, row.expectedFPP)
@@ -166,7 +165,7 @@ object Serializing {
           if (config.bigBloom) {
             val bloom = BucketedCreator.bloomFrom(df, expr(value), numberOfElements, expectedFPP)
             bloom.cleanupOthers()
-            (bloomLookup(bloom), 1.0 - bloom.fpp)
+            (com.sparkutils.quality.classicFunctions.bloomLookup(bloom), 1.0 - bloom.fpp)
           } else {
             val aggrow = df.select(expr(s"smallBloom($value, $numberOfElements, cast( $expectedFPP as double ))")).head()
             val thebytes = aggrow.getAs[Array[Byte]](0)

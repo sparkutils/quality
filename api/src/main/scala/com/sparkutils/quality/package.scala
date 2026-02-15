@@ -1,39 +1,20 @@
 package com.sparkutils
 
-import com.sparkutils.quality.impl.bloom.parquet.{BlockSplitBloomFilterImports, BucketedCreatorFunctionImports}
-import com.sparkutils.quality.impl.bloom.{BloomFilterLookupImports, BloomFilterRegistration, BloomFilterTypes}
+import com.sparkutils.quality.impl.VariableProcessIfMissing
 import com.sparkutils.quality.impl.imports._
 import com.sparkutils.quality.impl.mapLookup.MapLookupImportsShared
-import com.sparkutils.quality.impl.util.{AddDataFunctionsImports, LookupIdFunctionsImports, SerializingImports, VersionSpecificSerializingImports}
+import com.sparkutils.quality.impl.util.{AddDataFunctionsImports, SerializingImports, VersionSpecificSerializingImports}
 import com.sparkutils.quality.impl.views.ViewLoading
 import org.apache.spark.sql.internal.SQLConf
 
 /**
  * Provides an easy import point for the library.
  */
-package object quality extends BloomFilterTypes with BucketedCreatorFunctionImports with RuleRunnerFunctionsImport
-  with BloomFilterRegistration with RuleRunnerImports with Serializable with MapLookupImportsShared with LookupIdFunctionsImports
-  with BloomFilterLookupImports with BlockSplitBloomFilterImports with SerializingImports
-  with AddDataFunctionsImports with LambdaFunctionsImports with RuleEngineRunnerImports with ValidationImports
-  with ProcessDisableIfMissingImports with RuleFolderRunnerImports with ViewLoading with ExpressionRunnerImports
-  with VersionSpecificSerializingImports  {
+package object quality extends RuleRunnerImports with Serializable with MapLookupImportsShared with SerializingImports
+  with AddDataFunctionsImports with LambdaFunctionsImports with RuleEngineRunnerImports
+  with RuleFolderRunnerImports with ViewLoading with ExpressionRunnerImports
+  with VersionSpecificSerializingImports with VariableProcessIfMissing with CollectRunnerImports {
   // NB it must inherit Serializable due to the nested types and sparks serialization
-
-  /**
-   * Creates a bloom filter from an array of bytes using the default Parquet bloom filter implementation
-   * @param bytes
-   * @return
-   */
-  def bloomLookup(bytes: Array[Byte]): BloomLookup =
-    com.sparkutils.quality.impl.bloom.parquet.ThreadSafeBloomLookupImpl(bytes)
-
-  /**
-   * Creates a very large bloom filter from multiple buckets of 2gb arrays backed by the default Parquet implementation
-   * @param bucketedFiles
-   * @return
-   */
-  def bloomLookup(bucketedFiles: BloomModel): BloomLookup =
-    com.sparkutils.quality.impl.bloom.parquet.ThreadSafeBucketedBloomLookup(bucketedFiles)
 
   /**
    * first attempts to get the system env, then system java property then sqlconf
@@ -55,5 +36,12 @@ package object quality extends BloomFilterTypes with BucketedCreatorFunctionImpo
     case _: Throwable => default
   }
 
+  /**
+   * Simplified registerQualityFunctions, use classicFunction import when the other features are needed.
+   *
+   * Must be called before using any functions like Passed, Failed or Probability(X) when using classic, a no-op when
+   * using connect with the SparkSessionExtension
+   */
+  def registerQualityFunctions(): Unit = RegistrationFunction.registerQualityFunctions()
 }
 

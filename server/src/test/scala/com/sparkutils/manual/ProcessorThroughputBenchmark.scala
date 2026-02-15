@@ -1,15 +1,14 @@
 package com.sparkutils.manual
 
-import com.sparkutils.quality.registerQualityFunctions
+import com.sparkutils.quality.classicFunctions.registerQualityFunctions
 import com.sparkutils.quality.sparkless.{ProcessFunctions, Processor}
 import com.sparkutils.qualityTests.util.ResultHelper.longSchema
 import com.sparkutils.qualityTests.util.RowTools
 import com.sparkutils.testing.{ClassicOnly, ConnectionType, Sessions}
-import org.apache.spark.sql.types.{IntegerType, LongType}
+import org.apache.spark.sql.types.LongType
 import org.apache.spark.sql.{Row, ShimUtils}
 import org.scalameter.api.Bench
 import org.scalameter.api._
-import org.scalatest.FunSuite
 
 object ProcessorThroughputBenchmark extends Bench.OfflineReport with RowTools {
 
@@ -261,7 +260,7 @@ object ProcessorThroughputBenchmark extends Bench.OfflineReport with RowTools {
       }
   }
 
-  override val connectionType: ConnectionType = ClassicOnly
+  override val runWith: ConnectionType = ClassicOnly
 
   override def sessions: Sessions = createSparkSessions(connectionType)
 }

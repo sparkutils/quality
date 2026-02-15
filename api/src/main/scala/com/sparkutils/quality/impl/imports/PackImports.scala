@@ -1,9 +1,8 @@
 package com.sparkutils.quality.impl.imports
 
 import com.sparkutils.quality.Id
-import com.sparkutils.quality.impl.{Pack, UnPack, UnPackIdTriple}
 import org.apache.spark.sql.ShimUtils.callFunction
-import org.apache.spark.sql.{Column, ShimUtils}
+import org.apache.spark.sql.Column
 import org.apache.spark.sql.functions.lit
 
 trait PackIdImports {

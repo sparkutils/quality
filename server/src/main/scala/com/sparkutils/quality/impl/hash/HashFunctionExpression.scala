@@ -66,10 +66,10 @@ case class HashFunctionFactory(impl: String) extends DigestFactory {
   private val ts = TSLocal[HashFunction]{
     mapf
   }
-  override def fresh: Digest = HashFunctionProxy( ts.get.newHasher )
+  override def fresh: Digest = HashFunctionProxy( ts.get().newHasher )
 
   override def length: Int =
-    (ts.get.bits + 63) / 64 // next whole long size up
+    (ts.get().bits + 63) / 64 // next whole long size up
 }
 
 case class HashFunctionsExpression(children: Seq[Expression], digestImpl: String, asStruct: Boolean, factory: DigestFactory) extends HashLongsExpression {

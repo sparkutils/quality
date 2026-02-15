@@ -1,32 +1,37 @@
 package com.sparkutils.quality.impl.imports
 
 import com.sparkutils.quality.RuleSuite
-import com.sparkutils.quality.impl.imports.ResolveUtil.checkResolveMakesSenseOrClassic
-import com.sparkutils.quality.impl.{PackId, RuleRunnerImpl}
+import com.sparkutils.quality.impl.{RuleSuiteHelpers, Runners}
 import org.apache.spark.sql.ShimUtils.callFunction
-import org.apache.spark.sql.catalyst.expressions.Literal
-import org.apache.spark.sql.types.IntegerType
-import org.apache.spark.sql.{Column, DataFrame}
-import org.apache.spark.unsafe.types.UTF8String
+import org.apache.spark.sql.functions.lit
+import org.apache.spark.sql.{Column, DataFrame, ShimUtils}
 
 trait RuleRunnerImports {
 
   /**
-   * Creates a column that runs the RuleSuite.  This also forces registering the lambda functions used by that RuleSuite
+   * Creates a column that runs the RuleSuite suitable for DQ / Validation.  This also forces registering the lambda functions used by that RuleSuite  This forwards to the original ruleRunner via dqRuleRunner
    *
    * @param ruleSuite The Qualty RuleSuite to evaluate
-   * @param compileEvals Should the rules be compiled out to interim objects - by default true for eval usage, wholeStageCodeGen will evaluate in place
-   * @param resolveWith This experimental parameter can take the DataFrame these rules will be added to and pre-resolve and optimise the sql expressions, see the documentation for details on when to and not to use this. RuleRunner does not currently do wholestagecodegen when resolveWith is used.
    * @param variablesPerFunc Defaulting to 40, it allows, in combination with variableFuncGroup customisation of handling the 64k jvm method size limitation when performing WholeStageCodeGen.  You _shouldn't_ need it but it's there just in case.
    * @param variableFuncGroup Defaulting to 20
-   * @param forceRunnerEval Defaulting to false, passing true forces a simplified partially interpreted evaluation (compileEvals must be false to get fully interpreted)
    * @return A Column representing the Quality DQ expression built from this ruleSuite
    */
-  def ruleRunner(ruleSuite: RuleSuite, compileEvals: Boolean = true, resolveWith: Option[DataFrame] = None, variablesPerFunc: Int = 40, variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false): Column =
-    if (checkResolveMakesSenseOrClassic(resolveWith))
-      RuleRunnerImpl.ruleRunnerImplClassic(ruleSuite, compileEvals, resolveWith, variablesPerFunc, variableFuncGroup, forceRunnerEval)
-    else
-      RuleRunnerImpl.ruleRunnerImpl(ruleSuite, compileEvals, variablesPerFunc, variableFuncGroup, forceRunnerEval)
+  def ruleRunner(ruleSuite: RuleSuite, variablesPerFunc: Int = 40, variableFuncGroup: Int = 20): Column =
+    dqRuleRunner(ruleSuite, variablesPerFunc, variableFuncGroup)
+
+  /**
+   * Creates a column that runs the RuleSuite suitable for DQ / Validation.  This also forces registering the lambda functions used by that RuleSuite.
+   *
+   * @param ruleSuite The Qualty RuleSuite to evaluate
+   * @param variablesPerFunc Defaulting to 40, it allows, in combination with variableFuncGroup customisation of handling the 64k jvm method size limitation when performing WholeStageCodeGen.  You _shouldn't_ need it but it's there just in case.
+   * @param variableFuncGroup Defaulting to 20
+   * @return A Column representing the Quality DQ expression built from this ruleSuite
+   */
+  def dqRuleRunner(ruleSuite: RuleSuite, variablesPerFunc: Int = 40, variableFuncGroup: Int = 20): Column =
+    Runners.ruleRunner(ruleSuite, variablesPerFunc = variablesPerFunc, variableFuncGroup = variableFuncGroup).getOrElse(
+      ShimUtils.callFunction("dq_rule_runner", lit(RuleSuiteHelpers.serialize(ruleSuite)),
+        lit(variablesPerFunc), lit(variableFuncGroup))
+    )
 
   /**
    * The integer value for soft failed dq rules
@@ -36,6 +41,14 @@ trait RuleRunnerImports {
    * The integer value for disabled dq rules
    */
   val DisabledRuleInt = RuleResultsImports.DisabledRuleInt
+  /**
+   * The integer value for ignored dq rules
+   */
+  val IgnoredRuleInt = RuleResultsImports.IgnoredRuleInt
+  /**
+   * The integer value for RuleSuiteResult.overallResult when no trigger rules have run and the default rule was
+   */
+  val DefaultRuleInt = RuleResultsImports.DefaultRuleInt
   /**
    * The integer value for passed dq rules
    */
@@ -49,24 +62,12 @@ trait RuleRunnerImports {
 
 object RuleResultsImports {
 
-  def strLit(str: String) =
-    UTF8String.fromString(str)
-
-  val strLitA = (str: Any) =>
-    UTF8String.fromString(str.asInstanceOf[String])
-
-  val packId = PackId.packId _
-  val unpackId = PackId.unpack _
-
   val SoftFailedInt = -1
   val DisabledRuleInt = -2
+  val IgnoredRuleInt = -3
+  val DefaultRuleInt = -4
   val PassedInt = 100000
   val FailedInt = 0
-
-  val SoftFailedExpr = Literal(SoftFailedInt, IntegerType)
-  val DisabledRuleExpr = Literal(DisabledRuleInt, IntegerType)
-  val PassedExpr = Literal(PassedInt, IntegerType)
-  val FailedExpr = Literal(FailedInt, IntegerType)
 
 }
 
@@ -86,6 +87,14 @@ trait RuleRunnerFunctionImports {
    * The disabled_rule value
    */
   val disabled_rule = callFunction("disabled_rule")
+  /**
+   * The ignored_rule value
+   */
+  val ignored_rule = callFunction("ignored_rule")
+  /**
+   * The default_rule value
+   */
+  val default_rule = callFunction("default_rule")
   /**
    * The passed value
    */

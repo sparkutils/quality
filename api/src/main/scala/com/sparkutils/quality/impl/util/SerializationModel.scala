@@ -1,7 +1,6 @@
 package com.sparkutils.quality.impl.util
 
-import com.sparkutils.quality.{ExpressionRule, Id, Rule, RuleSet, RuleSuite}
-import com.sparkutils.quality.impl.VersionedId
+import com.sparkutils.quality.{ExpressionRule, Id, Rule, RuleSet, RuleSuite, VersionedId}
 import org.apache.spark.sql.DataFrame
 
 object RuleModel {
@@ -30,6 +29,15 @@ case class LambdaFunctionRow(name: String, ruleExpr: String, functionId: Int,
 case class OutputExpressionRow(ruleExpr: String, functionId: Int,
                                functionVersion: Int, ruleSuiteId: Int,
                                ruleSuiteVersion: Int)
+
+/**
+ * Only needed for probability and defaultProcessor support with the optional integrateRuleSuites
+ */
+case class RuleSuiteRow(ruleSuiteId: Int,
+                        ruleSuiteVersion: Int,
+                        probablePass: Double,
+                        ruleEngineId: Int,
+                        ruleEngineVersion: Int)
 
 /**
  * Used to filter columns for meta RuleSets

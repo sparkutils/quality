@@ -1,9 +1,7 @@
 package com.sparkutils.quality.impl.imports
 
-import com.sparkutils.quality.impl.UUIDToLongsExpression
-import com.sparkutils.quality.impl.longPair.{LongPairExpression, PrefixedToLongPair}
-import org.apache.spark.sql.{Column, ShimUtils}
-import org.apache.spark.sql.ShimUtils.{callFunction, column, expression}
+import org.apache.spark.sql.Column
+import org.apache.spark.sql.ShimUtils.callFunction
 import org.apache.spark.sql.functions.lit
 
 trait LongPairImports {

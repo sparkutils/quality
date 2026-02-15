@@ -1,12 +1,15 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality.impl.RuleLogicUtils.mapRules
-import com.sparkutils.quality.impl.RuleRunnerUtils.flattenExpressions
-import com.sparkutils.quality.impl.imports.RuleResultsImports.packId
+import com.sparkutils.quality
+import com.sparkutils.quality.RuleSuite.mapRules
+import com.sparkutils.quality.impl.RuleRunnerUtils.{flattenExpressions, ruleSuiteArrays}
+import com.sparkutils.quality.impl.PackId.packId
 import com.sparkutils.quality._
+import com.sparkutils.quality.impl.ExpressionRuleExpr.ExpressionRuleOps
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
 import types.ruleSuiteResultType
 import com.sparkutils.quality.impl.imports.RuleRunnerImports
+import com.sparkutils.quality.impl.util.Serializing.ruleResultToInt
 import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals}
 import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
 import org.apache.spark.sql.ShimUtils.column
@@ -17,29 +20,9 @@ import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression}
 import org.apache.spark.sql.catalyst.util.ArrayBasedMapData
 import org.apache.spark.sql.functions.lit
 import org.apache.spark.sql.types.DataType
-import org.apache.spark.sql.{Column, DataFrame, ClassicQualitySparkUtils, ShimUtils}
+import org.apache.spark.sql.{ClassicQualitySparkUtils, Column, DataFrame, ShimUtils}
 
 import scala.reflect.ClassTag
-
-object PackId {
-
-  def packId(anyId: Any) = {
-    val r = anyId.asInstanceOf[Id]
-    ((r.id.toLong) << 32) | (r.version & 0xffffffffL)
-  }
-
-  def unpack(a: Any): Id =
-    if (a == null)
-      a.asInstanceOf[Id]
-    else
-      unpack(a.asInstanceOf[Long])
-
-  def unpack(a: Long) = {
-    val id = a >> 32
-    val version = a.toInt
-    Id(id.toInt, version) // lookup goes here
-  }
-}
 
 protected[quality] object RuleRunnerImpl {
 
@@ -90,6 +73,8 @@ protected[quality] object RuleRunnerImpl {
   /**
    * Creates a column that runs the RuleSuite.  This also forces registering the lambda functions used by that RuleSuite
    *
+   * NOTE resolveWith, compileEvals and forceRunnerEval are ignored and use defaults, prefer using dqRuleRunner
+   *
    * @param ruleSuite The Qualty RuleSuite to evaluate
    * @param compileEvals Should the rules be compiled out to interim objects - by default false, allowing optimisations
    * @param variablesPerFunc Defaulting to 40, it allows, in combination with variableFuncGroup customisation of handling the 64k jvm method size limitation when performing WholeStageCodeGen.  You _shouldn't_ need it but it's there just in case.
@@ -97,34 +82,29 @@ protected[quality] object RuleRunnerImpl {
    * @param forceRunnerEval Defaulting to false, passing true forces a simplified partially interpreted evaluation (compileEvals must be false to get fully interpreted)
    * @return A Column representing the Quality DQ expression built from this ruleSuite
    */
+  @deprecated(since="0.2.0", message="Use dqRuleRunner instead")
   def ruleRunnerImpl(ruleSuite: RuleSuite, compileEvals: Boolean = false,
                      variablesPerFunc: Int = 40, variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false): Column =
-    ShimUtils.callFunction("dq_rule_runner", lit(RuleSuiteHelpers.serialize(ruleSuite)), lit(compileEvals), lit(variablesPerFunc), lit(variableFuncGroup), lit(forceRunnerEval))
+    Runners.ruleRunner(ruleSuite, variablesPerFunc = variablesPerFunc, variableFuncGroup = variableFuncGroup).getOrElse(
+      ShimUtils.callFunction("dq_rule_runner", lit(RuleSuiteHelpers.serialize(ruleSuite)),
+        lit(variablesPerFunc), lit(variableFuncGroup))
+    )
 
 }
 
 private[quality] object RuleRunnerUtils extends RuleRunnerImports {
 
-  def ruleResultToInt(ruleResult: RuleResult): Int =
-    ruleResult match {
-      case Failed => FailedInt
-      case SoftFailed => SoftFailedInt
-      case DisabledRule => DisabledRuleInt
-      case Passed => PassedInt
-      case Probability(percentage) => (percentage * PassedInt).toInt
-      case RuleResultWithProcessor(res, _) => ruleResultToInt(res)
-    }
-
   def flattenExpressions(ruleSuite: RuleSuite): Seq[Expression] =
     ruleSuite.ruleSets.flatMap(ruleSet => ruleSet.rules.map(rule =>
       rule.expression match {
         case r: ExprLogic => r.expr// only ExprLogic are possible here
+        case r: quality.ExpressionRule => r.toImpl.expr
       }))
 
   def reincorporateExpressions(ruleSuite: RuleSuite, expr: Seq[Expression], compileEvals: Boolean = true): RuleSuite =
     reincorporateExpressionsF(ruleSuite, expr, (expr: Expression) => ExpressionWrapper(expr, compileEvals))
 
-  def reincorporateExpressionsF[T](ruleSuite: RuleSuite, expr: Seq[T], f: T => RuleLogic): RuleSuite = {
+  def reincorporateExpressionsF[T](ruleSuite: RuleSuite, expr: Seq[T], f: T => RuleLogic[_]): RuleSuite = {
     val itr = expr.iterator
     mapRules(ruleSuite) { rule =>
       rule.copy(expression = f(itr.next()))
@@ -149,52 +129,58 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
       ruleSetIds.toArray, rulesArrays.toArray)
   }
 
-  def evalArray(ruleSuite: RuleSuite, ruleSuiteArrays: RuleSuiteResultArray, results: Array[Any]): InternalRow = {
+  def evalArray(ruleSuite: RuleSuite, ruleSuiteArrays: RuleSuiteResultArray, results: Array[Any], startingResult: Int, processOverall: (Int, Int, Double) => Int): InternalRow = {
     import ruleSuite._
 
     val ruleSetRes = Array.ofDim[InternalRow](ruleSuiteArrays.ruleSetIds.length)
 
-    var rsOverall = PassedInt
+    var rsOverall = startingResult
 
     var offset = 0
 
-    for( rsi <- 0 until ruleSuiteArrays.ruleSetIds.length) {
+    for (rsi <- 0 until ruleSuiteArrays.ruleSetIds.length) {
 
       val rulesetSize = ruleSuiteArrays.ruleSets(rsi).length
 
       val ruleSetResults = results.slice(offset, offset + rulesetSize)
       offset += rulesetSize
 
-      val overall = ruleSetResults.foldLeft(PassedInt){
+      val overall = ruleSetResults.foldLeft(startingResult) {
         (ov, res) =>
-          OverallResultHelper.inplaceInt(res.asInstanceOf[Int], ov, probablePass) // convert needed for process
+          processOverall(res.asInstanceOf[Int], ov, probablePass) // convert needed for process
       }
 
-      rsOverall = OverallResultHelper.inplaceInt(overall, rsOverall, probablePass)
+      rsOverall = processOverall(overall, rsOverall, probablePass)
 
       ruleSetRes(rsi) = InternalRow(
         overall: java.lang.Integer,
-        ArrayBasedMapData( ruleSuiteArrays.ruleSets(rsi), ruleSetResults )
-        )
+        ArrayBasedMapData(ruleSuiteArrays.ruleSets(rsi), ruleSetResults)
+      )
     }
 
-    InternalRow( ruleSuiteArrays.packedId,
+    InternalRow(ruleSuiteArrays.packedId,
       rsOverall: java.lang.Integer,
-      ArrayBasedMapData( ruleSuiteArrays.ruleSetIds, ruleSetRes)
+      ArrayBasedMapData(ruleSuiteArrays.ruleSetIds, ruleSetRes)
     )
   }
+
+  def evalArray(ruleSuite: RuleSuite, ruleSuiteArrays: RuleSuiteResultArray, results: Array[Any]): InternalRow =
+    evalArray(ruleSuite, ruleSuiteArrays, results, PassedInt, OverallResultHelper.inplaceInt)
+
+  def evalArrayForDefault(ruleSuite: RuleSuite, ruleSuiteArrays: RuleSuiteResultArray, results: Array[Any]): InternalRow =
+    evalArray(ruleSuite, ruleSuiteArrays, results, FailedInt, OverallResultHelper.inplaceForDefaultInt)
 
   def ruleResultToRow(ruleSuiteResult: RuleSuiteResult): InternalRow =
     InternalRow(
       packId(ruleSuiteResult.id),
       ruleResultToInt(ruleSuiteResult.overallResult),
       ArrayBasedMapData(
-        ruleSuiteResult.ruleSetResults, packId, (a: Any) => {
+        ruleSuiteResult.ruleSetResults, packId _, (a: Any) => {
           val v = a.asInstanceOf[RuleSetResult]
           InternalRow(
             ruleResultToInt(v.overallResult),
             ArrayBasedMapData(
-              v.ruleResults, packId, (a: Any) => ruleResultToInt(a.asInstanceOf[RuleResult])
+              v.ruleResults, packId _, (a: Any) => ruleResultToInt(a.asInstanceOf[RuleResult])
             )
           )
         }

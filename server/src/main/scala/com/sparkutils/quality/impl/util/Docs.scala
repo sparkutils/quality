@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl.util
 
-import com.sparkutils.quality.impl.{DataFrameSyntaxError, HasId, HasNonIdText, HasOutputText, HasRuleText, LambdaMultipleImplementationWithSameArityError, LambdaRelevant, NoOpRunOnPassProcessor, NonLambdaDocParameters, OutputExpressionRelevant, RuleError, RuleRegistrationFunctions, RuleRelevant, RuleWarning, RunOnPassProcessor}
-import com.sparkutils.quality.{Id, Rule, RuleSuite, RunOnPassProcessor}
+import com.sparkutils.quality.impl.{DataFrameSyntaxError, HasId, HasNonIdText, HasOutputText, HasRuleText, LambdaMultipleImplementationWithSameArityError, LambdaRelevant, NonLambdaDocParameters, OutputExpressionRelevant, RuleError, RuleRegistrationFunctions, RuleRelevant, RuleWarning, RunOnPassProcessor}
+import com.sparkutils.quality.{Id, NoOpRunOnPassProcessor, Rule, RuleSuite}
 
 import scala.util.parsing.combinator.{JavaTokenParsers, PackratParsers}
 import org.slf4j.LoggerFactory
@@ -26,10 +26,10 @@ object RuleSuiteDocs {
   def RuleId(id: Id): IdTrEither = Tr3(id)
 
   protected def genRule(any: AnyRef, id: IdTrEither, expressionLookups: Map[IdTrEither, ExpressionLookup], idGen: (String, Id) => String, rsd: RuleSuiteDocs, extraFunctionListClass: String, qualityDocLink: String) =
-    if (any.isInstanceOf[HasRuleText])
+    if (any.isInstanceOf[HasRuleText[_]])
       s"""
 ```sql
-${DocsParser.stripComments(any.asInstanceOf[HasRuleText].rule)}
+${DocsParser.stripComments(any.asInstanceOf[HasRuleText[_]].rule)}
 ```
 ${
         expressionLookups.get(id).fold("") { expr =>
@@ -93,10 +93,10 @@ ${
     } else ""
 
   protected def genRuleNoStripping(any: AnyRef) =
-    if (any.isInstanceOf[HasRuleText])
+    if (any.isInstanceOf[HasRuleText[_]])
       s"""
 ```sql
-${any.asInstanceOf[HasRuleText].rule}
+${any.asInstanceOf[HasRuleText[_]].rule}
 ```
 """
     else ""
@@ -157,7 +157,7 @@ ${any.asInstanceOf[HasRuleText].rule}
         trl(LambdaId(lambda._1)) = set
       }
       rsd.rules.foreach { pair =>
-        if (pair._2.t.runOnPassProcessor ne NoOpRunOnPassProcessor.noOp) {
+        if (pair._2.t.runOnPassProcessor != NoOpRunOnPassProcessor.noOp) {
           val outid = pair._2.t.runOnPassProcessor.id
           var set = trl.getOrElse(OutputExpressionId(outid), Set.empty[IdTrEither])
           set += RuleId(pair._1)
@@ -191,7 +191,7 @@ ${if (docs.returnDescription.nonEmpty) s"__Returns__: ${docs.returnDescription}"
 ${genDocs(docs)}
 ${genRule(rule.expression, RuleId(id), expressionLookups, idGen, rsd, extraFunctionListClass, qualityDocLink)}
 ${
-          if (rule.runOnPassProcessor ne NoOpRunOnPassProcessor.noOp)
+          if (rule.runOnPassProcessor != NoOpRunOnPassProcessor.noOp)
             s"""
 __Triggers__ output rule with id <a href="#${idGen("outputRule", rule.runOnPassProcessor.id)}">${rule.runOnPassProcessor.id.id}, ${rule.runOnPassProcessor.id.version}</a> _Salience_ ${rule.runOnPassProcessor.salience}
 """ else ""

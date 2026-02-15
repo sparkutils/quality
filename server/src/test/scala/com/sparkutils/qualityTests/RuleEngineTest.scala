@@ -2,17 +2,11 @@ package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
 import com.sparkutils.quality.functions.{flatten_rule_results, unpack_id_triple}
-import com.sparkutils.quality.impl.extension.FunNRewrite
-import com.sparkutils.quality.impl.{RuleEngineRunner, RunOnPassProcessor}
 import com.sparkutils.qualityTests.RuleEngineTest.{rulesRaw, testData}
-import com.sparkutils.qualityTests.util.SharedConnectTests
+import com.sparkutils.qualityTests.util.SharedPureConnectTests
 import com.sparkutils.testing.TestUtils.debug
 import org.apache.spark.sql.DataFrame
-import org.apache.spark.sql.ShimUtils.expression
 import org.apache.spark.sql.functions._
-import org.scalatest.FunSuite
-
-import java.io.{ByteArrayOutputStream, ObjectOutputStream}
 
 case class TestOn(product: String, account: String, subcode: Int)
 
@@ -53,7 +47,7 @@ object RuleEngineTest {
 
 }
 
-class RuleEngineTest extends SharedConnectTests {
+trait RuleEngineTestBase extends SharedPureConnectTests {
 
   def debugRules(expressionRules: (ExpressionRule, RunOnPassProcessor) *) =
     irules(expressionRules, true)
@@ -64,19 +58,33 @@ class RuleEngineTest extends SharedConnectTests {
   def irules(expressionRules: Seq[(ExpressionRule, RunOnPassProcessor)], debugMode: Boolean = false, compileEvals: Boolean = true, transformRuleSuite: RuleSuite => RuleSuite = identity) = {
     val ruleSuite = rulesRaw(expressionRules)
     (dataFrame: DataFrame) =>
-      ruleEngineRunner(transformRuleSuite(ruleSuite), debugMode = debugMode,
+      classicFunctions.ruleEngineRunner(transformRuleSuite(ruleSuite), debugMode = debugMode,
         resolveWith = if (doResolve.get()) Some(dataFrame) else None, compileEvals = compileEvals)
   }
 
-  test("testSimpleProductionRules Classic") { classicOnly{ evalCodeGensNoResolve { testPlan(FunNRewrite, disable = _ == 32) {
-    doSimpleProductionRules()
-  } } } }
+  def doTestProbabilityRules(overallResult: OverallResult): Unit = evalCodeGens {
+    val rer = irules(
+      Seq((ExpressionRule("0.6"), RunOnPassProcessor(1000, Id(1040,1),
+        OutputExpression("array(account_row('from'), account_row('to', 'other_account1'))"))))
+      , transformRuleSuite = _.withProbablePass(overallResult.probablePass))
 
-  test("testSimpleProductionRules Connect") { connectOnly{
-    doSimpleProductionRules()
-  } }
+    val testDataDF = {
+      val s = sparkSession
+      import s.implicits._
+      testData.toDF()
+    }
 
-  private def doSimpleProductionRules(): Unit = {
+    import com.sparkutils.quality.implicits._
+
+    val outdf = testDataDF.withColumn("together", rer(testDataDF))
+
+    val res = outdf.select("together.*").as[RuleEngineResult[Seq[Posting]]].collect()
+    assert(res(0).result.isEmpty)
+    assert(res(0).salientRule.isEmpty)
+    assert(res(0).ruleSuiteResults.overallResult == overallResult.currentResult)
+  }
+
+  def doSimpleProductionRules(): Unit = {
     val rer = irules(
       Seq((ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040, 1),
         OutputExpression("array(account_row('from'), account_row('to', 'other_account1'))"))),
@@ -94,53 +102,28 @@ class RuleEngineTest extends SharedConnectTests {
     }
 
     import com.sparkutils.quality.implicits._
+    defaultAndForceConnect {
+      val outdf = testDataDF.withColumn("together", rer(testDataDF))
+      //outdf.show
+      debug(outdf.select("together.*").show())
+      val res = outdf.select("together.*").as[RuleEngineResult[Seq[NewPosting]]].collect()
 
-    val outdf = testDataDF.withColumn("together", rer(testDataDF))
-    //outdf.show
-    debug(outdf.select("together.*").show)
-    val res = outdf.select("together.*").as[RuleEngineResult[Seq[NewPosting]]].collect()
+      // this row will fail as the 0.6 doesn't class as a pass for the output expression - regardless of overall status
+      assert(res(0).result.contains(Seq(NewPosting("from", "4201", "edt", 40), NewPosting("to", "other_account1", "edt", 40))))
+      assert(res(0).salientRule.contains(SalientRule(Id(1, 1), Id(50, 1), Id(0, 1))))
+      // TestOn("fx", "4206", 90),
+      //    TestOn("fxotc", "4201", 40),
+      assert(res(3).result.contains(Seq(NewPosting("from", "another_account", "fx", 90), NewPosting("to", "4206", "fx", 90))))
+      assert(res(4).result.contains(Seq(NewPosting("from", "another_account", "fxotc", 40), NewPosting("to", "4201", "fxotc", 40))))
+      assert(res(3).salientRule.contains(SalientRule(Id(1, 1), Id(50, 1), Id(100, 1))))
+      assert(res(4).salientRule.contains(SalientRule(Id(1, 1), Id(50, 1), Id(100, 1))))
 
-    // this row will fail as the 0.6 doesn't class as a pass for the output expression - regardless of overall status
-    assert(res(0).result.contains(Seq(NewPosting("from", "4201", "edt", 40), NewPosting("to", "other_account1", "edt", 40))))
-    assert(res(0).salientRule.contains(SalientRule(Id(1, 1), Id(50, 1), Id(0, 1))))
-    // TestOn("fx", "4206", 90),
-    //    TestOn("fxotc", "4201", 40),
-    assert(res(3).result.contains(Seq(NewPosting("from", "another_account", "fx", 90), NewPosting("to", "4206", "fx", 90))))
-    assert(res(4).result.contains(Seq(NewPosting("from", "another_account", "fxotc", 40), NewPosting("to", "4201", "fxotc", 40))))
-    assert(res(3).salientRule.contains(SalientRule(Id(1, 1), Id(50, 1), Id(100, 1))))
-    assert(res(4).salientRule.contains(SalientRule(Id(1, 1), Id(50, 1), Id(100, 1))))
-
-    // did the field replace work
-    assert(res(5).result.contains(Seq(NewPosting("fromWithField", "4201", "eqotc", 6000), NewPosting("to", "other_account1", "eqotc", 60))))
+      // did the field replace work
+      assert(res(5).result.contains(Seq(NewPosting("fromWithField", "4201", "eqotc", 6000), NewPosting("to", "other_account1", "eqotc", 60))))
+    }
   }
 
-  test("testProbabilityRuleFail") { doTestProbabilityRules(OverallResult(currentResult = Failed)) }
-
-  test("testProbabilityRulePass") { doTestProbabilityRules(OverallResult(probablePass = 0.6, currentResult = Passed)) }
-
-  def doTestProbabilityRules(overallResult: OverallResult): Unit = evalCodeGens { funNRewrites {
-    val rer = irules(
-      Seq((ExpressionRule("0.6"), RunOnPassProcessor(1000, Id(1040,1),
-        OutputExpression("array(account_row('from'), account_row('to', 'other_account1'))"))))
-      , transformRuleSuite = _.withProbablePass(overallResult.probablePass))
-
-    val testDataDF = {
-      val s = sparkSession
-    import s.implicits._
-      testData.toDF()
-    }
-
-    import com.sparkutils.quality.implicits._
-
-    val outdf = testDataDF.withColumn("together", rer(testDataDF))
-
-    val res = outdf.select("together.*").as[RuleEngineResult[Seq[Posting]]].collect()
-    assert(res(0).result.isEmpty)
-    assert(res(0).salientRule.isEmpty)
-    assert(res(0).ruleSuiteResults.overallResult == overallResult.currentResult)
-  } }
-
-  test("testFlattenResults") { evalCodeGensNoResolve { funNRewrites {
+  def doTestFlattenResults(): Unit =  {
     val rer = rules(
       (ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040,1),
         OutputExpression("array(account_row('from', account), account_row('to', 'other_account1'))"))),
@@ -156,28 +139,28 @@ class RuleEngineTest extends SharedConnectTests {
     val interimT = testDataDF.withColumn("together", rer(testDataDF)).cache()
     val outdfi = interimT.selectExpr("explode(flattenRuleResults(together)) as expl")
     val outdfi2 = interimT.select(explode(flatten_rule_results(col("together"))) as "expl")
-    assert(outdfi.union(outdfi2).distinct().count == outdfi.distinct().count)
+    assert(outdfi.union(outdfi2).distinct().count() == outdfi.distinct().count())
 
     debug {
       println("outdfi show")
 
-      outdfi.show
-      outdfi.printSchema
+      outdfi.show()
+      outdfi.printSchema()
     }
 
     val interim = outdfi.selectExpr("expl.result")
     debug {
-      interim.printSchema
-      interim.show
+      interim.printSchema()
+      interim.show()
     }
 
     val res = interim.as[Seq[Posting]].collect()
     assert(res(0) == Seq(Posting("from", "4201"), Posting("to","other_account1")))
     assert(res(6) == Seq(Posting("from", "another_account"), Posting("to","4206")))
     assert(res(8) == Seq(Posting("from", "another_account"), Posting("to","4201")))
-  } } }
+  }
 
-  test("testSalience") { evalCodeGensNoResolve { funNRewrites {
+  def doTestSalience(): Unit = {
     val rer = rules(
       (ExpressionRule("product = 'eqotc' and account = '4201'"), RunOnPassProcessor(100, Id(1040,1),
         OutputExpression("array(updateField(account_row('fr', account), 'transfer_type', 'from'), account_row('to', 'other_account1'))"))),
@@ -187,7 +170,7 @@ class RuleEngineTest extends SharedConnectTests {
 
     val testDataDF = {
       val s = sparkSession
-    import s.implicits._
+      import s.implicits._
       testData.toDF()
     }
 
@@ -195,7 +178,7 @@ class RuleEngineTest extends SharedConnectTests {
     import frameless._
 
     val outdf = testDataDF.withColumn("together", rer(testDataDF)).selectExpr("*", "together.result")
-    debug( outdf.show )
+    debug( outdf.show() )
 
     val res = outdf.select("result").as[Option[Seq[Posting]]](TypedExpressionEncoder[Option[Seq[Posting]]]).collect()
     val just4201 = Seq(Posting("from", "another_account"), Posting("to","4201"))
@@ -206,21 +189,21 @@ class RuleEngineTest extends SharedConnectTests {
     // prove unpackIdTriple works
     val srulec = outdf.select(unpack_id_triple(col("together.salientRule")) as "salientRule").selectExpr("salientRule.*")
     val srule = outdf.selectExpr("unpackIdTriple(together.salientRule) as salientRule").selectExpr("salientRule.*")
-    assert(srule.union(srulec).distinct().count == srule.distinct.count)
+    assert(srule.union(srulec).distinct().count() == srule.distinct().count())
 
     // need Option for the int's because they may be null.
     val sruleres = srule.select("ruleSuiteId","ruleSuiteVersion","ruleSetId","ruleSetVersion","ruleId","ruleVersion").
       as[(Option[Int],Option[Int],Option[Int],Option[Int],Option[Int],Option[Int])](
-        TypedExpressionEncoder[(Option[Int],Option[Int],Option[Int],Option[Int],Option[Int],Option[Int])]).collect
+        TypedExpressionEncoder[(Option[Int],Option[Int],Option[Int],Option[Int],Option[Int],Option[Int])]).collect()
     assert(sruleres(0) == (Some(1),Some(1),Some(50),Some(1),Some(100),Some(1)))
     // prove it's all nulls here i.e. salientRule is null if no rule matched
     val nulls = (None,None,None,None,None,None)
     assert(sruleres(1) == nulls)
     assert(sruleres(2) == nulls)
     assert(sruleres(3) == nulls)
-  } } }
+  }
 
-  test("testDebug") { evalCodeGens { funNRewrites {
+  def doTestDebug(): Unit = {
     val rer = debugRules(
       (ExpressionRule("product = 'eqotc' and account = '4201'"), RunOnPassProcessor(100, Id(1040,1),
         OutputExpression("array(account_row('from', account), account_row('to', 'other_account1'))"))),
@@ -230,15 +213,15 @@ class RuleEngineTest extends SharedConnectTests {
 
     val testDataDF = {
       val s = sparkSession
-    import s.implicits._
+      import s.implicits._
       testData.toDF()
     }
     import frameless._
 
     val outdf = testDataDF.withColumn("together", rer(testDataDF)).selectExpr("*", "together.result")
     debug {
-      outdf.show
-      outdf.printSchema
+      outdf.show()
+      outdf.printSchema()
     }
 
     val res = outdf.select("result").as[Option[Seq[(Int, Seq[Posting])]]](TypedExpressionEncoder[Option[Seq[(Int, Seq[Posting])]]]).collect()
@@ -247,50 +230,19 @@ class RuleEngineTest extends SharedConnectTests {
     assert(res(0).contains(Seq(justSeq)))
     assert(res(4).contains(Seq(justSeq)))
     assert(res(5).contains(Seq((100, Seq(Posting("from", "4201"), Posting("to", "other_account1"))), justSeq)))
-  } } }
+  }
 
-  test("testHugeAmountOfRulesSOE Classic") { classicOnly{ evalCodeGensNoResolve { funNRewrites {
-    val rer = irules(
-      Seq.fill(4000)(ExpressionRule(1 to 50 map ((i: Int) => s"(product = 'edt' and subcode = ${40 + i})") mkString " or "),
-        RunOnPassProcessor(1000, Id(3010, 1),
-          OutputExpression("array(account_row('from', account), account_row('to', 'other_account1'))"))), compileEvals = false
-    )(null.asInstanceOf[DataFrame]) // the df is irrelevant as we are NoResolving
+}
 
-    val rs = expression(rer).asInstanceOf[RuleEngineRunner].ruleSuite
-    val ds = toDS(rs)
+class RuleEngineTest extends RuleEngineTestBase {
 
-    val so = toOutputExpressionDS(rs)
+  test("testSimpleProductionRules Connect") { connectOnly{
+    doSimpleProductionRules()
+  } }
 
-    val ruleMapWithoutOE = readRulesFromDF(ds.toDF,
-      col("ruleSuiteId"),
-      col("ruleSuiteVersion"),
-      col("ruleSetId"),
-      col("ruleSetVersion"),
-      col("ruleId"),
-      col("ruleVersion"),
-      col("ruleExpr"),
-      col("ruleEngineSalience"),
-      col("ruleEngineId"),
-      col("ruleEngineVersion")
-    )
-    val outputExpressions = readOutputExpressionsFromDF(so.toDF(),
-      col("ruleExpr"),
-      col("functionId"),
-      col("functionVersion"),
-      col("ruleSuiteId"),
-      col("ruleSuiteVersion")
-    )
+  test("testProbabilityRuleFail") { doTestProbabilityRules(OverallResult(currentResult = Failed)) }
 
-    val (ruleMap, missing) = integrateOutputExpressions(ruleMapWithoutOE, outputExpressions, Some(Id(-1, -1))) // non-existent but shouldn't throw key not found exception
-
-    // attempt to serialise, it if works that's enough to pass as throwing an SOE is the problem
-    val rerer = ruleEngineRunner(ruleMap.head._2)
-
-    val bos = new ByteArrayOutputStream()
-    val os = new ObjectOutputStream(bos)
-    os.writeObject(expression(rerer))
-    val bytes = bos.toByteArray()
-  } } } }
+  test("testProbabilityRulePass") { doTestProbabilityRules(OverallResult(probablePass = 0.6, currentResult = Passed)) }
 
   test("scalarSubqueryAsOutputExpressionInStruct") { evalCodeGensNoResolve {
     v3_4_and_above {
@@ -383,7 +335,7 @@ class RuleEngineTest extends SharedConnectTests {
       ), Seq(LambdaFunction("genMax", sub(), Id(2404,1))))
       val testDF = seq.toDF("i")
       testDF.collect()
-      def testRes(resdf: DataFrame) {
+      def testRes(resdf: DataFrame): Unit = {
         try {
           val res = resdf.selectExpr("ruleEngine.result").as[Option[Int]].collect()
           assert(res.count(_.isEmpty) == 1)
@@ -470,4 +422,18 @@ class RuleEngineTest extends SharedConnectTests {
       }
     }
   } }
+
+
+  test("testFlattenResults") {
+    doTestFlattenResults()
+  }
+
+  test("testSalience") {
+    doTestSalience()
+  }
+
+  test("testDebug") {
+    doTestDebug()
+  }
+
 }

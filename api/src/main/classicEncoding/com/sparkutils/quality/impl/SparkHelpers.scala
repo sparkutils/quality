@@ -1,17 +1,8 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality.QualityException.qualityException
-import com.sparkutils.quality.impl.RuleRegistrationFunctions.getBinary
-import com.sparkutils.quality.{GeneralExpressionsResult, RuleEngineResult, RuleFolderResult, RuleSuite, RuleSuiteResult}
-import com.sparkutils.quality.impl.{IdEncoders, IntEncoders}
-import com.sparkutils.shim.expressions.CreateNamedStruct1
-import frameless.TypedEncoder
-import org.apache.spark.sql.{Column, Encoder, ShimUtils}
-import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{Expression, Literal}
-import org.apache.spark.sql.functions.lit
-import org.apache.spark.sql.types.{BinaryType, DataType}
-import shapeless.{HList, LabelledGeneric, Lazy}
+import com.sparkutils.quality.{GeneralExpressionsResult, RuleEngineResult, RuleFolderResult, RuleResult, RuleSetResult, RuleSetStatistics, RuleStatistics, RuleSuiteGroupStatistics, RuleSuiteResult, RuleSuiteStatistics, VersionedId}
+import org.apache.spark.sql.Encoder
+import shapeless.{::, HList, HNil, LabelledGeneric, Lazy, cachedImplicit}
 import shapeless.ops.hlist.IsHCons
 
 import scala.reflect.ClassTag
@@ -67,57 +58,20 @@ trait EncodersImplicits extends Serializable {
 
   implicit def ruleFolderResultExpEnc[T: TypedEncoder]: Encoder[RuleFolderResult[T]] = TypedExpressionEncoder[RuleFolderResult[T]]
 
-}
+  implicit val ruleStatisticsTypedEnc = TypedEncoder[RuleStatistics]
 
-object Encoders extends EncodersImplicits {
+  implicit val ruleStatisticsTypedExpEnc = TypedExpressionEncoder[RuleStatistics]
 
-  def internalRowTypedEnc(rowType: DataType): TypedEncoder[InternalRow] =
-    new TypedEncoder[InternalRow]()(ClassTag(classOf[InternalRow])) {
-      def nullable: Boolean = true
+  implicit val ruleSetStatisticsTypedEnc = TypedEncoder[RuleSetStatistics]
 
-      def jvmRepr: DataType = rowType
-      def catalystRepr: DataType = rowType
+  implicit val ruleSetStatisticsTypedExpEnc = TypedExpressionEncoder[RuleSetStatistics]
 
-      def fromCatalyst(path: Expression): Expression = path
+  implicit val ruleSuiteStatisticsTypedEnc = TypedEncoder[RuleSuiteStatistics]
 
-      def toCatalyst(path: Expression): Expression = path
-    }
+  implicit val ruleSuiteStatisticsTypedExpEnc = TypedExpressionEncoder[RuleSuiteStatistics]
 
-}
+  implicit val ruleSuiteGroupStatisticsTypedEnc = TypedEncoder[RuleSuiteGroupStatistics]
 
-object NamedStruct {
-  def apply(pairs: Seq[(String, Column)]): Column =
-    ShimUtils.column(
-      CreateNamedStruct1(pairs.flatMap(p => Seq(lit(p._1), p._2)).map(ShimUtils.expression))
-    )
-}
-
-/**
- * Ignores extra output expressions
- */
-object OfRuleSuite {
-
-  private[quality] def attempt(bin: Array[Byte]): Option[RuleSuite] =
-    try {
-      Some(RuleSuiteHelpers.deserialize(bin))
-    } catch {
-      case e: Exception => qualityException("Could not deserialize a byte array to a RuleSuite", e)
-    }
-
-  def unapply(expression: Any): Option[RuleSuite] =
-    expression match {
-      case e: Literal if e.dataType == BinaryType =>
-        attempt(getBinary(e, 0))
-      case _ => None
-    }
-}
-
-/**
- * Requires output expressions
- */
-object OfRuleOutputSuite {
-  import OfRuleSuite.attempt
-
-  def unapply(expression: Any): Option[RuleSuite] = OfRuleSuite.unapply(expression)
+  implicit val ruleSuiteGroupStatisticsTypedExpEnc = TypedExpressionEncoder[RuleSuiteGroupStatistics]
 
 }

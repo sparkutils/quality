@@ -1,12 +1,11 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality.functions.{long_pair, long_pair_from_uuid, rng_bytes, rng_uuid, unique_id}
-import com.sparkutils.quality.impl.rng.RandomLongs
-import com.sparkutils.qualityTests.util.SharedConnectTests
+import com.sparkutils.qualityTests.util.SharedPureConnectTests
 import org.apache.spark.sql.functions.{col, expr}
-import org.apache.spark.sql.types.{BinaryType, LongType, StringType}
+import org.apache.spark.sql.types.{BinaryType, LongType, StringType, StructField, StructType}
 
-class RngAndRowIdTest extends SharedConnectTests {
+class RngAndRowIdTest extends SharedPureConnectTests {
 
   test("rngBytesTest") { evalCodeGensNoResolve {
     val numRows = 10000
@@ -84,7 +83,9 @@ class RngAndRowIdTest extends SharedConnectTests {
       .filter("pair = pair2").drop("pair2")
       .distinct()
 
-    assert(unique.schema.fields.head.dataType == RandomLongs.structType)
+    assert(unique.schema.fields.head.dataType == StructType(Seq(
+      StructField("lower", LongType, false),
+      StructField("higher", LongType, false)))) // copied over to allow connect_testshade to run these tests
     assert(unique.count() == numRows)
   }}
 
