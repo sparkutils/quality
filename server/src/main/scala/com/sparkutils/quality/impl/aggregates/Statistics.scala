@@ -1,5 +1,6 @@
 package com.sparkutils.quality.impl.aggregates
 
+import com.sparkutils.quality.ResultStatisticsProvider.ResultStatisticOps
 import com.sparkutils.quality.{RuleSuiteGroupStatistics, RuleSuiteResult}
 import org.apache.spark.sql.{ClassicQualitySparkUtils, Encoder}
 import org.apache.spark.sql.catalyst.expressions.Expression
@@ -19,7 +20,8 @@ object Statistics extends Aggregator[Tuple1[RuleSuiteResult], RuleSuiteGroupStat
 
   override def zero: RuleSuiteGroupStatistics = RuleSuiteGroupStatistics()
 
-  override def reduce(b: RuleSuiteGroupStatistics, a: Tuple1[RuleSuiteResult]): RuleSuiteGroupStatistics = b.process(a._1)
+  override def reduce(b: RuleSuiteGroupStatistics, a: Tuple1[RuleSuiteResult]): RuleSuiteGroupStatistics =
+    b.process(a._1)
 
   override def merge(b1: RuleSuiteGroupStatistics, b2: RuleSuiteGroupStatistics): RuleSuiteGroupStatistics =
     b1.combine(b2)

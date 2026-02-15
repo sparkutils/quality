@@ -3,9 +3,10 @@ package com.sparkutils.qualityTests
 import org.apache.spark.sql.functions.{col, expr}
 import com.sparkutils.quality.{RuleSuiteGroupStatistics, _}
 import com.sparkutils.quality.functions.rule_suite_statistics
-import org.scalatest.{FunSuite, Matchers}
+import org.scalatest.Matchers
 import com.sparkutils.quality.impl.util.MapOps._
 import com.sparkutils.qualityTests.util.SharedPureConnectTests
+import com.sparkutils.quality.ResultStatisticsProvider.ResultStatisticOps
 
 class StatisticsTest extends SharedPureConnectTests with Matchers {
 
