@@ -1,10 +1,11 @@
 package com.sparkutils.quality.impl.util
 
+import com.sparkutils.quality.RuleSuite.defaultProbablePass
 import com.sparkutils.quality.impl.{RuleSuiteHelpers, VariableHelper}
-import com.sparkutils.quality.{DefaultProcessor, ExpressionRule, Id, LambdaFunction, NoOpDefaultProcessor, NoOpRunOnPassProcessor, OutputExpression, Rule, RuleSet, RuleSuite, RunOnPassProcessor, VersionedId}
+import com.sparkutils.quality.{DefaultProcessor, ExpressionRule, Id, LambdaFunction, NoOpDefaultProcessor, NoOpRunOnPassProcessor, OutputExpression, Rule, RuleSet, RuleSuite, RuleSuiteGroup, RunOnPassProcessor, VersionedId, toDS, toLambdaDS, toOutputExpressionDS, toRuleSuiteRow}
 import com.sparkutils.quality.impl.util.SerializingShim.combineImpl
 import com.sparkutils.quality.impl.util.VersionSpecificSerializingImports.uniqueName
-import org.apache.spark.sql.{Dataset, Encoder, SparkSession}
+import org.apache.spark.sql.{Column, Dataset, Encoder, ShimUtils, SparkSession}
 import org.apache.spark.sql.functions.{col, lit}
 import org.apache.spark.sql.types.BinaryType
 
@@ -191,7 +192,7 @@ trait VersionSpecificSerializingImports {
           })
       }.toSeq, lambdaFunctions = row.lambdaFunctions.fold(Seq.empty[LambdaFunction]){_.map { lr =>
         LambdaFunction(lr.name, lr.ruleExpr, Id(lr.functionId, lr.functionVersion))
-      }}, probablePass = row.probablePass.getOrElse(0.8),
+      }}, probablePass = row.probablePass.getOrElse(defaultProbablePass),
       defaultProcessor = row.defaultProcessor.map{o =>
         DefaultProcessor(Id(o.functionId, o.functionVersion), OutputExpression(o.ruleExpr))}.
         getOrElse(NoOpDefaultProcessor.noOp))
@@ -265,6 +266,112 @@ trait VersionSpecificSerializingImports {
    * @return
    */
   def register_rule_suite(ruleSuite: RuleSuite): String = register_rule_suite(ruleSuite, uniqueName())
+
+  /**
+   * Converts CombinedRuleSuiteRows into a RuleSuiteGroup
+   * @param combined
+   * @param stableName
+   * @return stableName
+   */
+  def rule_suite_group(combined: Seq[CombinedRuleSuiteRows]): RuleSuiteGroup =
+    RuleSuiteGroup(combined.map(rule_suite) :_*)
+
+  /**
+   * Converts CombinedRuleSuiteRows into a RuleSuiteGroup
+   * @param ds
+   * @param stableName
+   * @return stableName
+   */
+  def rule_suite_group(ds: Dataset[CombinedRuleSuiteRows]): RuleSuiteGroup = {
+    val s = SparkSession.active
+    import s.implicits._
+    import com.sparkutils.quality.implicits._
+
+    rule_suite_group(ds.collect())
+  }
+
+  /**
+   * Registers the RuleSuiteGroup represented by the CombinedRuleSuiteRows with a Spark Variable with the provided stable id
+   * @param ds
+   * @return stableName
+   */
+  def register_rule_suite_group_variable(ds: Dataset[CombinedRuleSuiteRows]): String =
+    register_rule_suite_group_variable(ds, uniqueName())
+
+  /**
+   * Registers the RuleSuiteGroup with a Spark Variable with the provided stable id
+   * @param group
+   * @return stableName
+   */
+  def register_rule_suite_group(group: RuleSuiteGroup): String =
+    register_rule_suite_group(group, uniqueName())
+
+  def combined_rows(ruleSuite: RuleSuite): Dataset[CombinedRuleSuiteRows] = {
+    val s = SparkSession.active
+    import s.implicits._
+
+    import com.sparkutils.quality.implicits._
+
+    val ruleRows = toDS(ruleSuite)
+    val lambdas = toLambdaDS(ruleSuite)
+    val outRows = toOutputExpressionDS(ruleSuite)
+    val (rsRow, outRow) = toRuleSuiteRow(ruleSuite)
+
+    val cOutRows = outRow.map(o => outRows union (Seq(o).toDS())).getOrElse(outRows)
+
+    combine(ruleRows, lambdas, cOutRows, Seq(rsRow).toDS())
+  }
+
+  /**
+   * Registers the RuleSuiteGroup represented by the CombinedRuleSuiteRows with a Spark Variable with the provided stable id.
+   *
+   * @param ds
+   * @param stableName
+   * @return stableName
+   */
+  def register_rule_suite_group_variable(ds: Dataset[CombinedRuleSuiteRows], stableName: String): String = {
+    val tv = uniqueName()
+    ds.createOrReplaceTempView(tv)
+    val s = SparkSession.active
+    import s.implicits._
+    val ddl = implicitly[Encoder[CombinedRuleSuiteRows]].schema.toDDL
+
+    VariableHelper.createVar(stableName, s"array<struct<$ddl>>",
+      s"(select collect_set(struct(ruleSuiteId, ruleSuiteVersion, ruleRows, lambdaFunctions, probablePass, defaultProcessor)) from `$tv`)")
+
+    stableName
+  }
+
+  /**
+   * Registers the RuleSuiteGroup with a Spark Variable with the provided stable id
+   * @param group
+   * @param stableName
+   * @return stableName
+   */
+  def register_rule_suite_group(group: RuleSuiteGroup, stableName: String): String = {
+    val s = SparkSession.active
+    import s.implicits._
+    val tv = uniqueName()
+    s.sql("select 1").select(lit(RuleSuiteHelpers.serializeGroup(group)).as("rs")).createOrReplaceTempView(tv)
+    VariableHelper.createVar(stableName, BinaryType.sql,
+      s"(select first(rs) from `$tv`)")
+
+    stableName
+  }
+
+  /**
+   * Retrieves the RuleSuite from the RuleSuiteGroup backed Spark Session variable name against the highest version with
+   * the ruleSuiteId.  Null is returned if no matching entry is found
+   */
+  def rule_suite_from(ruleSuiteGroupName: String, ruleSuiteId: Int): Column =
+    ShimUtils.callFunction("rule_suite_from", col(ruleSuiteGroupName), lit(ruleSuiteId))
+
+  /**
+   * Retrieves the RuleSuite from the RuleSuiteGroup backed Spark Session variable name against the specific
+   * ruleSuiteId and ruleSuiteVersion.  Null is returned if no matching entry is found
+   */
+  def rule_suite_from(ruleSuiteGroupName: String, ruleSuiteId: Int, ruleSuiteVersion: Int): Column =
+    ShimUtils.callFunction("rule_suite_from", col(ruleSuiteGroupName), lit(ruleSuiteId), lit(ruleSuiteVersion))
 }
 
 

@@ -2,6 +2,7 @@ package com.sparkutils.quality
 
 import com.sparkutils.quality.DefaultProcessor.DefaultProcessorImpl
 import com.sparkutils.quality.NoOpRunOnPassProcessor.noOpId
+import com.sparkutils.quality.RuleSuite.defaultProbablePass
 import com.sparkutils.quality.RunOnPassProcessor.RunOnPassProcessorImpl
 
 /**
@@ -174,7 +175,7 @@ case class RuleSet(id: Id, rules: Seq[Rule]) extends Serializable
  */
 @SerialVersionUID(1L)
 case class RuleSuite(id: Id, ruleSets: Seq[RuleSet], lambdaFunctions: Seq[LambdaFunction] = Seq.empty,
-                     probablePass: Double = 0.8, defaultProcessor: DefaultProcessor = NoOpDefaultProcessor.noOp) extends Serializable {
+                     probablePass: Double = defaultProbablePass, defaultProcessor: DefaultProcessor = NoOpDefaultProcessor.noOp) extends Serializable {
 
   /**
    * Use a different probable pass value for this RuleSuite
@@ -195,6 +196,8 @@ case class RuleSuite(id: Id, ruleSets: Seq[RuleSet], lambdaFunctions: Seq[Lambda
 }
 
 object RuleSuite {
+  val defaultProbablePass: Double = 0.8d
+
   /**
    * Maps a given ruleSuite calling f for each rule allowing transformations
    *

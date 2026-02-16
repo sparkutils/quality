@@ -2,6 +2,7 @@ package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality.Id
 import com.sparkutils.quality.NoOpRunOnPassProcessor.{notPresentOutputId, notPresentOutputVersion, notPresentSalience}
+import com.sparkutils.quality.RuleSuite.defaultProbablePass
 import com.sparkutils.quality.impl.util.VersionSpecificSerializingImports.uniqueName
 import com.sparkutils.testing.ConnectWhenForced.someOrForcedConnect
 import org.apache.spark.sql.functions.{col, collect_set, expr, lit, struct}
@@ -116,7 +117,7 @@ protected[quality] object SerializingShim {
         )
     )
     // TODO use the rest of the ruleSuites
-    val probablePassLit = lit(0.8d).cast(DoubleType).as("probablePass")
+    val probablePassLit = lit(defaultProbablePass).cast(DoubleType).as("probablePass")
     val defaultProcessorLit = lit(null).cast(implicitly[Encoder[OutputExpressionRow]].schema).as("defaultProcessor")
 
     val grouped = rows.groupBy("ruleRow.ruleSuiteId", "ruleRow.ruleSuiteVersion").agg(

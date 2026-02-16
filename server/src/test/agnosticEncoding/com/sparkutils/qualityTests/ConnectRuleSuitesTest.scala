@@ -4,11 +4,11 @@ import com.sparkutils.quality.RuleSuite.mapRules
 import com.sparkutils.qualityTests.util.SharedPureConnectTests
 import com.sparkutils.quality._
 import com.sparkutils.quality.functions.flatten_results
-import com.sparkutils.quality.impl.OfRuleSuite
+import com.sparkutils.quality.impl.ReWriteConstants.RULE_SUITE_GROUPS_MISSING_ERR_MSG
 import com.sparkutils.quality.impl.util.{CombinedRuleSuiteRows, LambdaFunctionRow}
 import com.sparkutils.qualityTests.RuleEngineTest.{rulesRaw, testData}
 import com.sparkutils.testing.TestUtils.{anyCauseHas, debug}
-import org.apache.spark.sql.ShimUtils
+import org.apache.spark.sql.{Column, ShimUtils}
 import org.apache.spark.sql.functions.{col, explode}
 import org.apache.spark.sql.types.{IntegerType, StructField, StructType}
 import org.scalatest.Matchers
@@ -157,7 +157,7 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
     }
   }
 
-  test("ruleRunner via spark var and provided empty dataset") {
+  def doRuleTest(colF: (RuleSuite) => Column): Unit = {
     val rules = rulesRaw(
       Seq((ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040, 1),
         OutputExpression("array(account_row('from'), account_row('to', 'other_account1'))"))),
@@ -176,37 +176,134 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
 
     import com.sparkutils.quality.implicits._
 
-    val ruleRows = toDS(rules)
-    val lambdas = toLambdaDS(rules)
-    val outRows = toOutputExpressionDS(rules)
-
     val s = sparkSession
     import s.implicits._
 
     // the empty dataset but provided test
     defaultAndForceConnect {
-      val conbinedRuleSuiteRows = combine(ruleRows, lambdas, outRows)
-      val name = register_rule_suite_variable(conbinedRuleSuiteRows, rules.id)
-
       val outdf = testDataDF.withColumn("together",
-        ShimUtils.callFunction("rule_engine_runner", col(name))
+        ShimUtils.callFunction("rule_engine_runner", colF(rules))
       )
       //outdf.show
       debug(outdf.select("together.*").show())
       val res = outdf.select("together.*").as[RuleEngineResult[Seq[NewPosting]]].collect()
 
       // this row will fail as the 0.6 doesn't class as a pass for the output expression - regardless of overall status
-      assert(res(0).result.contains(Seq(NewPosting("from", "4201", "edt", 40), NewPosting("to", "other_account1", "edt", 40))))
-      assert(res(0).salientRule.contains(SalientRule(Id(1, 1), Id(50, 1), Id(0, 1))))
+      res(0).result should contain(Seq(NewPosting("from", "4201", "edt", 40), NewPosting("to", "other_account1", "edt", 40)))
+      res(0).salientRule should contain(SalientRule(Id(1, 1), Id(50, 1), Id(0, 1)))
       // TestOn("fx", "4206", 90),
       //    TestOn("fxotc", "4201", 40),
-      assert(res(3).result.contains(Seq(NewPosting("from", "another_account", "fx", 90), NewPosting("to", "4206", "fx", 90))))
-      assert(res(4).result.contains(Seq(NewPosting("from", "another_account", "fxotc", 40), NewPosting("to", "4201", "fxotc", 40))))
-      assert(res(3).salientRule.contains(SalientRule(Id(1, 1), Id(50, 1), Id(100, 1))))
-      assert(res(4).salientRule.contains(SalientRule(Id(1, 1), Id(50, 1), Id(100, 1))))
+      res(3).result should contain(Seq(NewPosting("from", "another_account", "fx", 90), NewPosting("to", "4206", "fx", 90)))
+
+      res(4).result should contain(Seq(NewPosting("from", "another_account", "fxotc", 40), NewPosting("to", "4201", "fxotc", 40)))
+      res(3).salientRule should contain(SalientRule(Id(1, 1), Id(50, 1), Id(100, 1)))
+      res(4).salientRule should contain(SalientRule(Id(1, 1), Id(50, 1), Id(100, 1)))
 
       // did the field replace work
-      assert(res(5).result.contains(Seq(NewPosting("fromWithField", "4201", "eqotc", 6000), NewPosting("to", "other_account1", "eqotc", 60))))
+
+      res(5).result should contain(Seq(NewPosting("fromWithField", "4201", "eqotc", 6000), NewPosting("to", "other_account1", "eqotc", 60)))
+    }
+  }
+
+  test("ruleRunner via spark var and provided empty dataset") {
+    doRuleTest{
+      (ruleSuite) =>
+        val conbinedRuleSuiteRows = combined_rows(ruleSuite)
+        val name = register_rule_suite_variable(conbinedRuleSuiteRows, rules.id)
+        col(name)
+    }
+  }
+
+  test("ruleRunner via RuleSuite and spark var and provided empty dataset") {
+    doRuleTest{
+      (ruleSuite) =>
+        val name = register_rule_suite(ruleSuite)
+        col(name)
+    }
+  }
+
+  lazy val groupRulesDummy = rulesRaw(
+    Seq((ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040, 1),
+      OutputExpression("array()"))),
+      (ExpressionRule("product like '%fx%'"), RunOnPassProcessor(1000, Id(1042, 1),
+        OutputExpression("array()"))),
+      (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1000, Id(1043, 1),
+        OutputExpression("null")))
+    )
+  )
+
+  test("ruleRunner via RuleSuiteGroup and spark var and provided empty dataset - only one version") {
+    doRuleTest{
+      (ruleSuite) =>
+        val g = RuleSuiteGroup(ruleSuite, groupRulesDummy.copy(id = Id(1000, 1)))
+        val name = register_rule_suite_group(g)
+        rule_suite_from(name, ruleSuite.id.id)
+    }
+  }
+
+  test("ruleRunner via RuleSuiteGroup and spark var and provided empty dataset - no results") {
+    val caught =
+      intercept[Exception] { // either SparkException with connect or QualityException with classic
+        doRuleTest{
+          (ruleSuite) =>
+            val g = RuleSuiteGroup(ruleSuite, groupRulesDummy.copy(id = Id(1000, 1)))
+            val name = register_rule_suite_group(g)
+            rule_suite_from(name, ruleSuite.id.id + 2)
+        }
+      }
+    caught.getMessage should include(RULE_SUITE_GROUPS_MISSING_ERR_MSG)
+  }
+
+  test("ruleRunner via RuleSuiteGroup and spark var and provided empty dataset - two versions, pick latest") {
+    doRuleTest{
+      (ruleSuite) =>
+        val nr = ruleSuite
+        val g = RuleSuiteGroup(nr, groupRulesDummy.copy(id = Id(nr.id.id, -1000)))
+        val name = register_rule_suite_group(g)
+        rule_suite_from(name, nr.id.id)
+    }
+  }
+
+  test("ruleRunner via RuleSuiteGroup and spark var and provided empty dataset - two versions, pick specific") {
+    doRuleTest{
+      (ruleSuite) =>
+        val g = RuleSuiteGroup(ruleSuite, groupRulesDummy.copy(id = ruleSuite.id.copy(version = 1000)))
+        val name = register_rule_suite_group(g)
+        rule_suite_from(name, ruleSuite.id.id, ruleSuite.id.version)
+    }
+  }
+
+  test("ruleRunner via RuleSuiteGroup and spark var and provided empty dataset - only one version - via _variable") {
+    doRuleTest{
+      (ruleSuite) =>
+        val conbinedRuleSuiteRows = combined_rows(ruleSuite)
+        val conbinedRuleSuiteRowsd = combined_rows(groupRulesDummy.copy(id = Id(1000, 1)))
+
+        val name = register_rule_suite_group_variable(conbinedRuleSuiteRows union conbinedRuleSuiteRowsd)
+        rule_suite_from(name, ruleSuite.id.id)
+    }
+  }
+
+  test("ruleRunner via RuleSuiteGroup and spark var and provided empty dataset - two versions, pick latest - via _variable") {
+    doRuleTest{
+      (ruleSuite) =>
+        val nr = ruleSuite
+        val conbinedRuleSuiteRows = combined_rows(nr)
+        val conbinedRuleSuiteRowsd = combined_rows(groupRulesDummy.copy(id = Id(nr.id.id, -1000)))
+
+        val name = register_rule_suite_group_variable(conbinedRuleSuiteRows union conbinedRuleSuiteRowsd)
+        rule_suite_from(name, nr.id.id)
+    }
+  }
+
+  test("ruleRunner via RuleSuiteGroup and spark var and provided empty dataset - two versions, pick specific - via _variable") {
+    doRuleTest{
+      (ruleSuite) =>
+        val conbinedRuleSuiteRows = combined_rows(ruleSuite)
+        val conbinedRuleSuiteRowsd = combined_rows(groupRulesDummy.copy(id = ruleSuite.id.copy(version = 1000)))
+
+        val name = register_rule_suite_group_variable(conbinedRuleSuiteRows union conbinedRuleSuiteRowsd)
+        rule_suite_from(name, ruleSuite.id.id, ruleSuite.id.version)
     }
   }
 

@@ -1,5 +1,6 @@
 package com.sparkutils.quality
 
+import com.sparkutils.quality.RuleSuite.defaultProbablePass
 import com.sparkutils.quality.impl.util.MapOps.MapOps
 import com.sparkutils.quality.impl.util.Optional
 
@@ -18,6 +19,7 @@ trait LazyRuleSuiteResult extends Serializable {
  * @param salientRule if it's None there is no rule which matched for this row or it's in Debug mode which will return all results.
  * @param result The result type for this row, if no rule matched this will be None, if a rule matched but the outputexpression returned null this will also be None
  */
+@SerialVersionUID(1L)
 case class LazyRuleEngineResult[T](lazyRuleSuiteResults: LazyRuleSuiteResult, salientRule: Option[SalientRule], result: Option[T]) extends Serializable {
   def getSalientRule: java.util.Optional[SalientRule] = Optional.toOptional(salientRule)
 
@@ -29,12 +31,12 @@ case class LazyRuleEngineResult[T](lazyRuleSuiteResults: LazyRuleSuiteResult, sa
  * @param lazyRuleSuiteResults Overall results from applying the engine, evaluated lazily
  * @param result The result type for this row, if no rule matched this will be None, if a rule matched but the outputexpression returned null this will also be None
  */
+@SerialVersionUID(1L)
 case class LazyRuleFolderResult[T](lazyRuleSuiteResults: LazyRuleSuiteResult, result: Option[T]) extends Serializable {
   def getResult: java.util.Optional[T] = Optional.toOptional(result)
 }
 
 sealed trait ResultStatisticsProviderImpl[T <: ResultStatistics[_]] extends Serializable {
-  type TheT = T
 
   def update(t: T)(failed: Long = t.failed, passed: Long = t.passed, softFailed: Long = t.softFailed, disabled: Long = t.disabled,
              ignored: Long = t.ignored, defaulted: Long = t.defaulted, probabilityPassed: Long = t.probabilityPassed,
@@ -49,7 +51,7 @@ sealed trait ResultStatisticsProviderImpl[T <: ResultStatistics[_]] extends Seri
   def combine(t: T, other: T): T
 
   @tailrec
-  final def processResult(t: T)(ruleResult: RuleResult, probabilityPass: Double = 0.8d): T =
+  final def processResult(t: T)(ruleResult: RuleResult, probabilityPass: Double = defaultProbablePass): T =
     ruleResult match {
       case Failed => update(t)(failed = t.failed + 1)
       case Passed => update(t)(passed = t.passed + 1)
@@ -62,6 +64,7 @@ sealed trait ResultStatisticsProviderImpl[T <: ResultStatistics[_]] extends Seri
       case RuleResultWithProcessor(ruleResult: RuleResult, _) =>
         processResult(t)(ruleResult, probabilityPass)
     }
+
 }
 
 sealed trait ResultStatisticsProvider[T, R] extends Serializable {

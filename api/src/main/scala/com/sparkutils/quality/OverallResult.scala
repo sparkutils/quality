@@ -1,5 +1,7 @@
 package com.sparkutils.quality
 
+import com.sparkutils.quality.RuleSuite.defaultProbablePass
+
 import scala.annotation.tailrec
 
 /**
@@ -7,7 +9,7 @@ import scala.annotation.tailrec
  * Passed until any failure occurs
  */
 @SerialVersionUID(1L)
-case class OverallResult(probablePass: Double = 0.8, currentResult: RuleResult = Passed) extends Serializable {
+case class OverallResult(probablePass: Double = defaultProbablePass, currentResult: RuleResult = Passed) extends Serializable {
   /**
    * Processes a RuleResult for DQ
    * @param ruleResult

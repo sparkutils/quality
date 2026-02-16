@@ -3,7 +3,7 @@ package com.sparkutils.quality.impl
 import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.classicFunctions._
 import com.sparkutils.quality.impl.CollectRunner.collectRunnerClassic
-import com.sparkutils.quality.impl.ReWriteConstants.INC_REWRITE_GENEXP_ERR_MSG
+import com.sparkutils.quality.impl.ReWriteConstants.{INC_REWRITE_GENEXP_ERR_MSG, RULE_SUITE_GROUPS_MISSING_ERR_MSG}
 import com.sparkutils.quality.impl.VariableProcessIfMissingFunctions.registerProcessIfAttributeMissingForAgnostic
 import com.sparkutils.quality.impl.aggregates.{AggregateExpressions, Statistics}
 import com.sparkutils.quality.impl.bloom.{BucketedArrayParquetAggregator, ParquetAggregator}
@@ -14,7 +14,7 @@ import com.sparkutils.quality.impl.mapLookup.MapLookupFunctionsImpl.registerMapL
 import com.sparkutils.quality.impl.rng.{RandLongsWithJump, RandomBytes, RandomLongs}
 import com.sparkutils.quality.impl.util.{ComparableMapConverter, ComparableMapReverser, InputWrapper, PrintCode}
 import com.sparkutils.quality.impl.yaml.{YamlDecoderExpr, YamlEncoderExpr}
-import com.sparkutils.quality.{QualityException, impl}
+import com.sparkutils.quality.{QualityException, RuleSuite, VersionedId, impl}
 import org.apache.commons.rng.simple.RandomSource
 import org.apache.spark.sql.ShimUtils.{add, column, expression}
 import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
@@ -686,6 +686,19 @@ object RuleRegistrationFunctions {
         ))
     }, Set(1, 2, 3, 4, 6, 9))
 
+    def rsExp(o: Option[(VersionedId, RuleSuite)]) =
+      o.map( o => Literal.create(o._2, ObjectType(classOf[RuleSuite]))).getOrElse(
+        qualityException(RULE_SUITE_GROUPS_MISSING_ERR_MSG)
+      )
+
+    register("rule_suite_from", {
+      case Seq(OfRuleSuiteGroup(rg), id) =>
+        rsExp( rg.ruleSuites.filter(_._1.id == getInteger(id, 1)).toSeq.sortBy(_._1.version).lastOption )
+
+      case Seq(OfRuleSuiteGroup(rg), id, version) =>
+        rsExp( rg.ruleSuites.find(p => p._1.id == getInteger(id, 1) && p._1.version == getInteger(version, 1)) )
+    }, Set(2,3))
+
     // coalesce support
     registerProcessIfAttributeMissingForAgnostic(registerFunction)
   }
@@ -698,5 +711,7 @@ object RuleRegistrationFunctions {
 object ReWriteConstants {
 
   val INC_REWRITE_GENEXP_ERR_MSG: String = "inc('DDL', generic expression) is not supported in NO_REWRITE mode, use inc(generic expression) without NO_REWRITE mode enabled"
+
+  val RULE_SUITE_GROUPS_MISSING_ERR_MSG: String = "rule_suite_from called but no matching RuleSuite was found"
 
 }
