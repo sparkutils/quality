@@ -86,9 +86,6 @@ abstract class OfX[T: ClassTag, E: Encoder]() {
   }
 }
 
-/**
- * Ignores extra output expressions
- */
 object OfRuleSuiteGroup extends OfX[RuleSuiteGroup, Seq[CombinedRuleSuiteRows]] {
 
   def deserializeIt(bin: Array[Byte]) = deserializeGroup(bin)
@@ -96,9 +93,6 @@ object OfRuleSuiteGroup extends OfX[RuleSuiteGroup, Seq[CombinedRuleSuiteRows]] 
 
 }
 
-/**
- * Ignores extra output expressions
- */
 object OfRuleSuite extends OfX[RuleSuite, CombinedRuleSuiteRows] {
 
   def deserializeIt(bin: Array[Byte]) = deserialize(bin)
