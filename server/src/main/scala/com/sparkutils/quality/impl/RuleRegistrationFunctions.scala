@@ -151,7 +151,7 @@ object RuleRegistrationFunctions {
         }
 
     registerFunction(name, create)
-    
+
     if (!mustKeepNames(name)) {
       registerFunction(name.replaceAll("_",""), create)
     }

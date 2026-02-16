@@ -243,6 +243,27 @@ trait VersionSpecificSerializingImports {
   }
 
   /**
+   * Registers the RuleSuite with a Spark Variable with the provided stable id
+   * @param ds
+   * @param id
+   * @param stableName
+   * @return stableName
+   */
+  def register_rule_suite_group_variable(ds: Dataset[CombinedRuleSuiteRows], stableName: String): String = {
+    val tv = uniqueName()
+    ds.createOrReplaceTempView(tv)
+    val s = SparkSession.active
+    import s.implicits._
+    val ddl = implicitly[Encoder[CombinedRuleSuiteRows]].schema.toDDL
+
+    VariableHelper.createVar(stableName, s"struct<$ddl>",
+      s"(select first(struct(ruleSuiteId, ruleSuiteVersion, ruleRows, lambdaFunctions, probablePass)) from `$tv`)")
+
+    stableName
+  }
+
+
+  /**
    * Registers a ruleSuite directly as a Spark Variable (with object stream encoding).
    * Where possible using the CombinedRuleSuiteRows should be preferred and manage the ruleSuites on the server.
    * @param ruleSuite
