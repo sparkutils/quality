@@ -209,20 +209,21 @@ trait ResultStatistics[T <: ResultStatistics[_]] extends Serializable {
   def probabilityPassed: Long
   def probabilityFailed: Long
 
-  def update(failed: Long = failed, passed: Long = passed, softFailed: Long = softFailed, disabled: Long = disabled,
+  private[quality] def update(failed: Long = failed, passed: Long = passed, softFailed: Long = softFailed, disabled: Long = disabled,
              ignored: Long = ignored, defaulted: Long = defaulted, probabilityPassed: Long = probabilityPassed,
              probabilityFailed: Long = probabilityFailed): T
 
-  def combineResults(other: T): T =
+  private[quality] def combineResults(other: T): T =
     update(failed = failed + other.failed, passed = passed + other.passed, softFailed = softFailed + other.softFailed,
       disabled = disabled + other.disabled, ignored = ignored + other.ignored, defaulted = defaulted + other.defaulted,
       probabilityPassed = probabilityPassed + other.probabilityPassed,
       probabilityFailed = probabilityFailed + other.probabilityFailed)
 
+  @deprecated(since = "0.1.4", message = "This functionality will be removed as of 0.2.0")
   def combine(other: T): T
 
   @tailrec
-  final def processResult(ruleResult: RuleResult, probabilityPass: Double = 0.8d): T =
+  private[quality] final def processResult(ruleResult: RuleResult, probabilityPass: Double = 0.8d): T =
     ruleResult match {
       case Failed => update(failed = failed + 1)
       case Passed => update(passed = passed + 1)
@@ -262,6 +263,7 @@ case class RuleSetStatistics(ruleSet: VersionedId, failed: Long = 0, passed: Lon
     copy(failed = failed, passed = passed, softFailed = softFailed, disabled = disabled, ignored = ignored,
       defaulted = defaulted, probabilityPassed = probabilityPassed, probabilityFailed = probabilityFailed)
 
+  @deprecated(since = "0.1.4", message = "This functionality will be removed as of 0.2.0")
   def process(setResult: RuleSetResult): RuleSetStatistics =
     processResult(setResult.overallResult).copy(
       rules = setResult.ruleResults.foldLeft(rules){
@@ -294,6 +296,7 @@ case class RuleSuiteStatistics(ruleSuite: VersionedId, failed: Long = 0, passed:
     copy(failed = failed, passed = passed, softFailed = softFailed, disabled = disabled, ignored = ignored,
       defaulted = defaulted, probabilityPassed = probabilityPassed, probabilityFailed = probabilityFailed)
 
+  @deprecated(since = "0.1.4", message = "This functionality will be removed as of 0.2.0")
   def process(ruleSuiteResult: RuleSuiteResult): RuleSuiteStatistics = {
     processResult(ruleSuiteResult.overallResult).copy(rowCount = rowCount + 1,
       ruleSets = ruleSuiteResult.ruleSetResults.foldLeft(ruleSets){
@@ -323,7 +326,7 @@ case class RuleSuiteStatistics(ruleSuite: VersionedId, failed: Long = 0, passed:
  * Convenience as a dataset may contain more than one rule suite
  */
 case class RuleSuiteGroupStatistics(ruleSuites: Map[VersionedId, RuleSuiteStatistics] = Map.empty, rowCount: Long = 0) extends Serializable {
-// TODO - probable pass may be different for each rulesuite, so link that in 0.2
+  @deprecated(since = "0.1.4", message = "This functionality will be removed as of 0.2.0")
   def process(ruleSuiteResult: RuleSuiteResult): RuleSuiteGroupStatistics =
     copy(rowCount = rowCount + 1, ruleSuites = ruleSuites.updatedWithF(ruleSuiteResult.id){
       _.map( _.process(ruleSuiteResult)).orElse(Some(RuleSuiteStatistics(ruleSuiteResult.id).process(ruleSuiteResult)))
