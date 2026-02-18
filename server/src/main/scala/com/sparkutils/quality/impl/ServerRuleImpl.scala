@@ -576,15 +576,15 @@ object RuleSuiteFunctions {
 
           r.id -> ruleResult
         }
-        val overall = ruleSetRawRes.foldLeft(quality.OverallResult(probablePass)){
+        val overall = ruleSetRawRes.foldLeft(quality.OverallResult(probablePass, Failed)){
           (ov, pair) =>
-            ov.process(pair._2)
+            ov.processForDefault(pair._2)
         }
         rs.id -> RuleSetResult(overall.currentResult, ruleSetRawRes.toMap)
       }
-    val overall = rawRuleSets.foldLeft(quality.OverallResult(probablePass)){
+    val overall = rawRuleSets.foldLeft(quality.OverallResult(probablePass, Failed)){
       (ov, pair) =>
-        ov.process(pair._2.overallResult)
+        ov.processForDefault(pair._2.overallResult)
     }
 
     val (rule, result) =
@@ -644,15 +644,15 @@ object RuleSuiteFunctions {
 
           r.id -> ruleResult
         }
-        val overall = ruleSetRawRes.foldLeft(quality.OverallResult(probablePass)){
+        val overall = ruleSetRawRes.foldLeft(quality.OverallResult(probablePass, Failed)){
           (ov, pair) =>
-            ov.process(pair._2)
+            ov.processForDefault(pair._2)
         }
         rs.id -> RuleSetResult(overall.currentResult, ruleSetRawRes.toMap)
       }
-    val overall = rawRuleSets.foldLeft(quality.OverallResult(probablePass)){
+    val overall = rawRuleSets.foldLeft(quality.OverallResult(probablePass, Failed)){
       (ov, pair) =>
-        ov.process(pair._2.overallResult)
+        ov.processForDefault(pair._2.overallResult)
     }
 
     // sort applicable by salience - we don't reset original ordering here - surprising? TODO decide if it is too much surprise

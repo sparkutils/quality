@@ -9,8 +9,9 @@ import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder
 import org.apache.spark.sql.catalyst.expressions.Literal
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.{IntegerType, StringType, StructField, StructType}
+import org.scalatest.Matchers
 
-trait RuleFolderTestBase extends SharedPureConnectTests {
+trait RuleFolderTestBase extends SharedPureConnectTests with Matchers {
 
   val testData=Seq(
     TestOn("edt", "4201", 40),
@@ -271,6 +272,12 @@ trait RuleFolderTestBase extends SharedPureConnectTests {
 
     // this row will fail as the 0.6 doesn't class as a pass for the output expression - regardless of overall status
     assert(res(0).result.contains( Seq((1000, NewPosting("from", "4201", "edt", 1234)))) )
+    // #112 - overall should make sense
+    val (passed, failed) = res.zipWithIndex.partition {
+      _._1.ruleSuiteResults.overallResult == Passed
+    }
+    passed.map(_._2) shouldBe Seq(0, 3, 4, 5)
+    failed.map(_._2) shouldBe Seq(1, 2)
 
     //    TestOn("fxotc", "4201", 40),
     assert(res(3).result.contains(Seq((1000, NewPosting("to", "4206", "fx", 90)))))
@@ -278,6 +285,7 @@ trait RuleFolderTestBase extends SharedPureConnectTests {
 
     // did the field replace work
     assert(res(5).result.contains(Seq((1000, NewPosting("from", "4201", "eqotc", 60)), (1001, NewPosting("from", "4201_fruit", "eqotc", 60)))))
+
 
   }
 

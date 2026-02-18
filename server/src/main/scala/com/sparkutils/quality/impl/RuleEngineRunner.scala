@@ -112,7 +112,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
 
         val idx = outputs.getOrElse(rule.runOnPassProcessor.id, {
             val expr = rule.runOnPassProcessor match {
-              case NoOpRunOnPassProcessor.noOp => qualityException(s"You cannot use a RuleEngine, RuleFolder or ExpressionRunner if any of the rules do not have RunOnPassProcessors set ruleSet ${ruleSet.id}, rule ${rule.id}}")
+              case NoOpRunOnPassProcessor.noOp => needsProcessor(ruleSet, rule)
               case r: quality.RunOnPassProcessor => r.toImpl.returnIfPassed.expr
             }
             outputs.put(rule.runOnPassProcessor.id, pos)
@@ -138,6 +138,10 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
     (expressions ++ outputExpressions, indexes.toArray, expressions.size)
   }
 
+  protected def needsProcessor(ruleSet: RuleSet, rule: Rule): Nothing = {
+    qualityException(s"You cannot use a RuleEngine, RuleFolder, ExpressionRunner or CollectRunner if any of the rules do not have RunOnPassProcessors set ruleSet ${ruleSet.id}, rule ${rule.id}}")
+  }
+
   // count is not to be trusted, seems some funcs are evaluated twice
   def debugOutput[T](salienceArr: Array[Int], outArrTerm: Array[T], count: Int): GenericArrayData = {
     val out = new ArrayBuffer[(Int, T)](count + 1)//-1 start so boost by one, may still be too high
@@ -156,7 +160,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
   def flattenSalience(ruleSuite: RuleSuite): Array[Int] =
     ruleSuite.ruleSets.flatMap( ruleSet => ruleSet.rules.map(rule =>
       rule.runOnPassProcessor match {
-        case NoOpRunOnPassProcessor.noOp => qualityException(s"You cannot use a RuleEngineRunner if any of the rules do not have RunOnPassProcessors set ruleSet ${ruleSet.id}, rule ${rule.id}}")
+        case NoOpRunOnPassProcessor.noOp => needsProcessor(ruleSet, rule)
         case r: RunOnPassProcessor => r.salience
       }
     )).toArray
@@ -164,7 +168,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
   def flattenEngineIds(ruleSuite: RuleSuite): Array[(Long, Long, Long)] = //Array[(java.lang.Long, java.lang.Long, java.lang.Long)] =
     ruleSuite.ruleSets.flatMap( ruleSet => ruleSet.rules.map(rule =>
       rule.runOnPassProcessor match {
-        case NoOpRunOnPassProcessor.noOp => qualityException(s"You cannot use a RuleEngineRunner if any of the rules do not have RunOnPassProcessors set ruleSet ${ruleSet.id}, rule ${rule.id}}")
+        case NoOpRunOnPassProcessor.noOp => needsProcessor(ruleSet, rule)
         case r: RunOnPassProcessor => (packTheId(ruleSuite.id), packTheId(ruleSet.id), packTheId(rule.id))
       }
     )).toArray
@@ -212,7 +216,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
   case class CompilerTerms(funNames: _root_.scala.collection.Iterator[_root_.scala.Predef.String],
                            paramsCall: String, utilsName: String, ruleSuitTerm: String, ruleSuiteArrays: String, resArrTerm: String,
                            currentSalience: String, ruleTupleArrTerm: String, currentOutputIndex: String, outArrTerm: String,
-                           salienceArrTerm: String, pushToTop: String)
+                           salienceArrTerm: String, pushToTop: String, hasAPassTerm: String)
 
   def genCompilerTerms[T: ClassTag](ctx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext,
                   child: Expression, expressionOffsets: Array[Int], realChildren: Seq[Expression],
@@ -230,6 +234,8 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
     // bind the rules
     val (ruleSuitTerm, termFun) = genRuleSuiteTerm[T](ctx)
     val utilsName = "com.sparkutils.quality.impl.RuleRunnerUtils"
+
+    val hasAPassTerm = ctx.addMutableState("boolean", ctx.freshName("hasAPass"))
 
     val childrenFuncTerm = termFun("compiledRealChildren", classOf[ExpressionWrapper].getName + "[]")
 
@@ -296,6 +302,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
 
             $resArrTerm[$idx] = (Integer) $currRuleResTerm;
             if ( ( $currRuleResTerm == $PassedInt ) ${if (!debugMode && salienceCheck) s" && ( $currentSalience > $salienceArrTerm[$idx] ) " else "" }) {
+              $hasAPassTerm = true;
               $funName($paramsCall${if (paramsCall.isEmpty) "" else ","} $idx);
             } ${if (!debugMode) "" else s"""
               else {
@@ -367,7 +374,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
     CompilerTerms(RuleRunnerUtils.generateFunctionGroups(ctx, allExpr, paramsDef, paramsCall),
       paramsCall, utilsName, ruleSuitTerm, ruleSuiteArrays, resArrTerm,
       currentSalience, ruleTupleArrTerm, currentOutputIndex, outArrTerm,
-      salienceArrTerm, pushToTop)
+      salienceArrTerm, pushToTop, hasAPassTerm)
 
   }
 
@@ -442,6 +449,8 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression {
           $pushToTop
           $currentSalience = java.lang.Integer.MAX_VALUE;
           $currentOutputIndex = -1;
+          $hasAPassTerm = false;
+
           ${funNames.map{f => s"$f($paramsCall);"}.mkString("\n")}
       """
     val post = s"""
@@ -456,7 +465,7 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression {
 
           InternalRow ${ev.value} =
             com.sparkutils.quality.impl.RuleEngineRunnerUtils.compiledEvalDebug(
-              $utilsName.evalArray($ruleSuitTerm, $ruleSuiteArrays, $resArrTerm),
+              $utilsName.evalArrayForDefault($ruleSuitTerm, $ruleSuiteArrays, $resArrTerm),
             ($currentOutputIndex < 0) ? null : com.sparkutils.quality.impl.RuleEngineRunnerUtils.debugOutput($salienceArrTerm, $outArrTerm, $currentOutputIndex));
 
           $post
@@ -468,7 +477,7 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression {
 
           InternalRow ${ev.value} =
             com.sparkutils.quality.impl.RuleEngineRunnerUtils.compiledEval(
-              $utilsName.evalArray($ruleSuitTerm, $ruleSuiteArrays, $resArrTerm),
+              $utilsName.evalArrayForDefault($ruleSuitTerm, $ruleSuiteArrays, $resArrTerm),
               $currentSalience, $ruleTupleArrTerm, $currentOutputIndex, $outArrTerm);
 
           $post

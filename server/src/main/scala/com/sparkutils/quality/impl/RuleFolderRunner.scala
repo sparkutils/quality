@@ -131,10 +131,13 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression {
     // generate the starting struct
     val starterEval = startingStruct.genCode(ctx)
 
+    val rsres = ctx.freshName("ruleSuiteRes")
+
     val pre = s"""
           $currentSalience = java.lang.Integer.MAX_VALUE;
           $currentOutputIndex = -1;
           $pushToTop
+          $hasAPassTerm = false;
 
           // starting
           ${starterEval.code}
@@ -142,20 +145,26 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression {
           $folderV = ${starterEval.isNull} ? null : (InternalRow)${starterEval.value}; \n
 
           ${funNames.map{f => s"$f($paramsCall);"}.mkString("\n")}
+
+          InternalRow $rsres = $utilsName.evalArrayForDefault($ruleSuitTerm, $ruleSuiteArrays, $resArrTerm);
+
       """
     val post = s"""
 
           boolean ${ev.isNull} = false;
       """
-
+/*
+if (!$hasAPassTerm) {
+            $rsres.update(1, ${PassedInt});
+          }
+ */
     val res =
       if (debugMode)
         ev.copy(code = code"""
           $pre
 
           InternalRow ${ev.value} =
-            com.sparkutils.quality.impl.RuleFolderRunnerUtils.compiledEvalDebug(
-              $utilsName.evalArray($ruleSuitTerm, $ruleSuiteArrays, $resArrTerm),
+            com.sparkutils.quality.impl.RuleFolderRunnerUtils.compiledEvalDebug($rsres,
             ($currentOutputIndex < 0) ? null : com.sparkutils.quality.impl.RuleEngineRunnerUtils.debugOutput($salienceArrTerm, $outArrTerm, $currentOutputIndex));
 
           $post
@@ -166,8 +175,7 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression {
           $pre
 
           InternalRow ${ev.value} =
-            com.sparkutils.quality.impl.RuleFolderRunnerUtils.compiledEval(
-              $utilsName.evalArray($ruleSuitTerm, $ruleSuiteArrays, $resArrTerm),
+            com.sparkutils.quality.impl.RuleFolderRunnerUtils.compiledEval($rsres,
               $currentSalience, $ruleTupleArrTerm, $currentOutputIndex, $outArrTerm);
 
           $post
