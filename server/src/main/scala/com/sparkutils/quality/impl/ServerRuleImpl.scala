@@ -671,7 +671,7 @@ object RuleSuiteFunctions {
       ).asInstanceOf[InternalRow]
 
       if (row == null || inputRow == null) {
-        println()
+        //println()
       }
 
       seq :+ (salience, if (debugMode)
@@ -680,19 +680,34 @@ object RuleSuiteFunctions {
         row)
     }
 
-    val result =
-      if (debugMode)
-        new org.apache.spark.sql.catalyst.util.GenericArrayData(res.map(p =>
-          InternalRow(p._1, p._2)
-        ).toArray)
-      else {
-        if (res.isEmpty)
-          null
-        else
-          res.last._2
+    val (result, overallResult) =
+      if (overall.currentResult != Passed) {
+        if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp) {
+          val e @ FunN(Seq(arg: RefExpressionLazyType), _, _, _, _, _) = ruleSuite.defaultProcessor.toImpl.outputExpression.expr
+          arg.value = row
+          row = e.eval(
+            inputRow
+          ).asInstanceOf[InternalRow]
+          (row, DefaultRule)
+        } else
+          (null, Failed)
+      } else {
+        val result =
+          if (debugMode)
+            new org.apache.spark.sql.catalyst.util.GenericArrayData(res.map(p =>
+              InternalRow(p._1, p._2)
+            ).toArray)
+          else {
+            if (res.isEmpty)
+              null
+            else
+              res.last._2
+          }
+
+        (result, overall.currentResult)
       }
 
-    (RuleSuiteResult(id, overall.currentResult, rawRuleSets.toMap), result)
+    (RuleSuiteResult(id, overallResult, rawRuleSets.toMap), result)
   }
 
   def evalExpressions(ruleSuite: RuleSuite, internalRow: InternalRow, dataType: DataType): GeneralExpressionsResult[Any] = {

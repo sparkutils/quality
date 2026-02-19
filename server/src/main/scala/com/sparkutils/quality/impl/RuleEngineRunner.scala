@@ -173,18 +173,17 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
       }
     )).toArray
 
-  def reincorporateExpressions(ruleSuite: RuleSuite, expr: Seq[Expression], compileEvals: Boolean, expressionOffsets: Array[Int]): RuleSuite =
-    reincorporateExpressionsF(ruleSuite, expr, (expr: Expression) => ExpressionWrapper(expr, compileEvals), (e: Expression)=>e, compileEvals, expressionOffsets)
+  def reincorporateExpressions(ruleSuite: RuleSuite, expr: Seq[Expression], compileEvals: Boolean, expressionOffsets: Array[Int], triggerCount: Int): RuleSuite =
+    reincorporateExpressionsF(ruleSuite, expr, (expr: Expression) => ExpressionWrapper(expr, compileEvals), (e: Expression)=>e, compileEvals, expressionOffsets, triggerCount)
 
-  def reincorporateExpressionsF[T](ruleSuite: RuleSuite, expr: Seq[T], f: T => RuleLogic[_], processorExpression: T => Expression, compileEvals: Boolean, expressionOffsets: Array[Int]): RuleSuite = {
-    val offset = expressionOffsets.length
+  def reincorporateExpressionsF[T](ruleSuite: RuleSuite, expr: Seq[T], f: T => RuleLogic[_], processorExpression: T => Expression, compileEvals: Boolean, expressionOffsets: Array[Int], triggerCount: Int): RuleSuite = {
     val itr = expr.zipWithIndex.iterator
     ruleSuite.copy(ruleSets = ruleSuite.ruleSets.map(
       ruleSet =>
         ruleSet.copy( rules = ruleSet.rules.map(
           rule => {
             val (nexpr, index) = itr.next()
-            val outexpr = expr(offset + expressionOffsets(index))
+            val outexpr = expr(triggerCount + expressionOffsets(index))
             rule.copy(expression = f(nexpr), runOnPassProcessor =
               rule.runOnPassProcessor.toImpl.withExpr(OutputExpressionWrapper(processorExpression(outexpr), compileEvals)))
           }
@@ -412,13 +411,13 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression {
   lazy val realChildren = getRealChildren(children)
 
   // only used for compilation
-  lazy val compiledRealChildren = realChildren.slice(0, expressionOffsets.length).map(ExpressionWrapper(_, compileEvals)).toArray
+  lazy val compiledRealChildren = realChildren.slice(0, triggerCount).map(ExpressionWrapper(_, compileEvals)).toArray
 
   override def nullable: Boolean = false
   override def toString: String = s"RuleEngineRunner(${realChildren.mkString(", ")})"
 
-  // used only for eval, compiled uses the children directly
-  lazy val reincorporated = reincorporateExpressions(ruleSuite, realChildren, compileEvals, expressionOffsets)
+  // used only for eval, compiled uses the children directly TODO TEST ENGINE
+  lazy val reincorporated = reincorporateExpressions(ruleSuite, realChildren, compileEvals, expressionOffsets, triggerCount)
 
   // keep it simple for this one. - can return an internal row or whatever..
   override def eval(input: InternalRow): Any = {

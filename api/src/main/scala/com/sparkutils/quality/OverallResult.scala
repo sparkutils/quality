@@ -43,6 +43,11 @@ protected[quality] object OverallResultHelper {
   protected[quality] def inplaceForDefault(ruleResult: RuleResult, currentResult: RuleResult, probablePass: Double): RuleResult =
     ruleResult match {
       case Passed => Passed
+      case Probability(x) =>
+        if (x < probablePass)
+          currentResult
+        else
+          Passed
       case RuleResultWithProcessor(ruleResult, _) => inplaceForDefault(ruleResult, currentResult, probablePass)
       case _ => currentResult
     }
@@ -61,6 +66,8 @@ protected[quality] object OverallResultHelper {
   protected[quality] def inplaceForDefaultInt(ruleResult: Int, currentResult: Int, probablePass: Double): Int =
     ruleResult match {
       case PassedInt => PassedInt
+      case x if x >= (probablePass * PassedInt) =>
+        PassedInt
       case _ => currentResult
     }
 

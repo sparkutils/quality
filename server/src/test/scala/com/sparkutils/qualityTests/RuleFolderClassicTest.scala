@@ -30,6 +30,14 @@ class RuleFolderClassicTest extends SharedConnectTests with RuleFolderTestBase {
     }
   }
 
+  test("default processor"){
+    evalCodeGensNoResolve {
+      funNRewrites {
+        doTestDefaultRules()
+      }
+    }
+  }
+
   test("testSetSyntaxButNoEqualTo") {
     classicOnly {
       val bad = impl.OutputExpression("set('lit')").expr
