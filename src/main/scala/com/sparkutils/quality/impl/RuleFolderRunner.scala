@@ -77,13 +77,13 @@ trait RuleFolderRunnerBase[T] extends BinaryExpression with NonSQLExpression {
     }
 
   // only used for compilation
-  lazy val compiledRealChildren = realChildren.slice(0, expressionOffsets.length).map(ExpressionWrapper(_, compileEvals)).toArray
+  lazy val compiledRealChildren = realChildren.slice(0, triggerCount).map(ExpressionWrapper(_, compileEvals)).toArray
 
   override def nullable: Boolean = false
   override def toString: String = s"RuleFolderRunner(${realChildren.mkString(", ")})"
 
   // used only for eval, compiled uses the children directly
-  lazy val reincorporated = reincorporateExpressions(ruleSuite, realChildren, compileEvals, expressionOffsets)
+  lazy val reincorporated = reincorporateExpressions(ruleSuite, realChildren, compileEvals, expressionOffsets, triggerCount)
 
   // keep it simple for this one. - can return an internal row or whatever..
   override def eval(input: InternalRow): Any = {

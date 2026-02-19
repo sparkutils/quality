@@ -100,6 +100,53 @@ class RuleFolderTest extends FunSuite with TestUtils {
 
   } }
 
+  // Must use NoResolve as it fails on 2.4 with an npe, resolving on higher works fine
+  @Test
+  def testSimpleProductionRulesNoDebug(): Unit = evalCodeGensNoResolve { funNRewrites {
+    val rer = irules(
+      Seq((ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040,1),
+        OutputExpression("thecurrent -> updateField(updateField(thecurrent, 'subcode', 1234), 'transfer_type', 'from')"))),
+        //OutputExpression("thecurrent -> updateField(thecurrent, 'subcode', 1234, 'transfer_type', 'from')")))
+
+        (ExpressionRule("product like '%fx%'"), RunOnPassProcessor(1000, Id(1042,1),
+          OutputExpression("thecurrent -> updateField(thecurrent, 'transfer_type', 'to')"))),
+        (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1000, Id(1043,1),
+          OutputExpression("thecurrent -> updateField(thecurrent, 'transfer_type', 'from')"))),
+        (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1001, Id(1044,1),
+          OutputExpression("thecurrent -> update_field(thecurrent, 'account', concat(account,'_fruit'))"))),
+        (ExpressionRule("product = 'fred'"), RunOnPassProcessor(1001, Id(1044,1),
+          OutputExpression("thecurrent -> update_field(thecurrent, 'account', concat(account,'_fruit'))")))
+      ), compileEvals = true, debugMode = false
+    ) // compileEvals + codeGens IS NOT forcing a code gen on >Spark3
+
+    val testDataDF = {
+      import sparkSession.implicits._
+      testData.toDF()
+    }
+
+    import com.sparkutils.quality.implicits._
+
+    val outdf = testDataDF//.withColumn("thefield", struct(lit("").as("transfer_type"), $"account", $"product", $"subcode"))
+      .withColumn("together", rer(testDataDF))
+    //.select(expr("*"), rer(testDataDF))
+    //outdf.show
+
+    //val results = outdf.select("together.*").selectExpr("explode(result)").select("col.*").select("result.*")
+    // results.show
+    val res = outdf.select("together.*").as[RuleFolderResult[NewPosting]].collect()
+
+    // this row will fail as the 0.6 doesn't class as a pass for the output expression - regardless of overall status
+    assert(res(0).result.contains( NewPosting("from", "4201", "edt", 1234)))
+
+    //    TestOn("fxotc", "4201", 40),
+    assert(res(3).result.contains(NewPosting("to", "4206", "fx", 90)))
+    assert(res(4).result.contains(NewPosting("to", "4201", "fxotc", 40)))
+
+    // did the field replace work
+    assert(res(5).result.contains(NewPosting("from", "4201_fruit", "eqotc", 60)))
+
+  } }
+
   def testAndRulesForReplace(useSetSyntax: Boolean) = {
     registerLambdaFunctions(Seq(
       /*      LambdaFunction("account_row", "(transfer_type, account) -> named_struct('transfer_type', transfer_type, 'account', account, 'product', product, 'subcode', subcode)", Id(123, 23)),

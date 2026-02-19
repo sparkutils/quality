@@ -50,7 +50,7 @@ object RuleEngineRunnerImpl {
       else
         resultDataType
 
-    val (expressions, indexes, _) = flattenExpressions(ruleSuite)
+    val (expressions, indexes, triggerCount) = flattenExpressions(ruleSuite)
 
     val cleaned = RuleLogicUtils.cleanExprs(ruleSuite)
     val exprs =
@@ -64,10 +64,10 @@ object RuleEngineRunnerImpl {
     val runner =
       if (forceRunnerEval || resolveWith.isDefined)
         new RuleEngineRunnerEval(cleaned, exprs, realType, compileEvals,
-          debugMode, variablesPerFunc, variableFuncGroup, expressionOffsets = indexes, forceTriggerEval)
+          debugMode, variablesPerFunc, variableFuncGroup, expressionOffsets = indexes, forceTriggerEval, triggerCount)
       else
         new RuleEngineRunner(cleaned, exprs, realType, compileEvals,
-          debugMode, variablesPerFunc, variableFuncGroup, expressionOffsets = indexes, forceTriggerEval)
+          debugMode, variablesPerFunc, variableFuncGroup, expressionOffsets = indexes, forceTriggerEval, triggerCount)
 
     ShimUtils.column(
       QualitySparkUtils.resolveWithOverride(resolveWith).map { df =>
@@ -167,18 +167,17 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
       }
     )).toArray
 
-  def reincorporateExpressions(ruleSuite: RuleSuite, expr: Seq[Expression], compileEvals: Boolean, expressionOffsets: Array[Int]): RuleSuite =
-    reincorporateExpressionsF(ruleSuite, expr, (expr: Expression) => ExpressionWrapper(expr, compileEvals), (e: Expression)=>e, compileEvals, expressionOffsets)
+  def reincorporateExpressions(ruleSuite: RuleSuite, expr: Seq[Expression], compileEvals: Boolean, expressionOffsets: Array[Int], triggerCount: Int): RuleSuite =
+    reincorporateExpressionsF(ruleSuite, expr, (expr: Expression) => ExpressionWrapper(expr, compileEvals), (e: Expression)=>e, compileEvals, expressionOffsets, triggerCount)
 
-  def reincorporateExpressionsF[T](ruleSuite: RuleSuite, expr: Seq[T], f: T => RuleLogic, processorExpression: T => Expression, compileEvals: Boolean, expressionOffsets: Array[Int]): RuleSuite = {
-    val offset = expressionOffsets.length
+  def reincorporateExpressionsF[T](ruleSuite: RuleSuite, expr: Seq[T], f: T => RuleLogic, processorExpression: T => Expression, compileEvals: Boolean, expressionOffsets: Array[Int], triggerCount: Int): RuleSuite = {
     val itr = expr.zipWithIndex.iterator
     ruleSuite.copy(ruleSets = ruleSuite.ruleSets.map(
       ruleSet =>
         ruleSet.copy( rules = ruleSet.rules.map(
           rule => {
             val (nexpr, index) = itr.next()
-            val outexpr = expr(offset + expressionOffsets(index))
+            val outexpr = expr(triggerCount + expressionOffsets(index))
             rule.copy(expression = f(nexpr), runOnPassProcessor =
               rule.runOnPassProcessor.withExpr(OutputExpressionWrapper(processorExpression(outexpr), compileEvals)))
           }
@@ -385,6 +384,7 @@ trait RuleEngineRunnerBase[T] extends UnaryExpression with NonSQLExpression {
   val variableFuncGroup: Int
   val forceTriggerEval: Boolean
   val expressionOffsets: Array[Int]
+  val triggerCount: Int
 
   implicit val classTagT: ClassTag[T]
 
@@ -398,13 +398,13 @@ trait RuleEngineRunnerBase[T] extends UnaryExpression with NonSQLExpression {
     }
 
   // only used for compilation
-  lazy val compiledRealChildren = realChildren.slice(0, expressionOffsets.length).map(ExpressionWrapper(_, compileEvals)).toArray
+  lazy val compiledRealChildren = realChildren.slice(0, triggerCount).map(ExpressionWrapper(_, compileEvals)).toArray
 
   override def nullable: Boolean = false
   override def toString: String = s"RuleEngineRunner(${realChildren.mkString(", ")})"
 
   // used only for eval, compiled uses the children directly
-  lazy val reincorporated = reincorporateExpressions(ruleSuite, realChildren, compileEvals, expressionOffsets)
+  lazy val reincorporated = reincorporateExpressions(ruleSuite, realChildren, compileEvals, expressionOffsets, triggerCount)
 
   // keep it simple for this one. - can return an internal row or whatever..
   override def eval(input: InternalRow): Any = {
@@ -476,7 +476,7 @@ trait RuleEngineRunnerBase[T] extends UnaryExpression with NonSQLExpression {
 case class RuleEngineRunnerEval(ruleSuite: RuleSuite, child: Expression, resultDataType: DataType,
                             compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
                             variableFuncGroup: Int, expressionOffsets: Array[Int],
-                            forceTriggerEval: Boolean) extends RuleEngineRunnerBase[RuleEngineRunnerEval] with CodegenFallback {
+                            forceTriggerEval: Boolean, triggerCount: Int) extends RuleEngineRunnerBase[RuleEngineRunnerEval] with CodegenFallback {
 
   protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
 
@@ -487,7 +487,7 @@ case class RuleEngineRunnerEval(ruleSuite: RuleSuite, child: Expression, resultD
 case class RuleEngineRunner(ruleSuite: RuleSuite, child: Expression, resultDataType: DataType,
                                 compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
                                 variableFuncGroup: Int, expressionOffsets: Array[Int],
-                                forceTriggerEval: Boolean) extends RuleEngineRunnerBase[RuleEngineRunner] {
+                                forceTriggerEval: Boolean, triggerCount: Int) extends RuleEngineRunnerBase[RuleEngineRunner] {
 
   protected def withNewChildInternal(newChild: Expression): Expression = copy(child = newChild)
 

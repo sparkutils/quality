@@ -156,7 +156,7 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
   override def toString: String = s"${classTagT.runtimeClass.getName}(${children.mkString(", ")})"
 
   // used only for eval, compiled uses the children directly
-  lazy val reincorporated = reincorporateExpressions(ruleSuite, children, false, expressionOffsets)
+  lazy val reincorporated = reincorporateExpressions(ruleSuite, children, false, expressionOffsets, triggerCount)
 
   override def eval(input: InternalRow): Any = {
     val (res, processedRes) = //(null, null)
