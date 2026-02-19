@@ -37,6 +37,8 @@ _What is stored:_
 
 Unlike QualityRules which uses salience to select only one Output expression, Folder uses salience to order the execution of *all* the matching Trigger's paired Output Expressions - [folding](https://en.wikipedia.org/wiki/Fold_(higher-order_function)#:~:text=In%20functional%20programming%2C%20fold%20(also,constituent%20parts%2C%20building%20up%20a)) the results as it goes. 
 
+If no triggers match, then an optional defaultProcessor on the RuleSuite can be run.
+
 _Example Usage:_ Correction of in-bound data to enable subsequent calculators to process, defaulting etc.
 
 _What is stored:_ 
