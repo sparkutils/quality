@@ -526,13 +526,13 @@ object RuleSuiteFunctions {
           val ruleResult = r.expression.toImpl.eval(internalRow)
           r.id -> ruleResult
         }
-        val overall = ruleSetRawRes.foldLeft(quality.OverallResult(probablePass)){
+        val overall = ruleSetRawRes.foldLeft(OverallResult(probablePass)){
           (ov, pair) =>
             ov.process(pair._2)
         }
         rs.id -> RuleSetResult(overall.currentResult, ruleSetRawRes.toMap)
       }
-    val overall = rawRuleSets.foldLeft(quality.OverallResult(probablePass)){
+    val overall = rawRuleSets.foldLeft(OverallResult(probablePass)){
       (ov, pair) =>
         ov.process(pair._2.overallResult)
     }
@@ -576,13 +576,13 @@ object RuleSuiteFunctions {
 
           r.id -> ruleResult
         }
-        val overall = ruleSetRawRes.foldLeft(quality.OverallResult(probablePass, Failed)){
+        val overall = ruleSetRawRes.foldLeft(OverallResult(probablePass, Failed)){
           (ov, pair) =>
             ov.processForDefault(pair._2)
         }
         rs.id -> RuleSetResult(overall.currentResult, ruleSetRawRes.toMap)
       }
-    val overall = rawRuleSets.foldLeft(quality.OverallResult(probablePass, Failed)){
+    val overall = rawRuleSets.foldLeft(OverallResult(probablePass, Failed)){
       (ov, pair) =>
         ov.processForDefault(pair._2.overallResult)
     }
@@ -644,13 +644,13 @@ object RuleSuiteFunctions {
 
           r.id -> ruleResult
         }
-        val overall = ruleSetRawRes.foldLeft(quality.OverallResult(probablePass, Failed)){
+        val overall = ruleSetRawRes.foldLeft(OverallResult(probablePass, Failed)){
           (ov, pair) =>
             ov.processForDefault(pair._2)
         }
         rs.id -> RuleSetResult(overall.currentResult, ruleSetRawRes.toMap)
       }
-    val overall = rawRuleSets.foldLeft(quality.OverallResult(probablePass, Failed)){
+    val overall = rawRuleSets.foldLeft(OverallResult(probablePass, Failed)){
       (ov, pair) =>
         ov.processForDefault(pair._2.overallResult)
     }
@@ -763,14 +763,14 @@ object RuleSuiteFunctions {
 
           r.id -> ruleResult
         }
-        val overall = ruleSetRawRes.foldLeft(quality.OverallResult(probablePass, Failed)){
+        val overall = ruleSetRawRes.foldLeft(OverallResult(probablePass, Failed)){
           (ov, pair) =>
             ov.processForDefault(pair._2)
         }
         rs.id -> RuleSetResult(overall.currentResult, ruleSetRawRes.toMap)
       }
 
-    val overall = rawRuleSets.foldLeft(quality.OverallResult(probablePass, Failed)){
+    val overall = rawRuleSets.foldLeft(OverallResult(probablePass, Failed)){
       (ov, pair) =>
         ov.processForDefault(pair._2.overallResult)
     }

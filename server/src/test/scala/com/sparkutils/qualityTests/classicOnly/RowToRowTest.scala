@@ -405,7 +405,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     for(i <- 3 until 6) {
       res(i).result.isDefined shouldBe true
       res(i).salientRule.isDefined shouldBe true
-      res(i).ruleSuiteResults.overallResult shouldBe Failed
+      res(i).ruleSuiteResults.overallResult shouldBe Passed
     }
 
     res(3).result shouldBe Some(Seq(NewPosting("from", "another_account", "fx", 60), NewPosting("to","4206", "fx", 60)))
@@ -465,7 +465,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     for(i <- 3 until 6) {
       res(i).result.isDefined shouldBe true
       res(i).salientRule.isDefined shouldBe true
-      res(i).lazyRuleSuiteResults.ruleSuiteResult.overallResult shouldBe Failed
+      res(i).lazyRuleSuiteResults.ruleSuiteResult.overallResult shouldBe Passed
     }
 
     res(3).result shouldBe Some(Seq(NewPosting("from", "another_account", "fx", 60), NewPosting("to","4206", "fx", 60)))
@@ -521,7 +521,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     for(i <- 3 until 6) {
       res(i).result.isDefined shouldBe true
       res(i).salientRule.isDefined shouldBe true
-      res(i).ruleSuiteResults.overallResult shouldBe Failed
+      res(i).ruleSuiteResults.overallResult shouldBe Passed
     }
 
     res(3).result shouldBe Some(Seq(NewPosting("from", "another_account", "fx", 60), NewPosting("to","4206", "fx", 60)))
@@ -577,7 +577,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     for(i <- 3 until 6) {
       res(i).result.isDefined shouldBe true
       res(i).salientRule.isDefined shouldBe true
-      res(i).ruleSuiteResults.overallResult shouldBe Failed
+      res(i).ruleSuiteResults.overallResult shouldBe Passed
     }
 
     res(3).result shouldBe Some(NewPosting("from", "another_account", "fx", 60))
@@ -636,7 +636,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     for(i <- 3 until 6) {
       res(i).result.isDefined shouldBe true
       res(i).salientRule.isDefined shouldBe true
-      res(i).ruleSuiteResults.overallResult shouldBe Failed
+      res(i).ruleSuiteResults.overallResult shouldBe Passed
     }
 
     res(3).result shouldBe Some(NewPosting("from", "another_account", "fx", 60))
@@ -694,7 +694,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     for(i <- 3 until 6) {
       res(i).result.isDefined shouldBe true
       res(i).salientRule.isDefined shouldBe true
-      res(i).ruleSuiteResults.overallResult shouldBe Failed
+      res(i).ruleSuiteResults.overallResult shouldBe Passed
     }
 
     res(3).result.map(_.toNewPosting()) shouldBe Some(NewPosting("from", "another_account", "fx", 60))
@@ -746,7 +746,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     for(i <- 3 until 6) {
       res(i).result.isDefined shouldBe true
       res(i).salientRule.isDefined shouldBe true
-      res(i).ruleSuiteResults.overallResult shouldBe Failed
+      res(i).ruleSuiteResults.overallResult shouldBe Passed
     }
 
     res(3).result shouldBe Some("from")
@@ -797,7 +797,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     for(i <- 3 until 6) {
       res(i).result.isDefined shouldBe true
       res(i).salientRule.isDefined shouldBe false
-      res(i).ruleSuiteResults.overallResult shouldBe Failed
+      res(i).ruleSuiteResults.overallResult shouldBe Passed
     }
 
     res(3).result shouldBe Some(Seq((1000, "from")))
@@ -849,7 +849,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     for(i <- 3 until 6) {
       res(i).result.isDefined shouldBe true
       res(i).salientRule.isDefined shouldBe true
-      res(i).ruleSuiteResults.overallResult shouldBe Failed
+      res(i).ruleSuiteResults.overallResult shouldBe Passed
     }
 
     res(3).result shouldBe Some(Map("transfer" -> "from"))
@@ -912,7 +912,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     }
     for(i <- 3 until 6) {
       res(i).result.isDefined shouldBe true
-      res(i).ruleSuiteResults.overallResult shouldBe Failed
+      res(i).ruleSuiteResults.overallResult shouldBe Passed
     }
 
     res(3).result shouldBe Some(TestOn("to", "4206", 60))
@@ -998,7 +998,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     }
     for(i <- 3 until 6) {
       res(i).result.isDefined shouldBe true
-      res(i).lazyRuleSuiteResults.ruleSuiteResult.overallResult shouldBe Failed
+      res(i).lazyRuleSuiteResults.ruleSuiteResult.overallResult shouldBe Passed
     }
 
     res(3).result shouldBe Some(TestOn("to", "4206", 60))
@@ -1057,7 +1057,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     }
     for(i <- 3 until 6) {
       res(i).result.isDefined shouldBe true
-      res(i).ruleSuiteResults.overallResult shouldBe Failed
+      res(i).ruleSuiteResults.overallResult shouldBe Passed
     }
 
     res(3).result.map(_.toNewPosting()) shouldBe Some(NewPosting("to", "4206", "fx", 60))
@@ -1116,7 +1116,7 @@ class RowToRowTest extends FunSuite with Matchers with BeforeAndAfterAll with Cl
     }
     for(i <- 3 until 6) {
       res(i).result.isDefined shouldBe true
-      res(i).lazyRuleSuiteResults.ruleSuiteResult.overallResult shouldBe Failed
+      res(i).lazyRuleSuiteResults.ruleSuiteResult.overallResult shouldBe Passed
     }
 
     res(3).result.map(_.toNewPosting()) shouldBe Some(NewPosting("to", "4206", "fx", 60))

@@ -1,6 +1,7 @@
-package com.sparkutils.quality
+package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.RuleSuite.defaultProbablePass
+import com.sparkutils.quality._
 
 import scala.annotation.tailrec
 
