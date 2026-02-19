@@ -143,7 +143,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
   }
 
   // count is not to be trusted, seems some funcs are evaluated twice
-  def debugOutput[T](salienceArr: Array[Int], outArrTerm: Array[T], count: Int): GenericArrayData = {
+  def debugOutput[T](salienceArr: Array[Int], outArrTerm: Array[T], count: Int, default: T): GenericArrayData = {
     val out = new ArrayBuffer[(Int, T)](count + 1)//-1 start so boost by one, may still be too high
     var i = 0
     for( idx <- 0 until salienceArr.length){
@@ -151,6 +151,9 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
         out += (salienceArr(idx) -> outArrTerm(idx))
         i += 1
       }
+    }
+    if (default != null) {
+      out += (DefaultRuleSalience -> default)
     }
     new org.apache.spark.sql.catalyst.util.GenericArrayData(
       out.sortBy(_._1).map( p => InternalRow(p._1, p._2) )
@@ -465,7 +468,7 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression {
           InternalRow ${ev.value} =
             com.sparkutils.quality.impl.RuleEngineRunnerUtils.compiledEvalDebug(
               $utilsName.evalArrayForDefault($ruleSuitTerm, $ruleSuiteArrays, $resArrTerm),
-            ($currentOutputIndex < 0) ? null : com.sparkutils.quality.impl.RuleEngineRunnerUtils.debugOutput($salienceArrTerm, $outArrTerm, $currentOutputIndex));
+            ($currentOutputIndex < 0) ? null : com.sparkutils.quality.impl.RuleEngineRunnerUtils.debugOutput($salienceArrTerm, $outArrTerm, $currentOutputIndex, null));
 
           $post
           """

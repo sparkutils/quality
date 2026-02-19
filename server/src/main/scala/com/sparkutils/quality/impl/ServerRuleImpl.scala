@@ -688,9 +688,20 @@ object RuleSuiteFunctions {
           row = e.eval(
             inputRow
           ).asInstanceOf[InternalRow]
-          (row, DefaultRule)
-        } else
-          (null, Failed)
+          (if (debugMode)
+              new org.apache.spark.sql.catalyst.util.GenericArrayData(Array(
+                InternalRow(DefaultRuleSalience, row)
+              ))
+            else
+              row, DefaultRule)
+        } else {
+          (if (debugMode)
+            new org.apache.spark.sql.catalyst.util.GenericArrayData(res.map(p =>
+              InternalRow(p._1, p._2)
+            ).toArray)
+          else
+            null, Failed)
+        }
       } else {
         val result =
           if (debugMode)

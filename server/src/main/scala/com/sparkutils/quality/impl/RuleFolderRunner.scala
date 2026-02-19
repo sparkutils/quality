@@ -27,7 +27,7 @@ private[quality] object RuleFolderRunnerUtils extends ClassicRuleFolderRunnerImp
     InternalRow(results, output)
 
   def compiledEval[T](results: InternalRow, currentSalience: Int, rules: Array[(Long, Long, Long)],
-                      currentOutputIndex: Int, output: Array[T], default: InternalRow): InternalRow =
+                      currentOutputIndex: Int, output: Array[T], default: T): InternalRow =
     InternalRow(results,
       if (currentSalience == java.lang.Integer.MAX_VALUE && default == null)
         null
@@ -177,7 +177,7 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression {
                   ${lazyRefsGenCode.last.isNull} = $folderV == null;
                   ${defP.code}
 
-                  System.out.println("DefaultProcessor result is ${defP.value}" + ${defP.value});
+                  // System.out.println("DefaultProcessor result is ${defP.value}" + ${defP.value});
                   $default = ${defP.value};
 
                   $rsres.update(1, ${DefaultRuleInt});
@@ -198,7 +198,8 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression {
 
           InternalRow ${ev.value} =
             com.sparkutils.quality.impl.RuleFolderRunnerUtils.compiledEvalDebug($rsres,
-            ($currentOutputIndex < 0) ? null : com.sparkutils.quality.impl.RuleEngineRunnerUtils.debugOutput($salienceArrTerm, $outArrTerm, $currentOutputIndex));
+             (($currentOutputIndex < 0) && ($default == null)) ? null :
+              com.sparkutils.quality.impl.RuleEngineRunnerUtils.debugOutput($salienceArrTerm, $outArrTerm, $currentOutputIndex, $default));
 
           $post
           """
