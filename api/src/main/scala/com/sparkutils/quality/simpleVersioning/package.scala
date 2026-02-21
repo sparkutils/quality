@@ -1,7 +1,7 @@
 package com.sparkutils.quality
 
-import com.sparkutils.quality.impl.util.RuleModel.RuleSuiteMap
-import com.sparkutils.quality.impl.util.{GeneratedUniqueName, OutputExpressionRow, Serializing, SimpleVersioningStub}
+import com.sparkutils.quality.RuleModel.RuleSuiteMap
+import com.sparkutils.quality.impl.util.{GeneratedUniqueName, Serializing, SimpleVersioningStub}
 import org.apache.spark.sql.types.IntegerType
 import org.apache.spark.sql.{Column, DataFrame}
 import org.apache.spark.sql.functions.col
