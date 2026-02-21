@@ -1,6 +1,7 @@
 package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality.RuleSuite.defaultProbablePass
+import com.sparkutils.quality.impl.extension.QualityCombineConstants.{NoneQuoted, QUALITY_COMBINE}
 import com.sparkutils.quality.impl.{RuleSuiteHelpers, VariableHelper}
 import com.sparkutils.quality.{DefaultProcessor, ExpressionRule, Id, LambdaFunction, NoOpDefaultProcessor, NoOpRunOnPassProcessor, OutputExpression, Rule, RuleSet, RuleSuite, RuleSuiteGroup, RunOnPassProcessor, VersionedId, toDS, toLambdaDS, toOutputExpressionDS, toRuleSuiteRow}
 import com.sparkutils.quality.impl.util.SerializingShim.combineImpl
@@ -66,7 +67,7 @@ trait VersionSpecificSerializingImports {
     val gloename = registerTempViewNameFromDS(globalOutputExpressionSuites)
     val rsname = registerTempViewNameFromDS(ruleSuites)
 
-    val s = s"QUALITY COMBINE RULESUITES $rname, $lfname, $oename, $glname, $gloename, $rsname"
+    val s = s"$QUALITY_COMBINE $rname, $lfname, $oename, $glname, $gloename, $rsname"
     Some(ruleRows.sparkSession.sql(s))
   }
 
@@ -76,7 +77,7 @@ trait VersionSpecificSerializingImports {
         val lfname = uniqueName()
         ds.createOrReplaceTempView(lfname)
         lfname
-    }.getOrElse("`None`")
+    }.getOrElse(NoneQuoted)
 
 
   /**
