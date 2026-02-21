@@ -26,6 +26,8 @@ Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1 and 3.3.2 are deprecated as are DBR's 12.2
 > This change swaps the last parameter type of the DSL, and introduces a third breaking change parameter for the SQL interface, to refer to the Spark Variable, with each map being a strongly typed member of the variable available for use with any Spark queries (although probably not all too useful for blooms).
 > 
 > If code was using QualitySparkUtils the import is now ClassicQualitySparkUtils.
+> 
+> Serializing classes are moved to the root package, the impl.util package object provides deprecated forwarders. 
 
 #96 - quality_api is introduced, leveraging Spark Connect - allows a client server model and further client language support
 
