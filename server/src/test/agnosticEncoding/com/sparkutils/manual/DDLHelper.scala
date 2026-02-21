@@ -1,6 +1,6 @@
 package com.sparkutils.manual
 
-import com.sparkutils.quality.impl.util.CombinedRuleSuiteRows
+import com.sparkutils.quality.CombinedRuleSuiteRows
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.encoders.AgnosticEncoders
 

@@ -1,6 +1,6 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality.impl.util.{CombinedRuleRow, CombinedRuleSuiteRows}
+import com.sparkutils.quality.{CombinedRuleRow, CombinedRuleSuiteRows}
 import com.sparkutils.quality.{GeneralExpressionResult, GeneralExpressionsResult, GeneralExpressionsResultNoDDL, RuleEngineResult, RuleFolderResult, RuleResult, RuleSetResult, RuleSetStatistics, RuleStatistics, RuleSuiteGroupStatistics, RuleSuiteResult, RuleSuiteResultDetails, RuleSuiteStatistics, VersionedId}
 import frameless.TypedEncoder
 import org.apache.spark.sql.catalyst.encoders.AgnosticEncoder

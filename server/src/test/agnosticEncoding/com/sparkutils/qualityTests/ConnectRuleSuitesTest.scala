@@ -5,7 +5,7 @@ import com.sparkutils.qualityTests.util.SharedPureConnectTests
 import com.sparkutils.quality._
 import com.sparkutils.quality.functions.flatten_results
 import com.sparkutils.quality.impl.ReWriteConstants.RULE_SUITE_GROUPS_MISSING_ERR_MSG
-import com.sparkutils.quality.impl.util.{CombinedRuleSuiteRows, LambdaFunctionRow}
+import com.sparkutils.quality.{CombinedRuleSuiteRows, LambdaFunctionRow}
 import com.sparkutils.qualityTests.RuleEngineTest.{rulesRaw, testData}
 import com.sparkutils.testing.TestUtils.{anyCauseHas, debug}
 import org.apache.spark.sql.{Column, ShimUtils}

@@ -1,25 +1,62 @@
 package com.sparkutils.quality.impl.util
 
-import com.sparkutils.quality
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.{RuleLogicUtils, ThreeOnlyNonFoldable}
-import com.sparkutils.shim.expressions.{CreateNamedStruct1, GetStructField3, MapObjects5}
-import frameless.TypedEncoder
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode, ExprValue, JavaCode, QualityExprUtils, VariableValue}
-import org.apache.spark.sql.catalyst.expressions.{Alias, BinaryExpression, BoundReference, Expression, If, IsNull, Literal, NamedExpression, UnaryExpression, Unevaluable, UnsafeArrayData}
-import org.apache.spark.sql.catalyst.util.ArrayData
-import org.apache.spark.sql.types.{ArrayType, BooleanType, DataType, MapType, StructField, StructType}
-
-import java.util.concurrent.atomic.AtomicBoolean
-import org.apache.spark.internal.Logging
-import org.apache.spark.sql.catalyst.analysis.{GetColumnByOrdinal, UnresolvedAttribute}
-import org.apache.spark.sql.{Encoder, ShimUtils, SparkSession}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
-import org.apache.spark.sql.catalyst.expressions.objects.{InitializeJavaBean, Invoke, MapObjects, NewInstance, UnresolvedMapObjects}
+import org.apache.spark.sql.catalyst.expressions.codegen._
+import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression, Literal, UnaryExpression, Unevaluable, UnsafeArrayData}
+import org.apache.spark.sql.catalyst.util.ArrayData
+import org.apache.spark.sql.types.{BooleanType, DataType, StructType}
 
-import scala.annotation.{elidable, tailrec}
 import scala.reflect.ClassTag
+
+sealed trait LookupType {
+  val name: String
+}
+
+case class MapLookupType(name: String) extends LookupType
+case class BloomLookupType(name: String) extends LookupType
+
+/**
+ * Represents the results of lookups.  RuleRows will have empty expressions
+ *
+ * @param ruleSuite
+ * @param ruleResults
+ * @param lambdaResults it's not always possible to toString against an expression tree
+ */
+case class LookupResults(ruleSuite: RuleSuite, ruleResults: ExpressionLookupResults[RuleRow], lambdaResults: ExpressionLookupResults[Id])
+
+case class ExpressionLookupResults[A](lookupConstants: Map[A, Set[LookupType]], lookupExpressions: Set[A])
+
+case class ExpressionLookupResult(constants: Set[LookupType], hasExpressionLookups: Boolean)
+
+
+object LookupIdFunctions {
+
+  def namesFromSchema(schema: StructType): Set[String] = {
+
+    def withParent(name: String, parent: String) =
+      if (parent.isEmpty)
+        name
+      else
+        parent + "." + name
+
+    def accumulate(set: Set[String], schema: StructType, parent: String): Set[String] =
+      schema.foldLeft(set) {
+        (s, field) =>
+          val name = withParent(field.name, parent)
+          field.dataType match {
+            case struct: StructType =>
+              accumulate(s + name, struct, name)
+            case _ => s + name
+          }
+      }
+
+    accumulate(Set.empty, schema, "")
+  }
+
+}
 
 trait PassThrough extends Expression {
   override def nullable: Boolean = true
