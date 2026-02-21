@@ -21,6 +21,7 @@ VersionedId *-- RunOnPassProcessor
 Expression *-- DefaultProcessor
 LambdaFunction *-- DefaultProcessor
 VersionedId *-- DefaultProcessor
+VersionedId *-- RuleSuite
 LogicRule *-- Rule
 RunOnPassProcessor *-- Rule:When using QualityEngine
 Rule *-- RuleSet
@@ -65,7 +66,7 @@ abstract class DefaultProcessor {
 }
 note right of DefaultProcessor
 Only used with
-Collector
+Collector and Folder
 end note
 class RuleSet {
 +VersionedId id
@@ -111,10 +112,12 @@ IdTriple *-- RuleEngineResult
 RuleSuiteResult *-- RuleEngineResult
 OutputExpression *-- RuleEngineResult
 RuleSuiteResult *-- RuleEngineDebugResult
+RuleSuiteResult *-- RuleFolderResult
+OutputExpression *-- RuleFolderResult
 OutputExpression *-- SalientResult
 SalientResult *-- RuleEngineDebugResult
 VersionedId *-- IdTriple
-
+RuleSuiteResult *-- RuleSuiteGroupResult
 class RuleResult {
 }
 class Passed {
@@ -151,6 +154,11 @@ class IdTriple {
 class RuleEngineResult {
 +RuleSuiteResult ruleSuiteResults
 +IdTriple salientRule
++OutputExpression result
+}
+
+class RuleFolderResult {
++RuleSuiteResult ruleSuiteResults
 +OutputExpression result
 }
 
