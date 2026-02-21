@@ -1,4 +1,4 @@
-package com.sparkutils.quality.impl.util
+package com.sparkutils.quality
 
 import com.sparkutils.quality.{ExpressionRule, Id, Rule, RuleSet, RuleSuite, VersionedId}
 import org.apache.spark.sql.DataFrame

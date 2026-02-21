@@ -3,13 +3,13 @@ package com.sparkutils.quality.impl
 import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.impl.RuleRegistrationFunctions.getBinary
 import com.sparkutils.quality.impl.RuleSuiteHelpers.{deserialize, deserializeGroup}
-import com.sparkutils.quality.impl.util.CombinedRuleSuiteRows
+import com.sparkutils.quality.CombinedRuleSuiteRows
 import com.sparkutils.quality.{RuleSuite, RuleSuiteGroup, rule_suite, rule_suite_group}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder
 import org.apache.spark.sql.catalyst.expressions.{Expression, Literal, VariableReference}
-import org.apache.spark.sql.{Encoder, ShimUtils, SparkSession}
-import org.apache.spark.sql.types.{BinaryType, DataType, ObjectType, StructType}
+import org.apache.spark.sql.{Encoder, ShimUtils}
+import org.apache.spark.sql.types.{BinaryType, DataType, ObjectType}
 import frameless._
 import com.sparkutils.quality.implicits._
 import org.apache.spark.sql.types.DataType.equalsIgnoreCaseAndNullability

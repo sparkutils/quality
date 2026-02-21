@@ -1,7 +1,8 @@
 package com.sparkutils.quality.impl.extension
 
 import com.sparkutils.quality.QualityException
-import com.sparkutils.quality.impl.extension.ConnectCommandParsers.{NoneQuoted, nameDFOrNoneS, tempView}
+import com.sparkutils.quality.impl.extension.ConnectCommandParsers.{nameDFOrNoneS, tempView}
+import com.sparkutils.quality.impl.extension.QualityCombineConstants.{NoneQuoted, QUALITY_COMBINE}
 import com.sparkutils.quality.impl.extension.QualityVersionedRulesConstants.{FROM_DF, QUALITY_VERSIONED, QUALITY_VERSIONED_LAMBDAS_FROM_DF, QUALITY_VERSIONED_OUTPUT_EXPRESSIONS_FROM_DF, QUALITY_VERSIONED_RULESUITES_FROM_DF, QUALITY_VERSIONED_RULES_FROM_DF}
 import com.sparkutils.quality.impl.util.SerializingShim.combineImplI
 import com.sparkutils.quality.impl.util.SimpleVersioning
@@ -34,9 +35,6 @@ class EchoListener extends QueryExecutionListener {
 }
 */
 object ConnectCommandParsers {
-  val combine = "QUALITY COMBINE RULESUITES"
-  val NoneQuoted = "`None`"
-
   def tempView(sparkSession: SparkSession, name: String): DataFrame =
     ShimUtils.ofRows(sparkSession.asInstanceOf[org.apache.spark.sql.classic.SparkSession],
       sparkSession.sessionState.catalog.getTempView(name).getOrElse(throw QualityException(s"Cannot find temp view $name")))
@@ -51,11 +49,11 @@ object ConnectCommandParsers {
 case class ConnectCommandParsers(sparkSession: SparkSession, delegate: ParserInterface) extends AbstractInjectableParser(sparkSession, delegate) with Logging {
 
   override def parsePlan(sqlText: String): LogicalPlan = {
-    if (sqlText.startsWith(ConnectCommandParsers.combine)) {
+    if (sqlText.startsWith(QUALITY_COMBINE)) {
       // sql(s"QUALITY COMBINE RULESUITES $rname, $lfname, $oename, $glname, $gloename, $rsname"))
       val nameDFOrNone = nameDFOrNoneS(_, sparkSession)
       // TODO full greedy parsers or just let spark throw errors from usage?
-      val cmd = sqlText.drop(ConnectCommandParsers.combine.length).split(',').map(_.trim).toIndexedSeq
+      val cmd = sqlText.drop(QUALITY_COMBINE.length).split(',').map(_.trim).toIndexedSeq
 
       val rules = tempView(sparkSession, cmd(0))
 

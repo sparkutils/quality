@@ -1,6 +1,7 @@
 package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality.RuleSuite.defaultProbablePass
+import com.sparkutils.quality.impl.extension.QualityCombineConstants.{NoneQuoted, QUALITY_COMBINE}
 import com.sparkutils.quality.impl.{RuleSuiteHelpers, VariableHelper}
 import com.sparkutils.quality.{DefaultProcessor, ExpressionRule, Id, LambdaFunction, NoOpDefaultProcessor, NoOpRunOnPassProcessor, OutputExpression, Rule, RuleSet, RuleSuite, RuleSuiteGroup, RunOnPassProcessor, VersionedId, toDS, toLambdaDS, toOutputExpressionDS, toRuleSuiteRow}
 import com.sparkutils.quality.impl.util.SerializingShim.combineImpl
@@ -9,20 +10,7 @@ import org.apache.spark.sql.{Column, Dataset, Encoder, ShimUtils, SparkSession}
 import org.apache.spark.sql.functions.{col, lit}
 import org.apache.spark.sql.types.BinaryType
 
-/**
- * Raw model for Variable usage
- *
- * @param ruleRow
- * @param outputExpressionRow
- */
-case class CombinedRuleRow(ruleRow: RuleRow, outputExpressionRow: Option[OutputExpressionRow])
-
-/**
- * Raw model for Variable usage
- * @param ruleRows
- * @param lambdaFunctions
- */
-case class CombinedRuleSuiteRows(ruleSuiteId: Int, ruleSuiteVersion: Int, ruleRows: Seq[CombinedRuleRow], lambdaFunctions: Option[Seq[LambdaFunctionRow]], probablePass: Option[Double], defaultProcessor: Option[OutputExpressionRow])
+import com.sparkutils.quality.{RuleRow, OutputExpressionRow, LambdaFunctionRow, RuleSuiteRow, CombinedRuleRow, CombinedRuleSuiteRows}
 
 object VersionSpecificSerializingImports extends GeneratedUniqueName {
   protected val GENERATED_NAME_PREFIX = "QUALITY_RULE_SUITE_GENERATED_NAME_"
@@ -66,7 +54,7 @@ trait VersionSpecificSerializingImports {
     val gloename = registerTempViewNameFromDS(globalOutputExpressionSuites)
     val rsname = registerTempViewNameFromDS(ruleSuites)
 
-    val s = s"QUALITY COMBINE RULESUITES $rname, $lfname, $oename, $glname, $gloename, $rsname"
+    val s = s"$QUALITY_COMBINE $rname, $lfname, $oename, $glname, $gloename, $rsname"
     Some(ruleRows.sparkSession.sql(s))
   }
 
@@ -76,7 +64,7 @@ trait VersionSpecificSerializingImports {
         val lfname = uniqueName()
         ds.createOrReplaceTempView(lfname)
         lfname
-    }.getOrElse("`None`")
+    }.getOrElse(NoneQuoted)
 
 
   /**

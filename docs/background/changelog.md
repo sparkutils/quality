@@ -26,6 +26,8 @@ Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1 and 3.3.2 are deprecated as are DBR's 12.2
 > This change swaps the last parameter type of the DSL, and introduces a third breaking change parameter for the SQL interface, to refer to the Spark Variable, with each map being a strongly typed member of the variable available for use with any Spark queries (although probably not all too useful for blooms).
 > 
 > If code was using QualitySparkUtils the import is now ClassicQualitySparkUtils.
+> 
+> Serializing classes are moved to the root package, the impl.util package object provides deprecated forwarders. 
 
 #96 - quality_api is introduced, leveraging Spark Connect - allows a client server model and further client language support
 
@@ -48,6 +50,8 @@ Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1 and 3.3.2 are deprecated as are DBR's 12.2
 #112 - Change overallResult to correctly reflect the ruleEngine processing (if any Passed is present then the overall should be Passed)
 
 #115 - RuleFolder can use the DefaultProcessor from collectRunner, debug will return DefaultRuleSalience (Integer.MIN_VALUE) for the salience
+
+#104 - RuleSuiteGroups allow nesting runners within both trigger and output expressions, a number of helper functions are provided to help you manage audit state
 
 ### [0.1.4](https://github.com/sparkutils/quality/milestone/10?closed=1) <small>24th February, 2026</small>
 
