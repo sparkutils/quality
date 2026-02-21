@@ -49,6 +49,8 @@ Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1 and 3.3.2 are deprecated as are DBR's 12.2
 
 #115 - RuleFolder can use the DefaultProcessor from collectRunner, debug will return DefaultRuleSalience (Integer.MIN_VALUE) for the salience
 
+#104 - RuleSuiteGroups allow nesting runners within both trigger and output expressions, a number of helper functions are provided to help you manage audit state
+
 ### [0.1.4](https://github.com/sparkutils/quality/milestone/10?closed=1) <small>24th February, 2026</small>
 
 This release provides a new runner type - collectRunner and a new RuleResult type of ignoredRule.

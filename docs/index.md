@@ -18,6 +18,8 @@ Write rules using simple SQL or create re-usable functions via SQL Lambdas.
 Your rules are just versioned data, store them wherever convenient, use them by simply defining a column.
 
 * :new:{.pulseABit} Spark 4 [Connect Support](getting_started/connect/)
+* :new:{.pulseABit} Folder can use a DefaultProcessor, both Folder and Engine now use the improved collectRunner result processing logic
+* :new:{.pulseABit} RuleSuiteGroups, manage a single group by name and use it to access ruleSuites in nested runners
 
 Rules are evaluated lazily during Spark actions, such as writing a row, with results saved in a single predictable column.
 
