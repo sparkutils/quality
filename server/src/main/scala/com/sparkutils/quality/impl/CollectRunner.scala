@@ -217,7 +217,7 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
   override def toString: String = s"${classTagT.runtimeClass.getName}(${children.mkString(", ")})"
 
   // used only for eval, compiled uses the children directly
-  lazy val reincorporated = reincorporateExpressions(ruleSuite, children, false, expressionOffsets)
+  lazy val reincorporated = reincorporateExpressions(ruleSuite, children, false, expressionOffsets, triggerCount)
 
   override def eval(input: InternalRow): Any = {
     val (res, processedRes) = //(null, null)
@@ -248,8 +248,6 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
 
     // needs resetting every row
     val bufferTerm = ctx.addMutableState(classOf[ArrayBuffer[_]].getName, ctx.freshName("results"))
-
-    val hasAPassTerm = ctx.addMutableState("boolean", ctx.freshName("hasAPass"))
 
     // order by salience
     val salience = com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenSalience(ruleSuite)
@@ -394,9 +392,6 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
                 } else {
                   ${ processFlattenResult(i, outArrTerm) }
                 }
-             }
-             if ($resArrTerm[$i] != null && ((Integer) $resArrTerm[$i]) == $PassedInt) {
-               $hasAPassTerm = true;
              }
            """,
         orderOffset = (idx: Int) => reordered(idx),

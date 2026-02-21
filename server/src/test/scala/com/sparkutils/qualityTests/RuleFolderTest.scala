@@ -9,8 +9,9 @@ import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder
 import org.apache.spark.sql.catalyst.expressions.Literal
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.{IntegerType, StringType, StructField, StructType}
+import org.scalatest.Matchers
 
-trait RuleFolderTestBase extends SharedPureConnectTests {
+trait RuleFolderTestBase extends SharedPureConnectTests with Matchers {
 
   val testData=Seq(
     TestOn("edt", "4201", 40),
@@ -271,6 +272,12 @@ trait RuleFolderTestBase extends SharedPureConnectTests {
 
     // this row will fail as the 0.6 doesn't class as a pass for the output expression - regardless of overall status
     assert(res(0).result.contains( Seq((1000, NewPosting("from", "4201", "edt", 1234)))) )
+    // #112 - overall should make sense
+    val (passed, failed) = res.zipWithIndex.partition {
+      _._1.ruleSuiteResults.overallResult == Passed
+    }
+    passed.map(_._2) shouldBe Seq(0, 3, 4, 5)
+    failed.map(_._2) shouldBe Seq(1, 2)
 
     //    TestOn("fxotc", "4201", 40),
     assert(res(3).result.contains(Seq((1000, NewPosting("to", "4206", "fx", 90)))))
@@ -279,13 +286,113 @@ trait RuleFolderTestBase extends SharedPureConnectTests {
     // did the field replace work
     assert(res(5).result.contains(Seq((1000, NewPosting("from", "4201", "eqotc", 60)), (1001, NewPosting("from", "4201_fruit", "eqotc", 60)))))
 
+
   }
 
+  def doTestDefaultRules(): Unit = evalCodeGensNoResolve {
+    val rer = irules(
+      Seq((ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040,1),
+        OutputExpression("thecurrent -> updateField(updateField(thecurrent, 'subcode', 1234), 'transfer_type', 'from')"))),
+        //OutputExpression("thecurrent -> updateField(thecurrent, 'subcode', 1234, 'transfer_type', 'from')")))
+
+        (ExpressionRule("false"), RunOnPassProcessor(1000, Id(1042,1),
+          OutputExpression("thecurrent -> updateField(thecurrent, 'transfer_type', 'to')"))),
+        (ExpressionRule("false"), RunOnPassProcessor(1000, Id(1043,1),
+          OutputExpression("thecurrent -> updateField(thecurrent, 'transfer_type', 'from')"))),
+        (ExpressionRule("false"), RunOnPassProcessor(1001, Id(1044,1),
+          OutputExpression("thecurrent -> update_field(thecurrent, 'account', concat(account,'_fruit'))"))),
+        (ExpressionRule("false"), RunOnPassProcessor(1001, Id(1044,1),
+          OutputExpression("thecurrent -> update_field(thecurrent, 'account', concat(account,'_fruit'))")))
+      ), debugMode = false, transformRuleSuite = _.copy(
+        defaultProcessor = DefaultProcessor(Id(102002, 1),
+          OutputExpression("thecurrent -> update_field(thecurrent, 'account', 'defaulted')"))
+      )
+    ) // compileEvals + codeGens IS NOT forcing a code gen on >Spark3
+
+    val testDataDF = {
+      val s = sparkSession
+      import s.implicits._
+      testData.toDF()
+    }
+
+    import com.sparkutils.quality.implicits._
+
+    val outdf = testDataDF
+      .withColumn("together", rer(testDataDF))
+
+    val res = outdf.select("together.*").as[RuleFolderResult[NewPosting]].collect()
+
+    // this row will fail as the 0.6 doesn't class as a pass for the output expression - regardless of overall status
+    assert(res(0).result.contains( NewPosting("from", "4201", "edt", 1234)))
+    // #112 - overall should make sense
+    val (defaulted, passed) = res.zipWithIndex.partition {
+      _._1.ruleSuiteResults.overallResult == DefaultRule
+    }
+    passed.map(_._2) shouldBe Seq(0)
+    defaulted.map(_._2) shouldBe Seq(1, 2, 3, 4, 5)
+
+    res.drop(1).map(_.result.map(_.account)).distinct should contain(Some("defaulted"))
+  }
+
+  def doTestDefaultRulesWithDebug(): Unit = evalCodeGensNoResolve {
+    val rer = irules(
+      Seq((ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040,1),
+        OutputExpression("thecurrent -> updateField(updateField(thecurrent, 'subcode', 1234), 'transfer_type', 'from')"))),
+        //OutputExpression("thecurrent -> updateField(thecurrent, 'subcode', 1234, 'transfer_type', 'from')")))
+
+        (ExpressionRule("false"), RunOnPassProcessor(1000, Id(1042,1),
+          OutputExpression("thecurrent -> updateField(thecurrent, 'transfer_type', 'to')"))),
+        (ExpressionRule("false"), RunOnPassProcessor(1000, Id(1043,1),
+          OutputExpression("thecurrent -> updateField(thecurrent, 'transfer_type', 'from')"))),
+        (ExpressionRule("false"), RunOnPassProcessor(1001, Id(1044,1),
+          OutputExpression("thecurrent -> update_field(thecurrent, 'account', concat(account,'_fruit'))"))),
+        (ExpressionRule("false"), RunOnPassProcessor(1001, Id(1044,1),
+          OutputExpression("thecurrent -> update_field(thecurrent, 'account', concat(account,'_fruit'))")))
+      ), debugMode = true, transformRuleSuite = _.copy(
+        defaultProcessor = DefaultProcessor(Id(102002, 1),
+          OutputExpression("thecurrent -> update_field(thecurrent, 'account', 'defaulted')"))
+      )
+    ) // compileEvals + codeGens IS NOT forcing a code gen on >Spark3
+
+    val testDataDF = {
+      val s = sparkSession
+      import s.implicits._
+      testData.toDF()
+    }
+
+    import com.sparkutils.quality.implicits._
+
+    val outdf = testDataDF
+      .withColumn("together", rer(testDataDF))
+
+    val res = outdf.select("together.*").as[RuleFolderResult[Seq[(Int,NewPosting)]]].collect()
+
+    // this row will fail as the 0.6 doesn't class as a pass for the output expression - regardless of overall status
+    assert(res(0).result.contains( Seq((1000, NewPosting("from", "4201", "edt", 1234)))))
+    // #112 - overall should make sense
+    val (defaulted, passed) = res.zipWithIndex.partition {
+      _._1.ruleSuiteResults.overallResult == DefaultRule
+    }
+    passed.map(_._2) shouldBe Seq(0)
+    defaulted.map(_._2) shouldBe Seq(1, 2, 3, 4, 5)
+
+    res.drop(1).map(_.result.map(_.head._2.account)).distinct should contain(Some("defaulted"))
+    res.drop(1).map(_.result.map(_.head._1)).distinct should contain(Some(DefaultRuleSalience))
+  }
 }
 
 class RuleFolderTest extends RuleFolderTestBase {
+
   test("testSimpleProductionRules") {
     doTestSimpleProductionRules()
+  }
+
+  test("default processor"){
+    doTestDefaultRules()
+  }
+
+  test("default processor via debug"){
+    doTestDefaultRulesWithDebug()
   }
 
   test("testSimpleProductionRulesReplace") { doTestSimpleProductionRulesReplace(false) }

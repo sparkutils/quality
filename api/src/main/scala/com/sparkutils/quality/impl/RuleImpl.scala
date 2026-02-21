@@ -2,7 +2,7 @@ package com.sparkutils.quality.impl
 
 import com.sparkutils.quality
 import com.sparkutils.quality.impl.imports.RuleResultsImports.{DisabledRuleInt, FailedInt, IgnoredRuleInt, PassedInt, SoftFailedInt}
-import com.sparkutils.quality.{DefaultProcessor, DefaultRule, DefaultRuleInt, DisabledRule, Failed, Id, IgnoredRule, OutputExpression, Passed, Probability, RuleResult, RuleResultWithProcessor, RuleSuite, RunOnPassProcessor, SoftFailed}
+import com.sparkutils.quality.{DefaultProcessor, DefaultRule, DefaultRuleInt, DisabledRule, Failed, Id, IgnoredRule, OutputExpression, Passed, Probability, RuleResult, RuleResultWithProcessor, RuleSuite, RuleSuiteGroup, RunOnPassProcessor, SoftFailed}
 import com.sparkutils.quality.impl.util.Serializing.toSeq
 import org.apache.spark.sql.SparkSession
 
@@ -14,25 +14,35 @@ object RuleSuiteHelpers {
   def getContextOrSparkClassLoader: ClassLoader =
     Option(Thread.currentThread().getContextClassLoader).getOrElse(getSparkClassLoader)
 
-  protected[quality] def deserialize(in: Array[Byte]): RuleSuite = {
+  protected[quality] def deserializeImpl[T](in: Array[Byte]): T = {
     val os = new ObjectInputStream(new ByteArrayInputStream(in)) {
       override def resolveClass(desc: ObjectStreamClass): Class[_] =
         Class.forName(desc.getName, false, getContextOrSparkClassLoader)
     }
     val suite = os.readObject()
     os.close()
-    suite.asInstanceOf[RuleSuite]
+    suite.asInstanceOf[T]
   }
 
-  protected[quality] def serialize(ruleSuite: RuleSuite): Array[Byte] = {
+  protected[quality] def deserialize(in: Array[Byte]): RuleSuite = deserializeImpl[RuleSuite](in)
+
+
+  protected[quality] def serializeImpl[T](in: T)(f: T => T): Array[Byte] = {
     val bos = new ByteArrayOutputStream()
     val os = new ObjectOutputStream(bos)
     // get rid of List's Vectors are serializable
-    os.writeObject(toSeq(ruleSuite))
+    os.writeObject(f(in))
     val res = bos.toByteArray
     os.close()
     res
   }
+
+  protected[quality] def serialize(ruleSuite: RuleSuite): Array[Byte] = serializeImpl(ruleSuite)(toSeq)
+
+  protected[quality] def deserializeGroup(in: Array[Byte]): RuleSuiteGroup = deserializeImpl[RuleSuiteGroup](in)
+
+  protected[quality] def serializeGroup(ruleSuiteGroup: RuleSuiteGroup): Array[Byte] =
+    serializeImpl(ruleSuiteGroup)(r => r.copy(ruleSuites = r.ruleSuites.map(p => p._1 -> toSeq(p._2))))
 
   def ruleResultToInt(ruleResult: RuleResult): Int =
     ruleResult match {

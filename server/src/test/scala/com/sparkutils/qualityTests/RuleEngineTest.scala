@@ -2,11 +2,13 @@ package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
 import com.sparkutils.quality.functions.{flatten_rule_results, unpack_id_triple}
+import com.sparkutils.quality.impl.OverallResult
 import com.sparkutils.qualityTests.RuleEngineTest.{rulesRaw, testData}
 import com.sparkutils.qualityTests.util.SharedPureConnectTests
 import com.sparkutils.testing.TestUtils.debug
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions._
+import org.scalatest.Matchers
 
 case class TestOn(product: String, account: String, subcode: Int)
 
@@ -47,7 +49,7 @@ object RuleEngineTest {
 
 }
 
-trait RuleEngineTestBase extends SharedPureConnectTests {
+trait RuleEngineTestBase extends SharedPureConnectTests with Matchers {
 
   def debugRules(expressionRules: (ExpressionRule, RunOnPassProcessor) *) =
     irules(expressionRules, true)
@@ -107,6 +109,12 @@ trait RuleEngineTestBase extends SharedPureConnectTests {
       //outdf.show
       debug(outdf.select("together.*").show())
       val res = outdf.select("together.*").as[RuleEngineResult[Seq[NewPosting]]].collect()
+      // #112 - overall should make sense
+      val (passed, failed) = res.zipWithIndex.partition {
+        _._1.ruleSuiteResults.overallResult == Passed
+      }
+      passed.map(_._2) shouldBe Seq(0, 3, 4, 5)
+      failed.map(_._2) shouldBe Seq(1, 2)
 
       // this row will fail as the 0.6 doesn't class as a pass for the output expression - regardless of overall status
       assert(res(0).result.contains(Seq(NewPosting("from", "4201", "edt", 40), NewPosting("to", "other_account1", "edt", 40))))

@@ -125,7 +125,7 @@ def register_rule_suite_variable(ds: Dataset[CombinedRuleSuiteRows], id: Version
 QualitySparkUtils.registerLambdaFunctions(functions: Seq[LambdaFunction])
 ```
 
-with each function running on the server and connect using simple commands on global temp views (normal temp views do not exist on the server)/tables, after any necessary renames etc.:
+with each function running on the server and connect using simple commands on local non-global temp views, after any necessary renames etc.:
 
 ```sql
 -- versioned reads
@@ -187,6 +187,10 @@ ruleSuiteId INT NOT NULL,ruleSuiteVersion INT NOT NULL,
         ruleSuiteId: INT NOT NULL, ruleSuiteVersion: INT NOT NULL
     >
  >,
- probablePass DOUBLE
+ probablePass DOUBLE,
+ defaultProcessor STRUCT<
+   ruleExpr: STRING, functionId: INT NOT NULL, functionVersion: INT NOT NULL, 
+   ruleSuiteId: INT NOT NULL, ruleSuiteVersion: INT NOT NULL
+ >
 ```
 

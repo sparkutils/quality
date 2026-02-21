@@ -526,13 +526,13 @@ object RuleSuiteFunctions {
           val ruleResult = r.expression.toImpl.eval(internalRow)
           r.id -> ruleResult
         }
-        val overall = ruleSetRawRes.foldLeft(quality.OverallResult(probablePass)){
+        val overall = ruleSetRawRes.foldLeft(OverallResult(probablePass)){
           (ov, pair) =>
             ov.process(pair._2)
         }
         rs.id -> RuleSetResult(overall.currentResult, ruleSetRawRes.toMap)
       }
-    val overall = rawRuleSets.foldLeft(quality.OverallResult(probablePass)){
+    val overall = rawRuleSets.foldLeft(OverallResult(probablePass)){
       (ov, pair) =>
         ov.process(pair._2.overallResult)
     }
@@ -576,15 +576,15 @@ object RuleSuiteFunctions {
 
           r.id -> ruleResult
         }
-        val overall = ruleSetRawRes.foldLeft(quality.OverallResult(probablePass)){
+        val overall = ruleSetRawRes.foldLeft(OverallResult(probablePass, Failed)){
           (ov, pair) =>
-            ov.process(pair._2)
+            ov.processForDefault(pair._2)
         }
         rs.id -> RuleSetResult(overall.currentResult, ruleSetRawRes.toMap)
       }
-    val overall = rawRuleSets.foldLeft(quality.OverallResult(probablePass)){
+    val overall = rawRuleSets.foldLeft(OverallResult(probablePass, Failed)){
       (ov, pair) =>
-        ov.process(pair._2.overallResult)
+        ov.processForDefault(pair._2.overallResult)
     }
 
     val (rule, result) =
@@ -644,15 +644,15 @@ object RuleSuiteFunctions {
 
           r.id -> ruleResult
         }
-        val overall = ruleSetRawRes.foldLeft(quality.OverallResult(probablePass)){
+        val overall = ruleSetRawRes.foldLeft(OverallResult(probablePass, Failed)){
           (ov, pair) =>
-            ov.process(pair._2)
+            ov.processForDefault(pair._2)
         }
         rs.id -> RuleSetResult(overall.currentResult, ruleSetRawRes.toMap)
       }
-    val overall = rawRuleSets.foldLeft(quality.OverallResult(probablePass)){
+    val overall = rawRuleSets.foldLeft(OverallResult(probablePass, Failed)){
       (ov, pair) =>
-        ov.process(pair._2.overallResult)
+        ov.processForDefault(pair._2.overallResult)
     }
 
     // sort applicable by salience - we don't reset original ordering here - surprising? TODO decide if it is too much surprise
@@ -671,7 +671,7 @@ object RuleSuiteFunctions {
       ).asInstanceOf[InternalRow]
 
       if (row == null || inputRow == null) {
-        println()
+        //println()
       }
 
       seq :+ (salience, if (debugMode)
@@ -680,19 +680,45 @@ object RuleSuiteFunctions {
         row)
     }
 
-    val result =
-      if (debugMode)
-        new org.apache.spark.sql.catalyst.util.GenericArrayData(res.map(p =>
-          InternalRow(p._1, p._2)
-        ).toArray)
-      else {
-        if (res.isEmpty)
-          null
-        else
-          res.last._2
+    val (result, overallResult) =
+      if (overall.currentResult != Passed) {
+        if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp) {
+          val e @ FunN(Seq(arg: RefExpressionLazyType), _, _, _, _, _) = ruleSuite.defaultProcessor.toImpl.outputExpression.expr
+          arg.value = row
+          row = e.eval(
+            inputRow
+          ).asInstanceOf[InternalRow]
+          (if (debugMode)
+              new org.apache.spark.sql.catalyst.util.GenericArrayData(Array(
+                InternalRow(DefaultRuleSalience, row)
+              ))
+            else
+              row, DefaultRule)
+        } else {
+          (if (debugMode)
+            new org.apache.spark.sql.catalyst.util.GenericArrayData(res.map(p =>
+              InternalRow(p._1, p._2)
+            ).toArray)
+          else
+            null, Failed)
+        }
+      } else {
+        val result =
+          if (debugMode)
+            new org.apache.spark.sql.catalyst.util.GenericArrayData(res.map(p =>
+              InternalRow(p._1, p._2)
+            ).toArray)
+          else {
+            if (res.isEmpty)
+              null
+            else
+              res.last._2
+          }
+
+        (result, overall.currentResult)
       }
 
-    (RuleSuiteResult(id, overall.currentResult, rawRuleSets.toMap), result)
+    (RuleSuiteResult(id, overallResult, rawRuleSets.toMap), result)
   }
 
   def evalExpressions(ruleSuite: RuleSuite, internalRow: InternalRow, dataType: DataType): GeneralExpressionsResult[Any] = {
@@ -748,14 +774,14 @@ object RuleSuiteFunctions {
 
           r.id -> ruleResult
         }
-        val overall = ruleSetRawRes.foldLeft(quality.OverallResult(probablePass, Failed)){
+        val overall = ruleSetRawRes.foldLeft(OverallResult(probablePass, Failed)){
           (ov, pair) =>
             ov.processForDefault(pair._2)
         }
         rs.id -> RuleSetResult(overall.currentResult, ruleSetRawRes.toMap)
       }
 
-    val overall = rawRuleSets.foldLeft(quality.OverallResult(probablePass, Failed)){
+    val overall = rawRuleSets.foldLeft(OverallResult(probablePass, Failed)){
       (ov, pair) =>
         ov.processForDefault(pair._2.overallResult)
     }

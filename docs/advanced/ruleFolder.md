@@ -3,12 +3,13 @@ tags: advanced
 ---
    
 The ruleFolderRunner function uses the same data formats and structures as the ruleEngineRunner (with the exception of RuleFolderResult) however it allows you to "fold" results over many matching rules.
+If no triggers match, then an optional defaultProcessor on the RuleSuite can be run.  If _any_ rule trigger matches the RuleSuiteResult.overallResult will be Passed, if a DefaultProcessor is present DefaultRule will be returned, otherwise Failed is returned.
 
 In contrast to ruleEngineRunner, which uses salience to select which output expression to run, ruleFolderRunner uses salience to order the execution of each matching output expression.  To facilitate this OutputExpressions in the ruleFolderRunner must be lambdas with one parameter.
 
 ruleFolderRunner takes a starter Column, which is evaluated against the row and then is passed as the parameter to the OutputExpression lambdas, in turn the result of these output lambdas is then fed in to the next matching OutputExpression and folded over until the last is run, which is returned.
 
-When using debugMode you get the salience and each output returned in the resulting array, as with ruleEngineRunner the Encoder derivations for RuleFolderResult work with both T and Seq[(Int, T)] where the Int is salience.
+When using debugMode you get the salience and each output returned in the resulting array, as with ruleEngineRunner the Encoder derivations for RuleFolderResult work with both T and Seq[(Int, T)] where the Int is salience.  Where no rules match, unless a DefaultProcessor is provided, the debug output will be null; where a DefaultProcessor is provided (DefaultRuleSalience, default result) is returned in the array.
 
 RuleSuites are built per the normal DQ rules however a RuleResultProcessor is supplied with Lambda OutputExpressions:
 

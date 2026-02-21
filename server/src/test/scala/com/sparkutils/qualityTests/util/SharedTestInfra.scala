@@ -66,7 +66,8 @@ trait TestSetup extends SparkTestSuite with TestUtilsBase with SharedSessions { 
       scoverageClassPathsConfig + connectMemory("4g") +
       (("spark.sql.extensions", "com.sparkutils.quality.impl.extension.QualitySparkExtension")) + // text used for connect only tests in dbr
       (("javax.jdo.option.ConnectionURL", "jdbc:derby:;databaseName=connect_metastore_db;create=true")) +
-      (("spark.sql.codegen.factoryMode", "NO_CODEGEN"))
+      (("spark.sql.codegen.factoryMode", "NO_CODEGEN")) /*+
+      (("spark.sql.queryExecutionListeners", "com.sparkutils.quality.impl.extension.EchoListener"))*/
 
 }
 

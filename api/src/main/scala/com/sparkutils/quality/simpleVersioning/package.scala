@@ -60,7 +60,7 @@ package object simpleVersioning extends GeneratedUniqueName {
         ruleExpr.as("ruleExpr"),
         ruleEngineSalience.as("ruleEngineSalience").cast(IntegerType),
         ruleEngineId.as("ruleEngineId").cast(IntegerType),
-        ruleEngineVersion.as("ruleEngineVersion").cast(IntegerType)).createOrReplaceGlobalTempView(name)
+        ruleEngineVersion.as("ruleEngineVersion").cast(IntegerType)).createOrReplaceTempView(name)
 
       df.sparkSession.sql(QUALITY_VERSIONED_RULES_FROM_DF + name)
     }
@@ -144,7 +144,7 @@ package object simpleVersioning extends GeneratedUniqueName {
         lambdaFunctionVersion.as("functionVersion").cast(IntegerType),
         lambdaFunctionRuleSuiteId.as("ruleSuiteId").cast(IntegerType),
         lambdaFunctionRuleSuiteVersion.as("ruleSuiteVersion").cast(IntegerType)
-      ).createOrReplaceGlobalTempView(name)
+      ).createOrReplaceTempView(name)
 
       lambdaFunctionDF.sparkSession.sql(QUALITY_VERSIONED_LAMBDAS_FROM_DF + name)
     }
@@ -211,7 +211,7 @@ package object simpleVersioning extends GeneratedUniqueName {
         outputExpressionVersion.as("functionVersion").cast(IntegerType),
         outputExpressionRuleSuiteId.as("ruleSuiteId").cast(IntegerType),
         outputExpressionRuleSuiteVersion.as("ruleSuiteVersion").cast(IntegerType)
-      ).createOrReplaceGlobalTempView(name)
+      ).createOrReplaceTempView(name)
 
       outputExpressionDF.sparkSession.sql(QUALITY_VERSIONED_OUTPUT_EXPRESSIONS_FROM_DF + name)
     }

@@ -50,6 +50,10 @@ trait RuleRunnerImports {
    */
   val DefaultRuleInt = RuleResultsImports.DefaultRuleInt
   /**
+   * When Folder is configured with a default rule and debug mode is enabled, this salience is returned
+   */
+  val DefaultRuleSalience = RuleResultsImports.DisabledRuleSalience
+  /**
    * The integer value for passed dq rules
    */
   val PassedInt = RuleResultsImports.PassedInt
@@ -64,6 +68,7 @@ object RuleResultsImports {
 
   val SoftFailedInt = -1
   val DisabledRuleInt = -2
+  val DisabledRuleSalience = Integer.MIN_VALUE
   val IgnoredRuleInt = -3
   val DefaultRuleInt = -4
   val PassedInt = 100000

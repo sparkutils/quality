@@ -75,6 +75,11 @@ class RuleSuite {
 +VersionedId id
 +Seq<RuleSet> ruleSets
 +Seq<LambdaFunction> lambdaFunctions
++Double probablePass
++DefaultProcessor defaultProcessor
+}
+class RuleSuiteGroup{
++Seq<RuleSuite> ruleSuites
 }
 ```
 
@@ -175,6 +180,9 @@ class RuleSuiteResult {
 +VersionedId id
 +RuleResult overallResult
 +Map<VersionedId, RuleSetResult> ruleSetResults
+}
+class RuleSuiteGroupResult {
++Map<VersionedId, RuleSuiteResult> ruleSuiteResults
 }
 ```
 

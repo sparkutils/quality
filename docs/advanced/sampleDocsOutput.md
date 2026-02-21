@@ -16,6 +16,19 @@ description
 
     
 
+```sql
+concat(fielda, fieldb)
+```
+
+<div class="spark_functions_used comma-list">
+<p>Spark functions used:</p>
+<ul>
+
+<li> <a target="_blank" href="https://spark.apache.org/docs/latest/api/sql/index.html#concat">concat</a> </li>
+</ul>
+</div>
+
+
 
 __Triggers__ output rule with id <a href="#outputRule_6_1">6, 1</a> _Salience_ 0
  
@@ -25,6 +38,11 @@ __Triggers__ output rule with id <a href="#outputRule_6_1">6, 1</a> _Salience_ 0
 
 
     
+
+```sql
+fielda > fieldb
+```
+
 
 
 __Triggers__ output rule with id <a href="#outputRule_1002_1">1002, 1</a> _Salience_ 0
@@ -36,6 +54,21 @@ __Triggers__ output rule with id <a href="#outputRule_1002_1">1002, 1</a> _Salie
 
     
 
+```sql
+testCaller2(fielda > fieldb) and test(fieldb)
+```
+
+<div class="lambdas_used comma-list">
+<p>Lambda used:</p>
+<ul>
+
+<li> <a href="#lambda_7_2">testCaller2</a> </li>
+
+<li> <a href="#lambda_6_1">test</a> </li>
+</ul>
+</div>
+
+
  
 #### Rule Id - 5, 1 <a name="rule_5_1"></a> - 
 
@@ -44,6 +77,27 @@ __Triggers__ output rule with id <a href="#outputRule_1002_1">1002, 1</a> _Salie
 
     
 
+```sql
+map_Lookup(fielda, fieldb) and test(fieldb)
+```
+
+<div class="spark_functions_used comma-list">
+<p>Quality functions used:</p>
+<ul>
+
+<li> <a target="_blank" href="../../sqlfunctions/#map_lookup">map_Lookup</a> </li>
+</ul>
+</div>
+
+<div class="lambdas_used comma-list">
+<p>Lambda used:</p>
+<ul>
+
+<li> <a href="#lambda_6_1">test</a> </li>
+</ul>
+</div>
+
+
  
 #### Rule Id - 16, 1 <a name="rule_16_1"></a> -  <a href="../sampleDocsValidation/#Errors_16_1" class="rule_error">3 Errors</a>
 
@@ -51,6 +105,11 @@ __Triggers__ output rule with id <a href="#outputRule_1002_1">1002, 1</a> _Salie
 
 
     
+
+```sql
+nonExistentFunction(fielda) and nonExistentFielda > nonExistentFieldb
+```
+
 
  
 

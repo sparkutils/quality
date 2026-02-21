@@ -1,5 +1,6 @@
 package com.sparkutils.quality.impl
 
+import com.sparkutils.quality.impl.util.{CombinedRuleRow, CombinedRuleSuiteRows}
 import com.sparkutils.quality.{GeneralExpressionResult, GeneralExpressionsResult, GeneralExpressionsResultNoDDL, RuleEngineResult, RuleFolderResult, RuleResult, RuleSetResult, RuleSetStatistics, RuleStatistics, RuleSuiteGroupStatistics, RuleSuiteResult, RuleSuiteResultDetails, RuleSuiteStatistics, VersionedId}
 import frameless.TypedEncoder
 import org.apache.spark.sql.catalyst.encoders.AgnosticEncoder
@@ -74,6 +75,18 @@ trait EncodersImplicits extends Serializable {
   implicit val ruleSuiteGroupStatisticsTypedEnc = TypedEncoder[RuleSuiteGroupStatistics]
 
   implicit val ruleSuiteGroupStatisticsTypedExpEnc: Encoder[RuleSuiteGroupStatistics]  = TypedExpressionEncoder[RuleSuiteGroupStatistics]
+
+  implicit val combinedRuleRowTypedEnc = TypedEncoder[CombinedRuleRow]
+
+  implicit val combinedRuleRowTypedExpEnc = TypedExpressionEncoder[CombinedRuleRow]
+
+  implicit val combinedRuleSuiteRowTypedEnc = TypedEncoder[CombinedRuleSuiteRows]
+
+  implicit val combinedRuleSuiteRowTypedExpEnc = TypedExpressionEncoder[CombinedRuleSuiteRows]
+
+  implicit val combinedSeqRuleSuiteRowTypedEnc = TypedEncoder[Seq[CombinedRuleSuiteRows]]
+
+  implicit val combinedSeqRuleSuiteRowTypedExpEnc = TypedExpressionEncoder[Seq[CombinedRuleSuiteRows]]
 
 }
 

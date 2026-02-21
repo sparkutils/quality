@@ -1,7 +1,7 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
-import com.sparkutils.quality.impl.RuleEngineRunner
+import com.sparkutils.quality.impl.{OverallResult, RuleEngineRunner}
 import com.sparkutils.quality.impl.extension.FunNRewrite
 import com.sparkutils.qualityTests.util.SharedConnectTests
 import org.apache.spark.sql.DataFrame
