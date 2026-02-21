@@ -50,8 +50,8 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
     import s.implicits._
 
     defaultAndForceConnect {
-      val conbinedRuleSuiteRows = combine(ruleRows)
-      val oRS = rule_suite(conbinedRuleSuiteRows, rsId)
+      val combinedRuleSuiteRows = combine(ruleRows)
+      val oRS = rule_suite(combinedRuleSuiteRows, rsId)
       oRS.map(_.sorted) should contain( stripped )
     }
   }
@@ -64,8 +64,8 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
     import s.implicits._
 
     defaultAndForceConnect {
-      val conbinedRuleSuiteRows = combine(ruleRows, lambdas)
-      val oRS = rule_suite(conbinedRuleSuiteRows, rsId)
+      val combinedRuleSuiteRows = combine(ruleRows, lambdas)
+      val oRS = rule_suite(combinedRuleSuiteRows, rsId)
       oRS.map(_.sorted) should contain( stripped )
     }
   }
@@ -79,8 +79,8 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
     import s.implicits._
 
     defaultAndForceConnect {
-      val conbinedRuleSuiteRows = combine(ruleRows, sparkSession.emptyDataset[LambdaFunctionRow], outRows)
-      val oRS = rule_suite(conbinedRuleSuiteRows, rsId)
+      val combinedRuleSuiteRows = combine(ruleRows, sparkSession.emptyDataset[LambdaFunctionRow], outRows)
+      val oRS = rule_suite(combinedRuleSuiteRows, rsId)
       oRS.map(_.sorted) should contain( stripped )
     }
   }
@@ -95,9 +95,9 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
     import s.implicits._
 
     defaultAndForceConnect {
-      val conbinedRuleSuiteRows = combine(ruleRows, sparkSession.emptyDataset[LambdaFunctionRow],
+      val combinedRuleSuiteRows = combine(ruleRows, sparkSession.emptyDataset[LambdaFunctionRow],
         outRows union( Seq(defaultO).toDS()), Seq(ruleSuite).toDS())
-      val oRS = rule_suite(conbinedRuleSuiteRows, rsId)
+      val oRS = rule_suite(combinedRuleSuiteRows, rsId)
       oRS.map(_.sorted) should contain( stripped )
     }
   }
@@ -115,11 +115,11 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
 
     defaultAndForceConnect {
       // force them back in as global ids
-      val conbinedRuleSuiteRows = combine(ruleRows, lambdaFunctionRows = Some(lambdas.toDS()),
+      val combinedRuleSuiteRows = combine(ruleRows, lambdaFunctionRows = Some(lambdas.toDS()),
         outputExpressionRows = Some(outRows.toDS()),
         globalLambdaSuites = Some(lambdas.map(l => Id(l.ruleSuiteId, l.ruleSuiteVersion)).toDS()),
         globalOutputExpressionSuites = Some(outRows.map(l => Id(l.ruleSuiteId, l.ruleSuiteVersion)).toDS()))
-      val oRS = rule_suite(conbinedRuleSuiteRows, rsId)
+      val oRS = rule_suite(combinedRuleSuiteRows, rsId)
 
       oRS.map(_.sorted) should contain( rules )
     }
@@ -133,8 +133,8 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
     import s.implicits._
 
     defaultAndForceConnect {
-      val conbinedRuleSuiteRows = combine(ruleRows, lambdas, outRows)
-      val oRS = rule_suite(conbinedRuleSuiteRows, rsId)
+      val combinedRuleSuiteRows = combine(ruleRows, lambdas, outRows)
+      val oRS = rule_suite(combinedRuleSuiteRows, rsId)
       oRS.map(_.sorted) should contain( rules )
     }
   }
@@ -148,8 +148,8 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
     import s.implicits._
 
     defaultAndForceConnect {
-      val conbinedRuleSuiteRows = combine(ruleRows, lambdas, outRows)
-      val name = register_rule_suite_variable(conbinedRuleSuiteRows, rsId)
+      val combinedRuleSuiteRows = combine(ruleRows, lambdas, outRows)
+      val name = register_rule_suite_variable(combinedRuleSuiteRows, rsId)
       val fromVar = sparkSession.sql(s"select `$name` as a").selectExpr("a.*").as[CombinedRuleSuiteRows]
 
       val oRS = rule_suite(fromVar, rsId)
@@ -208,8 +208,8 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
   test("ruleRunner via spark var and provided empty dataset") {
     doRuleTest{
       (ruleSuite) =>
-        val conbinedRuleSuiteRows = combined_rows(ruleSuite)
-        val name = register_rule_suite_variable(conbinedRuleSuiteRows, rules.id)
+        val combinedRuleSuiteRows = combined_rows(ruleSuite)
+        val name = register_rule_suite_variable(combinedRuleSuiteRows, rules.id)
         col(name)
     }
   }
@@ -276,10 +276,10 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
   test("ruleRunner via RuleSuiteGroup and spark var and provided empty dataset - only one version - via _variable") {
     doRuleTest{
       (ruleSuite) =>
-        val conbinedRuleSuiteRows = combined_rows(ruleSuite)
-        val conbinedRuleSuiteRowsd = combined_rows(groupRulesDummy.copy(id = Id(1000, 1)))
+        val combinedRuleSuiteRows = combined_rows(ruleSuite)
+        val combinedRuleSuiteRowsd = combined_rows(groupRulesDummy.copy(id = Id(1000, 1)))
 
-        val name = register_rule_suite_group_variable(conbinedRuleSuiteRows union conbinedRuleSuiteRowsd)
+        val name = register_rule_suite_group_variable(combinedRuleSuiteRows union combinedRuleSuiteRowsd)
         rule_suite_from(name, ruleSuite.id.id)
     }
   }
@@ -288,10 +288,10 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
     doRuleTest{
       (ruleSuite) =>
         val nr = ruleSuite
-        val conbinedRuleSuiteRows = combined_rows(nr)
-        val conbinedRuleSuiteRowsd = combined_rows(groupRulesDummy.copy(id = Id(nr.id.id, -1000)))
+        val combinedRuleSuiteRows = combined_rows(nr)
+        val combinedRuleSuiteRowsd = combined_rows(groupRulesDummy.copy(id = Id(nr.id.id, -1000)))
 
-        val name = register_rule_suite_group_variable(conbinedRuleSuiteRows union conbinedRuleSuiteRowsd)
+        val name = register_rule_suite_group_variable(combinedRuleSuiteRows union combinedRuleSuiteRowsd)
         rule_suite_from(name, nr.id.id)
     }
   }
@@ -299,10 +299,10 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
   test("ruleRunner via RuleSuiteGroup and spark var and provided empty dataset - two versions, pick specific - via _variable") {
     doRuleTest{
       (ruleSuite) =>
-        val conbinedRuleSuiteRows = combined_rows(ruleSuite)
-        val conbinedRuleSuiteRowsd = combined_rows(groupRulesDummy.copy(id = ruleSuite.id.copy(version = 1000)))
+        val combinedRuleSuiteRows = combined_rows(ruleSuite)
+        val combinedRuleSuiteRowsd = combined_rows(groupRulesDummy.copy(id = ruleSuite.id.copy(version = 1000)))
 
-        val name = register_rule_suite_group_variable(conbinedRuleSuiteRows union conbinedRuleSuiteRowsd)
+        val name = register_rule_suite_group_variable(combinedRuleSuiteRows union combinedRuleSuiteRowsd)
         rule_suite_from(name, ruleSuite.id.id, ruleSuite.id.version)
     }
   }

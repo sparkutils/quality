@@ -1,12 +1,13 @@
 package com.sparkutils.quality.impl.extension
 
-import com.sparkutils.quality.impl.extension.QualitySparkExtension.{disableRulesConf, forceInjectFunction, testingConf, disabledOptimiserRules}
+import com.sparkutils.quality.impl.extension.QualitySparkExtension.{disableRulesConf, disabledOptimiserRules, forceInjectFunction, testingConf}
 import com.sparkutils.testing.Testing
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.{ShimUtils, SparkSession, SparkSessionExtensions}
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.catalyst.rules.Rule
+import org.apache.spark.sql.catalyst.util.CaseInsensitiveMap
 import org.apache.spark.sql.qualityFunctions.utils
 import org.apache.spark.sql.types.DataType
 

@@ -58,7 +58,7 @@ trait VersionSpecificSerializingImports {
                             globalOutputExpressionSuites: Option[Dataset[Id]],
                             ruleSuites: Option[Dataset[RuleSuiteRow]]): Option[org.apache.spark.sql.DataFrame] = {
     val rname = uniqueName()
-    ruleRows.createOrReplaceGlobalTempView(rname)
+    ruleRows.createOrReplaceTempView(rname)
 
     val lfname = registerTempViewNameFromDS(lambdaFunctionRows)
     val oename = registerTempViewNameFromDS(outputExpressionRows)
@@ -74,7 +74,7 @@ trait VersionSpecificSerializingImports {
     lambdaFunctionRows.map {
       ds =>
         val lfname = uniqueName()
-        ds.createOrReplaceGlobalTempView(lfname)
+        ds.createOrReplaceTempView(lfname)
         lfname
     }.getOrElse("`None`")
 
