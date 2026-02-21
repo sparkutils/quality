@@ -10,20 +10,7 @@ import org.apache.spark.sql.{Column, Dataset, Encoder, ShimUtils, SparkSession}
 import org.apache.spark.sql.functions.{col, lit}
 import org.apache.spark.sql.types.BinaryType
 
-/**
- * Raw model for Variable usage
- *
- * @param ruleRow
- * @param outputExpressionRow
- */
-case class CombinedRuleRow(ruleRow: RuleRow, outputExpressionRow: Option[OutputExpressionRow])
-
-/**
- * Raw model for Variable usage
- * @param ruleRows
- * @param lambdaFunctions
- */
-case class CombinedRuleSuiteRows(ruleSuiteId: Int, ruleSuiteVersion: Int, ruleRows: Seq[CombinedRuleRow], lambdaFunctions: Option[Seq[LambdaFunctionRow]], probablePass: Option[Double], defaultProcessor: Option[OutputExpressionRow])
+import com.sparkutils.quality.{RuleRow, OutputExpressionRow, LambdaFunctionRow, RuleSuiteRow, CombinedRuleRow, CombinedRuleSuiteRows}
 
 object VersionSpecificSerializingImports extends GeneratedUniqueName {
   protected val GENERATED_NAME_PREFIX = "QUALITY_RULE_SUITE_GENERATED_NAME_"
