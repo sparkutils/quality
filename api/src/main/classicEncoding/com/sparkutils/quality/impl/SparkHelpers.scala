@@ -74,4 +74,8 @@ trait EncodersImplicits extends Serializable {
 
   implicit val ruleSuiteGroupStatisticsTypedExpEnc = TypedExpressionEncoder[RuleSuiteGroupStatistics]
 
+  implicit val ruleSuiteGroupResultsTypedEnc = TypedEncoder[RuleSuiteGroupResults]
+
+  implicit val ruleSuiteGroupResultsTypedExpEnc = TypedExpressionEncoder[RuleSuiteGroupResults]
+
 }

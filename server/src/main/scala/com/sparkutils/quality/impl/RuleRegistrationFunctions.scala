@@ -699,6 +699,11 @@ object RuleRegistrationFunctions {
         rsExp( rg.ruleSuites.find(p => p._1.id == getInteger(id, 1) && p._1.version == getInteger(version, 1)) )
     }, Set(2,3))
 
+    register("group_results", {
+      case Seq(e) => GroupResults(e)
+      case Seq(e, l: SLambdaFunction) => GroupResults(e).withProcessor(l)
+    }, Set(1,2))
+
     // coalesce support
     registerProcessIfAttributeMissingForAgnostic(registerFunction)
   }
