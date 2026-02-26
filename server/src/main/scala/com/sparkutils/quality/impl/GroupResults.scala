@@ -39,7 +39,7 @@ object GroupResults {
     val rsDec = ShimUtils.expressionEncoder(Encoders.ruleSuiteResultExpEnc).resolveAndBind().deserializer
     val rsgEnc = ShimUtils.expressionEncoder(Encoders.ruleSuiteGroupResultsTypedExpEnc).resolveAndBind().objSerializer
     val rsgDec = ShimUtils.expressionEncoder(Encoders.ruleSuiteGroupResultsTypedExpEnc).resolveAndBind().deserializer
-    GroupResults(Seq(group, rsgEnc, rsDec, rsgEnc))
+    GroupResults(Seq(group, rsgEnc, rsDec, rsgDec))
   }
 
   def apply(group: Expression, l: org.apache.spark.sql.catalyst.expressions.LambdaFunction): GroupResultsWithProcess = {
@@ -48,7 +48,7 @@ object GroupResults {
     val rsgDec = ShimUtils.expressionEncoder(Encoders.ruleSuiteGroupResultsTypedExpEnc).resolveAndBind().deserializer
     val ref = RefExpression(ArrayType(rd(Seq(group))))//RefExpressionLazyType(new AtomicReference[DataType](), true)
 
-    GroupResultsWithProcess(Seq(group, rsgEnc, rsDec, rsgEnc, ref), l)
+    GroupResultsWithProcess(Seq(group, rsgEnc, rsDec, rsgDec, ref), l)
   }
 
   def rd(children: Seq[Expression]) = {
