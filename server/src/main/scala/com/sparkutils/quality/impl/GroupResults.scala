@@ -5,30 +5,50 @@ import com.sparkutils.quality.{RuleSuiteGroupResults, RuleSuiteResult}
 import org.apache.spark.sql.ShimUtils
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Expression, GenericInternalRow, NonSQLExpression}
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenFallback}
+import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
 import org.apache.spark.sql.catalyst.util.{ArrayData, GenericArrayData}
 import org.apache.spark.sql.qualityFunctions.{GroupResultsWithProcess, RefExpression}
 import org.apache.spark.sql.types.DataType.equalsIgnoreCaseAndNullability
 import org.apache.spark.sql.types.{ArrayType, DataType, NullType, StructField, StructType}
 
+import scala.reflect.ClassTag
+
+trait MergeGroups[T] {
+  def merge(items: Seq[T]): RuleSuiteGroupResults
+}
+// TODO handle merges
+
+object MergeGroups {
+  implicit val rsMergeGroups: MergeGroups[RuleSuiteResult] = new MergeGroups[RuleSuiteResult] {
+    override def merge(items: Seq[RuleSuiteResult]): RuleSuiteGroupResults = RuleSuiteGroupResults(items: _*)
+  }
+  implicit val groupMergeGroups: MergeGroups[RuleSuiteGroupResults] = new MergeGroups[RuleSuiteGroupResults] {
+    override def merge(items: Seq[RuleSuiteGroupResults]): RuleSuiteGroupResults =
+      items.foldLeft(RuleSuiteGroupResults()) {
+        (cur, next) =>
+          cur.copy(ruleSuiteResults = cur.ruleSuiteResults ++ next.ruleSuiteResults)
+      }
+  }
+}
+
 object GroupResults {
 
-  // TODO handle merges
-  def group(rs: Seq[RuleSuiteResult]): RuleSuiteGroupResults = RuleSuiteGroupResults(rs: _*)
-    //rs.foldLeft(RuleSuiteGroupResults())
+  def group[T: MergeGroups](rs: Seq[T]): RuleSuiteGroupResults = implicitly[MergeGroups[T]].merge(rs)
 
   def apply(group: Expression): GroupResults = {
     val rsDec = ShimUtils.expressionEncoder(Encoders.ruleSuiteResultExpEnc).resolveAndBind().deserializer
     val rsgEnc = ShimUtils.expressionEncoder(Encoders.ruleSuiteGroupResultsTypedExpEnc).resolveAndBind().objSerializer
-    GroupResults(Seq(group, rsgEnc, rsDec))
+    val rsgDec = ShimUtils.expressionEncoder(Encoders.ruleSuiteGroupResultsTypedExpEnc).resolveAndBind().deserializer
+    GroupResults(Seq(group, rsgEnc, rsDec, rsgEnc))
   }
 
   def apply(group: Expression, l: org.apache.spark.sql.catalyst.expressions.LambdaFunction): GroupResultsWithProcess = {
     val rsDec = ShimUtils.expressionEncoder(Encoders.ruleSuiteResultExpEnc).resolveAndBind().deserializer
     val rsgEnc = ShimUtils.expressionEncoder(Encoders.ruleSuiteGroupResultsTypedExpEnc).resolveAndBind().objSerializer
+    val rsgDec = ShimUtils.expressionEncoder(Encoders.ruleSuiteGroupResultsTypedExpEnc).resolveAndBind().deserializer
     val ref = RefExpression(ArrayType(rd(Seq(group))))//RefExpressionLazyType(new AtomicReference[DataType](), true)
 
-    GroupResultsWithProcess(Seq(group, rsgEnc, rsDec, ref), l)
+    GroupResultsWithProcess(Seq(group, rsgEnc, rsDec, rsgEnc, ref), l)
   }
 
   def rd(children: Seq[Expression]) = {
@@ -58,14 +78,14 @@ trait GroupResultsBase
     else
       false
 
-  def groupFrom(row: InternalRow, dq: Boolean, s: StructType, arr: Any, f: InternalRow => Any): (InternalRow, Any) = {
+  def groupFrom[T: MergeGroups: ClassTag](deserializer: Expression, row: InternalRow, dq: Boolean, s: StructType, arr: Any, f: InternalRow => Any): (InternalRow, Any) = {
     val a = arr.asInstanceOf[ArrayData]
-    val copied = Array.ofDim[RuleSuiteResult](a.numElements())
+    val copied = Array.ofDim[T](a.numElements())
     val copiedResult = Array.ofDim[Any](a.numElements())
 
     a.foreach(s, (i,e) => {
       val r = e.asInstanceOf[InternalRow]
-      copied(i) = children(2).eval(if (dq) r else r.getStruct(0, 3)).asInstanceOf[RuleSuiteResult]
+      copied(i) = deserializer.eval(if (dq) r else r.getStruct(0, 3)).asInstanceOf[T]
       copiedResult(i) = f(r)
     })
 
@@ -89,14 +109,14 @@ trait GroupResultsBase
       case a: ArrayType if equalsIgnoreCaseAndNullability(a.elementType, com.sparkutils.quality.impl.types.ruleSuiteResultType) =>
         // DQ
         (Encoders.ruleSuiteGroupResultsTypedEnc.catalystRepr,
-          (row, r) => groupFrom(row, true, a.elementType.asInstanceOf[StructType], r, identity)._1)
+          (row, r) => groupFrom[RuleSuiteResult](children(2), row, true, a.elementType.asInstanceOf[StructType], r, identity)._1)
       case a: ArrayType if hasResultType(a.elementType.asInstanceOf[StructType]) =>
         // engine, folder, collector
         val s = a.elementType.asInstanceOf[StructType]
         val rest = s.fields.map(_.dataType).zipWithIndex.drop(1)
 
         (resultType, (row, r) => {
-          val (gr, res) = groupFrom(row, false, s, r, e => {
+          val (gr, res) = groupFrom[RuleSuiteResult](children(2), row, false, s, r, e => {
             val r = rest.map(p => e.get(p._2, p._1))
             if (rest.length == 1)
               r.head // * above
