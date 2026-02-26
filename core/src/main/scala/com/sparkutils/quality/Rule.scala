@@ -92,7 +92,11 @@ trait RunOnPassProcessor extends HasRuleText with HasOutputExpression {
 object RunOnPassProcessor {
   @SerialVersionUID(1L)
   case class RunOnPassProcessorImpl(salience: Int, id: Id, rule: String, returnIfPassed: OutputExpression) extends RunOnPassProcessor with Serializable {
-    override def withExpr(e: OutputExpression): RunOnPassProcessor = copy(returnIfPassed = e)
+    override def withExpr(e: OutputExpression): RunOnPassProcessor = copy(returnIfPassed = e,
+      rule = e match {
+        case h: HasRuleText => h.rule
+        case _ => rule
+      })
   }
 
   /**

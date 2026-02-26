@@ -1,6 +1,8 @@
 package com.sparkutils.quality.impl.imports
 
 import com.sparkutils.shim.LambdaFunctions
+import org.apache.spark.sql.ShimUtils.callFunction
+import org.apache.spark.sql.functions.lit
 import org.apache.spark.sql.{Column, ShimUtils}
 
 trait RuleResultImport {
