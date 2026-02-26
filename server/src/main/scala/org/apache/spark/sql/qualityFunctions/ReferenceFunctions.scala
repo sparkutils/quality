@@ -202,6 +202,50 @@ case class FunForward(children: Seq[Expression])
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
 }
 
+trait Binder extends HigherOrderFunctionLike {
+
+  def arguments: Seq[Expression]
+
+  def function: Expression
+
+  def children: Seq[Expression] = arguments ++ functions
+
+  def argumentTypes: Seq[AbstractDataType] = arguments.map(_.dataType)
+
+  def functions: Seq[Expression] = Seq(function)
+
+  def functionTypes: Seq[AbstractDataType] = Seq(function.dataType)
+
+  def withFunction(function: Expression): HigherOrderFunction with Binder
+  def argsToBind: Seq[Expression]
+
+  @transient lazy val LambdaFunction(lambdaFunction, elementNamedVariables, _) = function
+  @transient lazy val elementVars = elementNamedVariables
+
+  protected def bindInternal(f: (Expression, Seq[(DataType, Boolean)]) => LambdaFunction): HigherOrderFunction = {
+    // subqueries aren't being replaced correctly
+    val res = withFunction(function = f(function,
+      argsToBind.map(e => (e.dataType, e.nullable))))
+
+    if (RuleLogicUtils.hasSubQuery(res.function)) {
+      // only possible on > 3.4 (and DBR 12.2),
+      // no longer possible after 14.3/4.0, this code won't be reached due to https://issues.apache.org/jira/browse/SPARK-47509
+      // unless it's re-enabled
+      // given XX below reject this occurrence directly.
+      if (!argsToBind.forall(_.collect{case u: UnresolvedNamedLambdaVariable => u}.isEmpty)) {
+        QualityException.qualityException(s"Cannot use LambdaFunctions with SubqueryExpressions and parameters containing lambdavariables " + this)
+      }
+
+      val converted = SubQueryLambda.convertLambdaFunction(res.function)(function, argsToBind)
+
+      res.withFunction(function = converted)
+    } else
+      res
+
+  }
+
+}
+
 /**
  * Lambda function with multiple args, typically created with a placeholder AtomicRefExpression args
  *
@@ -211,7 +255,7 @@ case class FunForward(children: Seq[Expression])
  */
 case class FunN(arguments: Seq[Expression], function: Expression, name: Option[String] = None,
                 processed: Boolean = false, attemptCodeGen: Boolean = false, usedAsLambda: Boolean = false)
-  extends HigherOrderFunctionLike with CodegenFallback with SeqArgs with FunDoGenCode {
+  extends Binder with CodegenFallback with SeqArgs with FunDoGenCode {
 
   /* #71 - default just checks arguments, but FunNRewrite will take the actual function so it's possible
       it is nullable. ArrayAggregate for example (hit on Databricks) argument.nullable || finish.nullable
@@ -220,37 +264,6 @@ case class FunN(arguments: Seq[Expression], function: Expression, name: Option[S
   override def nullable: Boolean = super.nullable || function.nullable
 
   override def prettyName: String = name.getOrElse(super.prettyName)
-
-  override def argumentTypes: Seq[AbstractDataType] = arguments.map(_.dataType)
-
-  override def functions: Seq[Expression] = Seq(function)
-
-  override def functionTypes: Seq[AbstractDataType] = Seq(function.dataType)
-
-  protected def bindInternal(f: (Expression, Seq[(DataType, Boolean)]) => LambdaFunction): HigherOrderFunction = {
-    // subqueries aren't being replaced correctly
-    val res = copy(function = f(function,
-        arguments.map(e => (e.dataType, e.nullable))))
-
-    if (RuleLogicUtils.hasSubQuery(res.function)) {
-      // only possible on > 3.4 (and DBR 12.2),
-      // no longer possible after 14.3/4.0, this code won't be reached due to https://issues.apache.org/jira/browse/SPARK-47509
-      // unless it's re-enabled
-      // given XX below reject this occurrence directly.
-      if (!arguments.forall(_.collect{case u: UnresolvedNamedLambdaVariable => u}.isEmpty)) {
-        QualityException.qualityException(s"Cannot use LambdaFunctions with SubqueryExpressions and parameters containing lambdavariables " + this)
-      }
-
-      val converted = SubQueryLambda.convertLambdaFunction(res.function)(function, arguments)
-
-      res.copy(function = converted)
-    } else
-      res
-
-  }
-
-  @transient lazy val LambdaFunction(lambdaFunction, elementNamedVariables, _) = function
-  @transient lazy val elementVars = elementNamedVariables//.map(_.asInstanceOf[NamedLambdaVariable])
 
   override def eval(inputRow: InternalRow): Any = {
     // set up the variable to be evaluated
@@ -269,7 +282,6 @@ case class FunN(arguments: Seq[Expression], function: Expression, name: Option[S
 
   override def dataType: DataType = function.dataType
 
-  override def children: Seq[Expression] = arguments ++ functions
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
     copy(newChildren.dropRight(1), newChildren.last)
 
@@ -339,6 +351,10 @@ case class FunN(arguments: Seq[Expression], function: Expression, name: Option[S
          // End FunN - $lambdaName
           """)
   }
+
+  override def withFunction(function: Expression): HigherOrderFunction with Binder = copy(function = function)
+
+  override def argsToBind: Seq[Expression] = arguments
 }
 
 object SubQueryLambda {
