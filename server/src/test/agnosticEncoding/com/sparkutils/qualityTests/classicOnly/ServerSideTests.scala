@@ -5,6 +5,7 @@ import com.sparkutils.quality.impl.OfRuleSuite
 import com.sparkutils.qualityTests.NewPosting
 import com.sparkutils.qualityTests.RuleEngineTest.{rulesRaw, testData}
 import com.sparkutils.qualityTests.util.ClassicSharedTests
+import org.apache.spark.sql.Dataset
 import org.apache.spark.sql.catalyst.expressions.Literal
 import org.apache.spark.sql.functions.{lit, struct}
 import org.apache.spark.sql.types.BinaryType
@@ -31,12 +32,12 @@ class ServerSideTests extends ClassicSharedTests with Matchers {
       intercept[QualityException] { // Result type: IndexOutOfBoundsException
 
 
-      Literal(Array.ofDim[Byte](22), BinaryType) match {
-        case OfRuleSuite(_) => fail("Should not have matched")
-        case _ => ()
-      }
+        Literal(Array.ofDim[Byte](22), BinaryType) match {
+          case OfRuleSuite(_) => fail("Should not have matched")
+          case _ => ()
+        }
 
-    }
+      }
 
     caught.msg should include("Could not deserialize")
   }
@@ -74,6 +75,12 @@ class ServerSideTests extends ClassicSharedTests with Matchers {
     )
   )
 
+  def verifyRuleSuites[T](r: Seq[T])(ruleSuiteGroup: T => RuleSuiteGroupResults): Unit = {
+    r.map(ruleSuiteGroup(_).ruleSuiteResults.keys.toSeq).distinct.map(_.sortBy(i=>(i.id, i.version))) shouldBe Seq(
+      Seq(Id(1,1), Id(2,1), Id(3,1))
+    )
+  }
+
   test("dq results should group") {
     val name = register_rule_suite_group(group)
     val s = sparkSession
@@ -84,9 +91,7 @@ class ServerSideTests extends ClassicSharedTests with Matchers {
     //ds.show()
     import com.sparkutils.quality.implicits._
     val r = ds.selectExpr("res.*").as[RuleSuiteGroupResults].collect()
-    r.map(_.ruleSuiteResults.keys.toSeq).distinct shouldBe Seq(
-      Seq(Id(1,1), Id(2,1), Id(3,1))
-    )
+    verifyRuleSuites(r)(_)
   }
 
   test("engine results should group") {
@@ -108,11 +113,8 @@ class ServerSideTests extends ClassicSharedTests with Matchers {
     implicit val enc = TypedExpressionEncoder[T]
 
     val r = ds.selectExpr("res.*").as[T].collect()
-    r.map(_._1.ruleSuiteResults.keys.toSeq).distinct shouldBe Seq(
-      Seq(Id(1,1), Id(2,1), Id(3,1))
-    )
+    verifyRuleSuites(r)(_._1)
   }
-
 
   test("folder results should group") {
     // folder needs a struct / row, so wrap the array up in outputs, starter and in the type
@@ -143,9 +145,7 @@ class ServerSideTests extends ClassicSharedTests with Matchers {
     // ds.printSchema()
 
     val r = ds.selectExpr("res.*").as[T].collect()
-    r.map(_._1.ruleSuiteResults.keys.toSeq).distinct shouldBe Seq(
-      Seq(Id(1,1), Id(2,1), Id(3,1))
-    )
+    verifyRuleSuites(r)(_._1)
   }
 
   test("collector results should group") {
@@ -170,9 +170,7 @@ class ServerSideTests extends ClassicSharedTests with Matchers {
     // ds.printSchema()
 
     val r = ds.selectExpr("res.*").as[T].collect()
-    r.map(_._1.ruleSuiteResults.keys.toSeq).distinct shouldBe Seq(
-      Seq(Id(1,1), Id(2,1), Id(3,1))
-    )
+    verifyRuleSuites(r)(_._1)
   }
 
   test("collector results should group - with flatten") {
@@ -197,10 +195,117 @@ class ServerSideTests extends ClassicSharedTests with Matchers {
     //ds.printSchema()
 
     val r = ds.selectExpr("res.*").as[T].collect()
-    r.map(_._1.ruleSuiteResults.keys.toSeq).distinct shouldBe Seq(
-      Seq(Id(1,1), Id(2,1), Id(3,1))
-    )
+    verifyRuleSuites(r)(_._1)
     // verify flatten actually worked
     r.map(_._2.get.nonEmpty) shouldBe Seq(true, false, false, true, true, true)
   }
+
+  test("result groups should group") {
+    val name = register_rule_suite_group(group)
+    val s = sparkSession
+    import s.implicits._
+    val tds = testData.toDS()
+    val sub = s"group_results( array( dq_rule_runner(rule_suite_from($name, 1)), " +
+      s"dq_rule_runner(rule_suite_from($name, 2)), dq_rule_runner(rule_suite_from($name, 3)) ) )"
+    val ds = tds.selectExpr(s"group_results( array( $sub, $sub, $sub ) ) as res")
+    //ds.show()
+    import com.sparkutils.quality.implicits._
+    val r = ds.selectExpr("res.*").as[RuleSuiteGroupResults].collect()
+
+    verifyRuleSuites(r)(_)
+  }
+
+  test("collector results groups should group") {
+    val name = register_rule_suite_group(group)
+    val s = sparkSession
+    val tds = {
+      import s.implicits._
+      testData.toDS()
+    }
+    val sub = s"group_results( array( collect_runner(rule_suite_from($name, 1)), " +
+      s"collect_runner(rule_suite_from($name, 2)), collect_runner(rule_suite_from($name, 3)) ) )"
+    val ds = tds.selectExpr(s"group_results( array( $sub, $sub, $sub ) ) as res")
+    //ds.show()
+
+    // the results of folder are optional / nullable
+    type T = (RuleSuiteGroupResults, Seq[Seq[Option[Seq[NewPosting]]]])
+
+    import frameless._
+    import com.sparkutils.quality.implicits._
+    implicit val tenc = TypedEncoder[T]
+    implicit val enc = TypedExpressionEncoder[T]
+    //ds.printSchema()
+
+    val r = ds.selectExpr("res.*").as[T].collect()
+    // check the collect of collect of collect had the expected results
+    r.map(_._2.flatten.forall(_.get.nonEmpty)) shouldBe Seq(true, false, false, true, true, true)
+
+    verifyRuleSuites(r)(_._1)
+  }
+
+  test("collector results groups should group and flatten a lot") {
+    val name = register_rule_suite_group(group)
+    val s = sparkSession
+    val tds = {
+      import s.implicits._
+      testData.toDS()
+    }
+    val sub = s"group_results( array( collect_runner(rule_suite_from($name, 1)), " +
+      s"collect_runner(rule_suite_from($name, 2)), collect_runner(rule_suite_from($name, 3)) ) )"
+    val ds = tds.selectExpr(s"group_results( array( $sub, $sub, $sub ), f -> flatten(flatten(f)) ) as res")
+    //ds.show()
+
+    // the results of folder are optional / nullable
+    type T = (RuleSuiteGroupResults, Option[Seq[NewPosting]])
+
+    import frameless._
+    import com.sparkutils.quality.implicits._
+    implicit val tenc = TypedEncoder[T]
+    implicit val enc = TypedExpressionEncoder[T]
+    //ds.printSchema()
+
+    val r = ds.selectExpr("res.*").as[T].collect()
+
+    verifyRuleSuites(r)(_._1)
+
+    // verify flatten flatten actually worked
+    r.map(_._2.get.nonEmpty) shouldBe Seq(true, false, false, true, true, true)
+  }
+
+  test("bad types shouldn't pass analysis") {
+    val name = register_rule_suite_group(group)
+    val s = sparkSession
+    val tds = {
+      import s.implicits._
+      testData.toDS()
+    }
+
+    val badParams = Seq("1", "'b'", "array(1)", "array('b')", s"rule_suite_from($name, 1)")
+
+    badParams.foreach {
+      bad =>
+
+        var caught =
+          intercept[Exception] {
+
+            val ds = tds.selectExpr(s"group_results( $bad )")
+
+            ds.show
+          }
+
+        caught.getMessage should include("arrays of structures")
+
+        caught =
+          intercept[Exception] {
+
+            val ds = tds.selectExpr(s"group_results( $bad, f -> flatten(f) )")
+
+            ds.show
+          }
+
+        caught.getMessage should include("arrays of structures")
+    }
+
+  }
+
 }

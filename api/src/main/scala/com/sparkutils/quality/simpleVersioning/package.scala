@@ -9,9 +9,6 @@ import com.sparkutils.quality.impl.extension.QualityVersionedRulesConstants.{QUA
 
 import scala.collection.immutable.TreeMap
 
-// Used to pull in |+| to deep merge the maps as SemiGroups - https://typelevel.org/cats/typeclasses/semigroup.html#example-usage-merging-maps
-import cats.implicits._
-
 /**
  * A simple versioning scheme that allows management of versions
  */
