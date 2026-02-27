@@ -464,7 +464,7 @@ functions:
       
       Calling process_if_attribute_missing inside a ruleSuite is not permitted and will throw exceptions.
       
-      ruleSuiteVariables must be registered via the register_rule_suite scala functions.  
+      ruleSuiteVariables must be registered via the register_rule_suite functions.  
     tags:
       - variable
       - util
@@ -475,7 +475,7 @@ functions:
       
       All the alternatives correlate to their pre Spark 4 non-sql versions. 
 
-      ruleSuiteVariables must be registered via the register_rule_suite scala functions. 
+      ruleSuiteVariables must be registered via the register_rule_suite functions. 
     alternatives:
       - "dq_rule_runner( ruleSuiteVariable, variablesPerFunc, variableFuncGroup ) - additionally specifies the number of expressions to use per function and the number of functions to call in one group, defaulting to 40 and 20 respectively"
     tags:
@@ -490,7 +490,7 @@ functions:
 
       All the alternatives correlate to their pre Spark 4 non-sql versions. 
 
-      ruleSuiteVariables must be registered via the register_rule_suite scala functions.  
+      ruleSuiteVariables must be registered via the register_rule_suite functions.  
     alternatives:
       - "typed_expression_runner( ruleSuiteVariable, ddl, name ) - allows naming the column directly"
       - "typed_expression_runner( ruleSuiteVariable, ddl, name, variablesPerFunc, variableFuncGroup) - This version provides two additional compilation options, these are typically not needed."
@@ -506,7 +506,7 @@ functions:
 
       All the alternatives correlate to their pre Spark 4 non-sql versions. 
 
-      ruleSuiteVariables must be registered via the register_rule_suite scala functions.
+      ruleSuiteVariables must be registered via the register_rule_suite functions.
     alternatives:
       - "expression_runner( ruleSuiteVariable, name ) - allows naming the column directly"
       - "expression_runner( ruleSuiteVariable, name, options ) - additionally allows the SnakeYaml output to be configured by the options map"
@@ -523,7 +523,7 @@ functions:
 
       All the alternatives correlate to their pre Spark 4 non-sql versions. 
 
-      ruleSuiteVariables must be registered via the register_rule_suite scala functions.
+      ruleSuiteVariables must be registered via the register_rule_suite functions.
     alternatives:
       - "rule_engine_runner( ruleSuiteVariable ) - Spark derives the output expression type, this often does not match nullability expectations, as such specifying the DDL is preferred and more reliable"
       - "rule_engine_runner( ruleSuiteVariable, ddl, debug ) - additionally allows entering debug mode and returns each matching rule's output expression results"
@@ -542,7 +542,7 @@ functions:
 
       All the alternatives correlate to their pre Spark 4 non-sql versions. 
 
-      ruleSuiteVariables must be registered via the register_rule_suite scala functions. 
+      ruleSuiteVariables must be registered via the register_rule_suite functions. 
     alternatives:
       - "rule_folder_runner( ruleSuiteVariable, starter ) - Spark derives the output expression type from starter, this often does not match nullability expectations, as such specifying the DDL is preferred and more reliable"
       - "rule_folder_runner( ruleSuiteVariable, starter, ddl, debug ) - additionally allows entering debug mode and returns each matching rule's output expression results so you can see changes between folds"
@@ -560,7 +560,7 @@ functions:
       The optional ddl type is used to control nullability and the type exactly, defaulting to Spark deriving the type that is collected, 
       the default of flattening flattens any nested arrays returned by the output expressions and the includeNulls, by default, filters out any null values.
 
-      ruleSuiteVariables must be registered via the register_rule_suite scala functions. 
+      ruleSuiteVariables must be registered via the register_rule_suite functions. 
     alternatives:
       - "collect_runner( ruleSuiteVariable, ddl ) - Spark derives the output expression type from the output expressions, this often does not match nullability expectations, as such specifying the DDL is preferred and more reliable"
       - "collect_runner( ruleSuiteVariable, ddl, flatten ) - additionally setting flatten to false, returning collections of nested arrays for array type OutputExpressions"
@@ -588,7 +588,36 @@ functions:
           The aggregate function is based on Aggregator which, in 2.4, is not possible to apply on specific columns.
 
           Quality provides a backport of Spark 3 functionality to enable this and, in addition to the last Quality 2.4 release, this is not an intended Spark 2.4 pattern, although it works in local testing it has not been tested against clusters. 
+    tags:
+      - rule
+  rule_suite_from:
+    description: |
+      rule_suite_from( ruleSuiteGroupVariable, ruleSuiteId ) loads the highest versioned RuleSuite with Id rulesSuiteId from the RuleSuiteGroup stored in the variable.
 
+      ruleSuiteGroupVariables must be registered via the register_rule_suite_group functions. 
+    alternatives:
+      - |
+        rule_suite_from( ruleSuiteGroupVariable, ruleSuiteId, ruleSuiteVersion ) loads the exact RuleSuite from the RuleSuiteGroup stored in the variable.
+    tags:
+      - variable
+      - rule
+      - Spark4
+  group_results:
+    description: |
+      group_results( array_of_runner_results ) processes an array of runner results (excluding expressionRunner), grouping the ruleSuiteResults into a RuleSuiteGroupResults alongside any payload. 
+
+      This, in combination with rule_suite_from allows nested runners (excluding expressionRunner) to be configured into a RuleSuite and their results grouped into RuleSuiteGroupResults, or indeed run over RuleSuiteGroupResults.
+      
+      DQ Runner results or simple arrays of RuleSuiteGroupResults do not produce a payload and cannot use the overloaded version.  Only arrays of matching structs are accepted, anything else will fail the analysis phase.
+    alternatives:
+      - | 
+        group_results(  array_of_runner_results, result processing lambda ) - uses a processing lambda for engine payloads, saving a projection e.g.:
+        
+        ```sql
+        group_results( array_of_engines_returning_arrays, f -> flatten(f) )
+        ```
+        
+        using the processing version without an engine result will fail the analysis phase.
     tags:
       - rule
 ---

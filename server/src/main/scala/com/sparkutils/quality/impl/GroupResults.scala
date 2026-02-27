@@ -146,7 +146,7 @@ trait GroupResultsBase
   def processResultType: DataType = ArrayType(rd(children))
   def processResultNullable: Boolean = true
 
-  type IMPL = (DataType, (InternalRow, Any) => Any)
+  type IMPL = (DataType, (InternalRow, Any) => Any, Boolean)
 
   lazy val impl: IMPL =
     children.head.dataType match {
@@ -164,13 +164,13 @@ trait GroupResultsBase
       case a@ ArrayType(_: StructType, _)  if hasResultType(a.elementType.asInstanceOf[StructType]) =>
         // engine, folder, collector
         withPayload[RuleSuiteResult](a, children(2))
-      case _ => (NullType, (row, r) => r)
+      case _ => (NullType, (row, r) => r, true /* not used */)
     }
 
   private def withoutPayload[T: MergeGroups: ClassTag](a: ArrayType, converter: Expression):  IMPL = {
     (Encoders.ruleSuiteGroupResultsTypedEnc.catalystRepr,
       (row, r) => groupFrom[T](converter, row, true,
-        a.elementType.asInstanceOf[StructType], r, identity)._1)
+        a.elementType.asInstanceOf[StructType], r, identity)._1, false)
   }
 
   private def withPayload[T: MergeGroups: ClassTag](a: ArrayType, converter: Expression): IMPL = {
@@ -186,7 +186,7 @@ trait GroupResultsBase
           new GenericInternalRow(r.toArray[Any])
       })
       InternalRow(gr, res)
-    })
+    }, true)
   }
 
   override def nullable: Boolean = false
