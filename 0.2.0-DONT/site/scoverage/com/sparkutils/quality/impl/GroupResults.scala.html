@@ -27,210 +27,211 @@
 </span>3 <span style=''>import cats.kernel.{CommutativeGroup, Semigroup}
 </span>4 <span style=''>import com.sparkutils.quality.QualityException.qualityException
 </span>5 <span style=''>import com.sparkutils.quality.impl.GroupResults.{rd, typeCheckText}
-</span>6 <span style=''>import com.sparkutils.quality.{RuleResult, RuleSetResult, RuleSuiteGroupResults, RuleSuiteResult, VersionedId}
-</span>7 <span style=''>import org.apache.spark.sql.ShimUtils
-</span>8 <span style=''>import org.apache.spark.sql.catalyst.InternalRow
-</span>9 <span style=''>import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
-</span>10 <span style=''>import org.apache.spark.sql.catalyst.expressions.{Expression, GenericInternalRow, NonSQLExpression}
-</span>11 <span style=''>import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
-</span>12 <span style=''>import org.apache.spark.sql.catalyst.util.{ArrayData, GenericArrayData}
-</span>13 <span style=''>import org.apache.spark.sql.qualityFunctions.{GroupResultsWithProcess, RefExpression}
-</span>14 <span style=''>import org.apache.spark.sql.types.DataType.equalsIgnoreCaseAndNullability
-</span>15 <span style=''>import org.apache.spark.sql.types.{ArrayType, DataType, NullType, StructField, StructType}
-</span>16 <span style=''>
-</span>17 <span style=''>import scala.reflect.ClassTag
-</span>18 <span style=''>
-</span>19 <span style=''>trait MergeGroups[T] extends Serializable {
-</span>20 <span style=''>  def merge(items: Seq[T]): RuleSuiteGroupResults
-</span>21 <span style=''>}
-</span>22 <span style=''>
-</span>23 <span style=''>object MergeGroups {
-</span>24 <span style=''>  // Used to pull in |+| to deep merge the maps as SemiGroups - https://typelevel.org/cats/typeclasses/semigroup.html#example-usage-merging-maps
-</span>25 <span style=''>  import cats.implicits._
-</span>26 <span style=''>
-</span>27 <span style=''>  implicit val ruleResultSemi = </span><span style='background: #AEF1AE'>new</span><span style=''> Semigroup[RuleResult] {
-</span>28 <span style=''>    override def combine(x: RuleResult, y: RuleResult): RuleResult =
-</span>29 <span style=''>      // TODO - left wins for overall?
-</span>30 <span style=''>      x
-</span>31 <span style=''>  }
-</span>32 <span style=''>
-</span>33 <span style=''>  implicit val ruleSetSemi = </span><span style='background: #AEF1AE'>new</span><span style=''> Semigroup[RuleSetResult] {
-</span>34 <span style=''>    override def combine(x: RuleSetResult, y: RuleSetResult): RuleSetResult =
-</span>35 <span style=''>      </span><span style='background: #AEF1AE'>x.copy(ruleResults = x.ruleResults |+| y.ruleResults)</span><span style=''>
-</span>36 <span style=''>  }
-</span>37 <span style=''>
-</span>38 <span style=''>  implicit val ruleSuiteSemi = </span><span style='background: #AEF1AE'>new</span><span style=''> Semigroup[RuleSuiteResult] {
-</span>39 <span style=''>    override def combine(x: RuleSuiteResult, y: RuleSuiteResult): RuleSuiteResult =
-</span>40 <span style=''>      </span><span style='background: #AEF1AE'>x.copy(ruleSetResults = x.ruleSetResults |+| y.ruleSetResults)</span><span style=''>
-</span>41 <span style=''>  }
-</span>42 <span style=''>
-</span>43 <span style=''>  implicit val rsMergeGroups: MergeGroups[RuleSuiteResult] =
-</span>44 <span style=''>    (items: Seq[RuleSuiteResult]) =&gt; {
-</span>45 <span style=''>      </span><span style='background: #AEF1AE'>items.foldLeft(RuleSuiteGroupResults()) {
-</span>46 <span style=''></span><span style='background: #AEF1AE'>        (cur, next) =&gt;
-</span>47 <span style=''></span><span style='background: #AEF1AE'>          cur.copy(ruleSuiteResults = cur.ruleSuiteResults |+| Map(next.id -&gt; next))
-</span>48 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
-</span>49 <span style=''>    }
-</span>50 <span style=''>
-</span>51 <span style=''>  implicit val groupMergeGroups: MergeGroups[RuleSuiteGroupResults] =
-</span>52 <span style=''>    (items: Seq[RuleSuiteGroupResults]) =&gt; </span><span style='background: #AEF1AE'>items.foldLeft(RuleSuiteGroupResults()) {
-</span>53 <span style=''></span><span style='background: #AEF1AE'>      (cur, next) =&gt;
-</span>54 <span style=''></span><span style='background: #AEF1AE'>        cur.copy(ruleSuiteResults = cur.ruleSuiteResults |+| next.ruleSuiteResults)
-</span>55 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
-</span>56 <span style=''>}
-</span>57 <span style=''>
-</span>58 <span style=''>object GroupResults {
-</span>59 <span style=''>
-</span>60 <span style=''>  def group[T: MergeGroups](rs: Seq[T]): RuleSuiteGroupResults = </span><span style='background: #AEF1AE'>implicitly[MergeGroups[T]].merge(rs)</span><span style=''>
-</span>61 <span style=''>
-</span>62 <span style=''>  def apply(group: Expression): GroupResults = {
-</span>63 <span style=''>    val rsDec = </span><span style='background: #AEF1AE'>ShimUtils.expressionEncoder(Encoders.ruleSuiteResultExpEnc).resolveAndBind().deserializer</span><span style=''>
-</span>64 <span style=''>    val rsgEnc = </span><span style='background: #AEF1AE'>ShimUtils.expressionEncoder(Encoders.ruleSuiteGroupResultsTypedExpEnc).resolveAndBind().objSerializer</span><span style=''>
-</span>65 <span style=''>    val rsgDec = </span><span style='background: #AEF1AE'>ShimUtils.expressionEncoder(Encoders.ruleSuiteGroupResultsTypedExpEnc).resolveAndBind().deserializer</span><span style=''>
-</span>66 <span style=''>    </span><span style='background: #AEF1AE'>GroupResults(Seq(group, rsgEnc, rsDec, rsgDec))</span><span style=''>
-</span>67 <span style=''>  }
-</span>68 <span style=''>
-</span>69 <span style=''>  def apply(group: Expression, l: org.apache.spark.sql.catalyst.expressions.LambdaFunction): GroupResultsWithProcess = {
-</span>70 <span style=''>    val rsDec = </span><span style='background: #AEF1AE'>ShimUtils.expressionEncoder(Encoders.ruleSuiteResultExpEnc).resolveAndBind().deserializer</span><span style=''>
-</span>71 <span style=''>    val rsgEnc = </span><span style='background: #AEF1AE'>ShimUtils.expressionEncoder(Encoders.ruleSuiteGroupResultsTypedExpEnc).resolveAndBind().objSerializer</span><span style=''>
-</span>72 <span style=''>    val rsgDec = </span><span style='background: #AEF1AE'>ShimUtils.expressionEncoder(Encoders.ruleSuiteGroupResultsTypedExpEnc).resolveAndBind().deserializer</span><span style=''>
-</span>73 <span style=''>    </span><span style='background: #AEF1AE'>group.dataType</span><span style=''> match {
-</span>74 <span style=''>      case ArrayType(_: StructType, _) </span><span style='background: #AEF1AE'>=&gt;</span><span style=''>
-</span>75 <span style=''>      case s =&gt; </span><span style='background: #AEF1AE'>qualityException(typeCheckText(s))</span><span style=''>
-</span>76 <span style=''>    }
-</span>77 <span style=''>    val ref = </span><span style='background: #AEF1AE'>RefExpression(ArrayType(rd(Seq(group))))</span><span style=''>
-</span>78 <span style=''>
-</span>79 <span style=''>    </span><span style='background: #AEF1AE'>GroupResultsWithProcess(Seq(group, rsgEnc, rsDec, rsgDec, ref), l)</span><span style=''>
-</span>80 <span style=''>  }
-</span>81 <span style=''>
-</span>82 <span style=''>  def rd(children: Seq[Expression]) = {
-</span>83 <span style=''>    val a = </span><span style='background: #AEF1AE'>children.head.dataType.asInstanceOf[ArrayType]</span><span style=''>
-</span>84 <span style=''>    val s = </span><span style='background: #AEF1AE'>a.elementType.asInstanceOf[StructType]</span><span style=''>
-</span>85 <span style=''>
-</span>86 <span style=''>    val rs = </span><span style='background: #AEF1AE'>s.copy(fields = s.fields.drop(1))</span><span style=''>
-</span>87 <span style=''>    if (</span><span style='background: #AEF1AE'>rs.fields.length == 1</span><span style=''>) {
-</span>88 <span style=''>      // folder non-debug and collector do not have extra fields *
-</span>89 <span style=''>      </span><span style='background: #AEF1AE'>rs.fields.head.dataType</span><span style=''>
-</span>90 <span style=''>    } else
-</span>91 <span style=''>      </span><span style='background: #AEF1AE'>rs</span><span style=''>
-</span>92 <span style=''>  }
-</span>93 <span style=''>
-</span>94 <span style=''>  def typeCheckText(typ: DataType) = </span><span style='background: #AEF1AE'>s&quot;GroupResult supports arrays of structures with ruleSuiteGroup: RuleSuiteGroup and &quot; +
-</span>95 <span style=''></span><span style='background: #AEF1AE'>    s&quot;ruleSuiteResults: RuleSuiteResult as their first (or as the direct array member), instead $typ was provided&quot;</span><span style=''>
-</span>96 <span style=''>}
-</span>97 <span style=''>
-</span>98 <span style=''>// at least three children, the actual column, the group expression encoder, the resultsuite expression decoder, the optional processor
-</span>99 <span style=''>trait GroupResultsBase
-</span>100 <span style=''>  extends NonSQLExpression with CodegenFallback {
-</span>101 <span style=''>
-</span>102 <span style=''>  def processResult(row: InternalRow, input: ArrayData): Any
-</span>103 <span style=''>
-</span>104 <span style=''>  def hasResultTypeF(of: DataType, names: Set[String])(s: StructType): Boolean =
-</span>105 <span style=''>    if (</span><span style='background: #AEF1AE'>s.fields.exists(
-</span>106 <span style=''></span><span style='background: #AEF1AE'>      f =&gt; names.contains(f.name) &amp;&amp;
-</span>107 <span style=''></span><span style='background: #AEF1AE'>        equalsIgnoreCaseAndNullability(f.dataType, of))</span><span style=''>)
-</span>108 <span style=''>      </span><span style='background: #AEF1AE'>true</span><span style=''>
-</span>109 <span style=''>    else
-</span>110 <span style=''>      </span><span style='background: #AEF1AE'>false</span><span style=''>
-</span>111 <span style=''>
-</span>112 <span style=''>  val hasResultType = </span><span style='background: #AEF1AE'>hasResultTypeF(com.sparkutils.quality.impl.types.ruleSuiteResultType, Set(&quot;ruleSuiteResults&quot;))</span><span style=''> _
-</span>113 <span style=''>
-</span>114 <span style=''>  // group is used when returned from this expression as the object name, and ruleSuiteResults are the internal (e.g. for dq)
-</span>115 <span style=''>  val hasGroupResultType = </span><span style='background: #AEF1AE'>hasResultTypeF( Encoders.ruleSuiteGroupResultsTypedEnc.catalystRepr, Set(&quot;ruleSuiteGroup&quot;, &quot;ruleSuiteResults&quot;))</span><span style=''> _
-</span>116 <span style=''>
-</span>117 <span style=''>  def groupFrom[T: MergeGroups: ClassTag](deserializer: Expression, row: InternalRow, dq: Boolean, s: StructType, arr: Any, f: InternalRow =&gt; Any): (InternalRow, Any) = {
-</span>118 <span style=''>    val a = </span><span style='background: #AEF1AE'>arr.asInstanceOf[ArrayData]</span><span style=''>
-</span>119 <span style=''>    val copied = </span><span style='background: #AEF1AE'>Array.ofDim[T](a.numElements())</span><span style=''>
-</span>120 <span style=''>    val copiedResult = </span><span style='background: #AEF1AE'>Array.ofDim[Any](a.numElements())</span><span style=''>
-</span>121 <span style=''>
-</span>122 <span style=''>    </span><span style='background: #AEF1AE'>a.foreach(s, (i,e) =&gt; {
-</span>123 <span style=''></span><span style='background: #AEF1AE'>      val r = e.asInstanceOf[InternalRow]
-</span>124 <span style=''></span><span style='background: #AEF1AE'>      copied(i) = deserializer.eval(if (dq) r else r.getStruct(0, 3)).asInstanceOf[T]
-</span>125 <span style=''></span><span style='background: #AEF1AE'>      copiedResult(i) = f(r)
-</span>126 <span style=''></span><span style='background: #AEF1AE'>    })</span><span style=''>
-</span>127 <span style=''>
-</span>128 <span style=''>    </span><span style='background: #AEF1AE'>(children(1).eval(InternalRow(GroupResults.group(copied))).asInstanceOf[InternalRow],
-</span>129 <span style=''></span><span style='background: #AEF1AE'>      processResult(row, new GenericArrayData(copiedResult)))</span><span style=''>
-</span>130 <span style=''>  }
-</span>131 <span style=''>
-</span>132 <span style=''>  def resultType: DataType =
-</span>133 <span style=''>    </span><span style='background: #AEF1AE'>StructType(Seq(
-</span>134 <span style=''></span><span style='background: #AEF1AE'>      StructField(&quot;ruleSuiteGroup&quot;, Encoders.ruleSuiteGroupResultsTypedEnc.catalystRepr),
-</span>135 <span style=''></span><span style='background: #AEF1AE'>      StructField(&quot;result&quot;,
-</span>136 <span style=''></span><span style='background: #AEF1AE'>        processResultType
-</span>137 <span style=''></span><span style='background: #AEF1AE'>        , processResultNullable)
-</span>138 <span style=''></span><span style='background: #AEF1AE'>    ))</span><span style=''>
-</span>139 <span style=''>
-</span>140 <span style=''>  override def checkInputDataTypes(): TypeCheckResult =
-</span>141 <span style=''>    if (</span><span style='background: #AEF1AE'>impl._1 != NullType</span><span style=''>)
-</span>142 <span style=''>      </span><span style='background: #AEF1AE'>TypeCheckResult.TypeCheckSuccess</span><span style=''>
-</span>143 <span style=''>    else
-</span>144 <span style=''>      </span><span style='background: #AEF1AE'>TypeCheckResult.TypeCheckFailure(typeCheckText(children.head.dataType))</span><span style=''>
-</span>145 <span style=''>
-</span>146 <span style=''>  def processResultType: DataType = </span><span style='background: #AEF1AE'>ArrayType(rd(children))</span><span style=''>
-</span>147 <span style=''>  def processResultNullable: Boolean = </span><span style='background: #AEF1AE'>true</span><span style=''>
-</span>148 <span style=''>
-</span>149 <span style=''>  type IMPL = (DataType, (InternalRow, Any) =&gt; Any, Boolean)
-</span>150 <span style=''>
-</span>151 <span style=''>  lazy val impl: IMPL =
-</span>152 <span style=''>    children.head.dataType match {
-</span>153 <span style=''>      case a@ ArrayType(_: StructType, _) if equalsIgnoreCaseAndNullability(a.elementType,
-</span>154 <span style=''>        Encoders.ruleSuiteGroupResultsTypedEnc.catalystRepr) =&gt;
-</span>155 <span style=''>        // e.g. DQ
-</span>156 <span style=''>        withoutPayload[RuleSuiteGroupResults](a, children(3))
-</span>157 <span style=''>      case a@ ArrayType(_: StructType, _)  if hasGroupResultType(a.elementType.asInstanceOf[StructType]) =&gt;
-</span>158 <span style=''>        // engine, folder, collector
-</span>159 <span style=''>        withPayload[RuleSuiteGroupResults](a, children(3))
-</span>160 <span style=''>      case a@ ArrayType(_: StructType, _)  if equalsIgnoreCaseAndNullability(a.elementType,
-</span>161 <span style=''>        com.sparkutils.quality.impl.types.ruleSuiteResultType) =&gt;
-</span>162 <span style=''>        // e.g. DQ
-</span>163 <span style=''>        withoutPayload[RuleSuiteResult](a, children(2))
-</span>164 <span style=''>      case a@ ArrayType(_: StructType, _)  if hasResultType(a.elementType.asInstanceOf[StructType]) =&gt;
-</span>165 <span style=''>        // engine, folder, collector
-</span>166 <span style=''>        withPayload[RuleSuiteResult](a, children(2))
-</span>167 <span style=''>      case _ =&gt; (NullType, (row, r) =&gt; r, true /* not used */)
-</span>168 <span style=''>    }
-</span>169 <span style=''>
-</span>170 <span style=''>  private def withoutPayload[T: MergeGroups: ClassTag](a: ArrayType, converter: Expression):  IMPL = {
-</span>171 <span style=''>    </span><span style='background: #AEF1AE'>(Encoders.ruleSuiteGroupResultsTypedEnc.catalystRepr,
-</span>172 <span style=''></span><span style='background: #AEF1AE'>      (row, r) =&gt; groupFrom[T](converter, row, true,
-</span>173 <span style=''></span><span style='background: #AEF1AE'>        a.elementType.asInstanceOf[StructType], r, identity)._1, false)</span><span style=''>
-</span>174 <span style=''>  }
-</span>175 <span style=''>
-</span>176 <span style=''>  private def withPayload[T: MergeGroups: ClassTag](a: ArrayType, converter: Expression): IMPL = {
-</span>177 <span style=''>    val s = </span><span style='background: #AEF1AE'>a.elementType.asInstanceOf[StructType]</span><span style=''>
-</span>178 <span style=''>    val rest = </span><span style='background: #AEF1AE'>s.fields.map(_.dataType).zipWithIndex.drop(1)</span><span style=''>
-</span>179 <span style=''>
-</span>180 <span style=''>    </span><span style='background: #AEF1AE'>(resultType, (row, r) =&gt; {
-</span>181 <span style=''></span><span style='background: #AEF1AE'>      val (gr, res) = groupFrom[T](converter, row, false, s, r, e =&gt; {
-</span>182 <span style=''></span><span style='background: #AEF1AE'>        val r = rest.map(p =&gt; e.get(p._2, p._1))
-</span>183 <span style=''></span><span style='background: #AEF1AE'>        if (rest.length == 1)
-</span>184 <span style=''></span><span style='background: #AEF1AE'>          r.head // * above
-</span>185 <span style=''></span><span style='background: #AEF1AE'>        else
-</span>186 <span style=''></span><span style='background: #AEF1AE'>          new GenericInternalRow(r.toArray[Any])
-</span>187 <span style=''></span><span style='background: #AEF1AE'>      })
-</span>188 <span style=''></span><span style='background: #AEF1AE'>      InternalRow(gr, res)
-</span>189 <span style=''></span><span style='background: #AEF1AE'>    }, true)</span><span style=''>
-</span>190 <span style=''>  }
-</span>191 <span style=''>
-</span>192 <span style=''>  override def nullable: Boolean = </span><span style='background: #AEF1AE'>false</span><span style=''>
-</span>193 <span style=''>
-</span>194 <span style=''>  override def eval(input: InternalRow): Any =
-</span>195 <span style=''>    </span><span style='background: #AEF1AE'>impl._2(input, children.head.eval(input))</span><span style=''>
-</span>196 <span style=''>
-</span>197 <span style=''>  override def dataType: DataType = </span><span style='background: #AEF1AE'>impl._1</span><span style=''>
-</span>198 <span style=''>
-</span>199 <span style=''>}
-</span>200 <span style=''>
-</span>201 <span style=''>// at least three children, the actual column, the group expression encoder, the resultsuite expression decoder, the optional processor
-</span>202 <span style=''>case class GroupResults(children: Seq[Expression], hasProcessor: Boolean = false)
-</span>203 <span style=''>  extends GroupResultsBase {
-</span>204 <span style=''>
-</span>205 <span style=''>  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
-</span>206 <span style=''>    </span><span style='background: #AEF1AE'>copy(newChildren)</span><span style=''>
-</span>207 <span style=''>
-</span>208 <span style=''>  override def processResult(row: InternalRow, input: ArrayData): Any = input
-</span>209 <span style=''>}
+</span>6 <span style=''>import com.sparkutils.quality.impl.util.Compare.equalsIgnoreCaseAndNullability
+</span>7 <span style=''>import com.sparkutils.quality.{RuleResult, RuleSetResult, RuleSuiteGroupResults, RuleSuiteResult, VersionedId}
+</span>8 <span style=''>import org.apache.spark.sql.ShimUtils
+</span>9 <span style=''>import org.apache.spark.sql.catalyst.InternalRow
+</span>10 <span style=''>import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
+</span>11 <span style=''>import org.apache.spark.sql.catalyst.expressions.{Expression, GenericInternalRow, NonSQLExpression}
+</span>12 <span style=''>import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
+</span>13 <span style=''>import org.apache.spark.sql.catalyst.util.{ArrayData, GenericArrayData}
+</span>14 <span style=''>import org.apache.spark.sql.qualityFunctions.{GroupResultsWithProcess, RefExpression}
+</span>15 <span style=''>
+</span>16 <span style=''>import org.apache.spark.sql.types.{ArrayType, DataType, NullType, StructField, StructType}
+</span>17 <span style=''>
+</span>18 <span style=''>import scala.reflect.ClassTag
+</span>19 <span style=''>
+</span>20 <span style=''>trait MergeGroups[T] extends Serializable {
+</span>21 <span style=''>  def merge(items: Seq[T]): RuleSuiteGroupResults
+</span>22 <span style=''>}
+</span>23 <span style=''>
+</span>24 <span style=''>object MergeGroups {
+</span>25 <span style=''>  // Used to pull in |+| to deep merge the maps as SemiGroups - https://typelevel.org/cats/typeclasses/semigroup.html#example-usage-merging-maps
+</span>26 <span style=''>  import cats.implicits._
+</span>27 <span style=''>
+</span>28 <span style=''>  implicit val ruleResultSemi = </span><span style='background: #AEF1AE'>new</span><span style=''> Semigroup[RuleResult] {
+</span>29 <span style=''>    override def combine(x: RuleResult, y: RuleResult): RuleResult =
+</span>30 <span style=''>      // TODO - left wins for overall?
+</span>31 <span style=''>      x
+</span>32 <span style=''>  }
+</span>33 <span style=''>
+</span>34 <span style=''>  implicit val ruleSetSemi = </span><span style='background: #AEF1AE'>new</span><span style=''> Semigroup[RuleSetResult] {
+</span>35 <span style=''>    override def combine(x: RuleSetResult, y: RuleSetResult): RuleSetResult =
+</span>36 <span style=''>      </span><span style='background: #AEF1AE'>x.copy(ruleResults = x.ruleResults |+| y.ruleResults)</span><span style=''>
+</span>37 <span style=''>  }
+</span>38 <span style=''>
+</span>39 <span style=''>  implicit val ruleSuiteSemi = </span><span style='background: #AEF1AE'>new</span><span style=''> Semigroup[RuleSuiteResult] {
+</span>40 <span style=''>    override def combine(x: RuleSuiteResult, y: RuleSuiteResult): RuleSuiteResult =
+</span>41 <span style=''>      </span><span style='background: #AEF1AE'>x.copy(ruleSetResults = x.ruleSetResults |+| y.ruleSetResults)</span><span style=''>
+</span>42 <span style=''>  }
+</span>43 <span style=''>
+</span>44 <span style=''>  implicit val rsMergeGroups: MergeGroups[RuleSuiteResult] =
+</span>45 <span style=''>    (items: Seq[RuleSuiteResult]) =&gt; {
+</span>46 <span style=''>      </span><span style='background: #AEF1AE'>items.foldLeft(RuleSuiteGroupResults()) {
+</span>47 <span style=''></span><span style='background: #AEF1AE'>        (cur, next) =&gt;
+</span>48 <span style=''></span><span style='background: #AEF1AE'>          cur.copy(ruleSuiteResults = cur.ruleSuiteResults |+| Map(next.id -&gt; next))
+</span>49 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>50 <span style=''>    }
+</span>51 <span style=''>
+</span>52 <span style=''>  implicit val groupMergeGroups: MergeGroups[RuleSuiteGroupResults] =
+</span>53 <span style=''>    (items: Seq[RuleSuiteGroupResults]) =&gt; </span><span style='background: #AEF1AE'>items.foldLeft(RuleSuiteGroupResults()) {
+</span>54 <span style=''></span><span style='background: #AEF1AE'>      (cur, next) =&gt;
+</span>55 <span style=''></span><span style='background: #AEF1AE'>        cur.copy(ruleSuiteResults = cur.ruleSuiteResults |+| next.ruleSuiteResults)
+</span>56 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>57 <span style=''>}
+</span>58 <span style=''>
+</span>59 <span style=''>object GroupResults {
+</span>60 <span style=''>
+</span>61 <span style=''>  def group[T: MergeGroups](rs: Seq[T]): RuleSuiteGroupResults = </span><span style='background: #AEF1AE'>implicitly[MergeGroups[T]].merge(rs)</span><span style=''>
+</span>62 <span style=''>
+</span>63 <span style=''>  def apply(group: Expression): GroupResults = {
+</span>64 <span style=''>    val rsDec = </span><span style='background: #AEF1AE'>ShimUtils.expressionEncoder(Encoders.ruleSuiteResultExpEnc).resolveAndBind().deserializer</span><span style=''>
+</span>65 <span style=''>    val rsgEnc = </span><span style='background: #AEF1AE'>ShimUtils.expressionEncoder(Encoders.ruleSuiteGroupResultsTypedExpEnc).resolveAndBind().objSerializer</span><span style=''>
+</span>66 <span style=''>    val rsgDec = </span><span style='background: #AEF1AE'>ShimUtils.expressionEncoder(Encoders.ruleSuiteGroupResultsTypedExpEnc).resolveAndBind().deserializer</span><span style=''>
+</span>67 <span style=''>    </span><span style='background: #AEF1AE'>GroupResults(Seq(group, rsgEnc, rsDec, rsgDec))</span><span style=''>
+</span>68 <span style=''>  }
+</span>69 <span style=''>
+</span>70 <span style=''>  def apply(group: Expression, l: org.apache.spark.sql.catalyst.expressions.LambdaFunction): GroupResultsWithProcess = {
+</span>71 <span style=''>    val rsDec = </span><span style='background: #AEF1AE'>ShimUtils.expressionEncoder(Encoders.ruleSuiteResultExpEnc).resolveAndBind().deserializer</span><span style=''>
+</span>72 <span style=''>    val rsgEnc = </span><span style='background: #AEF1AE'>ShimUtils.expressionEncoder(Encoders.ruleSuiteGroupResultsTypedExpEnc).resolveAndBind().objSerializer</span><span style=''>
+</span>73 <span style=''>    val rsgDec = </span><span style='background: #AEF1AE'>ShimUtils.expressionEncoder(Encoders.ruleSuiteGroupResultsTypedExpEnc).resolveAndBind().deserializer</span><span style=''>
+</span>74 <span style=''>    </span><span style='background: #AEF1AE'>group.dataType</span><span style=''> match {
+</span>75 <span style=''>      case ArrayType(_: StructType, _) </span><span style='background: #AEF1AE'>=&gt;</span><span style=''>
+</span>76 <span style=''>      case s =&gt; </span><span style='background: #AEF1AE'>qualityException(typeCheckText(s))</span><span style=''>
+</span>77 <span style=''>    }
+</span>78 <span style=''>    val ref = </span><span style='background: #AEF1AE'>RefExpression(ArrayType(rd(Seq(group))))</span><span style=''>
+</span>79 <span style=''>
+</span>80 <span style=''>    </span><span style='background: #AEF1AE'>GroupResultsWithProcess(Seq(group, rsgEnc, rsDec, rsgDec, ref), l)</span><span style=''>
+</span>81 <span style=''>  }
+</span>82 <span style=''>
+</span>83 <span style=''>  def rd(children: Seq[Expression]) = {
+</span>84 <span style=''>    val a = </span><span style='background: #AEF1AE'>children.head.dataType.asInstanceOf[ArrayType]</span><span style=''>
+</span>85 <span style=''>    val s = </span><span style='background: #AEF1AE'>a.elementType.asInstanceOf[StructType]</span><span style=''>
+</span>86 <span style=''>
+</span>87 <span style=''>    val rs = </span><span style='background: #AEF1AE'>s.copy(fields = s.fields.drop(1))</span><span style=''>
+</span>88 <span style=''>    if (</span><span style='background: #AEF1AE'>rs.fields.length == 1</span><span style=''>) {
+</span>89 <span style=''>      // folder non-debug and collector do not have extra fields *
+</span>90 <span style=''>      </span><span style='background: #AEF1AE'>rs.fields.head.dataType</span><span style=''>
+</span>91 <span style=''>    } else
+</span>92 <span style=''>      </span><span style='background: #AEF1AE'>rs</span><span style=''>
+</span>93 <span style=''>  }
+</span>94 <span style=''>
+</span>95 <span style=''>  def typeCheckText(typ: DataType) = </span><span style='background: #AEF1AE'>s&quot;GroupResult supports arrays of structures with ruleSuiteGroup: RuleSuiteGroup and &quot; +
+</span>96 <span style=''></span><span style='background: #AEF1AE'>    s&quot;ruleSuiteResults: RuleSuiteResult as their first (or as the direct array member), instead $typ was provided&quot;</span><span style=''>
+</span>97 <span style=''>}
+</span>98 <span style=''>
+</span>99 <span style=''>// at least three children, the actual column, the group expression encoder, the resultsuite expression decoder, the optional processor
+</span>100 <span style=''>trait GroupResultsBase
+</span>101 <span style=''>  extends NonSQLExpression with CodegenFallback {
+</span>102 <span style=''>
+</span>103 <span style=''>  def processResult(row: InternalRow, input: ArrayData): Any
+</span>104 <span style=''>
+</span>105 <span style=''>  def hasResultTypeF(of: DataType, names: Set[String])(s: StructType): Boolean =
+</span>106 <span style=''>    if (</span><span style='background: #AEF1AE'>s.fields.exists(
+</span>107 <span style=''></span><span style='background: #AEF1AE'>      f =&gt; names.contains(f.name) &amp;&amp;
+</span>108 <span style=''></span><span style='background: #AEF1AE'>        equalsIgnoreCaseAndNullability(f.dataType, of))</span><span style=''>)
+</span>109 <span style=''>      </span><span style='background: #AEF1AE'>true</span><span style=''>
+</span>110 <span style=''>    else
+</span>111 <span style=''>      </span><span style='background: #AEF1AE'>false</span><span style=''>
+</span>112 <span style=''>
+</span>113 <span style=''>  val hasResultType = </span><span style='background: #AEF1AE'>hasResultTypeF(com.sparkutils.quality.impl.types.ruleSuiteResultType, Set(&quot;ruleSuiteResults&quot;))</span><span style=''> _
+</span>114 <span style=''>
+</span>115 <span style=''>  // group is used when returned from this expression as the object name, and ruleSuiteResults are the internal (e.g. for dq)
+</span>116 <span style=''>  val hasGroupResultType = </span><span style='background: #AEF1AE'>hasResultTypeF( Encoders.ruleSuiteGroupResultsTypedEnc.catalystRepr, Set(&quot;ruleSuiteGroup&quot;, &quot;ruleSuiteResults&quot;))</span><span style=''> _
+</span>117 <span style=''>
+</span>118 <span style=''>  def groupFrom[T: MergeGroups: ClassTag](deserializer: Expression, row: InternalRow, dq: Boolean, s: StructType, arr: Any, f: InternalRow =&gt; Any): (InternalRow, Any) = {
+</span>119 <span style=''>    val a = </span><span style='background: #AEF1AE'>arr.asInstanceOf[ArrayData]</span><span style=''>
+</span>120 <span style=''>    val copied = </span><span style='background: #AEF1AE'>Array.ofDim[T](a.numElements())</span><span style=''>
+</span>121 <span style=''>    val copiedResult = </span><span style='background: #AEF1AE'>Array.ofDim[Any](a.numElements())</span><span style=''>
+</span>122 <span style=''>
+</span>123 <span style=''>    </span><span style='background: #AEF1AE'>a.foreach(s, (i,e) =&gt; {
+</span>124 <span style=''></span><span style='background: #AEF1AE'>      val r = e.asInstanceOf[InternalRow]
+</span>125 <span style=''></span><span style='background: #AEF1AE'>      copied(i) = deserializer.eval(if (dq) r else r.getStruct(0, 3)).asInstanceOf[T]
+</span>126 <span style=''></span><span style='background: #AEF1AE'>      copiedResult(i) = f(r)
+</span>127 <span style=''></span><span style='background: #AEF1AE'>    })</span><span style=''>
+</span>128 <span style=''>
+</span>129 <span style=''>    </span><span style='background: #AEF1AE'>(children(1).eval(InternalRow(GroupResults.group(copied))).asInstanceOf[InternalRow],
+</span>130 <span style=''></span><span style='background: #AEF1AE'>      processResult(row, new GenericArrayData(copiedResult)))</span><span style=''>
+</span>131 <span style=''>  }
+</span>132 <span style=''>
+</span>133 <span style=''>  def resultType: DataType =
+</span>134 <span style=''>    </span><span style='background: #AEF1AE'>StructType(Seq(
+</span>135 <span style=''></span><span style='background: #AEF1AE'>      StructField(&quot;ruleSuiteGroup&quot;, Encoders.ruleSuiteGroupResultsTypedEnc.catalystRepr),
+</span>136 <span style=''></span><span style='background: #AEF1AE'>      StructField(&quot;result&quot;,
+</span>137 <span style=''></span><span style='background: #AEF1AE'>        processResultType
+</span>138 <span style=''></span><span style='background: #AEF1AE'>        , processResultNullable)
+</span>139 <span style=''></span><span style='background: #AEF1AE'>    ))</span><span style=''>
+</span>140 <span style=''>
+</span>141 <span style=''>  override def checkInputDataTypes(): TypeCheckResult =
+</span>142 <span style=''>    if (</span><span style='background: #AEF1AE'>impl._1 != NullType</span><span style=''>)
+</span>143 <span style=''>      </span><span style='background: #AEF1AE'>TypeCheckResult.TypeCheckSuccess</span><span style=''>
+</span>144 <span style=''>    else
+</span>145 <span style=''>      </span><span style='background: #AEF1AE'>TypeCheckResult.TypeCheckFailure(typeCheckText(children.head.dataType))</span><span style=''>
+</span>146 <span style=''>
+</span>147 <span style=''>  def processResultType: DataType = </span><span style='background: #AEF1AE'>ArrayType(rd(children))</span><span style=''>
+</span>148 <span style=''>  def processResultNullable: Boolean = </span><span style='background: #AEF1AE'>true</span><span style=''>
+</span>149 <span style=''>
+</span>150 <span style=''>  type IMPL = (DataType, (InternalRow, Any) =&gt; Any, Boolean)
+</span>151 <span style=''>
+</span>152 <span style=''>  lazy val impl: IMPL =
+</span>153 <span style=''>    children.head.dataType match {
+</span>154 <span style=''>      case a@ ArrayType(_: StructType, _) if equalsIgnoreCaseAndNullability(a.elementType,
+</span>155 <span style=''>        Encoders.ruleSuiteGroupResultsTypedEnc.catalystRepr) =&gt;
+</span>156 <span style=''>        // e.g. DQ
+</span>157 <span style=''>        withoutPayload[RuleSuiteGroupResults](a, children(3))
+</span>158 <span style=''>      case a@ ArrayType(_: StructType, _)  if hasGroupResultType(a.elementType.asInstanceOf[StructType]) =&gt;
+</span>159 <span style=''>        // engine, folder, collector
+</span>160 <span style=''>        withPayload[RuleSuiteGroupResults](a, children(3))
+</span>161 <span style=''>      case a@ ArrayType(_: StructType, _)  if equalsIgnoreCaseAndNullability(a.elementType,
+</span>162 <span style=''>        com.sparkutils.quality.impl.types.ruleSuiteResultType) =&gt;
+</span>163 <span style=''>        // e.g. DQ
+</span>164 <span style=''>        withoutPayload[RuleSuiteResult](a, children(2))
+</span>165 <span style=''>      case a@ ArrayType(_: StructType, _)  if hasResultType(a.elementType.asInstanceOf[StructType]) =&gt;
+</span>166 <span style=''>        // engine, folder, collector
+</span>167 <span style=''>        withPayload[RuleSuiteResult](a, children(2))
+</span>168 <span style=''>      case _ =&gt; (NullType, (row, r) =&gt; r, true /* not used */)
+</span>169 <span style=''>    }
+</span>170 <span style=''>
+</span>171 <span style=''>  private def withoutPayload[T: MergeGroups: ClassTag](a: ArrayType, converter: Expression):  IMPL = {
+</span>172 <span style=''>    </span><span style='background: #AEF1AE'>(Encoders.ruleSuiteGroupResultsTypedEnc.catalystRepr,
+</span>173 <span style=''></span><span style='background: #AEF1AE'>      (row, r) =&gt; groupFrom[T](converter, row, true,
+</span>174 <span style=''></span><span style='background: #AEF1AE'>        a.elementType.asInstanceOf[StructType], r, identity)._1, false)</span><span style=''>
+</span>175 <span style=''>  }
+</span>176 <span style=''>
+</span>177 <span style=''>  private def withPayload[T: MergeGroups: ClassTag](a: ArrayType, converter: Expression): IMPL = {
+</span>178 <span style=''>    val s = </span><span style='background: #AEF1AE'>a.elementType.asInstanceOf[StructType]</span><span style=''>
+</span>179 <span style=''>    val rest = </span><span style='background: #AEF1AE'>s.fields.map(_.dataType).zipWithIndex.drop(1)</span><span style=''>
+</span>180 <span style=''>
+</span>181 <span style=''>    </span><span style='background: #AEF1AE'>(resultType, (row, r) =&gt; {
+</span>182 <span style=''></span><span style='background: #AEF1AE'>      val (gr, res) = groupFrom[T](converter, row, false, s, r, e =&gt; {
+</span>183 <span style=''></span><span style='background: #AEF1AE'>        val r = rest.map(p =&gt; e.get(p._2, p._1))
+</span>184 <span style=''></span><span style='background: #AEF1AE'>        if (rest.length == 1)
+</span>185 <span style=''></span><span style='background: #AEF1AE'>          r.head // * above
+</span>186 <span style=''></span><span style='background: #AEF1AE'>        else
+</span>187 <span style=''></span><span style='background: #AEF1AE'>          new GenericInternalRow(r.toArray[Any])
+</span>188 <span style=''></span><span style='background: #AEF1AE'>      })
+</span>189 <span style=''></span><span style='background: #AEF1AE'>      InternalRow(gr, res)
+</span>190 <span style=''></span><span style='background: #AEF1AE'>    }, true)</span><span style=''>
+</span>191 <span style=''>  }
+</span>192 <span style=''>
+</span>193 <span style=''>  override def nullable: Boolean = </span><span style='background: #AEF1AE'>false</span><span style=''>
+</span>194 <span style=''>
+</span>195 <span style=''>  override def eval(input: InternalRow): Any =
+</span>196 <span style=''>    </span><span style='background: #AEF1AE'>impl._2(input, children.head.eval(input))</span><span style=''>
+</span>197 <span style=''>
+</span>198 <span style=''>  override def dataType: DataType = </span><span style='background: #AEF1AE'>impl._1</span><span style=''>
+</span>199 <span style=''>
+</span>200 <span style=''>}
+</span>201 <span style=''>
+</span>202 <span style=''>// at least three children, the actual column, the group expression encoder, the resultsuite expression decoder, the optional processor
+</span>203 <span style=''>case class GroupResults(children: Seq[Expression], hasProcessor: Boolean = false)
+</span>204 <span style=''>  extends GroupResultsBase {
+</span>205 <span style=''>
+</span>206 <span style=''>  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
+</span>207 <span style=''>    </span><span style='background: #AEF1AE'>copy(newChildren)</span><span style=''>
+</span>208 <span style=''>
+</span>209 <span style=''>  override def processResult(row: InternalRow, input: ArrayData): Any = input
+</span>210 <span style=''>}
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -245,63 +246,63 @@
         <th>Code</th>
       </tr><tr>
         <td>
-          27
-        </td>
-        <td>
-          3375
-        </td>
-        <td>
-          1328
-          -
-          1331
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.MergeGroups.$anon.&lt;init&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          new $anon()
-        </td>
-      </tr><tr>
-        <td>
-          33
-        </td>
-        <td>
-          3382
-        </td>
-        <td>
-          1506
-          -
-          1509
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.MergeGroups.$anon.&lt;init&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          new $anon()
-        </td>
-      </tr><tr>
-        <td>
-          35
+          28
         </td>
         <td>
           3376
         </td>
         <td>
-          1642
+          1334
           -
-          1655
+          1337
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.MergeGroups.$anon.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new $anon()
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          3383
+        </td>
+        <td>
+          1512
+          -
+          1515
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.MergeGroups.$anon.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new $anon()
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          3377
+        </td>
+        <td>
+          1648
+          -
+          1661
         </td>
         <td>
           Select
@@ -317,15 +318,15 @@
         </td>
       </tr><tr>
         <td>
-          35
+          36
         </td>
         <td>
-          3377
+          3378
         </td>
         <td>
-          1644
+          1650
           -
-          1644
+          1650
         </td>
         <td>
           Select
@@ -341,15 +342,15 @@
         </td>
       </tr><tr>
         <td>
-          35
+          36
         </td>
         <td>
-          3378
+          3379
         </td>
         <td>
-          1644
+          1650
           -
-          1644
+          1650
         </td>
         <td>
           ApplyToImplicitArgs
@@ -365,15 +366,15 @@
         </td>
       </tr><tr>
         <td>
-          35
+          36
         </td>
         <td>
-          3379
+          3380
         </td>
         <td>
-          1660
+          1666
           -
-          1673
+          1679
         </td>
         <td>
           Select
@@ -389,15 +390,15 @@
         </td>
       </tr><tr>
         <td>
-          35
+          36
         </td>
         <td>
-          3380
+          3381
         </td>
         <td>
-          1642
+          1648
           -
-          1673
+          1679
         </td>
         <td>
           Apply
@@ -413,15 +414,15 @@
         </td>
       </tr><tr>
         <td>
-          35
+          36
         </td>
         <td>
-          3381
+          3382
         </td>
         <td>
-          1621
+          1627
           -
-          1674
+          1680
         </td>
         <td>
           Apply
@@ -437,15 +438,15 @@
         </td>
       </tr><tr>
         <td>
-          38
+          39
         </td>
         <td>
-          3389
+          3390
         </td>
         <td>
-          1711
+          1717
           -
-          1714
+          1720
         </td>
         <td>
           Apply
@@ -461,15 +462,15 @@
         </td>
       </tr><tr>
         <td>
-          40
+          41
         </td>
         <td>
-          3383
+          3384
         </td>
         <td>
-          1858
+          1864
           -
-          1874
+          1880
         </td>
         <td>
           Select
@@ -485,15 +486,15 @@
         </td>
       </tr><tr>
         <td>
-          40
+          41
         </td>
         <td>
-          3384
+          3385
         </td>
         <td>
-          1860
+          1866
           -
-          1860
+          1866
         </td>
         <td>
           Select
@@ -509,15 +510,15 @@
         </td>
       </tr><tr>
         <td>
-          40
+          41
         </td>
         <td>
-          3385
+          3386
         </td>
         <td>
-          1860
+          1866
           -
-          1860
+          1866
         </td>
         <td>
           ApplyToImplicitArgs
@@ -533,15 +534,15 @@
         </td>
       </tr><tr>
         <td>
-          40
+          41
         </td>
         <td>
-          3386
+          3387
         </td>
         <td>
-          1879
+          1885
           -
-          1895
+          1901
         </td>
         <td>
           Select
@@ -557,15 +558,15 @@
         </td>
       </tr><tr>
         <td>
-          40
+          41
         </td>
         <td>
-          3387
+          3388
         </td>
         <td>
-          1858
+          1864
           -
-          1895
+          1901
         </td>
         <td>
           Apply
@@ -581,15 +582,15 @@
         </td>
       </tr><tr>
         <td>
-          40
+          41
         </td>
         <td>
-          3388
+          3389
         </td>
         <td>
-          1834
+          1840
           -
-          1896
+          1902
         </td>
         <td>
           Apply
@@ -605,15 +606,15 @@
         </td>
       </tr><tr>
         <td>
-          45
+          46
         </td>
         <td>
-          3390
+          3391
         </td>
         <td>
-          2023
+          2029
           -
-          2046
+          2052
         </td>
         <td>
           Apply
@@ -629,15 +630,15 @@
         </td>
       </tr><tr>
         <td>
-          45
+          46
         </td>
         <td>
-          3398
+          3399
         </td>
         <td>
-          2008
+          2014
           -
-          2165
+          2171
         </td>
         <td>
           Apply
@@ -653,15 +654,15 @@
         </td>
       </tr><tr>
         <td>
-          47
+          48
         </td>
         <td>
-          3391
+          3392
         </td>
         <td>
-          2111
+          2117
           -
-          2131
+          2137
         </td>
         <td>
           Select
@@ -677,15 +678,15 @@
         </td>
       </tr><tr>
         <td>
-          47
+          48
         </td>
         <td>
-          3392
+          3393
         </td>
         <td>
-          2115
+          2121
           -
-          2115
+          2121
         </td>
         <td>
           Select
@@ -701,15 +702,15 @@
         </td>
       </tr><tr>
         <td>
-          47
+          48
         </td>
         <td>
-          3393
+          3394
         </td>
         <td>
-          2115
+          2121
           -
-          2115
+          2121
         </td>
         <td>
           ApplyToImplicitArgs
@@ -725,15 +726,15 @@
         </td>
       </tr><tr>
         <td>
-          47
+          48
         </td>
         <td>
-          3394
+          3395
         </td>
         <td>
-          2140
+          2146
           -
-          2155
+          2161
         </td>
         <td>
           Apply
@@ -749,15 +750,15 @@
         </td>
       </tr><tr>
         <td>
-          47
+          48
         </td>
         <td>
-          3395
+          3396
         </td>
         <td>
-          2136
+          2142
           -
-          2156
+          2162
         </td>
         <td>
           Apply
@@ -773,15 +774,15 @@
         </td>
       </tr><tr>
         <td>
-          47
+          48
         </td>
         <td>
-          3396
+          3397
         </td>
         <td>
-          2111
+          2117
           -
-          2156
+          2162
         </td>
         <td>
           Apply
@@ -797,15 +798,15 @@
         </td>
       </tr><tr>
         <td>
-          47
+          48
         </td>
         <td>
-          3397
+          3398
         </td>
         <td>
-          2083
+          2089
           -
-          2157
+          2163
         </td>
         <td>
           Apply
@@ -821,15 +822,15 @@
         </td>
       </tr><tr>
         <td>
-          52
+          53
         </td>
         <td>
-          3399
+          3400
         </td>
         <td>
-          2301
+          2307
           -
-          2324
+          2330
         </td>
         <td>
           Apply
@@ -845,15 +846,15 @@
         </td>
       </tr><tr>
         <td>
-          52
+          53
         </td>
         <td>
-          3406
+          3407
         </td>
         <td>
-          2286
+          2292
           -
-          2438
+          2444
         </td>
         <td>
           Apply
@@ -869,15 +870,15 @@
         </td>
       </tr><tr>
         <td>
-          54
+          55
         </td>
         <td>
-          3400
+          3401
         </td>
         <td>
-          2385
+          2391
           -
-          2405
+          2411
         </td>
         <td>
           Select
@@ -893,15 +894,15 @@
         </td>
       </tr><tr>
         <td>
-          54
+          55
         </td>
         <td>
-          3401
+          3402
         </td>
         <td>
-          2389
+          2395
           -
-          2389
+          2395
         </td>
         <td>
           Select
@@ -917,15 +918,15 @@
         </td>
       </tr><tr>
         <td>
-          54
+          55
         </td>
         <td>
-          3402
+          3403
         </td>
         <td>
-          2389
+          2395
           -
-          2389
+          2395
         </td>
         <td>
           ApplyToImplicitArgs
@@ -941,15 +942,15 @@
         </td>
       </tr><tr>
         <td>
-          54
+          55
         </td>
         <td>
-          3403
+          3404
         </td>
         <td>
-          2410
+          2416
           -
-          2431
+          2437
         </td>
         <td>
           Select
@@ -965,15 +966,15 @@
         </td>
       </tr><tr>
         <td>
-          54
+          55
         </td>
         <td>
-          3404
+          3405
         </td>
         <td>
-          2385
+          2391
           -
-          2431
+          2437
         </td>
         <td>
           Apply
@@ -989,15 +990,15 @@
         </td>
       </tr><tr>
         <td>
-          54
+          55
         </td>
         <td>
-          3405
+          3406
         </td>
         <td>
-          2357
+          2363
           -
-          2432
+          2438
         </td>
         <td>
           Apply
@@ -1013,15 +1014,15 @@
         </td>
       </tr><tr>
         <td>
-          60
+          61
         </td>
         <td>
-          3407
+          3408
         </td>
         <td>
-          2530
+          2536
           -
-          2566
+          2572
         </td>
         <td>
           Apply
@@ -1037,15 +1038,15 @@
         </td>
       </tr><tr>
         <td>
-          63
+          64
         </td>
         <td>
-          3408
+          3409
         </td>
         <td>
-          2661
+          2667
           -
-          2691
+          2697
         </td>
         <td>
           Select
@@ -1061,15 +1062,15 @@
         </td>
       </tr><tr>
         <td>
-          63
+          64
         </td>
         <td>
-          3409
+          3410
         </td>
         <td>
-          2633
+          2639
           -
-          2692
+          2698
         </td>
         <td>
           Apply
@@ -1085,15 +1086,15 @@
         </td>
       </tr><tr>
         <td>
-          63
+          64
         </td>
         <td>
-          3410
+          3411
         </td>
         <td>
-          2633
+          2639
           -
-          2709
+          2715
         </td>
         <td>
           Apply
@@ -1109,15 +1110,15 @@
         </td>
       </tr><tr>
         <td>
-          63
+          64
         </td>
         <td>
-          3411
+          3412
         </td>
         <td>
-          2633
+          2639
           -
-          2722
+          2728
         </td>
         <td>
           Select
@@ -1138,15 +1139,15 @@
         </td>
       </tr><tr>
         <td>
-          64
+          65
         </td>
         <td>
-          3412
+          3413
         </td>
         <td>
-          2768
+          2774
           -
-          2809
+          2815
         </td>
         <td>
           Select
@@ -1162,15 +1163,15 @@
         </td>
       </tr><tr>
         <td>
-          64
+          65
         </td>
         <td>
-          3413
+          3414
         </td>
         <td>
-          2740
+          2746
           -
-          2810
+          2816
         </td>
         <td>
           Apply
@@ -1186,15 +1187,15 @@
         </td>
       </tr><tr>
         <td>
-          64
+          65
         </td>
         <td>
-          3414
+          3415
         </td>
         <td>
-          2740
+          2746
           -
-          2827
+          2833
         </td>
         <td>
           Apply
@@ -1210,15 +1211,15 @@
         </td>
       </tr><tr>
         <td>
-          64
+          65
         </td>
         <td>
-          3415
+          3416
         </td>
         <td>
-          2740
+          2746
           -
-          2841
+          2847
         </td>
         <td>
           Select
@@ -1239,15 +1240,15 @@
         </td>
       </tr><tr>
         <td>
-          65
+          66
         </td>
         <td>
-          3416
+          3417
         </td>
         <td>
-          2887
+          2893
           -
-          2928
+          2934
         </td>
         <td>
           Select
@@ -1263,15 +1264,15 @@
         </td>
       </tr><tr>
         <td>
-          65
+          66
         </td>
         <td>
-          3417
+          3418
         </td>
         <td>
-          2859
+          2865
           -
-          2929
+          2935
         </td>
         <td>
           Apply
@@ -1287,15 +1288,15 @@
         </td>
       </tr><tr>
         <td>
-          65
+          66
         </td>
         <td>
-          3418
+          3419
         </td>
         <td>
-          2859
+          2865
           -
-          2946
+          2952
         </td>
         <td>
           Apply
@@ -1311,15 +1312,15 @@
         </td>
       </tr><tr>
         <td>
-          65
+          66
         </td>
         <td>
-          3419
+          3420
         </td>
         <td>
-          2859
+          2865
           -
-          2959
+          2965
         </td>
         <td>
           Select
@@ -1340,15 +1341,15 @@
         </td>
       </tr><tr>
         <td>
-          66
+          67
         </td>
         <td>
-          3420
+          3421
         </td>
         <td>
-          2977
+          2983
           -
-          3010
+          3016
         </td>
         <td>
           Apply
@@ -1364,15 +1365,15 @@
         </td>
       </tr><tr>
         <td>
-          66
+          67
         </td>
         <td>
-          3421
+          3422
         </td>
         <td>
-          2964
+          2970
           -
-          3011
+          3017
         </td>
         <td>
           Apply
@@ -1388,15 +1389,15 @@
         </td>
       </tr><tr>
         <td>
-          70
+          71
         </td>
         <td>
-          3422
+          3423
         </td>
         <td>
-          3182
+          3188
           -
-          3212
+          3218
         </td>
         <td>
           Select
@@ -1412,15 +1413,15 @@
         </td>
       </tr><tr>
         <td>
-          70
+          71
         </td>
         <td>
-          3423
+          3424
         </td>
         <td>
-          3154
+          3160
           -
-          3213
+          3219
         </td>
         <td>
           Apply
@@ -1436,15 +1437,15 @@
         </td>
       </tr><tr>
         <td>
-          70
+          71
         </td>
         <td>
-          3424
+          3425
         </td>
         <td>
-          3154
+          3160
           -
-          3230
+          3236
         </td>
         <td>
           Apply
@@ -1460,15 +1461,15 @@
         </td>
       </tr><tr>
         <td>
-          70
+          71
         </td>
         <td>
-          3425
+          3426
         </td>
         <td>
-          3154
+          3160
           -
-          3243
+          3249
         </td>
         <td>
           Select
@@ -1489,15 +1490,15 @@
         </td>
       </tr><tr>
         <td>
-          71
+          72
         </td>
         <td>
-          3426
+          3427
         </td>
         <td>
-          3289
+          3295
           -
-          3330
+          3336
         </td>
         <td>
           Select
@@ -1513,15 +1514,15 @@
         </td>
       </tr><tr>
         <td>
-          71
+          72
         </td>
         <td>
-          3427
+          3428
         </td>
         <td>
-          3261
+          3267
           -
-          3331
+          3337
         </td>
         <td>
           Apply
@@ -1537,15 +1538,15 @@
         </td>
       </tr><tr>
         <td>
-          71
+          72
         </td>
         <td>
-          3428
+          3429
         </td>
         <td>
-          3261
+          3267
           -
-          3348
+          3354
         </td>
         <td>
           Apply
@@ -1561,15 +1562,15 @@
         </td>
       </tr><tr>
         <td>
-          71
+          72
         </td>
         <td>
-          3429
+          3430
         </td>
         <td>
-          3261
+          3267
           -
-          3362
+          3368
         </td>
         <td>
           Select
@@ -1590,15 +1591,15 @@
         </td>
       </tr><tr>
         <td>
-          72
+          73
         </td>
         <td>
-          3430
+          3431
         </td>
         <td>
-          3408
+          3414
           -
-          3449
+          3455
         </td>
         <td>
           Select
@@ -1614,15 +1615,15 @@
         </td>
       </tr><tr>
         <td>
-          72
+          73
         </td>
         <td>
-          3431
+          3432
         </td>
         <td>
-          3380
+          3386
           -
-          3450
+          3456
         </td>
         <td>
           Apply
@@ -1638,15 +1639,15 @@
         </td>
       </tr><tr>
         <td>
-          72
+          73
         </td>
         <td>
-          3432
+          3433
         </td>
         <td>
-          3380
+          3386
           -
-          3467
+          3473
         </td>
         <td>
           Apply
@@ -1662,15 +1663,15 @@
         </td>
       </tr><tr>
         <td>
-          72
+          73
         </td>
         <td>
-          3433
+          3434
         </td>
         <td>
-          3380
+          3386
           -
-          3480
+          3486
         </td>
         <td>
           Select
@@ -1691,15 +1692,15 @@
         </td>
       </tr><tr>
         <td>
-          73
+          74
         </td>
         <td>
-          3434
+          3435
         </td>
         <td>
-          3485
+          3491
           -
-          3499
+          3505
         </td>
         <td>
           Select
@@ -1715,42 +1716,18 @@
         </td>
       </tr><tr>
         <td>
-          74
-        </td>
-        <td>
-          3435
-        </td>
-        <td>
-          3547
-          -
-          3549
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          74
+          75
         </td>
         <td>
           3436
         </td>
         <td>
-          3547
+          3553
           -
-          3549
+          3555
         </td>
         <td>
-          Block
+          Literal
         </td>
         <td>
           &lt;nosymbol&gt;
@@ -1769,9 +1746,33 @@
           3437
         </td>
         <td>
-          3583
+          3553
           -
-          3599
+          3555
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          3438
+        </td>
+        <td>
+          3589
+          -
+          3605
         </td>
         <td>
           Apply
@@ -1787,15 +1788,15 @@
         </td>
       </tr><tr>
         <td>
-          75
+          76
         </td>
         <td>
-          3438
+          3439
         </td>
         <td>
-          3566
+          3572
           -
-          3600
+          3606
         </td>
         <td>
           Apply
@@ -1811,15 +1812,15 @@
         </td>
       </tr><tr>
         <td>
-          75
+          76
         </td>
         <td>
-          3439
+          3440
         </td>
         <td>
-          3566
+          3572
           -
-          3600
+          3606
         </td>
         <td>
           Block
@@ -1835,15 +1836,15 @@
         </td>
       </tr><tr>
         <td>
-          77
+          78
         </td>
         <td>
-          3440
+          3441
         </td>
         <td>
-          3648
+          3654
           -
-          3658
+          3664
         </td>
         <td>
           Apply
@@ -1859,15 +1860,15 @@
         </td>
       </tr><tr>
         <td>
-          77
+          78
         </td>
         <td>
-          3441
+          3442
         </td>
         <td>
-          3645
+          3651
           -
-          3659
+          3665
         </td>
         <td>
           Apply
@@ -1883,15 +1884,15 @@
         </td>
       </tr><tr>
         <td>
-          77
+          78
         </td>
         <td>
-          3442
+          3443
         </td>
         <td>
-          3635
+          3641
           -
-          3660
+          3666
         </td>
         <td>
           Apply
@@ -1907,15 +1908,15 @@
         </td>
       </tr><tr>
         <td>
-          77
+          78
         </td>
         <td>
-          3443
+          3444
         </td>
         <td>
-          3621
+          3627
           -
-          3661
+          3667
         </td>
         <td>
           Apply
@@ -1931,15 +1932,15 @@
         </td>
       </tr><tr>
         <td>
-          79
+          80
         </td>
         <td>
-          3444
+          3445
         </td>
         <td>
-          3691
+          3697
           -
-          3729
+          3735
         </td>
         <td>
           Apply
@@ -1955,15 +1956,15 @@
         </td>
       </tr><tr>
         <td>
-          79
+          80
         </td>
         <td>
-          3445
+          3446
         </td>
         <td>
-          3667
+          3673
           -
-          3733
+          3739
         </td>
         <td>
           Apply
@@ -1979,15 +1980,15 @@
         </td>
       </tr><tr>
         <td>
-          83
+          84
         </td>
         <td>
-          3446
+          3447
         </td>
         <td>
-          3791
+          3797
           -
-          3837
+          3843
         </td>
         <td>
           TypeApply
@@ -2003,15 +2004,15 @@
         </td>
       </tr><tr>
         <td>
-          84
+          85
         </td>
         <td>
-          3447
+          3448
         </td>
         <td>
-          3850
+          3856
           -
-          3888
+          3894
         </td>
         <td>
           TypeApply
@@ -2027,15 +2028,15 @@
         </td>
       </tr><tr>
         <td>
-          86
+          87
         </td>
         <td>
-          3448
+          3449
         </td>
         <td>
-          3919
+          3925
           -
-          3935
+          3941
         </td>
         <td>
           Apply
@@ -2051,15 +2052,15 @@
         </td>
       </tr><tr>
         <td>
-          86
+          87
         </td>
         <td>
-          3449
+          3450
         </td>
         <td>
-          3903
+          3909
           -
-          3936
+          3942
         </td>
         <td>
           Apply
@@ -2075,15 +2076,15 @@
         </td>
       </tr><tr>
         <td>
-          87
+          88
         </td>
         <td>
-          3450
+          3451
         </td>
         <td>
-          3945
+          3951
           -
-          3966
+          3972
         </td>
         <td>
           Apply
@@ -2099,15 +2100,15 @@
         </td>
       </tr><tr>
         <td>
-          89
+          90
         </td>
         <td>
-          3451
+          3452
         </td>
         <td>
-          4043
+          4049
           -
-          4052
+          4058
         </td>
         <td>
           Select
@@ -2123,15 +2124,15 @@
         </td>
       </tr><tr>
         <td>
-          89
+          90
         </td>
         <td>
-          3452
+          3453
         </td>
         <td>
-          4043
+          4049
           -
-          4066
+          4072
         </td>
         <td>
           Select
@@ -2147,15 +2148,15 @@
         </td>
       </tr><tr>
         <td>
-          89
+          90
         </td>
         <td>
-          3453
+          3454
         </td>
         <td>
-          4043
+          4049
           -
-          4066
+          4072
         </td>
         <td>
           Block
@@ -2171,15 +2172,15 @@
         </td>
       </tr><tr>
         <td>
-          91
+          92
         </td>
         <td>
-          3454
+          3455
         </td>
         <td>
-          4084
+          4090
           -
-          4086
+          4092
         </td>
         <td>
           Ident
@@ -2195,15 +2196,15 @@
         </td>
       </tr><tr>
         <td>
-          94
+          95
         </td>
         <td>
-          3455
+          3456
         </td>
         <td>
-          4129
+          4135
           -
-          4331
+          4337
         </td>
         <td>
           Apply
@@ -2219,15 +2220,15 @@
         </td>
       </tr><tr>
         <td>
-          105
+          106
         </td>
         <td>
-          3456
+          3457
         </td>
         <td>
-          4696
+          4702
           -
-          4704
+          4710
         </td>
         <td>
           Select
@@ -2243,15 +2244,15 @@
         </td>
       </tr><tr>
         <td>
-          105
+          106
         </td>
         <td>
-          3461
+          3462
         </td>
         <td>
-          4696
+          4702
           -
-          4805
+          4811
         </td>
         <td>
           Apply
@@ -2263,19 +2264,19 @@
           
         </td>
         <td style="background: #AEF1AE">
-          scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](s.fields).exists(((f: org.apache.spark.sql.types.StructField) =&gt; names.contains(f.name).&amp;&amp;(org.apache.spark.sql.types.DataType.equalsIgnoreCaseAndNullability(f.dataType, of))))
+          scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](s.fields).exists(((f: org.apache.spark.sql.types.StructField) =&gt; names.contains(f.name).&amp;&amp;(com.sparkutils.quality.impl.util.Compare.equalsIgnoreCaseAndNullability(f.dataType, of))))
         </td>
       </tr><tr>
         <td>
-          106
+          107
         </td>
         <td>
-          3457
+          3458
         </td>
         <td>
-          4739
-          -
           4745
+          -
+          4751
         </td>
         <td>
           Select
@@ -2291,15 +2292,15 @@
         </td>
       </tr><tr>
         <td>
-          106
+          107
         </td>
         <td>
-          3460
+          3461
         </td>
         <td>
-          4724
+          4730
           -
-          4804
+          4810
         </td>
         <td>
           Apply
@@ -2311,19 +2312,19 @@
           
         </td>
         <td style="background: #AEF1AE">
-          names.contains(f.name).&amp;&amp;(org.apache.spark.sql.types.DataType.equalsIgnoreCaseAndNullability(f.dataType, of))
+          names.contains(f.name).&amp;&amp;(com.sparkutils.quality.impl.util.Compare.equalsIgnoreCaseAndNullability(f.dataType, of))
         </td>
       </tr><tr>
         <td>
-          107
+          108
         </td>
         <td>
-          3458
+          3459
         </td>
         <td>
-          4789
+          4795
           -
-          4799
+          4805
         </td>
         <td>
           Select
@@ -2339,63 +2340,63 @@
         </td>
       </tr><tr>
         <td>
-          107
+          108
         </td>
         <td>
-          3459
+          3460
         </td>
         <td>
-          4758
+          4764
           -
-          4804
+          4810
         </td>
         <td>
           Apply
         </td>
         <td>
-          org.apache.spark.sql.types.DataType.equalsIgnoreCaseAndNullability
+          com.sparkutils.quality.impl.util.Compare.equalsIgnoreCaseAndNullability
         </td>
         <td>
           
         </td>
         <td style="background: #AEF1AE">
-          org.apache.spark.sql.types.DataType.equalsIgnoreCaseAndNullability(f.dataType, of)
+          com.sparkutils.quality.impl.util.Compare.equalsIgnoreCaseAndNullability(f.dataType, of)
         </td>
       </tr><tr>
         <td>
-          108
-        </td>
-        <td>
-          3462
-        </td>
-        <td>
-          4813
-          -
-          4817
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          true
-        </td>
-      </tr><tr>
-        <td>
-          108
+          109
         </td>
         <td>
           3463
         </td>
         <td>
-          4813
+          4819
           -
-          4817
+          4823
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          3464
+        </td>
+        <td>
+          4819
+          -
+          4823
         </td>
         <td>
           Block
@@ -2411,15 +2412,15 @@
         </td>
       </tr><tr>
         <td>
-          110
+          111
         </td>
         <td>
-          3464
+          3465
         </td>
         <td>
-          4833
+          4839
           -
-          4838
+          4844
         </td>
         <td>
           Literal
@@ -2435,15 +2436,15 @@
         </td>
       </tr><tr>
         <td>
-          110
+          111
         </td>
         <td>
-          3465
+          3466
         </td>
         <td>
-          4833
+          4839
           -
-          4838
+          4844
         </td>
         <td>
           Block
@@ -2459,15 +2460,15 @@
         </td>
       </tr><tr>
         <td>
-          112
+          113
         </td>
         <td>
-          3466
+          3467
         </td>
         <td>
-          4932
+          4938
           -
-          4955
+          4961
         </td>
         <td>
           Apply
@@ -2483,15 +2484,15 @@
         </td>
       </tr><tr>
         <td>
-          112
+          113
         </td>
         <td>
-          3467
+          3468
         </td>
         <td>
-          4862
+          4868
           -
-          4956
+          4962
         </td>
         <td>
           Apply
@@ -2507,15 +2508,15 @@
         </td>
       </tr><tr>
         <td>
-          115
+          116
         </td>
         <td>
-          3468
+          3469
         </td>
         <td>
-          5129
+          5135
           -
-          5180
+          5186
         </td>
         <td>
           Select
@@ -2531,15 +2532,15 @@
         </td>
       </tr><tr>
         <td>
-          115
+          116
         </td>
         <td>
-          3469
+          3470
         </td>
         <td>
-          5182
+          5188
           -
-          5223
+          5229
         </td>
         <td>
           Apply
@@ -2555,15 +2556,15 @@
         </td>
       </tr><tr>
         <td>
-          115
+          116
         </td>
         <td>
-          3470
+          3471
         </td>
         <td>
-          5113
+          5119
           -
-          5224
+          5230
         </td>
         <td>
           Apply
@@ -2579,15 +2580,15 @@
         </td>
       </tr><tr>
         <td>
-          118
+          119
         </td>
         <td>
-          3471
+          3472
         </td>
         <td>
-          5411
+          5417
           -
-          5438
+          5444
         </td>
         <td>
           TypeApply
@@ -2603,15 +2604,15 @@
         </td>
       </tr><tr>
         <td>
-          119
+          120
         </td>
         <td>
-          3472
+          3473
         </td>
         <td>
-          5456
+          5462
           -
-          5487
+          5493
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2627,15 +2628,15 @@
         </td>
       </tr><tr>
         <td>
-          120
+          121
         </td>
         <td>
-          3473
+          3474
         </td>
         <td>
-          5528
+          5534
           -
-          5543
+          5549
         </td>
         <td>
           Apply
@@ -2651,15 +2652,15 @@
         </td>
       </tr><tr>
         <td>
-          120
+          121
         </td>
         <td>
-          3474
+          3475
         </td>
         <td>
-          5511
+          5517
           -
-          5544
+          5550
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2675,15 +2676,15 @@
         </td>
       </tr><tr>
         <td>
-          122
+          123
         </td>
         <td>
-          3483
+          3484
         </td>
         <td>
-          5550
+          5556
           -
-          5737
+          5743
         </td>
         <td>
           Apply
@@ -2706,15 +2707,15 @@ else
         </td>
       </tr><tr>
         <td>
-          123
+          124
         </td>
         <td>
-          3475
+          3476
         </td>
         <td>
-          5588
+          5594
           -
-          5615
+          5621
         </td>
         <td>
           TypeApply
@@ -2730,15 +2731,15 @@ else
         </td>
       </tr><tr>
         <td>
-          124
+          125
         </td>
         <td>
-          3476
+          3477
         </td>
         <td>
-          5660
+          5666
           -
-          5661
+          5667
         </td>
         <td>
           Ident
@@ -2754,15 +2755,15 @@ else
         </td>
       </tr><tr>
         <td>
-          124
+          125
         </td>
         <td>
-          3477
+          3478
         </td>
         <td>
-          5667
+          5673
           -
-          5684
+          5690
         </td>
         <td>
           Apply
@@ -2778,15 +2779,15 @@ else
         </td>
       </tr><tr>
         <td>
-          124
+          125
         </td>
         <td>
-          3478
+          3479
         </td>
         <td>
-          5667
+          5673
           -
-          5684
+          5690
         </td>
         <td>
           Block
@@ -2802,15 +2803,15 @@ else
         </td>
       </tr><tr>
         <td>
-          124
+          125
         </td>
         <td>
-          3479
+          3480
         </td>
         <td>
-          5634
+          5640
           -
-          5701
+          5707
         </td>
         <td>
           TypeApply
@@ -2829,15 +2830,15 @@ else
         </td>
       </tr><tr>
         <td>
-          124
+          125
         </td>
         <td>
-          3480
+          3481
         </td>
         <td>
-          5622
+          5628
           -
-          5701
+          5707
         </td>
         <td>
           Apply
@@ -2856,15 +2857,15 @@ else
         </td>
       </tr><tr>
         <td>
-          125
+          126
         </td>
         <td>
-          3481
+          3482
         </td>
         <td>
-          5726
+          5732
           -
-          5730
+          5736
         </td>
         <td>
           Apply
@@ -2880,15 +2881,15 @@ else
         </td>
       </tr><tr>
         <td>
-          125
+          126
         </td>
         <td>
-          3482
+          3483
         </td>
         <td>
-          5708
+          5714
           -
-          5730
+          5736
         </td>
         <td>
           Apply
@@ -2904,15 +2905,15 @@ else
         </td>
       </tr><tr>
         <td>
-          128
+          129
         </td>
         <td>
-          3484
+          3485
         </td>
         <td>
-          5753
+          5759
           -
-          5754
+          5760
         </td>
         <td>
           Literal
@@ -2928,15 +2929,15 @@ else
         </td>
       </tr><tr>
         <td>
-          128
+          129
         </td>
         <td>
-          3485
+          3486
         </td>
         <td>
-          5773
+          5779
           -
-          5799
+          5805
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2952,15 +2953,15 @@ else
         </td>
       </tr><tr>
         <td>
-          128
+          129
         </td>
         <td>
-          3486
+          3487
         </td>
         <td>
-          5761
+          5767
           -
-          5800
+          5806
         </td>
         <td>
           Apply
@@ -2976,15 +2977,15 @@ else
         </td>
       </tr><tr>
         <td>
-          128
+          129
         </td>
         <td>
-          3487
+          3488
         </td>
         <td>
-          5744
+          5750
           -
-          5827
+          5833
         </td>
         <td>
           TypeApply
@@ -3000,15 +3001,15 @@ else
         </td>
       </tr><tr>
         <td>
-          128
+          129
         </td>
         <td>
-          3490
+          3491
         </td>
         <td>
-          5743
+          5749
           -
-          5890
+          5896
         </td>
         <td>
           Apply
@@ -3024,15 +3025,15 @@ else
         </td>
       </tr><tr>
         <td>
-          129
+          130
         </td>
         <td>
-          3488
+          3489
         </td>
         <td>
-          5854
+          5860
           -
-          5888
+          5894
         </td>
         <td>
           Apply
@@ -3048,15 +3049,15 @@ else
         </td>
       </tr><tr>
         <td>
-          129
+          130
         </td>
         <td>
-          3489
+          3490
         </td>
         <td>
-          5835
+          5841
           -
-          5889
+          5895
         </td>
         <td>
           Apply
@@ -3072,15 +3073,15 @@ else
         </td>
       </tr><tr>
         <td>
-          133
+          134
         </td>
         <td>
-          3498
+          3499
         </td>
         <td>
-          5940
+          5946
           -
-          6127
+          6133
         </td>
         <td>
           Apply
@@ -3096,15 +3097,15 @@ else
         </td>
       </tr><tr>
         <td>
-          133
+          134
         </td>
         <td>
-          3499
+          3500
         </td>
         <td>
-          5929
+          5935
           -
-          6128
+          6134
         </td>
         <td>
           Apply
@@ -3120,15 +3121,15 @@ else
         </td>
       </tr><tr>
         <td>
-          134
+          135
         </td>
         <td>
-          3491
+          3492
         </td>
         <td>
-          5963
+          5969
           -
-          5979
+          5985
         </td>
         <td>
           Literal
@@ -3144,15 +3145,15 @@ else
         </td>
       </tr><tr>
         <td>
-          134
+          135
         </td>
         <td>
-          3492
+          3493
         </td>
         <td>
-          5981
+          5987
           -
-          6032
+          6038
         </td>
         <td>
           Select
@@ -3168,15 +3169,15 @@ else
         </td>
       </tr><tr>
         <td>
-          134
+          135
         </td>
         <td>
-          3493
+          3494
         </td>
         <td>
-          5951
+          5957
           -
-          6033
+          6039
         </td>
         <td>
           Apply
@@ -3192,15 +3193,15 @@ else
         </td>
       </tr><tr>
         <td>
-          135
+          136
         </td>
         <td>
-          3494
+          3495
         </td>
         <td>
-          6053
+          6059
           -
-          6061
+          6067
         </td>
         <td>
           Literal
@@ -3216,15 +3217,15 @@ else
         </td>
       </tr><tr>
         <td>
-          135
+          136
         </td>
         <td>
-          3497
+          3498
         </td>
         <td>
-          6041
+          6047
           -
-          6121
+          6127
         </td>
         <td>
           Apply
@@ -3240,15 +3241,15 @@ else
         </td>
       </tr><tr>
         <td>
-          136
+          137
         </td>
         <td>
-          3495
+          3496
         </td>
         <td>
-          6071
+          6077
           -
-          6088
+          6094
         </td>
         <td>
           Select
@@ -3264,15 +3265,15 @@ else
         </td>
       </tr><tr>
         <td>
-          137
+          138
         </td>
         <td>
-          3496
+          3497
         </td>
         <td>
-          6099
+          6105
           -
-          6120
+          6126
         </td>
         <td>
           Select
@@ -3288,15 +3289,15 @@ else
         </td>
       </tr><tr>
         <td>
-          141
+          142
         </td>
         <td>
-          3500
+          3501
         </td>
         <td>
-          6205
+          6211
           -
-          6213
+          6219
         </td>
         <td>
           Select
@@ -3312,15 +3313,15 @@ else
         </td>
       </tr><tr>
         <td>
-          141
+          142
         </td>
         <td>
-          3501
+          3502
         </td>
         <td>
-          6194
+          6200
           -
-          6213
+          6219
         </td>
         <td>
           Apply
@@ -3336,15 +3337,15 @@ else
         </td>
       </tr><tr>
         <td>
-          142
+          143
         </td>
         <td>
-          3502
+          3503
         </td>
         <td>
-          6221
+          6227
           -
-          6253
+          6259
         </td>
         <td>
           Select
@@ -3360,15 +3361,15 @@ else
         </td>
       </tr><tr>
         <td>
-          142
+          143
         </td>
         <td>
-          3503
+          3504
         </td>
         <td>
-          6221
+          6227
           -
-          6253
+          6259
         </td>
         <td>
           Block
@@ -3384,15 +3385,15 @@ else
         </td>
       </tr><tr>
         <td>
-          144
+          145
         </td>
         <td>
-          3504
+          3505
         </td>
         <td>
-          6316
+          6322
           -
-          6338
+          6344
         </td>
         <td>
           Select
@@ -3408,15 +3409,15 @@ else
         </td>
       </tr><tr>
         <td>
-          144
+          145
         </td>
         <td>
-          3505
+          3506
         </td>
         <td>
-          6302
+          6308
           -
-          6339
+          6345
         </td>
         <td>
           Apply
@@ -3432,15 +3433,15 @@ else
         </td>
       </tr><tr>
         <td>
-          144
+          145
         </td>
         <td>
-          3506
+          3507
         </td>
         <td>
-          6269
+          6275
           -
-          6340
+          6346
         </td>
         <td>
           Apply
@@ -3456,15 +3457,15 @@ else
         </td>
       </tr><tr>
         <td>
-          144
+          145
         </td>
         <td>
-          3507
+          3508
         </td>
         <td>
-          6269
+          6275
           -
-          6340
+          6346
         </td>
         <td>
           Block
@@ -3480,15 +3481,15 @@ else
         </td>
       </tr><tr>
         <td>
-          146
+          147
         </td>
         <td>
-          3508
+          3509
         </td>
         <td>
-          6391
+          6397
           -
-          6399
+          6405
         </td>
         <td>
           Select
@@ -3504,15 +3505,15 @@ else
         </td>
       </tr><tr>
         <td>
-          146
+          147
         </td>
         <td>
-          3509
+          3510
         </td>
         <td>
-          6388
+          6394
           -
-          6400
+          6406
         </td>
         <td>
           Apply
@@ -3528,15 +3529,15 @@ else
         </td>
       </tr><tr>
         <td>
-          146
+          147
         </td>
         <td>
-          3510
+          3511
         </td>
         <td>
-          6378
+          6384
           -
-          6401
+          6407
         </td>
         <td>
           Apply
@@ -3552,15 +3553,15 @@ else
         </td>
       </tr><tr>
         <td>
-          147
+          148
         </td>
         <td>
-          3511
+          3512
         </td>
         <td>
-          6441
+          6447
           -
-          6445
+          6451
         </td>
         <td>
           Literal
@@ -3576,15 +3577,15 @@ else
         </td>
       </tr><tr>
         <td>
-          171
+          172
         </td>
         <td>
-          3512
+          3513
         </td>
         <td>
-          7612
+          7618
           -
-          7663
+          7669
         </td>
         <td>
           Select
@@ -3600,15 +3601,15 @@ else
         </td>
       </tr><tr>
         <td>
-          171
+          172
         </td>
         <td>
-          3518
+          3519
         </td>
         <td>
-          7611
+          7617
           -
-          7789
+          7795
         </td>
         <td>
           Apply
@@ -3624,15 +3625,15 @@ else
         </td>
       </tr><tr>
         <td>
-          172
+          173
         </td>
         <td>
-          3513
+          3514
         </td>
         <td>
-          7712
+          7718
           -
-          7716
+          7722
         </td>
         <td>
           Literal
@@ -3648,15 +3649,15 @@ else
         </td>
       </tr><tr>
         <td>
-          173
+          174
         </td>
         <td>
-          3514
+          3515
         </td>
         <td>
-          7726
+          7732
           -
-          7764
+          7770
         </td>
         <td>
           TypeApply
@@ -3672,15 +3673,15 @@ else
         </td>
       </tr><tr>
         <td>
-          173
+          174
         </td>
         <td>
-          3515
+          3516
         </td>
         <td>
-          7769
+          7775
           -
-          7777
+          7783
         </td>
         <td>
           Apply
@@ -3696,15 +3697,15 @@ else
         </td>
       </tr><tr>
         <td>
-          173
+          174
         </td>
         <td>
-          3516
+          3517
         </td>
         <td>
-          7683
+          7689
           -
-          7781
+          7787
         </td>
         <td>
           Select
@@ -3720,15 +3721,15 @@ else
         </td>
       </tr><tr>
         <td>
-          173
+          174
         </td>
         <td>
-          3517
+          3518
         </td>
         <td>
-          7783
+          7789
           -
-          7788
+          7794
         </td>
         <td>
           Literal
@@ -3744,15 +3745,15 @@ else
         </td>
       </tr><tr>
         <td>
-          177
+          178
         </td>
         <td>
-          3519
+          3520
         </td>
         <td>
-          7906
+          7912
           -
-          7944
+          7950
         </td>
         <td>
           TypeApply
@@ -3768,15 +3769,15 @@ else
         </td>
       </tr><tr>
         <td>
-          178
+          179
         </td>
         <td>
-          3520
+          3521
         </td>
         <td>
-          7960
+          7966
           -
-          8005
+          8011
         </td>
         <td>
           Apply
@@ -3792,15 +3793,15 @@ else
         </td>
       </tr><tr>
         <td>
-          180
+          181
         </td>
         <td>
-          3521
+          3522
         </td>
         <td>
-          8012
+          8018
           -
-          8022
+          8028
         </td>
         <td>
           Select
@@ -3816,15 +3817,15 @@ else
         </td>
       </tr><tr>
         <td>
-          180
+          181
         </td>
         <td>
-          3529
+          3530
         </td>
         <td>
-          8011
+          8017
           -
-          8326
+          8332
         </td>
         <td>
           Apply
@@ -3853,15 +3854,15 @@ else
         </td>
       </tr><tr>
         <td>
-          181
+          182
         </td>
         <td>
-          3522
+          3523
         </td>
         <td>
-          8060
+          8066
           -
-          8286
+          8292
         </td>
         <td>
           ApplyToImplicitArgs
@@ -3883,15 +3884,15 @@ else
         </td>
       </tr><tr>
         <td>
-          181
+          182
         </td>
         <td>
-          3523
+          3524
         </td>
         <td>
-          8048
+          8054
           -
-          8057
+          8063
         </td>
         <td>
           Apply
@@ -3907,15 +3908,15 @@ else
         </td>
       </tr><tr>
         <td>
-          181
+          182
         </td>
         <td>
-          3524
+          3525
         </td>
         <td>
-          8048
+          8054
           -
-          8057
+          8063
         </td>
         <td>
           Block
@@ -3931,15 +3932,15 @@ else
         </td>
       </tr><tr>
         <td>
-          181
+          182
         </td>
         <td>
-          3525
+          3526
         </td>
         <td>
-          8049
+          8055
           -
-          8049
+          8055
         </td>
         <td>
           Select
@@ -3955,15 +3956,15 @@ else
         </td>
       </tr><tr>
         <td>
-          181
+          182
         </td>
         <td>
-          3526
+          3527
         </td>
         <td>
-          8053
+          8059
           -
-          8053
+          8059
         </td>
         <td>
           Select
@@ -3979,15 +3980,15 @@ else
         </td>
       </tr><tr>
         <td>
-          188
+          189
         </td>
         <td>
-          3527
+          3528
         </td>
         <td>
-          8293
+          8299
           -
-          8313
+          8319
         </td>
         <td>
           Apply
@@ -4003,15 +4004,15 @@ else
         </td>
       </tr><tr>
         <td>
-          189
+          190
         </td>
         <td>
-          3528
+          3529
         </td>
         <td>
-          8321
+          8327
           -
-          8325
+          8331
         </td>
         <td>
           Literal
@@ -4027,15 +4028,15 @@ else
         </td>
       </tr><tr>
         <td>
-          192
+          193
         </td>
         <td>
-          3530
+          3531
         </td>
         <td>
-          8367
+          8373
           -
-          8372
+          8378
         </td>
         <td>
           Literal
@@ -4051,15 +4052,15 @@ else
         </td>
       </tr><tr>
         <td>
-          195
+          196
         </td>
         <td>
-          3531
+          3532
         </td>
         <td>
-          8440
+          8446
           -
-          8465
+          8471
         </td>
         <td>
           Apply
@@ -4075,15 +4076,15 @@ else
         </td>
       </tr><tr>
         <td>
-          195
+          196
         </td>
         <td>
-          3532
+          3533
         </td>
         <td>
-          8425
+          8431
           -
-          8466
+          8472
         </td>
         <td>
           Apply
@@ -4099,15 +4100,15 @@ else
         </td>
       </tr><tr>
         <td>
-          197
+          198
         </td>
         <td>
-          3533
+          3534
         </td>
         <td>
-          8504
+          8510
           -
-          8511
+          8517
         </td>
         <td>
           Select
@@ -4123,15 +4124,15 @@ else
         </td>
       </tr><tr>
         <td>
-          206
+          207
         </td>
         <td>
-          3534
+          3535
         </td>
         <td>
-          8859
+          8865
           -
-          8876
+          8882
         </td>
         <td>
           Apply
