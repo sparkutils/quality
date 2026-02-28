@@ -27,8 +27,6 @@ import org.apache.spark.sql.types._
 import org.apache.spark.sql.{ClassicQualitySparkUtils, ShimUtils, SparkSession, functions}
 import org.apache.spark.unsafe.types.UTF8String
 
-import java.util.concurrent.atomic.AtomicReference
-
 object RuleRegistrationFunctions {
 
   protected[quality] def literalsNeeded(pos: Int, typ: String = "String"): Nothing =
@@ -582,24 +580,21 @@ object RuleRegistrationFunctions {
       case Seq(e) => RefExpression(parse(e))
       case _ => literalsNeeded
     }, Set(1))
-    register("qualityfunn", {
-      case Seq(l: SLambdaFunction) =>
-        FunN(Seq(RefExpressionLazyType(new AtomicReference[DataType](), true)), l, usedAsLambda = true)
-      case exps: Seq[Expression] =>
-        val args = exps.dropRight(4)
-        val params = exps.drop(args.length)
-        val (function, name, attemptCodeGen, useAsLambda) =
-          params match {
-            case Seq(f, n, a, u) => (f, {
-              val s = getString(n)
-              if (s.isEmpty)
-                None
-              else
-                Some(s)
-            }, getBoolean(a), getBoolean(u))
-          }
-        FunN(args, function, name, attemptCodeGen = attemptCodeGen, usedAsLambda = useAsLambda)
-    }, Set(1,5))
+    register("qualityfunn", exps => {
+      val args = exps.dropRight(4)
+      val params = exps.drop(args.length)
+      val (function, name, attemptCodeGen, useAsLambda) =
+        params match {
+          case Seq(f, n, a, u) => (f, {
+            val s = getString(n)
+            if (s.isEmpty)
+              None
+            else
+              Some(s)
+          }, getBoolean(a), getBoolean(u))
+        }
+      FunN(args, function, name, attemptCodeGen = attemptCodeGen, usedAsLambda = useAsLambda)
+    }, minimum = 5)
 
     registerMapLookupsForAgnostic(registerFunction)
 
