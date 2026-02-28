@@ -3,6 +3,7 @@ package com.sparkutils.quality.impl
 import cats.kernel.{CommutativeGroup, Semigroup}
 import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.impl.GroupResults.{rd, typeCheckText}
+import com.sparkutils.quality.impl.util.Compare.equalsIgnoreCaseAndNullability
 import com.sparkutils.quality.{RuleResult, RuleSetResult, RuleSuiteGroupResults, RuleSuiteResult, VersionedId}
 import org.apache.spark.sql.ShimUtils
 import org.apache.spark.sql.catalyst.InternalRow
@@ -11,7 +12,7 @@ import org.apache.spark.sql.catalyst.expressions.{Expression, GenericInternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
 import org.apache.spark.sql.catalyst.util.{ArrayData, GenericArrayData}
 import org.apache.spark.sql.qualityFunctions.{GroupResultsWithProcess, RefExpression}
-import org.apache.spark.sql.types.DataType.equalsIgnoreCaseAndNullability
+
 import org.apache.spark.sql.types.{ArrayType, DataType, NullType, StructField, StructType}
 
 import scala.reflect.ClassTag
