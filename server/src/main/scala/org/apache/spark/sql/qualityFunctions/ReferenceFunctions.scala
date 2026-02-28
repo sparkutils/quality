@@ -208,7 +208,7 @@ trait Binder extends HigherOrderFunctionLike {
 
   def function: Expression
 
-  def children: Seq[Expression] = arguments ++ functions
+  override def children: Seq[Expression] = arguments ++ functions
 
   def argumentTypes: Seq[AbstractDataType] = arguments.map(_.dataType)
 

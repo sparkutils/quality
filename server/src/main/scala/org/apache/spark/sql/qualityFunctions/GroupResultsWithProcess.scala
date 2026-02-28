@@ -16,7 +16,7 @@ case class GroupResultsWithProcess(arguments: Seq[Expression], function: Express
   override def processResultType: DataType = function.dataType
   override def processResultNullable: Boolean = function.nullable
 
-  override protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
+  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
     copy(newChildren.dropRight(1), newChildren.last)
 
   override def processResult(row: InternalRow, a: ArrayData): Any = {
