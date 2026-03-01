@@ -75,21 +75,22 @@ object GroupResults {
       case ArrayType(_: StructType, _) =>
       case s => qualityException(typeCheckText(s))
     }
-    val ref = RefExpression(ArrayType(rd(Seq(group))))
+    val (typ, nullable) = rd(Seq(group))
+    val ref = RefExpression(ArrayType(typ, nullable))
 
     GroupResultsWithProcess(Seq(group, rsgEnc, rsDec, rsgDec, ref), l)
   }
 
-  def rd(children: Seq[Expression]) = {
+  def rd(children: Seq[Expression]): (DataType, Boolean) = {
     val a = children.head.dataType.asInstanceOf[ArrayType]
     val s = a.elementType.asInstanceOf[StructType]
 
     val rs = s.copy(fields = s.fields.drop(1))
     if (rs.fields.length == 1) {
       // folder non-debug and collector do not have extra fields *
-      rs.fields.head.dataType
+      (rs.fields.head.dataType, rs.fields.head.nullable)
     } else
-      rs
+      (rs, a.containsNull)
   }
 
   def typeCheckText(typ: DataType) = s"GroupResult supports arrays of structures with ruleSuiteGroup: RuleSuiteGroup and " +
@@ -144,8 +145,11 @@ trait GroupResultsBase
     else
       TypeCheckResult.TypeCheckFailure(typeCheckText(children.head.dataType))
 
-  def processResultType: DataType = ArrayType(rd(children))
-  def processResultNullable: Boolean = true
+  def processResultType: DataType = {
+    val (typ, nullable) = rd(children)
+    ArrayType(typ, nullable)
+  }
+  def processResultNullable: Boolean = rd(children)._2
 
   type IMPL = (DataType, (InternalRow, Any) => Any, Boolean)
 
@@ -200,9 +204,7 @@ trait GroupResultsBase
 }
 
 // at least three children, the actual column, the group expression encoder, the resultsuite expression decoder, the optional processor
-case class GroupResults(children: Seq[Expression], hasProcessor: Boolean = false)
-  extends GroupResultsBase {
-
+case class GroupResults(children: Seq[Expression]) extends GroupResultsBase {
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
     copy(newChildren)
 

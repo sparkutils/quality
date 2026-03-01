@@ -704,6 +704,10 @@ object RuleRegistrationFunctions {
       case Seq(e, l: SLambdaFunction) => GroupResults(e, l)
     }, Set(1,2))
 
+    register("unify_result", {
+      case Seq(e) => UnifyResult(e)
+    }, Set(1))
+
     // coalesce support
     registerProcessIfAttributeMissingForAgnostic(registerFunction)
   }

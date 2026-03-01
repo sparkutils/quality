@@ -620,6 +620,13 @@ functions:
         using the processing version without an engine result will fail the analysis phase.
     tags:
       - rule
+  unify_result:
+    description: |
+      unify_result( rule_engine_results ) converts rule engine results into collector / folder results (dropping salient rule), also works with group_results.
+      
+      It does not process debug, expression or DQ results and will fail these in the analysis phase.
+    tags:
+      - rule
 ---
 
 {% macro divstart(clazz) -%}<t class="{{ clazz }}" >{%- endmacro %}

@@ -117,6 +117,7 @@ class GroupResultsTest extends SharedPureConnectTests with Matchers {
 
     // the results of folder are optional / nullable
     type T = (RuleSuiteGroupResults, Seq[Option[Tuple1[Seq[NewPosting]]]])
+    //type T = (RuleSuiteGroupResults, Seq[Option[Seq[NewPosting]]])
 
     import frameless._
     implicit val tenc = TypedEncoder[T]
@@ -283,4 +284,48 @@ class GroupResultsTest extends SharedPureConnectTests with Matchers {
 
   }
 
+  test("unify_result should group, group and then flatten") {
+    val name = register_rule_suite_group(group.copy(
+      ruleSuites = group.ruleSuites.mapValues{
+        rs =>
+          if (rs.id.id == 3)    // folder needs a struct / row, so wrap the array up in outputs, starter and in the type
+            RuleSuite.mapRules(rs){
+              r =>
+                val nrop = r.runOnPassProcessor.withExpr( OutputExpression( "cur -> struct(" +
+                  r.runOnPassProcessor.outputExpression.asInstanceOf[HasRuleText].rule +" )"))
+                r.copy( runOnPassProcessor = nrop )
+            }
+        else
+            rs
+      }.toMap
+    ))
+    val s = sparkSession
+    val tds = {
+      import s.implicits._
+      testData.toDS()
+    }
+    val starter = ", named_struct('arr', array(struct('' as transfer_type, account, product, subcode)))"
+
+    val sub = s"group_results( array( unify_result( collect_runner(rule_suite_from($name, 1)) ), " +
+      s"unify_result( rule_engine_runner(rule_suite_from($name, 2)) ), " +
+      s"unify_result( struct(rule_folder_runner(rule_suite_from($name, 3)$starter).ruleSuiteResults, " +
+        s"rule_folder_runner(rule_suite_from($name, 3)$starter).result.arr as result ) ) ) )" // unpack for folder
+    val ds = tds.selectExpr(s"group_results( array( $sub, unify_result( $sub ), $sub ), f -> flatten(flatten(f)) ) as res")
+    //ds.show()
+
+    // the results of folder are optional / nullable
+    type T = (RuleSuiteGroupResults, Option[Seq[NewPosting]])
+
+    import frameless._
+    implicit val tenc = TypedEncoder[T]
+    implicit val enc = TypedExpressionEncoder[T]
+    //ds.printSchema()
+
+    val r = ds.selectExpr("res.*").as[T].collect()
+
+    verifyRuleSuites(r)(_._1)
+
+    // verify flatten flatten actually worked
+    r.map(_._2.nonEmpty) shouldBe Seq(true, false, false, true, true, true)
+  }
 }
