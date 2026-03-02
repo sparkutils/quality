@@ -240,7 +240,13 @@ class StatisticsTest extends SharedPureConnectTests with Matchers {
     implicit val enc = TypedExpressionEncoder[(String, RuleSuiteResult)]
 
     val df = localSeqToDatasetHolder[(String, RuleSuiteResult)](rsr).toDS()
-    val res = df.select(rule_suite_statistics(col("_2")).as("res")).select("res.*").as[RuleSuiteGroupStatistics].collect().head
+    //df.show()
+
+    val tmp = df.select(rule_suite_statistics(col("_2")).as("res")).select("res.*")
+    val sch = tmp.schema
+    //tmp.show()
+
+    val res = tmp.as[RuleSuiteGroupStatistics].collect().head
 
     val res2 = df.select(expr("rule_suite_statistics(_2)").as("res")).select("res.*").as[RuleSuiteGroupStatistics].collect().head
 

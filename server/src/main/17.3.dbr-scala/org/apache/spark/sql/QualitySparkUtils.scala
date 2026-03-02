@@ -6,18 +6,21 @@ import com.sparkutils.quality.impl.util.Params.formatParams
 import com.sparkutils.quality.impl.util.{EmbeddedTypeCorrection, PassThrough, PassThroughCompileEvals}
 import com.sparkutils.quality.impl.{LambdaFunction, RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
 import com.sparkutils.shim.expressions.{HigherOrderFunctionLike, PredicateHelperPlus}
+import org.apache.spark.internal.Logging
+import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCoercion}
-import org.apache.spark.sql.catalyst.encoders.{ExpressionEncoder, RowEncoder}
+import org.apache.spark.sql.catalyst.encoders.{ExpressionEncoder, RowEncoder, encoderFor}
+import org.apache.spark.sql.catalyst.expressions.aggregate.TypedImperativeAggregate
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, GenerateMutableProjection, QualityExprUtils}
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, EqualNullSafe, Expression, ExpressionSet, HigherOrderFunction, InterpretedMutableProjection, Literal, Projection, UpdateFields}
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, EqualNullSafe, Expression, ExpressionSet, HigherOrderFunction, ImplicitCastInputTypes, InterpretedMutableProjection, Literal, NonSQLExpression, Projection, UnsafeProjection, UnsafeRow, UpdateFields, UserDefinedExpression}
 import org.apache.spark.sql.catalyst.optimizer.{BooleanSimplification, CollapseProject, CombineConcats, CombineTypedFilters, ConstantFolding, ConstantPropagation, EliminateMapObjects, EliminateSerialization, FoldablePropagation, LikeSimplification, NormalizeFloatingNumbers, NullDownPropagation, NullPropagation, ObjectSerializerPruning, OptimizeCsvJsonExprs, OptimizeIn, OptimizeRand, OptimizeUpdateFields, PruneFilters, PushFoldableIntoBranches, ReassignLambdaVariableID, RemoveNoopOperators, RemoveRedundantAggregates, RemoveRedundantAliases, ReorderAssociativeOperator, ReplaceExpressions, ReplaceNullWithFalseInPredicate, ReplaceUpdateFieldsExpression, RewriteCorrelatedScalarSubquery, RewriteLateralSubquery, SimplifyBinaryComparison, SimplifyCaseConversionExpressions, SimplifyCasts, SimplifyConditionals, SimplifyExtractValueOps, UnwrapCastInBinaryComparison}
 import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, LogicalPlan, Project, UnaryNode}
 import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.sql.execution.aggregate.ScalaAggregator
+// import org.apache.spark.sql.execution.aggregate.ScalaAggregator
 import org.apache.spark.sql.expressions.{Aggregator, UserDefinedAggregator}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.qualityFunctions.{FunN, LambdaFunctions}
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.{DataType, StructType}
 import org.apache.spark.util.Utils
 
 /**
@@ -333,6 +336,92 @@ object ClassicQualitySparkUtils {
         }
       }
     )
+
+
+  case class ScalaAggregator[IN, BUF, OUT](
+                                            children: Seq[Expression],
+                                            agg: Aggregator[IN, BUF, OUT],
+                                            inputEncoder: ExpressionEncoder[IN],
+                                            bufferEncoder: ExpressionEncoder[BUF],
+                                            nullable: Boolean = true,
+                                            isDeterministic: Boolean = true,
+                                            mutableAggBufferOffset: Int = 0,
+                                            inputAggBufferOffset: Int = 0,
+                                            aggregatorName: Option[String] = None)
+    extends TypedImperativeAggregate[BUF]
+      with NonSQLExpression
+      with UserDefinedExpression
+      with ImplicitCastInputTypes
+      with Logging {
+
+    // input and buffer encoders are resolved by ResolveEncodersInScalaAgg
+    @transient private[this] lazy val inputDeserializer = inputEncoder.createDeserializer()
+    @transient private[this] lazy val bufferSerializer = bufferEncoder.createSerializer()
+    @transient private[this] lazy val bufferDeserializer = bufferEncoder.createDeserializer()
+    @transient private[this] lazy val outputEncoder = ShimUtils.expressionEncoder(agg.outputEncoder)
+    @transient private[this] lazy val outputSerializer = outputEncoder.createSerializer()
+
+    def dataType: DataType = outputEncoder.objSerializer.dataType
+
+    def inputTypes: Seq[DataType] = inputEncoder.schema.map(_.dataType)
+
+    @transient override lazy val deterministic: Boolean = isDeterministic
+
+    def withNewMutableAggBufferOffset(newMutableAggBufferOffset: Int): ScalaAggregator[IN, BUF, OUT] =
+      copy(mutableAggBufferOffset = newMutableAggBufferOffset)
+
+    def withNewInputAggBufferOffset(newInputAggBufferOffset: Int): ScalaAggregator[IN, BUF, OUT] =
+      copy(inputAggBufferOffset = newInputAggBufferOffset)
+
+    @transient private[this] lazy val inputProjection = UnsafeProjection.create(children)
+
+    def createAggregationBuffer(): BUF = agg.zero
+
+    def update(buffer: BUF, input: InternalRow): BUF =
+      agg.reduce(buffer, inputDeserializer(inputProjection(input)))
+
+    def merge(buffer: BUF, input: BUF): BUF = agg.merge(buffer, input)
+
+    def eval(buffer: BUF): Any = {
+      val row = outputSerializer(agg.finish(buffer))
+      if (outputEncoder.isSerializedAsStructForTopLevel) row else row.get(0, dataType)
+    }
+
+    @transient private[this] lazy val bufferRow = new UnsafeRow(bufferEncoder.namedExpressions.length)
+
+    def serialize(agg: BUF): Array[Byte] =
+      bufferSerializer(agg).asInstanceOf[UnsafeRow].getBytes()
+
+    def deserialize(storageFormat: Array[Byte]): BUF = {
+      bufferRow.pointTo(storageFormat, storageFormat.length)
+      bufferDeserializer(bufferRow)
+    }
+
+    override def toString: String = s"""${nodeName}(${children.mkString(",")})"""
+
+    override def nodeName: String = name
+
+    override def name: String = aggregatorName.getOrElse(agg.getClass.getSimpleName)
+
+    override protected def withNewChildrenInternal(
+                                                    newChildren: IndexedSeq[Expression]): ScalaAggregator[IN, BUF, OUT] =
+      copy(children = newChildren)
+  }
+
+  object ScalaAggregator {
+    def apply[IN, BUF, OUT](
+                             uda: UserDefinedAggregator[IN, BUF, OUT],
+                             children: Seq[Expression]): ScalaAggregator[IN, BUF, OUT] = {
+      new ScalaAggregator(
+        children = children,
+        agg = uda.aggregator,
+        inputEncoder = ShimUtils.expressionEncoder(uda.inputEncoder),
+        bufferEncoder = ShimUtils.expressionEncoder(uda.aggregator.bufferEncoder),
+        nullable = uda.nullable,
+        isDeterministic = uda.deterministic,
+        aggregatorName = uda.givenName)
+    }
+  }
 
   def aggregator[I: Encoder, B, O](agg: Aggregator[I,B,O], exps: Seq[Expression]) =
     ScalaAggregator(UserDefinedAggregator(agg, implicitly[Encoder[I]]), exps)
