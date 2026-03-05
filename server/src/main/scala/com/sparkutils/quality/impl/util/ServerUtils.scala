@@ -6,7 +6,7 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen._
 import org.apache.spark.sql.catalyst.expressions.{BinaryExpression, Expression, Literal, UnaryExpression, Unevaluable, UnsafeArrayData}
-import org.apache.spark.sql.catalyst.util.ArrayData
+import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, ArrayData, GenericArrayData, MapData}
 import org.apache.spark.sql.types.{BooleanType, DataType, StructType}
 
 import scala.reflect.ClassTag
@@ -180,13 +180,23 @@ object Arrays {
    * @param f
    * @return
    */
-  def mapArray[T: ClassTag](array: ArrayData, dataType: DataType, f: Any => T): Array[T] =
+  def mapArray[T: ClassTag](array: ArrayData, dataType: DataType, f: Any => T, by: Int = 0): Array[T] =
     array match {
       case _: UnsafeArrayData =>
-        val res = Array.ofDim[T](array.numElements())
+        val res = Array.ofDim[T](array.numElements() + by)
         array.foreach(dataType, (i, v) => res.update(i, f(v)))
         res
-      case _ => array.array.map(f)
+      case _ => {
+        val r = array.array.map(f)
+        if (by == 0)
+          r
+        else {
+          val res = Array.ofDim[T](array.numElements() + by)
+          r.copyToArray(res)
+          res
+        }
+
+      }
     }
 
   /**
@@ -202,6 +212,68 @@ object Arrays {
       case _ => array.array
     }
 
+}
+
+object Maps {
+  /**
+   * Grows a map by a given number of elements
+   * @param map
+   * @param kt
+   * @param vt
+   * @return
+   */
+  def growMap(map: MapData, kt: DataType, vt: DataType, withPairs: (Any, Any) *): MapData = {
+    val ns = map.numElements() + withPairs.length
+    val nka = Arrays.mapArray(map.keyArray(), kt, identity, withPairs.length)
+    for(i <- (map.numElements() until ns).zipWithIndex) {
+      nka.update(i._1, withPairs(i._2)._1)
+    }
+    val nk = new GenericArrayData(nka)
+
+    val nva = Arrays.mapArray(map.valueArray(), vt, identity, withPairs.length)
+    for(i <- (map.numElements() until ns).zipWithIndex) {
+      nva.update(i._1, withPairs(i._2)._2)
+    }
+    val nv = new GenericArrayData(nva)
+    new ArrayBasedMapData(nk, nv)
+  }
+
+  /**
+   * Replaces a non-primitive map entry, which requires full copy
+   * @param map
+   * @param kt
+   * @param vt
+   * @param i
+   * @param withPair
+   * @return
+   */
+  def replaceEntry(map: MapData, kt: DataType, vt: DataType, i: Int, withPair: (Any, Any)): MapData = {
+    val nka = Arrays.mapArray(map.keyArray(), kt, identity)
+    nka.update(i, withPair._1)
+    val nk = new GenericArrayData(nka)
+
+    val nva = Arrays.mapArray(map.valueArray(), vt, identity)
+    nva.update(i, withPair._2)
+
+    val nv = new GenericArrayData(nva)
+    new ArrayBasedMapData(nk, nv)
+  }
+
+  def get(map: MapData, kt: DataType, vt: DataType, equal: Any => Boolean): Option[Any] = {
+    var found = false
+    var i = -1
+    val keys = map.keyArray()
+    while(!found && i < map.numElements()) {
+      i += 1
+      if (equal(keys.get(i, kt))) {
+        found = true
+      }
+    }
+    if (found)
+      Some(map.valueArray().get(i, vt))
+    else
+      None
+  }
 }
 
 /**
