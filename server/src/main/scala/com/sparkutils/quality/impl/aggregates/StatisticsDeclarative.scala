@@ -114,6 +114,7 @@ object StatsRowOps {
           if (m.keyArray().getLong(i) == id) {
             rs_i = i
           }
+          i += 1
         }
         var createdNewMap = false
         val rs =
@@ -127,23 +128,6 @@ object StatsRowOps {
             r
           }
 
-        /*val nm =
-          if (rs_i > -1)
-            m
-          else {
-            val nm = growMap(m, LongType, statsNestedType,
-              (id, {
-                val r = statsDefaultNestedType.copy()
-                r.setLong(0, id) // always the first field in the stats
-                r
-              }))
-            rs_i = m.numElements()
-            createdNewMap = true
-            nm
-          }
-        val rs = nm.valueArray().get(rs_i, statsNestedType).asInstanceOf[InternalRow]
-
-         */
         statsRowUpdate(rs)
         updateStats(inputRowResult(row), rs)
 
@@ -187,21 +171,6 @@ object StatsRowOps {
           else
             newRow,
           createdNewMap || createdSubMap)
-        /*else
-          if (!(createdNewMap || createdSubMap))
-            // updated inplace
-            (cur, false)
-          else {
-            val tnm =
-              if (createdSubMap) {
-                // need to re-incorporate
-                val n = newRow // n because intellij debug keeps putting StatRowOps in there
-                replaceEntry(nm, LongType, statsNestedType, rs_i, (id, newRow))
-              } else
-                nm
-
-            (statsBuildWhenNewMap(cur, tnm), true)
-          }*/
       }
 
     val res = process(row.getLong(0), row, curGroup, config)
@@ -218,6 +187,7 @@ object StatsRowOps {
         if (m.keyArray().getLong(i) == row.getLong(0)) {
           rs_i = i
         }
+        i += 1
       }
       val nm =
         if (rs_i > -1) {
