@@ -62,6 +62,7 @@ class StatisticsTest extends ClassicSharedTests with Matchers {
     verifyExtendingASingleSet(resReal process rsr2)
 
     verifyCombination(ores, resReal, res2, resReal2)
+    verifyCombination(res2, resReal2, res2, resReal2) // ensure no structural changes
 
     val rsr3 = RuleSuiteResult(
       Id(100,0), Passed, Map(
@@ -87,6 +88,7 @@ class StatisticsTest extends ClassicSharedTests with Matchers {
     verifyCombination(res3, resReal3, ores, resReal)
     verifyCombination(ores2, resReal2, ores, resReal)
     verifyCombination(res3, resReal3, ores2, resReal2)
+    verifyCombination(res3, resReal3, res3, resReal3) // ensure no structural changes
 
     val rsr4 = RuleSuiteResult(
       Id(10,0), Passed, Map(
@@ -108,6 +110,7 @@ class StatisticsTest extends ClassicSharedTests with Matchers {
     verifyCombination(ores2, resReal2, res4, resReal4)
     verifyCombination(res4, resReal4, ores, resReal)
     verifyCombination(res4, resReal4, ores2, resReal2)
+    verifyCombination(res4, resReal4, res4, resReal4) // ensure no structural changes
 
   }
 

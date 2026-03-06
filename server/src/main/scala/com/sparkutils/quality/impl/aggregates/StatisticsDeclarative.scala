@@ -3,7 +3,7 @@ package com.sparkutils.quality.impl.aggregates
 import com.sparkutils.quality.ResultStatisticsProvider.ResultStatisticOps
 import com.sparkutils.quality.RuleSuite.defaultProbablePass
 import com.sparkutils.quality.impl.aggregates.StatsRowOps.processResult
-import com.sparkutils.quality.impl.aggregates.StatsTypes.{rType, rgType, rsType, setType, updateStats}
+import com.sparkutils.quality.impl.aggregates.StatsTypes.{mergeStats, rType, rgType, rsType, setType, updateStats}
 import com.sparkutils.quality.{DefaultRule, DefaultRuleInt, DisabledRule, DisabledRuleInt, Failed, FailedInt, IgnoredRule, IgnoredRuleInt, Passed, PassedInt, Probability, RuleSuiteGroupResults, RuleSuiteGroupStatistics, RuleSuiteResult, RuleSuiteStatistics, SoftFailed, SoftFailedInt}
 import com.sparkutils.quality.impl.util.{Compare, Maps}
 import com.sparkutils.quality.impl.util.Maps.{growMap, replaceEntry}
@@ -43,21 +43,24 @@ object StatsTypes {
         row.update(8, row.getLong(8) + 1L)
   }
 
-  def mergeStats(into: InternalRow, from: InternalRow): Unit =
-    for(i <- 1 until 8) {
+  def mergeStats(from: InternalRow, into: InternalRow): Unit =
+    for(i <- 1 to 8) {
       into.update(i, into.getLong(i) + from.getLong(i))
     }
 
 }
 
 
-case class StatsRowOps(level: String, statsMapOffset: Int, inputRowResult: Any => Int, statsDefaultNestedType: InternalRow,
-                       statsNestedType: DataType, statsRowUpdate: InternalRow => Unit, statsBuildWhenNewMap: (InternalRow, MapData) => InternalRow,
+case class StatsRowOps[T](level: String, statsMapOffset: Int, inputRowResult: Any => T,
+                       statsDefaultNestedType: InternalRow, statsNestedType: DataType,
+                       statsBuildWhenNewMap: (InternalRow, MapData) => InternalRow,
                        nextInputLevels: Any => MapData, nextInputRowSize: Int, nextStatMap: InternalRow => MapData,
-                       nextStatType: StructType, nextStatsBuildWhenNewMap: (InternalRow, MapData) => InternalRow)
+                       nextStatType: StructType, nextStatsBuildWhenNewMap: (InternalRow, MapData) => InternalRow,
+                       processStats: (T, InternalRow) => Unit)
 
 object StatsRowOps {
 
+  lazy val defaultGroupStats = Literal.default(rsType).value.asInstanceOf[InternalRow]
   lazy val defaultSuiteStats = Literal.default(rsType).value.asInstanceOf[InternalRow]
   lazy val defaultSetStats = Literal.default(setType).value.asInstanceOf[InternalRow]
   lazy val defaultRuleStats = Literal.default(rType).value.asInstanceOf[InternalRow]
@@ -70,28 +73,73 @@ object StatsRowOps {
     InternalRow(set.getLong(0), set.getLong(1),set.getLong(2),set.getLong(3),set.getLong(4),
       set.getLong(5),set.getLong(6),set.getLong(7),set.getLong(8), m)
   }
+  val noOpMapF = (set: InternalRow, m: MapData) => set
+
   val emptyAr = new GenericArrayData(Array.ofDim[Any](0))
   val emptyMap = new ArrayBasedMapData(emptyAr, emptyAr)
 
   val processConfig = Seq(
     StatsRowOps(level = "group_to_suite", statsMapOffset = 0,
       inputRowResult = _.asInstanceOf[InternalRow].getInt(1), statsDefaultNestedType = defaultSuiteStats,
-      statsNestedType = rsType, statsRowUpdate = row => row.update(9, row.getLong(9) + 1L),
-      statsBuildWhenNewMap = (curGroup, m) => InternalRow(m, curGroup.getLong(1)),
+      statsNestedType = rsType, statsBuildWhenNewMap = (curGroup, m) => InternalRow(m, curGroup.getLong(1)),
       nextInputLevels = row => row.asInstanceOf[InternalRow].getMap(2), nextInputRowSize = 2,
-      nextStatMap = _.getMap(10), nextStatType = setType, nextStatsBuildWhenNewMap = suiteMapF
-    ),
+      nextStatMap = _.getMap(10), nextStatType = setType, nextStatsBuildWhenNewMap = suiteMapF,
+      processStats = (r: Int, row: InternalRow) => {
+        updateStats(r, row)
+        row.update(9, row.getLong(9) + 1L)
+      }),
     StatsRowOps(level = "suite_to_set", statsMapOffset = 10,
       inputRowResult = _.asInstanceOf[InternalRow].getInt(0), statsDefaultNestedType = defaultSetStats,
-      statsNestedType = setType, statsRowUpdate = _ => (), statsBuildWhenNewMap =  suiteMapF,
+      statsNestedType = setType, statsBuildWhenNewMap =  noOpMapF,
       nextInputLevels = row => row.asInstanceOf[InternalRow].getMap(1), nextInputRowSize = -1,
-      nextStatMap = _.getMap(9), nextStatType = rType, nextStatsBuildWhenNewMap = setMapF),
+      nextStatMap = _.getMap(9), nextStatType = rType, nextStatsBuildWhenNewMap = setMapF,
+      processStats = updateStats),
     // most of the bit below are ignored for a rule set level result
     StatsRowOps(level = "set_to_rule", statsMapOffset = 9,
       inputRowResult = _.asInstanceOf[Int], statsDefaultNestedType = defaultRuleStats,
-      statsNestedType = rType, statsRowUpdate = _ => (), statsBuildWhenNewMap = setMapF,
+      statsNestedType = rType, statsBuildWhenNewMap = noOpMapF,
       nextInputLevels = _ => emptyMap, nextInputRowSize = -1,
-      nextStatMap = _ => emptyMap, nextStatType = rType, nextStatsBuildWhenNewMap = (row, _) => row)
+      nextStatMap = _ => emptyMap, nextStatType = rType, nextStatsBuildWhenNewMap = (row, _) => row,
+      processStats = updateStats)
+  )
+
+  val combineConfig = Seq(
+    StatsRowOps(level = "group_to_group", statsMapOffset = 0,
+      inputRowResult = _.asInstanceOf[InternalRow],
+      statsDefaultNestedType = defaultGroupStats, // never used as it's always present
+      statsNestedType = rgType,
+      statsBuildWhenNewMap = (_, m) => m.valueArray().getStruct(0, 2), // the actual data
+      nextInputLevels = row => row.asInstanceOf[InternalRow].getMap(0), nextInputRowSize = 11,
+      nextStatMap = _.getMap(0), nextStatType = rsType,
+      nextStatsBuildWhenNewMap = (cur: InternalRow, m: MapData) => {
+        InternalRow(m, cur.getLong(1))
+      },
+      processStats = (from: InternalRow, into: InternalRow) => {
+        into.setLong(1, into.getLong(1) + from.getLong(1))
+      }),
+    StatsRowOps(level = "group_to_suite", statsMapOffset = 0,
+      inputRowResult = _.asInstanceOf[InternalRow], statsDefaultNestedType = defaultSuiteStats,
+      statsNestedType = rsType, statsBuildWhenNewMap = noOpMapF,
+      nextInputLevels = row => row.asInstanceOf[InternalRow].getMap(10), nextInputRowSize = 10,
+      nextStatMap = _.getMap(10), nextStatType = setType, nextStatsBuildWhenNewMap = suiteMapF,
+      processStats = (from: InternalRow, into: InternalRow) => {
+        mergeStats(from, into)
+        // RuleSuite rowcount
+        into.setLong(9, into.getLong(9) + from.getLong(9))
+      }),
+    StatsRowOps(level = "suite_to_set", statsMapOffset = 10,
+      inputRowResult = _.asInstanceOf[InternalRow], statsDefaultNestedType = defaultSetStats,
+      statsNestedType = setType, statsBuildWhenNewMap =  noOpMapF,
+      nextInputLevels = row => row.asInstanceOf[InternalRow].getMap(9), nextInputRowSize = 8,
+      nextStatMap = _.getMap(9), nextStatType = rType, nextStatsBuildWhenNewMap = setMapF,
+      processStats = mergeStats),
+    // most of the bit below are ignored for a rule set level result
+    StatsRowOps(level = "set_to_rule", statsMapOffset = 9,
+      inputRowResult = _.asInstanceOf[InternalRow], statsDefaultNestedType = defaultRuleStats,
+      statsNestedType = rType, statsBuildWhenNewMap = noOpMapF,
+      nextInputLevels = _ => emptyMap, nextInputRowSize = 8,
+      nextStatMap = _ => emptyMap, nextStatType = rType, nextStatsBuildWhenNewMap = (row, _) => row,
+      processStats = mergeStats)
   )
 
   /**
@@ -100,84 +148,76 @@ object StatsRowOps {
    * @param row source information
    * @return RuleSuiteGroupStatistics
    */
-  def processWithConfig(id: Long, curGroup: InternalRow, row: InternalRow, stats: Seq[StatsRowOps]) = {
+  def processWithConfig[T](id: Long, curGroup: InternalRow, row: InternalRow, stats: Seq[StatsRowOps[T]]) = {
 
-    def process(id: Long, row: Any, cur: InternalRow, stats: Seq[StatsRowOps]): (InternalRow, Boolean) =
-      if (stats.isEmpty) {
-        val head = stats.head
-        import head._
+    def process(id: Long, row: Any, cur: InternalRow, stats: Seq[StatsRowOps[T]]): (InternalRow, Boolean) = {
+      val (head, rest) = (stats.head, stats.tail)
+      import head._
 
-        updateStats(row.asInstanceOf[Int], cur)
-        (cur, false)
-      } else {
-        val (head, rest) = (stats.head, stats.tail)
-        import head._
-
-        val m = cur.getMap(statsMapOffset)
-        var rs_i = -1
-        var i = 0
-        while (rs_i == -1 && i < m.numElements()) {
-          if (m.keyArray().getLong(i) == id) {
-            rs_i = i
-          }
-          i += 1
+      val m = cur.getMap(statsMapOffset)
+      var rs_i = -1
+      var i = 0
+      while (rs_i == -1 && i < m.numElements()) {
+        if (m.keyArray().getLong(i) == id) {
+          rs_i = i
         }
-        var createdNewMap = false
-        val rs =
-          if (rs_i > -1)
-            m.valueArray().get(rs_i, statsNestedType).asInstanceOf[InternalRow]
-          else {
-            val r = statsDefaultNestedType.copy()
-            r.setLong(0, id) // always the first field in the stats
-
-            createdNewMap = true
-            r
-          }
-
-        statsRowUpdate(rs)
-        updateStats(inputRowResult(row), rs)
-
-        val nextSM = nextStatMap(rs)
-        val resultRows = nextInputLevels(row)
-
-        val newRows =
-          for { i <- 0 until resultRows.numElements() }
-            yield
-              process(resultRows.keyArray().getLong(i),
-                if (nextInputRowSize > 0)
-                  resultRows.valueArray().getStruct(i, nextInputRowSize)
-                else
-                  // it's the rule level result
-                  resultRows.valueArray().getInt(i)
-                , rs, rest) // this should be the correct row, so we should be inside already...
-
-        // if any new rows were added below then we'll have to re-create all above
-        val createdSubMap = newRows.exists(_._2)
-        lazy val newRow: InternalRow =
-        {
-          // newRows may be updated or added, but there are also possible left-overs
-          val newMap = mutable.Map.empty[Long, InternalRow]// TODO perhaps an array is quicker for smaller volumes
-          for{
-            i <- 0 until nextSM.numElements()
-          } {
-            newMap.put(nextSM.keyArray().getLong(i), nextSM.valueArray().getStruct(i, nextStatType.length))
-          }
-          for{
-            i <- newRows.indices
-          } {
-            newMap.put(newRows(i)._1.getLong(0), newRows(i)._1)
-          }
-          val keys = new GenericArrayData(newMap.keys.toArray)
-          val values = new GenericArrayData(newMap.values.toArray)
-          nextStatsBuildWhenNewMap(rs, new ArrayBasedMapData(keys, values))
-        }
-
-        (if (rest.isEmpty || !(createdNewMap || createdSubMap))
-          rs
-        else
-          newRow,
-          createdNewMap || createdSubMap)
+        i += 1
       }
+      var createdNewMap = false
+      val rs =
+        if (rs_i > -1)
+          m.valueArray().get(rs_i, statsNestedType).asInstanceOf[InternalRow]
+        else {
+          val r = statsDefaultNestedType.copy()
+          r.setLong(0, id) // always the first field in the stats
+
+          createdNewMap = true
+          r
+        }
+
+      processStats(inputRowResult(row), rs)
+
+      val nextSM = nextStatMap(rs)
+      val resultRows = nextInputLevels(row)
+
+      val newRows =
+        for { i <- 0 until resultRows.numElements() }
+          yield
+            process(resultRows.keyArray().getLong(i),
+              if (nextInputRowSize > 0)
+                resultRows.valueArray().getStruct(i, nextInputRowSize)
+              else
+                // it's the rule level result
+                resultRows.valueArray().getInt(i)
+              , rs, rest) // this should be the correct row, so we should be inside already...
+
+      // if any new rows were added below then we'll have to re-create all above
+      val createdSubMap = newRows.exists(_._2)
+      lazy val newRow: InternalRow =
+      {
+        // newRows may be updated or added, but there are also possible left-overs
+        val newMap = mutable.Map.empty[Long, InternalRow]// TODO perhaps an array is quicker for smaller volumes
+        for{
+          i <- 0 until nextSM.numElements()
+        } {
+          newMap.put(nextSM.keyArray().getLong(i), nextSM.valueArray().getStruct(i, nextStatType.length))
+        }
+        for{
+          i <- newRows.indices
+        } {
+          newMap.put(newRows(i)._1.getLong(0), newRows(i)._1)
+        }
+        val keys = new GenericArrayData(newMap.keys.toArray)
+        val values = new GenericArrayData(newMap.values.toArray)
+        nextStatsBuildWhenNewMap(rs, new ArrayBasedMapData(keys, values))
+      }
+
+      (if (rest.isEmpty || !(createdNewMap || createdSubMap))
+        rs
+      else
+        newRow,
+        createdNewMap || createdSubMap)
+    }
 
     val res = process(id, row, curGroup, stats)
     if (res._2) {
@@ -231,14 +271,24 @@ object StatsRowOps {
    * @return RuleSuiteGroupStatistics
    */
   def combineResult(into: InternalRow, from: InternalRow) = {
-    lazy val rgStatsSer = ShimUtils.expressionEncoder(com.sparkutils.quality.impl.Encoders.ruleSuiteGroupStatisticsTypedExpEnc).resolveAndBind().objSerializer
+    /*lazy val rgStatsSer = ShimUtils.expressionEncoder(com.sparkutils.quality.impl.Encoders.ruleSuiteGroupStatisticsTypedExpEnc).resolveAndBind().objSerializer
     lazy val rgStatsDer = ShimUtils.expressionEncoder(com.sparkutils.quality.impl.Encoders.ruleSuiteGroupStatisticsTypedExpEnc).resolveAndBind().objDeserializer
 
     val left = rgStatsDer.eval(into).asInstanceOf[RuleSuiteGroupStatistics]
     val right = rgStatsDer.eval(from).asInstanceOf[RuleSuiteGroupStatistics]
     val res = left combine right
 
-    rgStatsSer.eval(InternalRow(res)).asInstanceOf[InternalRow]
+    rgStatsSer.eval(InternalRow(res)).asInstanceOf[InternalRow] */
+
+    // simple wrapper to provide a map and re-use the code
+    val wrapped = InternalRow(new ArrayBasedMapData(new GenericArrayData(Array(1L)), new GenericArrayData(Array(into))))
+    // either wrapped if it has no structural changes or
+    val res = processWithConfig(1L, wrapped, from, combineConfig)
+    if (res.numFields == 1)
+      // structural change
+      res.getMap(0).valueArray().getStruct(0, rgType.length)
+    else
+      res // fully in-place
   }
 }
 
