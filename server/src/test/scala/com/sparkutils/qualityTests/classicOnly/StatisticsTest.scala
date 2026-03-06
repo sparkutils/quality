@@ -34,13 +34,15 @@ class StatisticsTest extends ClassicSharedTests with Matchers {
       ))
 
     val og = rgStatsSer.eval(InternalRow(RuleSuiteGroupStatistics())).asInstanceOf[InternalRow]
+
     val rs = row(rsr)
-    val res = StatsRowOps.processResult(og, rs)
+    val res = StatsRowOps.processResult(og.copy(), rs)
 
     val resReal = rgStatsDer.eval(res).asInstanceOf[RuleSuiteGroupStatistics]
 
     verifySingleRuleSet(resReal)
     verifySingleRuleSet(RuleSuiteGroupStatistics() process rsr) // simpler functional code should be the same
+    verifyCombination(og, RuleSuiteGroupStatistics(), res, resReal) // nothing present, full structural change
 
     val rsr2 = RuleSuiteResult(
       Id(100,0), Passed, Map(
@@ -63,6 +65,7 @@ class StatisticsTest extends ClassicSharedTests with Matchers {
 
     verifyCombination(ores, resReal, res2, resReal2)
     verifyCombination(res2, resReal2, res2, resReal2) // ensure no structural changes
+    verifyCombination(og, RuleSuiteGroupStatistics(), res2, resReal2) // nothing present, full structural change
 
     val rsr3 = RuleSuiteResult(
       Id(100,0), Passed, Map(
@@ -89,6 +92,7 @@ class StatisticsTest extends ClassicSharedTests with Matchers {
     verifyCombination(ores2, resReal2, ores, resReal)
     verifyCombination(res3, resReal3, ores2, resReal2)
     verifyCombination(res3, resReal3, res3, resReal3) // ensure no structural changes
+    verifyCombination(og, RuleSuiteGroupStatistics(), ores3, resReal3) // nothing present, full structural change
 
     val rsr4 = RuleSuiteResult(
       Id(10,0), Passed, Map(
@@ -111,7 +115,7 @@ class StatisticsTest extends ClassicSharedTests with Matchers {
     verifyCombination(res4, resReal4, ores, resReal)
     verifyCombination(res4, resReal4, ores2, resReal2)
     verifyCombination(res4, resReal4, res4, resReal4) // ensure no structural changes
-
+    verifyCombination(og, RuleSuiteGroupStatistics(), res4, resReal4) // nothing present, full structural change
   }
 
   private def verifyCombination(res: InternalRow, resReal: RuleSuiteGroupStatistics, res2: InternalRow, resReal2: RuleSuiteGroupStatistics) = {

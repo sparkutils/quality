@@ -130,14 +130,14 @@ object StatsRowOps {
     StatsRowOps(level = "suite_to_set", statsMapOffset = 10,
       inputRowResult = _.asInstanceOf[InternalRow], statsDefaultNestedType = defaultSetStats,
       statsNestedType = setType, statsBuildWhenNewMap =  noOpMapF,
-      nextInputLevels = row => row.asInstanceOf[InternalRow].getMap(9), nextInputRowSize = 8,
+      nextInputLevels = row => row.asInstanceOf[InternalRow].getMap(9), nextInputRowSize = 9,
       nextStatMap = _.getMap(9), nextStatType = rType, nextStatsBuildWhenNewMap = setMapF,
       processStats = mergeStats),
     // most of the bit below are ignored for a rule set level result
     StatsRowOps(level = "set_to_rule", statsMapOffset = 9,
       inputRowResult = _.asInstanceOf[InternalRow], statsDefaultNestedType = defaultRuleStats,
       statsNestedType = rType, statsBuildWhenNewMap = noOpMapF,
-      nextInputLevels = _ => emptyMap, nextInputRowSize = 8,
+      nextInputLevels = _ => emptyMap, nextInputRowSize = 9,
       nextStatMap = _ => emptyMap, nextStatType = rType, nextStatsBuildWhenNewMap = (row, _) => row,
       processStats = mergeStats)
   )
@@ -271,24 +271,15 @@ object StatsRowOps {
    * @return RuleSuiteGroupStatistics
    */
   def combineResult(into: InternalRow, from: InternalRow) = {
-    /*lazy val rgStatsSer = ShimUtils.expressionEncoder(com.sparkutils.quality.impl.Encoders.ruleSuiteGroupStatisticsTypedExpEnc).resolveAndBind().objSerializer
-    lazy val rgStatsDer = ShimUtils.expressionEncoder(com.sparkutils.quality.impl.Encoders.ruleSuiteGroupStatisticsTypedExpEnc).resolveAndBind().objDeserializer
-
-    val left = rgStatsDer.eval(into).asInstanceOf[RuleSuiteGroupStatistics]
-    val right = rgStatsDer.eval(from).asInstanceOf[RuleSuiteGroupStatistics]
-    val res = left combine right
-
-    rgStatsSer.eval(InternalRow(res)).asInstanceOf[InternalRow] */
-
     // simple wrapper to provide a map and re-use the code
     val wrapped = InternalRow(new ArrayBasedMapData(new GenericArrayData(Array(1L)), new GenericArrayData(Array(into))))
     // either wrapped if it has no structural changes or
     val res = processWithConfig(1L, wrapped, from, combineConfig)
     if (res.numFields == 1)
-      // structural change
+      // structural change, but not likely to happen
       res.getMap(0).valueArray().getStruct(0, rgType.length)
     else
-      res // fully in-place
+      res // fully in-place or directly updated in a reconstructed fashion
   }
 }
 
