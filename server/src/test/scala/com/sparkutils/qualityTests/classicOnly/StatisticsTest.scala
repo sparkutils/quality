@@ -53,12 +53,15 @@ class StatisticsTest extends ClassicSharedTests with Matchers {
           ))
       ))
 
+    val ores = res.copy()
     val res2 = StatsRowOps.processResult(res, row(rsr2))
 
     val resReal2 = rgStatsDer.eval(res2).asInstanceOf[RuleSuiteGroupStatistics]
 
     verifyExtendingASingleSet(resReal2)
     verifyExtendingASingleSet(resReal process rsr2)
+
+    verifyCombination(ores, resReal, res2, resReal2)
 
     val rsr3 = RuleSuiteResult(
       Id(100,0), Passed, Map(
@@ -70,12 +73,20 @@ class StatisticsTest extends ClassicSharedTests with Matchers {
           ))
       ))
 
+    val ores2 = res2.copy()
     val res3 = StatsRowOps.processResult(res2, row(rsr3))
+    val ores3 = res3.copy()
 
     val resReal3 = rgStatsDer.eval(res3).asInstanceOf[RuleSuiteGroupStatistics]
 
     verifyAddingARuleSet(resReal3)
     verifyAddingARuleSet(resReal2 process rsr3)
+
+    verifyCombination(ores2, resReal2, res3, resReal3)
+    verifyCombination(ores, resReal, res3, resReal3)
+    verifyCombination(res3, resReal3, ores, resReal)
+    verifyCombination(ores2, resReal2, ores, resReal)
+    verifyCombination(res3, resReal3, ores2, resReal2)
 
     val rsr4 = RuleSuiteResult(
       Id(10,0), Passed, Map(
@@ -92,6 +103,16 @@ class StatisticsTest extends ClassicSharedTests with Matchers {
     verifyAddingARuleSuite(resReal4)
     verifyAddingARuleSuite(resReal3 process rsr4)
 
+    verifyCombination(ores3, resReal3, res4, resReal4)
+    verifyCombination(res4, resReal4, ores3, resReal3)
+    verifyCombination(ores2, resReal2, res4, resReal4)
+    verifyCombination(res4, resReal4, ores, resReal)
+    verifyCombination(res4, resReal4, ores2, resReal2)
+
+  }
+
+  private def verifyCombination(res: InternalRow, resReal: RuleSuiteGroupStatistics, res2: InternalRow, resReal2: RuleSuiteGroupStatistics) = {
+    rgStatsDer.eval(StatsRowOps.combineResult(res.copy(), res2)).asInstanceOf[RuleSuiteGroupStatistics] shouldBe (resReal combine resReal2)
   }
 
   private def verifyAddingARuleSuite(resReal4: RuleSuiteGroupStatistics) = {

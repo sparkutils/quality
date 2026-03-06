@@ -7,6 +7,7 @@ import com.sparkutils.quality.impl.aggregates.StatsTypes.{rType, rgType, rsType,
 import com.sparkutils.quality.{DefaultRule, DefaultRuleInt, DisabledRule, DisabledRuleInt, Failed, FailedInt, IgnoredRule, IgnoredRuleInt, Passed, PassedInt, Probability, RuleSuiteGroupResults, RuleSuiteGroupStatistics, RuleSuiteResult, RuleSuiteStatistics, SoftFailed, SoftFailedInt}
 import com.sparkutils.quality.impl.util.{Compare, Maps}
 import com.sparkutils.quality.impl.util.Maps.{growMap, replaceEntry}
+import org.apache.spark.sql.ShimUtils
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
 import org.apache.spark.sql.catalyst.expressions.{AttributeReference, BinaryExpression, Expression, Literal, UnaryExpression}
@@ -72,7 +73,7 @@ object StatsRowOps {
   val emptyAr = new GenericArrayData(Array.ofDim[Any](0))
   val emptyMap = new ArrayBasedMapData(emptyAr, emptyAr)
 
-  val config = Seq(
+  val processConfig = Seq(
     StatsRowOps(level = "group_to_suite", statsMapOffset = 0,
       inputRowResult = _.asInstanceOf[InternalRow].getInt(1), statsDefaultNestedType = defaultSuiteStats,
       statsNestedType = rsType, statsRowUpdate = row => row.update(9, row.getLong(9) + 1L),
@@ -93,8 +94,13 @@ object StatsRowOps {
       nextStatMap = _ => emptyMap, nextStatType = rType, nextStatsBuildWhenNewMap = (row, _) => row)
   )
 
-  def processResult(curGroup: InternalRow, row: InternalRow) = {
-    curGroup.update(1, curGroup.getLong(1) + 1L)
+  /**
+   * Traverse a pair of maps updating the curGroup from the row
+   * @param curGroup the target
+   * @param row source information
+   * @return RuleSuiteGroupStatistics
+   */
+  def processWithConfig(id: Long, curGroup: InternalRow, row: InternalRow, stats: Seq[StatsRowOps]) = {
 
     def process(id: Long, row: Any, cur: InternalRow, stats: Seq[StatsRowOps]): (InternalRow, Boolean) =
       if (stats.isEmpty) {
@@ -148,43 +154,42 @@ object StatsRowOps {
         // if any new rows were added below then we'll have to re-create all above
         val createdSubMap = newRows.exists(_._2)
         lazy val newRow: InternalRow =
-          {
-            // newRows may be updated or added, but there are also possible left-overs
-            val newMap = mutable.Map.empty[Long, InternalRow]// TODO perhaps an array is quicker for smaller volumes
-            for{
-              i <- 0 until nextSM.numElements()
-            } {
-              newMap.put(nextSM.keyArray().getLong(i), nextSM.valueArray().getStruct(i, nextStatType.length))
-            }
-            for{
-              i <- newRows.indices
-            } {
-              newMap.put(newRows(i)._1.getLong(0), newRows(i)._1)
-            }
-            val keys = new GenericArrayData(newMap.keys.toArray)
-            val values = new GenericArrayData(newMap.values.toArray)
-            nextStatsBuildWhenNewMap(rs, new ArrayBasedMapData(keys, values))
+        {
+          // newRows may be updated or added, but there are also possible left-overs
+          val newMap = mutable.Map.empty[Long, InternalRow]// TODO perhaps an array is quicker for smaller volumes
+          for{
+            i <- 0 until nextSM.numElements()
+          } {
+            newMap.put(nextSM.keyArray().getLong(i), nextSM.valueArray().getStruct(i, nextStatType.length))
           }
+          for{
+            i <- newRows.indices
+          } {
+            newMap.put(newRows(i)._1.getLong(0), newRows(i)._1)
+          }
+          val keys = new GenericArrayData(newMap.keys.toArray)
+          val values = new GenericArrayData(newMap.values.toArray)
+          nextStatsBuildWhenNewMap(rs, new ArrayBasedMapData(keys, values))
+        }
 
         (if (rest.isEmpty || !(createdNewMap || createdSubMap))
-            rs
-          else
-            newRow,
+          rs
+        else
+          newRow,
           createdNewMap || createdSubMap)
       }
 
-    val res = process(row.getLong(0), row, curGroup, config)
+    val res = process(id, row, curGroup, stats)
     if (res._2) {
       // some form of map change needed below, so it must cascade up
-      val id = row.getLong(0)
-      val head = config.head
+      val head = stats.head
       import head._
       // either we need to re-integrate it or it was brand new
       val m = curGroup.getMap(statsMapOffset)
       var rs_i = -1
       var i = 0
       while (rs_i == -1 && i < m.numElements()) {
-        if (m.keyArray().getLong(i) == row.getLong(0)) {
+        if (m.keyArray().getLong(i) == id) {
           rs_i = i
         }
         i += 1
@@ -205,6 +210,35 @@ object StatsRowOps {
     } else
       res._1
 
+  }
+
+  /**
+   * Processes a result from a row into the current partitions grouped stats
+   * @param curGroup the buffered RuleSuiteGroupStatistics
+   * @param row RuleSuiteResult from a row
+   * @return RuleSuiteGroupStatistics
+   */
+  def processResult(curGroup: InternalRow, row: InternalRow) = {
+    curGroup.update(1, curGroup.getLong(1) + 1L)
+
+    processWithConfig(row.getLong(0), curGroup, row, processConfig)
+  }
+
+  /**
+   * Combines group stats from partitions / final to driver
+   * @param into RuleSuiteGroupStatistics
+   * @param from RuleSuiteGroupStatistics
+   * @return RuleSuiteGroupStatistics
+   */
+  def combineResult(into: InternalRow, from: InternalRow) = {
+    lazy val rgStatsSer = ShimUtils.expressionEncoder(com.sparkutils.quality.impl.Encoders.ruleSuiteGroupStatisticsTypedExpEnc).resolveAndBind().objSerializer
+    lazy val rgStatsDer = ShimUtils.expressionEncoder(com.sparkutils.quality.impl.Encoders.ruleSuiteGroupStatisticsTypedExpEnc).resolveAndBind().objDeserializer
+
+    val left = rgStatsDer.eval(into).asInstanceOf[RuleSuiteGroupStatistics]
+    val right = rgStatsDer.eval(from).asInstanceOf[RuleSuiteGroupStatistics]
+    val res = left combine right
+
+    rgStatsSer.eval(InternalRow(res)).asInstanceOf[InternalRow]
   }
 }
 
@@ -240,10 +274,13 @@ case class MergeStatistics(children: Seq[Expression]) extends Expression with Co
   lazy val Seq(left, right, groupSer, groupDer) = children
 
   override def eval(input: InternalRow): Any = {
-    val lgrp = groupDer.eval(left.eval(input).asInstanceOf[InternalRow]).asInstanceOf[RuleSuiteGroupStatistics]
+    /*val lgrp = groupDer.eval(left.eval(input).asInstanceOf[InternalRow]).asInstanceOf[RuleSuiteGroupStatistics]
     val rgrp = groupDer.eval(right.eval(input).asInstanceOf[InternalRow]).asInstanceOf[RuleSuiteGroupStatistics]
     val r = lgrp.combine(rgrp)
     groupSer.eval(InternalRow(r))
+
+     */
+    StatsRowOps.combineResult(left.eval(input).asInstanceOf[InternalRow], right.eval(input).asInstanceOf[InternalRow])
   }
 
   override protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
