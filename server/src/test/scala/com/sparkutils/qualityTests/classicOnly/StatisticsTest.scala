@@ -2,11 +2,11 @@ package com.sparkutils.qualityTests.classicOnly
 
 import com.sparkutils.quality.ResultStatisticsProvider.ResultStatisticOps
 import com.sparkutils.quality.impl.aggregates.StatsRowOps
-import com.sparkutils.quality.{DefaultRule, DisabledRule, Failed, Id, IgnoredRule, Passed, Probability, RuleSetResult, RuleSuiteGroupStatistics, RuleSuiteResult, RuleSuiteStatistics, SoftFailed}
+import com.sparkutils.quality.{DefaultRule, DisabledRule, Failed, Id, IgnoredRule, Passed, Probability, RuleSetResult, RuleSuiteGroupStatistics, RuleSuiteResult, SoftFailed}
 import com.sparkutils.qualityTests.util.ClassicSharedTests
 import org.apache.spark.sql.ShimUtils
 import org.apache.spark.sql.catalyst.InternalRow
-import org.scalatest.{BeforeAndAfterAll, FunSuite, Matchers}
+import org.scalatest.Matchers
 
 class StatisticsTest extends ClassicSharedTests with Matchers {
 
@@ -38,13 +38,9 @@ class StatisticsTest extends ClassicSharedTests with Matchers {
     val res = StatsRowOps.processResult(og, rs)
 
     val resReal = rgStatsDer.eval(res).asInstanceOf[RuleSuiteGroupStatistics]
-    resReal.rowCount shouldBe 1
-    resReal.ruleSuites.size shouldBe 1
-    resReal.ruleSuites.head._2.rowCount shouldBe 1
-    resReal.ruleSuites.head._1 shouldBe Id(100,0) // normal StatisticsTest covers the overall correctness
-    resReal.ruleSuites.head._2.ruleSets.size shouldBe 1
-    resReal.ruleSuites.head._2.ruleSets.head._2.rules.size shouldBe 6
-    resReal.ruleSuites.head._2.ruleSets.head._2.rules(Id(6,0)).disabled shouldBe 1
+
+    verifySingleRuleSet(resReal)
+    verifySingleRuleSet(RuleSuiteGroupStatistics() process rsr) // simpler functional code should be the same
 
     val rsr2 = RuleSuiteResult(
       Id(100,0), Passed, Map(
@@ -60,15 +56,9 @@ class StatisticsTest extends ClassicSharedTests with Matchers {
     val res2 = StatsRowOps.processResult(res, row(rsr2))
 
     val resReal2 = rgStatsDer.eval(res2).asInstanceOf[RuleSuiteGroupStatistics]
-    resReal2.rowCount shouldBe 2
-    resReal2.ruleSuites.size shouldBe 1
-    resReal2.ruleSuites.head._2.rowCount shouldBe 2
-    resReal2.ruleSuites.head._1 shouldBe Id(100,0)
-    resReal2.ruleSuites.head._2.ruleSets.size shouldBe 1
-    resReal2.ruleSuites.head._2.ruleSets.head._2.rules.size shouldBe 8
-    resReal2.ruleSuites.head._2.ruleSets.head._2.rules(Id(6,0)).disabled shouldBe 1
-    resReal2.ruleSuites.head._2.ruleSets.head._2.rules(Id(6,0)).passed shouldBe 1
-    resReal2.ruleSuites.head._2.ruleSets.head._2.rules(Id(4,0)).defaulted shouldBe 2
+
+    verifyExtendingASingleSet(resReal2)
+    verifyExtendingASingleSet(resReal process rsr2)
 
     val rsr3 = RuleSuiteResult(
       Id(100,0), Passed, Map(
@@ -83,17 +73,9 @@ class StatisticsTest extends ClassicSharedTests with Matchers {
     val res3 = StatsRowOps.processResult(res2, row(rsr3))
 
     val resReal3 = rgStatsDer.eval(res3).asInstanceOf[RuleSuiteGroupStatistics]
-    resReal3.rowCount shouldBe 3
-    resReal3.ruleSuites.size shouldBe 1
-    resReal3.ruleSuites(Id(100,0)).rowCount shouldBe 3
-    resReal3.ruleSuites(Id(100,0)).ruleSuite shouldBe Id(100,0)
-    resReal3.ruleSuites(Id(100,0)).ruleSets.size shouldBe 2
-    resReal3.ruleSuites(Id(100,0)).ruleSets(Id(1,0)).rules.size shouldBe 8
-    resReal3.ruleSuites(Id(100,0)).ruleSets(Id(1,0)).rules(Id(6,0)).disabled shouldBe 1
-    resReal3.ruleSuites(Id(100,0)).ruleSets(Id(1,0)).rules(Id(6,0)).passed shouldBe 1
-    resReal3.ruleSuites(Id(100,0)).ruleSets(Id(2,0)).rules.size shouldBe 3
-    resReal3.ruleSuites(Id(100,0)).ruleSets(Id(2,0)).rules(Id(10,0)).disabled shouldBe 0
-    resReal3.ruleSuites(Id(100,0)).ruleSets(Id(2,0)).rules(Id(10,0)).passed shouldBe 1
+
+    verifyAddingARuleSet(resReal3)
+    verifyAddingARuleSet(resReal2 process rsr3)
 
     val rsr4 = RuleSuiteResult(
       Id(10,0), Passed, Map(
@@ -106,23 +88,65 @@ class StatisticsTest extends ClassicSharedTests with Matchers {
     val res4 = StatsRowOps.processResult(res3, row(rsr4))
 
     val resReal4 = rgStatsDer.eval(res4).asInstanceOf[RuleSuiteGroupStatistics]
+
+    verifyAddingARuleSuite(resReal4)
+    verifyAddingARuleSuite(resReal3 process rsr4)
+
+  }
+
+  private def verifyAddingARuleSuite(resReal4: RuleSuiteGroupStatistics) = {
     resReal4.rowCount shouldBe 4
     resReal4.ruleSuites.size shouldBe 2
-    resReal4.ruleSuites(Id(100,0)).rowCount shouldBe 3
-    resReal4.ruleSuites(Id(100,0)).ruleSuite shouldBe Id(100,0)
-    resReal4.ruleSuites(Id(100,0)).ruleSets.size shouldBe 2
-    resReal4.ruleSuites(Id(100,0)).ruleSets(Id(1,0)).rules.size shouldBe 8
-    resReal4.ruleSuites(Id(100,0)).ruleSets(Id(1,0)).rules(Id(6,0)).disabled shouldBe 1
-    resReal4.ruleSuites(Id(100,0)).ruleSets(Id(1,0)).rules(Id(6,0)).passed shouldBe 1
-    resReal4.ruleSuites(Id(100,0)).ruleSets(Id(2,0)).rules.size shouldBe 3
-    resReal4.ruleSuites(Id(100,0)).ruleSets(Id(2,0)).rules(Id(10,0)).disabled shouldBe 0
-    resReal4.ruleSuites(Id(100,0)).ruleSets(Id(2,0)).rules(Id(10,0)).passed shouldBe 1
-    resReal4.ruleSuites(Id(10,0)).rowCount shouldBe 1
-    resReal4.ruleSuites(Id(10,0)).ruleSuite shouldBe Id(10,0)
-    resReal4.ruleSuites(Id(10,0)).ruleSets.size shouldBe 1
-    resReal4.ruleSuites(Id(10,0)).ruleSets(Id(5,0)).rules.size shouldBe 1
-    resReal4.ruleSuites(Id(10,0)).ruleSets(Id(5,0)).rules(Id(10,0)).disabled shouldBe 0
-    resReal4.ruleSuites(Id(10,0)).ruleSets(Id(5,0)).rules(Id(10,0)).passed shouldBe 1
+    resReal4.ruleSuites(Id(100, 0)).rowCount shouldBe 3
+    resReal4.ruleSuites(Id(100, 0)).ruleSuite shouldBe Id(100, 0)
+    resReal4.ruleSuites(Id(100, 0)).ruleSets.size shouldBe 2
+    resReal4.ruleSuites(Id(100, 0)).ruleSets(Id(1, 0)).rules.size shouldBe 8
+    resReal4.ruleSuites(Id(100, 0)).ruleSets(Id(1, 0)).rules(Id(6, 0)).disabled shouldBe 1
+    resReal4.ruleSuites(Id(100, 0)).ruleSets(Id(1, 0)).rules(Id(6, 0)).passed shouldBe 1
+    resReal4.ruleSuites(Id(100, 0)).ruleSets(Id(2, 0)).rules.size shouldBe 3
+    resReal4.ruleSuites(Id(100, 0)).ruleSets(Id(2, 0)).rules(Id(10, 0)).disabled shouldBe 0
+    resReal4.ruleSuites(Id(100, 0)).ruleSets(Id(2, 0)).rules(Id(10, 0)).passed shouldBe 1
+    resReal4.ruleSuites(Id(10, 0)).rowCount shouldBe 1
+    resReal4.ruleSuites(Id(10, 0)).ruleSuite shouldBe Id(10, 0)
+    resReal4.ruleSuites(Id(10, 0)).ruleSets.size shouldBe 1
+    resReal4.ruleSuites(Id(10, 0)).ruleSets(Id(5, 0)).rules.size shouldBe 1
+    resReal4.ruleSuites(Id(10, 0)).ruleSets(Id(5, 0)).rules(Id(10, 0)).disabled shouldBe 0
+    resReal4.ruleSuites(Id(10, 0)).ruleSets(Id(5, 0)).rules(Id(10, 0)).passed shouldBe 1
+  }
 
+  private def verifyAddingARuleSet(resReal3: RuleSuiteGroupStatistics) = {
+    resReal3.rowCount shouldBe 3
+    resReal3.ruleSuites.size shouldBe 1
+    resReal3.ruleSuites(Id(100, 0)).rowCount shouldBe 3
+    resReal3.ruleSuites(Id(100, 0)).ruleSuite shouldBe Id(100, 0)
+    resReal3.ruleSuites(Id(100, 0)).ruleSets.size shouldBe 2
+    resReal3.ruleSuites(Id(100, 0)).ruleSets(Id(1, 0)).rules.size shouldBe 8
+    resReal3.ruleSuites(Id(100, 0)).ruleSets(Id(1, 0)).rules(Id(6, 0)).disabled shouldBe 1
+    resReal3.ruleSuites(Id(100, 0)).ruleSets(Id(1, 0)).rules(Id(6, 0)).passed shouldBe 1
+    resReal3.ruleSuites(Id(100, 0)).ruleSets(Id(2, 0)).rules.size shouldBe 3
+    resReal3.ruleSuites(Id(100, 0)).ruleSets(Id(2, 0)).rules(Id(10, 0)).disabled shouldBe 0
+    resReal3.ruleSuites(Id(100, 0)).ruleSets(Id(2, 0)).rules(Id(10, 0)).passed shouldBe 1
+  }
+
+  private def verifyExtendingASingleSet(resReal2: RuleSuiteGroupStatistics) = {
+    resReal2.rowCount shouldBe 2
+    resReal2.ruleSuites.size shouldBe 1
+    resReal2.ruleSuites.head._2.rowCount shouldBe 2
+    resReal2.ruleSuites.head._1 shouldBe Id(100, 0)
+    resReal2.ruleSuites.head._2.ruleSets.size shouldBe 1
+    resReal2.ruleSuites.head._2.ruleSets.head._2.rules.size shouldBe 8
+    resReal2.ruleSuites.head._2.ruleSets.head._2.rules(Id(6, 0)).disabled shouldBe 1
+    resReal2.ruleSuites.head._2.ruleSets.head._2.rules(Id(6, 0)).passed shouldBe 1
+    resReal2.ruleSuites.head._2.ruleSets.head._2.rules(Id(4, 0)).defaulted shouldBe 2
+  }
+
+  private def verifySingleRuleSet(resReal: RuleSuiteGroupStatistics) = {
+    resReal.rowCount shouldBe 1
+    resReal.ruleSuites.size shouldBe 1
+    resReal.ruleSuites.head._2.rowCount shouldBe 1
+    resReal.ruleSuites.head._1 shouldBe Id(100, 0) // normal StatisticsTest covers the overall correctness
+    resReal.ruleSuites.head._2.ruleSets.size shouldBe 1
+    resReal.ruleSuites.head._2.ruleSets.head._2.rules.size shouldBe 6
+    resReal.ruleSuites.head._2.ruleSets.head._2.rules(Id(6, 0)).disabled shouldBe 1
   }
 }
