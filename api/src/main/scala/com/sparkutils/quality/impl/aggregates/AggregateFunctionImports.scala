@@ -127,5 +127,5 @@ trait AggregateFunctionImports {
    */
   @deprecated(message = "This aggregation implementation will be removed in 0.3.0 and should only be used if rule_suite_statistics has issues", since = "0.2.0")
   def rule_suite_statistics_aggregator(results: Column): Column =
-    ShimUtils.callFunction("rule_suite_statistics", results)
+    ShimUtils.callFunction("rule_suite_statistics_aggregator", results)
 }

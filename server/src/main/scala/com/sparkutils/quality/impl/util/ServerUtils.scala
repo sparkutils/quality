@@ -247,17 +247,24 @@ object Maps {
    * @param withPair
    * @return
    */
-  def replaceEntry(map: MapData, kt: DataType, vt: DataType, i: Int, withPair: (Any, Any)): MapData = {
-    val nka = Arrays.mapArray(map.keyArray(), kt, identity)
-    nka.update(i, withPair._1)
-    val nk = new GenericArrayData(nka)
+  def replaceEntry(map: MapData, kt: DataType, vt: DataType, i: Int, withPair: (Any, Any)): MapData =
+    (map.keyArray(), map.valueArray()) match {
+      case (k: GenericArrayData, v: GenericArrayData) =>
+        // change in place
+        k.array.update(i, withPair._1)
+        v.array.update(i, withPair._2)
+        map
+      case _ =>
+        val nka = Arrays.mapArray(map.keyArray(), kt, identity)
+        nka.update(i, withPair._1)
+        val nk = new GenericArrayData(nka)
 
-    val nva = Arrays.mapArray(map.valueArray(), vt, identity)
-    nva.update(i, withPair._2)
+        val nva = Arrays.mapArray(map.valueArray(), vt, identity)
+        nva.update(i, withPair._2)
 
-    val nv = new GenericArrayData(nva)
-    new ArrayBasedMapData(nk, nv)
-  }
+        val nv = new GenericArrayData(nva)
+        new ArrayBasedMapData(nk, nv)
+    }
 
   def get(map: MapData, kt: DataType, vt: DataType, equal: Any => Boolean): Option[Any] = {
     var found = false

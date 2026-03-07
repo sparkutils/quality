@@ -57,6 +57,12 @@ class StatisticsTest extends ClassicSharedTests with Matchers {
 
     val ores = res.copy()
     val res2 = StatsRowOps.processResult(res, row(rsr2))
+    val ores2 = res2.copy()
+
+    val res_no_structural = StatsRowOps.processResult(res2.copy(), row(rsr2))
+
+    val resReal2_no_structural = rgStatsDer.eval(res_no_structural).asInstanceOf[RuleSuiteGroupStatistics]
+    resReal2_no_structural.rowCount shouldBe 3
 
     val resReal2 = rgStatsDer.eval(res2).asInstanceOf[RuleSuiteGroupStatistics]
 
@@ -77,7 +83,6 @@ class StatisticsTest extends ClassicSharedTests with Matchers {
           ))
       ))
 
-    val ores2 = res2.copy()
     val res3 = StatsRowOps.processResult(res2, row(rsr3))
     val ores3 = res3.copy()
 

@@ -185,7 +185,7 @@ class StatisticsTest extends SharedPureConnectTests with Matchers {
 
   // the above tests cover the actual functionality, outside empty process calls, the below are testing the expressions all work
   // and, given zero, process and combine all work from nothing
-  // it does actually work on 2.4 but it's resolveAndBind based so thread safety may be off
+  // it does actually work on 2.4, but it's resolveAndBind based so thread safety may be off
   test("default declarative stats function") {
     aggTest("rule_suite_statistics", rule_suite_statistics)
   }

@@ -1,28 +1,26 @@
 package com.sparkutils.quality.impl.aggregates
 
-import com.sparkutils.quality.ResultStatisticsProvider.ResultStatisticOps
 import com.sparkutils.quality.RuleSuite.defaultProbablePass
 import com.sparkutils.quality.impl.aggregates.StatsRowOps.processResult
 import com.sparkutils.quality.impl.aggregates.StatsTypes.{mergeStats, rType, rgType, rsType, setType, updateStats}
-import com.sparkutils.quality.{DefaultRule, DefaultRuleInt, DisabledRule, DisabledRuleInt, Failed, FailedInt, IgnoredRule, IgnoredRuleInt, Passed, PassedInt, Probability, RuleSuiteGroupResults, RuleSuiteGroupStatistics, RuleSuiteResult, RuleSuiteStatistics, SoftFailed, SoftFailedInt}
-import com.sparkutils.quality.impl.util.{Compare, Maps}
+import com.sparkutils.quality.{DefaultRuleInt, DisabledRuleInt, FailedInt, IgnoredRuleInt, PassedInt, Probability, RuleSuiteGroupStatistics, SoftFailedInt}
+import com.sparkutils.quality.impl.util.Compare
 import com.sparkutils.quality.impl.util.Maps.{growMap, replaceEntry}
-import org.apache.spark.sql.ShimUtils
+
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
-import org.apache.spark.sql.catalyst.expressions.{AttributeReference, BinaryExpression, Expression, Literal, UnaryExpression}
+import org.apache.spark.sql.catalyst.expressions.{AttributeReference, Expression, Literal}
 import org.apache.spark.sql.catalyst.expressions.aggregate.DeclarativeAggregate
 import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
-import org.apache.spark.sql.catalyst.trees.{BinaryLike, UnaryLike}
-import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, GenericArrayData, MapData, TypeUtils}
-import org.apache.spark.sql.types.{DataType, LongType, ObjectType, StructType}
-import org.apache.spark.sql.catalyst.dsl.expressions._
+import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, GenericArrayData, MapData}
+import org.apache.spark.sql.types.{DataType, LongType, StructType}
 
 import scala.collection.mutable
 
 // UnsafeRow may not allow changes
 
 object StatsTypes {
+
   val rsType = com.sparkutils.quality.impl.Encoders.ruleSuiteStatisticsTypedExpEnc.schema
   val rgType = com.sparkutils.quality.impl.Encoders.ruleSuiteGroupStatisticsTypedExpEnc.schema
   val setType = com.sparkutils.quality.impl.Encoders.ruleSetStatisticsTypedExpEnc.schema
@@ -52,7 +50,7 @@ object StatsTypes {
 
 
 case class StatsRowOps[T](/* debug info only */ level: String, statsMapOffset: Int, inputRowResult: Any => T,
-                       statsDefaultNestedType: InternalRow, statsNestedType: DataType,
+                       statsDefaultNestedType: InternalRow, statsNestedType: StructType,
                        statsBuildWhenNewMap: (InternalRow, MapData) => InternalRow,
                        nextInputLevels: Any => MapData, nextInputRowSize: Int, nextStatMap: InternalRow => MapData,
                        nextStatType: StructType, nextStatsBuildWhenNewMap: (InternalRow, MapData) => InternalRow,
@@ -151,11 +149,12 @@ object StatsRowOps {
    */
   def processWithConfig[T](id: Long, curGroup: InternalRow, row: InternalRow, stats: Seq[StatsRowOps[T]]) = {
 
-    def process(id: Long, row: Any, cur: InternalRow, stats: Seq[StatsRowOps[T]]): (InternalRow, Boolean) = {
-      val (head, rest) = (stats.head, stats.tail)
-      import head._
+    def process(id: Long, row: Any, cur: InternalRow, stats: Seq[StatsRowOps[T]], depth: Int): (InternalRow, Boolean) = {
+      val c = stats(depth)
+      import c._
 
       val m = cur.getMap(statsMapOffset)
+
       var rs_i = -1
       var i = 0
       while (rs_i == -1 && i < m.numElements()) {
@@ -167,7 +166,7 @@ object StatsRowOps {
       var createdNewMap = false
       val rs =
         if (rs_i > -1)
-          m.valueArray().get(rs_i, statsNestedType).asInstanceOf[InternalRow]
+          m.valueArray().getStruct(rs_i, statsNestedType.length)
         else {
           val r = statsDefaultNestedType.copy()
           r.setLong(0, id) // always the first field in the stats
@@ -190,7 +189,7 @@ object StatsRowOps {
               else
                 // it's the rule level result
                 resultRows.valueArray().getInt(i)
-              , rs, rest) // this should be the correct row, so we should be inside already...
+              , rs, stats, depth + 1) // this should be the correct row, so we should be inside already...
 
       // if any new rows were added below then we'll have to re-create all above
       val createdSubMap = newRows.exists(_._2)
@@ -213,14 +212,14 @@ object StatsRowOps {
         nextStatsBuildWhenNewMap(rs, new ArrayBasedMapData(keys, values))
       }
 
-      (if (rest.isEmpty || !(createdNewMap || createdSubMap))
+      (if (depth == stats.length || !(createdNewMap || createdSubMap))
         rs
       else
         newRow,
         createdNewMap || createdSubMap)
     }
 
-    val res = process(id, row, curGroup, stats)
+    val res = process(id, row, curGroup, stats, 0)
     if (res._2) {
       // some form of map change needed below, so it must cascade up
       val head = stats.head
@@ -237,7 +236,7 @@ object StatsRowOps {
       }
       val nm =
         if (rs_i > -1) {
-          // it needs to be replaced
+          // it needs to be replaced if the arrays are not generic
           replaceEntry(m, LongType, statsNestedType, rs_i, (id, res._1))
         } else {
           // it was never there
@@ -248,8 +247,10 @@ object StatsRowOps {
         }
 
       statsBuildWhenNewMap(curGroup, nm)
-    } else
-      res._1
+    } else {
+      // no structural change in underlying row, all in place
+      curGroup
+    }
 
   }
 
@@ -274,8 +275,24 @@ object StatsRowOps {
   def combineResult(into: InternalRow, from: InternalRow) = {
     // simple wrapper to provide a map and re-use the code
     val wrapped = InternalRow(new ArrayBasedMapData(new GenericArrayData(Array(1L)), new GenericArrayData(Array(into))))
+    combineResultWrapped(wrapped, from)
+  }
 
-    processWithConfig(1L, wrapped, from, combineConfig)
+  /**
+   * Combines group stats from partitions / final to driver
+   * @param into RuleSuiteGroupStatistics
+   * @param from RuleSuiteGroupStatistics
+   * @return RuleSuiteGroupStatistics
+   */
+  def combineResultWrapped(wrapped: InternalRow, from: InternalRow) = {
+    // either wrapped if it has no structural changes or
+    val res = processWithConfig(1L, wrapped, from, combineConfig)
+    if (res.numFields == 1)
+      // no structural change
+      res.getMap(0).valueArray().getStruct(0, rgType.length)
+    else
+      // had a structural change and is re-built
+      res
   }
 }
 
@@ -306,11 +323,17 @@ case class MergeStatistics(children: Seq[Expression]) extends Expression with Co
 
   lazy val Seq(left, right) = children
 
-  override def eval(input: InternalRow): Any =
-    StatsRowOps.combineResult(
-      left.eval(input).asInstanceOf[InternalRow],
+  val ar: Array[InternalRow] = Array.ofDim(1)
+  lazy val wrapped = InternalRow(new ArrayBasedMapData(new GenericArrayData(Array(1L)), new GenericArrayData(ar)))
+
+  override def eval(input: InternalRow): Any = {
+    ar.update(0, left.eval(input).asInstanceOf[InternalRow])
+
+    StatsRowOps.combineResultWrapped(
+      wrapped,
       right.eval(input).asInstanceOf[InternalRow]
     )
+  }
 
   override protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
     copy(newChildren)
@@ -324,6 +347,8 @@ case class StatisticsDeclarative(children: Seq[Expression]) extends DeclarativeA
 
   lazy val Seq(col, groupSer) = children
 
+  lazy val empty = groupSer.eval(InternalRow(RuleSuiteGroupStatistics()))
+
   override def checkInputDataTypes(): TypeCheckResult =
     if (Compare.equalsIgnoreCaseAndNullability(col.dataType, com.sparkutils.quality.impl.types.ruleSuiteResultType))
       TypeCheckResult.TypeCheckSuccess
@@ -333,9 +358,7 @@ case class StatisticsDeclarative(children: Seq[Expression]) extends DeclarativeA
   val sumDataType = rgType
   lazy val sum = AttributeReference("sum", sumDataType)()
 
-  override val initialValues: Seq[Expression] = Seq(new Literal(
-    groupSer.eval(InternalRow(RuleSuiteGroupStatistics())),
-    sumDataType))
+  override val initialValues: Seq[Expression] = Seq(new Literal(empty, sumDataType))
 
   override val updateExpressions: Seq[Expression] = Seq(
     ProcessStatistics(Seq(sum, col))
