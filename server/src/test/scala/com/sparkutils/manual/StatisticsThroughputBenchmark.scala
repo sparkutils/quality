@@ -1,7 +1,6 @@
 package com.sparkutils.manual
 
-import com.sparkutils.manual.StatisticsThroughputBenchmark.sparkSession
-import com.sparkutils.manual.StatisticsThroughputBenchmarkTestSetup.{generator, outputDir}
+import com.sparkutils.manual.StatisticsThroughputBenchmarkTestSetup.generator
 import com.sparkutils.quality
 import com.sparkutils.quality.functions.{rule_suite_statistics, rule_suite_statistics_aggregator}
 import com.sparkutils.quality.{DefaultRule, DisabledRule, Failed, Id, IgnoredRule, Passed, Probability, RuleSetResult, RuleSuiteResult, SoftFailed, registerQualityFunctions}
@@ -11,7 +10,6 @@ import org.apache.spark.sql.functions.expr
 import org.apache.spark.sql.{Column, Dataset, Row, SaveMode}
 import org.apache.spark.storage.StorageLevel
 import org.scalameter.Gen.crossProduct
-import org.scalameter.Parameters
 import org.scalameter.api.{Bench, _}
 
 object StatisticsThroughputBenchmarkTestSetup extends TestUtils {
@@ -95,6 +93,9 @@ object StatisticsThroughputBenchmarkTestSetup extends TestUtils {
   }
 }
 
+/**
+ * Make sure to run StatisticsThroughputBenchmarkTestSetup first to create the files
+ */
 object StatisticsThroughputBenchmark extends Bench.OfflineReport with TestUtils {
 
   def evaluate(colF: Column => Column)(params: Dataset[Row]) = {

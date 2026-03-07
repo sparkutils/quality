@@ -141,6 +141,31 @@ object StatsRowOps {
       processStats = mergeStats)
   )
 
+  def allMergedIn(base: MapData, newRows: Seq[(InternalRow, Boolean)]): Boolean = {
+    val inplace = base.valueArray().asInstanceOf[GenericArrayData].array
+
+    val bN = base.numElements()
+    val bK = base.keyArray()
+
+    var notIn = false
+    var i = 0
+    while( i < newRows.length && !notIn) {
+      val id = newRows(i)._1.getLong(0)
+      var j = 0
+      var in = false
+      while( j < bN && !in) {
+        if (bK.getLong(j) == id) {
+          in = true
+          inplace.update(j, newRows(i)._1)
+        }
+        j += 1
+      }
+      notIn = !in
+      i += 1
+    }
+    !notIn
+  }
+
   /**
    * Traverse a pair of maps updating the curGroup from the row
    * @param curGroup the target
@@ -193,23 +218,29 @@ object StatsRowOps {
 
       // if any new rows were added below then we'll have to re-create all above
       val createdSubMap = newRows.exists(_._2)
-      lazy val newRow: InternalRow =
-      {
-        // newRows may be updated or added, but there are also possible left-overs
-        val newMap = mutable.Map.empty[Long, InternalRow]// TODO perhaps an array is quicker for smaller volumes
-        for{
-          i <- 0 until nextSM.numElements()
-        } {
-          newMap.put(nextSM.keyArray().getLong(i), nextSM.valueArray().getStruct(i, nextStatType.length))
+      def newRow: InternalRow = {
+        // if rs is GenericArrayData map based we may be able to in-place swap entries, scanning will be quicker than map changes
+        // if there are no new entries (there may be less)
+        if (nextSM.numElements() >= resultRows.numElements() && nextSM.numElements() > 0 &&
+          nextSM.valueArray().isInstanceOf[GenericArrayData] && allMergedIn(nextSM, newRows)) {
+          rs
+        } else {
+          // newRows may be updated or added, but there are also possible left-overs
+          val newMap = mutable.Map.empty[Long, InternalRow] // TODO perhaps an array is quicker for smaller volumes
+          for {
+            i <- 0 until nextSM.numElements()
+          } {
+            newMap.put(nextSM.keyArray().getLong(i), nextSM.valueArray().getStruct(i, nextStatType.length))
+          }
+          for {
+            i <- newRows.indices
+          } {
+            newMap.put(newRows(i)._1.getLong(0), newRows(i)._1)
+          }
+          val keys = new GenericArrayData(newMap.keys.toArray)
+          val values = new GenericArrayData(newMap.values.toArray)
+          nextStatsBuildWhenNewMap(rs, new ArrayBasedMapData(keys, values))
         }
-        for{
-          i <- newRows.indices
-        } {
-          newMap.put(newRows(i)._1.getLong(0), newRows(i)._1)
-        }
-        val keys = new GenericArrayData(newMap.keys.toArray)
-        val values = new GenericArrayData(newMap.values.toArray)
-        nextStatsBuildWhenNewMap(rs, new ArrayBasedMapData(keys, values))
       }
 
       (if (depth == stats.length || !(createdNewMap || createdSubMap))
