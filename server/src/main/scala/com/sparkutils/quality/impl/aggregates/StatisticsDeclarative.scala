@@ -51,7 +51,7 @@ object StatsTypes {
 }
 
 
-case class StatsRowOps[T](level: String, statsMapOffset: Int, inputRowResult: Any => T,
+case class StatsRowOps[T](/* debug info only */ level: String, statsMapOffset: Int, inputRowResult: Any => T,
                        statsDefaultNestedType: InternalRow, statsNestedType: DataType,
                        statsBuildWhenNewMap: (InternalRow, MapData) => InternalRow,
                        nextInputLevels: Any => MapData, nextInputRowSize: Int, nextStatMap: InternalRow => MapData,
@@ -115,6 +115,7 @@ object StatsRowOps {
         InternalRow(m, cur.getLong(1))
       },
       processStats = (from: InternalRow, into: InternalRow) => {
+        // group rowcount
         into.setLong(1, into.getLong(1) + from.getLong(1))
       }),
     StatsRowOps(level = "group_to_suite", statsMapOffset = 0,
@@ -273,33 +274,24 @@ object StatsRowOps {
   def combineResult(into: InternalRow, from: InternalRow) = {
     // simple wrapper to provide a map and re-use the code
     val wrapped = InternalRow(new ArrayBasedMapData(new GenericArrayData(Array(1L)), new GenericArrayData(Array(into))))
-    // either wrapped if it has no structural changes or
-    val res = processWithConfig(1L, wrapped, from, combineConfig)
-    if (res.numFields == 1)
-      // structural change, but not likely to happen
-      res.getMap(0).valueArray().getStruct(0, rgType.length)
-    else
-      res // fully in-place or directly updated in a reconstructed fashion
+
+    processWithConfig(1L, wrapped, from, combineConfig)
   }
 }
 
 case class ProcessStatistics(children: Seq[Expression]) extends Expression with CodegenFallback {
 
-  lazy val Seq(grp, col, groupSer, groupDer, ruleDer) = children
+  lazy val Seq(grp, col) = children
 
   override def eval(input: InternalRow): Any = {
     val curGroup = grp.eval(input).asInstanceOf[InternalRow]
     val rcol = col.eval(input)
+
     if (rcol == null)
       curGroup
-    else {
-      val row = rcol.asInstanceOf[InternalRow]
-      processResult(curGroup: InternalRow, row: InternalRow)
-      /*val lgrp = groupDer.eval(cur).asInstanceOf[RuleSuiteGroupStatistics]
-      val rgrp = ruleDer.eval(row).asInstanceOf[RuleSuiteResult]
-      val r = lgrp.process(rgrp)
-      groupSer.eval(InternalRow(r))*/
-    }
+    else
+      processResult(curGroup,
+        rcol.asInstanceOf[InternalRow])
   }
 
   override protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
@@ -312,17 +304,13 @@ case class ProcessStatistics(children: Seq[Expression]) extends Expression with 
 
 case class MergeStatistics(children: Seq[Expression]) extends Expression with CodegenFallback {
 
-  lazy val Seq(left, right, groupSer, groupDer) = children
+  lazy val Seq(left, right) = children
 
-  override def eval(input: InternalRow): Any = {
-    /*val lgrp = groupDer.eval(left.eval(input).asInstanceOf[InternalRow]).asInstanceOf[RuleSuiteGroupStatistics]
-    val rgrp = groupDer.eval(right.eval(input).asInstanceOf[InternalRow]).asInstanceOf[RuleSuiteGroupStatistics]
-    val r = lgrp.combine(rgrp)
-    groupSer.eval(InternalRow(r))
-
-     */
-    StatsRowOps.combineResult(left.eval(input).asInstanceOf[InternalRow], right.eval(input).asInstanceOf[InternalRow])
-  }
+  override def eval(input: InternalRow): Any =
+    StatsRowOps.combineResult(
+      left.eval(input).asInstanceOf[InternalRow],
+      right.eval(input).asInstanceOf[InternalRow]
+    )
 
   override protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
     copy(newChildren)
@@ -332,14 +320,9 @@ case class MergeStatistics(children: Seq[Expression]) extends Expression with Co
   override def nullable: Boolean = false
 }
 
-/**
- *
- * @param left the column
- * @param right the objSerializer
- */
 case class StatisticsDeclarative(children: Seq[Expression]) extends DeclarativeAggregate {
 
-  lazy val Seq(col, groupSer, groupDer, ruleDer) = children
+  lazy val Seq(col, groupSer) = children
 
   override def checkInputDataTypes(): TypeCheckResult =
     if (Compare.equalsIgnoreCaseAndNullability(col.dataType, com.sparkutils.quality.impl.types.ruleSuiteResultType))
@@ -353,12 +336,15 @@ case class StatisticsDeclarative(children: Seq[Expression]) extends DeclarativeA
   override val initialValues: Seq[Expression] = Seq(new Literal(
     groupSer.eval(InternalRow(RuleSuiteGroupStatistics())),
     sumDataType))
+
   override val updateExpressions: Seq[Expression] = Seq(
-    ProcessStatistics(Seq(sum, col, groupSer, groupDer, ruleDer))
+    ProcessStatistics(Seq(sum, col))
   )
+
   override val mergeExpressions: Seq[Expression] = Seq(
-    MergeStatistics(Seq(sum.left, sum.right, groupSer, groupDer))
+    MergeStatistics(Seq(sum.left, sum.right))
   )
+
   override val evaluateExpression: Expression = sum
 
   override def aggBufferAttributes: Seq[AttributeReference] = Seq(sum)

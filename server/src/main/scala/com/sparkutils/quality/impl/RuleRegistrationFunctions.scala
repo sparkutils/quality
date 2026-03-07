@@ -228,12 +228,10 @@ object RuleRegistrationFunctions {
 
     register("soft_Fail", exps => SoftFailExpr(exps.head), Set(1))
 
-    //register("rule_suite_statistics", exps => Statistics(exps.head), Set(1))
+    register("rule_suite_statistics_aggregator", exps => Statistics(exps.head), Set(1))
     register("rule_suite_statistics", exps => StatisticsDeclarative(Seq(
       exps.head,
-      ShimUtils.expressionEncoder(com.sparkutils.quality.impl.Encoders.ruleSuiteGroupStatisticsTypedExpEnc).resolveAndBind().objSerializer,
-      ShimUtils.expressionEncoder(com.sparkutils.quality.impl.Encoders.ruleSuiteGroupStatisticsTypedExpEnc).resolveAndBind().objDeserializer,
-      ShimUtils.expressionEncoder(com.sparkutils.quality.impl.Encoders.ruleSuiteResultExpEnc).resolveAndBind().objDeserializer
+      ShimUtils.expressionEncoder(com.sparkutils.quality.impl.Encoders.ruleSuiteGroupStatisticsTypedExpEnc).resolveAndBind().objSerializer
     )), Set(1))
 
     def strType(exp: Expression) = {
