@@ -342,7 +342,7 @@ case class ProcessStatistics(children: Seq[Expression]) extends Expression with 
         rcol.asInstanceOf[InternalRow])
   }
 
-  override protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
+  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
     copy(newChildren)
 
   override def dataType: DataType = rgType
@@ -366,7 +366,7 @@ case class MergeStatistics(children: Seq[Expression]) extends Expression with Co
     )
   }
 
-  override protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
+  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
     copy(newChildren)
 
   override def dataType: DataType = rgType
@@ -407,6 +407,6 @@ case class StatisticsDeclarative(children: Seq[Expression]) extends DeclarativeA
 
   override def dataType: DataType = sumDataType
 
-  override protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
+  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
     copy(newChildren)
 }
