@@ -1,6 +1,6 @@
 package com.sparkutils.quality.impl.util
 
-import com.sparkutils.quality.Id
+import com.sparkutils.quality.{Id, OutputExpressionRow, LambdaFunctionRow}
 import com.sparkutils.quality.NoOpRunOnPassProcessor.{notPresentOutputId, notPresentOutputVersion, notPresentSalience}
 import com.sparkutils.quality.RuleSuite.defaultProbablePass
 import com.sparkutils.testing.ConnectWhenForced.someOrForcedConnect

@@ -1,8 +1,8 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality.{GeneralExpressionsResult, RuleEngineResult, RuleFolderResult, RuleResult, RuleSetResult, RuleSetStatistics, RuleStatistics, RuleSuiteGroupStatistics, RuleSuiteResult, RuleSuiteStatistics, VersionedId}
+import com.sparkutils.quality.{GeneralExpressionsResult, RuleEngineResult, RuleFolderResult, RuleSetStatistics, RuleStatistics, RuleSuiteGroupResults, RuleSuiteGroupStatistics, RuleSuiteResult, RuleSuiteStatistics}
 import org.apache.spark.sql.Encoder
-import shapeless.{::, HList, HNil, LabelledGeneric, Lazy, cachedImplicit}
+import shapeless.{HList, LabelledGeneric, Lazy}
 import shapeless.ops.hlist.IsHCons
 
 import scala.reflect.ClassTag
@@ -73,5 +73,9 @@ trait EncodersImplicits extends Serializable {
   implicit val ruleSuiteGroupStatisticsTypedEnc = TypedEncoder[RuleSuiteGroupStatistics]
 
   implicit val ruleSuiteGroupStatisticsTypedExpEnc = TypedExpressionEncoder[RuleSuiteGroupStatistics]
+
+  implicit val ruleSuiteGroupResultsTypedEnc = TypedEncoder[RuleSuiteGroupResults]
+
+  implicit val ruleSuiteGroupResultsTypedExpEnc = TypedExpressionEncoder[RuleSuiteGroupResults]
 
 }

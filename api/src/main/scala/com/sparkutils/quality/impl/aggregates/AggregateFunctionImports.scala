@@ -117,4 +117,15 @@ trait AggregateFunctionImports {
    */
   def rule_suite_statistics(results: Column): Column =
     ShimUtils.callFunction("rule_suite_statistics", results)
+
+  /**
+   * Prefer rule_suite_statistics, this function is only provided as a fallback should there be issues in the rule_suite_statistics implementation, which is over 6% faster.
+   *
+   * Aggregates over RuleSuiteResults columns and returns a RuleSuiteGroupStatistics row using a pre Spark 4 unified API
+   * Aggregator, per https://github.com/sparkutils/quality/issues/117 this does not run on Databricks Shared Clusters.   *
+   * @param results
+   */
+  @deprecated(message = "This aggregation implementation will be removed in 0.3.0 and should only be used if rule_suite_statistics has issues", since = "0.2.0")
+  def rule_suite_statistics_aggregator(results: Column): Column =
+    ShimUtils.callFunction("rule_suite_statistics_aggregator", results)
 }

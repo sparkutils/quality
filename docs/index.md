@@ -19,7 +19,7 @@ Your rules are just versioned data, store them wherever convenient, use them by 
 
 * :new:{.pulseABit} Spark 4 [Connect Support](getting_started/connect/)
 * :new:{.pulseABit} Folder can use a DefaultProcessor, both Folder and Engine now use the improved collectRunner result processing logic
-* :new:{.pulseABit} RuleSuiteGroups, manage a single group by name and use it to access ruleSuites in nested runners
+* :new:{.pulseABit} RuleSuiteGroups, manage a single group of rules by name and use it to access ruleSuites in nested runners and group the results 
 
 Rules are evaluated lazily during Spark actions, such as writing a row, with results saved in a single predictable column.
 

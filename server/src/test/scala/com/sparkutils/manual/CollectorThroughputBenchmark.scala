@@ -1,18 +1,15 @@
 package com.sparkutils.manual
 
-import com.sparkutils.manual.CollectorThroughputBenchmark.rules
-import com.sparkutils.manual.TestSetup.{partitions, sparkSession}
+import com.sparkutils.manual.TestSetup.partitions
 import com.sparkutils.quality
 import com.sparkutils.quality.impl.CollectRunner
 import com.sparkutils.quality.{DefaultProcessor, ExpressionRule, Id, OutputExpression, Rule, RuleSet, RuleSuite, RunOnPassProcessor}
-import com.sparkutils.qualityTests.util.{ClassicSharedTests, RowTools, TestUtilsBase}
-import com.sparkutils.testing.markers.DontRunOnPureConnect
-import com.sparkutils.testing.sessionStrategies.{GlobalSession, SharedSessions}
-import com.sparkutils.testing.{ClassicOnly, ClassicUtils, ConnectionType, Sessions, SessionsStateHolder, SparkTestSuite, TestUtils, TestUtilsEnvironment}
+import com.sparkutils.qualityTests.util.RowTools
+import com.sparkutils.testing.{ClassicOnly, ConnectionType, Sessions, TestUtils}
 import org.apache.spark.sql.SaveMode.Overwrite
-import org.apache.spark.sql.functions.{explode, expr}
+import org.apache.spark.sql.functions.expr
 import org.apache.spark.sql.types.{ArrayType, LongType}
-import org.apache.spark.sql.{Column, Dataset, Row, SaveMode, SparkSession}
+import org.apache.spark.sql.{Column, SaveMode}
 import org.apache.spark.storage.StorageLevel
 import org.scalameter.api.{Bench, _}
 
