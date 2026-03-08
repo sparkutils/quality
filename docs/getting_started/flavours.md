@@ -37,6 +37,8 @@ _What is stored:_
 
 Unlike QualityRules which uses salience to select only one Output expression, Folder uses salience to order the execution of *all* the matching Trigger's paired Output Expressions - [folding](https://en.wikipedia.org/wiki/Fold_(higher-order_function)#:~:text=In%20functional%20programming%2C%20fold%20(also,constituent%20parts%2C%20building%20up%20a)) the results as it goes. 
 
+If no triggers match, then an optional defaultProcessor on the RuleSuite can be run.
+
 _Example Usage:_ Correction of in-bound data to enable subsequent calculators to process, defaulting etc.
 
 _What is stored:_ 
@@ -59,4 +61,18 @@ _Example Usage:_ Instead of checking if something exists in a view in a rule, th
 
 _What is stored:_ For a type of STRUCT<key: INT, value: STRING>
 ```plantuml format="svg_object" classes="shrink_to_fit" source="./docs/getting_started/typedExpressionRunner.puml"
+```
+
+## QualityCollector - collectRunner
+
+[QualityFolder](../advanced/ruleFolder.md) extends QualityRules providing the ability to collect multiple Output Expressions, sorted by salience with a default flatten.
+
+Unlike QualityRules which uses salience to select only one Output expression, Collector uses salience to order the execution of *all* the matching Trigger's paired Output Expressions - collecting the results as it goes.
+
+If no triggers match, then an optional defaultProcessor on the RuleSuite can be run.
+
+_Example Usage:_ Derivation logic
+
+_What is stored:_
+```plantuml format="svg_object" classes="shrink_to_fit" source="./docs/getting_started/collector.puml"
 ```

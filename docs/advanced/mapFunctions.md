@@ -6,9 +6,31 @@ tags: advanced
 
 A typical use case for processing DQ rules is that of cached value processing, reference data lookups or industry code checks etc.
 
-Quality's map functions reproduce the result of joining datasets but guarantees in memory operation only once they are loaded, no merges or joins required.  However, for larger data lookups either [Bloom Filters](blooms.md) should be preferred or simply use joins.
+Quality's map functions reproduce the result of joining datasets but, once they are loaded, guarantees in memory operation only - no merges or joins required.  However, for larger data lookups correlated subqueries or [Bloom Filters](blooms.md) should be preferred, or simply use joins.
 
 Similarly, for cases involving more logic than a simple equality check you must use joins or starting in 3.4 (DBR 12.2) scalar sub queries, see [View Loader](viewLoader.md) for a way to manage the loading of views. 
+
+!!! info ":new:{.pulseABit} Map functions on 0.2.0 Spark 4"
+    Map functions are now able to use stableName variable names and register multiple MapLookups (a simple String for use in SQLs), each function is changed accordingly adding stableName parameters registered as Spark 4 Variables:
+    
+    ```scala
+    def loadMaps(configs: Seq[MapConfig]): String 
+    // gains the ability to specify the name to use, which returns stableName
+    def loadMaps(configs: Seq[MapConfig], stableName: String): String
+    // and, similarly, 
+    def mapLookupsFromDFs(creators: Map[String, MapCreator]): String
+    // gains this overloaded version
+    def mapLookupsFromDFs(creators: Map[String, MapCreator], stableName: String): String
+    ```
+    
+    finally, the SQL lookup function itself requires the returned stableName:
+
+    ```sql
+    map_lookup('mapid', expr, mapLookupsVar)
+    map_contains('mapid', expr, mapLookupsVar)
+    ```
+
+    with registerMapLookupsAndFunction now becoming a no-op and is retained for compatibilty only.
 
 ## Map Loading
 

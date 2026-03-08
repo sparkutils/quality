@@ -18,6 +18,10 @@ LambdaFunction *-- Expression
 Expression *-- RunOnPassProcessor
 LambdaFunction *-- RunOnPassProcessor
 VersionedId *-- RunOnPassProcessor
+Expression *-- DefaultProcessor
+LambdaFunction *-- DefaultProcessor
+VersionedId *-- DefaultProcessor
+VersionedId *-- RuleSuite
 LogicRule *-- Rule
 RunOnPassProcessor *-- Rule:When using QualityEngine
 Rule *-- RuleSet
@@ -55,7 +59,14 @@ abstract class RunOnPassProcessor {
 }
 note right of RunOnPassProcessor
 Only used with
-QualityEngine
+Engine, Folder and Collector
+end note
+abstract class DefaultProcessor {
++Expression expression
+}
+note right of DefaultProcessor
+Only used with
+Collector and Folder
 end note
 class RuleSet {
 +VersionedId id
@@ -65,6 +76,11 @@ class RuleSuite {
 +VersionedId id
 +Seq<RuleSet> ruleSets
 +Seq<LambdaFunction> lambdaFunctions
++Double probablePass
++DefaultProcessor defaultProcessor
+}
+class RuleSuiteGroup{
++Seq<RuleSuite> ruleSuites
 }
 ```
 
@@ -84,6 +100,8 @@ RuleResult <|-- Passed:Singleton
 RuleResult <|-- Failed:Singleton
 RuleResult <|-- SoftFailed:Singleton
 RuleResult <|-- DisabledRule:Singleton
+RuleResult <|-- IgnoredRule:Singleton
+RuleResult <|-- DefaultRule:Singleton
 RuleResult <|-- Probability
 RuleResult <|-- RuleResultWithProcessor
 RuleResult *-- RuleSetResult
@@ -94,10 +112,12 @@ IdTriple *-- RuleEngineResult
 RuleSuiteResult *-- RuleEngineResult
 OutputExpression *-- RuleEngineResult
 RuleSuiteResult *-- RuleEngineDebugResult
+RuleSuiteResult *-- RuleFolderResult
+OutputExpression *-- RuleFolderResult
 OutputExpression *-- SalientResult
 SalientResult *-- RuleEngineDebugResult
 VersionedId *-- IdTriple
-
+RuleSuiteResult *-- RuleSuiteGroupResult
 class RuleResult {
 }
 class Passed {
@@ -107,6 +127,8 @@ class Failed {
 class SoftFailed {
 }
 class DisabledRule {
+}
+class IgnoredRule {
 }
 class Probability {
 +double percentage
@@ -132,6 +154,11 @@ class IdTriple {
 class RuleEngineResult {
 +RuleSuiteResult ruleSuiteResults
 +IdTriple salientRule
++OutputExpression result
+}
+
+class RuleFolderResult {
++RuleSuiteResult ruleSuiteResults
 +OutputExpression result
 }
 
@@ -162,10 +189,15 @@ class RuleSuiteResult {
 +RuleResult overallResult
 +Map<VersionedId, RuleSetResult> ruleSetResults
 }
+class RuleSuiteGroupResult {
++Map<VersionedId, RuleSuiteResult> ruleSuiteResults
+}
 ```
 
 * SoftFailed results do not cause the RuleSet or RuleSuite to fail
 * DisabledRule results also do not cause the RuleSet or RuleSuite to fail but signal a rule has been disabled upstream
 * Probability results with over 80 percent are deemed to have Passed, you may override this with the RuleSuite.withProbablePass function after creating the RuleSuite.
+* IgnoredRule results also do not cause the RuleSet or RuleSuite to fail but signal a rule has been ignored upstream, typically to aid in reporting of applicable rules
+* DefaultRule is used by Collector to indicate no trigger Rules Passed and defaultProcessor was run.  (If no DefaultProcessor was used Failed is returned)
 
 RuleResultWithProcessor is only used when using the ruleEngineRunner and is not returned in the column, rather the result of the expression is - shown above as call to "data".

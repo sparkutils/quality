@@ -33,9 +33,19 @@ Single argument lambdas should not use brackets around the parameters and zero a
 !!! info "0.1.3.1 optimisations can be enabled"
     0.1.3.1 introduces the expansion of Qualitylambda functions, allowing sub expression elimination to take place.  The entire rewrite plan must be enabled by calling `com.sparkutils.quality.enableFunNRewrites()` within your SparkSession or by default via the Quality extensions.
 
-    You can put the comment `/* USED_AS_LAMBDA */` in an individual rule definition to disable expansion for the entire user function subtree.  This is unlikely to be needed, but is provided to allow overriding should issues arise.
+    You can put the comment `/* USED_AS_LAMBDA */` in an individual rule definition to disable expansion for the entire user function subtree.  This is unlikely to be needed, but is provided to allow specific overriding should issues arise.
+    All rewrites can be disabled for a cluster by using quality_disable_optimiser_rules=com.sparkutils.quality.impl.extension.FunNRewrite config.
 
     The use of re-writes with 3.2.x has been identified in one test case (testSimpleProductionRules) as problematic for codegen, please use more recent Spark versions.    
+
+## Why do these exist when Spark supports SQL functions
+
+In short:
+1. Multiple-arity
+2. Late type binding (outside of HoFs)
+3. Lighter syntax
+4. Higher Order Functions, use them in any appropriate Spark function like aggregates
+4. Correlated subquery support when used as HoFs
 
 ## What about default parameter or different length parameter length Lambdas?  
 
@@ -213,8 +223,15 @@ The default org.apache.spark.sql.qualityFunctions.DoCodegenFallbackHandler allow
 Alternatively if you have a hotspot with any inbuilt HoF such as array_transform, filter or transform_values you could replace the implementation for compilation with your own transformation. e.g.:
 
 ```
--Dquality.lambdaHandlers=org.apache.spark.sql.catalyst)essions.TransformValues=org.mine.SuperfastTransformValues
+-Dquality.lambdaHandlers=org.apache.spark.sql.catalyst.expressions.TransformValues=org.mine.SuperfastTransformValues
 ```
+
+!!! note "Handlers disable FunNRewrite"
+    The FunNRewrite optimisation lifts lambdas out to higher level expressions, enabling sub expression elimination.
+    This behaviour can be disabled by using /* USED_AS_LAMBDA */ as a comment within your user function definition, the
+    same occurs when a Spark Higher Order Function, such as transform/ArrayTransform, is used with a handler.
+    This allows the handlers to be run, compiling out the HOF, as a trade-off to possible gains from sub expression elimination.
+    Future versions of Spark may compile out the HigherOrderFunctions removing this limitation.
 
 ### Why do all this?
 

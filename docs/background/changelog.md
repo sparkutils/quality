@@ -1,6 +1,91 @@
-### 0.1.3.1 <small>3rd December, 2024</small>
+### [0.2.0](https://github.com/sparkutils/quality/milestone/10?closed=1) <small>24th December, 2025</small>
 
-This is the last release of 2.4, 3.0 is deprecated as of this release, similarly, Databricks versions 9.1 through to 13.3 are also now deprecated and unsupported functionality (fixes for #84 will be gladly accepted).
+This release migrates Spark 4 support to use AgnosticEncoders and removes EOL runtimes: 2.4 and DBR's 9.1, 10.4, 11.3, 13.1 and 14.0.  
+Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1 and 3.3.2 are deprecated as are DBR's 12.2 and 13.3 and will be removed as of Quality version 0.3.0. 
+
+#90 - Migrate to Spark 4 sql-api, AgnosticEncoder's and support Connect:
+
+> The Sparkutils libraries Shim 0.3.0, Testing 0.1.0 and Frameless 2.0.0 provide support for
+> custom encoding via AgnosticEncoders and a stable API that works with both Spark Classic and Connect.
+> 
+> To use Connect the Quality SparkSessionExtension must be enabled on the "server" Spark Driver side, 
+> the connect friendly DSL forwards all the complexity to the Connect Server.  The newly released Testing project
+> is used to run the same test cases against both Classic and Connect ensuring the API is stable.  This also extends 
+> to user functions (LambdaFunctions), on Connect they are sent to the server via a custom command.
+> 
+> The Testless cluster notebook testing experience has been abstracted to the Testing project providing a standard  
+> interface Quality Scalatest's on clusters, now shared with all Sparkutils testshade based projects.  On Databricks
+> the testing runs will also run in the normal Classic mode and, via the scala.api.mode=connect config parameter, 
+> against the provided Spark Connect server.
+> 
+> A number of functions are not possible to run in Connect and are provided with _classic as a suffix, these typically
+> relate to extension points such as monadic add.
+> 
+> Map and Bloom related functions from 0.2.0 Spark 4 onwards allow multiple lookups to be used and leverage a 
+> struct [Spark Variable](https://spark.apache.org/docs/latest/sql-ref-syntax-ddl-declare-variable.html#:~:text=Temporary%20variables%20are%20scoped%20at,a%20column%20or%20column%20alias.).
+> This change swaps the last parameter type of the DSL, and introduces a third breaking change parameter for the SQL interface, to refer to the Spark Variable, with each map being a strongly typed member of the variable available for use with any Spark queries (although probably not all too useful for blooms).
+> 
+> If code was using QualitySparkUtils the import is now ClassicQualitySparkUtils.
+> 
+> Serializing classes are moved to the root package, the impl.util package object provides deprecated forwarders. 
+
+#96 - quality_api is introduced, leveraging Spark Connect - allows a client server model and further client language support
+
+#100 - Support for key functions to be run from the SparkSessionExtension when using quality_api, reducing the integration surface area for other client languages and simplifying upgrades
+
+#108 - Support for Spark 4.1 added
+
+#72 - Defaults for sub expression elimination and compilation of triggers are changed to better overall performance with recent Spark versions. 
+
+> compileEvals and forceTriggerEval now default to false for all runner types and are removed for the connect api, as are resolveWith.  This has been found to be the best balance for most rules with 
+> large performance gains as of 0.1.3.1 for long-running processes or larger data volumes.  These can be set to the previous defaults for the old behaviour if
+> code generation itself dominates your applications time but note that nesting and chaining calls between runners is not supported - use .cache / write interim results if this is needed.
+> ruleEngineRunner's schema parameter when using all parameters is now Option\[DataType\], wrap in Some if you are using custom parameters for false etc.not relying on the old defaults.
+> Deriving the type for ruleEngineRunner may work but you must use the type if control over nullability is required (for example expressions differ in nullability).
+
+#87 - EOL DBR and Spark runtimes are removed: 9.1, 10.4, 11.3, 13.1, 14.0
+
+#21 - Remove 2.4 Support, Tech Debt removal
+
+#112 - Change overallResult to correctly reflect the ruleEngine processing (if any Passed is present then the overall should be Passed)
+
+#115 - RuleFolder can use the DefaultProcessor from collectRunner, debug will return DefaultRuleSalience (Integer.MIN_VALUE) for the salience
+
+#104 - RuleSuiteGroups allow nesting runners within both trigger and output expressions, a number of helper functions are provided to help you manage audit state
+
+> group_results can collect RuleSuiteResults over an array of nested runners (excluding expressionRunner) into RuleSuiteGroupResults, or indeed over RuleSuiteGroupResults and has an optional processing lambda over any results to save projections (e.g. using f -> flatten(f))
+> unify_result converts all engine runner results (folder, engine and collector) into the RuleFolderResult type (ruleSuiteResults: RuleSuiteResults, result: T) allowing combinations of engine results, however nested. Debug outputs etc. are disguarded.
+
+### [0.1.4](https://github.com/sparkutils/quality/milestone/10?closed=1) <small>24th February, 2026</small>
+
+This release provides a new runner type - collectRunner and a new RuleResult type of ignoredRule.
+
+Similar to folder, in that it runs Output Expressions for each
+matching trigger Rule expression ordered by salience, it collects the result of each Output Expression.  
+It is optimised around optionally collecting and expanding nested arrays and auto expanding User LambdaFunctions.
+
+If no matching trigger rule is found the new optional RuleSuite.DefaultProcessor can be run and the overallResult will reflect DefaultRule.  
+In 0.2.0 this default approach will also be extended to engine and folder runners (with an optional fallback configuration for the 0.2.x series).
+
+0.1.4 was released in order to speed up delivery of 0.2.0 functionality for some key users.  Please note, at time of publishing, many of the published Databricks and OSS versions are un-supported by their communities, please consider migrating versions to 14.3 LTS and Spark 3.5 at a minimum.
+
+#107 - Introducing collectRunner - an optimised collecting rule engine
+
+#111 - Introducing the notRelevant result - signal that a rule was not relevant for a row but is equivalent to a pass.  Allows collecting statistics in three states, rows passed, rows failed and rows not relevant for a given rule.
+
+#93 - Introducing the rule_suite_statistics aggregate function, which collects statistics over a RuleSuiteResult column
+
+#114 - Further improvements to FunNRewrite logic, allowing both more control over the optimisation and more use cases where it can optimise.
+
+### [0.1.3.1](https://github.com/sparkutils/quality/milestone/10?closed=1) <small>24th October, 2025</small>
+
+This is the last release of 2.4, 3.0 is deprecated as of this release, similarly, Databricks versions 9.1 through to 11.3 are also now deprecated and unsupported functionality (fixes for #84 will be gladly accepted), 12.2 support will continue.
+
+#95 - DBR 17.3 Support - Databricks introduced a binary change to NamedExpression 
+
+#85 - Processor optimisation to provide a passed result
+
+#83 - Processor optimisations for stateless and Higher Order Functions
 
 #82 - Wholestage codegen support for Correlated Subqueries, improved support for pass-through fields from plans
 
@@ -32,7 +117,7 @@ This is the last release of 2.4, 3.0 is deprecated as of this release, similarly
 
 #73 - Spark 4.0 support (with an upgrade to Shim 0.2.0 using sparkutils.frameless 1.0.0)
 
-### 0.1.3 <small>4th October, 2024</small>
+### [0.1.3](https://github.com/sparkutils/quality/milestone/8?closed=1) <small>4th October, 2024</small>
 
 #53 - Docs parser is now more forgiving, empty descriptions are tolerated and normal scaladoc syntax is allowed
 
