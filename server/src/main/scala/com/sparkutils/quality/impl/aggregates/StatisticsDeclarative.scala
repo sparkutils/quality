@@ -226,7 +226,7 @@ object StatsRowOps {
           rs
         } else {
           // newRows may be updated or added, but there are also possible left-overs
-          val newMap = mutable.Map.empty[Long, InternalRow] // TODO perhaps an array is quicker for smaller volumes
+          val newMap = mutable.Map.empty[Long, InternalRow] // TODO perhaps an array is quicker for smaller  volumes
           for {
             i <- 0 until nextSM.numElements()
           } {
