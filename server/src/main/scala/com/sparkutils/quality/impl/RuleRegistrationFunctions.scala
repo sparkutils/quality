@@ -12,7 +12,7 @@ import com.sparkutils.quality.impl.id.{AsBase64Fields, AsBase64Struct, GenericLo
 import com.sparkutils.quality.impl.longPair.{AsUUID, LongPairExpression, PrefixedToLongPair}
 import com.sparkutils.quality.impl.mapLookup.MapLookupFunctionsImpl.registerMapLookupsForAgnostic
 import com.sparkutils.quality.impl.rng.{RandLongsWithJump, RandomBytes, RandomLongs}
-import com.sparkutils.quality.impl.util.{ComparableMapConverter, ComparableMapReverser, InputWrapper, PrintCode}
+import com.sparkutils.quality.impl.util.{ComparableMapConverter, ComparableMapReverser, EmptyMap, InputWrapper, MapUtils, PrintCode}
 import com.sparkutils.quality.impl.yaml.{YamlDecoderExpr, YamlEncoderExpr}
 import com.sparkutils.quality.{QualityException, RuleSuite, VersionedId, impl}
 import org.apache.commons.rng.simple.RandomSource

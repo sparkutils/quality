@@ -5,8 +5,7 @@ import com.sparkutils.quality.impl.aggregates.StatsRowOps.processResult
 import com.sparkutils.quality.impl.aggregates.StatsTypes.{mergeStats, rType, rgType, rsType, setType, updateStats}
 import com.sparkutils.quality.{DefaultRuleInt, DisabledRuleInt, FailedInt, IgnoredRuleInt, PassedInt, Probability, RuleSuiteGroupStatistics, SoftFailedInt}
 import com.sparkutils.quality.impl.util.Compare
-import com.sparkutils.quality.impl.util.Maps.{growMap, replaceEntry}
-
+import com.sparkutils.quality.impl.util.MapUtils.{getKeyIndex, growMap, replaceEntry}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
 import org.apache.spark.sql.catalyst.expressions.{AttributeReference, Expression, Literal}
@@ -180,14 +179,7 @@ object StatsRowOps {
 
       val m = cur.getMap(statsMapOffset)
 
-      var rs_i = -1
-      var i = 0
-      while (rs_i == -1 && i < m.numElements()) {
-        if (m.keyArray().getLong(i) == id) {
-          rs_i = i
-        }
-        i += 1
-      }
+      val rs_i = getKeyIndex(m, (ka, i) => m.keyArray().getLong(i) == id)
       var createdNewMap = false
       val rs =
         if (rs_i > -1)
@@ -257,14 +249,7 @@ object StatsRowOps {
       import head._
       // either we need to re-integrate it or it was brand new
       val m = curGroup.getMap(statsMapOffset)
-      var rs_i = -1
-      var i = 0
-      while (rs_i == -1 && i < m.numElements()) {
-        if (m.keyArray().getLong(i) == id) {
-          rs_i = i
-        }
-        i += 1
-      }
+      var rs_i = getKeyIndex(m, (ka, i) => m.keyArray().getLong(i) == id)
       val nm =
         if (rs_i > -1) {
           // it needs to be replaced if the arrays are not generic

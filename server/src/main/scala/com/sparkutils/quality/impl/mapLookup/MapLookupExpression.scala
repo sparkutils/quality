@@ -1,6 +1,6 @@
 package com.sparkutils.quality.impl.mapLookup
 
-import com.sparkutils.quality.impl.MapUtils
+import com.sparkutils.quality.impl.util.MapUtils
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode}
 import org.apache.spark.sql.catalyst.expressions.{Expression, UnaryExpression}
 import org.apache.spark.sql.catalyst.util.MapData
