@@ -203,7 +203,11 @@ object RuleRegistrationFunctions {
     register("from_yaml", exps => YamlDecoderExpr(exps.head, parse(exps.last)), Set(2))
 
     register("strip_result_ddl", exps => StripResultTypes(exps.head), Set(1))
-    register("rule_result", exps => RuleResultExpression(Seq(exps(0), exps(1), exps(2), exps(3))), Set(4))
+    register("rule_result", {
+      case s if s.length == 4 => RuleResultExpression(s)
+      case exps if exps.length == 7 =>
+        RuleResultExpression(Seq(exps.head, Pack(exps(1), exps(2)), Pack(exps(3), exps(4)), Pack(exps(5), exps(6))))
+    }, Set(4, 7))
 
     register("comparable_Maps", exps => ComparableMapConverter(exps(0), mapCompare), Set(1))
     register("reverse_Comparable_Maps", exps => ComparableMapReverser(exps.head), Set(1))
