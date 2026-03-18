@@ -17,7 +17,7 @@ Write rules using simple SQL or create re-usable functions via SQL Lambdas.
 
 Your rules are just versioned data, store them wherever convenient, use them by simply defining a column.
 
-* :new:{.pulseABit} Spark 4 [Connect Support](getting_started/connect/)
+* :new:{.pulseABit} Spark 4.1 and 4.x [Connect Support](getting_started/connect/)
 * :new:{.pulseABit} Folder can use a DefaultProcessor, both Folder and Engine now use the improved collectRunner result processing logic
 * :new:{.pulseABit} RuleSuiteGroups, manage a single group of rules by name and use it to access ruleSuites in nested runners and group the results 
 
@@ -35,9 +35,6 @@ Rules are evaluated lazily during Spark actions, such as writing a row, with res
 
 
 * Fast PRNG's exposing [RandomSource](https://commons.apache.org/proper/commons-rng/commons-rng-simple/apidocs/org/apache/commons/rng/simple/RandomSource.html) allowing pluggable and stable generation across the cluster
-
-
-* Support for massive [Bloom Filters](advanced/blooms/) while retaining FPP (i.e. several billion items at 0.001 would not fit into a normal 2gb byte array) on Spark Classic
 
 
 Plus a collection of handy [functions](sqlfunctions.md) to integrate it all.

@@ -101,7 +101,14 @@ trait BaseFunctionalityShared extends SharedPureConnectTests with RowTools {
         .selectExpr("rr.*")
         .as[GeneralExpressionResult].head()
 
+    val gres2 =
+      processed.selectExpr("rule_result(expressionResults, 10,2, 20,1, 31,3) rr")
+        .selectExpr("rr.*")
+        .as[GeneralExpressionResult].head()
+
     assert(gres == GeneralExpressionResult("!!java.lang.Long '500'\n", "BIGINT"))
+
+    assert(gres2 == gres)
 
     val stripped = processed.selectExpr("strip_result_ddl(expressionResults) rr")
     val stripped2 = processed.select(strip_result_ddl(col("expressionResults")) as "rr")
@@ -121,6 +128,25 @@ trait BaseFunctionalityShared extends SharedPureConnectTests with RowTools {
     }
 
     assert(strippedGres == "!!java.lang.Long '500'\n")
+
+    val strippedGres2 = {
+      val s = sparkSession
+      import s.implicits._
+      stripped.select(rule_result(col("rr"), lit(10),lit(2), lit(20),lit(1), lit(31),lit(3)))
+        .as[String].head()
+    }
+
+    assert(strippedGres2 == strippedGres)
+
+    val strippedGres3 = {
+      val s = sparkSession
+      import s.implicits._
+      stripped.select(rule_result(col("rr"), 10,2, 20,1, 31,3))
+        .as[String].head()
+    }
+
+    assert(strippedGres3 == strippedGres)
+
     res
   }
 
