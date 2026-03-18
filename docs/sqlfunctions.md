@@ -7,6 +7,8 @@ functions:
       You can use pack_ints(id, version) to specify each id if you don't already have the packed long version.  This is suitable for retrieving individual rule results, for example to aggregate counts of a specific rule result, without having to resort to using filter and map values.
 
       rule_result works with ruleRunner (DQ) results (including details) and ExpressionRunner results.  ExpressionRunner results return a tuple of ruleResult and resultDDL, both strings, or if strip_result_ddl is called a string.
+    alternatives:
+      - "rule_result(ruleSuiteResultColumn, ruleSuiteId, ruleSuiteVersion, ruleSetId, ruleSetVersion, ruleId, ruleVersion) uses unpacked id and versions"
     tags:
       - rule
   to_yaml:
