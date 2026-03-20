@@ -4,8 +4,7 @@ import com.sparkutils.manual.RowId
 import com.sparkutils.quality
 import com.sparkutils.quality.{IgnoredRuleInt, _}
 import com.sparkutils.quality.classicFunctions.{processIfAttributeMissing, validate}
-import com.sparkutils.quality.impl.YamlDecoder
-import com.sparkutils.quality.impl.types._
+import com.sparkutils.quality.impl.types.ruleSuiteResultType
 import functions.{ignored_rule, _}
 import impl.PackId.packId
 import org.apache.spark.sql.functions._
