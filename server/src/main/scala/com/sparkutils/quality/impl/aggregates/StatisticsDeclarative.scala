@@ -179,7 +179,7 @@ object StatsRowOps {
 
       val m = cur.getMap(statsMapOffset)
 
-      val rs_i = getKeyIndex(m, (ka, i) => m.keyArray().getLong(i) == id)
+      val rs_i = getKeyIndex(m, (ka, i) => ka.getLong(i) == id)
       var createdNewMap = false
       val rs =
         if (rs_i > -1)
@@ -249,7 +249,7 @@ object StatsRowOps {
       import head._
       // either we need to re-integrate it or it was brand new
       val m = curGroup.getMap(statsMapOffset)
-      var rs_i = getKeyIndex(m, (ka, i) => m.keyArray().getLong(i) == id)
+      var rs_i = getKeyIndex(m, (ka, i) => ka.getLong(i) == id)
       val nm =
         if (rs_i > -1) {
           // it needs to be replaced if the arrays are not generic
