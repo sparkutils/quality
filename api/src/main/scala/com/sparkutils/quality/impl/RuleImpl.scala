@@ -37,7 +37,8 @@ object RuleSuiteHelpers {
     res
   }
 
-  protected[quality] def serialize(ruleSuite: RuleSuite): Array[Byte] = serializeImpl(ruleSuite)(toSeq)
+  // sparkutils to allow tests to call
+  protected[sparkutils] def serialize(ruleSuite: RuleSuite): Array[Byte] = serializeImpl(ruleSuite)(toSeq)
 
   protected[quality] def deserializeGroup(in: Array[Byte]): RuleSuiteGroup = deserializeImpl[RuleSuiteGroup](in)
 

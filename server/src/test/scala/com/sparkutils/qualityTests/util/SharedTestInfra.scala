@@ -1,7 +1,7 @@
 package com.sparkutils.qualityTests.util
 
 import com.sparkutils.quality
-import com.sparkutils.quality.impl.Runners
+import com.sparkutils.quality.impl.{RuleSuiteHelpers, Runners}
 import com.sparkutils.quality.impl.extension.FunNRewrite
 import com.sparkutils.quality.{RuleSuite, classicFunctions, ruleRunner}
 import com.sparkutils.testing.SparkTestUtils.{connectMemory, scoverageClassPathsConfig, useDebugConnectLogs}
@@ -9,7 +9,8 @@ import com.sparkutils.testing._
 import com.sparkutils.testing.markers.{ConnectSafe, DontRunOnPureConnect}
 import com.sparkutils.testing.sessionStrategies.{GlobalSession, SharedSessions}
 import org.apache.spark.sql.ClassicQualitySparkUtils.DatasetBase
-import org.apache.spark.sql.{Dataset, Row}
+import org.apache.spark.sql.functions.lit
+import org.apache.spark.sql.{Dataset, Row, ShimUtils}
 import org.scalatest.{BeforeAndAfterAll, FunSuite, TestSuite}
 
 trait ClassicSharedTests extends FunSuite with TestSetup {
@@ -92,7 +93,9 @@ trait TestUtilsBase extends SparkTestSuite {
   def taddDataQuality(dataFrame: Dataset[Row], rules: RuleSuite, name: String = "DataQuality", compileEvals: Boolean = true): Dataset[Row] = {
     import org.apache.spark.sql.functions.expr
     val tdf = dataFrame.drop(name) // some gen tests add this
-    val rr = Runners.ruleRunner(rules, compileEvals, resolveWith = if (doResolve.get()) Some(tdf) else None, forceRunnerEval = false).get
+    val rr = Runners.ruleRunner(rules, compileEvals, resolveWith = if (doResolve.get()) Some(tdf) else None, forceRunnerEval = false).getOrElse{
+      ShimUtils.callFunction("dq_rule_runner", lit(RuleSuiteHelpers.serialize(rules)))
+    }
     tdf.select(expr("*"), rr.as(name))
   }
 

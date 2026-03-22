@@ -1,10 +1,11 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
+import com.sparkutils.quality.impl.{RuleSuiteHelpers, Runners}
 import functions.flatten_folder_results
 import com.sparkutils.qualityTests.util.{ClassicSharedTests, SharedPureConnectTests}
 import frameless.TypedExpressionEncoder
-import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.{DataFrame, ShimUtils}
 import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder
 import org.apache.spark.sql.catalyst.expressions.Literal
 import org.apache.spark.sql.functions._
@@ -69,8 +70,12 @@ trait RuleFolderTestBase extends SharedPureConnectTests with Matchers {
     import sc.implicits._
 
     (dataFrame: DataFrame) =>
-      classicFunctions.ruleFolderRunner(transformRuleSuite(ruleSuite), struct(lit("").as("transfer_type"), $"account", $"product", $"subcode"), debugMode = debugMode,
-        resolveWith = if (doResolve.get()) Some(dataFrame) else None, compileEvals = compileEvals)
+      Runners.ruleFolderRunner(transformRuleSuite(ruleSuite), struct(lit("").as("transfer_type"), $"account", $"product", $"subcode"), debugMode = debugMode,
+        resolveWith = if (doResolve.get()) Some(dataFrame) else None, compileEvals = compileEvals).getOrElse(
+        ShimUtils.callFunction("rule_folder_runner", lit(RuleSuiteHelpers.serialize(ruleSuite)),
+          struct(lit("").as("transfer_type"), $"account", $"product", $"subcode"), lit(""), lit(debugMode)
+        )
+      )
   }
 
   def testAndRulesForReplace(useSetSyntax: Boolean) = {

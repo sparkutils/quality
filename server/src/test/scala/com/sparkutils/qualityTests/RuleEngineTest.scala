@@ -2,11 +2,11 @@ package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
 import com.sparkutils.quality.functions.{flatten_rule_results, unpack_id_triple}
-import com.sparkutils.quality.impl.OverallResult
+import com.sparkutils.quality.impl.{OverallResult, RuleSuiteHelpers, Runners}
 import com.sparkutils.qualityTests.RuleEngineTest.{rulesRaw, testData}
 import com.sparkutils.qualityTests.util.SharedPureConnectTests
 import com.sparkutils.testing.TestUtils.debug
-import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.{DataFrame, ShimUtils}
 import org.apache.spark.sql.functions._
 import org.scalatest.Matchers
 
@@ -60,8 +60,12 @@ trait RuleEngineTestBase extends SharedPureConnectTests with Matchers {
   def irules(expressionRules: Seq[(ExpressionRule, RunOnPassProcessor)], debugMode: Boolean = false, compileEvals: Boolean = true, transformRuleSuite: RuleSuite => RuleSuite = identity) = {
     val ruleSuite = rulesRaw(expressionRules)
     (dataFrame: DataFrame) =>
-      classicFunctions.ruleEngineRunner(transformRuleSuite(ruleSuite), debugMode = debugMode,
-        resolveWith = if (doResolve.get()) Some(dataFrame) else None, compileEvals = compileEvals)
+      Runners.ruleEngineRunner(transformRuleSuite(ruleSuite), debugMode = debugMode,
+        resolveWith = if (doResolve.get()) Some(dataFrame) else None, compileEvals = compileEvals).getOrElse{
+        ShimUtils.callFunction("rule_engine_runner", lit(RuleSuiteHelpers.serialize(ruleSuite)),
+          lit(""), lit(debugMode)
+        )
+      }
   }
 
   def doTestProbabilityRules(overallResult: OverallResult): Unit = evalCodeGens {
