@@ -1,6 +1,7 @@
 ### [0.2.0](https://github.com/sparkutils/quality/milestone/10?closed=1) <small>24th March, 2026</small>
 
 This release migrates Spark 4 support to use AgnosticEncoders and removes EOL runtimes: 2.4 and DBR's 9.1, 10.4, 11.3, 13.1 and 14.0.  
+
 Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1 and 3.3.2 are deprecated as are DBR's 12.2 and 13.3 and will be removed as of Quality version 0.3.0. 
 
 #90 - Migrate to Spark 4 sql-api, AgnosticEncoder's and support Connect:
@@ -13,7 +14,7 @@ Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1 and 3.3.2 are deprecated as are DBR's 12.2
 > is used to run the same test cases against both Classic and Connect ensuring the API is stable.  This also extends 
 > to user functions (LambdaFunctions), on Connect they are sent to the server via a custom command.
 > 
-> The Testless cluster notebook testing experience has been abstracted to the Testing project providing a standard  
+> The Testless cluster notebook testing experience has been abstracted to the Testing project providing a standard 
 > interface Quality Scalatest's on clusters, now shared with all Sparkutils testshade based projects.  On Databricks
 > the testing runs will also run in the normal Classic mode and, via the scala.api.mode=connect config parameter, 
 > against the provided Spark Connect server.
@@ -40,6 +41,7 @@ Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1 and 3.3.2 are deprecated as are DBR's 12.2
 > compileEvals and forceTriggerEval now default to false for all runner types and are removed for the connect api, as are resolveWith.  This has been found to be the best balance for most rules with 
 > large performance gains as of 0.1.3.1 for long-running processes or larger data volumes.  These can be set to the previous defaults for the old behaviour if
 > code generation itself dominates your applications time but note that nesting and chaining calls between runners is not supported - use .cache / write interim results if this is needed.
+> 
 > ruleEngineRunner's schema parameter when using all parameters is now Option\[DataType\], wrap in Some if you are using custom parameters for false etc.not relying on the old defaults.
 > Deriving the type for ruleEngineRunner may work but you must use the type if control over nullability is required (for example expressions differ in nullability).
 
@@ -54,6 +56,7 @@ Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1 and 3.3.2 are deprecated as are DBR's 12.2
 #104 - RuleSuiteGroups allow nesting runners within both trigger and output expressions, a number of helper functions are provided to help you manage audit state
 
 > group_results can collect RuleSuiteResults over an array of nested runners (excluding expressionRunner) into RuleSuiteGroupResults, or indeed over RuleSuiteGroupResults and has an optional processing lambda over any results to save projections (e.g. using f -> flatten(f))
+> 
 > unify_result converts all engine runner results (folder, engine and collector) into the RuleFolderResult type (ruleSuiteResults: RuleSuiteResults, result: T) allowing combinations of engine results, however nested. Debug outputs etc. are disguarded.
 
 #109 - Simplified access functions for rule results, rule_result returns a rule without needing to flatten or nested filter, has_X wraps the result and tests for passed, failed etc.

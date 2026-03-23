@@ -33,8 +33,8 @@ import com.sparkutils.quality.classicFunctions._
 The classicFunctions rule, engine, folder and expression runner functions will use connect where required and classic where possible.  Functions which are only possible to use with classic are annotated with ClassicOnly.
 
 ??? note "registerQualityFunctions has no params?"
-com.sparkutils.quality.registerQualityFunctions no longer takes parameters.  On classic, non quality_api, it forwards to the com.sparkutils.quality.classicFunction.registerQualityFunctions's default implementation.
-When using quality_api via connect it's a no-op, as the functions exist on the server.
+    com.sparkutils.quality.registerQualityFunctions no longer takes parameters.  On classic, non quality_api, it forwards to the com.sparkutils.quality.classicFunction.registerQualityFunctions's default implementation.
+    When using quality_api via connect it's a no-op, as the functions exist on the server.
 
 ### Breaking Change Spark 4
 
@@ -133,7 +133,7 @@ quality_RUNTIME_SPARKCOMPATVERSION_SCALACOMPATVERSION-VERSION.jar
 e.g.
 
 ```
-quality_4.0.0.oss_4.0_2.13-0.1.3.1.jar
+quality_4.1.0.oss_4.1_2.13-0.2.0.jar
 ```
 
 The build poms generate those variables via maven profiles, but you are advised to use properties to configure e.g. for Maven:
