@@ -4,7 +4,7 @@ import com.sparkutils.quality._
 import com.sparkutils.quality.impl.{RuleSuiteHelpers, Runners}
 import com.sparkutils.qualityTests.util.SharedPureConnectTests
 import org.apache.spark.sql.functions.lit
-import org.apache.spark.sql.{DataFrame, ShimUtils}
+import org.apache.spark.sql.{DataFrame, ShimUtils, SparkSession}
 
 /**
  * Primarily to prove joins with relation's work with resolveWith across versions.
@@ -40,11 +40,14 @@ class JoinValidationTest extends SharedPureConnectTests {
       RuleSet(Id(50, 1), rules
       )))
 
-    (dataFrame: DataFrame) =>
-      Runners.ruleRunner(transformRuleSuite(ruleSuite),
-        resolveWith = if (doResolve.get()) Some(dataFrame) else None, compileEvals = compileEvals).getOrElse {
+    if (ShimUtils.isClassic(SparkSession.active))
+      (dataFrame: DataFrame) =>
+        Runners.ruleRunner(transformRuleSuite(ruleSuite),
+          resolveWith = if (doResolve.get()) Some(dataFrame) else None, compileEvals = compileEvals).get
+    else
+      (_: DataFrame) =>
         ShimUtils.callFunction("dq_rule_runner", lit(RuleSuiteHelpers.serialize(transformRuleSuite(ruleSuite))))
-      }
+
   }
 
   val expected = Seq.fill(3)(Seq(Failed, Passed)).flatten

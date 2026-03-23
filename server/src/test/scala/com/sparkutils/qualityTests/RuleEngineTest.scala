@@ -6,7 +6,7 @@ import com.sparkutils.quality.impl.{OverallResult, RuleSuiteHelpers, Runners}
 import com.sparkutils.qualityTests.RuleEngineTest.{rulesRaw, testData}
 import com.sparkutils.qualityTests.util.SharedPureConnectTests
 import com.sparkutils.testing.TestUtils.debug
-import org.apache.spark.sql.{DataFrame, ShimUtils}
+import org.apache.spark.sql.{DataFrame, ShimUtils, SparkSession}
 import org.apache.spark.sql.functions._
 import org.scalatest.Matchers
 
@@ -59,13 +59,15 @@ trait RuleEngineTestBase extends SharedPureConnectTests with Matchers {
 
   def irules(expressionRules: Seq[(ExpressionRule, RunOnPassProcessor)], debugMode: Boolean = false, compileEvals: Boolean = true, transformRuleSuite: RuleSuite => RuleSuite = identity) = {
     val ruleSuite = rulesRaw(expressionRules)
-    (dataFrame: DataFrame) =>
-      Runners.ruleEngineRunner(transformRuleSuite(ruleSuite), debugMode = debugMode,
-        resolveWith = if (doResolve.get()) Some(dataFrame) else None, compileEvals = compileEvals).getOrElse{
-        ShimUtils.callFunction("rule_engine_runner", lit(RuleSuiteHelpers.serialize(ruleSuite)),
+    if (ShimUtils.isClassic(SparkSession.active))
+      (dataFrame: DataFrame) =>
+        Runners.ruleEngineRunner(transformRuleSuite(ruleSuite), debugMode = debugMode,
+          resolveWith = if (doResolve.get()) Some(dataFrame) else None, compileEvals = compileEvals).get
+    else
+      (_: DataFrame) =>
+        ShimUtils.callFunction("rule_engine_runner", lit(RuleSuiteHelpers.serialize(transformRuleSuite(ruleSuite))),
           lit(""), lit(debugMode)
         )
-      }
   }
 
   def doTestProbabilityRules(overallResult: OverallResult): Unit = evalCodeGens {
