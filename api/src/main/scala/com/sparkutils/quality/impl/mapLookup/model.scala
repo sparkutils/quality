@@ -19,6 +19,6 @@ case class MapConfig(override val name: String, override val source: Either[Data
  * b) if token is null sql is used
  * c) if both are null the row will not be used
  */
-private[mapLookup] case class MapRow(override val name: String, override val token: Option[String],
+case class MapRow(override val name: String, override val token: Option[String],
                                   override val filter: Option[String], override val sql: Option[String], key: String, value: String)
   extends Row(name, token, filter, sql)

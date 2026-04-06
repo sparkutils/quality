@@ -5,6 +5,7 @@ import org.apache.spark.sql._
 
 import scala.collection.mutable
 
+// TODO - move to root package - this is not internal
 /**
  * Represents a configuration row for view loading
  * @param name the view name, this will be used to manage dependencies
@@ -19,7 +20,7 @@ case class ViewConfig(override val name: String, override val source: Either[Dat
  * b) if token is null sql is used
  * c) if both are null the row will not be used
  */
-private[views] case class ViewRow(override val name: String, override val token: Option[String],
+case class ViewRow(override val name: String, override val token: Option[String],
                                   override val filter: Option[String], override val sql: Option[String])
   extends Row(name, token, filter, sql)
 

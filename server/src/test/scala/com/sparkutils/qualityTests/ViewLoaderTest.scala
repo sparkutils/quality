@@ -1,5 +1,5 @@
 package com.sparkutils.qualityTests
-import com.sparkutils.quality.{DataFrameLoader, Id, loadViewConfigs, loadViews}
+import com.sparkutils.quality.{DataFrameLoader, Id, ViewRow, loadViewConfigs, loadViews}
 import com.sparkutils.quality.impl.views.{MissingViewAnalysisException, ViewConfig, ViewLoaderAnalysisException}
 import com.sparkutils.qualityTests.util.SharedPureConnectTests
 import com.sparkutils.testing.SparkVersions.sparkVersion
@@ -45,7 +45,7 @@ class ViewLoaderTest extends SharedPureConnectTests {
     val s = sparkSession
     import s.implicits._
 
-    val res = loadViewConfigs(loader, config.toDF(), expr("id.id"), expr("id.version"), Id(1,1),
+    val res = loadViewConfigs(loader, config.toDF(), expr("ruleSuiteId"), expr("ruleSuiteVersion"), Id(1,1),
       col("name"),col("token"),col("filter"),col("sql")
     )
 
@@ -56,7 +56,11 @@ class ViewLoaderTest extends SharedPureConnectTests {
     val s = sparkSession
     import s.implicits._
 
-    val res = loadViewConfigs(loader, config.filterNot(_.id == Id(100,1)).map(_.to2).toDF(),
+    def to2(view: ViewRow): ViewRow2 = ViewRow2(view.name, view.token, view.filter, view.sql)
+
+
+    val res = loadViewConfigs(loader, config.filterNot(c => Id(c.ruleSuiteId, c.ruleSuiteVersion) == Id(100,1)).
+      map(to2).toDF(),
       col("name"),col("token"),col("filter"),col("sql")
     )
 
@@ -69,17 +73,14 @@ class ViewLoaderTest extends SharedPureConnectTests {
 
     import s.implicits._
 
-    val (viewConfigs, _) = loadViewConfigs(loader, config.toDF(), expr("id.id"), expr("id.version"), Id(1,1),
-      col("name"),col("token"),col("filter"),col("sql")
-    )
+    val (viewConfigs, _) = loadViewConfigs(loader, config.toDF(), Id(1,1))
+
     val results = loadViews(viewConfigs)
     assert(results.replaced.isEmpty)
     assert(!results.failedToLoadDueToCycles)
     assert(results.notLoadedViews.isEmpty)
 
-    val (viewConfigs2, _) = loadViewConfigs(loader, config.toDF(), expr("id.id"), expr("id.version"), Id(1,1),
-      col("name"),col("token"),col("filter"),col("sql")
-    )
+    val (viewConfigs2, _) = loadViewConfigs(loader, config.toDF(), Id(1,1))
     val results2 = loadViews(viewConfigs2)
     assert(results2.replaced == Set("names","ages","joined"))
   }
@@ -93,7 +94,7 @@ class ViewLoaderTest extends SharedPureConnectTests {
         ViewRow(Id(1,1),"joined", None, None, Some("select * from names43 n left outer join ages353 a on n.b = a.a"))
       )
 
-    val (viewConfigs, _) = loadViewConfigs(loader, config.toDF(), expr("id.id"), expr("id.version"), Id(1,1),
+    val (viewConfigs, _) = loadViewConfigs(loader, config.toDF(), expr("ruleSuiteId"), expr("ruleSuiteVersion"), Id(1,1),
       col("name"),col("token"),col("filter"),col("sql")
     )
 
@@ -131,7 +132,7 @@ class ViewLoaderTest extends SharedPureConnectTests {
         ViewRow(Id(1,1),"le2", None, None, Some("select * from le1"))
       )
 
-    val (viewConfigs, _) = loadViewConfigs(loader, config.toDF(), expr("id.id"), expr("id.version"), Id(1,1),
+    val (viewConfigs, _) = loadViewConfigs(loader, config.toDF(), expr("ruleSuiteId"), expr("ruleSuiteVersion"), Id(1,1),
       col("name"),col("token"),col("filter"),col("sql")
     )
 
@@ -149,7 +150,7 @@ class ViewLoaderTest extends SharedPureConnectTests {
         ViewRow(Id(1,1),"le2", None, None, Some("select * from `le-21`"))
       )
 
-    val (viewConfigs, _) = loadViewConfigs(loader, config.toDF(), expr("id.id"), expr("id.version"), Id(1,1),
+    val (viewConfigs, _) = loadViewConfigs(loader, config.toDF(), expr("ruleSuiteId"), expr("ruleSuiteVersion"), Id(1,1),
       col("name"),col("token"),col("filter"),col("sql")
     )
     try {
@@ -181,7 +182,7 @@ class ViewLoaderTest extends SharedPureConnectTests {
         ViewRow(Id(1,1),"ages2", Some("ages2"), Some("b > 12"), None)
       )
 
-    val (viewConfigs, _) = loadViewConfigs(loader, config.toDF(), expr("id.id"), expr("id.version"), Id(1,1),
+    val (viewConfigs, _) = loadViewConfigs(loader, config.toDF(), expr("ruleSuiteId"), expr("ruleSuiteVersion"), Id(1,1),
       col("name"),col("token"),col("filter"),col("sql")
     )
     try {
@@ -209,7 +210,4 @@ class ViewLoaderTest extends SharedPureConnectTests {
 }
 
 case class X2[A,B](a: A, b: B)
-case class ViewRow(id: Id, name: String, token: Option[String], filter: Option[String], sql: Option[String]) {
-  def to2: ViewRow2 = ViewRow2(name, token, filter, sql)
-}
 case class ViewRow2(name: String, token: Option[String], filter: Option[String], sql: Option[String])

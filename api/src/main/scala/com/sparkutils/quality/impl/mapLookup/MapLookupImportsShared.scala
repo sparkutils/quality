@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl.mapLookup
 
 import com.sparkutils.quality.impl.mapLookup.MapLookupFunctions.{MapCreator, MapLookups}
-import com.sparkutils.quality.{DataFrameLoader, Id, MapLookups}
+import com.sparkutils.quality.{DataFrameLoader, Id, MapConfigColumns, MapLookups}
 import com.sparkutils.quality.impl.util.ConfigLoader
 import org.apache.spark.sql.functions.lit
 import org.apache.spark.sql.{Column, DataFrame}
@@ -52,6 +52,26 @@ trait MapLookupImportsShared {
       sql,
       key,
       value
+    )
+
+  /**
+   * Loads map configurations from a given DataFrame for ruleSuiteId.  Wherever token is present loader will be called and the filter optionally applied.
+   * @return A tuple of MapConfig's and the names of rows which had unexpected content (either token or sql must be present)
+   */
+  def loadMapConfigs(loader: DataFrameLoader, viewDF: DataFrame,
+                     ruleSuiteId: Id, mapConfig: MapConfigColumns = MapConfigColumns()
+                    ): (Seq[MapConfig], Set[String]) =
+    ConfigLoader.loadConfigs[MapConfig, MapRow](
+      loader, viewDF,
+      mapConfig.ruleSuiteId,
+      mapConfig.ruleSuiteVersion,
+      ruleSuiteId,
+      mapConfig.name,
+      mapConfig.token,
+      mapConfig.filter,
+      mapConfig.sql,
+      mapConfig.key,
+      mapConfig.value
     )
 
   /**

@@ -1,7 +1,7 @@
 package com.sparkutils.qualityTests.mapLookup
 
 import com.sparkutils.quality.impl.mapLookup.MapConfig
-import com.sparkutils.quality.{DataFrameLoader, Id, loadMapConfigs, loadMaps}
+import com.sparkutils.quality.{DataFrameLoader, Id, MapRow, loadMapConfigs, loadMaps}
 import com.sparkutils.qualityTests.util.SharedPureConnectTests
 import org.apache.spark.sql.functions.{col, expr}
 import org.apache.spark.sql.DataFrame
@@ -30,7 +30,7 @@ class MapLoaderTest extends SharedPureConnectTests {
     val s = sparkSession
     import s.implicits._
 
-    val (mapConfigs, _) = loadMapConfigs(loader, config.toDF(), expr("id.id"), expr("id.version"), Id(1,1),
+    val (mapConfigs, _) = loadMapConfigs(loader, config.toDF(), expr("ruleSuiteId"), expr("ruleSuiteVersion"), Id(1,1),
       col("name"),col("token"),col("filter"),col("sql"),col("key"),col("value")
     )
 
@@ -40,8 +40,9 @@ class MapLoaderTest extends SharedPureConnectTests {
   test("testConfigLoadingWithoutIds") {
     val s = sparkSession
     import s.implicits._
+    def to2(mapRow: MapRow): MapRow2 = MapRow2(mapRow.name, mapRow.token, mapRow.filter, mapRow.sql, mapRow.key, mapRow.value)
 
-    val (mapConfigs, _) = loadMapConfigs(loader, config.map(_.to2).toDF(),
+    val (mapConfigs, _) = loadMapConfigs(loader, config.map(to2).toDF(),
       col("name"),col("token"),col("filter"),col("sql"),col("key"),col("value")
     )
 
@@ -60,14 +61,13 @@ class MapLoaderTest extends SharedPureConnectTests {
   test("testMapLoading") {
     val s = sparkSession
     import s.implicits._
-    val (mapConfigs, _) = loadMapConfigs(loader, config.toDF(), expr("id.id"), expr("id.version"), Id(1,1),
+    val (mapConfigs, _) = loadMapConfigs(loader, config.toDF(), expr("ruleSuiteId"), expr("ruleSuiteVersion"), Id(1,1),
       col("name"),col("token"),col("filter"),col("sql"),col("key"),col("value")
     )
 
     val maps = loadMaps(mapConfigs)
     MapLookupTest.doTradeLookupTest(maps, sparkSession)
   }
-
 
   test("testMapSQLLoading") {
     val s = sparkSession
@@ -77,9 +77,7 @@ class MapLoaderTest extends SharedPureConnectTests {
 
     val viewconfig = Seq(MapRow(Id(1,1),"ccyRate", None, None, Some("select * from ccyRate"), "ccy", "rate")) :+ config.last
 
-    val (mapConfigs, _) = loadMapConfigs(loader, viewconfig.toDF(), expr("id.id"), expr("id.version"), Id(1,1),
-      col("name"),col("token"),col("filter"),col("sql"),col("key"),col("value")
-    )
+    val (mapConfigs, _) = loadMapConfigs(loader, viewconfig.toDF(), Id(1,1))
 
     val maps = loadMaps(mapConfigs)
     MapLookupTest.doTradeLookupTest(maps, sparkSession)
@@ -87,7 +85,4 @@ class MapLoaderTest extends SharedPureConnectTests {
 
 }
 
-case class MapRow(id: Id, name: String, token: Option[String], filter: Option[String], sql: Option[String], key: String, value: String){
-  def to2: MapRow2 = MapRow2(name, token, filter, sql, key, value)
-}
 case class MapRow2(name: String, token: Option[String], filter: Option[String], sql: Option[String], key: String, value: String)
