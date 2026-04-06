@@ -716,6 +716,8 @@ object RuleRegistrationFunctions {
       case Seq(e) => UnifyResult(e)
     }, Set(1))
 
+    register("group_audit", GroupAudit.apply, minimum = 1) // arrays of results would be one
+
     // coalesce support
     registerProcessIfAttributeMissingForAgnostic(registerFunction)
   }

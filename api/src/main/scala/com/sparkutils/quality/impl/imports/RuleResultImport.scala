@@ -87,4 +87,11 @@ trait RuleResultImport {
   def unify_result(runnerResults: Column): Column =
     ShimUtils.callFunction("unify_result", runnerResults)
 
+  /**
+   * Processes the audit trail information from runners and RuleSuiteGroupResults fields
+   * @param column any number of runner, RuleSuiteGroupResults or array thereof
+   * @return the audit trail of all the expressions combined under a RuleSuiteGroupResults column
+   */
+  def group_audit(a: Column, b: Column *): Column =
+    ShimUtils.callFunction("group_audit", Seq(a) ++ b:_*)
 }

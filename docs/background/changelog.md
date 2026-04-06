@@ -61,7 +61,9 @@ Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1 and 3.3.2 are deprecated as are DBR's 12.2
 
 #109 - Simplified access functions for rule results, rule_result returns a rule without needing to flatten or nested filter, has_X wraps the result and tests for passed, failed etc.
 
-#123 - Simplified use of View and Map loading, default case classes are provided as well as simplified loadConfig functions using default columns classes.  Previously private impl classes have been made public to allow further re-use. 
+#123 - Simplified use of View and Map loading, default case classes are provided as well as simplified loadConfig functions using default columns classes.  Previously private impl classes have been made public to allow further re-use.
+
+#124 - Introduced group_audit function, allowing multiple Quality auditable columns to be combined into a RuleSuiteGroupResults column
 
 ### [0.1.4](https://github.com/sparkutils/quality/milestone/10?closed=1) <small>24th February, 2026</small>
 

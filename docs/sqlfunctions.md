@@ -622,6 +622,13 @@ functions:
         using the processing version without an engine result will fail the analysis phase.
     tags:
       - rule
+  group_audit:
+    description: |
+      group_audit( array_of_runner_results, rule_runners, ... ) processes audit information from any audit providing expression including, as with group_results, an array of results or group results.
+      
+      Unlike group_results the parameters can have mixed formats and only the RuleSuiteResult (or RulesSuiteGroupResults) is kept. 
+    tags:
+      - rule
   unify_result:
     description: |
       unify_result( rule_engine_results ) converts rule engine results into collector / folder results (dropping salient rule), also works with group_results.
