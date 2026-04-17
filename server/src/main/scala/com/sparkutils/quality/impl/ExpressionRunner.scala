@@ -7,12 +7,12 @@ import com.sparkutils.quality.impl.PackId.packId
 import com.sparkutils.quality.impl.util.{Arrays, PassThroughCompileEvals}
 import com.sparkutils.quality.impl.yaml.YamlEncoderExpr
 import com.sparkutils.quality.impl.types._
-
 import org.apache.spark.sql.{Column, ShimUtils}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode, ExprValue}
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression, UnaryExpression}
-import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, GenericArrayData, MapData}
+import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, GenericArrayData, MapData, truncatedString}
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.shim.expressions.InputTypeChecks
 import org.apache.spark.sql.types.{DataType, StringType}
 import org.apache.spark.unsafe.types.UTF8String
@@ -131,7 +131,8 @@ trait ExpressionRunnerBase[T] extends NonSQLExpression {
 
   lazy val realChildren = getRealChildren(children)
 
-  override def toString: String = s"ExpressionRunner(${realChildren.mkString(", ")})"
+  override def toString: String = "ExpressionRunner" + truncatedString(
+    realChildren, "(", ", ", ")", SQLConf.get.maxToStringFields)
 
   override def nullable: Boolean = false
 

@@ -13,7 +13,8 @@ import org.apache.spark.sql.catalyst.analysis.UnresolvedFunction
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, ExprCode, FalseLiteral, GlobalValue}
 import org.apache.spark.sql.catalyst.expressions.{CreateArray, Expression, NonSQLExpression}
-import org.apache.spark.sql.catalyst.util.GenericArrayData
+import org.apache.spark.sql.catalyst.util.{GenericArrayData, truncatedString}
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 
 import scala.collection.mutable.ArrayBuffer
@@ -214,7 +215,8 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
   }
 
   override def nullable: Boolean = false
-  override def toString: String = s"${classTagT.runtimeClass.getName}(${children.mkString(", ")})"
+  override def toString: String = classTagT.runtimeClass.getName + truncatedString(
+    children, "(", ", ", ")", SQLConf.get.maxToStringFields)
 
   // used only for eval, compiled uses the children directly
   lazy val reincorporated = reincorporateExpressions(ruleSuite, children, false, expressionOffsets, triggerCount)

@@ -19,7 +19,8 @@ import org.apache.spark.sql.catalyst.analysis.TypeCoercion
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode}
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression}
-import org.apache.spark.sql.catalyst.util.GenericArrayData
+import org.apache.spark.sql.catalyst.util.{GenericArrayData, truncatedString}
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.{ClassicQualitySparkUtils, Column, DataFrame, ShimUtils}
 
@@ -417,7 +418,8 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression {
   lazy val compiledRealChildren = realChildren.slice(0, triggerCount).map(ExpressionWrapper(_, compileEvals)).toArray
 
   override def nullable: Boolean = false
-  override def toString: String = s"RuleEngineRunner(${realChildren.mkString(", ")})"
+  override def toString: String = "RuleEngineRunner" + truncatedString(
+    realChildren, "(", ", ", ")", SQLConf.get.maxToStringFields)
 
   // used only for eval, compiled uses the children directly TODO TEST ENGINE
   lazy val reincorporated = reincorporateExpressions(ruleSuite, realChildren, compileEvals, expressionOffsets, triggerCount)

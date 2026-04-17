@@ -8,6 +8,8 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode}
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression}
+import org.apache.spark.sql.catalyst.util.truncatedString
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.qualityFunctions.{FunN, RefExpressionLazyType}
 import org.apache.spark.sql.types._
 
@@ -78,7 +80,8 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression {
   lazy val compiledRealChildren = realChildren.slice(0, triggerCount).map(ExpressionWrapper(_, compileEvals)).toArray
 
   override def nullable: Boolean = false
-  override def toString: String = s"RuleFolderRunner(${realChildren.mkString(", ")})"
+  override def toString: String = "RuleFolderRunner" + truncatedString(
+    realChildren, "(", ", ", ")", SQLConf.get.maxToStringFields)
 
   // used only for eval, compiled uses the children directly
   lazy val reincorporated = reincorporateExpressions(ruleSuite, realChildren, compileEvals, expressionOffsets, triggerCount)

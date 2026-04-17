@@ -17,8 +17,9 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode, ExprValue}
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression}
-import org.apache.spark.sql.catalyst.util.ArrayBasedMapData
+import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, truncatedString}
 import org.apache.spark.sql.functions.lit
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.DataType
 import org.apache.spark.sql.{ClassicQualitySparkUtils, Column, DataFrame, ShimUtils}
 
@@ -305,7 +306,8 @@ trait RuleRunnerBase[T] extends NonSQLExpression {
   lazy val realChildren = getRealChildren(children)
 
   override def nullable: Boolean = false
-  override def toString: String = s"RuleRunner(${realChildren.mkString(", ")})"
+  override def toString: String = "RuleRunner" + truncatedString(
+    realChildren, "(", ", ", ")", SQLConf.get.maxToStringFields)
 
   // used only for eval, compiled uses the children directly
   lazy val reincorporated = reincorporateExpressions(ruleSuite, realChildren, compileEvals)
