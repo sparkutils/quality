@@ -142,6 +142,8 @@ QUALITY REGISTER RULE SUITE combinedRowsName, ruleSuiteId Int, ruleSuiteVersion 
 CREATE QUALITY FUNCTION simplename _WITH_IMPL_ simpleExpression _END_OF_USER_FUNCTION_ 
     singleParamName _WITH_IMPL_ p1 -> simpleExpression _END_OF_USER_FUNCTION_
     multiParamsName _WITH_IMPL_ (p1, p2) -> simpleExpression _END_OF_USER_FUNCTION_
+-- maps
+QUALITY MAP BROADCAST mapVariable -- optional, but recommended, broadcast of map data to speed up planning, map_lookup then must use mapVariable as a string not the variable name
 ```
 
 The loading and serialising functions register ruleSuites as Spark SQL Variables (via [DECLARE VARIABLE](https://spark.apache.org/docs/latest/sql-ref-syntax-ddl-declare-variable.html)/[SET VARIABLE](https://spark.apache.org/docs/latest/sql-ref-syntax-aux-set-var.html)) with all actual ruleSuite handling taking place on the server. 

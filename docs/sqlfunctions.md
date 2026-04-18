@@ -314,7 +314,9 @@ functions:
       
       On Spark 4 / DBR 17.3 and later this function uses Spark Variables and takes the form:
       >  map_lookup('mapid', expr, mapLookupsVar)
-      Where mapLookupsVar is the result of loadMaps   
+      Where mapLookupsVar is the result of loadMaps
+    alternatives:
+      - "map_lookup('mapid', expr, 'mapLookupsVar') - allows faster if, as is default with the scala api, the QUALITY MAP BROADCAST mapLookupsVar is called"
     tags:
       - map
       - variable
