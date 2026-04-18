@@ -90,7 +90,7 @@ object MapLookupTest extends VariableTestShims {
 
 }
 
-trait TaxonomyLookupTest extends SharedPureConnectTests with VariableTestShims{
+trait TaxonomyLookupTest extends SharedPureConnectTests with VariableTestShims {
 
   def doTaxonomyLookup(): Unit = {
     val orchid = Seq("open","difficult","prized")
