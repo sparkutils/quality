@@ -47,9 +47,7 @@ object MapLookupFunctionsImpl {
                     val b = SparkSession.active.sparkContext.broadcast(m)
                     hm.put(m, b)
                     b
-                  }{
-                    _
-                  }
+                  }(identity)
 
                 // it's a map ..
                 (b, f.dataType.asInstanceOf[MapType].valueType)
