@@ -219,15 +219,18 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
   case class CompilerTerms(funNames: _root_.scala.collection.Iterator[_root_.scala.Predef.String],
                            paramsCall: String, utilsName: String, ruleSuitTerm: String, ruleSuiteArrays: String, resArrTerm: String,
                            currentSalience: String, ruleTupleArrTerm: String, currentOutputIndex: String, outArrTerm: String,
-                           salienceArrTerm: String, pushToTop: String, hasAPassTerm: String)
+                           salienceArrTerm: String, pushToTop: String, hasAPassTerm: String, currRuleResTerm: String)
 
+  // exprEnd and exprFunEnd take currRuleResTerm as params
   def genCompilerTerms[T: ClassTag](ctx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext,
                   child: Expression, expressionOffsets: Array[Int], realChildren: Seq[Expression],
                        debugMode: Boolean, variablesPerFunc: Int, variableFuncGroup: Int, forceTriggerEval: Boolean,
                        extraResult: (String, Int, String) => String = (_ : String, _: Int, _: String) => "",
                        extraSetup: (String, Int) => String = (_ : String, _: Int) => "",
                        orderOffset: Int => Int = identity,
-                       salienceCheck: Boolean = true, sizeAdjustment: Int = 0
+                       salienceCheck: Boolean = true, sizeAdjustment: Int = 0,
+                       exprEnd: String => String = _ => "",
+                       exprFunEnd: String => String = _ => ""
                       ):
     CompilerTerms = {
     val i = ctx.INPUT_ROW
@@ -263,7 +266,6 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
     val currRuleRes = "int"
     val currRuleResTerm = ctx.addMutableState(currRuleRes, ctx.freshName("currRuleRes"),
       v => s"$v = 0;")
-
 
     val ruleTupleRes = classOf[Tuple3[_,_,_]].getName
     val ruleTupleArrTerm = ctx.addMutableState(ruleTupleRes+"[]", ctx.freshName("ruleId"),
@@ -374,10 +376,12 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
     }.grouped(variablesPerFunc).grouped(variableFuncGroup)
 
 
-    CompilerTerms(RuleRunnerUtils.generateFunctionGroups(ctx, allExpr, paramsDef, paramsCall),
+    CompilerTerms(
+      RuleRunnerUtils.generateFunctionGroups(ctx, allExpr, paramsDef, paramsCall, exprEnd = () => exprEnd(currRuleResTerm),
+        exprFunEnd = () => exprFunEnd(currRuleResTerm)),
       paramsCall, utilsName, ruleSuitTerm, ruleSuiteArrays, resArrTerm,
       currentSalience, ruleTupleArrTerm, currentOutputIndex, outArrTerm,
-      salienceArrTerm, pushToTop, hasAPassTerm)
+      salienceArrTerm, pushToTop, hasAPassTerm, currRuleResTerm)
 
   }
 
@@ -441,19 +445,34 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression {
   protected def doGenCodeI(ctx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = {
     ctx.references += this
 
+    // #127 jump out of expr or rule groups
+    val earlyReturn =
+      (currRuleResTerm: String) =>
+      s"""
+        if ($currRuleResTerm == $PassedInt) {
+          return;
+        }
+      """
+
     val compilerTerms =
       RuleEngineRunnerUtils.genCompilerTerms[T](ctx, PassThroughEvalOnly(realChildren), expressionOffsets, realChildren,
-        debugMode, variablesPerFunc, variableFuncGroup, forceTriggerEval)
+        debugMode, variablesPerFunc, variableFuncGroup, forceTriggerEval,
+        exprEnd = earlyReturn, exprFunEnd = earlyReturn
+      )
 
     import compilerTerms._
 
-    // for debug currentOutputIndex is the count of matches
+    // for debug currentOutputIndex is the count of matches, new Integer for 127 as janino isn't happy
 
     val pre = s"""
           $pushToTop
           $currentSalience = java.lang.Integer.MAX_VALUE;
           $currentOutputIndex = -1;
           $hasAPassTerm = false;
+          // #127 enable early exit
+          $currRuleResTerm = $UnevaluatedRuleInt;
+          java.util.Arrays.fill((Object[])$resArrTerm, new Integer($UnevaluatedRuleInt));
+          java.util.Arrays.fill($outArrTerm, null);
 
           ${funNames.map{f => s"$f($paramsCall);"}.mkString("\n")}
       """
