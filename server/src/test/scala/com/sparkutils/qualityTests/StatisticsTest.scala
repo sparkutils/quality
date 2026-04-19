@@ -34,7 +34,8 @@ class StatisticsTest extends SharedPureConnectTests with Matchers {
               Id(5,0) -> SoftFailed,
               Id(6,0) -> DisabledRule,
               Id(7,0) -> Probability(0.4),
-              Id(8,0) -> Probability(0.9)
+              Id(8,0) -> Probability(0.9),
+              Id(9,0) -> UnevaluatedRule
             ))
         ))),
       ("a", RuleSuiteResult(
@@ -48,7 +49,8 @@ class StatisticsTest extends SharedPureConnectTests with Matchers {
               Id(5,0) -> SoftFailed,
               Id(6,0) -> DisabledRule,
               Id(7,0) -> Probability(0.4),
-              Id(8,0) -> Probability(0.9)
+              Id(8,0) -> Probability(0.9),
+              Id(9,0) -> UnevaluatedRule
             ))
         ))),
       ("a", RuleSuiteResult(
@@ -62,7 +64,8 @@ class StatisticsTest extends SharedPureConnectTests with Matchers {
               Id(50,0) -> SoftFailed,
               Id(60,0) -> DisabledRule,
               Id(70,0) -> Probability(0.4),
-              Id(80,0) -> Probability(0.9)
+              Id(80,0) -> Probability(0.9),
+              Id(90,0) -> UnevaluatedRule
             ))
         )))
     )
@@ -111,7 +114,8 @@ class StatisticsTest extends SharedPureConnectTests with Matchers {
                         Id(5,0) -> RuleStatistics(Id(5,0), softFailed = 2),
                         Id(6,0) -> RuleStatistics(Id(6,0), disabled = 2),
                         Id(7,0) -> RuleStatistics(Id(7,0), probabilityFailed = 2),
-                        Id(8,0) -> RuleStatistics(Id(8,0), probabilityPassed = 2)
+                        Id(8,0) -> RuleStatistics(Id(8,0), probabilityPassed = 2),
+                        Id(9,0) -> RuleStatistics(Id(9,0), unevaluated = 2)
                       ))
                 ),
               rowCount = 2
@@ -130,7 +134,8 @@ class StatisticsTest extends SharedPureConnectTests with Matchers {
                         Id(50,0) -> RuleStatistics(Id(50,0), softFailed = 1),
                         Id(60,0) -> RuleStatistics(Id(60,0), disabled = 1),
                         Id(70,0) -> RuleStatistics(Id(70,0), probabilityFailed = 1),
-                        Id(80,0) -> RuleStatistics(Id(80,0), probabilityPassed = 1)
+                        Id(80,0) -> RuleStatistics(Id(80,0), probabilityPassed = 1),
+                        Id(90,0) -> RuleStatistics(Id(90,0), unevaluated = 1)
                       ))
                 ),
               rowCount = 1

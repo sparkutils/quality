@@ -39,6 +39,13 @@ case object IgnoredRule extends RuleResult
 case object DefaultRule extends RuleResult
 
 /**
+ * This status indicates a rule was not yet processed, ruleEngineRunner will set this state for codegen to indicate
+ * that the processing has skipped this rule
+ */
+@SerialVersionUID(1L)
+case object UnevaluatedRule extends RuleResult
+
+/**
   * 0-1 with 1 being absolutely likely a pass
   * @param percentage
   */
@@ -176,22 +183,26 @@ trait ResultStatistics[T <: ResultStatistics[_]] extends Serializable {
   def defaulted: Long
   def probabilityPassed: Long
   def probabilityFailed: Long
+  def unevaluated: Long
 }
 
 /**
  * Rule level results aggregated across a set of rows
  */
 @SerialVersionUID(1L)
-case class RuleStatistics(rule: VersionedId, failed: Long = 0, passed: Long = 0, softFailed: Long = 0, disabled: Long = 0, ignored: Long = 0,
-                                defaulted: Long = 0, probabilityPassed: Long = 0, probabilityFailed: Long = 0) extends ResultStatistics[RuleStatistics] {
+case class RuleStatistics(rule: VersionedId, failed: Long = 0, passed: Long = 0, softFailed: Long = 0,
+                          disabled: Long = 0, ignored: Long = 0, defaulted: Long = 0, probabilityPassed: Long = 0,
+                          probabilityFailed: Long = 0, unevaluated: Long = 0) extends ResultStatistics[RuleStatistics] {
 }
 
 /**
  * Aggregated RuleStatistics for a RuleSet
  */
 @SerialVersionUID(1L)
-case class RuleSetStatistics(ruleSet: VersionedId, failed: Long = 0, passed: Long = 0, softFailed: Long = 0, disabled: Long = 0, ignored: Long = 0,
-                             defaulted: Long = 0, probabilityPassed: Long = 0, probabilityFailed: Long = 0, rules: Map[VersionedId, RuleStatistics] = Map.empty) extends ResultStatistics[RuleSetStatistics] {
+case class RuleSetStatistics(ruleSet: VersionedId, failed: Long = 0, passed: Long = 0, softFailed: Long = 0,
+                             disabled: Long = 0, ignored: Long = 0, defaulted: Long = 0, probabilityPassed: Long = 0,
+                             probabilityFailed: Long = 0, unevaluated: Long = 0,
+                             rules: Map[VersionedId, RuleStatistics] = Map.empty) extends ResultStatistics[RuleSetStatistics] {
 
 }
 
@@ -199,8 +210,10 @@ case class RuleSetStatistics(ruleSet: VersionedId, failed: Long = 0, passed: Lon
  * Aggregated RuleSetStatistics for a complete RuleSuite
  */
 @SerialVersionUID(1L)
-case class RuleSuiteStatistics(ruleSuite: VersionedId, failed: Long = 0, passed: Long = 0, softFailed: Long = 0, disabled: Long = 0, ignored: Long = 0,
-                               defaulted: Long = 0, probabilityPassed: Long = 0, probabilityFailed: Long = 0, rowCount: Long = 0, ruleSets: Map[VersionedId, RuleSetStatistics] = Map.empty) extends ResultStatistics[RuleSuiteStatistics] {
+case class RuleSuiteStatistics(ruleSuite: VersionedId, failed: Long = 0, passed: Long = 0, softFailed: Long = 0,
+                               disabled: Long = 0, ignored: Long = 0, defaulted: Long = 0, probabilityPassed: Long = 0,
+                               probabilityFailed: Long = 0, unevaluated: Long = 0,
+                               rowCount: Long = 0, ruleSets: Map[VersionedId, RuleSetStatistics] = Map.empty) extends ResultStatistics[RuleSuiteStatistics] {
 
 }
 

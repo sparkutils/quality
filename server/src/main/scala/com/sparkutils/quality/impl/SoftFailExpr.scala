@@ -1,5 +1,6 @@
 package com.sparkutils.quality.impl
 
+import com.sparkutils.quality.impl.RuleSuiteHelpers.ruleResultToInt
 import com.sparkutils.quality.{DisabledRule, Failed, Passed, Probability, SoftFailed}
 import com.sparkutils.shim.expressions.NullIntolerant
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
@@ -19,6 +20,7 @@ object SoftFailedUtils {
       case Passed => 1.0
       case DisabledRule => -2.0
       case Probability(percentage) => percentage
+      case _ => ruleResultToInt(ruleRes).toDouble
     }
   }
 }

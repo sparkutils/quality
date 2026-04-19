@@ -58,10 +58,13 @@ trait RuleRunnerImports {
    */
   val PassedInt = RuleResultsImports.PassedInt
   /**
-   * The integer value for failed dq rules
+   * The integer value for failed dq rules or engine rules that the trigger has returned false for
    */
   val FailedInt = RuleResultsImports.FailedInt
-
+  /**
+   * The integer value for rules, typically ruleEngineRunner, that have not yet been evaluated
+   */
+  val UnevaluatedRuleInt = RuleResultsImports.UnevaluatedRuleInt
 }
 
 object RuleResultsImports {
@@ -73,6 +76,7 @@ object RuleResultsImports {
   val DefaultRuleInt = -4
   val PassedInt = 100000
   val FailedInt = 0
+  val UnevaluatedRuleInt = -5
 
 }
 

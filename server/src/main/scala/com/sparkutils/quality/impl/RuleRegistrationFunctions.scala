@@ -71,14 +71,17 @@ object RuleRegistrationFunctions {
     val withUnderscores = Set("murmur3_ID","unique_ID","rng_ID","provided_ID","field_Based_ID",
       "digest_To_Longs","digest_To_Longs_Struct","rule_Suite_Result_Details","id_Equal","long_Pair_Equal","big_Bloom","small_Bloom",
       "long_Pair_From_UUID","long_Pair","rng_UUID","rng","rng_Bytes","return_Sum","sum_With","results_With",
-      "inc","meanF","agg_Expr","passed","failed","soft_Failed","disabled_Rule","pack_Ints","unpack",
+      "inc","meanF","agg_Expr","passed","failed","soft_Failed","disabled_Rule","ignored_rule","default_rule",
+      "unevaluated_rule","pack_Ints","unpack",
       "unpack_Id_Triple","soft_Fail","probability","flatten_Results","flatten_Rule_Results", "flatten_Folder_Results", "probability_In",
       "map_Lookup","map_Contains","hash_With","hash_With_Struct","za_Hash_With", "za_Hash_Longs_With",
       "hash_Field_Based_ID","za_Longs_Field_Based_ID","za_Hash_Longs_With_Struct", "za_Hash_With_Struct", "za_Field_Based_ID", "prefixed_To_Long_Pair",
       "coalesce_If_Attributes_Missing", "coalesce_If_Attributes_Missing_Disable", "update_Field", LambdaFunctions.PlaceHolder,
       LambdaFunctions.Lambda, LambdaFunctions.CallFun, "print_Expr", "print_Code", "comparable_Maps", "reverse_Comparable_Maps", "as_uuid",
       "id_size", "id_base64", "id_from_base64", "id_raw_type", "rule_result", "strip_result_ddl", "drop_field",
-      "to_yaml", "from_yaml"
+      "to_yaml", "from_yaml", "group_audit", "unify_result", "group_results", "rule_suite_from",
+      "collect_runner", "rule_folder_runner", "rule_engine_runner", "expression_runner", "typed_expression_runner",
+      "dq_rule_runner", "qualityfunn", "qualityrefexpression"
     )
     withUnderscores ++ withUnderscores.map(n => if (mustKeepNames(n)) n else n.replaceAll("_",""))
   }
@@ -223,6 +226,7 @@ object RuleRegistrationFunctions {
     register("disabled_Rule", _ => com.sparkutils.quality.impl.imports.ClassicRuleResultsImports.DisabledRuleExpr, Set(0))
     register("ignored_rule", _ => com.sparkutils.quality.impl.imports.ClassicRuleResultsImports.IgnoredRuleExpr, Set(0))
     register("default_rule", _ => com.sparkutils.quality.impl.imports.ClassicRuleResultsImports.DefaultRuleExpr, Set(0))
+    register("unevaluated_rule", _ => com.sparkutils.quality.impl.imports.ClassicRuleResultsImports.UnevaluatedExpr, Set(0))
 
     register("pack_Ints", exps => Pack(exps(0), exps(1)), Set(2))
 
