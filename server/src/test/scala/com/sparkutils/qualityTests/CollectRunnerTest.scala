@@ -1,7 +1,8 @@
 package com.sparkutils.qualityTests
 
-import com.sparkutils.quality.{DefaultProcessor, DefaultRule, ExpressionRule, Failed, Id, LambdaFunction, OutputExpression, Passed, Rule, RuleFolderResult, RuleResult, RuleSet, RuleSuite, RunOnPassProcessor, collectRunner, registerLambdaFunctions}
+import com.sparkutils.quality.{DefaultProcessor, DefaultRule, ExpressionRule, Failed, Id, LambdaFunction, OutputExpression, Passed, Rule, RuleFolderResult, RuleResult, RuleSet, RuleSuite, RunOnPassProcessor, collectRunner, registerLambdaFunctions, ruleEngineRunner}
 import com.sparkutils.qualityTests.CollectRunnerTestUtils.buildRules
+import com.sparkutils.qualityTests.RuleEngineTest.rulesRaw
 import com.sparkutils.qualityTests.util.SharedPureConnectTests
 import frameless.TypedEncoder
 import org.apache.spark.sql.{DataFrame, Encoder, SaveMode}
@@ -425,5 +426,29 @@ trait CollectRunnerTestBase extends SharedPureConnectTests {
 
 class CollectRunnerTest extends CollectRunnerTestBase {
 
+  test("simple collect should work with connect") {
+    // engine doesn't have the issue folder does
+    val s = sparkSession
+    import s.implicits._
+
+    val data = Seq(
+      Tuple2("c", 1),
+      Tuple2("c", 1),
+      Tuple2("c", 1),
+      Tuple2("c", 1),
+      Tuple2("c", 1),
+      Tuple2("c", 1),
+      Tuple2("c", 1)
+    ).toDF("c", "d")
+
+    val r = data.withColumn("*", collectRunner( rulesRaw(Seq(
+      (ExpressionRule("true"),
+        RunOnPassProcessor(1000, Id(1041, 1),OutputExpression(s"struct(if(d = 2, 'a', 'b'), d)"))),
+      (ExpressionRule("true"),
+        RunOnPassProcessor(1000, Id(1041, 1),OutputExpression(s"named_struct('c', if(d = 2, 'a', 'b'), 'd', d)"))),
+    ))))
+    r.collect()
+
+  }
 }
 

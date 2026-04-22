@@ -587,11 +587,6 @@ functions:
       ```sql
       rule_suite_statistics(struct(resultDetails.id, overallResult, resultDetails.ruleSetResults))
       ```
-
-      ??? warning "It is not recommended to use with 2.4"
-          The aggregate function is based on Aggregator which, in 2.4, is not possible to apply on specific columns.
-
-          Quality provides a backport of Spark 3 functionality to enable this and, in addition to the last Quality 2.4 release, this is not an intended Spark 2.4 pattern, although it works in local testing it has not been tested against clusters. 
     tags:
       - rule
   rule_suite_from:

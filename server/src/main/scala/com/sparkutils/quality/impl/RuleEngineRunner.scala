@@ -297,7 +297,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
           val edt = eval.value.javaType
           val theCast = if (edt.isPrimitive) CodeGenerator.boxedType(edt.getSimpleName) else edt.getName
 
-          (eval.code, s"new Integer( com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt(${eval.isNull} ? null : ($theCast) ${eval.value}) )")
+          (eval.code, s"com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt(${eval.isNull} ? null : ($theCast) ${eval.value})")
         }
 
       val converted =
@@ -445,7 +445,7 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression {
   protected def doGenCodeI(ctx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = {
     ctx.references += this
 
-    // #127 jump out of expr or rule groups
+    // #128 jump out of expr or rule groups
     val earlyReturn =
       (currRuleResTerm: String) =>
       s"""
@@ -462,14 +462,14 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression {
 
     import compilerTerms._
 
-    // for debug currentOutputIndex is the count of matches, new Integer for 127 as janino isn't happy
+    // for debug currentOutputIndex is the count of matches, new Integer for #128 as janino isn't happy
 
     val pre = s"""
           $pushToTop
           $currentSalience = java.lang.Integer.MAX_VALUE;
           $currentOutputIndex = -1;
           $hasAPassTerm = false;
-          // #127 enable early exit
+          // #128 enable early exit
           $currRuleResTerm = $UnevaluatedRuleInt;
           java.util.Arrays.fill((Object[])$resArrTerm, new Integer($UnevaluatedRuleInt));
           java.util.Arrays.fill($outArrTerm, null);

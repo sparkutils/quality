@@ -32,8 +32,10 @@ RuleSuites are built per the normal DQ rules however a RuleResultProcessor is su
 
 You may use multiple path and expression combinations in the same call, allowing the change of multiple fields at once - this will be faster than nesting calls to updateField.
 
-??? warning "Don't use select(*, ruleFolderRunner)"
-    Spark will not NPE using withColumn but will using select(expr("*"), ruleFolderRunner(ruleSuite)).  In order to thread the types through the resolving needs an additional projection, if you must avoid withColumn (e.g for performance reasons) then you may specify the DDL via the useType parameter.
+??? info "If you get NPEs - don't use select(*, ruleFolderRunner) on old Spark versions"
+    Spark will not NPE using withColumn but will using select(expr("*"), ruleFolderRunner(ruleSuite)) on some early Spark versions.
+    In order to thread the types through the resolving needs an additional projection, 
+    if you must avoid withColumn (e.g for performance reasons) then you may specify the DDL via the useType parameter.
 
 ## Set 
 

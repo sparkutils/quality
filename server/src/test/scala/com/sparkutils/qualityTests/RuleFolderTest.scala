@@ -2,6 +2,7 @@ package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.{RuleSuiteHelpers, Runners}
+import com.sparkutils.qualityTests.RuleEngineTest.rulesRaw
 import functions.flatten_folder_results
 import com.sparkutils.qualityTests.util.{ClassicSharedTests, SharedPureConnectTests}
 import frameless.TypedExpressionEncoder
@@ -104,7 +105,7 @@ trait RuleFolderTestBase extends SharedPureConnectTests with Matchers {
           OutputExpression("set(subcode = 1234)"))),
 
           (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1001, Id(1044,1),
-            OutputExpression("set( account = concat(currentResult.account,'_fruit'), subcode = 6000)"))),
+            OutputExpression("set( account = concat(currentResult.account,'_fruit'), subcode = if(subcode = 4, 3, 6000) )"))),
           (ExpressionRule("product like '%fx%'"), RunOnPassProcessor(1000, Id(1042,1),
             OutputExpression("set(account = 'to')"))),
           (ExpressionRule("product = 'eqotc'"), RunOnPassProcessor(1000, Id(1043,1),
@@ -140,8 +141,11 @@ trait RuleFolderTestBase extends SharedPureConnectTests with Matchers {
 
     val outdfit = loadedDF.
       withColumn("together",
-        ruleFolderRunner(ruleSuite, struct(lit("").as("transfer_type"),
-          $"product", $"account", $"subcode") /*, useType = Some(
+        com.sparkutils.quality.ruleFolderRunner(ruleSuite,
+          startingStruct = struct(lit("").as("transfer_type"),
+          $"product", $"account", $"subcode"), useType = None,
+          debugMode = false,
+          variablesPerFunc = 40, variableFuncGroup = 20 /*, useType = Some(
           StructType(Seq(StructField("transfer_type", StringType),
             StructField("product", StringType),
             StructField("account", StringType),
@@ -439,4 +443,28 @@ class RuleFolderTest extends RuleFolderTestBase {
 
   test("testFlattenResultsSet") { doTestFlattenResults(true) }
 
+  test("simple folder should work with connect") {
+
+    val s = sparkSession
+    import s.implicits._
+
+    val data = Seq(
+      Tuple2("c", 1),
+      Tuple2("c", 1),
+      Tuple2("c", 1),
+      Tuple2("c", 1),
+      Tuple2("c", 1),
+      Tuple2("c", 1),
+      Tuple2("c", 1)
+    ).toDF("c", "d")
+
+    val r = data.withColumn("*", ruleFolderRunner( rulesRaw(Seq(
+      (ExpressionRule("true"), // processor_input_wrapper(c, true) works, so folder added this, it only needs to be on the first as well, mind-blowing
+        RunOnPassProcessor(1000, Id(1041, 1),OutputExpression(s"set(c = if(d = 2, 'a', 'b'))"))),
+      (ExpressionRule("true"),
+        RunOnPassProcessor(1000, Id(1041, 1),OutputExpression(s"set(c = if(d = 2, 'a', 'b'))"))),
+    )), startingStruct = struct(col("c"), col("d"))) )
+    r.collect()
+
+  }
 }

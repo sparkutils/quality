@@ -81,7 +81,7 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression {
 
   override def nullable: Boolean = false
   override def toString: String = "RuleFolderRunner" + truncatedString(
-    realChildren, "(", ", ", ")", SQLConf.get.maxToStringFields)
+    children, "(", ", ", ")", SQLConf.get.maxToStringFields)
 
   // used only for eval, compiled uses the children directly
   lazy val reincorporated = reincorporateExpressions(ruleSuite, realChildren, compileEvals, expressionOffsets, triggerCount)
