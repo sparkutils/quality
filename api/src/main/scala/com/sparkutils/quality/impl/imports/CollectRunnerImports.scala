@@ -1,8 +1,8 @@
 package com.sparkutils.quality.impl.imports
 
 import com.sparkutils.quality.RuleSuite
-import com.sparkutils.quality.impl.{RuleSuiteHelpers, Runners}
-import org.apache.spark.sql.{Column, ShimUtils}
+import com.sparkutils.quality.impl.{CallFunctionImpls, RuleSuiteHelpers}
+import org.apache.spark.sql.Column
 import org.apache.spark.sql.functions.lit
 import org.apache.spark.sql.types.DataType
 
@@ -29,10 +29,7 @@ trait CollectRunnerImports {
                     variableFuncGroup: Int = 20, flatten: Boolean = true, includeNulls: Boolean = false,
                     useInPlaceArray: Boolean = true, unrollInPlaceArray: Boolean = false,
                     unrollOutputArraySize: Int = 1): Column =
-    ShimUtils.callFunction("collect_runner", lit(RuleSuiteHelpers.serialize(ruleSuite)),
-      lit(resultDataType.map(_.sql).getOrElse("")), lit(flatten), lit(includeNulls),
-      lit(variablesPerFunc), lit(variableFuncGroup), lit(useInPlaceArray),
-      lit(unrollInPlaceArray), lit(unrollOutputArraySize)
-    )
+    CallFunctionImpls.collector(lit(RuleSuiteHelpers.serialize(ruleSuite)), resultDataType, variablesPerFunc,
+      variableFuncGroup, flatten, includeNulls, useInPlaceArray, unrollInPlaceArray, unrollOutputArraySize)
 
 }

@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl.imports
 
 import com.sparkutils.quality.RuleSuite
-import com.sparkutils.quality.impl.{RuleSuiteHelpers, Runners}
+import com.sparkutils.quality.impl.{CallFunctionImpls, RuleSuiteHelpers, Runners}
 import org.apache.spark.sql.ShimUtils.callFunction
 import org.apache.spark.sql.functions.lit
 import org.apache.spark.sql.{Column, DataFrame, ShimUtils}
@@ -29,8 +29,7 @@ trait RuleRunnerImports {
    */
   def dqRuleRunner(ruleSuite: RuleSuite, variablesPerFunc: Int = 40, variableFuncGroup: Int = 20): Column =
     Runners.ruleRunner(ruleSuite, variablesPerFunc = variablesPerFunc, variableFuncGroup = variableFuncGroup).getOrElse(
-      ShimUtils.callFunction("dq_rule_runner", lit(RuleSuiteHelpers.serialize(ruleSuite)),
-        lit(variablesPerFunc), lit(variableFuncGroup))
+      CallFunctionImpls.dq( lit(RuleSuiteHelpers.serialize(ruleSuite)), variablesPerFunc, variableFuncGroup)
     )
 
   /**

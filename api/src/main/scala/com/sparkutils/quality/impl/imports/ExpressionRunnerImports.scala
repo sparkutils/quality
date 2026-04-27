@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl.imports
 
 import com.sparkutils.quality.RuleSuite
-import com.sparkutils.quality.impl.RuleSuiteHelpers
+import com.sparkutils.quality.impl.{CallFunctionImpls, RuleSuiteHelpers}
 import org.apache.spark.sql.{Column, ShimUtils}
 import org.apache.spark.sql.functions.{lit, typedLit}
 
@@ -14,10 +14,10 @@ trait ExpressionRunnerImports {
    * @return
    */
   def typedExpressionRunner(ruleSuite: RuleSuite, ddlType: String, name: String = "expressionResults"): Column =
-    ShimUtils.callFunction("typed_expression_runner", lit(RuleSuiteHelpers.serialize(ruleSuite)), lit(ddlType), lit(name))
+    CallFunctionImpls.typedExpression( lit(RuleSuiteHelpers.serialize(ruleSuite)), ddlType, name)
 
   def expressionRunner(ruleSuite: RuleSuite, name: String = "expressionResults", renderOptions: Map[String, String] = Map.empty): Column =
-    ShimUtils.callFunction("expression_runner", lit(RuleSuiteHelpers.serialize(ruleSuite)), lit(name), typedLit(renderOptions))
+    CallFunctionImpls.expression( lit(RuleSuiteHelpers.serialize(ruleSuite)),  name, renderOptions)
 
 }
 

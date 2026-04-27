@@ -102,6 +102,23 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
     }
   }
 
+  test("rule suites without lambdas without Default AND attributes should be combinable") {
+    val stripped = rulesAttributes.copy(lambdaFunctions = Seq.empty)
+    val ruleRows = toDS(stripped)
+    val outRows = toOutputExpressionDS(stripped)
+    val (ruleSuite, _) = toRuleSuiteRow(rulesAttributes)
+
+    val s = sparkSession
+    import s.implicits._
+
+    defaultAndForceConnect {
+      val combinedRuleSuiteRows = combine(ruleRows, sparkSession.emptyDataset[LambdaFunctionRow],
+        outRows, Seq(ruleSuite).toDS())
+      val oRS = rule_suite(combinedRuleSuiteRows, rsId)
+      oRS.map(_.sorted) should contain( stripped )
+    }
+  }
+
   test("global libraries should properly integrate") {
     val s = sparkSession
     import s.implicits._
@@ -157,7 +174,7 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
     }
   }
 
-  def doRuleTest(colF: (RuleSuite) => Column): Unit = {
+  def doRuleTest[T: RuleSuiteParam](colF: RuleSuite => T): Unit = {
     val rules = rulesRaw(
       Seq((ExpressionRule("product = 'edt' and subcode = 40"), RunOnPassProcessor(1000, Id(1040, 1),
         OutputExpression("array(account_row('from'), account_row('to', 'other_account1'))"))),
@@ -182,7 +199,7 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
     // the empty dataset but provided test
     defaultAndForceConnect {
       val outdf = testDataDF.withColumn("together",
-        ShimUtils.callFunction("rule_engine_runner", colF(rules))
+        generic.engine(colF(rules))
       )
       //outdf.show
       debug(outdf.select("together.*").show())
@@ -220,6 +237,36 @@ class ConnectRuleSuitesTest extends SharedPureConnectTests with Matchers {
         val name = register_rule_suite(ruleSuite)
         col(name)
     }
+  }
+
+  test("ruleRunner via RuleSuite and spark var and provided empty dataset via name") {
+    doRuleTest{
+      (ruleSuite) =>
+        val name = register_rule_suite(ruleSuite)
+        name
+    }
+  }
+
+  test("ruleRunner via spark var and provided empty dataset via group and id") {
+    doRuleTest{
+      (ruleSuite) =>
+        val combinedRuleSuiteRows = combined_rows(ruleSuite)
+        val name = register_rule_suite_group_variable(combinedRuleSuiteRows)
+        GroupRuleId(name, ruleSuite.id.copy(version = Int.MinValue))
+    }
+  }
+
+  test("ruleRunner via spark var and provided empty dataset via group, id and version") {
+    doRuleTest{
+      (ruleSuite) =>
+        val combinedRuleSuiteRows = combined_rows(ruleSuite)
+        val name = register_rule_suite_group_variable(combinedRuleSuiteRows)
+        GroupRuleId(name, ruleSuite.id)
+    }
+  }
+
+  test("ruleRunner via RuleSuite as lit") {
+    doRuleTest( identity )
   }
 
   lazy val groupRulesDummy = rulesRaw(

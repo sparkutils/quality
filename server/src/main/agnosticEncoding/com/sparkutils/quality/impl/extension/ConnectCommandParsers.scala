@@ -5,7 +5,7 @@ import com.sparkutils.quality.impl.extension.ConnectCommandParsers.{nameDFOrNone
 import com.sparkutils.quality.impl.extension.QualityCombineConstants.{NoneQuoted, QUALITY_COMBINE}
 import com.sparkutils.quality.impl.extension.QualityMapConstants.{QUALITY_MAP_BROADCAST, QUALITY_MAP_BROADCAST_ALL_CHILDREN}
 import com.sparkutils.quality.impl.extension.QualityVersionedRulesConstants.{FROM_DF, QUALITY_VERSIONED, QUALITY_VERSIONED_LAMBDAS_FROM_DF, QUALITY_VERSIONED_OUTPUT_EXPRESSIONS_FROM_DF, QUALITY_VERSIONED_RULESUITES_FROM_DF, QUALITY_VERSIONED_RULES_FROM_DF}
-import com.sparkutils.quality.impl.util.SerializingShim.combineImplI
+import com.sparkutils.quality.impl.util.CombineImpl.combineImplI
 import com.sparkutils.quality.impl.util.SimpleVersioning
 import com.sparkutils.shim.AbstractInjectableParser
 import org.apache.spark.internal.Logging

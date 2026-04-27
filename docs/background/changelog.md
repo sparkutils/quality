@@ -24,13 +24,20 @@ Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1 and 3.3.2 are deprecated as are DBR's 12.2
 > 
 > Map related functions from 0.2.0 Spark 4 onwards allow multiple lookups to be used and leverage a 
 > struct [Spark Variable](https://spark.apache.org/docs/latest/sql-ref-syntax-ddl-declare-variable.html#:~:text=Temporary%20variables%20are%20scoped%20at,a%20column%20or%20column%20alias.).
-> This change swaps the last parameter type of the DSL, and introduces a third breaking change parameter for the SQL interface, to refer to the Spark Variable, with each map being a strongly typed member of the variable available for use with any Spark queries.
+> This change swaps the last parameter type of the DSL, and introduces a third breaking change parameter for the SQL 
+> interface, to refer to the Spark Variable, with each map being a strongly typed member of the variable available for
+> use with any Spark queries.
 > 
 > If code was using QualitySparkUtils the import is now ClassicQualitySparkUtils.
 > 
-> Serializing classes are moved to the root package, the impl.util package object provides deprecated forwarders. 
+> Serializing classes are moved to the root package, the impl.util package object provides deprecated forwarders.
+> 
+> [generic](../site/{{api_version()}}/scaladocs/com/sparkutils/quality/generic/index.html) is introduced, providing
+> a generic RuleSuite parameter to runner functions.  This allows these functions to be re-used whether a RuleSuite,
+> Spark Variable name, compatible Spark Column or a RuleSuiteGroup name and Id combination via [GroupRuleId](../../site/{{api_version()}}/scaladocs/com/sparkutils/quality/GroupRuleId.html)
+> (typed stand in for the rule_suite_from function). 
 
-#96 - quality_api is introduced, leveraging Spark Connect - allows a client server model and further client language support
+#96 - quality_api jar is introduced, leveraging Spark Connect - allows a client server model and further client language support
 
 #100 - Support for key functions to be run from the SparkSessionExtension when using quality_api, reducing the integration surface area for other client languages and simplifying upgrades
 
