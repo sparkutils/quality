@@ -17,7 +17,8 @@ import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCoercion
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode}
+import org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.isNullVariable
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext, CodegenFallback, ExprCode, GeneratedClass, VariableValue}
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression}
 import org.apache.spark.sql.catalyst.util.{GenericArrayData, truncatedString}
 import org.apache.spark.sql.internal.SQLConf
@@ -219,11 +220,14 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
   case class CompilerTerms(funNames: _root_.scala.collection.Iterator[_root_.scala.Predef.String],
                            paramsCall: String, utilsName: String, ruleSuitTerm: String, ruleSuiteArrays: String, resArrTerm: String,
                            currentSalience: String, ruleTupleArrTerm: String, currentOutputIndex: String, outArrTerm: String,
-                           salienceArrTerm: String, pushToTop: String, hasAPassTerm: String, currRuleResTerm: String)
+                           salienceArrTerm: String, pushToTop: String, hasAPassTerm: String, currRuleResTerm: String,
+                           paramsDef: String = "", runnerClassName: String = "")
 
   // exprEnd and exprFunEnd take currRuleResTerm as params
-  def genCompilerTerms[T: ClassTag](ctx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext,
-                  child: Expression, expressionOffsets: Array[Int], realChildren: Seq[Expression],
+  def genCompilerTerms[T: ClassTag](
+                       outerctx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext,
+                       ctx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext,
+                       child: Expression, expressionOffsets: Array[Int], realChildren: Seq[Expression],
                        debugMode: Boolean, variablesPerFunc: Int, variableFuncGroup: Int, forceTriggerEval: Boolean,
                        extraResult: (String, Int, String) => String = (_ : String, _: Int, _: String) => "",
                        extraSetup: (String, Int) => String = (_ : String, _: Int) => "",
@@ -235,7 +239,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
     CompilerTerms = {
     val i = ctx.INPUT_ROW
 
-    val (paramsDef, paramsCall, pushToTop) = genParams(ctx, child)
+    val (paramsDef, paramsCall, pushToTop) = genParams(outerctx, child)
 
     // bind the rules
     val (ruleSuitTerm, termFun) = genRuleSuiteTerm[T](ctx)
@@ -381,8 +385,74 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
         exprFunEnd = () => exprFunEnd(currRuleResTerm)),
       paramsCall, utilsName, ruleSuitTerm, ruleSuiteArrays, resArrTerm,
       currentSalience, ruleTupleArrTerm, currentOutputIndex, outArrTerm,
-      salienceArrTerm, pushToTop, hasAPassTerm, currRuleResTerm)
+      salienceArrTerm, pushToTop, hasAPassTerm, currRuleResTerm,
+      paramsDef = paramsDef, runnerClassName = implicitly[ClassTag[T]].runtimeClass.getName)
 
+  }
+
+  // creates a new clazz but it is linked and created in the outer context
+  def runnerCompilation(outerctx: CodegenContext, terms: CompilerTerms, ctx: CodegenContext, codeBody: ExprCode):
+    (GeneratedClass, ExprCode) = {
+    import terms._
+
+    val runnerClassBody = s"""
+      public RunnerCompilation generate(Object[] references) {
+        return new RunnerCompilation(references);
+      }
+
+      class RunnerCompilation extends scala.runtime.AbstractFunction1<InternalRow, Object> {
+        private final Object[] references;
+        ${ctx.declareMutableStates()}
+
+        public RunnerCompilation(Object[] references) {
+          this.references = references;
+          ${ctx.initMutableStates()}
+        }
+
+        public void initialize(int partitionIndex) {
+          ${ctx.initPartition()}
+        }
+
+        public java.lang.Object apply(java.lang.Object z) {
+          InternalRow ${ctx.INPUT_ROW} = (InternalRow) z;
+          ${ctx.subexprFunctionsCode}
+
+          ${codeBody.code}
+          return ${codeBody.isNull} ? ((Object)null) : ((Object)${codeBody.value});
+        }
+
+        ${ctx.declareAddedFunctions()}
+      }
+    """
+
+    val code = CodeFormatter.stripOverlappingComments(
+      new CodeAndComment(runnerClassBody, ctx.getPlaceHolderToComments()))
+
+    val (clazz, _) = CodeGenerator.compile(code)
+
+    val ruleRunnerExpressionIdx = outerctx.references.size - 1
+    // the variable
+    val fun1 = "scala.Function1<InternalRow, Object>"
+    val runner = outerctx.addMutableState(fun1, "runner", initFunc = // new reference stack
+      //v => s"$v = ($fun1) (($runnerClassName) references[$ruleRunnerExpressionIdx]).generatorClazz().generate(new Object[]{ references[$ruleRunnerExpressionIdx] });")
+      v => s"$v = ($fun1) (($runnerClassName) references[$ruleRunnerExpressionIdx]).generatorClazz().generate( references );")
+    val resName= ctx.freshName("result")
+    val resNull = ctx.freshName("isNull")
+
+    val exp = ExprCode(VariableValue(resName, codeBody.value.javaType), isNullVariable(resNull))
+
+    val res = exp.copy( code =
+      code"""
+        InternalRow ${exp.value} = (InternalRow) (($fun1)$runner).apply(${outerctx.INPUT_ROW});
+        boolean ${exp.isNull} = false;
+          """)
+
+    // now copy over the other references
+    for( i <- outerctx.references.size until ctx.references.size) {
+      outerctx.references.addOne(ctx.references(i))
+    }
+
+    (clazz, res)
   }
 
 }
@@ -401,6 +471,9 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression {
   val expressionOffsets: Array[Int]
   val userResultDataType: Option[DataType]
   val triggerCount: Int
+
+  @transient
+  var generatorClazz: GeneratedClass = _
 
   implicit val classTagT: ClassTag[T]
 
@@ -443,7 +516,10 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression {
     ))
 
   protected def doGenCodeI(ctx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = {
+
+    val thisCtx = new CodegenContext()
     ctx.references += this
+    thisCtx.references.addAll(ctx.references)
 
     // #128 jump out of expr or rule groups
     val earlyReturn =
@@ -455,7 +531,8 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression {
       """
 
     val compilerTerms =
-      RuleEngineRunnerUtils.genCompilerTerms[T](ctx, PassThroughEvalOnly(realChildren), expressionOffsets, realChildren,
+      RuleEngineRunnerUtils.genCompilerTerms[T](ctx, thisCtx, PassThroughEvalOnly(realChildren),
+        expressionOffsets, realChildren,
         debugMode, variablesPerFunc, variableFuncGroup, forceTriggerEval,
         exprEnd = earlyReturn, exprFunEnd = earlyReturn
       )
@@ -507,8 +584,9 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression {
           """
         )
 
-    res
-
+    val (clazz, fres) = runnerCompilation(ctx, compilerTerms, thisCtx, res)
+    generatorClazz = clazz
+    fres
   }
 }
 

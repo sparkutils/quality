@@ -19,6 +19,8 @@ trait ClassicSharedTests extends FunSuite with TestSetup {
 
   override val runWith: ConnectionType = ClassicOnly
 
+  override val loggingLevel = "DEBUG"
+
   /**
    * enable funN rewrites, runs the test twice, once under the optimisation, once without
    */

@@ -235,8 +235,12 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
         nullable = true)
     ))
 
-  protected def doGenCodeI(ctx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = {
-    ctx.references += this
+  protected def doGenCodeI(outerCtx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = {
+
+    val ctx = new CodegenContext()
+    outerCtx.references += this
+    ctx.references.addAll(ctx.references)
+
 
     def hasDefault(when: => String, els: String = ""): String =
       if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp)
@@ -383,7 +387,7 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
       }
 
     val compilerTerms =
-      RuleEngineRunnerUtils.genCompilerTerms[T](ctx, PassThroughEvalOnly(children), expressionOffsets, children,
+      RuleEngineRunnerUtils.genCompilerTerms[T](outerCtx, ctx, PassThroughEvalOnly(children), expressionOffsets, children,
         false, variablesPerFunc, variableFuncGroup, false,
         // capture the current
         extraResult = (outArrTerm: String, i: Int, resArrTerm: String) =>
@@ -472,7 +476,7 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
         """
       )
 
-    res
+    runnerCompilation(outerCtx, compilerTerms, ctx, res)._2
 
   }
 }

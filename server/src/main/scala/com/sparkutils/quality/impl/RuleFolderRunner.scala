@@ -99,8 +99,12 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression {
       StructField(name = "result", dataType = resultDataType(), nullable = true)
     ))
 
-  protected def doGenCodeI(ctx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = {
-    ctx.references += this
+  protected def doGenCodeI(outerCtx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = {
+
+    val ctx = new CodegenContext()
+    outerCtx.references += this
+    ctx.references.addAll(ctx.references)
+
 
     // need to setup the folder variable to pass around, create it with "left"
     // thread it through
@@ -130,7 +134,7 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression {
     val lazyRefsGenCode = realChildren.drop(triggerCount).map(_.asInstanceOf[FunN].arguments.head.genCode(ctx))
 
     val compilerTerms =
-      RuleEngineRunnerUtils.genCompilerTerms[T](ctx, PassThroughEvalOnly(realChildren), expressionOffsets, realChildren,
+      RuleEngineRunnerUtils.genCompilerTerms[T](outerCtx, ctx, PassThroughEvalOnly(realChildren), expressionOffsets, realChildren,
         debugMode, variablesPerFunc, variableFuncGroup, forceTriggerEval,
         // capture the current
         extraResult = (outArrTerm: String, _, _) => s"$folderV = $outArrTerm;",
@@ -219,7 +223,7 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression {
           """
         )
 
-    res
+    runnerCompilation(outerCtx, compilerTerms, ctx, res)._2
 
   }
 
