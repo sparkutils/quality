@@ -151,6 +151,7 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression {
       )
 
     import compilerTerms._
+    import parameterInformation._
 
     // generate the starting struct
     val starterEval = startingStruct.genCode(ctx)
@@ -223,7 +224,7 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression {
           """
         )
 
-    runnerCompilation(outerCtx, compilerTerms, ctx, res)._2
+    runnerCompilation(outerCtx, compilerTerms, ctx, res, ev, ruleSuite.id)._2
 
   }
 

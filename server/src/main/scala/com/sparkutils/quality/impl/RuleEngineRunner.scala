@@ -12,13 +12,14 @@ import com.sparkutils.quality.impl.DefaultProcessorImpl.DefaultProcessorImplOps
 import com.sparkutils.quality.impl.ExpressionRuleExpr.ExpressionRuleOps
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
 import com.sparkutils.quality.impl.RunOnPassProcessorImpl.RunOnPassProcessorImplOps
-import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals, PassThroughEvalOnly}
+import com.sparkutils.quality.impl.util.Params.formatParams
+import com.sparkutils.quality.impl.util.{NonPassThrough, ParameterInformation, PassThroughCompileEvals, PassThroughEvalOnly}
 import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCoercion
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.isNullVariable
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext, CodegenFallback, ExprCode, GeneratedClass, VariableValue}
+import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext, CodegenFallback, EmptyBlock, ExprCode, GeneratedClass, QualityCodeGenUtils, VariableValue}
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression}
 import org.apache.spark.sql.catalyst.util.{GenericArrayData, truncatedString}
 import org.apache.spark.sql.internal.SQLConf
@@ -218,10 +219,10 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
       )
 
   case class CompilerTerms(funNames: _root_.scala.collection.Iterator[_root_.scala.Predef.String],
-                           paramsCall: String, utilsName: String, ruleSuitTerm: String, ruleSuiteArrays: String, resArrTerm: String,
+                           utilsName: String, ruleSuitTerm: String, ruleSuiteArrays: String, resArrTerm: String,
                            currentSalience: String, ruleTupleArrTerm: String, currentOutputIndex: String, outArrTerm: String,
-                           salienceArrTerm: String, pushToTop: String, hasAPassTerm: String, currRuleResTerm: String,
-                           paramsDef: String = "", runnerClassName: String = "")
+                           salienceArrTerm: String, hasAPassTerm: String, currRuleResTerm: String,
+                           runnerClassName: String, parameterInformation: ParameterInformation)
 
   // exprEnd and exprFunEnd take currRuleResTerm as params
   def genCompilerTerms[T: ClassTag](
@@ -233,13 +234,14 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
                        extraSetup: (String, Int) => String = (_ : String, _: Int) => "",
                        orderOffset: Int => Int = identity,
                        salienceCheck: Boolean = true, sizeAdjustment: Int = 0,
-                       exprEnd: String => String = _ => "",
-                       exprFunEnd: String => String = _ => ""
+                       exprEnd: String => Block = _ => code"",
+                       exprFunEnd: String => Block = _ => code""
                       ):
     CompilerTerms = {
     val i = ctx.INPUT_ROW
 
-    val (paramsDef, paramsCall, pushToTop) = genParams(outerctx, child)
+    val paramsInfo = genParams(ctx, child)
+    import paramsInfo._
 
     // bind the rules
     val (ruleSuitTerm, termFun) = genRuleSuiteTerm[T](ctx)
@@ -305,7 +307,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
         }
 
       val converted =
-        s"""
+        code"""
             $evalPre
             $currRuleResTerm = $eval;
 
@@ -333,7 +335,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
         val eval = exp.genCode(ctx)
 
         val body =
-          s"""
+          code"""
               ${extraSetup(index, i)} \n
               ${eval.code} \n
 
@@ -342,7 +344,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
         """
 
         ctx.addNewFunction(exprFuncName,
-          s"""
+          code"""
    private void $exprFuncName($paramsDef${if (paramsDef.isEmpty) "" else ","} int $index) {
             $body
 
@@ -360,7 +362,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
               """
           }
       }
-  """
+  """.code
             )
 
 
@@ -383,43 +385,66 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
     CompilerTerms(
       RuleRunnerUtils.generateFunctionGroups(ctx, allExpr, paramsDef, paramsCall, exprEnd = () => exprEnd(currRuleResTerm),
         exprFunEnd = () => exprFunEnd(currRuleResTerm)),
-      paramsCall, utilsName, ruleSuitTerm, ruleSuiteArrays, resArrTerm,
+      utilsName, ruleSuitTerm, ruleSuiteArrays, resArrTerm,
       currentSalience, ruleTupleArrTerm, currentOutputIndex, outArrTerm,
-      salienceArrTerm, pushToTop, hasAPassTerm, currRuleResTerm,
-      paramsDef = paramsDef, runnerClassName = implicitly[ClassTag[T]].runtimeClass.getName)
+      salienceArrTerm, hasAPassTerm, currRuleResTerm,
+      runnerClassName = implicitly[ClassTag[T]].runtimeClass.getName, paramsInfo)
 
   }
 
   // creates a new clazz but it is linked and created in the outer context
-  def runnerCompilation(outerctx: CodegenContext, terms: CompilerTerms, ctx: CodegenContext, codeBody: ExprCode):
-    (GeneratedClass, ExprCode) = {
+  def runnerCompilation(outerctx: CodegenContext, terms: CompilerTerms, ctx: CodegenContext, codeBody: ExprCode,
+                        ev: ExprCode, ruleSuiteId: VersionedId):
+    (CodeAndComment, ExprCode) = {
     import terms._
 
+    val (fullParams, extraApplyParamDef, extraApplyParamCall, extraDecl, extraConversion) =
+      if (ctx.INPUT_ROW eq null)
+        // wholestage
+        (parameterInformation.copy(arity = parameterInformation.arity + 2),
+          "Object index, Object inputs_ppp, ", "partitionIndex, this.inputs, ",
+          "private int partitionIndex;\n private scala.collection.Iterator[] inputs;\n",
+          """partitionIndex = (Integer) index;
+            this.inputs = (scala.collection.Iterator[]) inputs_ppp;""")
+      else
+        (parameterInformation, "", "", "", "")
+
+    val id = s"${ruleSuiteId.id}_${ruleSuiteId.version}".replaceAll("-","__")
+
+    // TODO maximum is 255 params, the codegenerator code has no upper limit, but it's 22 for function, need a array wrapper approach
     val runnerClassBody = s"""
-      public RunnerCompilation generate(Object[] references) {
-        return new RunnerCompilation(references);
+      public RunnerCompilation$id generate(Object[] references) {
+        return new RunnerCompilation$id(references);
       }
 
-      class RunnerCompilation extends scala.runtime.AbstractFunction1<InternalRow, Object> {
+      class RunnerCompilation$id extends ${fullParams.aritySafeApplyType("scala.runtime.AbstractFunction")} {
         private final Object[] references;
+        $extraDecl
         ${ctx.declareMutableStates()}
 
-        public RunnerCompilation(Object[] references) {
+        public RunnerCompilation$id(Object[] references) {
           this.references = references;
-          ${ctx.initMutableStates()}
         }
 
         public void initialize(int partitionIndex) {
           ${ctx.initPartition()}
         }
 
-        public java.lang.Object apply(java.lang.Object z) {
-          InternalRow ${ctx.INPUT_ROW} = (InternalRow) z;
+        public java.lang.Object apply($extraApplyParamDef ${fullParams.aritySafeParamDef}) {
+          $extraConversion
+          // here to use extraApplyParamDef
+          ${ctx.initMutableStates()}
+
+          ${fullParams.aritySafeParamConversion}
+
+          // this context common
           ${ctx.subexprFunctionsCode}
 
           ${codeBody.code}
           return ${codeBody.isNull} ? ((Object)null) : ((Object)${codeBody.value});
         }
+
+        ${ctx.emitExtraCode()}
 
         ${ctx.declareAddedFunctions()}
       }
@@ -428,31 +453,26 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
     val code = CodeFormatter.stripOverlappingComments(
       new CodeAndComment(runnerClassBody, ctx.getPlaceHolderToComments()))
 
-    val (clazz, _) = CodeGenerator.compile(code)
+    //val (clazz, _) = CodeGenerator.compile(code)
 
     val ruleRunnerExpressionIdx = outerctx.references.size - 1
     // the variable
-    val fun1 = "scala.Function1<InternalRow, Object>"
-    val runner = outerctx.addMutableState(fun1, "runner", initFunc = // new reference stack
-      //v => s"$v = ($fun1) (($runnerClassName) references[$ruleRunnerExpressionIdx]).generatorClazz().generate(new Object[]{ references[$ruleRunnerExpressionIdx] });")
-      v => s"$v = ($fun1) (($runnerClassName) references[$ruleRunnerExpressionIdx]).generatorClazz().generate( references );")
-    val resName= ctx.freshName("result")
-    val resNull = ctx.freshName("isNull")
+    val funX = fullParams.aritySafeApplyType("scala.Function")
 
-    val exp = ExprCode(VariableValue(resName, codeBody.value.javaType), isNullVariable(resNull))
+    // update the state to the current ctx
+    QualityCodeGenUtils.bump(outerctx, ctx)
+    // this needs to be after bump so the states aren't reset
+    val runner = outerctx.addMutableState(funX, "runner", initFunc = // new reference stack
+    //v => s"$v = ($fun1) (($runnerClassName) references[$ruleRunnerExpressionIdx]).generatorClazz().generate(new Object[]{ references[$ruleRunnerExpressionIdx] });")
+      v => s"$v = ($funX) (($runnerClassName) references[$ruleRunnerExpressionIdx]).generatorClazz().generate( references );")
 
-    val res = exp.copy( code =
+    val res = ev.copy( code =
       code"""
-        InternalRow ${exp.value} = (InternalRow) (($fun1)$runner).apply(${outerctx.INPUT_ROW});
-        boolean ${exp.isNull} = false;
+        InternalRow ${ev.value} = (InternalRow) (($funX)$runner).apply($extraApplyParamCall ${fullParams.aritySafeParamCall});
+        boolean ${ev.isNull} = false;
           """)
 
-    // now copy over the other references
-    for( i <- outerctx.references.size until ctx.references.size) {
-      outerctx.references.addOne(ctx.references(i))
-    }
-
-    (clazz, res)
+    (code, res)
   }
 
 }
@@ -472,8 +492,18 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression {
   val userResultDataType: Option[DataType]
   val triggerCount: Int
 
+  var generatorClassSource : CodeAndComment = _
+
   @transient
-  var generatorClazz: GeneratedClass = _
+  var generatorClazz_ : GeneratedClass = _
+
+  def generatorClazz: GeneratedClass = {
+    // allow it to be replaced
+    if (generatorClazz_ == null) {
+      generatorClazz_ = CodeGenerator.compile(generatorClassSource)._1
+    }
+    generatorClazz_
+  }
 
   implicit val classTagT: ClassTag[T]
 
@@ -517,14 +547,13 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression {
 
   protected def doGenCodeI(ctx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = {
 
-    val thisCtx = new CodegenContext()
     ctx.references += this
-    thisCtx.references.addAll(ctx.references)
+    val thisCtx = QualityCodeGenUtils.clone(ctx)
 
     // #128 jump out of expr or rule groups
     val earlyReturn =
       (currRuleResTerm: String) =>
-      s"""
+      code"""
         if ($currRuleResTerm == $PassedInt) {
           return;
         }
@@ -538,10 +567,11 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression {
       )
 
     import compilerTerms._
+    import parameterInformation._
 
     // for debug currentOutputIndex is the count of matches, new Integer for #128 as janino isn't happy
 
-    val pre = s"""
+    val pre = code"""
           $pushToTop
           $currentSalience = java.lang.Integer.MAX_VALUE;
           $currentOutputIndex = -1;
@@ -553,17 +583,23 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression {
 
           ${funNames.map{f => s"$f($paramsCall);"}.mkString("\n")}
       """
-    val post = s"""
 
-          boolean ${ev.isNull} = false;
+    val resName= thisCtx.freshName("result")
+    val resNull = thisCtx.freshName("isNull")
+
+    val exp = ExprCode(VariableValue(resName, ev.value.javaType), isNullVariable(resNull))
+
+    val post = code"""
+
+          boolean ${exp.isNull} = false;
       """
 
     val res =
       if (debugMode)
-        ev.copy(code = code"""
+        exp.copy(code = code"""
           $pre
 
-          InternalRow ${ev.value} =
+          InternalRow ${exp.value} =
             com.sparkutils.quality.impl.RuleEngineRunnerUtils.compiledEvalDebug(
               $utilsName.evalArrayForDefault($ruleSuitTerm, $ruleSuiteArrays, $resArrTerm),
             ($currentOutputIndex < 0) ? null : com.sparkutils.quality.impl.RuleEngineRunnerUtils.debugOutput($salienceArrTerm, $outArrTerm, $currentOutputIndex, null));
@@ -572,10 +608,10 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression {
           """
         )
       else
-        ev.copy(code = code"""
+        exp.copy(code = code"""
           $pre
 
-          InternalRow ${ev.value} =
+          InternalRow ${exp.value} =
             com.sparkutils.quality.impl.RuleEngineRunnerUtils.compiledEval(
               $utilsName.evalArrayForDefault($ruleSuitTerm, $ruleSuiteArrays, $resArrTerm),
               $currentSalience, $ruleTupleArrTerm, $currentOutputIndex, $outArrTerm);
@@ -584,8 +620,8 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression {
           """
         )
 
-    val (clazz, fres) = runnerCompilation(ctx, compilerTerms, thisCtx, res)
-    generatorClazz = clazz
+    val (clazz, fres) = runnerCompilation(ctx, compilerTerms, thisCtx, res, ev, ruleSuite.id)
+    generatorClassSource = clazz
     fres
   }
 }
@@ -598,6 +634,7 @@ case class RuleEngineRunnerEval(ruleSuite: RuleSuite, children: Seq[Expression],
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
 
   override implicit val classTagT: ClassTag[RuleEngineRunnerEval] = ClassTag(classOf[RuleEngineRunnerEval])
+
 }
 
 

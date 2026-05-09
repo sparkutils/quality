@@ -234,6 +234,67 @@ object SubQueryWrapper {
     }.isDefined)
 }
 
+/**
+ *
+ * @param paramsDef drop in for function lists
+ * @param paramsCall drop in for function calls
+ * @param arity the arity of the parameters, abstract function only goes to 22, 255 are available
+ * @param pushToTop any outer context information (spark 3.1 and higher)
+ * @param params pairs of variable name to java type used for declaration and the class type for boxing
+ */
+case class ParameterInformation(paramsDef: String, paramsCall: String, arity: Int,
+                                params: Seq[(String, String, Class[_])], pushToTop: String = "") {
+
+  /**
+   * When arity is over 22 we still need a type, so the type becomes an array we unpack..., boxing is unavoidable
+   *
+   * @return
+   */
+  def aritySafeApplyType(prefix: String): String =
+    s"$prefix$arity<InternalRow," +
+      (
+        if (arity <= 22)
+          params.map { p =>
+            if (p._3.isPrimitive)
+              CodeGenerator.boxedType(p._3.getSimpleName)
+            else
+              p._1
+          }.mkString(",")
+        else
+          ""
+        ) + ">"
+
+  def aritySafeParamDef: String =
+    if (arity <= 22)
+      params.map { p =>
+        s"Object ${p._2}_ppp" // only object will compile, janino no generics
+      }.mkString(",")
+    else
+      ""
+
+  def aritySafeParamConversion: String =
+    if (arity <= 22)
+      params.map { p =>
+
+        val cast =
+          if (p._3.isPrimitive)
+            CodeGenerator.boxedType(p._3.getSimpleName)
+          else
+            p._1
+
+        s"${p._1} ${p._2} = ($cast) ${p._2}_ppp;"
+      }.mkString("\n")
+    else
+      ""
+
+  def aritySafeParamCall: String =
+    if (arity <= 22)
+      paramsCall
+    else
+      ""
+}
+
+
 object Params {
 
   def stripBrackets(v: VariableValue): (String, String) = {
@@ -244,14 +305,14 @@ object Params {
       (v.variableName.dropRight(v.length - openb), v.variableName.drop(openb))
   }
 
-  def formatParams(ctx: CodegenContext, a: Seq[ExprValue], callsKeepArrays: Boolean = false): (String, String) = {
+  def formatParams(ctx: CodegenContext, a: Seq[ExprValue], callsKeepArrays: Boolean = false): ParameterInformation = {
     // filter out any top level arrays, the input is a set, so params need the same order
     val ordered = a.flatMap {
       case a: VariableValue => Some(a)
       case _ => None
     }
 
-    (ordered.map { v =>
+    val pairs = ordered.map { v =>
       val (stripped, arrayInName) = stripBrackets(v)
 
       val (typ, array) =
@@ -262,14 +323,20 @@ object Params {
         else
           (v.javaType.getName, arrayInName.replaceAll("[^\\[\\]]",""))
 
-      s"$typ$array $stripped"
-    }.mkString(", ")
+      (s"$typ$array", stripped, v.javaType)
+    }
+
+    ParameterInformation(pairs.map {
+      case (typ, stripped, _) =>
+
+        s"$typ $stripped"
+      }.mkString(", ")
       , ordered.map(v =>
         if (v.javaType.isArray && callsKeepArrays)
           v.variableName
         else
           stripBrackets(v)._1
-      ).mkString(", "))
+      ).mkString(", "), ordered.size, pairs)
   }
 }
 

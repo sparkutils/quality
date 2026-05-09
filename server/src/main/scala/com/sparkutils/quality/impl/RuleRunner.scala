@@ -15,7 +15,7 @@ import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
 import org.apache.spark.sql.ShimUtils.column
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode, ExprValue}
+import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodegenContext, CodegenFallback, ExprCode, ExprValue}
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression}
 import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, truncatedString}
 import org.apache.spark.sql.functions.lit
@@ -190,9 +190,9 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
 
   def packTheId(obj: Object) = packId(obj)//: java.lang.Long
 
-  protected[quality] def generateFunctionGroups(ctx: CodegenContext, allExpr: Iterator[Seq[String]]#GroupedIterator[Seq[String]],
-    paramsDef: String, paramsCall: String, prefix: String = "ruleRunner", exprEnd: () => String = () => "",
-                                                exprFunEnd: () => String = () => "") = {
+  protected[quality] def generateFunctionGroups(ctx: CodegenContext, allExpr: Iterator[Seq[Block]]#GroupedIterator[Seq[Block]],
+    paramsDef: String, paramsCall: String, prefix: String = "ruleRunner", exprEnd: () => Block = () => code"",
+                                                exprFunEnd: () => Block = () => code"") = {
     val funNames =
       for (exprGroup <- allExpr) yield {
         val groupName = ctx.freshName(prefix+"EGroup")
@@ -203,19 +203,19 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
             } yield {
               val exprFuncName = ctx.freshName(prefix+"EFuncGroup")
               ctx.addNewFunction(exprFuncName,
-s"""
+code"""
    private void $exprFuncName($paramsDef) {
      ${exprFunc.mkString(s"${exprEnd()}\n")}
    }
-  """
+  """.code
               )
             }
 
-s"""
+code"""
    private void $groupName($paramsDef) {
      ${funNames.map { f => s"$f($paramsCall);" }.mkString(s"${exprFunEnd()}\n")}
    }
-   """
+   """.code
 
         })
       }
@@ -248,7 +248,8 @@ s"""
       v => s"$v = com.sparkutils.quality.impl.RuleRunnerUtils.ruleSuiteArrays($ruleSuitTerm);"
     )
 
-    val (paramsDef, paramsCall, pushToTop) = genParams(ctx, runner)
+    val paramInfo = genParams(ctx, runner)
+    import paramInfo._
 
     val ruleRes = "java.lang.Object"
     val arrTerm = ctx.addMutableState(ruleRes + "[]", ctx.freshName("results"),
@@ -258,7 +259,7 @@ s"""
       val eval = child.genCode(ctx)
 
       val converted =
-        s"""${eval.code}\n
+        code"""${eval.code}\n
 
              $arrTerm[$idx] = ${eval.isNull} ? null : ${resultF(eval.value, idx)};"""
 

@@ -411,6 +411,7 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
       )
 
     import compilerTerms._
+    import parameterInformation._
 
     val pre = s"""
           $currentSalience = java.lang.Integer.MAX_VALUE;
@@ -476,7 +477,7 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
         """
       )
 
-    runnerCompilation(outerCtx, compilerTerms, ctx, res)._2
+    runnerCompilation(outerCtx, compilerTerms, ctx, res, ev, ruleSuite.id)._2
 
   }
 }
