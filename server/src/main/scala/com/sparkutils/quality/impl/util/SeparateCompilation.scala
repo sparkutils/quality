@@ -4,10 +4,11 @@ import com.sparkutils.quality.VersionedId
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.CompilerTerms
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodegenContext, ExprCode, QualityCodeGenUtils}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
+
 /**
  * Implemented by the separate compilation to allow for nondeterministic / stateful
  */
-trait InitPartition {
+trait InitPartitionSimple {
 
   /**
    * Initializes internal states given the current partition index.
@@ -15,6 +16,23 @@ trait InitPartition {
    * The default implementation does nothing.
    */
   def initialize(partitionIndex: Int): Unit = {}
+
+}
+
+/**
+ * Implemented by the separate compilation to allow for nondeterministic / stateful
+ *
+ * Wholestage has a lot more bookkeeping
+ *
+ */
+trait InitPartitionWholeStage {
+
+  /**
+   * Initializes internal states given the current partition index.
+   * This is used by nondeterministic expressions to set initial states.
+   * The default implementation does nothing.
+   */
+  def initialize(index: Int, inputs: Array[Iterator[_]]): Unit = {}
 
 }
 
@@ -35,17 +53,18 @@ object SeparateCompilation {
                         runnerClassName: String, ctx: CodegenContext, codeBody: ExprCode,
                         ev: ExprCode, ruleSuiteId: VersionedId):
     (CodeAndComment, ExprCode) = {
+    val fullParams = parameterInformation
+
     // TODO - As Spark has already added ctx vars for codebody null and value, we need to remove them
-    val (fullParams, extraApplyParamDef, extraApplyParamCall, extraDecl, extraConversion) =
+    val (initParamDef, initDecl, initConversion, initType, wholeStage) =
       if ((ctx.INPUT_ROW eq null) && parameterInformation.params.nonEmpty)
         // wholestage
-        (parameterInformation.copy(arity = parameterInformation.arity + 2),
-          "Object index, Object inputs_ppp, ", "partitionIndex, this.inputs, ",
+        ("int index, scala.collection.Iterator[] inputs_ppp",
           "private int partitionIndex;\n private scala.collection.Iterator[] inputs;\n",
           """partitionIndex = (Integer) index;
-            this.inputs = (scala.collection.Iterator[]) inputs_ppp;""")
+            this.inputs = (scala.collection.Iterator[]) inputs_ppp;""", classOf[InitPartitionWholeStage].getName, true)
       else
-        (parameterInformation, "","","","")
+        ("int partitionIndex","","", classOf[InitPartitionSimple].getName, false)
 
     val id = s"${ruleSuiteId.id}_${ruleSuiteId.version}".replaceAll("-","__")
 
@@ -55,24 +74,24 @@ object SeparateCompilation {
         return new RunnerCompilation$id(references);
       }
 
-      class RunnerCompilation$id extends ${fullParams.aritySafeApplyType("scala.runtime.AbstractFunction")} implements ${classOf[InitPartition].getName} {
+      class RunnerCompilation$id extends ${fullParams.aritySafeApplyType("scala.runtime.AbstractFunction")} implements $initType {
         private final Object[] references;
-        $extraDecl
+        $initDecl
         ${ctx.declareMutableStates()}
 
         public RunnerCompilation$id(Object[] references) {
           this.references = references;
         }
 
-        public void initialize(int partitionIndex) {
+        public void initialize($initParamDef) {
+          ${ctx.initMutableStates()}
+          $initConversion
+
           ${ctx.initPartition()}
         }
 
-        public java.lang.Object apply($extraApplyParamDef ${fullParams.aritySafeParamDef}) {
-          $extraConversion
+        public java.lang.Object apply(${fullParams.aritySafeParamDef}) {
           // here to use extraApplyParamDef
-          ${ctx.initMutableStates()}
-
           ${fullParams.aritySafeParamConversion}
 
           // this context common
@@ -108,16 +127,21 @@ object SeparateCompilation {
         // push to top
         ${parameterInformation.pushToTop}
         // Call to RuleSuite Id(${ruleSuiteId.id},${ruleSuiteId.version})
-        InternalRow ${ev.value} = (InternalRow) (($funX)$runner).apply($extraApplyParamCall ${fullParams.aritySafeParamCall});
+        InternalRow ${ev.value} = (InternalRow) (($funX)$runner).apply(${fullParams.aritySafeParamCall});
         boolean ${ev.isNull} = false;
           """)
 
     outerctx.addPartitionInitializationStatement(
-      s"""
-         ((${classOf[InitPartition].getName} )$runner).initialize(partitionIndex);
-         """
+      if (wholeStage)
+        s"""
+          (($initType )$runner).initialize(partitionIndex, inputs);
+        """
+      else
+        s"""
+          (($initType )$runner).initialize(partitionIndex);
+        """
     )
 
     (code, res)
   }
-}
+}//mutableStateArray_2[0]

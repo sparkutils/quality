@@ -172,14 +172,20 @@ object Processors {
         //else
           GenerateDecoderOpEncoderProjection.generate[I, O](exprsToUse, exprTo, useSubexprElimination = true)
       new ProcessorFactory[I, O] {
-        override def instance: Processor[I, O] = new Processor[I, O] {
-          private val theInstance = projector.newInstance
-          override def apply(i: I): O = theInstance(i)
-          override def setPartition(partition: Int): Unit = theInstance.initialize(partition)
-          // if this is spun out into a separate jar it'd be a good to provide caching & test which used this
-          // $COVERAGE-OFF$
-          override def close(): Unit = {}
-          // $COVERAGE-ON$
+        override def instance: Processor[I, O] = {
+          val p =
+            new Processor[I, O] {
+              private val theInstance = projector.newInstance
+              override def apply(i: I): O = theInstance(i)
+              override def setPartition(partition: Int): Unit = theInstance.initialize(partition)
+              // if this is spun out into a separate jar it'd be a good to provide caching & test which used this
+              // $COVERAGE-OFF$
+              override def close(): Unit = {}
+              // $COVERAGE-ON$
+            }
+          // at least one initialisation must be made for mutablestate initialisation
+          p.setPartition(0)
+          p
         }
       }
     }

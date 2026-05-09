@@ -53,39 +53,44 @@ object MutableProjectionProcessor {
        *
        * @return
        */
-      override def instance: Processor[I, O] =
-        new Processor[I, O] {
+      override def instance: Processor[I, O] = {
+        val p =
+          new Processor[I, O] {
 
-          val enc = ClassicQualitySparkUtils.rowProcessor(exprFrom, compile).asInstanceOf[MutableProjection]
+            val enc = ClassicQualitySparkUtils.rowProcessor(exprFrom, compile).asInstanceOf[MutableProjection]
 
-          val dec = ClassicQualitySparkUtils.rowProcessor(Seq(exprTo), compile).asInstanceOf[MutableProjection]
+            val dec = ClassicQualitySparkUtils.rowProcessor(Seq(exprTo), compile).asInstanceOf[MutableProjection]
 
-          val exprsToUse =
-            if (copyNeeded)
-              ShimUtils.copyStateful(exprs)
-            else
-              exprs
+            val exprsToUse =
+              if (copyNeeded)
+                ShimUtils.copyStateful(exprs)
+              else
+                exprs
 
-          val processor = ClassicQualitySparkUtils.rowProcessor(exprsToUse, compile).asInstanceOf[MutableProjection]
+            val processor = ClassicQualitySparkUtils.rowProcessor(exprsToUse, compile).asInstanceOf[MutableProjection]
 
-          override def apply(i: I): O = {
-            val ti = enc(InternalRow(i))
-            val r = processor(ti)
-            dec(r).get(0, ObjectType(classOf[Any])).asInstanceOf[O]
+            override def apply(i: I): O = {
+              val ti = enc(InternalRow(i))
+              val r = processor(ti)
+              dec(r).get(0, ObjectType(classOf[Any])).asInstanceOf[O]
+            }
+
+            /**
+             * Sets a partition value for this Process, processes may treat this as a creation of new state
+             *
+             * @param partition
+             */
+            override def setPartition(partition: Int): Unit =
+              processor.initialize(partition)
+
+            // $COVERAGE-OFF$
+            override def close(): Unit = {}
+            // $COVERAGE-ON$
           }
-
-          /**
-           * Sets a partition value for this Process, processes may treat this as a creation of new state
-           *
-           * @param partition
-           */
-          override def setPartition(partition: Int): Unit =
-            processor.initialize(partition)
-
-          // $COVERAGE-OFF$
-          override def close(): Unit = {}
-          // $COVERAGE-ON$
-        }
+        // at least one initialisation must be made for mutablestate initialisation
+        p.setPartition(0)
+        p
+      }
     }
 
   }
