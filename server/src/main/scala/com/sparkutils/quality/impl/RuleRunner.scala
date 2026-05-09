@@ -7,6 +7,7 @@ import com.sparkutils.quality.impl.PackId.packId
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.ExpressionRuleExpr.ExpressionRuleOps
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
+import com.sparkutils.quality.impl.RuleEngineRunnerUtils.runnerCompilation
 import types.ruleSuiteResultType
 import com.sparkutils.quality.impl.imports.RuleRunnerImports
 import com.sparkutils.quality.impl.util.Serializing.ruleResultToInt
@@ -15,7 +16,8 @@ import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
 import org.apache.spark.sql.ShimUtils.column
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
-import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodegenContext, CodegenFallback, ExprCode, ExprValue}
+import org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.isNullVariable
+import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodegenContext, CodegenFallback, ExprCode, ExprValue, QualityCodeGenUtils, VariableValue}
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression}
 import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, truncatedString}
 import org.apache.spark.sql.functions.lit
@@ -269,13 +271,18 @@ code"""
     val funNames: Iterator[String] =
       RuleRunnerUtils.generateFunctionGroups(ctx, allExpr, paramsDef, paramsCall)
 
-    val res = ev.copy(code =
+
+    val resName = ctx.freshName("result")
+    val resNull = ctx.freshName("isNull")
+
+    val exp = ExprCode(VariableValue(resName, ev.value.javaType), isNullVariable(resNull))
+
+    val res = exp.copy(code =
       code"""
-      $pushToTop
       ${funNames.map { f => s"$f($paramsCall);" }.mkString("\n")}
 
-      InternalRow ${ev.value} = $utilsName.evalArray($ruleSuitTerm, $ruleSuiteArrays, $arrTerm);
-      boolean ${ev.isNull} = false;
+      InternalRow ${exp.value} = $utilsName.evalArray($ruleSuitTerm, $ruleSuiteArrays, $arrTerm);
+      boolean ${exp.isNull} = false;
       """
     )
 
@@ -294,7 +301,7 @@ code"""
  * @param variablesPerFunc How many variables are in a function
  * @param variableFuncGroup How many functions are then grouped into a new function
  */
-trait RuleRunnerBase[T] extends NonSQLExpression {
+trait RuleRunnerBase[T] extends NonSQLExpression with SplitCompilation {
 
   val ruleSuite: RuleSuite
   val compileEvals: Boolean
@@ -329,16 +336,26 @@ trait RuleRunnerBase[T] extends NonSQLExpression {
    * @param ev
    * @return
    */
-  protected def doGenCodeI(ctx: CodegenContext, ev: ExprCode): ExprCode = {
-    ctx.references += this
+  protected def doGenCodeI(outerCtx: CodegenContext, ev: ExprCode): ExprCode = {
+
+    outerCtx.references += this
+    val ctx = QualityCodeGenUtils.clone(outerCtx)
+    // must be called before the rule gen runs
+    val params = genParams(ctx, this)
 
     // bind the rules
     val ruleSuitTerm = genRuleSuiteTerm[T](ctx)._1
     val utilsName = "com.sparkutils.quality.impl.RuleRunnerUtils"
 
-    nonOutputRuleGen(ctx, this, ev, ruleSuitTerm, utilsName, realChildren, variablesPerFunc, variableFuncGroup,
-      (code: ExprValue, idx: Int) => s"com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt($code)"
-    )
+    val res =
+      nonOutputRuleGen(ctx, this, ev, ruleSuitTerm, utilsName, realChildren, variablesPerFunc, variableFuncGroup,
+        (code: ExprValue, idx: Int) => s"com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt($code)"
+      )
+
+    val (clazz, fres) = runnerCompilation(outerCtx, params,
+      classOf[RuleRunnerBase[T]].getName, ctx, res, ev, ruleSuite.id)
+    generatorClassSource = clazz
+    fres
   }
 }
 

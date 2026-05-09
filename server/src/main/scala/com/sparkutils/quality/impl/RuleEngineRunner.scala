@@ -391,15 +391,20 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
       runnerClassName = implicitly[ClassTag[T]].runtimeClass.getName, paramsInfo)
 
   }
-
   // creates a new clazz but it is linked and created in the outer context
   def runnerCompilation(outerctx: CodegenContext, terms: CompilerTerms, ctx: CodegenContext, codeBody: ExprCode,
+                        ev: ExprCode, ruleSuiteId: VersionedId): (CodeAndComment, ExprCode) =
+    runnerCompilation(outerctx, terms.parameterInformation,
+      terms.runnerClassName, ctx, codeBody, ev, ruleSuiteId)
+
+  // creates a new clazz but it is linked and created in the outer context
+  def runnerCompilation(outerctx: CodegenContext, parameterInformation: ParameterInformation,
+                        runnerClassName: String, ctx: CodegenContext, codeBody: ExprCode,
                         ev: ExprCode, ruleSuiteId: VersionedId):
     (CodeAndComment, ExprCode) = {
-    import terms._
     // TODO - As Spark has already added ctx vars for codebody null and value, we need to remove them
     val (fullParams, extraApplyParamDef, extraApplyParamCall, extraDecl, extraConversion) =
-      if (ctx.INPUT_ROW eq null)
+      if ((ctx.INPUT_ROW eq null) && parameterInformation.params.nonEmpty)
         // wholestage
         (parameterInformation.copy(arity = parameterInformation.arity + 2),
           "Object index, Object inputs_ppp, ", "partitionIndex, this.inputs, ",
@@ -407,7 +412,14 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
           """partitionIndex = (Integer) index;
             this.inputs = (scala.collection.Iterator[]) inputs_ppp;""")
       else
-        (parameterInformation, "", "", "", "")
+        (parameterInformation, "","","","")
+        /*(parameterInformation.copy(arity = parameterInformation.arity + 1,
+          params = parameterInformation.params :+ ("InternalRow", ctx.INPUT_ROW, classOf[InternalRow]) // shouldn't have both either way, but just to be safe
+        ),
+          s"",//InternalRow ${ctx.INPUT_ROW}, ",
+          s"",//${outerctx.INPUT_ROW}, ",
+          "",
+          "") */
 
     val id = s"${ruleSuiteId.id}_${ruleSuiteId.version}".replaceAll("-","__")
 
@@ -480,20 +492,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
 
 }
 
-/**
-  * Children will be rewritten by the plan, it's then re-incorporated into ruleSuite
-  * expressionOffsets.length is the length of the trigger expressions in realChildren, realChildren(expressionOffsets.length + expressionOffsets(x)) will be the correct OutputExpression
-  */
-trait RuleEngineRunnerBase[T] extends NonSQLExpression {
-  val ruleSuite: RuleSuite
-  val compileEvals: Boolean
-  val debugMode: Boolean
-  val variablesPerFunc: Int
-  val variableFuncGroup: Int
-  val forceTriggerEval: Boolean
-  val expressionOffsets: Array[Int]
-  val userResultDataType: Option[DataType]
-  val triggerCount: Int
+trait SplitCompilation {
 
   var generatorClassSource : CodeAndComment = _
 
@@ -507,6 +506,23 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression {
     }
     generatorClazz_
   }
+
+}
+
+/**
+  * Children will be rewritten by the plan, it's then re-incorporated into ruleSuite
+  * expressionOffsets.length is the length of the trigger expressions in realChildren, realChildren(expressionOffsets.length + expressionOffsets(x)) will be the correct OutputExpression
+  */
+trait RuleEngineRunnerBase[T] extends NonSQLExpression with SplitCompilation {
+  val ruleSuite: RuleSuite
+  val compileEvals: Boolean
+  val debugMode: Boolean
+  val variablesPerFunc: Int
+  val variableFuncGroup: Int
+  val forceTriggerEval: Boolean
+  val expressionOffsets: Array[Int]
+  val userResultDataType: Option[DataType]
+  val triggerCount: Int
 
   implicit val classTagT: ClassTag[T]
 
@@ -548,10 +564,10 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression {
       StructField(name = "result", dataType = resultDataType, nullable = true)
     ))
 
-  protected def doGenCodeI(ctx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = {
+  protected def doGenCodeI(outerCtx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = {
 
-    ctx.references += this
-    val thisCtx = QualityCodeGenUtils.clone(ctx)
+    outerCtx.references += this
+    val ctx = QualityCodeGenUtils.clone(outerCtx)
 
     // #128 jump out of expr or rule groups
     val earlyReturn =
@@ -563,7 +579,7 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression {
       """
 
     val compilerTerms =
-      RuleEngineRunnerUtils.genCompilerTerms[T](ctx, thisCtx, PassThroughEvalOnly(realChildren),
+      RuleEngineRunnerUtils.genCompilerTerms[T](outerCtx, ctx, PassThroughEvalOnly(realChildren),
         expressionOffsets, realChildren,
         debugMode, variablesPerFunc, variableFuncGroup, forceTriggerEval,
         exprEnd = earlyReturn, exprFunEnd = earlyReturn
@@ -586,8 +602,8 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression {
           ${funNames.map{f => s"$f($paramsCall);"}.mkString("\n")}
       """
 
-    val resName= thisCtx.freshName("result")
-    val resNull = thisCtx.freshName("isNull")
+    val resName = ctx.freshName("result")
+    val resNull = ctx.freshName("isNull")
 
     val exp = ExprCode(VariableValue(resName, ev.value.javaType), isNullVariable(resNull))
 
@@ -622,7 +638,7 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression {
           """
         )
 
-    val (clazz, fres) = runnerCompilation(ctx, compilerTerms, thisCtx, res, ev, ruleSuite.id)
+    val (clazz, fres) = runnerCompilation(outerCtx, compilerTerms, ctx, res, ev, ruleSuite.id)
     generatorClassSource = clazz
     fres
   }

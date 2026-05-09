@@ -6,7 +6,8 @@ import com.sparkutils.quality.impl.imports.ClassicRuleFolderRunnerImports
 import com.sparkutils.quality.impl.util.PassThroughEvalOnly
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode}
+import org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.isNullVariable
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode, QualityCodeGenUtils, VariableValue}
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression}
 import org.apache.spark.sql.catalyst.util.truncatedString
 import org.apache.spark.sql.internal.SQLConf
@@ -46,7 +47,7 @@ private[quality] object RuleFolderRunnerUtils extends ClassicRuleFolderRunnerImp
   * Children will be rewritten by the plan, it's then re-incorporated into ruleSuite
   * expressionOffsets.length is the length of the trigger expressions in realChildren, realChildren(expressionOffsets.length + expressionOffsets(x)) will be the correct OutputExpression
   */
-trait RuleFolderRunnerBase[T] extends NonSQLExpression {
+trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation {
 
   val ruleSuite: RuleSuite
   val resultDataType: () => DataType
@@ -101,10 +102,8 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression {
 
   protected def doGenCodeI(outerCtx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = {
 
-    val ctx = new CodegenContext()
     outerCtx.references += this
-    ctx.references.addAll(ctx.references)
-
+    val ctx = QualityCodeGenUtils.clone(outerCtx)
 
     // need to setup the folder variable to pass around, create it with "left"
     // thread it through
@@ -159,10 +158,9 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression {
     val rsres = ctx.freshName("ruleSuiteRes")
     val default = ctx.freshName("defaultRes")
 
-    val pre = s"""
+    val pre = code"""
           $currentSalience = java.lang.Integer.MAX_VALUE;
           $currentOutputIndex = -1;
-          $pushToTop
           $hasAPassTerm = false;
 
           // starting
@@ -195,16 +193,23 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression {
             """ }
           }
       """
+
+    val resName = ctx.freshName("result")
+    val resNull = ctx.freshName("isNull")
+
+    val exp = ExprCode(VariableValue(resName, ev.value.javaType), isNullVariable(resNull))
+
     val post = s"""
 
-          boolean ${ev.isNull} = false;
+          boolean ${exp.isNull} = false;
       """
+
     val res =
       if (debugMode)
-        ev.copy(code = code"""
+        exp.copy(code = code"""
           $pre
 
-          InternalRow ${ev.value} =
+          InternalRow ${exp.value} =
             com.sparkutils.quality.impl.RuleFolderRunnerUtils.compiledEvalDebug($rsres,
              (($currentOutputIndex < 0) && ($default == null)) ? null :
               com.sparkutils.quality.impl.RuleEngineRunnerUtils.debugOutput($salienceArrTerm, $outArrTerm, $currentOutputIndex, $default));
@@ -213,10 +218,10 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression {
           """
         )
       else
-        ev.copy(code = code"""
+        exp.copy(code = code"""
           $pre
 
-          InternalRow ${ev.value} =
+          InternalRow ${exp.value} =
             com.sparkutils.quality.impl.RuleFolderRunnerUtils.compiledEval($rsres,
               $currentSalience, $ruleTupleArrTerm, $currentOutputIndex, $outArrTerm, $default);
 
@@ -224,8 +229,9 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression {
           """
         )
 
-    runnerCompilation(outerCtx, compilerTerms, ctx, res, ev, ruleSuite.id)._2
-
+    val (clazz, fres) = runnerCompilation(outerCtx, compilerTerms, ctx, res, ev, ruleSuite.id)
+    generatorClassSource = clazz
+    fres
   }
 
   def processNewChildren(newChildren: Seq[Expression]): Seq[Expression] = {

@@ -4,12 +4,14 @@ import com.sparkutils.quality._
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
 import com.sparkutils.quality.impl.RuleRunnerUtils.{RuleSuiteResultArray, flattenExpressions, genRuleSuiteTerm, nonOutputRuleGen, reincorporateExpressions}
 import com.sparkutils.quality.impl.PackId.packId
+import com.sparkutils.quality.impl.RuleEngineRunnerUtils.runnerCompilation
 import com.sparkutils.quality.impl.util.{Arrays, PassThroughCompileEvals}
 import com.sparkutils.quality.impl.yaml.YamlEncoderExpr
 import com.sparkutils.quality.impl.types._
+import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
 import org.apache.spark.sql.{Column, ShimUtils}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode, ExprValue}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode, ExprValue, QualityCodeGenUtils}
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression, UnaryExpression}
 import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, GenericArrayData, MapData, truncatedString}
 import org.apache.spark.sql.internal.SQLConf
@@ -119,7 +121,7 @@ private[quality] object ExpressionRunnerUtils {
  * Creates an extensible wrapper result column for aggregate expressions, storing the results as yaml
  *
  */
-trait ExpressionRunnerBase[T] extends NonSQLExpression {
+trait ExpressionRunnerBase[T] extends NonSQLExpression with SplitCompilation {
 
   val ruleSuite: RuleSuite
   val ddlType: DataType
@@ -145,10 +147,12 @@ trait ExpressionRunnerBase[T] extends NonSQLExpression {
     ExpressionRunnerUtils.expressionsResultToRow[Any](res)
   }
 
-  protected def doGenCodeI(ctx: CodegenContext, ev: ExprCode): ExprCode = {
-    val i = ctx.INPUT_ROW
+  protected def doGenCodeI(outerCtx: CodegenContext, ev: ExprCode): ExprCode = {
 
-    ctx.references += this
+    outerCtx.references += this
+    val ctx = QualityCodeGenUtils.clone(outerCtx)
+    // must be called before the rule gen runs
+    val params = genParams(ctx, this)
 
     val termF = genRuleSuiteTerm[T](ctx)
     // bind the rules
@@ -177,9 +181,15 @@ trait ExpressionRunnerBase[T] extends NonSQLExpression {
       else
         s"$code"
 
-    nonOutputRuleGen(ctx, this, ev, ruleSuitTerm, utilsName, realChildren, variablesPerFunc, variableFuncGroup,
-      yamlOrType(_,_)
-    )
+    val res =
+      nonOutputRuleGen(ctx, this, ev, ruleSuitTerm, utilsName, realChildren, variablesPerFunc, variableFuncGroup,
+        yamlOrType(_,_)
+      )
+
+    val (clazz, fres) = runnerCompilation(outerCtx, params,
+      classOf[ExpressionRunnerBase[T]].getName, ctx, res, ev, ruleSuite.id)
+    generatorClassSource = clazz
+    fres
   }
 
   override def dataType: DataType =

@@ -11,7 +11,8 @@ import org.apache.spark.sql.ShimUtils.column
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.UnresolvedFunction
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, ExprCode, FalseLiteral, GlobalValue}
+import org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.isNullVariable
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, ExprCode, FalseLiteral, GlobalValue, QualityCodeGenUtils, VariableValue}
 import org.apache.spark.sql.catalyst.expressions.{CreateArray, Expression, NonSQLExpression}
 import org.apache.spark.sql.catalyst.util.{GenericArrayData, truncatedString}
 import org.apache.spark.sql.internal.SQLConf
@@ -168,7 +169,7 @@ object CollectRunner {
   * Children will be rewritten by the plan, it's then re-incorporated into ruleSuite
   * expressionOffsets.length is the length of the trigger expressions in realChildren, realChildren(expressionOffsets.length + expressionOffsets(x)) will be the correct OutputExpression
   */
-trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
+trait CollectRunnerBase[T] extends Expression with NonSQLExpression with SplitCompilation {
 
   val ruleSuite: RuleSuite
   val resultDataType: Option[DataType]
@@ -237,10 +238,8 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
 
   protected def doGenCodeI(outerCtx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = {
 
-    val ctx = new CodegenContext()
     outerCtx.references += this
-    ctx.references.addAll(ctx.references)
-
+    val ctx = QualityCodeGenUtils.clone(outerCtx)
 
     def hasDefault(when: => String, els: String = ""): String =
       if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp)
@@ -417,20 +416,26 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
           $currentSalience = java.lang.Integer.MAX_VALUE;
           $currentOutputIndex = -1;
           $hasAPassTerm = false;
-          $pushToTop
           $bufferTerm = new ${classOf[ArrayBuffer[_]].getName}($starterSize);
 
           ${funNames.map{f => s"$f($paramsCall);"}.mkString("\n")}
       """
+
+
+    val resName = ctx.freshName("result")
+    val resNull = ctx.freshName("isNull")
+
+    val exp = ExprCode(VariableValue(resName, ev.value.javaType), isNullVariable(resNull))
+
     val post = s"""
 
-          boolean ${ev.isNull} = false;
+          boolean ${exp.isNull} = false;
       """
 
     val rsres = ctx.freshName("ruleSuiteRes")
 
     val res =
-      ev.copy(code = code"""
+      exp.copy(code = code"""
         $pre
 
         ${hasDefault{
@@ -468,7 +473,7 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
             """)
         }
 
-        InternalRow ${ev.value} =
+        InternalRow ${exp.value} =
           com.sparkutils.quality.impl.CollectRunnerUtils.compiledEval(
             $rsres,
             $bufferTerm);
@@ -477,8 +482,9 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
         """
       )
 
-    runnerCompilation(outerCtx, compilerTerms, ctx, res, ev, ruleSuite.id)._2
-
+    val (clazz, fres) = runnerCompilation(outerCtx, compilerTerms, ctx, res, ev, ruleSuite.id)
+    generatorClassSource = clazz
+    fres
   }
 }
 

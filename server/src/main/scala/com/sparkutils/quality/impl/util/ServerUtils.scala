@@ -248,10 +248,12 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
   /**
    * When arity is over 22 we still need a type, so the type becomes an array we unpack..., boxing is unavoidable
    *
+   * Arity of 0 implies no actual input information is needed, e.g. a rule is hardcode / folded to a constant
+   *
    * @return
    */
   def aritySafeApplyType(prefix: String): String =
-    s"$prefix$arity<InternalRow," +
+    s"$prefix$arity<InternalRow${if (arity > 0) "," else ""}" +
       (
         if (arity <= 22)
           params.map { p =>
