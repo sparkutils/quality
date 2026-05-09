@@ -1,9 +1,11 @@
 package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.QualityException
+import com.sparkutils.quality.impl.util.ParameterInformation
 import com.sparkutils.quality.impl.util.Params.formatParams
 import com.sparkutils.quality.sparkless.impl.DecoderOpEncoderProjection
 import com.sparkutils.quality.sparkless.impl.Processors.{NO_QUERY_PLANS, isCopyNeeded}
+
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.{Encoder, ClassicQualitySparkUtils, ShimUtils}
 import org.apache.spark.sql.catalyst.expressions.BindReferences.bindReferences
@@ -120,7 +122,7 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
                           prefix: String): String = {
     val variablesPerFunc: Int = 40
     val variableFuncGroup: Int = 20 // defaults from rulerunner
-    val grouped = allExpr.grouped(variablesPerFunc).grouped(variableFuncGroup)
+    val grouped = allExpr.map(c => code"$c").grouped(variablesPerFunc).grouped(variableFuncGroup)
     val funNames: Iterator[String] =
       RuleRunnerUtils.generateFunctionGroups(ctx, grouped, paramsDef, paramsCall, prefix = prefix)
 
@@ -211,10 +213,10 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
     // generate the full set
     val projectionCodes = projections(ctx, cExpressions, "mutableRow", projectionSubExprStates).toIndexedSeq // streams suck
 
-    val (projectionParamsDecl, projectionParamsCall) = formatParams( ctx, ctx.currentVars.flatMap(e => Seq(e.value, e.isNull)) :+
+    val ParameterInformation(projectionParamsDecl, projectionParamsCall, _, _, _) = formatParams( ctx, ctx.currentVars.flatMap(e => Seq(e.value, e.isNull)) :+
       JavaCode.variable(ctx.INPUT_ROW, classOf[InternalRow])
     )
-    val (_, topProjectionParamsCall) = formatParams( ctx, ctx.currentVars.flatMap(e => Seq(e.value, e.isNull)) :+
+    val ParameterInformation(_, topProjectionParamsCall, _, _, _) = formatParams( ctx, ctx.currentVars.flatMap(e => Seq(e.value, e.isNull)) :+
       JavaCode.variable(ctx.INPUT_ROW, classOf[InternalRow]), callsKeepArrays = true
     )
 
@@ -242,10 +244,10 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
 
     ///ctx.currentVars = null // it requires the vars to be provided for each input param
     ctx.INPUT_ROW = "dec"
-    val (decParamsDecl, decParamsCall) = formatParams( ctx, ctx.currentVars.flatMap(e => Seq(e.value, e.isNull)) :+
+    val ParameterInformation(decParamsDecl, decParamsCall, _, _, _) = formatParams( ctx, ctx.currentVars.flatMap(e => Seq(e.value, e.isNull)) :+
       JavaCode.variable(ctx.INPUT_ROW, classOf[InternalRow])
     )
-    val (_, topDecParamsCall) = formatParams( ctx, ctx.currentVars.flatMap(e => Seq(e.value, e.isNull)) :+
+    val ParameterInformation(_, topDecParamsCall, _, _, _) = formatParams( ctx, ctx.currentVars.flatMap(e => Seq(e.value, e.isNull)) :+
       JavaCode.variable(ctx.INPUT_ROW, classOf[InternalRow]), callsKeepArrays = true
     )
 

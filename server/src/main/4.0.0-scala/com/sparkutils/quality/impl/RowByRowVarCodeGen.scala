@@ -5,7 +5,7 @@ import com.sparkutils.quality.impl.util.ParameterInformation
 import com.sparkutils.quality.impl.util.Params.formatParams
 import com.sparkutils.quality.sparkless.impl.DecoderOpEncoderProjection
 import com.sparkutils.quality.sparkless.impl.Processors.{NO_QUERY_PLANS, isCopyNeeded}
-import com.sparkutils.shim.expressions.StatefulLike
+
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.{ClassicQualitySparkUtils, Encoder, ShimUtils}
 import org.apache.spark.sql.catalyst.expressions.BindReferences.bindReferences
