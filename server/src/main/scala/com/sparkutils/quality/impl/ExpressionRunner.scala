@@ -4,10 +4,10 @@ import com.sparkutils.quality._
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
 import com.sparkutils.quality.impl.RuleRunnerUtils.{RuleSuiteResultArray, flattenExpressions, genRuleSuiteTerm, nonOutputRuleGen, reincorporateExpressions}
 import com.sparkutils.quality.impl.PackId.packId
-import com.sparkutils.quality.impl.RuleEngineRunnerUtils.runnerCompilation
-import com.sparkutils.quality.impl.util.{Arrays, PassThroughCompileEvals}
+import com.sparkutils.quality.impl.util.{Arrays, PassThroughCompileEvals, SeparateCompilation}
 import com.sparkutils.quality.impl.yaml.YamlEncoderExpr
 import com.sparkutils.quality.impl.types._
+import com.sparkutils.quality.impl.util.SeparateCompilation.runnerCompilation
 import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
 import org.apache.spark.sql.{Column, ShimUtils}
 import org.apache.spark.sql.catalyst.InternalRow

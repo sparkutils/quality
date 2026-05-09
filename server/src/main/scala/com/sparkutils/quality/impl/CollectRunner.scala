@@ -5,6 +5,7 @@ import com.sparkutils.quality.impl.CollectRunner.UnrollOutputArraySize
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.{flattenExpressions, outputExpressionType}
 import com.sparkutils.quality.impl.imports.RuleFolderRunnerImports
 import com.sparkutils.quality.impl.util.PassThroughEvalOnly
+import com.sparkutils.quality.impl.util.SeparateCompilation.runnerCompilation
 import com.sparkutils.shim.expressions.Names
 import org.apache.spark.sql.Column
 import org.apache.spark.sql.ShimUtils.column

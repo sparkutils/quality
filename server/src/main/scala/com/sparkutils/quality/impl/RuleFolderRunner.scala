@@ -4,6 +4,7 @@ import com.sparkutils.quality.{impl, _}
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
 import com.sparkutils.quality.impl.imports.ClassicRuleFolderRunnerImports
 import com.sparkutils.quality.impl.util.PassThroughEvalOnly
+import com.sparkutils.quality.impl.util.SeparateCompilation.runnerCompilation
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.isNullVariable

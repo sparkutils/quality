@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.impl.RuleRunnerUtils.RuleSuiteResultArray
-import com.sparkutils.quality.{Id, impl, _}
+import com.sparkutils.quality._
 import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.{flattenExpressions, outputExpressionType}
 import com.sparkutils.quality.impl.RuleRunnerUtils.{genRuleSuiteTerm, packTheId}
@@ -13,7 +13,8 @@ import com.sparkutils.quality.impl.ExpressionRuleExpr.ExpressionRuleOps
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
 import com.sparkutils.quality.impl.RunOnPassProcessorImpl.RunOnPassProcessorImplOps
 import com.sparkutils.quality.impl.util.Params.formatParams
-import com.sparkutils.quality.impl.util.{NonPassThrough, ParameterInformation, PassThroughCompileEvals, PassThroughEvalOnly}
+import com.sparkutils.quality.impl.util.SeparateCompilation.runnerCompilation
+import com.sparkutils.quality.impl.util.{NonPassThrough, ParameterInformation, PassThroughCompileEvals, PassThroughEvalOnly, SeparateCompilation}
 import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCoercion
@@ -391,105 +392,6 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
       runnerClassName = implicitly[ClassTag[T]].runtimeClass.getName, paramsInfo)
 
   }
-  // creates a new clazz but it is linked and created in the outer context
-  def runnerCompilation(outerctx: CodegenContext, terms: CompilerTerms, ctx: CodegenContext, codeBody: ExprCode,
-                        ev: ExprCode, ruleSuiteId: VersionedId): (CodeAndComment, ExprCode) =
-    runnerCompilation(outerctx, terms.parameterInformation,
-      terms.runnerClassName, ctx, codeBody, ev, ruleSuiteId)
-
-  // creates a new clazz but it is linked and created in the outer context
-  def runnerCompilation(outerctx: CodegenContext, parameterInformation: ParameterInformation,
-                        runnerClassName: String, ctx: CodegenContext, codeBody: ExprCode,
-                        ev: ExprCode, ruleSuiteId: VersionedId):
-    (CodeAndComment, ExprCode) = {
-    // TODO - As Spark has already added ctx vars for codebody null and value, we need to remove them
-    val (fullParams, extraApplyParamDef, extraApplyParamCall, extraDecl, extraConversion) =
-      if ((ctx.INPUT_ROW eq null) && parameterInformation.params.nonEmpty)
-        // wholestage
-        (parameterInformation.copy(arity = parameterInformation.arity + 2),
-          "Object index, Object inputs_ppp, ", "partitionIndex, this.inputs, ",
-          "private int partitionIndex;\n private scala.collection.Iterator[] inputs;\n",
-          """partitionIndex = (Integer) index;
-            this.inputs = (scala.collection.Iterator[]) inputs_ppp;""")
-      else
-        (parameterInformation, "","","","")
-        /*(parameterInformation.copy(arity = parameterInformation.arity + 1,
-          params = parameterInformation.params :+ ("InternalRow", ctx.INPUT_ROW, classOf[InternalRow]) // shouldn't have both either way, but just to be safe
-        ),
-          s"",//InternalRow ${ctx.INPUT_ROW}, ",
-          s"",//${outerctx.INPUT_ROW}, ",
-          "",
-          "") */
-
-    val id = s"${ruleSuiteId.id}_${ruleSuiteId.version}".replaceAll("-","__")
-
-    // TODO maximum is 255 params, the codegenerator code has no upper limit, but it's 22 for function, need a array wrapper approach
-    val runnerClassBody = s"""
-      public RunnerCompilation$id generate(Object[] references) {
-        return new RunnerCompilation$id(references);
-      }
-
-      class RunnerCompilation$id extends ${fullParams.aritySafeApplyType("scala.runtime.AbstractFunction")} {
-        private final Object[] references;
-        $extraDecl
-        ${ctx.declareMutableStates()}
-
-        public RunnerCompilation$id(Object[] references) {
-          this.references = references;
-        }
-
-        public void initialize(int partitionIndex) {
-          ${ctx.initPartition()}
-        }
-
-        public java.lang.Object apply($extraApplyParamDef ${fullParams.aritySafeParamDef}) {
-          $extraConversion
-          // here to use extraApplyParamDef
-          ${ctx.initMutableStates()}
-
-          ${fullParams.aritySafeParamConversion}
-
-          // this context common
-          ${ctx.subexprFunctionsCode}
-
-          ${codeBody.code}
-          return ${codeBody.isNull} ? ((Object)null) : ((Object)${codeBody.value});
-        }
-
-        ${ctx.emitExtraCode()}
-
-        ${ctx.declareAddedFunctions()}
-      }
-    """
-
-    val code = CodeFormatter.stripOverlappingComments(
-      new CodeAndComment(runnerClassBody, ctx.getPlaceHolderToComments()))
-
-    //val (clazz, _) = CodeGenerator.compile(code)
-
-    val ruleRunnerExpressionIdx = outerctx.references.size - 1
-    // the variable
-    val funX = fullParams.aritySafeApplyType("scala.Function")
-
-    // update the state to the current ctx
-    QualityCodeGenUtils.bump(outerctx, ctx)
-    // this needs to be after bump so the states aren't reset
-    val runner = outerctx.addMutableState(funX, "runner", initFunc = // new reference stack
-    //v => s"$v = ($fun1) (($runnerClassName) references[$ruleRunnerExpressionIdx]).generatorClazz().generate(new Object[]{ references[$ruleRunnerExpressionIdx] });")
-      v => s"$v = ($funX) (($runnerClassName) references[$ruleRunnerExpressionIdx]).generatorClazz().generate( references );")
-
-    val res = ev.copy( code =
-      code"""
-        // push to top
-        ${parameterInformation.pushToTop}
-        // Call to RuleSuite Id(${ruleSuiteId.id},${ruleSuiteId.version})
-        InternalRow ${ev.value} = (InternalRow) (($funX)$runner).apply($extraApplyParamCall ${fullParams.aritySafeParamCall});
-        boolean ${ev.isNull} = false;
-          """)
-
-    (code, res)
-  }
-
 }
 
 trait SplitCompilation {

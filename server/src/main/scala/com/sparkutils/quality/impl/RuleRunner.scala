@@ -7,11 +7,11 @@ import com.sparkutils.quality.impl.PackId.packId
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.ExpressionRuleExpr.ExpressionRuleOps
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
-import com.sparkutils.quality.impl.RuleEngineRunnerUtils.runnerCompilation
 import types.ruleSuiteResultType
 import com.sparkutils.quality.impl.imports.RuleRunnerImports
+import com.sparkutils.quality.impl.util.SeparateCompilation.runnerCompilation
 import com.sparkutils.quality.impl.util.Serializing.ruleResultToInt
-import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals}
+import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals, SeparateCompilation}
 import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
 import org.apache.spark.sql.ShimUtils.column
 import org.apache.spark.sql.catalyst.InternalRow
