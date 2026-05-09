@@ -3,7 +3,7 @@ package org.apache.spark.sql
 import org.apache.spark.sql.ShimUtils.{column, expressionEncoder}
 import com.sparkutils.quality.impl.util.DebugTime.debugTime
 import com.sparkutils.quality.impl.util.Params.formatParams
-import com.sparkutils.quality.impl.util.{EmbeddedTypeCorrection, PassThrough, PassThroughCompileEvals}
+import com.sparkutils.quality.impl.util.{EmbeddedTypeCorrection, ParameterInformation, PassThrough, PassThroughCompileEvals}
 import com.sparkutils.quality.impl.{LambdaFunction, RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
 import org.apache.spark.sql.qualityFunctions.{FunN, LambdaFunctions}
 import com.sparkutils.shim.expressions.{HigherOrderFunctionLike, PredicateHelperPlus}
@@ -33,12 +33,12 @@ object ClassicQualitySparkUtils {
    * @param ctx
    * @return (parameters for function decleration, parmaters for calling, code that must be before fungroup)
    */
-  def genParams(ctx: CodegenContext, child: Expression): (String, String, String) = {
+  def genParams(ctx: CodegenContext, child: Expression): ParameterInformation = {
     val (a, b) = CodeGenerator.getLocalInputVariableValues(ctx, child, QualityExprUtils.currentSubExprState(ctx))
 
-    val p = formatParams( ctx, a.toSeq )
+    val p = formatParams(ctx, a.toSeq)
 
-    (p._1, p._2, b.map(_.code.code).mkString("\n"))
+    p.copy(pushToTop = b.map(_.code.code).mkString("\n"))
   }
 
   def funNRewrite(plan: LogicalPlan, expressionToExpression: PartialFunction[Expression, Expression]): LogicalPlan =

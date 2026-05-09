@@ -2,7 +2,7 @@ package org.apache.spark.sql
 
 import com.sparkutils.quality.impl.util.DebugTime.debugTime
 import com.sparkutils.quality.impl.util.Params.formatParams
-import com.sparkutils.quality.impl.util.{EmbeddedTypeCorrection, PassThrough, PassThroughCompileEvals}
+import com.sparkutils.quality.impl.util.{EmbeddedTypeCorrection, PassThrough, PassThroughCompileEvals, ParameterInformation}
 import com.sparkutils.quality.impl.{LambdaFunction, RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
 import org.apache.spark.sql.qualityFunctions.{FunN, LambdaFunctions}
 import com.sparkutils.shim.expressions.PredicateHelperPlus
@@ -38,12 +38,10 @@ object ClassicQualitySparkUtils {
    * @param ctx
    * @return (parameters for function decleration, parmaters for calling, code that must be before fungroup)
    */
-  def genParams(ctx: CodegenContext, child: Expression): (String, String, String) = {
+  def genParams(ctx: CodegenContext, child: Expression): ParameterInformation = {
     val a = CodeGenerator.getLocalInputVariableValues(ctx, child, QualityExprUtils.currentSubExprState(ctx))
 
-    val p = formatParams( ctx, a.toSeq )
-
-    (p._1, p._2, "")
+    formatParams( ctx, a.toSeq )
   }
 
   def funNRewrite(plan: LogicalPlan, expressionToExpression: PartialFunction[Expression, Expression]): LogicalPlan =
