@@ -397,7 +397,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
                         ev: ExprCode, ruleSuiteId: VersionedId):
     (CodeAndComment, ExprCode) = {
     import terms._
-
+    // TODO - As Spark has already added ctx vars for codebody null and value, we need to remove them
     val (fullParams, extraApplyParamDef, extraApplyParamCall, extraDecl, extraConversion) =
       if (ctx.INPUT_ROW eq null)
         // wholestage
@@ -468,6 +468,9 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
 
     val res = ev.copy( code =
       code"""
+        // push to top
+        ${parameterInformation.pushToTop}
+        // Call to RuleSuite Id(${ruleSuiteId.id},${ruleSuiteId.version})
         InternalRow ${ev.value} = (InternalRow) (($funX)$runner).apply($extraApplyParamCall ${fullParams.aritySafeParamCall});
         boolean ${ev.isNull} = false;
           """)
@@ -572,7 +575,6 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression {
     // for debug currentOutputIndex is the count of matches, new Integer for #128 as janino isn't happy
 
     val pre = code"""
-          $pushToTop
           $currentSalience = java.lang.Integer.MAX_VALUE;
           $currentOutputIndex = -1;
           $hasAPassTerm = false;
