@@ -28,8 +28,6 @@ private[quality] object CollectRunnerUtils extends RuleFolderRunnerImports {
   def compiledEval[T](results: InternalRow, output: ArrayBuffer[T]): InternalRow =
     InternalRow(results, new GenericArrayData(output))
 
-  def addOne[T](output: ArrayBuffer[T], an: T): Unit = output.+=(an)
-
 }
 
 /**
@@ -266,14 +264,16 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression with SplitCo
     val z = ctx.freshName("z")
     val o = ctx.freshName("o")
 
+    val addOneS = "org.apache.spark.sql.catalyst.expressions.codegen.QualityCodeGenUtils.addOne"
+
     // needs addOne as janino can't compile .$plus$eq( and .addOne only exists on 2.13
     def wrapperIf(o: String) =
       if (includeNulls)
-        s"com.sparkutils.quality.impl.CollectRunnerUtils.addOne($bufferTerm, $o);"
+        s"$addOneS($bufferTerm, $o);"
       else
         s"""
         if ($o != null) {
-          com.sparkutils.quality.impl.CollectRunnerUtils.addOne($bufferTerm, $o);
+          $addOneS($bufferTerm, $o);
         }
         """
 
@@ -394,7 +394,7 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression with SplitCo
           s"""
              if (($outArrTerm != null) || $includeNulls) {
                 if (($outArrTerm == null) || ${!(flatten && canFlatten)}) {
-                  com.sparkutils.quality.impl.CollectRunnerUtils.addOne($bufferTerm, $outArrTerm);
+                  $addOneS($bufferTerm, $outArrTerm);
                 } else {
                   ${ processFlattenResult(i, outArrTerm) }
                 }
@@ -450,7 +450,7 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression with SplitCo
                     //System.out.println("DefaultProcessor result is ${defP.value}" + ${defP.value});
 
                     if ((${defP.value} == null) || ${!(flatten && canFlatten)}) {
-                      com.sparkutils.quality.impl.CollectRunnerUtils.addOne($bufferTerm, ${defP.value});
+                      $addOneS($bufferTerm, ${defP.value});
                     } else {
                       ${ // -1 for normal last
                         processFlattenResult(canUnroll.length - 1, defP.value)

@@ -1,5 +1,7 @@
 package org.apache.spark.sql.catalyst.expressions.codegen
 
+import scala.collection.mutable.ArrayBuffer
+
 object QualityCodeGenUtils {
 
   /**
@@ -15,15 +17,18 @@ object QualityCodeGenUtils {
     val thisCtx = new CodegenContext()
     thisCtx.INPUT_ROW = ctx.INPUT_ROW
     thisCtx.currentVars = if (ctx.currentVars ne null) { ctx.currentVars.map(_.copy()) } else null
-    thisCtx.references.addAll(ctx.references)
+    thisCtx.references.++=(ctx.references)
 
     thisCtx
   }
 
+  // also used by Collector
+  def addOne[T](output: ArrayBuffer[T], an: T): Unit = output.+=(an)
+
   def bump(outerctx: CodegenContext, ctx: CodegenContext): Unit = {
     // now copy over the other references
     for( i <- outerctx.references.size until ctx.references.size) {
-      outerctx.references.addOne(ctx.references(i))
+      addOne(outerctx.references, ctx.references(i))
     }
   }
 }
