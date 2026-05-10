@@ -1,0 +1,2429 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/sparkutils/quality/impl/mapLookup/MapLookupFunctionsImpl.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality.impl.mapLookup
+</span>2 <span style=''>
+</span>3 <span style=''>import com.sparkutils.quality.QualityException.qualityException
+</span>4 <span style=''>import com.sparkutils.quality.MapLookups
+</span>5 <span style=''>import com.sparkutils.quality.impl.RuleRegistrationFunctions.registerWithChecks
+</span>6 <span style=''>import org.apache.spark.sql.catalyst.expressions.{Expression, IsNotNull, Literal, VariableReference}
+</span>7 <span style=''>import com.sparkutils.quality.impl.RuleRegistrationFunctions.{getString, literalsNeeded}
+</span>8 <span style=''>import com.sparkutils.quality.impl.extension.QualityMapConstants.{QUALITY_MAP_BROADCAST, QUALITY_MAP_BROADCAST_ALL_CHILDREN}
+</span>9 <span style=''>import org.apache.spark.broadcast.Broadcast
+</span>10 <span style=''>import org.apache.spark.sql.SparkSession
+</span>11 <span style=''>import org.apache.spark.sql.catalyst.InternalRow
+</span>12 <span style=''>import org.apache.spark.sql.catalyst.util.MapData
+</span>13 <span style=''>import org.apache.spark.sql.types.{DataType, MapType, StringType, StructField, StructType}
+</span>14 <span style=''>
+</span>15 <span style=''>import javax.annotation.concurrent.GuardedBy
+</span>16 <span style=''>import scala.collection.mutable
+</span>17 <span style=''>import scala.ref.WeakReference
+</span>18 <span style=''>
+</span>19 <span style=''>protected[quality] case class WeakMapEntry(sourceRow: InternalRow,
+</span>20 <span style=''>                                           broadcast: Broadcast[MapData], valueType: DataType) {
+</span>21 <span style=''>  // check if there is still a reference and that it's to the same underlying row
+</span>22 <span style=''>  def exists(in: InternalRow): Boolean =
+</span>23 <span style=''>    (</span><span style='background: #AEF1AE'>sourceRow eq in</span><span style=''>)
+</span>24 <span style=''>
+</span>25 <span style=''>}
+</span>26 <span style=''>
+</span>27 <span style=''>object MapLookupFunctionsImpl {
+</span>28 <span style=''>
+</span>29 <span style=''>  protected[quality] def refName(v: VariableReference, mapId: String) =
+</span>30 <span style=''>    </span><span style='background: #AEF1AE'>(v.identifier.name + &quot;_~_&quot; + mapId).intern()</span><span style=''>
+</span>31 <span style=''>
+</span>32 <span style=''>  protected[quality] def refName(v: String, mapId: String) =
+</span>33 <span style=''>    </span><span style='background: #AEF1AE'>(v.toLowerCase + &quot;_~_&quot; + mapId).intern()</span><span style=''>
+</span>34 <span style=''>
+</span>35 <span style=''>  /* reference equality only, the actual map data is used in case of re-&quot;set&quot;ting.
+</span>36 <span style=''>    the session and the name lookup are needed to allow internalrows to be used for more than one map
+</span>37 <span style=''>   */
+</span>38 <span style=''>  @GuardedBy(&quot;this&quot;)
+</span>39 <span style=''>  private val hm = </span><span style='background: #AEF1AE'>new mutable.HashMap[String, mutable.WeakHashMap[SparkSession, WeakMapEntry]]()</span><span style=''>
+</span>40 <span style=''>
+</span>41 <span style=''>  protected[quality] def registerMapLookupsForAgnostic(registerFunction: (String, Seq[Expression] =&gt; Expression) =&gt; Unit): Unit = {
+</span>42 <span style=''>    def register(name: String, argsf: Seq[Expression] =&gt; Expression, paramNumbers: Set[Int] = Set.empty, minimum: Int = -1) =
+</span>43 <span style=''>      </span><span style='background: #AEF1AE'>registerWithChecks(registerFunction, name, argsf, paramNumbers, minimum)</span><span style=''>
+</span>44 <span style=''>
+</span>45 <span style=''>    val f = (exps: Seq[Expression]) =&gt; {
+</span>46 <span style=''>      val mapId = </span><span style='background: #AEF1AE'>getString(exps(0))</span><span style=''>
+</span>47 <span style=''>
+</span>48 <span style=''>      // use the VariableReference directly rather than unpack it to the literal - ResolveExecuteImmediate does the unpacking to Literal for us
+</span>49 <span style=''>      </span><span style='background: #AEF1AE'>exps(2)</span><span style=''> match {
+</span>50 <span style=''>        case v:VariableReference if </span><span style='background: #AEF1AE'>v.dataType.isInstanceOf[StructType] &amp;&amp; mapId != QUALITY_MAP_BROADCAST_ALL_CHILDREN</span><span style=''> </span><span style='background: #AEF1AE'>=&gt;
+</span>51 <span style=''></span><span style='background: #AEF1AE'>          // the variable is used directly, probably sql
+</span>52 <span style=''></span><span style='background: #AEF1AE'>          val st = v.dataType.asInstanceOf[StructType]
+</span>53 <span style=''></span><span style='background: #AEF1AE'>          val col = st.fields.zipWithIndex.find(_._1.name == mapId).getOrElse(
+</span>54 <span style=''></span><span style='background: #AEF1AE'>            </span><span style='background: #F0ADAD'>qualityException(s&quot;Quality map_lookup expression called with map name $mapId doesn't exist in struct with type: ${st.sql}&quot;)</span><span style='background: #AEF1AE'>
+</span>55 <span style=''></span><span style='background: #AEF1AE'>          )
+</span>56 <span style=''></span><span style='background: #AEF1AE'>
+</span>57 <span style=''></span><span style='background: #AEF1AE'>          val (expr, typ) = registerMap(v, st, col)
+</span>58 <span style=''></span><span style='background: #AEF1AE'>
+</span>59 <span style=''></span><span style='background: #AEF1AE'>          MapLookupExpression(mapId, exps(1), expr, typ)</span><span style=''>
+</span>60 <span style=''>
+</span>61 <span style=''>        case v:VariableReference if </span><span style='background: #AEF1AE'>v.dataType.isInstanceOf[StructType] &amp;&amp; mapId == QUALITY_MAP_BROADCAST_ALL_CHILDREN</span><span style=''> </span><span style='background: #AEF1AE'>=&gt;
+</span>62 <span style=''></span><span style='background: #AEF1AE'>          val st = v.dataType.asInstanceOf[StructType]
+</span>63 <span style=''></span><span style='background: #AEF1AE'>          val cols = st.fields.zipWithIndex
+</span>64 <span style=''></span><span style='background: #AEF1AE'>          //
+</span>65 <span style=''></span><span style='background: #AEF1AE'>          cols.foreach {
+</span>66 <span style=''></span><span style='background: #AEF1AE'>            col =&gt;
+</span>67 <span style=''></span><span style='background: #AEF1AE'>              registerMap(v, st, col, false)
+</span>68 <span style=''></span><span style='background: #AEF1AE'>          }
+</span>69 <span style=''></span><span style='background: #AEF1AE'>          Literal(&quot;Loaded&quot;)</span><span style=''>
+</span>70 <span style=''>
+</span>71 <span style=''>        case literal: Literal if </span><span style='background: #AEF1AE'>literal.dataType.isInstanceOf[StringType]</span><span style=''> </span><span style='background: #AEF1AE'>=&gt;
+</span>72 <span style=''></span><span style='background: #AEF1AE'>          val lookup = getString(literal)
+</span>73 <span style=''></span><span style='background: #AEF1AE'>
+</span>74 <span style=''></span><span style='background: #AEF1AE'>          val nameMap = hm.getOrElse(refName(lookup, mapId),
+</span>75 <span style=''></span><span style='background: #AEF1AE'>            </span><span style='background: #F0ADAD'>qualityException(s&quot;Quality map_lookup expression called with map name $mapId and lookup $lookup doesn't have a name entry, please call use sql(\&quot;$QUALITY_MAP_BROADCAST $lookup\&quot;) before attempting lookup&quot;)</span><span style='background: #AEF1AE'>
+</span>76 <span style=''></span><span style='background: #AEF1AE'>          )
+</span>77 <span style=''></span><span style='background: #AEF1AE'>
+</span>78 <span style=''></span><span style='background: #AEF1AE'>          val entry =
+</span>79 <span style=''></span><span style='background: #AEF1AE'>            nameMap.getOrElse(SparkSession.active,
+</span>80 <span style=''></span><span style='background: #AEF1AE'>              </span><span style='background: #F0ADAD'>qualityException(s&quot;Quality map_lookup expression called with map name $mapId and lookup $lookup doesn't have an entry in the session map, please call use sql(\&quot;$QUALITY_MAP_BROADCAST $lookup\&quot;) before attempting lookup&quot;)</span><span style='background: #AEF1AE'>
+</span>81 <span style=''></span><span style='background: #AEF1AE'>            )
+</span>82 <span style=''></span><span style='background: #AEF1AE'>
+</span>83 <span style=''></span><span style='background: #AEF1AE'>          MapLookupExpression(mapId, exps(1), entry.broadcast, entry.valueType)</span><span style=''>
+</span>84 <span style=''>
+</span>85 <span style=''>        case _ =&gt; </span><span style='background: #F0ADAD'>literalsNeeded(2, &quot;Variable with StructType or String&quot;)</span><span style=''>
+</span>86 <span style=''>      }
+</span>87 <span style=''>    }
+</span>88 <span style=''>    </span><span style='background: #AEF1AE'>register(&quot;map_lookup&quot;, f, Set(3))</span><span style=''>
+</span>89 <span style=''>
+</span>90 <span style=''>    </span><span style='background: #AEF1AE'>register(&quot;map_contains&quot;, s =&gt; IsNotNull(f(s)), Set(3))</span><span style=''>
+</span>91 <span style=''>  }
+</span>92 <span style=''>
+</span>93 <span style=''>  private def registerMap(v: VariableReference, st: StructType, col: (StructField, Int), extract: Boolean = true) = {
+</span>94 <span style=''>    col match {
+</span>95 <span style=''>      case (f, i) </span><span style='background: #AEF1AE'>=&gt;
+</span>96 <span style=''></span><span style='background: #AEF1AE'>        val mapId = f.name
+</span>97 <span style=''></span><span style='background: #AEF1AE'>        if (!f.dataType.isInstanceOf[MapType]) {
+</span>98 <span style=''></span><span style='background: #AEF1AE'>          </span><span style='background: #F0ADAD'>if (extract)
+</span>99 <span style=''></span><span style='background: #F0ADAD'>            qualityException(s&quot;Quality map_lookup expression called with map name $mapId doesn't have map type, instead it has: ${f.dataType.sql}&quot;)
+</span>100 <span style=''></span><span style='background: #F0ADAD'>          else
+</span>101 <span style=''></span><span style='background: #F0ADAD'>            null</span><span style='background: #AEF1AE'>
+</span>102 <span style=''></span><span style='background: #AEF1AE'>        } else {
+</span>103 <span style=''></span><span style='background: #AEF1AE'>
+</span>104 <span style=''></span><span style='background: #AEF1AE'>          val name = refName(v, mapId)
+</span>105 <span style=''></span><span style='background: #AEF1AE'>
+</span>106 <span style=''></span><span style='background: #AEF1AE'>          def newNameMap(name: String) = {
+</span>107 <span style=''></span><span style='background: #AEF1AE'>            val m = new mutable.WeakHashMap[SparkSession, WeakMapEntry]()
+</span>108 <span style=''></span><span style='background: #AEF1AE'>            hm.put(name, m)
+</span>109 <span style=''></span><span style='background: #AEF1AE'>            m
+</span>110 <span style=''></span><span style='background: #AEF1AE'>          }
+</span>111 <span style=''></span><span style='background: #AEF1AE'>
+</span>112 <span style=''></span><span style='background: #AEF1AE'>          val nameMap = hm.get(name).fold(newNameMap(name))(identity)
+</span>113 <span style=''></span><span style='background: #AEF1AE'>
+</span>114 <span style=''></span><span style='background: #AEF1AE'>          val dt = f.dataType.asInstanceOf[MapType]
+</span>115 <span style=''></span><span style='background: #AEF1AE'>          val r = v.eval().asInstanceOf[InternalRow]
+</span>116 <span style=''></span><span style='background: #AEF1AE'>
+</span>117 <span style=''></span><span style='background: #AEF1AE'>          def createEntry: Broadcast[MapData] = {
+</span>118 <span style=''></span><span style='background: #AEF1AE'>            // copy needed to keep the map isolated and serializable
+</span>119 <span style=''></span><span style='background: #AEF1AE'>            val m = r.getMap(i).copy()
+</span>120 <span style=''></span><span style='background: #AEF1AE'>
+</span>121 <span style=''></span><span style='background: #AEF1AE'>            val b = SparkSession.active.sparkContext.broadcast(m)
+</span>122 <span style=''></span><span style='background: #AEF1AE'>            nameMap.put(SparkSession.active, WeakMapEntry(r, b, dt.valueType))
+</span>123 <span style=''></span><span style='background: #AEF1AE'>            b
+</span>124 <span style=''></span><span style='background: #AEF1AE'>          }
+</span>125 <span style=''></span><span style='background: #AEF1AE'>
+</span>126 <span style=''></span><span style='background: #AEF1AE'>          val b =
+</span>127 <span style=''></span><span style='background: #AEF1AE'>            nameMap.get(SparkSession.active).fold(createEntry) {
+</span>128 <span style=''></span><span style='background: #AEF1AE'>              cur =&gt;
+</span>129 <span style=''></span><span style='background: #AEF1AE'>                if (cur.exists(r))
+</span>130 <span style=''></span><span style='background: #AEF1AE'>                  cur.broadcast
+</span>131 <span style=''></span><span style='background: #AEF1AE'>                else
+</span>132 <span style=''></span><span style='background: #AEF1AE'>                  // it has been updated as the internal row is no longer the same
+</span>133 <span style=''></span><span style='background: #AEF1AE'>                  </span><span style='background: #F0ADAD'>createEntry</span><span style='background: #AEF1AE'>
+</span>134 <span style=''></span><span style='background: #AEF1AE'>            }
+</span>135 <span style=''></span><span style='background: #AEF1AE'>
+</span>136 <span style=''></span><span style='background: #AEF1AE'>          // it's a map ..
+</span>137 <span style=''></span><span style='background: #AEF1AE'>          (b, dt.valueType)
+</span>138 <span style=''></span><span style='background: #AEF1AE'>        }</span><span style=''>
+</span>139 <span style=''>    }
+</span>140 <span style=''>  }
+</span>141 <span style=''>
+</span>142 <span style=''>  /**
+</span>143 <span style=''>   * No-op on 0.2.0 4.0
+</span>144 <span style=''>   *
+</span>145 <span style=''>   * @param mapLookups
+</span>146 <span style=''>   * @return
+</span>147 <span style=''>   */
+</span>148 <span style=''>  def registerMapLookupsAndFunction(mapLookups: MapLookups): Unit = </span><span style='background: #F0ADAD'>{
+</span>149 <span style=''></span><span style='background: #F0ADAD'>  }</span><span style=''>
+</span>150 <span style=''>
+</span>151 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          23
+        </td>
+        <td>
+          2501
+        </td>
+        <td>
+          1224
+          -
+          1239
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.eq
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          WeakMapEntry.this.sourceRow.eq(in)
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          2502
+        </td>
+        <td>
+          1354
+          -
+          1398
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.intern
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          v.identifier.name().+(&quot;_~_&quot;).+(mapId).intern()
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          2503
+        </td>
+        <td>
+          1465
+          -
+          1505
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.intern
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          v.toLowerCase().+(&quot;_~_&quot;).+(mapId).intern()
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          2504
+        </td>
+        <td>
+          1738
+          -
+          1816
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.HashMap.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new scala.collection.mutable.HashMap[String,scala.collection.mutable.WeakHashMap[org.apache.spark.sql.SparkSession,com.sparkutils.quality.impl.mapLookup.WeakMapEntry]]()
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          2505
+        </td>
+        <td>
+          2082
+          -
+          2154
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRegistrationFunctions.registerWithChecks
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.RuleRegistrationFunctions.registerWithChecks(registerFunction, name, argsf, paramNumbers, minimum)
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          2506
+        </td>
+        <td>
+          2225
+          -
+          2232
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqOps.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          exps.apply(0)
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          2507
+        </td>
+        <td>
+          2215
+          -
+          2233
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRegistrationFunctions.getString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.RuleRegistrationFunctions.getString(exps.apply(0), com.sparkutils.quality.impl.RuleRegistrationFunctions.getString$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          2508
+        </td>
+        <td>
+          2385
+          -
+          2392
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqOps.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          exps.apply(2)
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          2509
+        </td>
+        <td>
+          2485
+          -
+          2519
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.extension.QualityMapConstants.QUALITY_MAP_BROADCAST_ALL_CHILDREN
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.extension.QualityMapConstants.QUALITY_MAP_BROADCAST_ALL_CHILDREN
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          2510
+        </td>
+        <td>
+          2476
+          -
+          2519
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.!=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          mapId.!=(com.sparkutils.quality.impl.extension.QualityMapConstants.QUALITY_MAP_BROADCAST_ALL_CHILDREN)
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          2511
+        </td>
+        <td>
+          2437
+          -
+          2519
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          v.dataType.isInstanceOf[org.apache.spark.sql.types.StructType].&amp;&amp;(mapId.!=(com.sparkutils.quality.impl.extension.QualityMapConstants.QUALITY_MAP_BROADCAST_ALL_CHILDREN))
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          2525
+        </td>
+        <td>
+          2520
+          -
+          2972
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val st: org.apache.spark.sql.types.StructType = v.dataType.asInstanceOf[org.apache.spark.sql.types.StructType];
+  val col: (org.apache.spark.sql.types.StructField, Int) = scala.Predef.refArrayOps[(org.apache.spark.sql.types.StructField, Int)](scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](st.fields).zipWithIndex).find(((x$1: (org.apache.spark.sql.types.StructField, Int)) =&gt; x$1._1.name.==(mapId))).getOrElse[(org.apache.spark.sql.types.StructField, Int)](com.sparkutils.quality.QualityException.qualityException(&quot;Quality map_lookup expression called with map name &quot;.+(mapId).+(&quot; doesn\'t exist in struct with type: &quot;).+(st.sql), com.sparkutils.quality.QualityException.qualityException$default$2));
+  &lt;synthetic&gt; &lt;artifact&gt; private[this] val x$2: (org.apache.spark.broadcast.Broadcast[org.apache.spark.sql.catalyst.util.MapData], org.apache.spark.sql.types.DataType) = (MapLookupFunctionsImpl.this.registerMap(v, st, col, MapLookupFunctionsImpl.this.registerMap$default$4): (org.apache.spark.broadcast.Broadcast[org.apache.spark.sql.catalyst.util.MapData], org.apache.spark.sql.types.DataType) @unchecked) match {
+    case (_1: org.apache.spark.broadcast.Broadcast[org.apache.spark.sql.catalyst.util.MapData], _2: org.apache.spark.sql.types.DataType): (org.apache.spark.broadcast.Broadcast[org.apache.spark.sql.catalyst.util.MapData], org.apache.spark.sql.types.DataType)((expr @ _), (typ @ _)) =&gt; scala.Tuple2.apply[org.apache.spark.broadcast.Broadcast[org.apache.spark.sql.catalyst.util.MapData], org.apache.spark.sql.types.DataType](expr, typ)
+  };
+  val expr: org.apache.spark.broadcast.Broadcast[org.apache.spark.sql.catalyst.util.MapData] = x$2._1;
+  val typ: org.apache.spark.sql.types.DataType = x$2._2;
+  MapLookupExpression.apply(mapId, exps.apply(1), expr, typ)
+}
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          2512
+        </td>
+        <td>
+          2599
+          -
+          2634
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          v.dataType.asInstanceOf[org.apache.spark.sql.types.StructType]
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          2513
+        </td>
+        <td>
+          2655
+          -
+          2664
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.fields
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          st.fields
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          2514
+        </td>
+        <td>
+          2655
+          -
+          2677
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.ArrayOps.zipWithIndex
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](st.fields).zipWithIndex
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          2515
+        </td>
+        <td>
+          2683
+          -
+          2701
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$1._1.name.==(mapId)
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          2517
+        </td>
+        <td>
+          2655
+          -
+          2861
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.refArrayOps[(org.apache.spark.sql.types.StructField, Int)](scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](st.fields).zipWithIndex).find(((x$1: (org.apache.spark.sql.types.StructField, Int)) =&gt; x$1._1.name.==(mapId))).getOrElse[(org.apache.spark.sql.types.StructField, Int)](com.sparkutils.quality.QualityException.qualityException(&quot;Quality map_lookup expression called with map name &quot;.+(mapId).+(&quot; doesn\'t exist in struct with type: &quot;).+(st.sql), com.sparkutils.quality.QualityException.qualityException$default$2))
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          2516
+        </td>
+        <td>
+          2726
+          -
+          2849
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.QualityException.qualityException
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.sparkutils.quality.QualityException.qualityException(&quot;Quality map_lookup expression called with map name &quot;.+(mapId).+(&quot; doesn\'t exist in struct with type: &quot;).+(st.sql), com.sparkutils.quality.QualityException.qualityException$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          2518
+        </td>
+        <td>
+          2891
+          -
+          2914
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.mapLookup.MapLookupFunctionsImpl.registerMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapLookupFunctionsImpl.this.registerMap(v, st, col, MapLookupFunctionsImpl.this.registerMap$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          2519
+        </td>
+        <td>
+          2877
+          -
+          2888
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[org.apache.spark.broadcast.Broadcast[org.apache.spark.sql.catalyst.util.MapData], org.apache.spark.sql.types.DataType](expr, typ)
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          2520
+        </td>
+        <td>
+          2877
+          -
+          2888
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[org.apache.spark.broadcast.Broadcast[org.apache.spark.sql.catalyst.util.MapData], org.apache.spark.sql.types.DataType](expr, typ)
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          2521
+        </td>
+        <td>
+          2878
+          -
+          2878
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$2._1
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          2522
+        </td>
+        <td>
+          2884
+          -
+          2884
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$2._2
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          2523
+        </td>
+        <td>
+          2953
+          -
+          2960
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqOps.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          exps.apply(1)
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          2524
+        </td>
+        <td>
+          2926
+          -
+          2972
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.mapLookup.MapLookupExpression.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapLookupExpression.apply(mapId, exps.apply(1), expr, typ)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          2526
+        </td>
+        <td>
+          3058
+          -
+          3092
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.extension.QualityMapConstants.QUALITY_MAP_BROADCAST_ALL_CHILDREN
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.extension.QualityMapConstants.QUALITY_MAP_BROADCAST_ALL_CHILDREN
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          2527
+        </td>
+        <td>
+          3049
+          -
+          3092
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          mapId.==(com.sparkutils.quality.impl.extension.QualityMapConstants.QUALITY_MAP_BROADCAST_ALL_CHILDREN)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          2528
+        </td>
+        <td>
+          3010
+          -
+          3092
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          v.dataType.isInstanceOf[org.apache.spark.sql.types.StructType].&amp;&amp;(mapId.==(com.sparkutils.quality.impl.extension.QualityMapConstants.QUALITY_MAP_BROADCAST_ALL_CHILDREN))
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          2535
+        </td>
+        <td>
+          3093
+          -
+          3336
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val st: org.apache.spark.sql.types.StructType = v.dataType.asInstanceOf[org.apache.spark.sql.types.StructType];
+  val cols: Array[(org.apache.spark.sql.types.StructField, Int)] = scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](st.fields).zipWithIndex;
+  scala.Predef.refArrayOps[(org.apache.spark.sql.types.StructField, Int)](cols).foreach[(org.apache.spark.broadcast.Broadcast[org.apache.spark.sql.catalyst.util.MapData], org.apache.spark.sql.types.DataType)](((col: (org.apache.spark.sql.types.StructField, Int)) =&gt; MapLookupFunctionsImpl.this.registerMap(v, st, col, false)));
+  org.apache.spark.sql.catalyst.expressions.Literal.apply(&quot;Loaded&quot;)
+}
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          2529
+        </td>
+        <td>
+          3115
+          -
+          3150
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          v.dataType.asInstanceOf[org.apache.spark.sql.types.StructType]
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          2530
+        </td>
+        <td>
+          3172
+          -
+          3181
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.fields
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          st.fields
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          2531
+        </td>
+        <td>
+          3172
+          -
+          3194
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.ArrayOps.zipWithIndex
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](st.fields).zipWithIndex
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          2533
+        </td>
+        <td>
+          3218
+          -
+          3308
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.ArrayOps.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.refArrayOps[(org.apache.spark.sql.types.StructField, Int)](cols).foreach[(org.apache.spark.broadcast.Broadcast[org.apache.spark.sql.catalyst.util.MapData], org.apache.spark.sql.types.DataType)](((col: (org.apache.spark.sql.types.StructField, Int)) =&gt; MapLookupFunctionsImpl.this.registerMap(v, st, col, false)))
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          2532
+        </td>
+        <td>
+          3266
+          -
+          3296
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.mapLookup.MapLookupFunctionsImpl.registerMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapLookupFunctionsImpl.this.registerMap(v, st, col, false)
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          2534
+        </td>
+        <td>
+          3319
+          -
+          3336
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Literal.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.Literal.apply(&quot;Loaded&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          2536
+        </td>
+        <td>
+          3371
+          -
+          3412
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.isInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          literal.dataType.isInstanceOf[org.apache.spark.sql.types.StringType]
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          2548
+        </td>
+        <td>
+          3413
+          -
+          4153
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val lookup: String = com.sparkutils.quality.impl.RuleRegistrationFunctions.getString(literal, com.sparkutils.quality.impl.RuleRegistrationFunctions.getString$default$2);
+  val nameMap: scala.collection.mutable.WeakHashMap[org.apache.spark.sql.SparkSession,com.sparkutils.quality.impl.mapLookup.WeakMapEntry] = MapLookupFunctionsImpl.this.hm.getOrElse[scala.collection.mutable.WeakHashMap[org.apache.spark.sql.SparkSession,com.sparkutils.quality.impl.mapLookup.WeakMapEntry]](MapLookupFunctionsImpl.this.refName(lookup, mapId), com.sparkutils.quality.QualityException.qualityException(&quot;Quality map_lookup expression called with map name &quot;.+(mapId).+(&quot; and lookup &quot;).+(lookup).+(&quot; doesn\'t have a name entry, please call use sql(\&quot;&quot;).+(com.sparkutils.quality.impl.extension.QualityMapConstants.QUALITY_MAP_BROADCAST).+(&quot; &quot;).+(lookup).+(&quot;\&quot;) before attempting lookup&quot;), com.sparkutils.quality.QualityException.qualityException$default$2));
+  val entry: com.sparkutils.quality.impl.mapLookup.WeakMapEntry = nameMap.getOrElse[com.sparkutils.quality.impl.mapLookup.WeakMapEntry](org.apache.spark.sql.SparkSession.active, com.sparkutils.quality.QualityException.qualityException(&quot;Quality map_lookup expression called with map name &quot;.+(mapId).+(&quot; and lookup &quot;).+(lookup).+(&quot; doesn\'t have an entry in the session map, please call use sql(\&quot;&quot;).+(com.sparkutils.quality.impl.extension.QualityMapConstants.QUALITY_MAP_BROADCAST).+(&quot; &quot;).+(lookup).+(&quot;\&quot;) before attempting lookup&quot;), com.sparkutils.quality.QualityException.qualityException$default$2));
+  MapLookupExpression.apply(mapId, exps.apply(1), entry.broadcast, entry.valueType)
+}
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          2537
+        </td>
+        <td>
+          3439
+          -
+          3457
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRegistrationFunctions.getString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.RuleRegistrationFunctions.getString(literal, com.sparkutils.quality.impl.RuleRegistrationFunctions.getString$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          2538
+        </td>
+        <td>
+          3496
+          -
+          3518
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.mapLookup.MapLookupFunctionsImpl.refName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapLookupFunctionsImpl.this.refName(lookup, mapId)
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          2540
+        </td>
+        <td>
+          3483
+          -
+          3749
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.HashMap.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapLookupFunctionsImpl.this.hm.getOrElse[scala.collection.mutable.WeakHashMap[org.apache.spark.sql.SparkSession,com.sparkutils.quality.impl.mapLookup.WeakMapEntry]](MapLookupFunctionsImpl.this.refName(lookup, mapId), com.sparkutils.quality.QualityException.qualityException(&quot;Quality map_lookup expression called with map name &quot;.+(mapId).+(&quot; and lookup &quot;).+(lookup).+(&quot; doesn\'t have a name entry, please call use sql(\&quot;&quot;).+(com.sparkutils.quality.impl.extension.QualityMapConstants.QUALITY_MAP_BROADCAST).+(&quot; &quot;).+(lookup).+(&quot;\&quot;) before attempting lookup&quot;), com.sparkutils.quality.QualityException.qualityException$default$2))
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          2539
+        </td>
+        <td>
+          3532
+          -
+          3737
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.QualityException.qualityException
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.sparkutils.quality.QualityException.qualityException(&quot;Quality map_lookup expression called with map name &quot;.+(mapId).+(&quot; and lookup &quot;).+(lookup).+(&quot; doesn\'t have a name entry, please call use sql(\&quot;&quot;).+(com.sparkutils.quality.impl.extension.QualityMapConstants.QUALITY_MAP_BROADCAST).+(&quot; &quot;).+(lookup).+(&quot;\&quot;) before attempting lookup&quot;), com.sparkutils.quality.QualityException.qualityException$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          2541
+        </td>
+        <td>
+          3803
+          -
+          3822
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.SparkSessionCompanion.active
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.SparkSession.active
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          2543
+        </td>
+        <td>
+          3785
+          -
+          4072
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapOps.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          nameMap.getOrElse[com.sparkutils.quality.impl.mapLookup.WeakMapEntry](org.apache.spark.sql.SparkSession.active, com.sparkutils.quality.QualityException.qualityException(&quot;Quality map_lookup expression called with map name &quot;.+(mapId).+(&quot; and lookup &quot;).+(lookup).+(&quot; doesn\'t have an entry in the session map, please call use sql(\&quot;&quot;).+(com.sparkutils.quality.impl.extension.QualityMapConstants.QUALITY_MAP_BROADCAST).+(&quot; &quot;).+(lookup).+(&quot;\&quot;) before attempting lookup&quot;), com.sparkutils.quality.QualityException.qualityException$default$2))
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          2542
+        </td>
+        <td>
+          3838
+          -
+          4058
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.QualityException.qualityException
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.sparkutils.quality.QualityException.qualityException(&quot;Quality map_lookup expression called with map name &quot;.+(mapId).+(&quot; and lookup &quot;).+(lookup).+(&quot; doesn\'t have an entry in the session map, please call use sql(\&quot;&quot;).+(com.sparkutils.quality.impl.extension.QualityMapConstants.QUALITY_MAP_BROADCAST).+(&quot; &quot;).+(lookup).+(&quot;\&quot;) before attempting lookup&quot;), com.sparkutils.quality.QualityException.qualityException$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          2544
+        </td>
+        <td>
+          4111
+          -
+          4118
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqOps.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          exps.apply(1)
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          2545
+        </td>
+        <td>
+          4120
+          -
+          4135
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.mapLookup.WeakMapEntry.broadcast
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          entry.broadcast
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          2546
+        </td>
+        <td>
+          4137
+          -
+          4152
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.mapLookup.WeakMapEntry.valueType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          entry.valueType
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          2547
+        </td>
+        <td>
+          4084
+          -
+          4153
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.mapLookup.MapLookupExpression.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapLookupExpression.apply(mapId, exps.apply(1), entry.broadcast, entry.valueType)
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          2549
+        </td>
+        <td>
+          4173
+          -
+          4228
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRegistrationFunctions.literalsNeeded
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.sparkutils.quality.impl.RuleRegistrationFunctions.literalsNeeded(2, &quot;Variable with StructType or String&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          2550
+        </td>
+        <td>
+          4173
+          -
+          4228
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleRegistrationFunctions.literalsNeeded
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.sparkutils.quality.impl.RuleRegistrationFunctions.literalsNeeded(2, &quot;Variable with StructType or String&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          2551
+        </td>
+        <td>
+          4256
+          -
+          4268
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;map_lookup&quot;
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          2552
+        </td>
+        <td>
+          4273
+          -
+          4279
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableFactory.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.Set.apply[Int](3)
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          2553
+        </td>
+        <td>
+          4247
+          -
+          4280
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.mapLookup.MapLookupFunctionsImpl.register
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          register(&quot;map_lookup&quot;, f, scala.Predef.Set.apply[Int](3), register$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          2554
+        </td>
+        <td>
+          4295
+          -
+          4309
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;map_contains&quot;
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          2555
+        </td>
+        <td>
+          4326
+          -
+          4330
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          f.apply(s)
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          2556
+        </td>
+        <td>
+          4316
+          -
+          4331
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.IsNotNull.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.IsNotNull.apply(f.apply(s))
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          2557
+        </td>
+        <td>
+          4333
+          -
+          4339
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableFactory.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.Set.apply[Int](3)
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          2558
+        </td>
+        <td>
+          4286
+          -
+          4340
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.mapLookup.MapLookupFunctionsImpl.register
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          register(&quot;map_contains&quot;, ((s: Seq[org.apache.spark.sql.catalyst.expressions.Expression]) =&gt; org.apache.spark.sql.catalyst.expressions.IsNotNull.apply(f.apply(s))), scala.Predef.Set.apply[Int](3), register$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          2589
+        </td>
+        <td>
+          4498
+          -
+          5902
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val mapId: String = f.name;
+  if (f.dataType.isInstanceOf[org.apache.spark.sql.types.MapType].unary_!)
+    if (extract)
+      com.sparkutils.quality.QualityException.qualityException(&quot;Quality map_lookup expression called with map name &quot;.+(mapId).+(&quot; doesn\'t have map type, instead it has: &quot;).+(f.dataType.sql), com.sparkutils.quality.QualityException.qualityException$default$2)
+    else
+      null
+  else
+    {
+      val name: String = MapLookupFunctionsImpl.this.refName(v, mapId);
+      def newNameMap(name: String): scala.collection.mutable.WeakHashMap[org.apache.spark.sql.SparkSession,com.sparkutils.quality.impl.mapLookup.WeakMapEntry] = {
+        val m: scala.collection.mutable.WeakHashMap[org.apache.spark.sql.SparkSession,com.sparkutils.quality.impl.mapLookup.WeakMapEntry] = new scala.collection.mutable.WeakHashMap[org.apache.spark.sql.SparkSession,com.sparkutils.quality.impl.mapLookup.WeakMapEntry]();
+        MapLookupFunctionsImpl.this.hm.put(name, m);
+        m
+      };
+      val nameMap: scala.collection.mutable.WeakHashMap[org.apache.spark.sql.SparkSession,com.sparkutils.quality.impl.mapLookup.WeakMapEntry] = MapLookupFunctionsImpl.this.hm.get(name).fold[scala.collection.mutable.WeakHashMap[org.apache.spark.sql.SparkSession,com.sparkutils.quality.impl.mapLookup.WeakMapEntry]](newNameMap(name))(((x: scala.collection.mutable.WeakHashMap[org.apache.spark.sql.SparkSession,com.sparkutils.quality.impl.mapLookup.WeakMapEntry]) =&gt; scala.Predef.identity[scala.collection.mutable.WeakHashMap[org.apache.spark.sql.SparkSession,com.sparkutils.quality.impl.mapLookup.WeakMapEntry]](x)));
+      val dt: org.apache.spark.sql.types.MapType = f.dataType.asInstanceOf[org.apache.spark.sql.types.MapType];
+      val r: org.apache.spark.sql.catalyst.InternalRow = v.eval(v.eval$default$1).asInstanceOf[org.apache.spark.sql.catalyst.InternalRow];
+      def createEntry: org.apache.spark.broadcast.Broadcast[org.apache.spark.sql.catalyst.util.MapData] = {
+        val m: org.apache.spark.sql.catalyst.util.MapData = r.getMap(i).copy();
+        val b: org.apache.spark.broadcast.Broadcast[org.apache.spark.sql.catalyst.util.MapData] = org.apache.spark.sql.SparkSession.active.sparkContext.broadcast[org.apache.spark.sql.catalyst.util.MapData](m)((ClassTag.apply[org.apache.spark.sql.catalyst.util.MapData](classOf[org.apache.spark.sql.catalyst.util.MapData]): scala.reflect.ClassTag[org.apache.spark.sql.catalyst.util.MapData]));
+        nameMap.put(org.apache.spark.sql.SparkSession.active, WeakMapEntry.apply(r, b, dt.valueType));
+        b
+      };
+      val b: org.apache.spark.broadcast.Broadcast[org.apache.spark.sql.catalyst.util.MapData] = nameMap.get(org.apache.spark.sql.SparkSession.active).fold[org.apache.spark.broadcast.Broadcast[org.apache.spark.sql.catalyst.util.MapData]](createEntry)(((cur: com.sparkutils.quality.impl.mapLookup.WeakMapEntry) =&gt; if (cur.exists(r))
+        cur.broadcast
+      else
+        createEntry));
+      scala.Tuple2.apply[org.apache.spark.broadcast.Broadcast[org.apache.spark.sql.catalyst.util.MapData], org.apache.spark.sql.types.DataType](b, dt.valueType)
+    }
+}
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          2559
+        </td>
+        <td>
+          4521
+          -
+          4527
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          f.name
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          2560
+        </td>
+        <td>
+          4540
+          -
+          4573
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          f.dataType.isInstanceOf[org.apache.spark.sql.types.MapType].unary_!
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          2565
+        </td>
+        <td>
+          4587
+          -
+          4779
+        </td>
+        <td>
+          If
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          if (extract)
+  com.sparkutils.quality.QualityException.qualityException(&quot;Quality map_lookup expression called with map name &quot;.+(mapId).+(&quot; doesn\'t have map type, instead it has: &quot;).+(f.dataType.sql), com.sparkutils.quality.QualityException.qualityException$default$2)
+else
+  null
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          2561
+        </td>
+        <td>
+          4612
+          -
+          4747
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.QualityException.qualityException
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.sparkutils.quality.QualityException.qualityException(&quot;Quality map_lookup expression called with map name &quot;.+(mapId).+(&quot; doesn\'t have map type, instead it has: &quot;).+(f.dataType.sql), com.sparkutils.quality.QualityException.qualityException$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          2562
+        </td>
+        <td>
+          4612
+          -
+          4747
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.QualityException.qualityException
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.sparkutils.quality.QualityException.qualityException(&quot;Quality map_lookup expression called with map name &quot;.+(mapId).+(&quot; doesn\'t have map type, instead it has: &quot;).+(f.dataType.sql), com.sparkutils.quality.QualityException.qualityException$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          2563
+        </td>
+        <td>
+          4775
+          -
+          4779
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          2564
+        </td>
+        <td>
+          4775
+          -
+          4779
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          2588
+        </td>
+        <td>
+          4795
+          -
+          5902
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val name: String = MapLookupFunctionsImpl.this.refName(v, mapId);
+  def newNameMap(name: String): scala.collection.mutable.WeakHashMap[org.apache.spark.sql.SparkSession,com.sparkutils.quality.impl.mapLookup.WeakMapEntry] = {
+    val m: scala.collection.mutable.WeakHashMap[org.apache.spark.sql.SparkSession,com.sparkutils.quality.impl.mapLookup.WeakMapEntry] = new scala.collection.mutable.WeakHashMap[org.apache.spark.sql.SparkSession,com.sparkutils.quality.impl.mapLookup.WeakMapEntry]();
+    MapLookupFunctionsImpl.this.hm.put(name, m);
+    m
+  };
+  val nameMap: scala.collection.mutable.WeakHashMap[org.apache.spark.sql.SparkSession,com.sparkutils.quality.impl.mapLookup.WeakMapEntry] = MapLookupFunctionsImpl.this.hm.get(name).fold[scala.collection.mutable.WeakHashMap[org.apache.spark.sql.SparkSession,com.sparkutils.quality.impl.mapLookup.WeakMapEntry]](newNameMap(name))(((x: scala.collection.mutable.WeakHashMap[org.apache.spark.sql.SparkSession,com.sparkutils.quality.impl.mapLookup.WeakMapEntry]) =&gt; scala.Predef.identity[scala.collection.mutable.WeakHashMap[org.apache.spark.sql.SparkSession,com.sparkutils.quality.impl.mapLookup.WeakMapEntry]](x)));
+  val dt: org.apache.spark.sql.types.MapType = f.dataType.asInstanceOf[org.apache.spark.sql.types.MapType];
+  val r: org.apache.spark.sql.catalyst.InternalRow = v.eval(v.eval$default$1).asInstanceOf[org.apache.spark.sql.catalyst.InternalRow];
+  def createEntry: org.apache.spark.broadcast.Broadcast[org.apache.spark.sql.catalyst.util.MapData] = {
+    val m: org.apache.spark.sql.catalyst.util.MapData = r.getMap(i).copy();
+    val b: org.apache.spark.broadcast.Broadcast[org.apache.spark.sql.catalyst.util.MapData] = org.apache.spark.sql.SparkSession.active.sparkContext.broadcast[org.apache.spark.sql.catalyst.util.MapData](m)((ClassTag.apply[org.apache.spark.sql.catalyst.util.MapData](classOf[org.apache.spark.sql.catalyst.util.MapData]): scala.reflect.ClassTag[org.apache.spark.sql.catalyst.util.MapData]));
+    nameMap.put(org.apache.spark.sql.SparkSession.active, WeakMapEntry.apply(r, b, dt.valueType));
+    b
+  };
+  val b: org.apache.spark.broadcast.Broadcast[org.apache.spark.sql.catalyst.util.MapData] = nameMap.get(org.apache.spark.sql.SparkSession.active).fold[org.apache.spark.broadcast.Broadcast[org.apache.spark.sql.catalyst.util.MapData]](createEntry)(((cur: com.sparkutils.quality.impl.mapLookup.WeakMapEntry) =&gt; if (cur.exists(r))
+    cur.broadcast
+  else
+    createEntry));
+  scala.Tuple2.apply[org.apache.spark.broadcast.Broadcast[org.apache.spark.sql.catalyst.util.MapData], org.apache.spark.sql.types.DataType](b, dt.valueType)
+}
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          2566
+        </td>
+        <td>
+          4819
+          -
+          4836
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.mapLookup.MapLookupFunctionsImpl.refName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapLookupFunctionsImpl.this.refName(v, mapId)
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          2567
+        </td>
+        <td>
+          4901
+          -
+          4954
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.WeakHashMap.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new scala.collection.mutable.WeakHashMap[org.apache.spark.sql.SparkSession,com.sparkutils.quality.impl.mapLookup.WeakMapEntry]()
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          2568
+        </td>
+        <td>
+          4967
+          -
+          4982
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.HashMap.put
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapLookupFunctionsImpl.this.hm.put(name, m)
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          2569
+        </td>
+        <td>
+          5052
+          -
+          5068
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.mapLookup.MapLookupFunctionsImpl.newNameMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          newNameMap(name)
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          2570
+        </td>
+        <td>
+          5070
+          -
+          5078
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.identity
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.identity[scala.collection.mutable.WeakHashMap[org.apache.spark.sql.SparkSession,com.sparkutils.quality.impl.mapLookup.WeakMapEntry]](x)
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          2571
+        </td>
+        <td>
+          5034
+          -
+          5079
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.fold
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MapLookupFunctionsImpl.this.hm.get(name).fold[scala.collection.mutable.WeakHashMap[org.apache.spark.sql.SparkSession,com.sparkutils.quality.impl.mapLookup.WeakMapEntry]](newNameMap(name))(((x: scala.collection.mutable.WeakHashMap[org.apache.spark.sql.SparkSession,com.sparkutils.quality.impl.mapLookup.WeakMapEntry]) =&gt; scala.Predef.identity[scala.collection.mutable.WeakHashMap[org.apache.spark.sql.SparkSession,com.sparkutils.quality.impl.mapLookup.WeakMapEntry]](x)))
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          2572
+        </td>
+        <td>
+          5100
+          -
+          5132
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          f.dataType.asInstanceOf[org.apache.spark.sql.types.MapType]
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          2573
+        </td>
+        <td>
+          5151
+          -
+          5185
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          v.eval(v.eval$default$1).asInstanceOf[org.apache.spark.sql.catalyst.InternalRow]
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          2574
+        </td>
+        <td>
+          5326
+          -
+          5344
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.MapData.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          r.getMap(i).copy()
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          2575
+        </td>
+        <td>
+          5366
+          -
+          5411
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          org.apache.spark.SparkContext.broadcast
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.SparkSession.active.sparkContext.broadcast[org.apache.spark.sql.catalyst.util.MapData](m)((ClassTag.apply[org.apache.spark.sql.catalyst.util.MapData](classOf[org.apache.spark.sql.catalyst.util.MapData]): scala.reflect.ClassTag[org.apache.spark.sql.catalyst.util.MapData]))
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          2576
+        </td>
+        <td>
+          5436
+          -
+          5455
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.SparkSessionCompanion.active
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.SparkSession.active
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          2577
+        </td>
+        <td>
+          5476
+          -
+          5488
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.MapType.valueType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          dt.valueType
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          2578
+        </td>
+        <td>
+          5457
+          -
+          5489
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.mapLookup.WeakMapEntry.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          WeakMapEntry.apply(r, b, dt.valueType)
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          2579
+        </td>
+        <td>
+          5424
+          -
+          5490
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.convert.JavaCollectionWrappers.JMapWrapperLike.put
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          nameMap.put(org.apache.spark.sql.SparkSession.active, WeakMapEntry.apply(r, b, dt.valueType))
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          2580
+        </td>
+        <td>
+          5560
+          -
+          5579
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.SparkSessionCompanion.active
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.SparkSession.active
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          2585
+        </td>
+        <td>
+          5548
+          -
+          5836
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.fold
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          nameMap.get(org.apache.spark.sql.SparkSession.active).fold[org.apache.spark.broadcast.Broadcast[org.apache.spark.sql.catalyst.util.MapData]](createEntry)(((cur: com.sparkutils.quality.impl.mapLookup.WeakMapEntry) =&gt; if (cur.exists(r))
+  cur.broadcast
+else
+  createEntry))
+        </td>
+      </tr><tr>
+        <td>
+          129
+        </td>
+        <td>
+          2581
+        </td>
+        <td>
+          5642
+          -
+          5655
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.mapLookup.WeakMapEntry.exists
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cur.exists(r)
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          2582
+        </td>
+        <td>
+          5675
+          -
+          5688
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.mapLookup.WeakMapEntry.broadcast
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cur.broadcast
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          2583
+        </td>
+        <td>
+          5675
+          -
+          5688
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.mapLookup.WeakMapEntry.broadcast
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cur.broadcast
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          2584
+        </td>
+        <td>
+          5811
+          -
+          5822
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.sparkutils.quality.impl.mapLookup.MapLookupFunctionsImpl.createEntry
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          createEntry
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          2586
+        </td>
+        <td>
+          5879
+          -
+          5891
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.MapType.valueType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          dt.valueType
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          2587
+        </td>
+        <td>
+          5875
+          -
+          5892
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[org.apache.spark.broadcast.Broadcast[org.apache.spark.sql.catalyst.util.MapData], org.apache.spark.sql.types.DataType](b, dt.valueType)
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          2590
+        </td>
+        <td>
+          6059
+          -
+          6064
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
