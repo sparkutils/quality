@@ -72,7 +72,7 @@ Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1 and 3.3.2 are deprecated as are DBR's 12.2
 
 #124 - Introduced group_audit function, allowing multiple Quality auditable columns to be combined into a RuleSuiteGroupResults column
 
-#131 - Compilation of runners is now split from Spark's typical single java file.  This reduces compilation times in general for nested or chained runners and removes limits on the number of rules suites that can be run in one action. 
+#131 - Compilation of runners is now split from Spark's typical single java file.  This reduces compilation times in general for nested or chained runners and removes limits on the number of rules suites that can be run in one action.  
 
 ### [0.1.4](https://github.com/sparkutils/quality/milestone/10?closed=1) <small>24th February, 2026</small>
 
