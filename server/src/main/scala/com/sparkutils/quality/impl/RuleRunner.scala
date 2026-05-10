@@ -224,10 +224,9 @@ code"""
     funNames
   }
 
-  def genRuleSuiteTerm[T: ClassTag](ctx: CodegenContext): (String, (String, String) => String) = {
+  def genRuleSuiteTerm[T: ClassTag](ctx: CodegenContext, ruleRunnerExpressionIdx: Int): (String, (String, String) => String) = {
     val ruleSuiteClassName = classOf[RuleSuite].getName
     val ruleRunnerClassName = implicitly[ClassTag[T]].runtimeClass.getName
-    val ruleRunnerExpressionIdx = ctx.references.size - 1
     val ruleSuitTerm = ctx.addMutableState(ruleSuiteClassName, ctx.freshName("ruleSuite"),
       v => s"$v = ($ruleSuiteClassName)((($ruleRunnerClassName)references" +
         s"[$ruleRunnerExpressionIdx]).ruleSuite());")
@@ -338,22 +337,23 @@ trait RuleRunnerBase[T] extends NonSQLExpression with SplitCompilation {
    */
   protected def doGenCodeI(outerCtx: CodegenContext, ev: ExprCode): ExprCode = {
 
-    outerCtx.references += this
-    val ctx = QualityCodeGenUtils.clone(outerCtx)
-    // must be called before the rule gen runs
-    val params = genParams(ctx, this)
+    val (clazz, fres) = SeparateCompilation.withSubExpressions(this, realChildren, outerCtx, ev, ruleSuite.id) {
+      (ctx, ruleRunnerExpressionIdx) =>
 
-    // bind the rules
-    val ruleSuitTerm = genRuleSuiteTerm[T](ctx)._1
-    val utilsName = "com.sparkutils.quality.impl.RuleRunnerUtils"
+        // must be called before the rule gen runs
+        val params = genParams(ctx, this)
 
-    val res =
-      nonOutputRuleGen(ctx, this, ev, ruleSuitTerm, utilsName, realChildren, variablesPerFunc, variableFuncGroup,
-        (code: ExprValue, idx: Int) => s"com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt($code)"
-      )
+        // bind the rules
+        val ruleSuitTerm = genRuleSuiteTerm[T](ctx, ruleRunnerExpressionIdx)._1
+        val utilsName = "com.sparkutils.quality.impl.RuleRunnerUtils"
 
-    val (clazz, fres) = runnerCompilation(outerCtx, params,
-      classOf[RuleRunnerBase[T]].getName, ctx, res, ev, ruleSuite.id)
+        val res =
+          nonOutputRuleGen(ctx, this, ev, ruleSuitTerm, utilsName, realChildren, variablesPerFunc, variableFuncGroup,
+            (code: ExprValue, idx: Int) => s"com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt($code)"
+          )
+
+      ((params, classOf[RuleRunnerBase[T]].getName), res)
+    }
     generatorClassSource = clazz
     fres
   }

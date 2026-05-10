@@ -149,45 +149,46 @@ trait ExpressionRunnerBase[T] extends NonSQLExpression with SplitCompilation {
 
   protected def doGenCodeI(outerCtx: CodegenContext, ev: ExprCode): ExprCode = {
 
-    outerCtx.references += this
-    val ctx = QualityCodeGenUtils.clone(outerCtx)
-    // must be called before the rule gen runs
-    val params = genParams(ctx, this)
+    val (clazz, fres) = SeparateCompilation.withSubExpressions(this, realChildren, outerCtx, ev, ruleSuite.id) {
+      (ctx, ruleRunnerExpressionIdx) =>
 
-    val termF = genRuleSuiteTerm[T](ctx)
-    // bind the rules
-    val ruleSuitTerm = termF._1
-    val utilsName = "com.sparkutils.quality.impl.ExpressionRunnerUtils"
+        // must be called before the rule gen runs
+        val params = genParams(ctx, this)
 
-    val ruleRes = "java.lang.Object"
-    val strType = classOf[UTF8String].getName
-    val ddlArrTerm = ctx.addMutableState(ruleRes+"[]", ctx.freshName("ddlArr"),
-      v =>
-        if (ddlType == impl.types.expressionResultTypeYaml)
-          s"""
-            $v = new $strType[${realChildren.size}];\n
-            \n
-            $utilsName.fillDDLs($v, ${termF._2("realChildren", classOf[Seq[Expression]].getName)});
-          """
-        else
-          s"""
-            $v = null;
-          """
-    )
+        val termF = genRuleSuiteTerm[T](ctx, ruleRunnerExpressionIdx)
+        // bind the rules
+        val ruleSuitTerm = termF._1
+        val utilsName = "com.sparkutils.quality.impl.ExpressionRunnerUtils"
 
-    def yamlOrType(code: ExprValue, idx: Int): String =
-      if (ddlType == impl.types.expressionResultTypeYaml)
-        s"new GenericInternalRow(new Object[]{$code, $ddlArrTerm[$idx]})"
-      else
-        s"$code"
+        val ruleRes = "java.lang.Object"
+        val strType = classOf[UTF8String].getName
+        val ddlArrTerm = ctx.addMutableState(ruleRes + "[]", ctx.freshName("ddlArr"),
+          v =>
+            if (ddlType == impl.types.expressionResultTypeYaml)
+              s"""
+                $v = new $strType[${realChildren.size}];\n
+                \n
+                $utilsName.fillDDLs($v, ${termF._2("realChildren", classOf[Seq[Expression]].getName)});
+              """
+            else
+              s"""
+                $v = null;
+              """
+        )
 
-    val res =
-      nonOutputRuleGen(ctx, this, ev, ruleSuitTerm, utilsName, realChildren, variablesPerFunc, variableFuncGroup,
-        yamlOrType(_,_)
-      )
+        def yamlOrType(code: ExprValue, idx: Int): String =
+          if (ddlType == impl.types.expressionResultTypeYaml)
+            s"new GenericInternalRow(new Object[]{$code, $ddlArrTerm[$idx]})"
+          else
+            s"$code"
 
-    val (clazz, fres) = runnerCompilation(outerCtx, params,
-      classOf[ExpressionRunnerBase[T]].getName, ctx, res, ev, ruleSuite.id)
+        val res =
+          nonOutputRuleGen(ctx, this, ev, ruleSuitTerm, utilsName, realChildren, variablesPerFunc, variableFuncGroup,
+            yamlOrType(_, _)
+          )
+
+      ((params, classOf[ExpressionRunnerBase[T]].getName), res)
+    }
     generatorClassSource = clazz
     fres
   }

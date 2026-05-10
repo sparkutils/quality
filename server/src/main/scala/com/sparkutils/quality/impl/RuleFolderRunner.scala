@@ -3,7 +3,7 @@ package com.sparkutils.quality.impl
 import com.sparkutils.quality.{impl, _}
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
 import com.sparkutils.quality.impl.imports.ClassicRuleFolderRunnerImports
-import com.sparkutils.quality.impl.util.PassThroughEvalOnly
+import com.sparkutils.quality.impl.util.{PassThroughEvalOnly, SeparateCompilation}
 import com.sparkutils.quality.impl.util.SeparateCompilation.runnerCompilation
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
@@ -103,63 +103,63 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation {
 
   protected def doGenCodeI(outerCtx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = {
 
-    outerCtx.references += this
-    val ctx = QualityCodeGenUtils.clone(outerCtx)
+    val (clazz, fres) = SeparateCompilation.withSubExpressions(this, realChildren, outerCtx, ev, ruleSuite.id) {
+      (ctx, ruleRunnerExpressionIdx) =>
 
-    // need to setup the folder variable to pass around, create it with "left"
-    // thread it through
-    val folderV = ctx.addMutableState( "InternalRow",
-      ctx.freshName("folderV") )
+        // need to setup the folder variable to pass around, create it with "left"
+        // thread it through
+        val folderV = ctx.addMutableState( "InternalRow",
+          ctx.freshName("folderV") )
 
-    def hasDefault(when: => String, els: String = ""): String =
-      if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp)
-        when
-      else
-        els
+        def hasDefault(when: => String, els: String = ""): String =
+          if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp)
+            when
+          else
+            els
 
-    val sizeAdjustment =
-      if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp)
-        -1 // don't generate the default, there isn't a trigger
-      else
-        0
+        val sizeAdjustment =
+          if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp)
+            -1 // don't generate the default, there isn't a trigger
+          else
+            0
 
-    // order by salience
-    val salience = com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenSalience(ruleSuite)
-    val reordered = // fill the index list, still only uniques
-      (0 until triggerCount).map{i =>
-        // lookup the output expressions
-        expressionOffsets(i)
-      } zip salience sortBy(_._2) map(_._1)
+        // order by salience
+        val salience = com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenSalience(ruleSuite)
+        val reordered = // fill the index list, still only uniques
+          (0 until triggerCount).map{i =>
+            // lookup the output expressions
+            expressionOffsets(i)
+          } zip salience sortBy(_._2) map(_._1)
 
-    val lazyRefsGenCode = realChildren.drop(triggerCount).map(_.asInstanceOf[FunN].arguments.head.genCode(ctx))
+        val lazyRefsGenCode = realChildren.drop(triggerCount).map(_.asInstanceOf[FunN].arguments.head.genCode(ctx))
 
-    val compilerTerms =
-      RuleEngineRunnerUtils.genCompilerTerms[T](outerCtx, ctx, PassThroughEvalOnly(realChildren), expressionOffsets, realChildren,
-        debugMode, variablesPerFunc, variableFuncGroup, forceTriggerEval,
-        // capture the current
-        extraResult = (outArrTerm: String, _, _) => s"$folderV = $outArrTerm;",
-        extraSetup = (_, i: Int) =>
-          s"""
+        val compilerTerms =
+          RuleEngineRunnerUtils.genCompilerTerms[T](ruleRunnerExpressionIdx, outerCtx, ctx, PassThroughEvalOnly(realChildren), expressionOffsets, realChildren,
+            debugMode, variablesPerFunc, variableFuncGroup, forceTriggerEval,
+            // capture the current
+            extraResult = (outArrTerm: String, _, _) => s"$folderV = $outArrTerm;",
+            extraSetup = (_, i: Int) =>
+              s"""
           // set the current row for the fold for flattened rule $i
           ${lazyRefsGenCode(i).value} = $folderV;
           ${lazyRefsGenCode(i).isNull} = $folderV == null;
           """,
-        orderOffset = (idx: Int) => reordered(idx),
-        // we shouldn't check salience as we are already ordered by it
-        salienceCheck = false,
-        sizeAdjustment = sizeAdjustment
-      )
+            orderOffset = (idx: Int) => reordered(idx),
+            // we shouldn't check salience as we are already ordered by it
+            salienceCheck = false,
+            sizeAdjustment = sizeAdjustment
+          )
 
-    import compilerTerms._
-    import parameterInformation._
+        import compilerTerms._
+        import parameterInformation._
 
-    // generate the starting struct
-    val starterEval = startingStruct.genCode(ctx)
+        // generate the starting struct
+        val starterEval = startingStruct.genCode(ctx)
 
-    val rsres = ctx.freshName("ruleSuiteRes")
-    val default = ctx.freshName("defaultRes")
+        val rsres = ctx.freshName("ruleSuiteRes")
+        val default = ctx.freshName("defaultRes")
 
-    val pre = code"""
+        val pre = code"""
           $currentSalience = java.lang.Integer.MAX_VALUE;
           $currentOutputIndex = -1;
           $hasAPassTerm = false;
@@ -175,11 +175,11 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation {
           InternalRow $default = null;
 
          ${hasDefault {
-            s"""
+          s"""
             if (!$hasAPassTerm) {
             ${
-              val defP = realChildren.last.genCode(ctx)
-              s"""
+            val defP = realChildren.last.genCode(ctx)
+            s"""
                   ${lazyRefsGenCode.last.value} = $folderV;
                   ${lazyRefsGenCode.last.isNull} = $folderV == null;
                   ${defP.code}
@@ -189,25 +189,25 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation {
 
                   $rsres.update(1, ${DefaultRuleInt});
                 """
-            }
+          }
             }
             """ }
-          }
+        }
       """
 
-    val resName = ctx.freshName("result")
-    val resNull = ctx.freshName("isNull")
+        val resName = ctx.freshName("result")
+        val resNull = ctx.freshName("isNull")
 
-    val exp = ExprCode(VariableValue(resName, ev.value.javaType), isNullVariable(resNull))
+        val exp = ExprCode(VariableValue(resName, ev.value.javaType), isNullVariable(resNull))
 
-    val post = s"""
+        val post = s"""
 
           boolean ${exp.isNull} = false;
       """
 
-    val res =
-      if (debugMode)
-        exp.copy(code = code"""
+        val res =
+          if (debugMode)
+            exp.copy(code = code"""
           $pre
 
           InternalRow ${exp.value} =
@@ -217,9 +217,9 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation {
 
           $post
           """
-        )
-      else
-        exp.copy(code = code"""
+            )
+          else
+            exp.copy(code = code"""
           $pre
 
           InternalRow ${exp.value} =
@@ -228,9 +228,10 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation {
 
           $post
           """
-        )
+            )
+        (compilerTerms, res)
+    }
 
-    val (clazz, fres) = runnerCompilation(outerCtx, compilerTerms, ctx, res, ev, ruleSuite.id)
     generatorClassSource = clazz
     fres
   }

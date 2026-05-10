@@ -2,6 +2,8 @@ package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality.VersionedId
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.CompilerTerms
+import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
+import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodegenContext, ExprCode, QualityCodeGenUtils}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
 
@@ -36,6 +38,20 @@ trait InitPartitionWholeStage {
 
 }
 
+trait ParamsAndName[T] {
+  def apply(t: T): (ParameterInformation, String)
+}
+object ParamsAndName {
+  implicit val direct: ParamsAndName[(ParameterInformation, String)] = new ParamsAndName[(ParameterInformation, String)] {
+
+    override def apply(t: (ParameterInformation, String)): (ParameterInformation, String) = t
+  }
+  implicit val viaTerms: ParamsAndName[CompilerTerms] = new ParamsAndName[CompilerTerms] {
+
+    override def apply(t: CompilerTerms): (ParameterInformation, String) = (t.parameterInformation, t.runnerClassName)
+  }
+}
+
 object SeparateCompilation {
 
   /**
@@ -44,14 +60,52 @@ object SeparateCompilation {
   def runnerCompilation(outerctx: CodegenContext, terms: CompilerTerms, ctx: CodegenContext, codeBody: ExprCode,
                         ev: ExprCode, ruleSuiteId: VersionedId): (CodeAndComment, ExprCode) =
     SeparateCompilation.runnerCompilation(outerctx, terms.parameterInformation,
-      terms.runnerClassName, ctx, codeBody, ev, ruleSuiteId)
+      terms.runnerClassName, ctx, codeBody, ev, ruleSuiteId, "")
+
+  def runnerCompilation(outerctx: CodegenContext, terms: CompilerTerms, ctx: CodegenContext, codeBody: ExprCode,
+                        ev: ExprCode, ruleSuiteId: VersionedId, subExpressions: String): (CodeAndComment, ExprCode) =
+    SeparateCompilation.runnerCompilation(outerctx, terms.parameterInformation,
+      terms.runnerClassName, ctx, codeBody, ev, ruleSuiteId, subExpressions)
+
+  def withSubExpressions[T: ParamsAndName](
+      theThis: Expression, children: Seq[Expression],
+      outerCtx: CodegenContext, ev: ExprCode, ruleSuiteId: VersionedId)(
+      generate: (CodegenContext,Int) => (T, ExprCode) ): (CodeAndComment, ExprCode) = {
+
+    val ruleRunnerExpressionIdx = outerCtx.references.length
+    outerCtx.references += theThis
+    val ctx = QualityCodeGenUtils.clone(outerCtx)
+
+    val params = genParams(ctx, theThis)
+
+    val ((compilerTerms, codeBody), subExpressionCode) =
+      if (ctx.currentVars eq null) {
+        // only fails on "via ProcessFactory with Avro inputs" RowToRowTest shows it doesn't always work for projections
+
+        val subExpressionCode = QualityCodeGenUtils.nonWholeStageSubexpressionElimination(ctx, children)
+
+        (generate(ctx, ruleRunnerExpressionIdx), subExpressionCode)
+      } else {
+        val subExprs = ctx.subexpressionEliminationForWholeStageCodegen(children)
+        val subExpressionCode = ctx.evaluateSubExprEliminationState(subExprs.states.values)
+
+        (QualityCodeGenUtils.withSubExprEliminationExprs(ctx, subExprs.states) {
+          generate(ctx, ruleRunnerExpressionIdx)
+        }, subExpressionCode)
+      }
+
+    // need to use the top level params as they are isolated, internally the params will shift to using any subexprs
+    runnerCompilation(outerctx = outerCtx, params,
+      implicitly[ParamsAndName[T]].apply(compilerTerms)._2, ctx = ctx, codeBody = codeBody, ev = ev,
+      ruleSuiteId = ruleSuiteId, subExpressions = subExpressionCode)
+  }
 
   /**
    * creates a new clazz, but it is linked and created in the outer context.  Used by the engines
    */
   def runnerCompilation(outerctx: CodegenContext, parameterInformation: ParameterInformation,
                         runnerClassName: String, ctx: CodegenContext, codeBody: ExprCode,
-                        ev: ExprCode, ruleSuiteId: VersionedId):
+                        ev: ExprCode, ruleSuiteId: VersionedId, subExpressions: String = ""):
     (CodeAndComment, ExprCode) = {
     val fullParams = parameterInformation
 
@@ -94,9 +148,10 @@ object SeparateCompilation {
           // here to use extraApplyParamDef
           ${fullParams.aritySafeParamConversion}
 
-          // this context common
-          ${ctx.subexprFunctionsCode}
+          // this context common sub exprs
+          $subExpressions
 
+          // rule runner code body
           ${codeBody.code}
           return ${codeBody.isNull} ? ((Object)null) : ((Object)${codeBody.value});
         }
@@ -109,8 +164,6 @@ object SeparateCompilation {
 
     val code = CodeFormatter.stripOverlappingComments(
       new CodeAndComment(runnerClassBody, ctx.getPlaceHolderToComments()))
-
-    //val (clazz, _) = CodeGenerator.compile(code)
 
     val ruleRunnerExpressionIdx = outerctx.references.size - 1
     // the variable
@@ -144,4 +197,4 @@ object SeparateCompilation {
 
     (code, res)
   }
-}//mutableStateArray_2[0]
+}
