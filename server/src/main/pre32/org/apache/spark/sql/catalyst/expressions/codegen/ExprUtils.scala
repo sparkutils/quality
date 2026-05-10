@@ -20,4 +20,8 @@ object QualityExprUtils {
   def addSubExpr(ctx: CodegenContext, expression: Expression, state: SubExprEliminationState): Unit = {
     ctx.subExprEliminationExprs += (expression -> state)
   }
+
+  def evaluateSubExprEliminationState(ctx: CodegenContext, subExprs: SubExprCodes): String = {
+    subExprs.codes.mkString("\n")
+  }
 }

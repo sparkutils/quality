@@ -4,7 +4,7 @@ import com.sparkutils.quality.VersionedId
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.CompilerTerms
 import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
 import org.apache.spark.sql.catalyst.expressions.Expression
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodegenContext, ExprCode, QualityCodeGenUtils}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodegenContext, ExprCode, QualityCodeGenUtils, QualityExprUtils}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
 
 /**
@@ -87,7 +87,7 @@ object SeparateCompilation {
         (generate(ctx, ruleRunnerExpressionIdx), subExpressionCode)
       } else {
         val subExprs = ctx.subexpressionEliminationForWholeStageCodegen(children)
-        val subExpressionCode = ctx.evaluateSubExprEliminationState(subExprs.states.values)
+        val subExpressionCode = QualityExprUtils.evaluateSubExprEliminationState(ctx, subExprs)
 
         (QualityCodeGenUtils.withSubExprEliminationExprs(ctx, subExprs.states) {
           generate(ctx, ruleRunnerExpressionIdx)
