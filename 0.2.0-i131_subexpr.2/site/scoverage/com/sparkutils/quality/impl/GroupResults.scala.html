@@ -1,0 +1,4493 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/sparkutils/quality/impl/GroupResults.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality.impl
+</span>2 <span style=''>
+</span>3 <span style=''>import cats.kernel.{CommutativeGroup, Semigroup}
+</span>4 <span style=''>import com.sparkutils.quality.QualityException.qualityException
+</span>5 <span style=''>import com.sparkutils.quality.impl.GroupResults.{hasGroupResultType, hasResultType, rd, typeCheckText}
+</span>6 <span style=''>import com.sparkutils.quality.impl.util.Compare.equalsIgnoreCaseAndNullability
+</span>7 <span style=''>import com.sparkutils.quality.{RuleResult, RuleSetResult, RuleSuiteGroupResults, RuleSuiteResult, VersionedId}
+</span>8 <span style=''>import org.apache.spark.sql.ShimUtils
+</span>9 <span style=''>import org.apache.spark.sql.catalyst.InternalRow
+</span>10 <span style=''>import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
+</span>11 <span style=''>import org.apache.spark.sql.catalyst.expressions.{Expression, GenericInternalRow, NonSQLExpression}
+</span>12 <span style=''>import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
+</span>13 <span style=''>import org.apache.spark.sql.catalyst.util.{ArrayData, GenericArrayData}
+</span>14 <span style=''>import org.apache.spark.sql.qualityFunctions.{GroupResultsWithProcess, RefExpression}
+</span>15 <span style=''>import org.apache.spark.sql.types.{ArrayType, DataType, NullType, StructField, StructType}
+</span>16 <span style=''>
+</span>17 <span style=''>import scala.reflect.ClassTag
+</span>18 <span style=''>
+</span>19 <span style=''>trait MergeGroups[T] extends Serializable {
+</span>20 <span style=''>  def merge(items: Seq[T]): RuleSuiteGroupResults
+</span>21 <span style=''>}
+</span>22 <span style=''>
+</span>23 <span style=''>object MergeGroups {
+</span>24 <span style=''>  // Used to pull in |+| to deep merge the maps as SemiGroups - https://typelevel.org/cats/typeclasses/semigroup.html#example-usage-merging-maps
+</span>25 <span style=''>  import cats.implicits._
+</span>26 <span style=''>
+</span>27 <span style=''>  implicit val ruleResultSemi = </span><span style='background: #AEF1AE'>new</span><span style=''> Semigroup[RuleResult] {
+</span>28 <span style=''>    override def combine(x: RuleResult, y: RuleResult): RuleResult =
+</span>29 <span style=''>      // TODO - left wins for overall?
+</span>30 <span style=''>      x
+</span>31 <span style=''>  }
+</span>32 <span style=''>
+</span>33 <span style=''>  implicit val ruleSetSemi = </span><span style='background: #AEF1AE'>new</span><span style=''> Semigroup[RuleSetResult] {
+</span>34 <span style=''>    override def combine(x: RuleSetResult, y: RuleSetResult): RuleSetResult =
+</span>35 <span style=''>      </span><span style='background: #AEF1AE'>x.copy(ruleResults = x.ruleResults |+| y.ruleResults)</span><span style=''>
+</span>36 <span style=''>  }
+</span>37 <span style=''>
+</span>38 <span style=''>  implicit val ruleSuiteSemi = </span><span style='background: #AEF1AE'>new</span><span style=''> Semigroup[RuleSuiteResult] {
+</span>39 <span style=''>    override def combine(x: RuleSuiteResult, y: RuleSuiteResult): RuleSuiteResult =
+</span>40 <span style=''>      </span><span style='background: #AEF1AE'>x.copy(ruleSetResults = x.ruleSetResults |+| y.ruleSetResults)</span><span style=''>
+</span>41 <span style=''>  }
+</span>42 <span style=''>
+</span>43 <span style=''>  implicit val rsMergeGroups: MergeGroups[RuleSuiteResult] =
+</span>44 <span style=''>    (items: Seq[RuleSuiteResult]) =&gt; {
+</span>45 <span style=''>      </span><span style='background: #AEF1AE'>items.foldLeft(RuleSuiteGroupResults()) {
+</span>46 <span style=''></span><span style='background: #AEF1AE'>        (cur, next) =&gt;
+</span>47 <span style=''></span><span style='background: #AEF1AE'>          cur.copy(ruleSuiteResults = cur.ruleSuiteResults |+| Map(next.id -&gt; next))
+</span>48 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>49 <span style=''>    }
+</span>50 <span style=''>
+</span>51 <span style=''>  implicit val groupMergeGroups: MergeGroups[RuleSuiteGroupResults] =
+</span>52 <span style=''>    (items: Seq[RuleSuiteGroupResults]) =&gt; </span><span style='background: #AEF1AE'>items.foldLeft(RuleSuiteGroupResults()) {
+</span>53 <span style=''></span><span style='background: #AEF1AE'>      (cur, next) =&gt;
+</span>54 <span style=''></span><span style='background: #AEF1AE'>        cur.copy(ruleSuiteResults = cur.ruleSuiteResults |+| next.ruleSuiteResults)
+</span>55 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>56 <span style=''>
+</span>57 <span style=''>  def group[T: MergeGroups](rs: Seq[T]): RuleSuiteGroupResults = </span><span style='background: #AEF1AE'>implicitly[MergeGroups[T]].merge(rs)</span><span style=''>
+</span>58 <span style=''>}
+</span>59 <span style=''>
+</span>60 <span style=''>object GroupResults {
+</span>61 <span style=''>
+</span>62 <span style=''>  def apply(group: Expression): GroupResults = {
+</span>63 <span style=''>    val rsDec = </span><span style='background: #AEF1AE'>ShimUtils.expressionEncoder(Encoders.ruleSuiteResultExpEnc).resolveAndBind().deserializer</span><span style=''>
+</span>64 <span style=''>    val rsgEnc = </span><span style='background: #AEF1AE'>ShimUtils.expressionEncoder(Encoders.ruleSuiteGroupResultsTypedExpEnc).resolveAndBind().objSerializer</span><span style=''>
+</span>65 <span style=''>    val rsgDec = </span><span style='background: #AEF1AE'>ShimUtils.expressionEncoder(Encoders.ruleSuiteGroupResultsTypedExpEnc).resolveAndBind().deserializer</span><span style=''>
+</span>66 <span style=''>    </span><span style='background: #AEF1AE'>GroupResults(Seq(group, rsgEnc, rsDec, rsgDec))</span><span style=''>
+</span>67 <span style=''>  }
+</span>68 <span style=''>
+</span>69 <span style=''>  def apply(group: Expression, l: org.apache.spark.sql.catalyst.expressions.LambdaFunction): GroupResultsWithProcess = {
+</span>70 <span style=''>    val rsDec = </span><span style='background: #AEF1AE'>ShimUtils.expressionEncoder(Encoders.ruleSuiteResultExpEnc).resolveAndBind().deserializer</span><span style=''>
+</span>71 <span style=''>    val rsgEnc = </span><span style='background: #AEF1AE'>ShimUtils.expressionEncoder(Encoders.ruleSuiteGroupResultsTypedExpEnc).resolveAndBind().objSerializer</span><span style=''>
+</span>72 <span style=''>    val rsgDec = </span><span style='background: #AEF1AE'>ShimUtils.expressionEncoder(Encoders.ruleSuiteGroupResultsTypedExpEnc).resolveAndBind().deserializer</span><span style=''>
+</span>73 <span style=''>    </span><span style='background: #AEF1AE'>group.dataType</span><span style=''> match {
+</span>74 <span style=''>      case ArrayType(_: StructType, _) </span><span style='background: #AEF1AE'>=&gt;</span><span style=''>
+</span>75 <span style=''>      case s =&gt; </span><span style='background: #AEF1AE'>qualityException(typeCheckText(s))</span><span style=''>
+</span>76 <span style=''>    }
+</span>77 <span style=''>    val </span><span style='background: #AEF1AE'>(typ, nullable)</span><span style=''> = </span><span style='background: #AEF1AE'>rd(Seq(group))</span><span style=''>
+</span>78 <span style=''>    val ref = </span><span style='background: #AEF1AE'>RefExpression(ArrayType(typ, nullable))</span><span style=''>
+</span>79 <span style=''>
+</span>80 <span style=''>    </span><span style='background: #AEF1AE'>GroupResultsWithProcess(Seq(group, rsgEnc, rsDec, rsgDec, ref), l)</span><span style=''>
+</span>81 <span style=''>  }
+</span>82 <span style=''>
+</span>83 <span style=''>  def rd(children: Seq[Expression]): (DataType, Boolean) = {
+</span>84 <span style=''>    val a = </span><span style='background: #AEF1AE'>children.head.dataType.asInstanceOf[ArrayType]</span><span style=''>
+</span>85 <span style=''>    val s = </span><span style='background: #AEF1AE'>a.elementType.asInstanceOf[StructType]</span><span style=''>
+</span>86 <span style=''>
+</span>87 <span style=''>    val rs = </span><span style='background: #AEF1AE'>s.copy(fields = s.fields.drop(1))</span><span style=''>
+</span>88 <span style=''>    if (</span><span style='background: #AEF1AE'>rs.fields.length == 1</span><span style=''>) {
+</span>89 <span style=''>      // folder non-debug and collector do not have extra fields *
+</span>90 <span style=''>      </span><span style='background: #AEF1AE'>(rs.fields.head.dataType, rs.fields.head.nullable)</span><span style=''>
+</span>91 <span style=''>    } else
+</span>92 <span style=''>      </span><span style='background: #AEF1AE'>(rs, a.containsNull)</span><span style=''>
+</span>93 <span style=''>  }
+</span>94 <span style=''>
+</span>95 <span style=''>  def typeCheckText(typ: DataType) = </span><span style='background: #AEF1AE'>s&quot;GroupResult supports arrays of structures with ruleSuiteGroup: RuleSuiteGroup and &quot; +
+</span>96 <span style=''></span><span style='background: #AEF1AE'>    s&quot;ruleSuiteResults: RuleSuiteResult as their first (or as the direct array member), instead $typ was provided&quot;</span><span style=''>
+</span>97 <span style=''>
+</span>98 <span style=''>
+</span>99 <span style=''>  def hasResultTypeF(of: DataType, names: Set[String])(s: StructType): Boolean =
+</span>100 <span style=''>    if (</span><span style='background: #AEF1AE'>s.fields.exists(
+</span>101 <span style=''></span><span style='background: #AEF1AE'>      f =&gt; names.contains(f.name) &amp;&amp;
+</span>102 <span style=''></span><span style='background: #AEF1AE'>        equalsIgnoreCaseAndNullability(f.dataType, of))</span><span style=''>)
+</span>103 <span style=''>      </span><span style='background: #AEF1AE'>true</span><span style=''>
+</span>104 <span style=''>    else
+</span>105 <span style=''>      </span><span style='background: #AEF1AE'>false</span><span style=''>
+</span>106 <span style=''>
+</span>107 <span style=''>  val hasResultType = </span><span style='background: #AEF1AE'>hasResultTypeF(com.sparkutils.quality.impl.types.ruleSuiteResultType, Set(&quot;ruleSuiteResults&quot;))</span><span style=''> _
+</span>108 <span style=''>
+</span>109 <span style=''>  // group is used when returned from this expression as the object name, and ruleSuiteResults are the internal (e.g. for dq)
+</span>110 <span style=''>  val hasGroupResultType = </span><span style='background: #AEF1AE'>hasResultTypeF( Encoders.ruleSuiteGroupResultsTypedEnc.catalystRepr, Set(&quot;ruleSuiteGroup&quot;, &quot;ruleSuiteResults&quot;))</span><span style=''> _
+</span>111 <span style=''>
+</span>112 <span style=''>}
+</span>113 <span style=''>
+</span>114 <span style=''>// at least three children, the actual column, the group expression encoder, the resultsuite expression decoder, the optional processor
+</span>115 <span style=''>trait GroupResultsBase
+</span>116 <span style=''>  extends NonSQLExpression with CodegenFallback {
+</span>117 <span style=''>
+</span>118 <span style=''>  def processResult(row: InternalRow, input: ArrayData): Any
+</span>119 <span style=''>
+</span>120 <span style=''>  def groupFrom[T: MergeGroups: ClassTag](deserializer: Expression, row: InternalRow, dq: Boolean, s: StructType, arr: Any, f: InternalRow =&gt; Any): (InternalRow, Any) = {
+</span>121 <span style=''>    val a = </span><span style='background: #AEF1AE'>arr.asInstanceOf[ArrayData]</span><span style=''>
+</span>122 <span style=''>    val copied = </span><span style='background: #AEF1AE'>Array.ofDim[T](a.numElements())</span><span style=''>
+</span>123 <span style=''>    val copiedResult = </span><span style='background: #AEF1AE'>Array.ofDim[Any](a.numElements())</span><span style=''>
+</span>124 <span style=''>
+</span>125 <span style=''>    </span><span style='background: #AEF1AE'>a.foreach(s, (i,e) =&gt; {
+</span>126 <span style=''></span><span style='background: #AEF1AE'>      val r = e.asInstanceOf[InternalRow]
+</span>127 <span style=''></span><span style='background: #AEF1AE'>      copied(i) = deserializer.eval(if (dq) r else r.getStruct(0, 3)).asInstanceOf[T]
+</span>128 <span style=''></span><span style='background: #AEF1AE'>      copiedResult(i) = f(r)
+</span>129 <span style=''></span><span style='background: #AEF1AE'>    })</span><span style=''>
+</span>130 <span style=''>
+</span>131 <span style=''>    </span><span style='background: #AEF1AE'>(children(1).eval(InternalRow(MergeGroups.group(copied))).asInstanceOf[InternalRow],
+</span>132 <span style=''></span><span style='background: #AEF1AE'>      processResult(row, new GenericArrayData(copiedResult)))</span><span style=''>
+</span>133 <span style=''>  }
+</span>134 <span style=''>
+</span>135 <span style=''>  def resultType: DataType =
+</span>136 <span style=''>    </span><span style='background: #AEF1AE'>StructType(Seq(
+</span>137 <span style=''></span><span style='background: #AEF1AE'>      StructField(&quot;ruleSuiteGroup&quot;, Encoders.ruleSuiteGroupResultsTypedEnc.catalystRepr),
+</span>138 <span style=''></span><span style='background: #AEF1AE'>      StructField(&quot;result&quot;,
+</span>139 <span style=''></span><span style='background: #AEF1AE'>        processResultType
+</span>140 <span style=''></span><span style='background: #AEF1AE'>        , processResultNullable)
+</span>141 <span style=''></span><span style='background: #AEF1AE'>    ))</span><span style=''>
+</span>142 <span style=''>
+</span>143 <span style=''>  override def checkInputDataTypes(): TypeCheckResult =
+</span>144 <span style=''>    if (</span><span style='background: #AEF1AE'>impl._1 != NullType</span><span style=''>)
+</span>145 <span style=''>      </span><span style='background: #AEF1AE'>TypeCheckResult.TypeCheckSuccess</span><span style=''>
+</span>146 <span style=''>    else
+</span>147 <span style=''>      </span><span style='background: #AEF1AE'>TypeCheckResult.TypeCheckFailure(typeCheckText(children.head.dataType))</span><span style=''>
+</span>148 <span style=''>
+</span>149 <span style=''>  def processResultType: DataType = {
+</span>150 <span style=''>    val </span><span style='background: #AEF1AE'>(typ, nullable)</span><span style=''> = </span><span style='background: #AEF1AE'>rd(children)</span><span style=''>
+</span>151 <span style=''>    </span><span style='background: #AEF1AE'>ArrayType(typ, nullable)</span><span style=''>
+</span>152 <span style=''>  }
+</span>153 <span style=''>  def processResultNullable: Boolean = </span><span style='background: #AEF1AE'>rd(children)._2</span><span style=''>
+</span>154 <span style=''>
+</span>155 <span style=''>  type IMPL = (DataType, (InternalRow, Any) =&gt; Any, Boolean)
+</span>156 <span style=''>
+</span>157 <span style=''>  lazy val impl: IMPL =
+</span>158 <span style=''>    children.head.dataType match {
+</span>159 <span style=''>      case a@ ArrayType(_: StructType, _) if equalsIgnoreCaseAndNullability(a.elementType,
+</span>160 <span style=''>        Encoders.ruleSuiteGroupResultsTypedEnc.catalystRepr) =&gt;
+</span>161 <span style=''>        // e.g. DQ
+</span>162 <span style=''>        withoutPayload[RuleSuiteGroupResults](a, children(3))
+</span>163 <span style=''>      case a@ ArrayType(_: StructType, _)  if hasGroupResultType(a.elementType.asInstanceOf[StructType]) =&gt;
+</span>164 <span style=''>        // engine, folder, collector
+</span>165 <span style=''>        withPayload[RuleSuiteGroupResults](a, children(3))
+</span>166 <span style=''>      case a@ ArrayType(_: StructType, _)  if equalsIgnoreCaseAndNullability(a.elementType,
+</span>167 <span style=''>        com.sparkutils.quality.impl.types.ruleSuiteResultType) =&gt;
+</span>168 <span style=''>        // e.g. DQ
+</span>169 <span style=''>        withoutPayload[RuleSuiteResult](a, children(2))
+</span>170 <span style=''>      case a@ ArrayType(_: StructType, _)  if hasResultType(a.elementType.asInstanceOf[StructType]) =&gt;
+</span>171 <span style=''>        // engine, folder, collector
+</span>172 <span style=''>        withPayload[RuleSuiteResult](a, children(2))
+</span>173 <span style=''>      case _ =&gt; (NullType, (row, r) =&gt; r, true /* not used */)
+</span>174 <span style=''>    }
+</span>175 <span style=''>
+</span>176 <span style=''>  private def withoutPayload[T: MergeGroups: ClassTag](a: ArrayType, converter: Expression):  IMPL = {
+</span>177 <span style=''>    </span><span style='background: #AEF1AE'>(Encoders.ruleSuiteGroupResultsTypedEnc.catalystRepr,
+</span>178 <span style=''></span><span style='background: #AEF1AE'>      (row, r) =&gt; groupFrom[T](converter, row, true,
+</span>179 <span style=''></span><span style='background: #AEF1AE'>        a.elementType.asInstanceOf[StructType], r, identity)._1, false)</span><span style=''>
+</span>180 <span style=''>  }
+</span>181 <span style=''>
+</span>182 <span style=''>  private def withPayload[T: MergeGroups: ClassTag](a: ArrayType, converter: Expression): IMPL = {
+</span>183 <span style=''>    val s = </span><span style='background: #AEF1AE'>a.elementType.asInstanceOf[StructType]</span><span style=''>
+</span>184 <span style=''>    val rest = </span><span style='background: #AEF1AE'>s.fields.map(_.dataType).zipWithIndex.drop(1)</span><span style=''>
+</span>185 <span style=''>
+</span>186 <span style=''>    </span><span style='background: #AEF1AE'>(resultType, (row, r) =&gt; {
+</span>187 <span style=''></span><span style='background: #AEF1AE'>      val (gr, res) = groupFrom[T](converter, row, false, s, r, e =&gt; {
+</span>188 <span style=''></span><span style='background: #AEF1AE'>        val r = rest.map(p =&gt; e.get(p._2, p._1))
+</span>189 <span style=''></span><span style='background: #AEF1AE'>        if (rest.length == 1)
+</span>190 <span style=''></span><span style='background: #AEF1AE'>          r.head // * above
+</span>191 <span style=''></span><span style='background: #AEF1AE'>        else
+</span>192 <span style=''></span><span style='background: #AEF1AE'>          new GenericInternalRow(r.toArray[Any])
+</span>193 <span style=''></span><span style='background: #AEF1AE'>      })
+</span>194 <span style=''></span><span style='background: #AEF1AE'>      InternalRow(gr, res)
+</span>195 <span style=''></span><span style='background: #AEF1AE'>    }, true)</span><span style=''>
+</span>196 <span style=''>  }
+</span>197 <span style=''>
+</span>198 <span style=''>  override def nullable: Boolean = </span><span style='background: #AEF1AE'>false</span><span style=''>
+</span>199 <span style=''>
+</span>200 <span style=''>  override def eval(input: InternalRow): Any =
+</span>201 <span style=''>    </span><span style='background: #AEF1AE'>impl._2(input, children.head.eval(input))</span><span style=''>
+</span>202 <span style=''>
+</span>203 <span style=''>  override def dataType: DataType = </span><span style='background: #AEF1AE'>impl._1</span><span style=''>
+</span>204 <span style=''>
+</span>205 <span style=''>}
+</span>206 <span style=''>
+</span>207 <span style=''>// at least three children, the actual column, the group expression encoder, the resultsuite expression decoder, the optional processor
+</span>208 <span style=''>case class GroupResults(children: Seq[Expression]) extends GroupResultsBase {
+</span>209 <span style=''>  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
+</span>210 <span style=''>    </span><span style='background: #AEF1AE'>copy(newChildren)</span><span style=''>
+</span>211 <span style=''>
+</span>212 <span style=''>  override def processResult(row: InternalRow, input: ArrayData): Any = input
+</span>213 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          3831
+        </td>
+        <td>
+          1368
+          -
+          1371
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.MergeGroups.$anon.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new $anon()
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          3838
+        </td>
+        <td>
+          1546
+          -
+          1549
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.MergeGroups.$anon.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new $anon()
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          3832
+        </td>
+        <td>
+          1682
+          -
+          1695
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetResult.ruleResults
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x.ruleResults
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          3833
+        </td>
+        <td>
+          1684
+          -
+          1684
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.MergeGroups.ruleResultSemi
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MergeGroups.this.ruleResultSemi
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          3834
+        </td>
+        <td>
+          1684
+          -
+          1684
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          cats.kernel.instances.MapInstances1.catsKernelStdMonoidForMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cats.implicits.catsKernelStdMonoidForMap[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleResult](MergeGroups.this.ruleResultSemi)
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          3835
+        </td>
+        <td>
+          1700
+          -
+          1713
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetResult.ruleResults
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          y.ruleResults
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          3836
+        </td>
+        <td>
+          1682
+          -
+          1713
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          cats.syntax.SemigroupOps.|+|
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cats.implicits.catsSyntaxSemigroup[Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleResult]](x.ruleResults)(cats.implicits.catsKernelStdMonoidForMap[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleResult](MergeGroups.this.ruleResultSemi)).|+|(y.ruleResults)
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          3837
+        </td>
+        <td>
+          1661
+          -
+          1714
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSetResult.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x.copy(x$2, x$1)
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          3845
+        </td>
+        <td>
+          1751
+          -
+          1754
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.MergeGroups.$anon.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new $anon()
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          3839
+        </td>
+        <td>
+          1898
+          -
+          1914
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteResult.ruleSetResults
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x.ruleSetResults
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          3840
+        </td>
+        <td>
+          1900
+          -
+          1900
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.MergeGroups.ruleSetSemi
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MergeGroups.this.ruleSetSemi
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          3841
+        </td>
+        <td>
+          1900
+          -
+          1900
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          cats.kernel.instances.MapInstances1.catsKernelStdMonoidForMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cats.implicits.catsKernelStdMonoidForMap[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetResult](MergeGroups.this.ruleSetSemi)
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          3842
+        </td>
+        <td>
+          1919
+          -
+          1935
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteResult.ruleSetResults
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          y.ruleSetResults
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          3843
+        </td>
+        <td>
+          1898
+          -
+          1935
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          cats.syntax.SemigroupOps.|+|
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cats.implicits.catsSyntaxSemigroup[Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleSetResult]](x.ruleSetResults)(cats.implicits.catsKernelStdMonoidForMap[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSetResult](MergeGroups.this.ruleSetSemi)).|+|(y.ruleSetResults)
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          3844
+        </td>
+        <td>
+          1874
+          -
+          1936
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteResult.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x.copy(x$2, x$3, x$1)
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          3846
+        </td>
+        <td>
+          2063
+          -
+          2086
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteGroupResults.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.RuleSuiteGroupResults.apply()
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          3854
+        </td>
+        <td>
+          2048
+          -
+          2205
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.foldLeft
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          items.foldLeft[com.sparkutils.quality.RuleSuiteGroupResults](com.sparkutils.quality.RuleSuiteGroupResults.apply())(((cur: com.sparkutils.quality.RuleSuiteGroupResults, next: com.sparkutils.quality.RuleSuiteResult) =&gt; cur.copy(cats.implicits.catsSyntaxSemigroup[Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleSuiteResult]](cur.ruleSuiteResults)(cats.implicits.catsKernelStdMonoidForMap[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSuiteResult](MergeGroups.this.ruleSuiteSemi)).|+|(scala.Predef.Map.apply[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSuiteResult](scala.Predef.ArrowAssoc[com.sparkutils.quality.VersionedId](next.id).-&gt;[com.sparkutils.quality.RuleSuiteResult](next))))))
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          3847
+        </td>
+        <td>
+          2151
+          -
+          2171
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteGroupResults.ruleSuiteResults
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cur.ruleSuiteResults
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          3848
+        </td>
+        <td>
+          2155
+          -
+          2155
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.MergeGroups.ruleSuiteSemi
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MergeGroups.this.ruleSuiteSemi
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          3849
+        </td>
+        <td>
+          2155
+          -
+          2155
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          cats.kernel.instances.MapInstances1.catsKernelStdMonoidForMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cats.implicits.catsKernelStdMonoidForMap[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSuiteResult](MergeGroups.this.ruleSuiteSemi)
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          3850
+        </td>
+        <td>
+          2180
+          -
+          2195
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.ArrowAssoc[com.sparkutils.quality.VersionedId](next.id).-&gt;[com.sparkutils.quality.RuleSuiteResult](next)
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          3851
+        </td>
+        <td>
+          2176
+          -
+          2196
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapFactory.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.Map.apply[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSuiteResult](scala.Predef.ArrowAssoc[com.sparkutils.quality.VersionedId](next.id).-&gt;[com.sparkutils.quality.RuleSuiteResult](next))
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          3852
+        </td>
+        <td>
+          2151
+          -
+          2196
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          cats.syntax.SemigroupOps.|+|
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cats.implicits.catsSyntaxSemigroup[Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleSuiteResult]](cur.ruleSuiteResults)(cats.implicits.catsKernelStdMonoidForMap[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSuiteResult](MergeGroups.this.ruleSuiteSemi)).|+|(scala.Predef.Map.apply[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSuiteResult](scala.Predef.ArrowAssoc[com.sparkutils.quality.VersionedId](next.id).-&gt;[com.sparkutils.quality.RuleSuiteResult](next)))
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          3853
+        </td>
+        <td>
+          2123
+          -
+          2197
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteGroupResults.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cur.copy(cats.implicits.catsSyntaxSemigroup[Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleSuiteResult]](cur.ruleSuiteResults)(cats.implicits.catsKernelStdMonoidForMap[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSuiteResult](MergeGroups.this.ruleSuiteSemi)).|+|(scala.Predef.Map.apply[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSuiteResult](scala.Predef.ArrowAssoc[com.sparkutils.quality.VersionedId](next.id).-&gt;[com.sparkutils.quality.RuleSuiteResult](next))))
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          3855
+        </td>
+        <td>
+          2341
+          -
+          2364
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteGroupResults.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.RuleSuiteGroupResults.apply()
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          3862
+        </td>
+        <td>
+          2326
+          -
+          2478
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.foldLeft
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          items.foldLeft[com.sparkutils.quality.RuleSuiteGroupResults](com.sparkutils.quality.RuleSuiteGroupResults.apply())(((cur: com.sparkutils.quality.RuleSuiteGroupResults, next: com.sparkutils.quality.RuleSuiteGroupResults) =&gt; cur.copy(cats.implicits.catsSyntaxSemigroup[Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleSuiteResult]](cur.ruleSuiteResults)(cats.implicits.catsKernelStdMonoidForMap[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSuiteResult](MergeGroups.this.ruleSuiteSemi)).|+|(next.ruleSuiteResults))))
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          3856
+        </td>
+        <td>
+          2425
+          -
+          2445
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteGroupResults.ruleSuiteResults
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cur.ruleSuiteResults
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          3857
+        </td>
+        <td>
+          2429
+          -
+          2429
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.MergeGroups.ruleSuiteSemi
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MergeGroups.this.ruleSuiteSemi
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          3858
+        </td>
+        <td>
+          2429
+          -
+          2429
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          cats.kernel.instances.MapInstances1.catsKernelStdMonoidForMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cats.implicits.catsKernelStdMonoidForMap[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSuiteResult](MergeGroups.this.ruleSuiteSemi)
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          3859
+        </td>
+        <td>
+          2450
+          -
+          2471
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteGroupResults.ruleSuiteResults
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          next.ruleSuiteResults
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          3860
+        </td>
+        <td>
+          2425
+          -
+          2471
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          cats.syntax.SemigroupOps.|+|
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cats.implicits.catsSyntaxSemigroup[Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleSuiteResult]](cur.ruleSuiteResults)(cats.implicits.catsKernelStdMonoidForMap[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSuiteResult](MergeGroups.this.ruleSuiteSemi)).|+|(next.ruleSuiteResults)
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          3861
+        </td>
+        <td>
+          2397
+          -
+          2472
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.RuleSuiteGroupResults.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cur.copy(cats.implicits.catsSyntaxSemigroup[Map[com.sparkutils.quality.VersionedId,com.sparkutils.quality.RuleSuiteResult]](cur.ruleSuiteResults)(cats.implicits.catsKernelStdMonoidForMap[com.sparkutils.quality.VersionedId, com.sparkutils.quality.RuleSuiteResult](MergeGroups.this.ruleSuiteSemi)).|+|(next.ruleSuiteResults))
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          3863
+        </td>
+        <td>
+          2545
+          -
+          2581
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.MergeGroups.merge
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.implicitly[com.sparkutils.quality.impl.MergeGroups[T]](evidence$1).merge(rs)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          3864
+        </td>
+        <td>
+          2701
+          -
+          2731
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.EncodersImplicits.ruleSuiteResultExpEnc
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          Encoders.ruleSuiteResultExpEnc
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          3865
+        </td>
+        <td>
+          2673
+          -
+          2732
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.ShimUtils.expressionEncoder
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.ShimUtils.expressionEncoder[com.sparkutils.quality.RuleSuiteResult](Encoders.ruleSuiteResultExpEnc)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          3866
+        </td>
+        <td>
+          2673
+          -
+          2749
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.encoders.ExpressionEncoder.resolveAndBind
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.resolveAndBind(x$1, x$2)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          3867
+        </td>
+        <td>
+          2673
+          -
+          2762
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.encoders.ExpressionEncoder.deserializer
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  &lt;artifact&gt; val qual$1: org.apache.spark.sql.catalyst.encoders.ExpressionEncoder[com.sparkutils.quality.RuleSuiteResult] @scala.reflect.internal.annotations.uncheckedBounds = org.apache.spark.sql.ShimUtils.expressionEncoder[com.sparkutils.quality.RuleSuiteResult](Encoders.ruleSuiteResultExpEnc);
+  &lt;artifact&gt; val x$1: Seq[org.apache.spark.sql.catalyst.expressions.Attribute] @scala.reflect.internal.annotations.uncheckedBounds = qual$1.resolveAndBind$default$1;
+  &lt;artifact&gt; val x$2: org.apache.spark.sql.catalyst.analysis.Analyzer = qual$1.resolveAndBind$default$2;
+  qual$1.resolveAndBind(x$1, x$2)
+}.deserializer
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          3868
+        </td>
+        <td>
+          2808
+          -
+          2849
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.EncodersImplicits.ruleSuiteGroupResultsTypedExpEnc
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          Encoders.ruleSuiteGroupResultsTypedExpEnc
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          3869
+        </td>
+        <td>
+          2780
+          -
+          2850
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.ShimUtils.expressionEncoder
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.ShimUtils.expressionEncoder[com.sparkutils.quality.RuleSuiteGroupResults](Encoders.ruleSuiteGroupResultsTypedExpEnc)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          3870
+        </td>
+        <td>
+          2780
+          -
+          2867
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.encoders.ExpressionEncoder.resolveAndBind
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$2.resolveAndBind(x$3, x$4)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          3871
+        </td>
+        <td>
+          2780
+          -
+          2881
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.encoders.ExpressionEncoder.objSerializer
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  &lt;artifact&gt; val qual$2: org.apache.spark.sql.catalyst.encoders.ExpressionEncoder[com.sparkutils.quality.RuleSuiteGroupResults] @scala.reflect.internal.annotations.uncheckedBounds = org.apache.spark.sql.ShimUtils.expressionEncoder[com.sparkutils.quality.RuleSuiteGroupResults](Encoders.ruleSuiteGroupResultsTypedExpEnc);
+  &lt;artifact&gt; val x$3: Seq[org.apache.spark.sql.catalyst.expressions.Attribute] @scala.reflect.internal.annotations.uncheckedBounds = qual$2.resolveAndBind$default$1;
+  &lt;artifact&gt; val x$4: org.apache.spark.sql.catalyst.analysis.Analyzer = qual$2.resolveAndBind$default$2;
+  qual$2.resolveAndBind(x$3, x$4)
+}.objSerializer
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          3872
+        </td>
+        <td>
+          2927
+          -
+          2968
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.EncodersImplicits.ruleSuiteGroupResultsTypedExpEnc
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          Encoders.ruleSuiteGroupResultsTypedExpEnc
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          3873
+        </td>
+        <td>
+          2899
+          -
+          2969
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.ShimUtils.expressionEncoder
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.ShimUtils.expressionEncoder[com.sparkutils.quality.RuleSuiteGroupResults](Encoders.ruleSuiteGroupResultsTypedExpEnc)
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          3874
+        </td>
+        <td>
+          2899
+          -
+          2986
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.encoders.ExpressionEncoder.resolveAndBind
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$3.resolveAndBind(x$5, x$6)
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          3875
+        </td>
+        <td>
+          2899
+          -
+          2999
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.encoders.ExpressionEncoder.deserializer
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  &lt;artifact&gt; val qual$3: org.apache.spark.sql.catalyst.encoders.ExpressionEncoder[com.sparkutils.quality.RuleSuiteGroupResults] @scala.reflect.internal.annotations.uncheckedBounds = org.apache.spark.sql.ShimUtils.expressionEncoder[com.sparkutils.quality.RuleSuiteGroupResults](Encoders.ruleSuiteGroupResultsTypedExpEnc);
+  &lt;artifact&gt; val x$5: Seq[org.apache.spark.sql.catalyst.expressions.Attribute] @scala.reflect.internal.annotations.uncheckedBounds = qual$3.resolveAndBind$default$1;
+  &lt;artifact&gt; val x$6: org.apache.spark.sql.catalyst.analysis.Analyzer = qual$3.resolveAndBind$default$2;
+  qual$3.resolveAndBind(x$5, x$6)
+}.deserializer
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          3876
+        </td>
+        <td>
+          3017
+          -
+          3050
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqFactory.Delegate.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.`package`.Seq.apply[org.apache.spark.sql.catalyst.expressions.Expression](group, rsgEnc, rsDec, rsgDec)
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          3877
+        </td>
+        <td>
+          3004
+          -
+          3051
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.GroupResults.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GroupResults.apply(scala.`package`.Seq.apply[org.apache.spark.sql.catalyst.expressions.Expression](group, rsgEnc, rsDec, rsgDec))
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          3878
+        </td>
+        <td>
+          3222
+          -
+          3252
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.EncodersImplicits.ruleSuiteResultExpEnc
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          Encoders.ruleSuiteResultExpEnc
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          3879
+        </td>
+        <td>
+          3194
+          -
+          3253
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.ShimUtils.expressionEncoder
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.ShimUtils.expressionEncoder[com.sparkutils.quality.RuleSuiteResult](Encoders.ruleSuiteResultExpEnc)
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          3880
+        </td>
+        <td>
+          3194
+          -
+          3270
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.encoders.ExpressionEncoder.resolveAndBind
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.resolveAndBind(x$1, x$2)
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          3881
+        </td>
+        <td>
+          3194
+          -
+          3283
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.encoders.ExpressionEncoder.deserializer
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  &lt;artifact&gt; val qual$1: org.apache.spark.sql.catalyst.encoders.ExpressionEncoder[com.sparkutils.quality.RuleSuiteResult] @scala.reflect.internal.annotations.uncheckedBounds = org.apache.spark.sql.ShimUtils.expressionEncoder[com.sparkutils.quality.RuleSuiteResult](Encoders.ruleSuiteResultExpEnc);
+  &lt;artifact&gt; val x$1: Seq[org.apache.spark.sql.catalyst.expressions.Attribute] @scala.reflect.internal.annotations.uncheckedBounds = qual$1.resolveAndBind$default$1;
+  &lt;artifact&gt; val x$2: org.apache.spark.sql.catalyst.analysis.Analyzer = qual$1.resolveAndBind$default$2;
+  qual$1.resolveAndBind(x$1, x$2)
+}.deserializer
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          3882
+        </td>
+        <td>
+          3329
+          -
+          3370
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.EncodersImplicits.ruleSuiteGroupResultsTypedExpEnc
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          Encoders.ruleSuiteGroupResultsTypedExpEnc
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          3883
+        </td>
+        <td>
+          3301
+          -
+          3371
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.ShimUtils.expressionEncoder
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.ShimUtils.expressionEncoder[com.sparkutils.quality.RuleSuiteGroupResults](Encoders.ruleSuiteGroupResultsTypedExpEnc)
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          3884
+        </td>
+        <td>
+          3301
+          -
+          3388
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.encoders.ExpressionEncoder.resolveAndBind
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$2.resolveAndBind(x$3, x$4)
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          3885
+        </td>
+        <td>
+          3301
+          -
+          3402
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.encoders.ExpressionEncoder.objSerializer
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  &lt;artifact&gt; val qual$2: org.apache.spark.sql.catalyst.encoders.ExpressionEncoder[com.sparkutils.quality.RuleSuiteGroupResults] @scala.reflect.internal.annotations.uncheckedBounds = org.apache.spark.sql.ShimUtils.expressionEncoder[com.sparkutils.quality.RuleSuiteGroupResults](Encoders.ruleSuiteGroupResultsTypedExpEnc);
+  &lt;artifact&gt; val x$3: Seq[org.apache.spark.sql.catalyst.expressions.Attribute] @scala.reflect.internal.annotations.uncheckedBounds = qual$2.resolveAndBind$default$1;
+  &lt;artifact&gt; val x$4: org.apache.spark.sql.catalyst.analysis.Analyzer = qual$2.resolveAndBind$default$2;
+  qual$2.resolveAndBind(x$3, x$4)
+}.objSerializer
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          3886
+        </td>
+        <td>
+          3448
+          -
+          3489
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.EncodersImplicits.ruleSuiteGroupResultsTypedExpEnc
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          Encoders.ruleSuiteGroupResultsTypedExpEnc
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          3887
+        </td>
+        <td>
+          3420
+          -
+          3490
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.ShimUtils.expressionEncoder
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.ShimUtils.expressionEncoder[com.sparkutils.quality.RuleSuiteGroupResults](Encoders.ruleSuiteGroupResultsTypedExpEnc)
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          3888
+        </td>
+        <td>
+          3420
+          -
+          3507
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.encoders.ExpressionEncoder.resolveAndBind
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          qual$3.resolveAndBind(x$5, x$6)
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          3889
+        </td>
+        <td>
+          3420
+          -
+          3520
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.encoders.ExpressionEncoder.deserializer
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  &lt;artifact&gt; val qual$3: org.apache.spark.sql.catalyst.encoders.ExpressionEncoder[com.sparkutils.quality.RuleSuiteGroupResults] @scala.reflect.internal.annotations.uncheckedBounds = org.apache.spark.sql.ShimUtils.expressionEncoder[com.sparkutils.quality.RuleSuiteGroupResults](Encoders.ruleSuiteGroupResultsTypedExpEnc);
+  &lt;artifact&gt; val x$5: Seq[org.apache.spark.sql.catalyst.expressions.Attribute] @scala.reflect.internal.annotations.uncheckedBounds = qual$3.resolveAndBind$default$1;
+  &lt;artifact&gt; val x$6: org.apache.spark.sql.catalyst.analysis.Analyzer = qual$3.resolveAndBind$default$2;
+  qual$3.resolveAndBind(x$5, x$6)
+}.deserializer
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          3890
+        </td>
+        <td>
+          3525
+          -
+          3539
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          group.dataType
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          3891
+        </td>
+        <td>
+          3587
+          -
+          3589
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          3892
+        </td>
+        <td>
+          3587
+          -
+          3589
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          3893
+        </td>
+        <td>
+          3623
+          -
+          3639
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.GroupResults.typeCheckText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GroupResults.this.typeCheckText(s)
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          3894
+        </td>
+        <td>
+          3606
+          -
+          3640
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.QualityException.qualityException
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.QualityException.qualityException(GroupResults.this.typeCheckText(s), com.sparkutils.quality.QualityException.qualityException$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          3895
+        </td>
+        <td>
+          3606
+          -
+          3640
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.QualityException.qualityException
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.QualityException.qualityException(GroupResults.this.typeCheckText(s), com.sparkutils.quality.QualityException.qualityException$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          3896
+        </td>
+        <td>
+          3676
+          -
+          3686
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqFactory.Delegate.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.`package`.Seq.apply[org.apache.spark.sql.catalyst.expressions.Expression](group)
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          3897
+        </td>
+        <td>
+          3673
+          -
+          3687
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.GroupResults.rd
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GroupResults.this.rd(scala.`package`.Seq.apply[org.apache.spark.sql.catalyst.expressions.Expression](group))
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          3898
+        </td>
+        <td>
+          3655
+          -
+          3670
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[org.apache.spark.sql.types.DataType, Boolean](typ, nullable)
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          3899
+        </td>
+        <td>
+          3655
+          -
+          3670
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[org.apache.spark.sql.types.DataType, Boolean](typ, nullable)
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          3900
+        </td>
+        <td>
+          3656
+          -
+          3656
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$1._1
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          3901
+        </td>
+        <td>
+          3661
+          -
+          3661
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$1._2
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          3902
+        </td>
+        <td>
+          3716
+          -
+          3740
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.ArrayType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.ArrayType.apply(typ, nullable)
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          3903
+        </td>
+        <td>
+          3702
+          -
+          3741
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.RefExpression.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.qualityFunctions.RefExpression.apply(org.apache.spark.sql.types.ArrayType.apply(typ, nullable), org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$2, org.apache.spark.sql.qualityFunctions.RefExpression.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          3904
+        </td>
+        <td>
+          3771
+          -
+          3809
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqFactory.Delegate.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.`package`.Seq.apply[org.apache.spark.sql.catalyst.expressions.Expression](group, rsgEnc, rsDec, rsgDec, ref)
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          3905
+        </td>
+        <td>
+          3747
+          -
+          3813
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.qualityFunctions.GroupResultsWithProcess.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.qualityFunctions.GroupResultsWithProcess.apply(scala.`package`.Seq.apply[org.apache.spark.sql.catalyst.expressions.Expression](group, rsgEnc, rsDec, rsgDec, ref), l)
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          3906
+        </td>
+        <td>
+          3892
+          -
+          3938
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          children.head.dataType.asInstanceOf[org.apache.spark.sql.types.ArrayType]
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          3907
+        </td>
+        <td>
+          3951
+          -
+          3989
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          a.elementType.asInstanceOf[org.apache.spark.sql.types.StructType]
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          3908
+        </td>
+        <td>
+          4020
+          -
+          4036
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.ArrayOps.drop
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](s.fields).drop(1)
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          3909
+        </td>
+        <td>
+          4004
+          -
+          4037
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          s.copy(scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](s.fields).drop(1))
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          3910
+        </td>
+        <td>
+          4046
+          -
+          4067
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          rs.fields.length.==(1)
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          3911
+        </td>
+        <td>
+          4145
+          -
+          4154
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.fields
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          rs.fields
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          3912
+        </td>
+        <td>
+          4145
+          -
+          4168
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](rs.fields).head.dataType
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          3913
+        </td>
+        <td>
+          4170
+          -
+          4179
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.fields
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          rs.fields
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          3914
+        </td>
+        <td>
+          4170
+          -
+          4193
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.nullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](rs.fields).head.nullable
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          3915
+        </td>
+        <td>
+          4144
+          -
+          4194
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[org.apache.spark.sql.types.DataType, Boolean](scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](rs.fields).head.dataType, scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](rs.fields).head.nullable)
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          3916
+        </td>
+        <td>
+          4144
+          -
+          4194
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[org.apache.spark.sql.types.DataType, Boolean](scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](rs.fields).head.dataType, scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](rs.fields).head.nullable)
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          3917
+        </td>
+        <td>
+          4217
+          -
+          4231
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.ArrayType.containsNull
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          a.containsNull
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          3918
+        </td>
+        <td>
+          4212
+          -
+          4232
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[org.apache.spark.sql.types.StructType, Boolean](rs, a.containsNull)
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          3919
+        </td>
+        <td>
+          4212
+          -
+          4232
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[org.apache.spark.sql.types.StructType, Boolean](rs, a.containsNull)
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          3920
+        </td>
+        <td>
+          4275
+          -
+          4477
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;GroupResult supports arrays of structures with ruleSuiteGroup: RuleSuiteGroup and &quot;.+(&quot;ruleSuiteResults: RuleSuiteResult as their first (or as the direct array member), instead &quot;.+(typ).+(&quot; was provided&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          3921
+        </td>
+        <td>
+          4569
+          -
+          4577
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.fields
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          s.fields
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          3926
+        </td>
+        <td>
+          4569
+          -
+          4678
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.ArrayOps.exists
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](s.fields).exists(((f: org.apache.spark.sql.types.StructField) =&gt; names.contains(f.name).&amp;&amp;(com.sparkutils.quality.impl.util.Compare.equalsIgnoreCaseAndNullability(f.dataType, of))))
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          3922
+        </td>
+        <td>
+          4612
+          -
+          4618
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          f.name
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          3925
+        </td>
+        <td>
+          4597
+          -
+          4677
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          names.contains(f.name).&amp;&amp;(com.sparkutils.quality.impl.util.Compare.equalsIgnoreCaseAndNullability(f.dataType, of))
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          3923
+        </td>
+        <td>
+          4662
+          -
+          4672
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          f.dataType
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          3924
+        </td>
+        <td>
+          4631
+          -
+          4677
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.Compare.equalsIgnoreCaseAndNullability
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.Compare.equalsIgnoreCaseAndNullability(f.dataType, of)
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          3927
+        </td>
+        <td>
+          4686
+          -
+          4690
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          3928
+        </td>
+        <td>
+          4686
+          -
+          4690
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          3929
+        </td>
+        <td>
+          4706
+          -
+          4711
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          3930
+        </td>
+        <td>
+          4706
+          -
+          4711
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          3931
+        </td>
+        <td>
+          4805
+          -
+          4828
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableFactory.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.Set.apply[String](&quot;ruleSuiteResults&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          3932
+        </td>
+        <td>
+          4735
+          -
+          4829
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.GroupResults.hasResultTypeF
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GroupResults.this.hasResultTypeF(com.sparkutils.quality.impl.types.`package`.ruleSuiteResultType, eta$0$2)(s)
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          3933
+        </td>
+        <td>
+          5002
+          -
+          5053
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          frameless.TypedEncoder.catalystRepr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          Encoders.ruleSuiteGroupResultsTypedEnc.catalystRepr
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          3934
+        </td>
+        <td>
+          5055
+          -
+          5096
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableFactory.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.Set.apply[String](&quot;ruleSuiteGroup&quot;, &quot;ruleSuiteResults&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          3935
+        </td>
+        <td>
+          4986
+          -
+          5097
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.GroupResults.hasResultTypeF
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GroupResults.this.hasResultTypeF(eta$0$1, eta$1$1)(s)
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          3936
+        </td>
+        <td>
+          5559
+          -
+          5586
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          arr.asInstanceOf[org.apache.spark.sql.catalyst.util.ArrayData]
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          3937
+        </td>
+        <td>
+          5604
+          -
+          5635
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.ofDim
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Array.ofDim[T](a.numElements())(evidence$3)
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          3938
+        </td>
+        <td>
+          5676
+          -
+          5691
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.ArrayData.numElements
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          a.numElements()
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          3939
+        </td>
+        <td>
+          5659
+          -
+          5692
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.ofDim
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Array.ofDim[Any](a.numElements())((ClassTag.Any: scala.reflect.ClassTag[Any]))
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          3948
+        </td>
+        <td>
+          5698
+          -
+          5885
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.ArrayData.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          a.foreach(s, ((i: Int, e: Any) =&gt; {
+  val r: org.apache.spark.sql.catalyst.InternalRow = e.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow];
+  copied.update(i, deserializer.eval(if (dq)
+  r
+else
+  r.getStruct(0, 3)).asInstanceOf[T]);
+  copiedResult.update(i, f.apply(r))
+}))
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          3940
+        </td>
+        <td>
+          5736
+          -
+          5763
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          e.asInstanceOf[org.apache.spark.sql.catalyst.InternalRow]
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          3941
+        </td>
+        <td>
+          5808
+          -
+          5809
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.sparkutils.quality.impl.GroupResultsBase.r
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          r
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          3942
+        </td>
+        <td>
+          5815
+          -
+          5832
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.SpecializedGetters.getStruct
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          r.getStruct(0, 3)
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          3943
+        </td>
+        <td>
+          5815
+          -
+          5832
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.SpecializedGetters.getStruct
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          r.getStruct(0, 3)
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          3944
+        </td>
+        <td>
+          5782
+          -
+          5849
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          deserializer.eval(if (dq)
+  r
+else
+  r.getStruct(0, 3)).asInstanceOf[T]
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          3945
+        </td>
+        <td>
+          5770
+          -
+          5849
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          copied.update(i, deserializer.eval(if (dq)
+  r
+else
+  r.getStruct(0, 3)).asInstanceOf[T])
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          3946
+        </td>
+        <td>
+          5874
+          -
+          5878
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          f.apply(r)
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          3947
+        </td>
+        <td>
+          5856
+          -
+          5878
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          copiedResult.update(i, f.apply(r))
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          3949
+        </td>
+        <td>
+          5901
+          -
+          5902
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          3950
+        </td>
+        <td>
+          5921
+          -
+          5946
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.MergeGroups.group
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MergeGroups.group[T](scala.Predef.copyArrayToImmutableIndexedSeq[T](copied))(evidence$2)
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          3951
+        </td>
+        <td>
+          5909
+          -
+          5947
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.InternalRow.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.InternalRow.apply(MergeGroups.group[T](scala.Predef.copyArrayToImmutableIndexedSeq[T](copied))(evidence$2))
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          3952
+        </td>
+        <td>
+          5892
+          -
+          5974
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GroupResultsBase.this.children.apply(1).eval(org.apache.spark.sql.catalyst.InternalRow.apply(MergeGroups.group[T](scala.Predef.copyArrayToImmutableIndexedSeq[T](copied))(evidence$2))).asInstanceOf[org.apache.spark.sql.catalyst.InternalRow]
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          3955
+        </td>
+        <td>
+          5891
+          -
+          6037
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[org.apache.spark.sql.catalyst.InternalRow, Any](GroupResultsBase.this.children.apply(1).eval(org.apache.spark.sql.catalyst.InternalRow.apply(MergeGroups.group[T](scala.Predef.copyArrayToImmutableIndexedSeq[T](copied))(evidence$2))).asInstanceOf[org.apache.spark.sql.catalyst.InternalRow], GroupResultsBase.this.processResult(row, new org.apache.spark.sql.catalyst.util.GenericArrayData(copiedResult)))
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          3953
+        </td>
+        <td>
+          6001
+          -
+          6035
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.GenericArrayData.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.sql.catalyst.util.GenericArrayData(copiedResult)
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          3954
+        </td>
+        <td>
+          5982
+          -
+          6036
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.GroupResultsBase.processResult
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GroupResultsBase.this.processResult(row, new org.apache.spark.sql.catalyst.util.GenericArrayData(copiedResult))
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          3963
+        </td>
+        <td>
+          6087
+          -
+          6274
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqFactory.Delegate.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.`package`.Seq.apply[org.apache.spark.sql.types.StructField](org.apache.spark.sql.types.StructField.apply(&quot;ruleSuiteGroup&quot;, Encoders.ruleSuiteGroupResultsTypedEnc.catalystRepr, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4), org.apache.spark.sql.types.StructField.apply(&quot;result&quot;, GroupResultsBase.this.processResultType, GroupResultsBase.this.processResultNullable, org.apache.spark.sql.types.StructField.apply$default$4))
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          3964
+        </td>
+        <td>
+          6076
+          -
+          6275
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructType.apply(scala.`package`.Seq.apply[org.apache.spark.sql.types.StructField](org.apache.spark.sql.types.StructField.apply(&quot;ruleSuiteGroup&quot;, Encoders.ruleSuiteGroupResultsTypedEnc.catalystRepr, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4), org.apache.spark.sql.types.StructField.apply(&quot;result&quot;, GroupResultsBase.this.processResultType, GroupResultsBase.this.processResultNullable, org.apache.spark.sql.types.StructField.apply$default$4)))
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          3956
+        </td>
+        <td>
+          6110
+          -
+          6126
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;ruleSuiteGroup&quot;
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          3957
+        </td>
+        <td>
+          6128
+          -
+          6179
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          frameless.TypedEncoder.catalystRepr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          Encoders.ruleSuiteGroupResultsTypedEnc.catalystRepr
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          3958
+        </td>
+        <td>
+          6098
+          -
+          6180
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply(&quot;ruleSuiteGroup&quot;, Encoders.ruleSuiteGroupResultsTypedEnc.catalystRepr, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          3959
+        </td>
+        <td>
+          6200
+          -
+          6208
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;result&quot;
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          3962
+        </td>
+        <td>
+          6188
+          -
+          6268
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StructField.apply(&quot;result&quot;, GroupResultsBase.this.processResultType, GroupResultsBase.this.processResultNullable, org.apache.spark.sql.types.StructField.apply$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          3960
+        </td>
+        <td>
+          6218
+          -
+          6235
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.GroupResultsBase.processResultType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GroupResultsBase.this.processResultType
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          3961
+        </td>
+        <td>
+          6246
+          -
+          6267
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.GroupResultsBase.processResultNullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GroupResultsBase.this.processResultNullable
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          3965
+        </td>
+        <td>
+          6352
+          -
+          6360
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.NullType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.NullType
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          3966
+        </td>
+        <td>
+          6341
+          -
+          6360
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.!=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GroupResultsBase.this.impl._1.!=(org.apache.spark.sql.types.NullType)
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          3967
+        </td>
+        <td>
+          6368
+          -
+          6400
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.analysis.TypeCheckResult.TypeCheckSuccess
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.analysis.TypeCheckResult.TypeCheckSuccess
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          3968
+        </td>
+        <td>
+          6368
+          -
+          6400
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.analysis.TypeCheckResult.TypeCheckSuccess
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.analysis.TypeCheckResult.TypeCheckSuccess
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          3969
+        </td>
+        <td>
+          6463
+          -
+          6485
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GroupResultsBase.this.children.head.dataType
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          3970
+        </td>
+        <td>
+          6449
+          -
+          6486
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.GroupResults.typeCheckText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.GroupResults.typeCheckText(GroupResultsBase.this.children.head.dataType)
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          3971
+        </td>
+        <td>
+          6416
+          -
+          6487
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.analysis.TypeCheckResult.TypeCheckFailure.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.analysis.TypeCheckResult.TypeCheckFailure.apply(com.sparkutils.quality.impl.GroupResults.typeCheckText(GroupResultsBase.this.children.head.dataType))
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          3972
+        </td>
+        <td>
+          6416
+          -
+          6487
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.analysis.TypeCheckResult.TypeCheckFailure.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.analysis.TypeCheckResult.TypeCheckFailure.apply(com.sparkutils.quality.impl.GroupResults.typeCheckText(GroupResultsBase.this.children.head.dataType))
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          3973
+        </td>
+        <td>
+          6556
+          -
+          6564
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.trees.TreeNode.children
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GroupResultsBase.this.children
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          3974
+        </td>
+        <td>
+          6553
+          -
+          6565
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.GroupResults.rd
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.GroupResults.rd(GroupResultsBase.this.children)
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          3975
+        </td>
+        <td>
+          6535
+          -
+          6550
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[org.apache.spark.sql.types.DataType, Boolean](typ, nullable)
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          3976
+        </td>
+        <td>
+          6535
+          -
+          6550
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[org.apache.spark.sql.types.DataType, Boolean](typ, nullable)
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          3977
+        </td>
+        <td>
+          6536
+          -
+          6536
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$2._1
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          3978
+        </td>
+        <td>
+          6541
+          -
+          6541
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$2._2
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          3979
+        </td>
+        <td>
+          6570
+          -
+          6594
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.ArrayType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.ArrayType.apply(typ, nullable)
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          3980
+        </td>
+        <td>
+          6641
+          -
+          6649
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.trees.TreeNode.children
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GroupResultsBase.this.children
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          3981
+        </td>
+        <td>
+          6638
+          -
+          6653
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.GroupResults.rd(GroupResultsBase.this.children)._2
+        </td>
+      </tr><tr>
+        <td>
+          177
+        </td>
+        <td>
+          3982
+        </td>
+        <td>
+          7820
+          -
+          7871
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          frameless.TypedEncoder.catalystRepr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          Encoders.ruleSuiteGroupResultsTypedEnc.catalystRepr
+        </td>
+      </tr><tr>
+        <td>
+          177
+        </td>
+        <td>
+          3988
+        </td>
+        <td>
+          7819
+          -
+          7997
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple3.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple3.apply[org.apache.spark.sql.types.DataType, (org.apache.spark.sql.catalyst.InternalRow, Any) =&gt; org.apache.spark.sql.catalyst.InternalRow, Boolean](Encoders.ruleSuiteGroupResultsTypedEnc.catalystRepr, ((row: org.apache.spark.sql.catalyst.InternalRow, r: Any) =&gt; GroupResultsBase.this.groupFrom[T](converter, row, true, a.elementType.asInstanceOf[org.apache.spark.sql.types.StructType], r, ((x: org.apache.spark.sql.catalyst.InternalRow) =&gt; scala.Predef.identity[org.apache.spark.sql.catalyst.InternalRow](x)))(evidence$4, evidence$5)._1), false)
+        </td>
+      </tr><tr>
+        <td>
+          178
+        </td>
+        <td>
+          3983
+        </td>
+        <td>
+          7920
+          -
+          7924
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          3984
+        </td>
+        <td>
+          7934
+          -
+          7972
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          a.elementType.asInstanceOf[org.apache.spark.sql.types.StructType]
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          3985
+        </td>
+        <td>
+          7977
+          -
+          7985
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.identity
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.identity[org.apache.spark.sql.catalyst.InternalRow](x)
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          3986
+        </td>
+        <td>
+          7891
+          -
+          7989
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GroupResultsBase.this.groupFrom[T](converter, row, true, a.elementType.asInstanceOf[org.apache.spark.sql.types.StructType], r, ((x: org.apache.spark.sql.catalyst.InternalRow) =&gt; scala.Predef.identity[org.apache.spark.sql.catalyst.InternalRow](x)))(evidence$4, evidence$5)._1
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          3987
+        </td>
+        <td>
+          7991
+          -
+          7996
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          183
+        </td>
+        <td>
+          3989
+        </td>
+        <td>
+          8114
+          -
+          8152
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          a.elementType.asInstanceOf[org.apache.spark.sql.types.StructType]
+        </td>
+      </tr><tr>
+        <td>
+          184
+        </td>
+        <td>
+          3990
+        </td>
+        <td>
+          8168
+          -
+          8213
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.ArrayOps.drop
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.refArrayOps[(org.apache.spark.sql.types.DataType, Int)](scala.Predef.refArrayOps[org.apache.spark.sql.types.DataType](scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](s.fields).map[org.apache.spark.sql.types.DataType](((x$3: org.apache.spark.sql.types.StructField) =&gt; x$3.dataType))((ClassTag.apply[org.apache.spark.sql.types.DataType](classOf[org.apache.spark.sql.types.DataType]): scala.reflect.ClassTag[org.apache.spark.sql.types.DataType]))).zipWithIndex).drop(1)
+        </td>
+      </tr><tr>
+        <td>
+          186
+        </td>
+        <td>
+          3991
+        </td>
+        <td>
+          8220
+          -
+          8230
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.GroupResultsBase.resultType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GroupResultsBase.this.resultType
+        </td>
+      </tr><tr>
+        <td>
+          186
+        </td>
+        <td>
+          3999
+        </td>
+        <td>
+          8219
+          -
+          8534
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple3.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple3.apply[org.apache.spark.sql.types.DataType, (org.apache.spark.sql.catalyst.InternalRow, Any) =&gt; org.apache.spark.sql.catalyst.InternalRow, Boolean](GroupResultsBase.this.resultType, ((row: org.apache.spark.sql.catalyst.InternalRow, r: Any) =&gt; {
+  &lt;synthetic&gt; &lt;artifact&gt; private[this] val x$4: (org.apache.spark.sql.catalyst.InternalRow, Any) = (GroupResultsBase.this.groupFrom[T](converter, row, false, s, r, ((e: org.apache.spark.sql.catalyst.InternalRow) =&gt; {
+    val r: Array[Object] = scala.Predef.refArrayOps[(org.apache.spark.sql.types.DataType, Int)](rest).map[Object](((p: (org.apache.spark.sql.types.DataType, Int)) =&gt; e.get(p._2, p._1)))((ClassTag.apply[Object](classOf[java.lang.Object]): scala.reflect.ClassTag[Object]));
+    if (rest.length.==(1))
+      scala.Predef.refArrayOps[Object](r).head
+    else
+      new org.apache.spark.sql.catalyst.expressions.GenericInternalRow(scala.Predef.refArrayOps[Object](r).toArray[Any]((ClassTag.Any: scala.reflect.ClassTag[Any])))
+  }))(evidence$6, evidence$7): (org.apache.spark.sql.catalyst.InternalRow, Any) @unchecked) match {
+    case (_1: org.apache.spark.sql.catalyst.InternalRow, _2: Any): (org.apache.spark.sql.catalyst.InternalRow, Any)((gr @ _), (res @ _)) =&gt; scala.Tuple2.apply[org.apache.spark.sql.catalyst.InternalRow, Any](gr, res)
+  };
+  val gr: org.apache.spark.sql.catalyst.InternalRow = x$4._1;
+  val res: Any = x$4._2;
+  org.apache.spark.sql.catalyst.InternalRow.apply(gr, res)
+}), true)
+        </td>
+      </tr><tr>
+        <td>
+          187
+        </td>
+        <td>
+          3992
+        </td>
+        <td>
+          8268
+          -
+          8494
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.sparkutils.quality.impl.GroupResultsBase.groupFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GroupResultsBase.this.groupFrom[T](converter, row, false, s, r, ((e: org.apache.spark.sql.catalyst.InternalRow) =&gt; {
+  val r: Array[Object] = scala.Predef.refArrayOps[(org.apache.spark.sql.types.DataType, Int)](rest).map[Object](((p: (org.apache.spark.sql.types.DataType, Int)) =&gt; e.get(p._2, p._1)))((ClassTag.apply[Object](classOf[java.lang.Object]): scala.reflect.ClassTag[Object]));
+  if (rest.length.==(1))
+    scala.Predef.refArrayOps[Object](r).head
+  else
+    new org.apache.spark.sql.catalyst.expressions.GenericInternalRow(scala.Predef.refArrayOps[Object](r).toArray[Any]((ClassTag.Any: scala.reflect.ClassTag[Any])))
+}))(evidence$6, evidence$7)
+        </td>
+      </tr><tr>
+        <td>
+          187
+        </td>
+        <td>
+          3993
+        </td>
+        <td>
+          8256
+          -
+          8265
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[org.apache.spark.sql.catalyst.InternalRow, Any](gr, res)
+        </td>
+      </tr><tr>
+        <td>
+          187
+        </td>
+        <td>
+          3994
+        </td>
+        <td>
+          8256
+          -
+          8265
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[org.apache.spark.sql.catalyst.InternalRow, Any](gr, res)
+        </td>
+      </tr><tr>
+        <td>
+          187
+        </td>
+        <td>
+          3995
+        </td>
+        <td>
+          8257
+          -
+          8257
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$4._1
+        </td>
+      </tr><tr>
+        <td>
+          187
+        </td>
+        <td>
+          3996
+        </td>
+        <td>
+          8261
+          -
+          8261
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$4._2
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          3997
+        </td>
+        <td>
+          8501
+          -
+          8521
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.InternalRow.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.InternalRow.apply(gr, res)
+        </td>
+      </tr><tr>
+        <td>
+          195
+        </td>
+        <td>
+          3998
+        </td>
+        <td>
+          8529
+          -
+          8533
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          198
+        </td>
+        <td>
+          4000
+        </td>
+        <td>
+          8575
+          -
+          8580
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          201
+        </td>
+        <td>
+          4001
+        </td>
+        <td>
+          8648
+          -
+          8673
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.eval
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GroupResultsBase.this.children.head.eval(input)
+        </td>
+      </tr><tr>
+        <td>
+          201
+        </td>
+        <td>
+          4002
+        </td>
+        <td>
+          8633
+          -
+          8674
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GroupResultsBase.this.impl._2.apply(input, GroupResultsBase.this.children.head.eval(input))
+        </td>
+      </tr><tr>
+        <td>
+          203
+        </td>
+        <td>
+          4003
+        </td>
+        <td>
+          8712
+          -
+          8719
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple3._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GroupResultsBase.this.impl._1
+        </td>
+      </tr><tr>
+        <td>
+          210
+        </td>
+        <td>
+          4004
+        </td>
+        <td>
+          9033
+          -
+          9050
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.GroupResults.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          GroupResults.this.copy(newChildren)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

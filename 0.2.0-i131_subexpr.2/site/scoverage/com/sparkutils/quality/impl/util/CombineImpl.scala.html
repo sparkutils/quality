@@ -1,0 +1,2349 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/sparkutils/quality/impl/util/CombineImpl.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality.impl.util
+</span>2 <span style=''>
+</span>3 <span style=''>import com.sparkutils.quality.{Id, OutputExpressionRow, LambdaFunctionRow}
+</span>4 <span style=''>import com.sparkutils.quality.NoOpRunOnPassProcessor.{notPresentOutputId, notPresentOutputVersion, notPresentSalience}
+</span>5 <span style=''>import com.sparkutils.quality.RuleSuite.defaultProbablePass
+</span>6 <span style=''>import com.sparkutils.testing.ConnectWhenForced.someOrForcedConnect
+</span>7 <span style=''>import org.apache.spark.sql.functions.{col, collect_set, expr, lit, struct}
+</span>8 <span style=''>import org.apache.spark.sql.types.{ArrayType, DoubleType}
+</span>9 <span style=''>import org.apache.spark.sql.{DataFrame, Encoder, functions}
+</span>10 <span style=''>
+</span>11 <span style=''>/**
+</span>12 <span style=''> * Separate source file and object to allow debugging from other applications
+</span>13 <span style=''> */
+</span>14 <span style=''>protected[quality] object CombineImpl extends GeneratedUniqueName {
+</span>15 <span style=''>  protected val GENERATED_NAME_PREFIX = </span><span style='background: #AEF1AE'>&quot;QUALITY_SERIALIZING_SHIM_GENERATED_NAME_&quot;</span><span style=''>
+</span>16 <span style=''>
+</span>17 <span style=''>  /**
+</span>18 <span style=''>   * combine implementation for loading CombinedRules, this is usable by all jvm languages and, by default, expects a server extension for pure quality_api users.
+</span>19 <span style=''>   * the server implementation will provide a direct call (as it's possible no extension is present)
+</span>20 <span style=''>   *
+</span>21 <span style=''>   * @param ruleRows
+</span>22 <span style=''>   * @param lambdaFunctionRows
+</span>23 <span style=''>   * @param outputExpressionRows
+</span>24 <span style=''>   * @param globalLambdaSuites
+</span>25 <span style=''>   * @param globalOutputExpressionSuites
+</span>26 <span style=''>   * @return a combined dataframe
+</span>27 <span style=''>   */
+</span>28 <span style=''>  protected[quality] def combineImplI(ruleRows: DataFrame, lambdaFunctionRows: Option[DataFrame] = None,
+</span>29 <span style=''>                                     outputExpressionRows: Option[DataFrame] = None,
+</span>30 <span style=''>                                     globalLambdaSuites: Option[DataFrame] = None,
+</span>31 <span style=''>                                     globalOutputExpressionSuites: Option[DataFrame] = None,
+</span>32 <span style=''>                                     ruleSuites: Option[DataFrame] = None): DataFrame = {
+</span>33 <span style=''>
+</span>34 <span style=''>    import ruleRows.sparkSession.implicits._
+</span>35 <span style=''>
+</span>36 <span style=''>    val outputExpressionRowsT = </span><span style='background: #AEF1AE'>outputExpressionRows.flatMap(r =&gt; if (r.isEmpty) </span><span style='background: #F0ADAD'>None</span><span style='background: #AEF1AE'> else Some(r))</span><span style=''>
+</span>37 <span style=''>    val lambdaFunctionRowsT = </span><span style='background: #AEF1AE'>lambdaFunctionRows.flatMap(r =&gt; if (r.isEmpty) None else Some(r))</span><span style=''>
+</span>38 <span style=''>
+</span>39 <span style=''>    val groupedLambdasN = </span><span style='background: #AEF1AE'>uniqueName()</span><span style=''>
+</span>40 <span style=''>    val outsN = </span><span style='background: #AEF1AE'>uniqueName()</span><span style=''>
+</span>41 <span style=''>    </span><span style='background: #AEF1AE'>outputExpressionRowsT.fold(ruleRows.sparkSession.createDataset[OutputExpressionRow](Seq.empty).toDF())(identity).
+</span>42 <span style=''></span><span style='background: #AEF1AE'>      createOrReplaceTempView(outsN)</span><span style=''>
+</span>43 <span style=''>
+</span>44 <span style=''>    val lun = </span><span style='background: #AEF1AE'>uniqueName()</span><span style=''>
+</span>45 <span style=''>    val oun = </span><span style='background: #AEF1AE'>uniqueName()</span><span style=''>
+</span>46 <span style=''>    </span><span style='background: #AEF1AE'>globalLambdaSuites.fold(ruleRows.sparkSession.createDataset[Id](Seq.empty).toDF())(identity).
+</span>47 <span style=''></span><span style='background: #AEF1AE'>      createOrReplaceTempView(lun)</span><span style=''>
+</span>48 <span style=''>    </span><span style='background: #AEF1AE'>globalOutputExpressionSuites.fold(ruleRows.sparkSession.createDataset[Id](Seq.empty).toDF())(identity).
+</span>49 <span style=''></span><span style='background: #AEF1AE'>      createOrReplaceTempView(oun)</span><span style=''>
+</span>50 <span style=''>
+</span>51 <span style=''>    val rows = </span><span style='background: #AEF1AE'>outputExpressionRowsT.fold(ruleRows.select(
+</span>52 <span style=''></span><span style='background: #AEF1AE'>      struct(
+</span>53 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleSuiteId&quot;),
+</span>54 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleSuiteVersion&quot;),
+</span>55 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleSetId&quot;),
+</span>56 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleSetVersion&quot;),
+</span>57 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleId&quot;),
+</span>58 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleVersion&quot;),
+</span>59 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleExpr&quot;),
+</span>60 <span style=''></span><span style='background: #AEF1AE'>        lit(notPresentSalience).as(&quot;ruleEngineSalience&quot;),
+</span>61 <span style=''></span><span style='background: #AEF1AE'>        lit(notPresentOutputId).as(&quot;ruleEngineId&quot;),
+</span>62 <span style=''></span><span style='background: #AEF1AE'>        lit(notPresentOutputVersion).as(&quot;ruleEngineVersion&quot;)
+</span>63 <span style=''></span><span style='background: #AEF1AE'>      ).as(&quot;ruleRow&quot;), lit(null).cast(implicitly[org.apache.spark.sql.Encoder[OutputExpressionRow]].schema).as(&quot;outputExpressionRow&quot;)))(
+</span>64 <span style=''></span><span style='background: #AEF1AE'>      outputExpressionRows =&gt;
+</span>65 <span style=''></span><span style='background: #AEF1AE'>        // join on all fields, then apply
+</span>66 <span style=''></span><span style='background: #AEF1AE'>        ruleRows.join(outputExpressionRows.selectExpr(&quot;ruleExpr as outputRuleExpr&quot;,
+</span>67 <span style=''></span><span style='background: #AEF1AE'>          &quot;ruleSuiteId as oRuleSuiteId&quot;, &quot;ruleSuiteVersion as oRuleSuiteVersion&quot;, &quot;functionId&quot;, &quot;functionVersion&quot;
+</span>68 <span style=''></span><span style='background: #AEF1AE'>        ),
+</span>69 <span style=''></span><span style='background: #AEF1AE'>          ((ruleRows(&quot;ruleSuiteId&quot;) === col(&quot;oRuleSuiteId&quot;) &amp;&amp;
+</span>70 <span style=''></span><span style='background: #AEF1AE'>            ruleRows(&quot;ruleSuiteVersion&quot;) === col(&quot;oRuleSuiteVersion&quot;)) ||
+</span>71 <span style=''></span><span style='background: #AEF1AE'>            // it's global
+</span>72 <span style=''></span><span style='background: #AEF1AE'>            expr(
+</span>73 <span style=''></span><span style='background: #AEF1AE'>              s&quot;&quot;&quot;(exists (
+</span>74 <span style=''></span><span style='background: #AEF1AE'>                      select 0 from $oun goes
+</span>75 <span style=''></span><span style='background: #AEF1AE'>                      where goes.id = oRuleSuiteId and goes.version = oRuleSuiteVersion
+</span>76 <span style=''></span><span style='background: #AEF1AE'>                    ))
+</span>77 <span style=''></span><span style='background: #AEF1AE'>                   &quot;&quot;&quot;) ) &amp;&amp;
+</span>78 <span style=''></span><span style='background: #AEF1AE'>            ruleRows(&quot;ruleEngineId&quot;) === col(&quot;functionId&quot;) &amp;&amp;
+</span>79 <span style=''></span><span style='background: #AEF1AE'>            ruleRows(&quot;ruleEngineVersion&quot;) === col(&quot;functionVersion&quot;)
+</span>80 <span style=''></span><span style='background: #AEF1AE'>        ).select(
+</span>81 <span style=''></span><span style='background: #AEF1AE'>          struct(
+</span>82 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleSuiteId&quot;),
+</span>83 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleSuiteVersion&quot;),
+</span>84 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleSetId&quot;),
+</span>85 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleSetVersion&quot;),
+</span>86 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleId&quot;),
+</span>87 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleVersion&quot;),
+</span>88 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleExpr&quot;),
+</span>89 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleEngineSalience&quot;),
+</span>90 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleEngineId&quot;),
+</span>91 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleEngineVersion&quot;)
+</span>92 <span style=''></span><span style='background: #AEF1AE'>          ).as(&quot;ruleRow&quot;), struct(
+</span>93 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;outputRuleExpr&quot;).as(&quot;ruleExpr&quot;),
+</span>94 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;functionId&quot;),
+</span>95 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;functionVersion&quot;),
+</span>96 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleSuiteId&quot;),
+</span>97 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleSuiteVersion&quot;)
+</span>98 <span style=''></span><span style='background: #AEF1AE'>          ).as(&quot;outputExpressionRow&quot;)
+</span>99 <span style=''></span><span style='background: #AEF1AE'>        )
+</span>100 <span style=''></span><span style='background: #AEF1AE'>    )</span><span style=''>
+</span>101 <span style=''>    // TODO use the rest of the ruleSuites
+</span>102 <span style=''>    val probablePassLit = </span><span style='background: #AEF1AE'>lit(defaultProbablePass).cast(DoubleType).as(&quot;probablePass&quot;)</span><span style=''>
+</span>103 <span style=''>    val defaultProcessorLit = </span><span style='background: #AEF1AE'>lit(null).cast(implicitly[Encoder[OutputExpressionRow]].schema).as(&quot;defaultProcessor&quot;)</span><span style=''>
+</span>104 <span style=''>
+</span>105 <span style=''>    val grouped = </span><span style='background: #AEF1AE'>rows.groupBy(&quot;ruleRow.ruleSuiteId&quot;, &quot;ruleRow.ruleSuiteVersion&quot;).agg(
+</span>106 <span style=''></span><span style='background: #AEF1AE'>      collect_set(struct(col(&quot;ruleRow&quot;), col(&quot;outputExpressionRow&quot;))).as(&quot;ruleRows&quot;))</span><span style=''>
+</span>107 <span style=''>    val suiteRows =
+</span>108 <span style=''>      </span><span style='background: #AEF1AE'>grouped.select(
+</span>109 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleSuiteId&quot;),
+</span>110 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleSuiteVersion&quot;),
+</span>111 <span style=''></span><span style='background: #AEF1AE'>        col(&quot;ruleRows&quot;),
+</span>112 <span style=''></span><span style='background: #AEF1AE'>        lit(null).cast(ArrayType(implicitly[Encoder[LambdaFunctionRow]].schema)).as(&quot;lambdaFunctions&quot;), // Using Seq in the implicit treats it as a valueclass of seq.
+</span>113 <span style=''></span><span style='background: #AEF1AE'>        probablePassLit,
+</span>114 <span style=''></span><span style='background: #AEF1AE'>        defaultProcessorLit
+</span>115 <span style=''></span><span style='background: #AEF1AE'>      )</span><span style=''>
+</span>116 <span style=''>
+</span>117 <span style=''>    val withAttributes =
+</span>118 <span style=''>      </span><span style='background: #AEF1AE'>ruleSuites.fold(suiteRows) {
+</span>119 <span style=''></span><span style='background: #AEF1AE'>        rsa =&gt;
+</span>120 <span style=''></span><span style='background: #AEF1AE'>
+</span>121 <span style=''></span><span style='background: #AEF1AE'>          val adjusted =
+</span>122 <span style=''></span><span style='background: #AEF1AE'>            rsa.select(col(&quot;ruleSuiteId&quot;).as(&quot;rRuleSuiteId&quot;), col(&quot;ruleSuiteVersion&quot;).as(&quot;rRuleSuiteVersion&quot;),
+</span>123 <span style=''></span><span style='background: #AEF1AE'>              col(&quot;probablePass&quot;).as(&quot;rProbablePass&quot;),
+</span>124 <span style=''></span><span style='background: #AEF1AE'>              functions.when(
+</span>125 <span style=''></span><span style='background: #AEF1AE'>                lit(notPresentOutputId) === col(&quot;ruleEngineId&quot;) &amp;&amp;
+</span>126 <span style=''></span><span style='background: #AEF1AE'>                  lit(notPresentOutputVersion) === col(&quot;ruleEngineVersion&quot;)
+</span>127 <span style=''></span><span style='background: #AEF1AE'>                , defaultProcessorLit).
+</span>128 <span style=''></span><span style='background: #AEF1AE'>                otherwise(
+</span>129 <span style=''></span><span style='background: #AEF1AE'>                  expr(
+</span>130 <span style=''></span><span style='background: #AEF1AE'>                    s&quot;&quot;&quot;
+</span>131 <span style=''></span><span style='background: #AEF1AE'>                      (select first(struct(ruleExpr, functionId, functionVersion, ruleSuiteId, ruleSuiteVersion))
+</span>132 <span style=''></span><span style='background: #AEF1AE'>                          from $outsN outs
+</span>133 <span style=''></span><span style='background: #AEF1AE'>                          where (
+</span>134 <span style=''></span><span style='background: #AEF1AE'>                            outs.ruleSuiteId = ruleSuiteId and outs.ruleSuiteVersion = ruleSuiteVersion
+</span>135 <span style=''></span><span style='background: #AEF1AE'>                            or (exists (
+</span>136 <span style=''></span><span style='background: #AEF1AE'>                             select 0 from $oun gls
+</span>137 <span style=''></span><span style='background: #AEF1AE'>                             where gls.id = outs.ruleSuiteId and gls.version = outs.ruleSuiteVersion
+</span>138 <span style=''></span><span style='background: #AEF1AE'>                            ) )
+</span>139 <span style=''></span><span style='background: #AEF1AE'>                          ) and outs.functionId = ruleEngineId and outs.functionVersion = ruleEngineVersion
+</span>140 <span style=''></span><span style='background: #AEF1AE'>                       )
+</span>141 <span style=''></span><span style='background: #AEF1AE'>                      &quot;&quot;&quot;
+</span>142 <span style=''></span><span style='background: #AEF1AE'>                  )
+</span>143 <span style=''></span><span style='background: #AEF1AE'>                ).as(&quot;rDefaultProcessor&quot;)
+</span>144 <span style=''></span><span style='background: #AEF1AE'>            )
+</span>145 <span style=''></span><span style='background: #AEF1AE'>
+</span>146 <span style=''></span><span style='background: #AEF1AE'>          suiteRows.join(adjusted,
+</span>147 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleSuiteId&quot;) === col(&quot;rRuleSuiteId&quot;) &amp;&amp; col(&quot;ruleSuiteVersion&quot;) === col(&quot;rRuleSuiteVersion&quot;)
+</span>148 <span style=''></span><span style='background: #AEF1AE'>          ).select(
+</span>149 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleSuiteId&quot;),
+</span>150 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleSuiteVersion&quot;),
+</span>151 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleRows&quot;),
+</span>152 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;lambdaFunctions&quot;),
+</span>153 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;rProbablePass&quot;).as(&quot;probablePass&quot;),
+</span>154 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;rDefaultProcessor&quot;).as(&quot;defaultProcessor&quot;)
+</span>155 <span style=''></span><span style='background: #AEF1AE'>          )
+</span>156 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>157 <span style=''>
+</span>158 <span style=''>    val withLambdas =
+</span>159 <span style=''>      </span><span style='background: #AEF1AE'>lambdaFunctionRowsT.fold(withAttributes){
+</span>160 <span style=''></span><span style='background: #AEF1AE'>        lambdas =&gt;
+</span>161 <span style=''></span><span style='background: #AEF1AE'>          val grouped = lambdas.groupBy(&quot;ruleSuiteId&quot;, &quot;ruleSuiteVersion&quot;).agg(collect_set(
+</span>162 <span style=''></span><span style='background: #AEF1AE'>            struct(
+</span>163 <span style=''></span><span style='background: #AEF1AE'>              col(&quot;name&quot;),
+</span>164 <span style=''></span><span style='background: #AEF1AE'>              col(&quot;ruleExpr&quot;),
+</span>165 <span style=''></span><span style='background: #AEF1AE'>              col(&quot;functionId&quot;),
+</span>166 <span style=''></span><span style='background: #AEF1AE'>              col(&quot;functionVersion&quot;),
+</span>167 <span style=''></span><span style='background: #AEF1AE'>              col(&quot;ruleSuiteId&quot;),
+</span>168 <span style=''></span><span style='background: #AEF1AE'>              col(&quot;ruleSuiteVersion&quot;)
+</span>169 <span style=''></span><span style='background: #AEF1AE'>            )
+</span>170 <span style=''></span><span style='background: #AEF1AE'>          ).as(&quot;theLambdaFunctions&quot;)).select(col(&quot;ruleSuiteId&quot;).as(&quot;lRuleSuiteId&quot;),
+</span>171 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleSuiteVersion&quot;).as(&quot;lRuleSuiteVersion&quot;),
+</span>172 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;theLambdaFunctions&quot;)).as(&quot;grouped&quot;)
+</span>173 <span style=''></span><span style='background: #AEF1AE'>
+</span>174 <span style=''></span><span style='background: #AEF1AE'>          grouped.createOrReplaceTempView(groupedLambdasN)
+</span>175 <span style=''></span><span style='background: #AEF1AE'>
+</span>176 <span style=''></span><span style='background: #AEF1AE'>          withAttributes.select(
+</span>177 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleSuiteId&quot;),
+</span>178 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleSuiteVersion&quot;),
+</span>179 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;ruleRows&quot;),
+</span>180 <span style=''></span><span style='background: #AEF1AE'>            expr(
+</span>181 <span style=''></span><span style='background: #AEF1AE'>              s&quot;&quot;&quot;(select flatten(collect_set(theLambdaFunctions))
+</span>182 <span style=''></span><span style='background: #AEF1AE'>                  from $groupedLambdasN grouped
+</span>183 <span style=''></span><span style='background: #AEF1AE'>                  where grouped.lRuleSuiteId = ruleSuiteId and grouped.lRuleSuiteVersion = ruleSuiteVersion
+</span>184 <span style=''></span><span style='background: #AEF1AE'>                  or (exists (
+</span>185 <span style=''></span><span style='background: #AEF1AE'>                   select 0 from $lun gls
+</span>186 <span style=''></span><span style='background: #AEF1AE'>                   where gls.id = grouped.lRuleSuiteId and gls.version = grouped.lRuleSuiteVersion
+</span>187 <span style=''></span><span style='background: #AEF1AE'>                  ) )
+</span>188 <span style=''></span><span style='background: #AEF1AE'>               )&quot;&quot;&quot;).as(&quot;lambdaFunctions&quot;)
+</span>189 <span style=''></span><span style='background: #AEF1AE'>            , col(&quot;probablePass&quot;),
+</span>190 <span style=''></span><span style='background: #AEF1AE'>            col(&quot;defaultProcessor&quot;)
+</span>191 <span style=''></span><span style='background: #AEF1AE'>          )
+</span>192 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>193 <span style=''>
+</span>194 <span style=''>    withLambdas
+</span>195 <span style=''>  }
+</span>196 <span style=''>
+</span>197 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          15
+        </td>
+        <td>
+          2591
+        </td>
+        <td>
+          753
+          -
+          795
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;QUALITY_SERIALIZING_SHIM_GENERATED_NAME_&quot;
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          2592
+        </td>
+        <td>
+          1842
+          -
+          1851
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.Dataset.isEmpty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          r.isEmpty
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          2593
+        </td>
+        <td>
+          1853
+          -
+          1857
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          2594
+        </td>
+        <td>
+          1853
+          -
+          1857
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          2595
+        </td>
+        <td>
+          1863
+          -
+          1870
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[org.apache.spark.sql.DataFrame](r)
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          2596
+        </td>
+        <td>
+          1863
+          -
+          1870
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[org.apache.spark.sql.DataFrame](r)
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          2597
+        </td>
+        <td>
+          1804
+          -
+          1871
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.flatMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          outputExpressionRows.flatMap[org.apache.spark.sql.DataFrame](((r: org.apache.spark.sql.DataFrame) =&gt; if (r.isEmpty)
+  scala.None
+else
+  scala.Some.apply[org.apache.spark.sql.DataFrame](r)))
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          2598
+        </td>
+        <td>
+          1938
+          -
+          1947
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.Dataset.isEmpty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          r.isEmpty
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          2599
+        </td>
+        <td>
+          1949
+          -
+          1953
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          2600
+        </td>
+        <td>
+          1949
+          -
+          1953
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          2601
+        </td>
+        <td>
+          1959
+          -
+          1966
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[org.apache.spark.sql.DataFrame](r)
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          2602
+        </td>
+        <td>
+          1959
+          -
+          1966
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[org.apache.spark.sql.DataFrame](r)
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          2603
+        </td>
+        <td>
+          1902
+          -
+          1967
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.flatMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          lambdaFunctionRows.flatMap[org.apache.spark.sql.DataFrame](((r: org.apache.spark.sql.DataFrame) =&gt; if (r.isEmpty)
+  scala.None
+else
+  scala.Some.apply[org.apache.spark.sql.DataFrame](r)))
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          2604
+        </td>
+        <td>
+          1995
+          -
+          2007
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.GeneratedUniqueName.uniqueName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          CombineImpl.this.uniqueName()
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          2605
+        </td>
+        <td>
+          2024
+          -
+          2036
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.GeneratedUniqueName.uniqueName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          CombineImpl.this.uniqueName()
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          2606
+        </td>
+        <td>
+          2041
+          -
+          2191
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Dataset.createOrReplaceTempView
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          outputExpressionRowsT.fold[org.apache.spark.sql.DataFrame](ruleRows.sparkSession.createDataset[com.sparkutils.quality.OutputExpressionRow](scala.`package`.Seq.empty[Nothing])(ruleRows.sparkSession.implicits.newProductEncoder[com.sparkutils.quality.OutputExpressionRow](({
+  val $u: reflect.runtime.universe.type = scala.reflect.runtime.`package`.universe;
+  val $m: $u.Mirror = scala.reflect.runtime.`package`.universe.runtimeMirror(this.getClass().getClassLoader());
+  $u.TypeTag.apply[com.sparkutils.quality.OutputExpressionRow]($m, {
+    final class $typecreator5 extends TypeCreator {
+      def &lt;init&gt;(): $typecreator5 = {
+        $typecreator5.super.&lt;init&gt;();
+        ()
+      };
+      def apply[U &lt;: scala.reflect.api.Universe with Singleton]($m$untyped: scala.reflect.api.Mirror[U]): U#Type = {
+        val $u: U = $m$untyped.universe;
+        val $m: $u.Mirror = $m$untyped.asInstanceOf[$u.Mirror];
+        $m.staticClass(&quot;com.sparkutils.quality.OutputExpressionRow&quot;).asType.toTypeConstructor
+      }
+    };
+    new $typecreator5()
+  })
+}: reflect.runtime.universe.TypeTag[com.sparkutils.quality.OutputExpressionRow]))).toDF())(((x: org.apache.spark.sql.DataFrame) =&gt; scala.Predef.identity[org.apache.spark.sql.DataFrame](x))).createOrReplaceTempView(outsN)
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          2607
+        </td>
+        <td>
+          2207
+          -
+          2219
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.GeneratedUniqueName.uniqueName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          CombineImpl.this.uniqueName()
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          2608
+        </td>
+        <td>
+          2234
+          -
+          2246
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.GeneratedUniqueName.uniqueName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          CombineImpl.this.uniqueName()
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          2609
+        </td>
+        <td>
+          2251
+          -
+          2379
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Dataset.createOrReplaceTempView
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          globalLambdaSuites.fold[org.apache.spark.sql.DataFrame](ruleRows.sparkSession.createDataset[com.sparkutils.quality.Id](scala.`package`.Seq.empty[Nothing])(ruleRows.sparkSession.implicits.newProductEncoder[com.sparkutils.quality.Id](({
+  val $u: reflect.runtime.universe.type = scala.reflect.runtime.`package`.universe;
+  val $m: $u.Mirror = scala.reflect.runtime.`package`.universe.runtimeMirror(this.getClass().getClassLoader());
+  $u.TypeTag.apply[com.sparkutils.quality.Id]($m, {
+    final class $typecreator10 extends TypeCreator {
+      def &lt;init&gt;(): $typecreator10 = {
+        $typecreator10.super.&lt;init&gt;();
+        ()
+      };
+      def apply[U &lt;: scala.reflect.api.Universe with Singleton]($m$untyped: scala.reflect.api.Mirror[U]): U#Type = {
+        val $u: U = $m$untyped.universe;
+        val $m: $u.Mirror = $m$untyped.asInstanceOf[$u.Mirror];
+        $m.staticClass(&quot;com.sparkutils.quality.Id&quot;).asType.toTypeConstructor
+      }
+    };
+    new $typecreator10()
+  })
+}: reflect.runtime.universe.TypeTag[com.sparkutils.quality.Id]))).toDF())(((x: org.apache.spark.sql.DataFrame) =&gt; scala.Predef.identity[org.apache.spark.sql.DataFrame](x))).createOrReplaceTempView(lun)
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          2610
+        </td>
+        <td>
+          2384
+          -
+          2522
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Dataset.createOrReplaceTempView
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          globalOutputExpressionSuites.fold[org.apache.spark.sql.DataFrame](ruleRows.sparkSession.createDataset[com.sparkutils.quality.Id](scala.`package`.Seq.empty[Nothing])(ruleRows.sparkSession.implicits.newProductEncoder[com.sparkutils.quality.Id](({
+  val $u: reflect.runtime.universe.type = scala.reflect.runtime.`package`.universe;
+  val $m: $u.Mirror = scala.reflect.runtime.`package`.universe.runtimeMirror(this.getClass().getClassLoader());
+  $u.TypeTag.apply[com.sparkutils.quality.Id]($m, {
+    final class $typecreator15 extends TypeCreator {
+      def &lt;init&gt;(): $typecreator15 = {
+        $typecreator15.super.&lt;init&gt;();
+        ()
+      };
+      def apply[U &lt;: scala.reflect.api.Universe with Singleton]($m$untyped: scala.reflect.api.Mirror[U]): U#Type = {
+        val $u: U = $m$untyped.universe;
+        val $m: $u.Mirror = $m$untyped.asInstanceOf[$u.Mirror];
+        $m.staticClass(&quot;com.sparkutils.quality.Id&quot;).asType.toTypeConstructor
+      }
+    };
+    new $typecreator15()
+  })
+}: reflect.runtime.universe.TypeTag[com.sparkutils.quality.Id]))).toDF())(((x: org.apache.spark.sql.DataFrame) =&gt; scala.Predef.identity[org.apache.spark.sql.DataFrame](x))).createOrReplaceTempView(oun)
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          2613
+        </td>
+        <td>
+          2566
+          -
+          3096
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Dataset.select
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleRows.select(org.apache.spark.sql.functions.struct(org.apache.spark.sql.functions.col(&quot;ruleSuiteId&quot;), org.apache.spark.sql.functions.col(&quot;ruleSuiteVersion&quot;), org.apache.spark.sql.functions.col(&quot;ruleSetId&quot;), org.apache.spark.sql.functions.col(&quot;ruleSetVersion&quot;), org.apache.spark.sql.functions.col(&quot;ruleId&quot;), org.apache.spark.sql.functions.col(&quot;ruleVersion&quot;), org.apache.spark.sql.functions.col(&quot;ruleExpr&quot;), org.apache.spark.sql.functions.lit(com.sparkutils.quality.NoOpRunOnPassProcessor.notPresentSalience).as(&quot;ruleEngineSalience&quot;), org.apache.spark.sql.functions.lit(com.sparkutils.quality.NoOpRunOnPassProcessor.notPresentOutputId).as(&quot;ruleEngineId&quot;), org.apache.spark.sql.functions.lit(com.sparkutils.quality.NoOpRunOnPassProcessor.notPresentOutputVersion).as(&quot;ruleEngineVersion&quot;)).as(&quot;ruleRow&quot;), org.apache.spark.sql.functions.lit(null).cast(scala.Predef.implicitly[org.apache.spark.sql.Encoder[com.sparkutils.quality.OutputExpressionRow]](ruleRows.sparkSession.implicits.newProductEncoder[com.sparkutils.quality.OutputExpressionRow](({
+  val $u: reflect.runtime.universe.type = scala.reflect.runtime.`package`.universe;
+  val $m: $u.Mirror = scala.reflect.runtime.`package`.universe.runtimeMirror(this.getClass().getClassLoader());
+  $u.TypeTag.apply[com.sparkutils.quality.OutputExpressionRow]($m, {
+    final class $typecreator20 extends TypeCreator {
+      def &lt;init&gt;(): $typecreator20 = {
+        $typecreator20.super.&lt;init&gt;();
+        ()
+      };
+      def apply[U &lt;: scala.reflect.api.Universe with Singleton]($m$untyped: scala.reflect.api.Mirror[U]): U#Type = {
+        val $u: U = $m$untyped.universe;
+        val $m: $u.Mirror = $m$untyped.asInstanceOf[$u.Mirror];
+        $m.staticClass(&quot;com.sparkutils.quality.OutputExpressionRow&quot;).asType.toTypeConstructor
+      }
+    };
+    new $typecreator20()
+  })
+}: reflect.runtime.universe.TypeTag[com.sparkutils.quality.OutputExpressionRow]))).schema).as(&quot;outputExpressionRow&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          2611
+        </td>
+        <td>
+          2589
+          -
+          2983
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.as
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.functions.struct(org.apache.spark.sql.functions.col(&quot;ruleSuiteId&quot;), org.apache.spark.sql.functions.col(&quot;ruleSuiteVersion&quot;), org.apache.spark.sql.functions.col(&quot;ruleSetId&quot;), org.apache.spark.sql.functions.col(&quot;ruleSetVersion&quot;), org.apache.spark.sql.functions.col(&quot;ruleId&quot;), org.apache.spark.sql.functions.col(&quot;ruleVersion&quot;), org.apache.spark.sql.functions.col(&quot;ruleExpr&quot;), org.apache.spark.sql.functions.lit(com.sparkutils.quality.NoOpRunOnPassProcessor.notPresentSalience).as(&quot;ruleEngineSalience&quot;), org.apache.spark.sql.functions.lit(com.sparkutils.quality.NoOpRunOnPassProcessor.notPresentOutputId).as(&quot;ruleEngineId&quot;), org.apache.spark.sql.functions.lit(com.sparkutils.quality.NoOpRunOnPassProcessor.notPresentOutputVersion).as(&quot;ruleEngineVersion&quot;)).as(&quot;ruleRow&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          2612
+        </td>
+        <td>
+          2985
+          -
+          3095
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.as
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.functions.lit(null).cast(scala.Predef.implicitly[org.apache.spark.sql.Encoder[com.sparkutils.quality.OutputExpressionRow]](ruleRows.sparkSession.implicits.newProductEncoder[com.sparkutils.quality.OutputExpressionRow](({
+  val $u: reflect.runtime.universe.type = scala.reflect.runtime.`package`.universe;
+  val $m: $u.Mirror = scala.reflect.runtime.`package`.universe.runtimeMirror(this.getClass().getClassLoader());
+  $u.TypeTag.apply[com.sparkutils.quality.OutputExpressionRow]($m, {
+    final class $typecreator20 extends TypeCreator {
+      def &lt;init&gt;(): $typecreator20 = {
+        $typecreator20.super.&lt;init&gt;();
+        ()
+      };
+      def apply[U &lt;: scala.reflect.api.Universe with Singleton]($m$untyped: scala.reflect.api.Mirror[U]): U#Type = {
+        val $u: U = $m$untyped.universe;
+        val $m: $u.Mirror = $m$untyped.asInstanceOf[$u.Mirror];
+        $m.staticClass(&quot;com.sparkutils.quality.OutputExpressionRow&quot;).asType.toTypeConstructor
+      }
+    };
+    new $typecreator20()
+  })
+}: reflect.runtime.universe.TypeTag[com.sparkutils.quality.OutputExpressionRow]))).schema).as(&quot;outputExpressionRow&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          2631
+        </td>
+        <td>
+          2539
+          -
+          4547
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.fold
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          outputExpressionRowsT.fold[org.apache.spark.sql.DataFrame](ruleRows.select(org.apache.spark.sql.functions.struct(org.apache.spark.sql.functions.col(&quot;ruleSuiteId&quot;), org.apache.spark.sql.functions.col(&quot;ruleSuiteVersion&quot;), org.apache.spark.sql.functions.col(&quot;ruleSetId&quot;), org.apache.spark.sql.functions.col(&quot;ruleSetVersion&quot;), org.apache.spark.sql.functions.col(&quot;ruleId&quot;), org.apache.spark.sql.functions.col(&quot;ruleVersion&quot;), org.apache.spark.sql.functions.col(&quot;ruleExpr&quot;), org.apache.spark.sql.functions.lit(com.sparkutils.quality.NoOpRunOnPassProcessor.notPresentSalience).as(&quot;ruleEngineSalience&quot;), org.apache.spark.sql.functions.lit(com.sparkutils.quality.NoOpRunOnPassProcessor.notPresentOutputId).as(&quot;ruleEngineId&quot;), org.apache.spark.sql.functions.lit(com.sparkutils.quality.NoOpRunOnPassProcessor.notPresentOutputVersion).as(&quot;ruleEngineVersion&quot;)).as(&quot;ruleRow&quot;), org.apache.spark.sql.functions.lit(null).cast(scala.Predef.implicitly[org.apache.spark.sql.Encoder[com.sparkutils.quality.OutputExpressionRow]](ruleRows.sparkSession.implicits.newProductEncoder[com.sparkutils.quality.OutputExpressionRow](({
+  val $u: reflect.runtime.universe.type = scala.reflect.runtime.`package`.universe;
+  val $m: $u.Mirror = scala.reflect.runtime.`package`.universe.runtimeMirror(this.getClass().getClassLoader());
+  $u.TypeTag.apply[com.sparkutils.quality.OutputExpressionRow]($m, {
+    final class $typecreator20 extends TypeCreator {
+      def &lt;init&gt;(): $typecreator20 = {
+        $typecreator20.super.&lt;init&gt;();
+        ()
+      };
+      def apply[U &lt;: scala.reflect.api.Universe with Singleton]($m$untyped: scala.reflect.api.Mirror[U]): U#Type = {
+        val $u: U = $m$untyped.universe;
+        val $m: $u.Mirror = $m$untyped.asInstanceOf[$u.Mirror];
+        $m.staticClass(&quot;com.sparkutils.quality.OutputExpressionRow&quot;).asType.toTypeConstructor
+      }
+    };
+    new $typecreator20()
+  })
+}: reflect.runtime.universe.TypeTag[com.sparkutils.quality.OutputExpressionRow]))).schema).as(&quot;outputExpressionRow&quot;)))(((outputExpressionRows: org.apache.spark.sql.DataFrame) =&gt; ruleRows.join(outputExpressionRows.selectExpr(&quot;ruleExpr as outputRuleExpr&quot;, &quot;ruleSuiteId as oRuleSuiteId&quot;, &quot;ruleSuiteVersion as oRuleSuiteVersion&quot;, &quot;functionId&quot;, &quot;functionVersion&quot;), ruleRows.apply(&quot;ruleSuiteId&quot;).===(org.apache.spark.sql.functions.col(&quot;oRuleSuiteId&quot;)).&amp;&amp;(ruleRows.apply(&quot;ruleSuiteVersion&quot;).===(org.apache.spark.sql.functions.col(&quot;oRuleSuiteVersion&quot;))).||(org.apache.spark.sql.functions.expr(&quot;(exists (\n                      select 0 from &quot;.+(oun).+(&quot; goes\n                      where goes.id = oRuleSuiteId and goes.version = oRuleSuiteVersion\n                    ))\n                   &quot;))).&amp;&amp;(ruleRows.apply(&quot;ruleEngineId&quot;).===(org.apache.spark.sql.functions.col(&quot;functionId&quot;))).&amp;&amp;(ruleRows.apply(&quot;ruleEngineVersion&quot;).===(org.apache.spark.sql.functions.col(&quot;functionVersion&quot;)))).select(org.apache.spark.sql.functions.struct(org.apache.spark.sql.functions.col(&quot;ruleSuiteId&quot;), org.apache.spark.sql.functions.col(&quot;ruleSuiteVersion&quot;), org.apache.spark.sql.functions.col(&quot;ruleSetId&quot;), org.apache.spark.sql.functions.col(&quot;ruleSetVersion&quot;), org.apache.spark.sql.functions.col(&quot;ruleId&quot;), org.apache.spark.sql.functions.col(&quot;ruleVersion&quot;), org.apache.spark.sql.functions.col(&quot;ruleExpr&quot;), org.apache.spark.sql.functions.col(&quot;ruleEngineSalience&quot;), org.apache.spark.sql.functions.col(&quot;ruleEngineId&quot;), org.apache.spark.sql.functions.col(&quot;ruleEngineVersion&quot;)).as(&quot;ruleRow&quot;), org.apache.spark.sql.functions.struct(org.apache.spark.sql.functions.col(&quot;outputRuleExpr&quot;).as(&quot;ruleExpr&quot;), org.apache.spark.sql.functions.col(&quot;functionId&quot;), org.apache.spark.sql.functions.col(&quot;functionVersion&quot;), org.apache.spark.sql.functions.col(&quot;ruleSuiteId&quot;), org.apache.spark.sql.functions.col(&quot;ruleSuiteVersion&quot;)).as(&quot;outputExpressionRow&quot;))))
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          2614
+        </td>
+        <td>
+          3193
+          -
+          3378
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Dataset.selectExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          outputExpressionRows.selectExpr(&quot;ruleExpr as outputRuleExpr&quot;, &quot;ruleSuiteId as oRuleSuiteId&quot;, &quot;ruleSuiteVersion as oRuleSuiteVersion&quot;, &quot;functionId&quot;, &quot;functionVersion&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          2615
+        </td>
+        <td>
+          3401
+          -
+          3414
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;ruleSuiteId&quot;
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          2616
+        </td>
+        <td>
+          3420
+          -
+          3439
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.functions.col
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.functions.col(&quot;oRuleSuiteId&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          2617
+        </td>
+        <td>
+          3464
+          -
+          3482
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;ruleSuiteVersion&quot;
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          2618
+        </td>
+        <td>
+          3488
+          -
+          3512
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.functions.col
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.functions.col(&quot;oRuleSuiteVersion&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          2619
+        </td>
+        <td>
+          3455
+          -
+          3512
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.===
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleRows.apply(&quot;ruleSuiteVersion&quot;).===(org.apache.spark.sql.functions.col(&quot;oRuleSuiteVersion&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          2620
+        </td>
+        <td>
+          3556
+          -
+          3770
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.functions.expr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.functions.expr(&quot;(exists (\n                      select 0 from &quot;.+(oun).+(&quot; goes\n                      where goes.id = oRuleSuiteId and goes.version = oRuleSuiteVersion\n                    ))\n                   &quot;))
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          2621
+        </td>
+        <td>
+          3797
+          -
+          3811
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;ruleEngineId&quot;
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          2622
+        </td>
+        <td>
+          3817
+          -
+          3834
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.functions.col
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.functions.col(&quot;functionId&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          2623
+        </td>
+        <td>
+          3788
+          -
+          3834
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.===
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleRows.apply(&quot;ruleEngineId&quot;).===(org.apache.spark.sql.functions.col(&quot;functionId&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          2627
+        </td>
+        <td>
+          3390
+          -
+          3906
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.&amp;&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleRows.apply(&quot;ruleSuiteId&quot;).===(org.apache.spark.sql.functions.col(&quot;oRuleSuiteId&quot;)).&amp;&amp;(ruleRows.apply(&quot;ruleSuiteVersion&quot;).===(org.apache.spark.sql.functions.col(&quot;oRuleSuiteVersion&quot;))).||(org.apache.spark.sql.functions.expr(&quot;(exists (\n                      select 0 from &quot;.+(oun).+(&quot; goes\n                      where goes.id = oRuleSuiteId and goes.version = oRuleSuiteVersion\n                    ))\n                   &quot;))).&amp;&amp;(ruleRows.apply(&quot;ruleEngineId&quot;).===(org.apache.spark.sql.functions.col(&quot;functionId&quot;))).&amp;&amp;(ruleRows.apply(&quot;ruleEngineVersion&quot;).===(org.apache.spark.sql.functions.col(&quot;functionVersion&quot;)))
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          2624
+        </td>
+        <td>
+          3859
+          -
+          3878
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;ruleEngineVersion&quot;
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          2625
+        </td>
+        <td>
+          3884
+          -
+          3906
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.functions.col
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.functions.col(&quot;functionVersion&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          2626
+        </td>
+        <td>
+          3850
+          -
+          3906
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.===
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleRows.apply(&quot;ruleEngineVersion&quot;).===(org.apache.spark.sql.functions.col(&quot;functionVersion&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          2630
+        </td>
+        <td>
+          3179
+          -
+          4541
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Dataset.select
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleRows.join(outputExpressionRows.selectExpr(&quot;ruleExpr as outputRuleExpr&quot;, &quot;ruleSuiteId as oRuleSuiteId&quot;, &quot;ruleSuiteVersion as oRuleSuiteVersion&quot;, &quot;functionId&quot;, &quot;functionVersion&quot;), ruleRows.apply(&quot;ruleSuiteId&quot;).===(org.apache.spark.sql.functions.col(&quot;oRuleSuiteId&quot;)).&amp;&amp;(ruleRows.apply(&quot;ruleSuiteVersion&quot;).===(org.apache.spark.sql.functions.col(&quot;oRuleSuiteVersion&quot;))).||(org.apache.spark.sql.functions.expr(&quot;(exists (\n                      select 0 from &quot;.+(oun).+(&quot; goes\n                      where goes.id = oRuleSuiteId and goes.version = oRuleSuiteVersion\n                    ))\n                   &quot;))).&amp;&amp;(ruleRows.apply(&quot;ruleEngineId&quot;).===(org.apache.spark.sql.functions.col(&quot;functionId&quot;))).&amp;&amp;(ruleRows.apply(&quot;ruleEngineVersion&quot;).===(org.apache.spark.sql.functions.col(&quot;functionVersion&quot;)))).select(org.apache.spark.sql.functions.struct(org.apache.spark.sql.functions.col(&quot;ruleSuiteId&quot;), org.apache.spark.sql.functions.col(&quot;ruleSuiteVersion&quot;), org.apache.spark.sql.functions.col(&quot;ruleSetId&quot;), org.apache.spark.sql.functions.col(&quot;ruleSetVersion&quot;), org.apache.spark.sql.functions.col(&quot;ruleId&quot;), org.apache.spark.sql.functions.col(&quot;ruleVersion&quot;), org.apache.spark.sql.functions.col(&quot;ruleExpr&quot;), org.apache.spark.sql.functions.col(&quot;ruleEngineSalience&quot;), org.apache.spark.sql.functions.col(&quot;ruleEngineId&quot;), org.apache.spark.sql.functions.col(&quot;ruleEngineVersion&quot;)).as(&quot;ruleRow&quot;), org.apache.spark.sql.functions.struct(org.apache.spark.sql.functions.col(&quot;outputRuleExpr&quot;).as(&quot;ruleExpr&quot;), org.apache.spark.sql.functions.col(&quot;functionId&quot;), org.apache.spark.sql.functions.col(&quot;functionVersion&quot;), org.apache.spark.sql.functions.col(&quot;ruleSuiteId&quot;), org.apache.spark.sql.functions.col(&quot;ruleSuiteVersion&quot;)).as(&quot;outputExpressionRow&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          2628
+        </td>
+        <td>
+          3935
+          -
+          4299
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.as
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.functions.struct(org.apache.spark.sql.functions.col(&quot;ruleSuiteId&quot;), org.apache.spark.sql.functions.col(&quot;ruleSuiteVersion&quot;), org.apache.spark.sql.functions.col(&quot;ruleSetId&quot;), org.apache.spark.sql.functions.col(&quot;ruleSetVersion&quot;), org.apache.spark.sql.functions.col(&quot;ruleId&quot;), org.apache.spark.sql.functions.col(&quot;ruleVersion&quot;), org.apache.spark.sql.functions.col(&quot;ruleExpr&quot;), org.apache.spark.sql.functions.col(&quot;ruleEngineSalience&quot;), org.apache.spark.sql.functions.col(&quot;ruleEngineId&quot;), org.apache.spark.sql.functions.col(&quot;ruleEngineVersion&quot;)).as(&quot;ruleRow&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          2629
+        </td>
+        <td>
+          4301
+          -
+          4531
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.as
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.functions.struct(org.apache.spark.sql.functions.col(&quot;outputRuleExpr&quot;).as(&quot;ruleExpr&quot;), org.apache.spark.sql.functions.col(&quot;functionId&quot;), org.apache.spark.sql.functions.col(&quot;functionVersion&quot;), org.apache.spark.sql.functions.col(&quot;ruleSuiteId&quot;), org.apache.spark.sql.functions.col(&quot;ruleSuiteVersion&quot;)).as(&quot;outputExpressionRow&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          2632
+        </td>
+        <td>
+          4617
+          -
+          4677
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.as
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.functions.lit(com.sparkutils.quality.RuleSuite.defaultProbablePass).cast(org.apache.spark.sql.types.DoubleType).as(&quot;probablePass&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          2633
+        </td>
+        <td>
+          4708
+          -
+          4794
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.as
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.functions.lit(null).cast(scala.Predef.implicitly[org.apache.spark.sql.Encoder[com.sparkutils.quality.OutputExpressionRow]](ruleRows.sparkSession.implicits.newProductEncoder[com.sparkutils.quality.OutputExpressionRow](({
+  val $u: reflect.runtime.universe.type = scala.reflect.runtime.`package`.universe;
+  val $m: $u.Mirror = scala.reflect.runtime.`package`.universe.runtimeMirror(this.getClass().getClassLoader());
+  $u.TypeTag.apply[com.sparkutils.quality.OutputExpressionRow]($m, {
+    final class $typecreator25 extends TypeCreator {
+      def &lt;init&gt;(): $typecreator25 = {
+        $typecreator25.super.&lt;init&gt;();
+        ()
+      };
+      def apply[U &lt;: scala.reflect.api.Universe with Singleton]($m$untyped: scala.reflect.api.Mirror[U]): U#Type = {
+        val $u: U = $m$untyped.universe;
+        val $m: $u.Mirror = $m$untyped.asInstanceOf[$u.Mirror];
+        $m.staticClass(&quot;com.sparkutils.quality.OutputExpressionRow&quot;).asType.toTypeConstructor
+      }
+    };
+    new $typecreator25()
+  })
+}: reflect.runtime.universe.TypeTag[com.sparkutils.quality.OutputExpressionRow]))).schema).as(&quot;defaultProcessor&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          2634
+        </td>
+        <td>
+          4827
+          -
+          4848
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;ruleRow.ruleSuiteId&quot;
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          2635
+        </td>
+        <td>
+          4850
+          -
+          4876
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;ruleRow.ruleSuiteVersion&quot;
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          2637
+        </td>
+        <td>
+          4814
+          -
+          4968
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.RelationalGroupedDataset.agg
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          rows.groupBy(&quot;ruleRow.ruleSuiteId&quot;, &quot;ruleRow.ruleSuiteVersion&quot;).agg(org.apache.spark.sql.functions.collect_set(org.apache.spark.sql.functions.struct(org.apache.spark.sql.functions.col(&quot;ruleRow&quot;), org.apache.spark.sql.functions.col(&quot;outputExpressionRow&quot;))).as(&quot;ruleRows&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          2636
+        </td>
+        <td>
+          4889
+          -
+          4967
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.as
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.functions.collect_set(org.apache.spark.sql.functions.struct(org.apache.spark.sql.functions.col(&quot;ruleRow&quot;), org.apache.spark.sql.functions.col(&quot;outputExpressionRow&quot;))).as(&quot;ruleRows&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          2642
+        </td>
+        <td>
+          4995
+          -
+          5324
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Dataset.select
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          grouped.select(org.apache.spark.sql.functions.col(&quot;ruleSuiteId&quot;), org.apache.spark.sql.functions.col(&quot;ruleSuiteVersion&quot;), org.apache.spark.sql.functions.col(&quot;ruleRows&quot;), org.apache.spark.sql.functions.lit(null).cast(org.apache.spark.sql.types.ArrayType.apply(scala.Predef.implicitly[org.apache.spark.sql.Encoder[com.sparkutils.quality.LambdaFunctionRow]](ruleRows.sparkSession.implicits.newProductEncoder[com.sparkutils.quality.LambdaFunctionRow](({
+  val $u: reflect.runtime.universe.type = scala.reflect.runtime.`package`.universe;
+  val $m: $u.Mirror = scala.reflect.runtime.`package`.universe.runtimeMirror(this.getClass().getClassLoader());
+  $u.TypeTag.apply[com.sparkutils.quality.LambdaFunctionRow]($m, {
+    final class $typecreator30 extends TypeCreator {
+      def &lt;init&gt;(): $typecreator30 = {
+        $typecreator30.super.&lt;init&gt;();
+        ()
+      };
+      def apply[U &lt;: scala.reflect.api.Universe with Singleton]($m$untyped: scala.reflect.api.Mirror[U]): U#Type = {
+        val $u: U = $m$untyped.universe;
+        val $m: $u.Mirror = $m$untyped.asInstanceOf[$u.Mirror];
+        $m.staticClass(&quot;com.sparkutils.quality.LambdaFunctionRow&quot;).asType.toTypeConstructor
+      }
+    };
+    new $typecreator30()
+  })
+}: reflect.runtime.universe.TypeTag[com.sparkutils.quality.LambdaFunctionRow]))).schema)).as(&quot;lambdaFunctions&quot;), probablePassLit, defaultProcessorLit)
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          2638
+        </td>
+        <td>
+          5019
+          -
+          5037
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.functions.col
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.functions.col(&quot;ruleSuiteId&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          2639
+        </td>
+        <td>
+          5047
+          -
+          5070
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.functions.col
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.functions.col(&quot;ruleSuiteVersion&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          2640
+        </td>
+        <td>
+          5080
+          -
+          5095
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.functions.col
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.functions.col(&quot;ruleRows&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          2641
+        </td>
+        <td>
+          5105
+          -
+          5199
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.as
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.functions.lit(null).cast(org.apache.spark.sql.types.ArrayType.apply(scala.Predef.implicitly[org.apache.spark.sql.Encoder[com.sparkutils.quality.LambdaFunctionRow]](ruleRows.sparkSession.implicits.newProductEncoder[com.sparkutils.quality.LambdaFunctionRow](({
+  val $u: reflect.runtime.universe.type = scala.reflect.runtime.`package`.universe;
+  val $m: $u.Mirror = scala.reflect.runtime.`package`.universe.runtimeMirror(this.getClass().getClassLoader());
+  $u.TypeTag.apply[com.sparkutils.quality.LambdaFunctionRow]($m, {
+    final class $typecreator30 extends TypeCreator {
+      def &lt;init&gt;(): $typecreator30 = {
+        $typecreator30.super.&lt;init&gt;();
+        ()
+      };
+      def apply[U &lt;: scala.reflect.api.Universe with Singleton]($m$untyped: scala.reflect.api.Mirror[U]): U#Type = {
+        val $u: U = $m$untyped.universe;
+        val $m: $u.Mirror = $m$untyped.asInstanceOf[$u.Mirror];
+        $m.staticClass(&quot;com.sparkutils.quality.LambdaFunctionRow&quot;).asType.toTypeConstructor
+      }
+    };
+    new $typecreator30()
+  })
+}: reflect.runtime.universe.TypeTag[com.sparkutils.quality.LambdaFunctionRow]))).schema)).as(&quot;lambdaFunctions&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          2661
+        </td>
+        <td>
+          5357
+          -
+          7071
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.fold
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ruleSuites.fold[org.apache.spark.sql.DataFrame](suiteRows)(((rsa: org.apache.spark.sql.DataFrame) =&gt; {
+  val adjusted: org.apache.spark.sql.DataFrame = rsa.select(org.apache.spark.sql.functions.col(&quot;ruleSuiteId&quot;).as(&quot;rRuleSuiteId&quot;), org.apache.spark.sql.functions.col(&quot;ruleSuiteVersion&quot;).as(&quot;rRuleSuiteVersion&quot;), org.apache.spark.sql.functions.col(&quot;probablePass&quot;).as(&quot;rProbablePass&quot;), org.apache.spark.sql.functions.when(org.apache.spark.sql.functions.lit(com.sparkutils.quality.NoOpRunOnPassProcessor.notPresentOutputId).===(org.apache.spark.sql.functions.col(&quot;ruleEngineId&quot;)).&amp;&amp;(org.apache.spark.sql.functions.lit(com.sparkutils.quality.NoOpRunOnPassProcessor.notPresentOutputVersion).===(org.apache.spark.sql.functions.col(&quot;ruleEngineVersion&quot;))), defaultProcessorLit).otherwise(org.apache.spark.sql.functions.expr(&quot;\n                      (select first(struct(ruleExpr, functionId, functionVersion, ruleSuiteId, ruleSuiteVersion))\n                          from &quot;.+(outsN).+(&quot; outs\n                          where (\n                            outs.ruleSuiteId = ruleSuiteId and outs.ruleSuiteVersion = ruleSuiteVersion\n                            or (exists (\n                             select 0 from &quot;).+(oun).+(&quot; gls\n                             where gls.id = outs.ruleSuiteId and gls.version = outs.ruleSuiteVersion\n                            ) )\n                          ) and outs.functionId = ruleEngineId and outs.functionVersion = ruleEngineVersion\n                       )\n                      &quot;))).as(&quot;rDefaultProcessor&quot;));
+  suiteRows.join(adjusted, org.apache.spark.sql.functions.col(&quot;ruleSuiteId&quot;).===(org.apache.spark.sql.functions.col(&quot;rRuleSuiteId&quot;)).&amp;&amp;(org.apache.spark.sql.functions.col(&quot;ruleSuiteVersion&quot;).===(org.apache.spark.sql.functions.col(&quot;rRuleSuiteVersion&quot;)))).select(org.apache.spark.sql.functions.col(&quot;ruleSuiteId&quot;), org.apache.spark.sql.functions.col(&quot;ruleSuiteVersion&quot;), org.apache.spark.sql.functions.col(&quot;ruleRows&quot;), org.apache.spark.sql.functions.col(&quot;lambdaFunctions&quot;), org.apache.spark.sql.functions.col(&quot;rProbablePass&quot;).as(&quot;probablePass&quot;), org.apache.spark.sql.functions.col(&quot;rDefaultProcessor&quot;).as(&quot;defaultProcessor&quot;))
+}))
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          2643
+        </td>
+        <td>
+          5450
+          -
+          5487
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.as
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.functions.col(&quot;ruleSuiteId&quot;).as(&quot;rRuleSuiteId&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          2644
+        </td>
+        <td>
+          5489
+          -
+          5536
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.as
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.functions.col(&quot;ruleSuiteVersion&quot;).as(&quot;rRuleSuiteVersion&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          2647
+        </td>
+        <td>
+          5439
+          -
+          6637
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Dataset.select
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          rsa.select(org.apache.spark.sql.functions.col(&quot;ruleSuiteId&quot;).as(&quot;rRuleSuiteId&quot;), org.apache.spark.sql.functions.col(&quot;ruleSuiteVersion&quot;).as(&quot;rRuleSuiteVersion&quot;), org.apache.spark.sql.functions.col(&quot;probablePass&quot;).as(&quot;rProbablePass&quot;), org.apache.spark.sql.functions.when(org.apache.spark.sql.functions.lit(com.sparkutils.quality.NoOpRunOnPassProcessor.notPresentOutputId).===(org.apache.spark.sql.functions.col(&quot;ruleEngineId&quot;)).&amp;&amp;(org.apache.spark.sql.functions.lit(com.sparkutils.quality.NoOpRunOnPassProcessor.notPresentOutputVersion).===(org.apache.spark.sql.functions.col(&quot;ruleEngineVersion&quot;))), defaultProcessorLit).otherwise(org.apache.spark.sql.functions.expr(&quot;\n                      (select first(struct(ruleExpr, functionId, functionVersion, ruleSuiteId, ruleSuiteVersion))\n                          from &quot;.+(outsN).+(&quot; outs\n                          where (\n                            outs.ruleSuiteId = ruleSuiteId and outs.ruleSuiteVersion = ruleSuiteVersion\n                            or (exists (\n                             select 0 from &quot;).+(oun).+(&quot; gls\n                             where gls.id = outs.ruleSuiteId and gls.version = outs.ruleSuiteVersion\n                            ) )\n                          ) and outs.functionId = ruleEngineId and outs.functionVersion = ruleEngineVersion\n                       )\n                      &quot;))).as(&quot;rDefaultProcessor&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          2645
+        </td>
+        <td>
+          5552
+          -
+          5591
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.as
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.functions.col(&quot;probablePass&quot;).as(&quot;rProbablePass&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          143
+        </td>
+        <td>
+          2646
+        </td>
+        <td>
+          5607
+          -
+          6623
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.as
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.functions.when(org.apache.spark.sql.functions.lit(com.sparkutils.quality.NoOpRunOnPassProcessor.notPresentOutputId).===(org.apache.spark.sql.functions.col(&quot;ruleEngineId&quot;)).&amp;&amp;(org.apache.spark.sql.functions.lit(com.sparkutils.quality.NoOpRunOnPassProcessor.notPresentOutputVersion).===(org.apache.spark.sql.functions.col(&quot;ruleEngineVersion&quot;))), defaultProcessorLit).otherwise(org.apache.spark.sql.functions.expr(&quot;\n                      (select first(struct(ruleExpr, functionId, functionVersion, ruleSuiteId, ruleSuiteVersion))\n                          from &quot;.+(outsN).+(&quot; outs\n                          where (\n                            outs.ruleSuiteId = ruleSuiteId and outs.ruleSuiteVersion = ruleSuiteVersion\n                            or (exists (\n                             select 0 from &quot;).+(oun).+(&quot; gls\n                             where gls.id = outs.ruleSuiteId and gls.version = outs.ruleSuiteVersion\n                            ) )\n                          ) and outs.functionId = ruleEngineId and outs.functionVersion = ruleEngineVersion\n                       )\n                      &quot;))).as(&quot;rDefaultProcessor&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          2648
+        </td>
+        <td>
+          6690
+          -
+          6703
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;ruleSuiteId&quot;
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          2649
+        </td>
+        <td>
+          6709
+          -
+          6728
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.functions.col
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.functions.col(&quot;rRuleSuiteId&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          2650
+        </td>
+        <td>
+          6736
+          -
+          6754
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;ruleSuiteVersion&quot;
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          2651
+        </td>
+        <td>
+          6760
+          -
+          6784
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.functions.col
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.functions.col(&quot;rRuleSuiteVersion&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          2652
+        </td>
+        <td>
+          6732
+          -
+          6784
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.===
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.functions.col(&quot;ruleSuiteVersion&quot;).===(org.apache.spark.sql.functions.col(&quot;rRuleSuiteVersion&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          2653
+        </td>
+        <td>
+          6686
+          -
+          6784
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.&amp;&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.functions.col(&quot;ruleSuiteId&quot;).===(org.apache.spark.sql.functions.col(&quot;rRuleSuiteId&quot;)).&amp;&amp;(org.apache.spark.sql.functions.col(&quot;ruleSuiteVersion&quot;).===(org.apache.spark.sql.functions.col(&quot;rRuleSuiteVersion&quot;)))
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          2660
+        </td>
+        <td>
+          6649
+          -
+          7063
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Dataset.select
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          suiteRows.join(adjusted, org.apache.spark.sql.functions.col(&quot;ruleSuiteId&quot;).===(org.apache.spark.sql.functions.col(&quot;rRuleSuiteId&quot;)).&amp;&amp;(org.apache.spark.sql.functions.col(&quot;ruleSuiteVersion&quot;).===(org.apache.spark.sql.functions.col(&quot;rRuleSuiteVersion&quot;)))).select(org.apache.spark.sql.functions.col(&quot;ruleSuiteId&quot;), org.apache.spark.sql.functions.col(&quot;ruleSuiteVersion&quot;), org.apache.spark.sql.functions.col(&quot;ruleRows&quot;), org.apache.spark.sql.functions.col(&quot;lambdaFunctions&quot;), org.apache.spark.sql.functions.col(&quot;rProbablePass&quot;).as(&quot;probablePass&quot;), org.apache.spark.sql.functions.col(&quot;rDefaultProcessor&quot;).as(&quot;defaultProcessor&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          2654
+        </td>
+        <td>
+          6817
+          -
+          6835
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.functions.col
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.functions.col(&quot;ruleSuiteId&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          2655
+        </td>
+        <td>
+          6849
+          -
+          6872
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.functions.col
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.functions.col(&quot;ruleSuiteVersion&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          2656
+        </td>
+        <td>
+          6886
+          -
+          6901
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.functions.col
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.functions.col(&quot;ruleRows&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          2657
+        </td>
+        <td>
+          6915
+          -
+          6937
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.functions.col
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.functions.col(&quot;lambdaFunctions&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          2658
+        </td>
+        <td>
+          6951
+          -
+          6990
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.as
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.functions.col(&quot;rProbablePass&quot;).as(&quot;probablePass&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          2659
+        </td>
+        <td>
+          7004
+          -
+          7051
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.as
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.functions.col(&quot;rDefaultProcessor&quot;).as(&quot;defaultProcessor&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          2671
+        </td>
+        <td>
+          7101
+          -
+          8447
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.fold
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          lambdaFunctionRowsT.fold[org.apache.spark.sql.DataFrame](withAttributes)(((lambdas: org.apache.spark.sql.DataFrame) =&gt; {
+  val grouped: org.apache.spark.sql.Dataset[org.apache.spark.sql.Row] = lambdas.groupBy(&quot;ruleSuiteId&quot;, &quot;ruleSuiteVersion&quot;).agg(org.apache.spark.sql.functions.collect_set(org.apache.spark.sql.functions.struct(org.apache.spark.sql.functions.col(&quot;name&quot;), org.apache.spark.sql.functions.col(&quot;ruleExpr&quot;), org.apache.spark.sql.functions.col(&quot;functionId&quot;), org.apache.spark.sql.functions.col(&quot;functionVersion&quot;), org.apache.spark.sql.functions.col(&quot;ruleSuiteId&quot;), org.apache.spark.sql.functions.col(&quot;ruleSuiteVersion&quot;))).as(&quot;theLambdaFunctions&quot;)).select(org.apache.spark.sql.functions.col(&quot;ruleSuiteId&quot;).as(&quot;lRuleSuiteId&quot;), org.apache.spark.sql.functions.col(&quot;ruleSuiteVersion&quot;).as(&quot;lRuleSuiteVersion&quot;), org.apache.spark.sql.functions.col(&quot;theLambdaFunctions&quot;)).as(&quot;grouped&quot;);
+  grouped.createOrReplaceTempView(groupedLambdasN);
+  withAttributes.select(org.apache.spark.sql.functions.col(&quot;ruleSuiteId&quot;), org.apache.spark.sql.functions.col(&quot;ruleSuiteVersion&quot;), org.apache.spark.sql.functions.col(&quot;ruleRows&quot;), org.apache.spark.sql.functions.expr(&quot;(select flatten(collect_set(theLambdaFunctions))\n                  from &quot;.+(groupedLambdasN).+(&quot; grouped\n                  where grouped.lRuleSuiteId = ruleSuiteId and grouped.lRuleSuiteVersion = ruleSuiteVersion\n                  or (exists (\n                   select 0 from &quot;).+(lun).+(&quot; gls\n                   where gls.id = grouped.lRuleSuiteId and gls.version = grouped.lRuleSuiteVersion\n                  ) )\n               )&quot;)).as(&quot;lambdaFunctions&quot;), org.apache.spark.sql.functions.col(&quot;probablePass&quot;), org.apache.spark.sql.functions.col(&quot;defaultProcessor&quot;))
+}))
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          2662
+        </td>
+        <td>
+          7186
+          -
+          7686
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Dataset.as
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          lambdas.groupBy(&quot;ruleSuiteId&quot;, &quot;ruleSuiteVersion&quot;).agg(org.apache.spark.sql.functions.collect_set(org.apache.spark.sql.functions.struct(org.apache.spark.sql.functions.col(&quot;name&quot;), org.apache.spark.sql.functions.col(&quot;ruleExpr&quot;), org.apache.spark.sql.functions.col(&quot;functionId&quot;), org.apache.spark.sql.functions.col(&quot;functionVersion&quot;), org.apache.spark.sql.functions.col(&quot;ruleSuiteId&quot;), org.apache.spark.sql.functions.col(&quot;ruleSuiteVersion&quot;))).as(&quot;theLambdaFunctions&quot;)).select(org.apache.spark.sql.functions.col(&quot;ruleSuiteId&quot;).as(&quot;lRuleSuiteId&quot;), org.apache.spark.sql.functions.col(&quot;ruleSuiteVersion&quot;).as(&quot;lRuleSuiteVersion&quot;), org.apache.spark.sql.functions.col(&quot;theLambdaFunctions&quot;)).as(&quot;grouped&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          174
+        </td>
+        <td>
+          2663
+        </td>
+        <td>
+          7698
+          -
+          7746
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Dataset.createOrReplaceTempView
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          grouped.createOrReplaceTempView(groupedLambdasN)
+        </td>
+      </tr><tr>
+        <td>
+          176
+        </td>
+        <td>
+          2670
+        </td>
+        <td>
+          7758
+          -
+          8439
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Dataset.select
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          withAttributes.select(org.apache.spark.sql.functions.col(&quot;ruleSuiteId&quot;), org.apache.spark.sql.functions.col(&quot;ruleSuiteVersion&quot;), org.apache.spark.sql.functions.col(&quot;ruleRows&quot;), org.apache.spark.sql.functions.expr(&quot;(select flatten(collect_set(theLambdaFunctions))\n                  from &quot;.+(groupedLambdasN).+(&quot; grouped\n                  where grouped.lRuleSuiteId = ruleSuiteId and grouped.lRuleSuiteVersion = ruleSuiteVersion\n                  or (exists (\n                   select 0 from &quot;).+(lun).+(&quot; gls\n                   where gls.id = grouped.lRuleSuiteId and gls.version = grouped.lRuleSuiteVersion\n                  ) )\n               )&quot;)).as(&quot;lambdaFunctions&quot;), org.apache.spark.sql.functions.col(&quot;probablePass&quot;), org.apache.spark.sql.functions.col(&quot;defaultProcessor&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          177
+        </td>
+        <td>
+          2664
+        </td>
+        <td>
+          7793
+          -
+          7811
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.functions.col
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.functions.col(&quot;ruleSuiteId&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          178
+        </td>
+        <td>
+          2665
+        </td>
+        <td>
+          7825
+          -
+          7848
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.functions.col
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.functions.col(&quot;ruleSuiteVersion&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          2666
+        </td>
+        <td>
+          7862
+          -
+          7877
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.functions.col
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.functions.col(&quot;ruleRows&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          188
+        </td>
+        <td>
+          2667
+        </td>
+        <td>
+          7891
+          -
+          8356
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.Column.as
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.functions.expr(&quot;(select flatten(collect_set(theLambdaFunctions))\n                  from &quot;.+(groupedLambdasN).+(&quot; grouped\n                  where grouped.lRuleSuiteId = ruleSuiteId and grouped.lRuleSuiteVersion = ruleSuiteVersion\n                  or (exists (\n                   select 0 from &quot;).+(lun).+(&quot; gls\n                   where gls.id = grouped.lRuleSuiteId and gls.version = grouped.lRuleSuiteVersion\n                  ) )\n               )&quot;)).as(&quot;lambdaFunctions&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          189
+        </td>
+        <td>
+          2668
+        </td>
+        <td>
+          8371
+          -
+          8390
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.functions.col
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.functions.col(&quot;probablePass&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          2669
+        </td>
+        <td>
+          8404
+          -
+          8427
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.functions.col
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.functions.col(&quot;defaultProcessor&quot;)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
