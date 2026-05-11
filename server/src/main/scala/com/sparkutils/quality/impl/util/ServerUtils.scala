@@ -274,6 +274,21 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
     else
       ""
 
+  def aritySafeParamDecl: String =
+    if (arity <= 22)
+      params.map { p =>
+
+        val cast =
+          if (p._3.isPrimitive)
+            CodeGenerator.boxedType(p._3.getSimpleName)
+          else
+            p._1
+
+        s"private ${p._1} ${p._2};"
+      }.mkString("\n")
+    else
+      ""
+
   def aritySafeParamConversion: String =
     if (arity <= 22)
       params.map { p =>
@@ -284,7 +299,7 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
           else
             p._1
 
-        s"${p._1} ${p._2} = ($cast) ${p._2}_ppp;"
+        s"${p._2} = ($cast) ${p._2}_ppp;"
       }.mkString("\n")
     else
       ""

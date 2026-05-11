@@ -131,7 +131,10 @@ object SeparateCompilation {
       class RunnerCompilation$id extends ${fullParams.aritySafeApplyType("scala.runtime.AbstractFunction")} implements $initType {
         private final Object[] references;
         $initDecl
+        // ctx mutable states
         ${ctx.declareMutableStates()}
+        // extra params global (outer ctx subexprs and state)
+        ${fullParams.aritySafeParamDecl}
 
         public RunnerCompilation$id(Object[] references) {
           this.references = references;

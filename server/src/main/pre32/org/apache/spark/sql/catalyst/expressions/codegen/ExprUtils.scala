@@ -4,7 +4,7 @@ import org.apache.spark.sql.catalyst.expressions.{EquivalentExpressions, Express
 
 object QualityExprUtils {
 
-  def currentSubExprState(ctx: CodegenContext): Map[Expression, SubExprEliminationState] =
+  def currentSubExprState(ctx: CodegenContext): Map[ExprEquals, SubExprEliminationState] =
     ctx.subExprEliminationExprs
 
   def getAllEquivalentExprs(equivalentExpressions: EquivalentExpressions): Seq[Expression] =
@@ -23,5 +23,12 @@ object QualityExprUtils {
 
   def evaluateSubExprEliminationState(ctx: CodegenContext, subExprs: SubExprCodes): String = {
     subExprs.codes.mkString("\n")
+  }
+
+  // faked with 2 for the count, there is no count preserved on <= 3.1
+  def orderedByCount(expressions: Seq[Expression], eq: EquivalentExpressions): Seq[(Expression, Int)] = {
+    expressions.map{e =>
+      e -> 2
+    }
   }
 }

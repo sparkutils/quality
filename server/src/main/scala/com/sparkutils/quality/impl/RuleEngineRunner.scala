@@ -12,15 +12,13 @@ import com.sparkutils.quality.impl.DefaultProcessorImpl.DefaultProcessorImplOps
 import com.sparkutils.quality.impl.ExpressionRuleExpr.ExpressionRuleOps
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
 import com.sparkutils.quality.impl.RunOnPassProcessorImpl.RunOnPassProcessorImplOps
-import com.sparkutils.quality.impl.util.Params.formatParams
-import com.sparkutils.quality.impl.util.SeparateCompilation.runnerCompilation
 import com.sparkutils.quality.impl.util.{NonPassThrough, ParameterInformation, PassThroughCompileEvals, PassThroughEvalOnly, SeparateCompilation}
 import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCoercion
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.isNullVariable
-import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext, CodegenFallback, EmptyBlock, ExprCode, GeneratedClass, QualityCodeGenUtils, VariableValue}
+import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodeAndComment, CodeGenerator, CodegenContext, CodegenFallback, ExprCode, GeneratedClass, VariableValue}
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression}
 import org.apache.spark.sql.catalyst.util.{GenericArrayData, truncatedString}
 import org.apache.spark.sql.internal.SQLConf

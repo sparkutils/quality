@@ -44,6 +44,26 @@ object QualityCodeGenUtils {
    * @param f
    * @tparam T
    * @return
+   *
+  def withSubExprEliminationExprs[T](ctx: CodegenContext, newSubExprEliminationExprs: Map[QualityExprUtils.ExprEquals, SubExprEliminationState])(
+    f: => T): T = {
+    val oldsubExprEliminationExprs = ctx.subExprEliminationExprs
+    ctx.subExprEliminationExprs = newSubExprEliminationExprs
+
+    val genCodes = f
+
+    // Restore previous subExprEliminationExprs
+    ctx.subExprEliminationExprs = oldsubExprEliminationExprs
+    genCodes
+  }
+*/
+  /**
+   * Unlike the Spark version it allows any op to take place
+   * @param ctx
+   * @param newSubExprEliminationExprs
+   * @param f
+   * @tparam T
+   * @return
    */
   def withSubExprEliminationExprs[T](ctx: CodegenContext, newSubExprEliminationExprs: Map[QualityExprUtils.ExprEquals, SubExprEliminationState])(
     f: => T): T = {

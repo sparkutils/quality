@@ -4,7 +4,7 @@ import org.apache.spark.sql.catalyst.expressions.{EquivalentExpressions, Express
 
 object QualityExprUtils {
 
-  def currentSubExprState(ctx: CodegenContext): Map[ExpressionEquals, SubExprEliminationState] =
+  def currentSubExprState(ctx: CodegenContext): Map[ExprEquals, SubExprEliminationState] =
     ctx.subExprEliminationExprs
 
   def getAllEquivalentExprs(equivalentExpressions: EquivalentExpressions): Seq[Expression] =
@@ -23,4 +23,10 @@ object QualityExprUtils {
     ctx.evaluateSubExprEliminationState(subExprs.states.values)
   }
 
+  // uses real count on spark >=3.2
+  def orderedByCount(expressions: Seq[Expression], eq: EquivalentExpressions): Seq[(Expression, Int)] = {
+    expressions.map{e =>
+      e -> eq.getExprState(e).get.useCount
+    }.sortBy(_._2).reverse
+  }
 }
