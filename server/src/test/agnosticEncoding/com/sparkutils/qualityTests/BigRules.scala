@@ -1,4 +1,4 @@
-/*package com.sparkutils.qualityTests
+package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.mapLookup.MapLookupFunctions
@@ -323,5 +323,18 @@ class BigRules extends SharedPureConnectTests with Matchers {
     play.filter("k != result.col1 or l != result.col2").
       count() shouldBe 0
   }
+
+  // just a test to spit out rules from grouped
+  test("dummy degrouper") {
+    val group = RuleSuiteGroupIOUtils.fromFile("./grouped")
+    val s = sparkSession
+    import s.implicits._
+    import com.sparkutils.quality.implicits._
+
+    group.ruleSuites.foldLeft(Seq.empty[CombinedRuleSuiteRows]){
+      case (cur, (id, rs)) =>
+        ///combined_rows(rs).write.mode(SaveMode.Append).format("json").save(".target/full_grouped")
+        cur :+ combined_rows(rs).head()
+    }.toDS()/*.coalesce(1)*/.write.mode(SaveMode.Overwrite).format("json").save("target/full_grouped")
+  }
 }
-*/
