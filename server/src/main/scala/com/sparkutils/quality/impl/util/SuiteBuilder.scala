@@ -39,7 +39,7 @@ object SuiteBuilder {
         case (cur, (group, index)) =>
 
           val filter = Rule(Id(index, 0), ExpressionRule(group.groupFilter.sql), RunOnPassProcessor(index, Id(index, 0),
-            OutputExpression(s"rule_engine_runner(ruleSuite${index+1})"))) // rule_suite_from(the_group, ${index + 1}, 0), per map blows heap
+            OutputExpression(s"rule_engine_runner(rule_suite_from(the_group, ${index + 1}, 0))"))) // ruleSuite${index+1} rule_suite_from(the_group, ${index + 1}, 0), per map blows heap
           val suite =
             RuleSuite(Id(index + 1, 0), ruleSets = Seq(RuleSet(Id(index,0), rules = group.triggers.map{
               trigger =>

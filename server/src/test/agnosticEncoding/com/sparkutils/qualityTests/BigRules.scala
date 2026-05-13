@@ -311,25 +311,25 @@ class BigRules extends SharedPureConnectTests with Matchers {
     val s = sparkSession
 
     val d = s.read.option("header",true).csv("server/src/test/resources/20k_rule_suite.csv")
-    //register_rule_suite_group(group, "the_group")
-    group.ruleSuites.foreach{
+    register_rule_suite_group(group, "the_group")
+    /*group.ruleSuites.foreach{
       case (id, rs) =>
         register_rule_suite(rs, s"ruleSuite${id.id}")
-    }
+    }*/
 
     // when running as ruleRunner all of Id(0,0) find matches, alas multiple matches (more than 2 for some), as
     // such it's possible the groups are too aggressive, but collect *should* still allow capturing
 
 /// s"rule_engine_runner(ruleSuite${index+1})"
-    val res = doRuleTest(group.ruleSuites(Id(0,0)), "grouped 129 via top level boolean grouping", resultDataType = None,
+    val res = doRuleTest(group.ruleSuites(Id(0,0)), "grouped 129 via top level boolean grouping", resultDataType = None)/*,
       topLevelRunner = collectRunner(_,_), _.select(expr("*"), expr("get(filter(runner.result, x -> x.ruleSuiteResults.overallResult = passed()), 0)").as("thepackage")).
-        select(expr("*"),expr("thepackage.*")))
+        select(expr("*"),expr("thepackage.*")))*/
     val play = res.cache
     val count = play.count
     print(s"got ${play.where("result is not null").count} non null results out of $count total rows")
     play.show
-    play.filter("(result.col1 is null) or (k != result.col1) or (l != result.col2) or (result.col2 is null)").show
-    //  count() shouldBe 0
+    play.filter("(result.col1 is null) or (k != result.col1) or (l != result.col2) or (result.col2 is null)").
+      count() shouldBe 0
   }
 
   // just a test to spit out rules from grouped

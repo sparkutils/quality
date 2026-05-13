@@ -234,18 +234,12 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
                        orderOffset: Int => Int = identity,
                        salienceCheck: Boolean = true, sizeAdjustment: Int = 0,
                        exprEnd: String => Block = _ => code"",
-                       exprFunEnd: String => Block = _ => code"",
-                        // to isolate code,  move everything to this
-                       paramsInfoIn: ParameterInformation = null
+                       exprFunEnd: String => Block = _ => code""
                       ):
     CompilerTerms = {
     val i = ctx.INPUT_ROW
 
-    val paramsInfo =
-      if (paramsInfoIn eq null)
-        genParams(ctx, child)
-      else
-        paramsInfoIn
+    val paramsInfo = genParams(ctx, child)
 
     import paramsInfo._
 
@@ -489,7 +483,7 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression with SplitCompilation {
           RuleEngineRunnerUtils.genCompilerTerms[T](ruleRunnerExpressionIdx, outerCtx, ctx, PassThroughEvalOnly(realChildren),
             expressionOffsets, realChildren,
             debugMode, variablesPerFunc, variableFuncGroup, forceTriggerEval,
-            exprEnd = earlyReturn, exprFunEnd = earlyReturn//, paramsInfoIn = params
+            exprEnd = earlyReturn, exprFunEnd = earlyReturn
           )
 
         import compilerTerms._

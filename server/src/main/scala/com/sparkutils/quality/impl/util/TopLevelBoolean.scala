@@ -52,7 +52,7 @@ object TopLevelBoolean {
   case class EqualToDiff(operands: Set[Expression]) extends Differentiator {
 
     def bucketer(bucket: Int, bucketSize: Int) =
-      EqualTo(Remainder(Abs(Murmur3Hash(operands.toSeq, 42)), Literal(bucketSize)), Literal(bucket))
+      EqualTo(Remainder(Abs(Murmur3Hash(operands.toSeq.sortBy(_.hashCode()), 42)), Literal(bucketSize)), Literal(bucket))
 
     override def bucket(trigger: Expression, bucketSize: Int): Int = {
       val pairs =
@@ -63,7 +63,7 @@ object TopLevelBoolean {
             Set.empty
         ).toSeq)
 
-      val lits = pairs.filter(p => operands.contains(p._2)).map(_._1)
+      val lits = pairs.filter(p => operands.contains(p._2)).sortBy(_._2.hashCode()).map(_._1)
 
       Abs(Murmur3Hash(lits, 42)).eval().asInstanceOf[Int] % bucketSize
     }
@@ -212,7 +212,9 @@ object TopLevelBoolean {
                       val bucketedExp = differentiator.bucketer(bucket, numberOfBuckets)
 
                       val corrected = addSeen(trips.map(_._2))
-                      cur :+ Group(And(bucketedExp, sub), corrected.minBy(_.salience).salience, corrected)
+                      // any bucketing should happen after simpler ops take place, quicker to rule out, although
+                      // most should meet sub expr elim
+                      cur :+ Group(And(sub, bucketedExp), corrected.minBy(_.salience).salience, corrected)
                   }
               }
             cur ++ newSeqs
