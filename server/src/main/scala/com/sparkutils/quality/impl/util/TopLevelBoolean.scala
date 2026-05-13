@@ -33,38 +33,63 @@ object TopLevelBoolean {
 
   sealed trait Differentiator {
     def bucketer(bucket: Int, bucketSize: Int): Expression
+
+    // operates over the entire trigger rule to get a bucket
     def bucket(trigger: Expression, bucketSize: Int): Int
   }
 
-  case class EqualToDiff(operand: Expression) extends Differentiator {
+  object EqualToDiff {
+
+    protected[quality] def split(exprs: Seq[Expression]) = {
+
+      exprs.flatMap {
+        case e@EqualTo(left: Literal, operand) => Some(left -> operand)
+        case e@EqualTo(operand, right: Literal) => Some(right -> operand)
+        case _ => None
+      }.sortBy(_._1.hashCode())
+    }
+  }
+  case class EqualToDiff(operands: Set[Expression]) extends Differentiator {
+
     def bucketer(bucket: Int, bucketSize: Int) =
-      EqualTo(Remainder(Abs(Murmur3Hash(Seq(operand), 42)), Literal(bucketSize)), Literal(bucket))
+      EqualTo(Remainder(Abs(Murmur3Hash(operands.toSeq, 42)), Literal(bucketSize)), Literal(bucket))
 
     override def bucket(trigger: Expression, bucketSize: Int): Int = {
-      val expression = trigger.collectFirst{
-        case e@ EqualTo(left: Literal, operand) => e
-        case e@ EqualTo(operand, right: Literal) => e
-      }.get
+      val pairs =
+        EqualToDiff.split(trigger.collect{ case e: EqualTo => e} ++ (
+          if (trigger.isInstanceOf[EqualTo])
+            Set(trigger)
+          else
+            Set.empty
+        ).toSeq)
 
-      expression match {
-        case e@ EqualTo(left: Literal, right) => Abs(Murmur3Hash(Seq(left), 42)).eval().asInstanceOf[Int] % bucketSize
-        case e@ EqualTo(left, right: Literal) => Abs(Murmur3Hash(Seq(right), 42)).eval().asInstanceOf[Int] % bucketSize
-      }
+      val lits = pairs.filter(p => operands.contains(p._2)).map(_._1)
+
+      Abs(Murmur3Hash(lits, 42)).eval().asInstanceOf[Int] % bucketSize
     }
   }
 
-  case class NoIdeaDiff(expr: Expression) extends Differentiator {
-    def bucketer(bucket: Int, bucketSize: Int) = expr
+  case class NoIdeaDiff(exprs: Seq[Expression]) extends Differentiator {
+    def bucketer(bucket: Int, bucketSize: Int) =
+      exprs match {
+        case s if s.size == 1 => s.head
+        case _ => exprs.reduce(And)
+      }
 
     override def bucket(trigger: Expression, bucketSize: Int): Int = 0
   }
 
-  def differentiate(expression: Expression): Differentiator = expression match {
-    case e@ EqualTo(left: Literal, right) => EqualToDiff(right)
-    case e@ EqualTo(left, right: Literal) => EqualToDiff(left)
+  def differentiate(expressions: Set[Expression]): Differentiator = expressions match {
+    case s if s.forall {
+      case e@ EqualTo(left: Literal, operand) => true
+      case e@ EqualTo(operand, right: Literal) => true
+      case e => false
+    } =>
+      val operands = EqualToDiff.split(s.toSeq).map(_._2)
+      EqualToDiff(operands.toSet) //TODO - and then for `a = `b tests can we simplify?
     case _ =>
       println("didn't get an EqualTo in this test set that's strange")
-      NoIdeaDiff(expression)
+      NoIdeaDiff(expressions.toSeq)
   }
 
   def bestFit(expressions: Seq[Trigger], triggerPercentFilter: Double): (Seq[Group], Int) = {
@@ -113,26 +138,7 @@ object TopLevelBoolean {
       if (max - min <= step) {
         step = 1
       }
-/*
-      var adjustedMin = false
-      var adjustedMax = false
 
-      if (min > bucketSize) {
-        min = bucketSize
-        adjustedMin = true
-        if (max > bucketSize) {
-          adjustedMax = true
-          max -= step
-        }
-      }
-
-      if ((max < bucketSize) && !adjustedMax) {
-        max = bucketSize
-        if ((min < bucketSize) && !adjustedMin) {
-          min += step
-        }
-      }
-*/
       if (max <= min) {
         found = true
       }
@@ -163,9 +169,9 @@ object TopLevelBoolean {
             // should be the maximal list already as all elements are subexprs, what is left are differentiators
 
             val differentiatingBooleans =
-              triggers.foldLeft(Map.empty[Set[Differentiator], Seq[Trigger]]){
+              triggers.foldLeft(Map.empty[Differentiator, Seq[Trigger]]){
                 case (map, trigger) =>
-                  val theseParts = fromParts(trigger.expression).filterNot(i => subs.contains(i)).map(differentiate)
+                  val theseParts = differentiate(fromParts(trigger.expression).filterNot(i => subs.contains(i)))
 
                   util.MapOps.MapOps(map).updatedWithF(theseParts) {
                       case Some(s) => Some(s :+ trigger)
@@ -178,7 +184,7 @@ object TopLevelBoolean {
 
             val newSeqs =
               differentiatingBooleans.flatMap {
-                case (differentiators, triggers) =>
+                case (differentiator, triggers) =>
 
                   val numberOfBuckets =
                     if (triggers.size % targetBucket == 0)
@@ -186,26 +192,27 @@ object TopLevelBoolean {
                     else
                       (triggers.size / targetBucket + 1)
 
-                  println(s"target number of buckets $numberOfBuckets for ${triggers.size} for $differentiators")
+                  println(s"target number of buckets $numberOfBuckets for ${triggers.size} for $differentiator")
 
                   val bucketed =
                     triggers.map{
                       t =>
-                        differentiators.map(d => d -> d.bucket(t.expression, numberOfBuckets)) -> t
+                        differentiator.bucket(t.expression, numberOfBuckets) -> t
                     }.groupBy(_._1)
 
                   bucketed.foldLeft(Seq.empty[Group]){
                     case (cur, (bucket, trips)) =>
-                      val bucketers = bucket.map(p => p._1.bucketer(p._2, numberOfBuckets))
-                      val bucketedAnd = And(sub,
+                      //val bucketers = bucket.map(p => p._1.bucketer(p._2, numberOfBuckets))
+                      /*val bucketed = And(sub,
                         if (bucketers.size == 1)
                           bucketers.head
                         else
                           bucketers.reduce(And)
-                      )
+                      )*/
+                      val bucketedExp = differentiator.bucketer(bucket, numberOfBuckets)
 
                       val corrected = addSeen(trips.map(_._2))
-                      cur :+ Group(bucketedAnd, corrected.minBy(_.salience).salience, corrected)
+                      cur :+ Group(And(bucketedExp, sub), corrected.minBy(_.salience).salience, corrected)
                   }
               }
             cur ++ newSeqs
@@ -217,7 +224,10 @@ object TopLevelBoolean {
       }
 
     val rest = expressions.filterNot(p => seen(p.expression))
-    (topHitter :+ Group(Literal(true), rest.minBy(_.salience).salience, rest)).filter(_.triggers.nonEmpty)
+    if (rest.isEmpty)
+      topHitter
+    else
+      (topHitter :+ Group(Literal(true), rest.minBy(_.salience).salience, rest)).filter(_.triggers.nonEmpty)
   }
 
   def from(expression: Expression, subExprs: Map[Expression, Int], populationSize: Int, triggerPercentFilter: Double): Expression = {
