@@ -1,9 +1,10 @@
 package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality.impl.util
-import org.apache.spark.sql.catalyst.expressions.{Abs, And, EqualTo, Expression, Literal, Murmur3Hash, Remainder}
+import org.apache.spark.sql.catalyst.expressions.{Abs, And, CaseWhen, EqualTo, Expression, If, Literal, Murmur3Hash, Not, Or, Remainder}
 import org.apache.spark.sql.types.BooleanType
 
+import scala.annotation.tailrec
 import scala.collection.mutable
 
 case class Trigger(expression: Expression, index: Int, salience: Int)
@@ -237,6 +238,15 @@ object TopLevelBoolean {
     case And(left, right: And) => fromParts(left) ++ fromParts(right)
     case And(left: And, right) => fromParts(left) ++ fromParts(right)
     case a@ And(left, right) => Set(a) ++ fromParts(left) ++ fromParts(right)*/
+    case CaseWhen(branches, elseValue) =>
+      val plentyOfParts = for {
+        (whenExpr, thenExpr) <- branches
+        expr <- And(whenExpr, thenExpr)
+      } yield expr
+
+      (plentyOfParts ++ elseValue.toSeq).toSet
+    case If(condition, trueValue, falseValue) => Set(And(condition, trueValue), And(Not(condition), falseValue))
+    case Or(left, right) => Set(And(Not(left), right), And(left, Not(right)))
     case And(left, right) => fromParts(left) ++ fromParts(right)
     case e: Expression if e.dataType == BooleanType => Set(e)
     case _ => Set.empty
