@@ -172,42 +172,6 @@ case class TransientHolder[T](val initialise: () => T) extends Serializable {
 }
 
 /**
- * Frameless sets path in foldable encoders to nullable == false, but it really is nullable
- * Spark then just accesses the struct which is null.  This forces codegen only
- */
-case class ForceNullable(child: Expression) extends Expression {
-
-  val children = Seq(child)
-
-  override def nullable: Boolean = true
-
-  override def eval(input: InternalRow): Any = child.eval(input)
-
-  override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
-    val c = child.genCode(ctx)
-    val typ = JavaCode.javaType(dataType)
-    val boxed = JavaCode.boxedType(dataType)
-    ev.copy(code =
-      code"""
-            ${c.code}
-            boolean ${ev.isNull} = true;
-            $typ ${ev.value} = null;
-            if (${c.value} != null) {
-              ${ev.isNull} = false;
-              ${ev.value} = ($boxed) ${c.value};
-            }
-            """)
-  }
-
-
-  override def dataType: DataType = child.dataType
-
-  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
-    copy(child = newChildren.head)
-}
-
-
-/**
  * wrap subexprs so we can correctly identify the subquery post bindreferences
  * @param children
  */

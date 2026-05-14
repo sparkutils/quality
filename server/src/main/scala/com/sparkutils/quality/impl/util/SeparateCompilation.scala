@@ -17,7 +17,7 @@ trait InitPartitionSimple {
    * This is used by nondeterministic expressions to set initial states.
    * The default implementation does nothing.
    */
-  def initialize(partitionIndex: Int): Unit = {}
+  def initialize(partitionIndex: Int): Unit
 
 }
 
@@ -34,7 +34,7 @@ trait InitPartitionWholeStage {
    * This is used by nondeterministic expressions to set initial states.
    * The default implementation does nothing.
    */
-  def initialize(index: Int, inputs: Array[Iterator[_]]): Unit = {}
+  def initialize(index: Int, inputs: Array[Iterator[_]]): Unit
 
 }
 
