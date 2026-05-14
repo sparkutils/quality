@@ -387,6 +387,8 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression with SplitCo
               else ""
           }
 
+        val salienceFromOffsets = flattenSalience(ruleSuite)
+
         val compilerTerms =
           RuleEngineRunnerUtils.genCompilerTerms[T](ruleRunnerExpressionIdx, outerCtx, ctx, PassThroughEvalOnly(children), expressionOffsets, children,
             false, variablesPerFunc, variableFuncGroup, false, extraConfig,
@@ -408,7 +410,8 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression with SplitCo
               if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp)
                 -1 // don't generate the default, there isn't a trigger
               else
-                0
+                0,
+            salience = salienceFromOffsets(_)
           )
 
         import compilerTerms._

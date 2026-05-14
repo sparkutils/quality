@@ -202,19 +202,10 @@ object TopLevelBoolean {
 
                   bucketed.foldLeft(Seq.empty[Group]){
                     case (cur, (bucket, trips)) =>
-                      //val bucketers = bucket.map(p => p._1.bucketer(p._2, numberOfBuckets))
-                      /*val bucketed = And(sub,
-                        if (bucketers.size == 1)
-                          bucketers.head
-                        else
-                          bucketers.reduce(And)
-                      )*/
                       val bucketedExp = differentiator.bucketer(bucket, numberOfBuckets)
 
                       val corrected = addSeen(trips.map(_._2))
-                      // any bucketing should happen after simpler ops take place, quicker to rule out, although
-                      // most should meet sub expr elim
-                      cur :+ Group(And(sub, bucketedExp), corrected.minBy(_.salience).salience, corrected)
+                      cur :+ Group(And(bucketedExp, sub), corrected.minBy(_.salience).salience, corrected)
                   }
               }
             cur ++ newSeqs

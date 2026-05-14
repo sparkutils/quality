@@ -12,7 +12,7 @@ import com.sparkutils.quality.impl.DefaultProcessorImpl.DefaultProcessorImplOps
 import com.sparkutils.quality.impl.ExpressionRuleExpr.ExpressionRuleOps
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
 import com.sparkutils.quality.impl.RunOnPassProcessorImpl.RunOnPassProcessorImplOps
-import com.sparkutils.quality.impl.util.{NonPassThrough, ParameterInformation, PassThroughCompileEvals, PassThroughEvalOnly, SeparateCompilation, SuiteBuilder}
+import com.sparkutils.quality.impl.util.{NonPassThrough, ParameterInformation, PassThroughCompileEvals, PassThroughEvalOnly, SeparateCompilation, Trigger}
 import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCoercion
@@ -236,7 +236,8 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
                        orderOffset: Int => Int = identity,
                        salienceCheck: Boolean = true, sizeAdjustment: Int = 0,
                        exprEnd: String => Block = _ => code"",
-                       exprFunEnd: String => Block = _ => code""
+                       exprFunEnd: String => Block = _ => code"",
+                       salience: Int => Int = _ => 0
                       ):
     CompilerTerms = {
     val i = ctx.INPUT_ROW
@@ -380,7 +381,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
       val trigger = triggerRules(realI) // the original trigger is useless
       val stepWithIf = codeGen(trigger, realI, funName)
 
-      (trigger, stepWithIf)
+      (Trigger(trigger, realI, salience(realI)), stepWithIf)
     }
 
     CompilerTerms(
@@ -482,11 +483,13 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression with SplitCompilation {
             }
           """
 
+        val salienceFromOffsets = flattenSalience(ruleSuite)
+
         val compilerTerms =
           RuleEngineRunnerUtils.genCompilerTerms[T](ruleRunnerExpressionIdx, outerCtx, ctx, PassThroughEvalOnly(realChildren),
             expressionOffsets, realChildren,
             debugMode, variablesPerFunc, variableFuncGroup, forceTriggerEval, extraConfig,
-            exprEnd = earlyReturn, exprFunEnd = earlyReturn
+            exprEnd = earlyReturn, exprFunEnd = earlyReturn, salience = salienceFromOffsets(_)
           )
 
         import compilerTerms._

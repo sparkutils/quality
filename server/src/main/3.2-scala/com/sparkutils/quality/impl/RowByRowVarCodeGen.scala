@@ -1,7 +1,7 @@
 package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.QualityException
-import com.sparkutils.quality.impl.util.ParameterInformation
+import com.sparkutils.quality.impl.util.{ParameterInformation, Trigger}
 import com.sparkutils.quality.impl.util.Params.formatParams
 import com.sparkutils.quality.sparkless.impl.DecoderOpEncoderProjection
 import com.sparkutils.quality.sparkless.impl.Processors.{NO_QUERY_PLANS, isCopyNeeded}
@@ -122,7 +122,9 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
   protected def functions(ctx: CodegenContext, allExpr: Seq[(Expression, Block)], paramsDef: String, paramsCall: String,
                           prefix: String, extraConfig: Map[String, String] = Map.empty): String = {
     val funNames: Iterator[String] =
-      RuleRunnerUtils.generateFunctionGroups(ctx, allExpr, 40, 20, paramsDef, paramsCall, prefix = prefix,
+      RuleRunnerUtils.generateFunctionGroups(ctx, allExpr.zipWithIndex.map{
+        case ((exp, b), i) => (Trigger(exp, i, 0), b)
+      }, 40, 20, paramsDef, paramsCall, prefix = prefix,
         extraConfig = extraConfig)
 
     funNames.map { f => s"$f($paramsCall);" }.mkString("\n")

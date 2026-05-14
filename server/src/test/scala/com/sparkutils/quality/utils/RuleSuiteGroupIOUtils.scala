@@ -1,4 +1,4 @@
-package com.sparkutils.quality.impl.util
+package com.sparkutils.quality.utils
 
 import com.sparkutils.quality.RuleSuiteGroup
 import com.sparkutils.quality.impl.RuleSuiteHelpers

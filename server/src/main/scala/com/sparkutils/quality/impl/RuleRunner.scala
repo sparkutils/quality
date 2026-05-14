@@ -11,7 +11,7 @@ import com.sparkutils.quality.impl.RuleSuiteHelpers.getContextOrSparkClassLoader
 import types.ruleSuiteResultType
 import com.sparkutils.quality.impl.imports.RuleRunnerImports
 import com.sparkutils.quality.impl.util.Serializing.ruleResultToInt
-import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals, SeparateCompilation}
+import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals, SeparateCompilation, Trigger}
 import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
 import org.apache.spark.sql.ShimUtils.column
 import org.apache.spark.sql.catalyst.InternalRow
@@ -32,19 +32,19 @@ import scala.runtime.AbstractFunction10
  * Allow customised grouping of runner triggers, DQ and ExpressionRunner should evaluate all so the default
  * implementation is sufficient.  This abstraction was added as part of #129 due to 20k trigger rules.
  */
-trait TriggerGrouper extends AbstractFunction10[CodegenContext, Seq[(Expression, Block)],
+trait TriggerGrouper extends AbstractFunction10[CodegenContext, Seq[(Trigger, Block)],
   Int, Int, String, String, String, () => Block, () => Block, Map[String, String], Iterator[String]] {
 
-  def apply(ctx: CodegenContext, expressions: Seq[(Expression, Block)],
+  def apply(ctx: CodegenContext, expressions: Seq[(Trigger, Block)],
             variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String): Iterator[String] =
     apply(
-      ctx: CodegenContext, expressions: Seq[(Expression, Block)],
+      ctx: CodegenContext, expressions: Seq[(Trigger, Block)],
       variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String,
       prefix = "ruleRunner", exprEnd = () => code"",
       exprFunEnd = () => code"", Map.empty
     )
 
-  def apply(ctx: CodegenContext, expressions: Seq[(Expression, Block)],
+  def apply(ctx: CodegenContext, expressions: Seq[(Trigger, Block)],
             variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String,
             prefix: String, exprEnd: () => Block, exprFunEnd: () => Block,
             extraConfig: Map[String, String]): Iterator[String]
@@ -55,7 +55,7 @@ trait TriggerGrouper extends AbstractFunction10[CodegenContext, Seq[(Expression,
 case class DefaultTriggerGrouper() extends TriggerGrouper {
 
   override def apply(
-                      ctx: CodegenContext, expressions: Seq[(Expression, Block)],
+                      ctx: CodegenContext, expressions: Seq[(Trigger, Block)],
                       variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String,
                       prefix: String, exprEnd: () => Block, exprFunEnd: () => Block, extraConfig: Map[String,String]):
   Iterator[String] = {
@@ -260,7 +260,7 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
   def packTheId(obj: Object) = packId(obj)//: java.lang.Long
 
   protected[quality] def generateFunctionGroups(
-    ctx: CodegenContext, expressions: Seq[(Expression, Block)],
+    ctx: CodegenContext, expressions: Seq[(Trigger, Block)],
     variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String,
     extraConfig: Map[String, String],
     prefix: String = "ruleRunner", exprEnd: () => Block = () => code"",
@@ -323,7 +323,7 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
 
              $arrTerm[$idx] = ${eval.isNull} ? null : ${resultF(eval.value, idx)};"""
 
-      (child, converted)
+      (Trigger(child, idx, 0), converted)
     }
 
     val funNames: Iterator[String] =

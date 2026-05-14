@@ -1,8 +1,9 @@
-package com.sparkutils.quality.impl.util
+package com.sparkutils.quality.utils
 
 import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.RuleEngineRunner
+import com.sparkutils.quality.impl.util.{TopLevelBoolean, Trigger}
 import org.apache.spark.sql.catalyst.expressions.Expression
 
 object SuiteBuilder {
