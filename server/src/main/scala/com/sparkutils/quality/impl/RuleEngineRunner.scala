@@ -52,7 +52,8 @@ object RuleEngineRunnerImpl {
    */
   def ruleEngineRunnerImpl(ruleSuite: RuleSuite, resultDataType: Option[DataType], compileEvals: Boolean = false,
                        debugMode: Boolean = false, resolveWith: Option[DataFrame] = None, variablesPerFunc: Int = 40,
-                       variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false): Column = {
+                       variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false,
+                           extraConfig: Map[String, String] = Map.empty): Column = {
     com.sparkutils.quality.registerLambdaFunctions( ruleSuite.lambdaFunctions )
 
     val (expressions, indexes, triggerCount) = flattenExpressions(ruleSuite)
@@ -70,11 +71,11 @@ object RuleEngineRunnerImpl {
       if (forceRunnerEval || resolveWith.isDefined)
         new RuleEngineRunnerEval(cleaned, exprs, resultDataType, compileEvals,
           debugMode, variablesPerFunc, variableFuncGroup, expressionOffsets = indexes,
-          forceTriggerEval, triggerCount = triggerCount)
+          forceTriggerEval, triggerCount = triggerCount, extraConfig)
       else
         new RuleEngineRunner(cleaned, exprs, resultDataType, compileEvals,
           debugMode, variablesPerFunc, variableFuncGroup, expressionOffsets = indexes,
-          forceTriggerEval, triggerCount = triggerCount)
+          forceTriggerEval, triggerCount = triggerCount, extraConfig)
 
     ShimUtils.column(
       ClassicQualitySparkUtils.resolveWithOverride(resolveWith).map { df =>
@@ -229,6 +230,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
                        ctx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext,
                        child: Expression, expressionOffsets: Array[Int], realChildren: Seq[Expression],
                        debugMode: Boolean, variablesPerFunc: Int, variableFuncGroup: Int, forceTriggerEval: Boolean,
+                       extraConfig: Map[String, String],
                        extraResult: (String, Int, String) => String = (_ : String, _: Int, _: String) => "",
                        extraSetup: (String, Int) => String = (_ : String, _: Int) => "",
                        orderOffset: Int => Int = identity,
@@ -378,12 +380,12 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
       val trigger = triggerRules(realI) // the original trigger is useless
       val stepWithIf = codeGen(trigger, realI, funName)
 
-      stepWithIf
-    }.grouped(variablesPerFunc).grouped(variableFuncGroup)
-
+      (trigger, stepWithIf)
+    }
 
     CompilerTerms(
-      RuleRunnerUtils.generateFunctionGroups(ctx, allExpr, paramsDef, paramsCall, exprEnd = () => exprEnd(currRuleResTerm),
+      RuleRunnerUtils.generateFunctionGroups(ctx, allExpr, variablesPerFunc, variableFuncGroup,
+        paramsDef, paramsCall, extraConfig, exprEnd = () => exprEnd(currRuleResTerm),
         exprFunEnd = () => exprFunEnd(currRuleResTerm)),
       utilsName, ruleSuitTerm, ruleSuiteArrays, resArrTerm,
       currentSalience, ruleTupleArrTerm, currentOutputIndex, outArrTerm,
@@ -424,6 +426,7 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression with SplitCompilation {
   val expressionOffsets: Array[Int]
   val userResultDataType: Option[DataType]
   val triggerCount: Int
+  val extraConfig: Map[String, String]
 
   implicit val classTagT: ClassTag[T]
 
@@ -482,7 +485,7 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression with SplitCompilation {
         val compilerTerms =
           RuleEngineRunnerUtils.genCompilerTerms[T](ruleRunnerExpressionIdx, outerCtx, ctx, PassThroughEvalOnly(realChildren),
             expressionOffsets, realChildren,
-            debugMode, variablesPerFunc, variableFuncGroup, forceTriggerEval,
+            debugMode, variablesPerFunc, variableFuncGroup, forceTriggerEval, extraConfig,
             exprEnd = earlyReturn, exprFunEnd = earlyReturn
           )
 
@@ -553,7 +556,8 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression with SplitCompilation {
 case class RuleEngineRunnerEval(ruleSuite: RuleSuite, children: Seq[Expression], userResultDataType: Option[DataType],
                             compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
                             variableFuncGroup: Int, expressionOffsets: Array[Int],
-                            forceTriggerEval: Boolean, triggerCount: Int) extends RuleEngineRunnerBase[RuleEngineRunnerEval] with CodegenFallback {
+                            forceTriggerEval: Boolean, triggerCount: Int, extraConfig: Map[String, String])
+  extends RuleEngineRunnerBase[RuleEngineRunnerEval] with CodegenFallback {
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
 
@@ -565,7 +569,8 @@ case class RuleEngineRunnerEval(ruleSuite: RuleSuite, children: Seq[Expression],
 case class RuleEngineRunner(ruleSuite: RuleSuite, children: Seq[Expression], userResultDataType: Option[DataType],
                                 compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
                                 variableFuncGroup: Int, expressionOffsets: Array[Int],
-                                forceTriggerEval: Boolean, triggerCount: Int) extends RuleEngineRunnerBase[RuleEngineRunner] {
+                                forceTriggerEval: Boolean, triggerCount: Int, extraConfig: Map[String, String])
+  extends RuleEngineRunnerBase[RuleEngineRunner] {
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = {
     //SuiteBuilder.build("grouped", newChildren, this)

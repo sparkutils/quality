@@ -27,9 +27,10 @@ object generic {
    */
   def folder[T: RuleSuiteParam](ruleSuite: T, startingStruct: Column,
                        debugMode: Boolean = false, variablesPerFunc: Int = 40,
-                       variableFuncGroup: Int = 20, useType: Option[StructType] = None): Column =
+                       variableFuncGroup: Int = 20, useType: Option[StructType] = None,
+                       extraConfig: Map[String, String] = Map.empty): Column =
     CallFunctionImpls.folder(implicitly[RuleSuiteParam[T]].column(ruleSuite),
-      startingStruct, debugMode, variablesPerFunc, variableFuncGroup, useType)
+      startingStruct, debugMode, variablesPerFunc, variableFuncGroup, useType, extraConfig)
 
   /**
    * Creates a column that runs the RuleSuite suitable for DQ / Validation.  This also forces registering the lambda functions used by that RuleSuite.
@@ -39,8 +40,10 @@ object generic {
    * @param variableFuncGroup Defaulting to 20
    * @return A Column representing the Quality DQ expression built from this ruleSuite
    */
-  def dq[T: RuleSuiteParam](ruleSuite: T, variablesPerFunc: Int = 40, variableFuncGroup: Int = 20): Column =
-    CallFunctionImpls.dq(implicitly[RuleSuiteParam[T]].column(ruleSuite), variablesPerFunc, variableFuncGroup)
+  def dq[T: RuleSuiteParam](ruleSuite: T, variablesPerFunc: Int = 40, variableFuncGroup: Int = 20,
+                            extraConfig: Map[String, String] = Map.empty): Column =
+    CallFunctionImpls.dq(implicitly[RuleSuiteParam[T]].column(ruleSuite), variablesPerFunc, variableFuncGroup,
+      extraConfig)
 
   /**
    * Creates a column that runs the RuleSuite.  This also forces registering the lambda functions used by that RuleSuite
@@ -56,9 +59,9 @@ object generic {
    */
   def engine[T: RuleSuiteParam](ruleSuite: T, resultDataType: Option[DataType] = None,
                        debugMode: Boolean = false, variablesPerFunc: Int = 40,
-                       variableFuncGroup: Int = 20): Column =
+                       variableFuncGroup: Int = 20, extraConfig: Map[String, String] = Map.empty): Column =
     CallFunctionImpls.engine( implicitly[RuleSuiteParam[T]].column(ruleSuite),
-      resultDataType, debugMode, variablesPerFunc, variableFuncGroup )
+      resultDataType, debugMode, variablesPerFunc, variableFuncGroup, extraConfig )
 
   /**
    * Creates a column that runs the RuleSuite.  This also forces registering the lambda functions used by that RuleSuite
@@ -88,9 +91,10 @@ object generic {
    * @param name
    * @return
    */
-  def typedExpression[T: RuleSuiteParam](ruleSuite: T, ddlType: String, name: String = "expressionResults"): Column =
+  def typedExpression[T: RuleSuiteParam](ruleSuite: T, ddlType: String, name: String = "expressionResults",
+                                         extraConfig: Map[String, String] = Map.empty): Column =
     CallFunctionImpls.typedExpression(implicitly[RuleSuiteParam[T]].column(ruleSuite),
-      ddlType, name)
+      ddlType, name, extraConfig)
 
   /**
    * Runs the rule directly producing a map of results as yaml
@@ -101,8 +105,9 @@ object generic {
    * @return
    */
   def expression[T: RuleSuiteParam](ruleSuite: T, name: String = "expressionResults",
-                                    renderOptions: Map[String, String] = Map.empty): Column =
-    CallFunctionImpls.expression(implicitly[RuleSuiteParam[T]].column(ruleSuite), name, renderOptions)
+                                    renderOptions: Map[String, String] = Map.empty,
+                                    extraConfig: Map[String, String] = Map.empty): Column =
+    CallFunctionImpls.expression(implicitly[RuleSuiteParam[T]].column(ruleSuite), name, renderOptions, extraConfig)
 
   /**
    * Creates a column that runs the folding RuleSuite.  This also forces registering the lambda functions used by that RuleSuite.
@@ -124,10 +129,10 @@ object generic {
   def collector[T: RuleSuiteParam](ruleSuite: T, resultDataType: Option[DataType] = None, variablesPerFunc: Int = 40,
                     variableFuncGroup: Int = 20, flatten: Boolean = true, includeNulls: Boolean = false,
                     useInPlaceArray: Boolean = true, unrollInPlaceArray: Boolean = false,
-                    unrollOutputArraySize: Int = 1): Column = {
+                    unrollOutputArraySize: Int = 1, extraConfig: Map[String, String] = Map.empty): Column = {
     CallFunctionImpls.collector(implicitly[RuleSuiteParam[T]].column(ruleSuite),
       resultDataType, variablesPerFunc, variableFuncGroup, flatten, includeNulls, useInPlaceArray,
-      unrollInPlaceArray, unrollOutputArraySize
+      unrollInPlaceArray, unrollOutputArraySize, extraConfig
     )
   }
 }

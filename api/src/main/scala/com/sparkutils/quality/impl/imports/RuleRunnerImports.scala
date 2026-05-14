@@ -16,8 +16,9 @@ trait RuleRunnerImports {
    * @param variableFuncGroup Defaulting to 20
    * @return A Column representing the Quality DQ expression built from this ruleSuite
    */
-  def ruleRunner(ruleSuite: RuleSuite, variablesPerFunc: Int = 40, variableFuncGroup: Int = 20): Column =
-    dqRuleRunner(ruleSuite, variablesPerFunc, variableFuncGroup)
+  def ruleRunner(ruleSuite: RuleSuite, variablesPerFunc: Int = 40, variableFuncGroup: Int = 20,
+                 extraConfig: Map[String, String] = Map.empty): Column =
+    dqRuleRunner(ruleSuite, variablesPerFunc, variableFuncGroup, extraConfig)
 
   /**
    * Creates a column that runs the RuleSuite suitable for DQ / Validation.  This also forces registering the lambda functions used by that RuleSuite.
@@ -27,9 +28,12 @@ trait RuleRunnerImports {
    * @param variableFuncGroup Defaulting to 20
    * @return A Column representing the Quality DQ expression built from this ruleSuite
    */
-  def dqRuleRunner(ruleSuite: RuleSuite, variablesPerFunc: Int = 40, variableFuncGroup: Int = 20): Column =
-    Runners.ruleRunner(ruleSuite, variablesPerFunc = variablesPerFunc, variableFuncGroup = variableFuncGroup).getOrElse(
-      CallFunctionImpls.dq( lit(RuleSuiteHelpers.serialize(ruleSuite)), variablesPerFunc, variableFuncGroup)
+  def dqRuleRunner(ruleSuite: RuleSuite, variablesPerFunc: Int = 40, variableFuncGroup: Int = 20,
+                   extraConfig: Map[String, String] = Map.empty): Column =
+    Runners.ruleRunner(ruleSuite, variablesPerFunc = variablesPerFunc, variableFuncGroup = variableFuncGroup,
+      extraConfig = extraConfig).getOrElse(
+      CallFunctionImpls.dq( lit(RuleSuiteHelpers.serialize(ruleSuite)), variablesPerFunc, variableFuncGroup,
+        extraConfig )
     )
 
   /**

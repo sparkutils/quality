@@ -37,6 +37,12 @@ package object quality extends RuleRunnerImports with Serializable with MapLooku
   }
 
   /**
+   * Processing implementation for trigger grouping.  This is used by all engine runners to access their
+   * extraConfig Map, then via getConfig and finally the runner appropriate default.
+   */
+  val groupProcessorKey = "quality.runnerGroupProcessor"
+
+  /**
    * Simplified registerQualityFunctions, use classicFunction import when the other features are needed.
    *
    * Must be called before using any functions like Passed, Failed or Probability(X) when using classic, a no-op when

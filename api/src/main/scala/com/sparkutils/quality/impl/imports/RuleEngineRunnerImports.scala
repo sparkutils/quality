@@ -22,11 +22,12 @@ trait RuleEngineRunnerImports {
    */
   def ruleEngineRunner(ruleSuite: RuleSuite, resultDataType: Option[DataType] = None,
                        debugMode: Boolean = false, variablesPerFunc: Int = 40,
-                       variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false, forceTriggerEval: Boolean = false): Column =
+                       variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false,
+                       forceTriggerEval: Boolean = false, extraConfig: Map[String, String] = Map.empty): Column =
     Runners.ruleEngineRunner(ruleSuite, resultDataType, compileEvals = false, debugMode, None, variablesPerFunc,
-      variableFuncGroup, forceRunnerEval, forceTriggerEval).getOrElse(
+      variableFuncGroup, forceRunnerEval, forceTriggerEval, extraConfig = extraConfig).getOrElse(
       CallFunctionImpls.engine( lit(RuleSuiteHelpers.serialize(ruleSuite)), resultDataType,
-        debugMode, variablesPerFunc, variableFuncGroup )
+        debugMode, variablesPerFunc, variableFuncGroup, extraConfig )
     )
 
   /**

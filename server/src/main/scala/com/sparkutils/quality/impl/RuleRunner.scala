@@ -2,14 +2,14 @@ package com.sparkutils.quality.impl
 
 import com.sparkutils.quality
 import com.sparkutils.quality.RuleSuite.mapRules
-import com.sparkutils.quality.impl.RuleRunnerUtils.{flattenExpressions, ruleSuiteArrays}
+import com.sparkutils.quality.impl.RuleRunnerUtils.flattenExpressions
 import com.sparkutils.quality.impl.PackId.packId
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.ExpressionRuleExpr.ExpressionRuleOps
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
+import com.sparkutils.quality.impl.RuleSuiteHelpers.getContextOrSparkClassLoader
 import types.ruleSuiteResultType
 import com.sparkutils.quality.impl.imports.RuleRunnerImports
-import com.sparkutils.quality.impl.util.SeparateCompilation.runnerCompilation
 import com.sparkutils.quality.impl.util.Serializing.ruleResultToInt
 import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals, SeparateCompilation}
 import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
@@ -26,6 +26,72 @@ import org.apache.spark.sql.types.DataType
 import org.apache.spark.sql.{ClassicQualitySparkUtils, Column, DataFrame, ShimUtils}
 
 import scala.reflect.ClassTag
+import scala.runtime.AbstractFunction10
+
+/**
+ * Allow customised grouping of runner triggers, DQ and ExpressionRunner should evaluate all so the default
+ * implementation is sufficient.  This abstraction was added as part of #129 due to 20k trigger rules.
+ */
+trait TriggerGrouper extends AbstractFunction10[CodegenContext, Seq[(Expression, Block)],
+  Int, Int, String, String, String, () => Block, () => Block, Map[String, String], Iterator[String]] {
+
+  def apply(ctx: CodegenContext, expressions: Seq[(Expression, Block)],
+            variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String): Iterator[String] =
+    apply(
+      ctx: CodegenContext, expressions: Seq[(Expression, Block)],
+      variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String,
+      prefix = "ruleRunner", exprEnd = () => code"",
+      exprFunEnd = () => code"", Map.empty
+    )
+
+  def apply(ctx: CodegenContext, expressions: Seq[(Expression, Block)],
+            variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String,
+            prefix: String, exprEnd: () => Block, exprFunEnd: () => Block,
+            extraConfig: Map[String, String]): Iterator[String]
+
+}
+
+
+case class DefaultTriggerGrouper() extends TriggerGrouper {
+
+  override def apply(
+                      ctx: CodegenContext, expressions: Seq[(Expression, Block)],
+                      variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String,
+                      prefix: String, exprEnd: () => Block, exprFunEnd: () => Block, extraConfig: Map[String,String]):
+  Iterator[String] = {
+
+    val allExpr = expressions.map(_._2).grouped(variablesPerFunc).grouped(variableFuncGroup)
+
+    val funNames =
+      for (exprGroup <- allExpr) yield {
+        val groupName = ctx.freshName(prefix+"EGroup")
+        ctx.addNewFunction(groupName, {
+          val funNames =
+            for {
+              exprFunc <- exprGroup
+            } yield {
+              val exprFuncName = ctx.freshName(prefix+"EFuncGroup")
+              ctx.addNewFunction(exprFuncName,
+                code"""
+   private void $exprFuncName($paramsDef) {
+     ${exprFunc.mkString(s"${exprEnd()}\n")}
+   }
+  """.code
+              )
+            }
+
+          code"""
+   private void $groupName($paramsDef) {
+     ${funNames.map { f => s"$f($paramsCall);" }.mkString(s"${exprFunEnd()}\n")}
+   }
+   """.code
+
+        })
+      }
+    funNames
+  }
+
+}
 
 protected[quality] object RuleRunnerImpl {
 
@@ -41,7 +107,8 @@ protected[quality] object RuleRunnerImpl {
    * @return A Column representing the Quality DQ expression built from this ruleSuite
    */
   def ruleRunnerImplClassic(ruleSuite: RuleSuite, compileEvals: Boolean = false, resolveWith: Option[DataFrame] = None,
-                     variablesPerFunc: Int = 40, variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false): Column = {
+                     variablesPerFunc: Int = 40, variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false,
+                     extraConfig: Map[String, String] = Map.empty): Column = {
     com.sparkutils.quality.registerLambdaFunctions( ruleSuite.lambdaFunctions )
     val flattened = flattenExpressions(ruleSuite)
     val cleaned = RuleLogicUtils.cleanExprs(ruleSuite)
@@ -55,10 +122,10 @@ protected[quality] object RuleRunnerImpl {
     val runner =
       if (forceRunnerEval || resolveWith.isDefined)
         new RuleRunnerEval(cleaned, input,
-          compileEvals, variablesPerFunc, variableFuncGroup)
+          compileEvals, variablesPerFunc, variableFuncGroup, extraConfig)
       else
         new RuleRunner(cleaned, input,
-          compileEvals, variablesPerFunc, variableFuncGroup)
+          compileEvals, variablesPerFunc, variableFuncGroup, extraConfig)
 
     column(
       ClassicQualitySparkUtils.resolveWithOverride(resolveWith).map { df =>
@@ -192,36 +259,28 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
 
   def packTheId(obj: Object) = packId(obj)//: java.lang.Long
 
-  protected[quality] def generateFunctionGroups(ctx: CodegenContext, allExpr: Iterator[Seq[Block]]#GroupedIterator[Seq[Block]],
-    paramsDef: String, paramsCall: String, prefix: String = "ruleRunner", exprEnd: () => Block = () => code"",
-                                                exprFunEnd: () => Block = () => code"") = {
-    val funNames =
-      for (exprGroup <- allExpr) yield {
-        val groupName = ctx.freshName(prefix+"EGroup")
-        ctx.addNewFunction(groupName, {
-          val funNames =
-            for {
-              exprFunc <- exprGroup
-            } yield {
-              val exprFuncName = ctx.freshName(prefix+"EFuncGroup")
-              ctx.addNewFunction(exprFuncName,
-code"""
-   private void $exprFuncName($paramsDef) {
-     ${exprFunc.mkString(s"${exprEnd()}\n")}
-   }
-  """.code
-              )
-            }
+  protected[quality] def generateFunctionGroups(
+    ctx: CodegenContext, expressions: Seq[(Expression, Block)],
+    variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String,
+    extraConfig: Map[String, String],
+    prefix: String = "ruleRunner", exprEnd: () => Block = () => code"",
+    exprFunEnd: () => Block = () => code""): Iterator[String] = {
 
-code"""
-   private void $groupName($paramsDef) {
-     ${funNames.map { f => s"$f($paramsCall);" }.mkString(s"${exprFunEnd()}\n")}
-   }
-   """.code
+    val name =
+      extraConfig.get(groupProcessorKey).orElse(
+        Option(getConfig(groupProcessorKey, default = null))
+      ).getOrElse(classOf[DefaultTriggerGrouper].getName)
 
-        })
+    val impl =
+      try {
+        Class.forName(name, false, getContextOrSparkClassLoader).newInstance().asInstanceOf[TriggerGrouper]
+      } catch {
+        case t: Throwable => throw QualityException(s"Could not load TriggerGrouper of name $name", t)
       }
-    funNames
+
+    impl.apply(ctx, expressions,
+      variablesPerFunc, variableFuncGroup, paramsDef, paramsCall,
+      prefix, exprEnd, exprFunEnd, extraConfig)
   }
 
   def genRuleSuiteTerm[T: ClassTag](ctx: CodegenContext, ruleRunnerExpressionIdx: Int): (String, (String, String) => String) = {
@@ -242,7 +301,7 @@ code"""
 
   def nonOutputRuleGen(ctx: CodegenContext, runner: Expression, ev: ExprCode, ruleSuitTerm: String, utilsName: String,
                        realChildren: Seq[Expression], variablesPerFunc: Int, variableFuncGroup: Int,
-                       resultF: (ExprValue, Int) => String
+                       resultF: (ExprValue, Int) => String, extraConfig: Map[String, String]
                       ): ExprCode = {
     val ruleSuiteArrays = ctx.addMutableState(classOf[RuleSuiteResultArray].getName,
       ctx.freshName("ruleSuiteArrays"),
@@ -264,11 +323,12 @@ code"""
 
              $arrTerm[$idx] = ${eval.isNull} ? null : ${resultF(eval.value, idx)};"""
 
-      converted
-    }.grouped(variablesPerFunc).grouped(variableFuncGroup)
+      (child, converted)
+    }
 
     val funNames: Iterator[String] =
-      RuleRunnerUtils.generateFunctionGroups(ctx, allExpr, paramsDef, paramsCall)
+      RuleRunnerUtils.generateFunctionGroups(ctx, allExpr,
+        variablesPerFunc, variableFuncGroup, paramsDef, paramsCall, extraConfig)
 
 
     val resName = ctx.freshName("result")
@@ -306,6 +366,7 @@ trait RuleRunnerBase[T] extends NonSQLExpression with SplitCompilation {
   val compileEvals: Boolean
   val variablesPerFunc: Int
   val variableFuncGroup: Int
+  val extraConfig: Map[String, String]
 
   implicit val tClass: ClassTag[T]
 
@@ -349,7 +410,8 @@ trait RuleRunnerBase[T] extends NonSQLExpression with SplitCompilation {
 
         val res =
           nonOutputRuleGen(ctx, this, ev, ruleSuitTerm, utilsName, realChildren, variablesPerFunc, variableFuncGroup,
-            (code: ExprValue, idx: Int) => s"com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt($code)"
+            (code: ExprValue, idx: Int) => s"com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt($code)",
+            extraConfig
           )
 
       ((params, classOf[RuleRunnerBase[T]].getName), res)
@@ -360,7 +422,7 @@ trait RuleRunnerBase[T] extends NonSQLExpression with SplitCompilation {
 }
 
 case class RuleRunnerEval(ruleSuite: RuleSuite, children: Seq[Expression], compileEvals: Boolean,
-                      variablesPerFunc: Int, variableFuncGroup: Int)
+                      variablesPerFunc: Int, variableFuncGroup: Int, extraConfig: Map[String, String])
   extends RuleRunnerBase[RuleRunnerEval] with CodegenFallback {
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
@@ -370,7 +432,7 @@ case class RuleRunnerEval(ruleSuite: RuleSuite, children: Seq[Expression], compi
 }
 
 case class RuleRunner(ruleSuite: RuleSuite, children: Seq[Expression], compileEvals: Boolean,
-                          variablesPerFunc: Int, variableFuncGroup: Int)
+                          variablesPerFunc: Int, variableFuncGroup: Int, extraConfig: Map[String, String])
   extends RuleRunnerBase[RuleRunner] {
 
   protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = doGenCodeI(ctx, ev)

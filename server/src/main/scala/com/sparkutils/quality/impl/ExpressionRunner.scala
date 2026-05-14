@@ -29,8 +29,10 @@ object ExpressionRunner {
    * @param ddlType optional DDL string, when present yaml output is disabled and the output expressions must all have the same type
    * @param name the default column name "expressionResults"
    */
-  def apply(ruleSuite: RuleSuite, name: String = "expressionResults", renderOptions: Map[String, String] = Map.empty, ddlType: String = "",
-            variablesPerFunc: Int = 40, variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false, compileEvals: Boolean = false): Column = {
+  def apply(ruleSuite: RuleSuite, name: String = "expressionResults", renderOptions: Map[String, String] = Map.empty,
+            ddlType: String = "", variablesPerFunc: Int = 40, variableFuncGroup: Int = 20,
+            forceRunnerEval: Boolean = false, compileEvals: Boolean = false,
+            extraConfig: Map[String, String] = Map.empty): Column = {
     com.sparkutils.quality.registerLambdaFunctions( ruleSuite.lambdaFunctions )
     val expressions = flattenExpressions(ruleSuite)
     val collectExpressions =
@@ -57,11 +59,11 @@ object ExpressionRunner {
       if (forceRunnerEval)
         new ExpressionRunnerEval(cleaned, exprs,
           ddl_type, variablesPerFunc = variablesPerFunc, variableFuncGroup = variableFuncGroup,
-          compileEvals = compileEvals)
+          compileEvals = compileEvals, extraConfig = extraConfig)
       else
         new ExpressionRunner(cleaned, exprs,
           ddl_type, variablesPerFunc = variablesPerFunc, variableFuncGroup = variableFuncGroup,
-          compileEvals = compileEvals)
+          compileEvals = compileEvals, extraConfig = extraConfig)
     ).as(name)
   }
 }
@@ -128,6 +130,7 @@ trait ExpressionRunnerBase[T] extends NonSQLExpression with SplitCompilation {
   val compileEvals: Boolean
   val variablesPerFunc: Int
   val variableFuncGroup: Int
+  val extraConfig: Map[String, String]
 
   implicit val classTagT: ClassTag[T]
 
@@ -184,7 +187,7 @@ trait ExpressionRunnerBase[T] extends NonSQLExpression with SplitCompilation {
 
         val res =
           nonOutputRuleGen(ctx, this, ev, ruleSuitTerm, utilsName, realChildren, variablesPerFunc, variableFuncGroup,
-            yamlOrType(_, _)
+            yamlOrType(_, _), extraConfig
           )
 
       ((params, classOf[ExpressionRunnerBase[T]].getName), res)
@@ -203,7 +206,7 @@ trait ExpressionRunnerBase[T] extends NonSQLExpression with SplitCompilation {
  */
 case class ExpressionRunnerEval(ruleSuite: RuleSuite, children: Seq[Expression], ddlType: DataType,
                             compileEvals: Boolean, variablesPerFunc: Int,
-                            variableFuncGroup: Int)
+                            variableFuncGroup: Int, extraConfig: Map[String, String])
   extends ExpressionRunnerBase[ExpressionRunnerEval] with CodegenFallback {
 
   override implicit val classTagT: ClassTag[ExpressionRunnerEval] = ClassTag(classOf[ExpressionRunnerEval])
@@ -217,7 +220,7 @@ case class ExpressionRunnerEval(ruleSuite: RuleSuite, children: Seq[Expression],
  */
 case class ExpressionRunner(ruleSuite: RuleSuite, children: Seq[Expression], ddlType: DataType,
                                 compileEvals: Boolean, variablesPerFunc: Int,
-                                variableFuncGroup: Int)
+                                variableFuncGroup: Int, extraConfig: Map[String, String])
   extends ExpressionRunnerBase[ExpressionRunner] {
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)

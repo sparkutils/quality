@@ -122,7 +122,7 @@ object CollectRunner {
   def collectRunnerClassic(ruleSuite: RuleSuite, resultDataType: Option[DataType] = None, variablesPerFunc: Int = 40,
                            variableFuncGroup: Int = 20, flatten: Boolean = true, includeNulls: Boolean = false,
                            useInPlaceArray: Boolean = true, unrollInPlaceArray: Boolean = false,
-                           unrollOutputArraySize: Int = 1): Column = {
+                           unrollOutputArraySize: Int = 1, extraConfig: Map[String, String] = Map.empty): Column = {
     com.sparkutils.quality.registerLambdaFunctions( ruleSuite.lambdaFunctions )
 
     val (expressionsRaw, indexes, triggerCount) = flattenExpressions(ruleSuite)
@@ -159,7 +159,7 @@ object CollectRunner {
         variablesPerFunc, variableFuncGroup,
         expressionOffsets = indexes, triggerCount = triggerCount, flatten = flatten,
         includeNulls = includeNulls, canUnroll = canUnroll, isInPlace = isInPlace, unroll = unroll,
-        unrollOutputArraySize = unrollOutputArraySize)
+        unrollOutputArraySize = unrollOutputArraySize, extraConfig = extraConfig)
     )
   }
 }
@@ -182,6 +182,7 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression with SplitCo
   val unroll: Boolean
   val isInPlace: Array[Boolean]
   val unrollOutputArraySize: Int
+  val extraConfig: Map[String, String]
 
   implicit val classTagT: ClassTag[T]
   val tClass: Class[T]
@@ -388,7 +389,7 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression with SplitCo
 
         val compilerTerms =
           RuleEngineRunnerUtils.genCompilerTerms[T](ruleRunnerExpressionIdx, outerCtx, ctx, PassThroughEvalOnly(children), expressionOffsets, children,
-            false, variablesPerFunc, variableFuncGroup, false,
+            false, variablesPerFunc, variableFuncGroup, false, extraConfig,
             // capture the current
             extraResult = (outArrTerm: String, i: Int, resArrTerm: String) =>
               s"""
@@ -497,7 +498,8 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression with SplitCo
 case class CollectRunnerRunner(ruleSuite: RuleSuite, children: Seq[Expression], resultDataType: Option[DataType],
                                 variablesPerFunc: Int, variableFuncGroup: Int, expressionOffsets: Array[Int],
                                triggerCount: Int, flatten: Boolean, includeNulls: Boolean, canUnroll: Array[Int],
-                               isInPlace: Array[Boolean], unroll: Boolean, unrollOutputArraySize: Int
+                               isInPlace: Array[Boolean], unroll: Boolean, unrollOutputArraySize: Int,
+                               extraConfig: Map[String, String]
                                ) extends CollectRunnerBase[CollectRunnerRunner] {
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = {

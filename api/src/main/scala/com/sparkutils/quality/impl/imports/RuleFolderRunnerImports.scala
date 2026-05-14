@@ -23,10 +23,11 @@ trait RuleFolderRunnerImports {
    */
   def ruleFolderRunner(ruleSuite: RuleSuite, startingStruct: Column,
                        debugMode: Boolean = false, variablesPerFunc: Int = 40,
-                       variableFuncGroup: Int = 20, useType: Option[StructType] = None): Column =
+                       variableFuncGroup: Int = 20, useType: Option[StructType] = None,
+                       extraConfig: Map[String, String] = Map.empty): Column =
     Runners.ruleFolderRunner(ruleSuite, startingStruct, compileEvals = false, debugMode, None,
-      variablesPerFunc, variableFuncGroup, useType = useType).getOrElse(
+      variablesPerFunc, variableFuncGroup, useType = useType, extraConfig = extraConfig).getOrElse(
       CallFunctionImpls.folder( lit(RuleSuiteHelpers.serialize(ruleSuite)), startingStruct,
-        debugMode, variablesPerFunc, variableFuncGroup, useType )
+        debugMode, variablesPerFunc, variableFuncGroup, useType, extraConfig )
     )
 }

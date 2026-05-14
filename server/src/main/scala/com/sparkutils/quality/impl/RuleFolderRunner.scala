@@ -60,6 +60,7 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation {
   val dataRef: AtomicReference[DataType]
   val forceTriggerEval: Boolean
   val triggerCount: Int
+  val extraConfig: Map[String, String]
 
   implicit val classTagT: ClassTag[T]
   val tClass: Class[T]
@@ -135,7 +136,7 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation {
 
         val compilerTerms =
           RuleEngineRunnerUtils.genCompilerTerms[T](ruleRunnerExpressionIdx, outerCtx, ctx, PassThroughEvalOnly(realChildren), expressionOffsets, realChildren,
-            debugMode, variablesPerFunc, variableFuncGroup, forceTriggerEval,
+            debugMode, variablesPerFunc, variableFuncGroup, forceTriggerEval, extraConfig,
             // capture the current
             extraResult = (outArrTerm: String, _, _) => s"$folderV = $outArrTerm;",
             extraSetup = (_, i: Int) =>
@@ -264,7 +265,7 @@ case class RuleFolderRunnerEval(ruleSuite: RuleSuite, children: Seq[Expression],
                             compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
                             variableFuncGroup: Int, expressionOffsets: Array[Int],
                             dataRef: AtomicReference[DataType], forceTriggerEval: Boolean,
-                            triggerCount: Int
+                            triggerCount: Int, extraConfig: Map[String, String]
                            ) extends RuleFolderRunnerBase[RuleFolderRunnerEval] with CodegenFallback {
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
@@ -284,7 +285,7 @@ case class RuleFolderRunner(ruleSuite: RuleSuite, children: Seq[Expression], res
                             compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
                             variableFuncGroup: Int, expressionOffsets: Array[Int],
                             dataRef: AtomicReference[DataType], forceTriggerEval: Boolean,
-                            triggerCount: Int
+                            triggerCount: Int, extraConfig: Map[String, String]
                                ) extends RuleFolderRunnerBase[RuleFolderRunner] {
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =

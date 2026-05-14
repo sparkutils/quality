@@ -13,11 +13,14 @@ trait ExpressionRunnerImports {
    * @param name
    * @return
    */
-  def typedExpressionRunner(ruleSuite: RuleSuite, ddlType: String, name: String = "expressionResults"): Column =
-    CallFunctionImpls.typedExpression( lit(RuleSuiteHelpers.serialize(ruleSuite)), ddlType, name)
+  def typedExpressionRunner(ruleSuite: RuleSuite, ddlType: String, name: String = "expressionResults",
+                            extraConfig: Map[String, String] = Map.empty): Column =
+    CallFunctionImpls.typedExpression( lit(RuleSuiteHelpers.serialize(ruleSuite)), ddlType, name, extraConfig)
 
-  def expressionRunner(ruleSuite: RuleSuite, name: String = "expressionResults", renderOptions: Map[String, String] = Map.empty): Column =
-    CallFunctionImpls.expression( lit(RuleSuiteHelpers.serialize(ruleSuite)),  name, renderOptions)
+  def expressionRunner(ruleSuite: RuleSuite, name: String = "expressionResults",
+                       renderOptions: Map[String, String] = Map.empty,
+                       extraConfig: Map[String, String] = Map.empty): Column =
+    CallFunctionImpls.expression( lit(RuleSuiteHelpers.serialize(ruleSuite)),  name, renderOptions, extraConfig)
 
 }
 

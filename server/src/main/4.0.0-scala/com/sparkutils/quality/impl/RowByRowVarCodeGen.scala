@@ -41,8 +41,9 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
   // only for subexpresssion elimination, the tree is cleaned for statefuls on each new invocation, just not the first
   // one and freshCopyIfContainsStatefulExpression is also >3.4.1 only
   def generateExpressions(ctx: CodegenContext, expressions: Seq[Expression], subExprState: Map[ExpressionEquals,
-    SubExprEliminationState]): Seq[ExprCode] =
-    ctx.withSubExprEliminationExprs(subExprState)( expressions.toIndexedSeq.map(e => e.genCode(ctx) ) )
+    SubExprEliminationState]): Seq[(Expression, ExprCode)] =
+    QualityCodeGenUtils.withSubExprEliminationExprs(ctx, subExprState)(
+      expressions.toIndexedSeq.map(e => (e, e.genCode(ctx)) ) )
 
   def projections(ctx: CodegenContext, expressions: Seq[Expression], mutableRow: String,
                   subExprState: Map[ExpressionEquals, SubExprEliminationState] = Map.empty) = {
@@ -55,24 +56,24 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
       generateExpressions(ctx, validExpr.map(_._1), subExprState).toIndexedSeq
 
     // 4-tuples: (code for projection, isNull variable name, value variable name, column index)
-    val projectionCodes: Seq[(ExprCode, String, String)] = validExpr.zip(exprVals).map {
-      case ((e, i), ev) =>
+    val projectionCodes: Seq[(ExprCode, (Expression, Block), (Expression, Block))] = validExpr.zip(exprVals).map {
+      case ((e, i), (oge, ev)) =>
         val value = JavaCode.global(
           ctx.addMutableState(CodeGenerator.javaType(e.dataType), "value"),
           e.dataType)
 
         val (code, isNull) = if (e.nullable) {
           val isNull = ctx.addMutableState(CodeGenerator.JAVA_BOOLEAN, "isNull")
-          (s"""
-              |${ev.code}
-              |$isNull = ${ev.isNull};
-              |$value = ${ev.value};
-            """.stripMargin, JavaCode.isNullGlobal(isNull))
+          (code"""
+              ${ev.code}
+              $isNull = ${ev.isNull};
+              $value = ${ev.value};
+            """, JavaCode.isNullGlobal(isNull))
         } else {
-          (s"""
-              |${ev.code}
-              |$value = ${ev.value};
-            """.stripMargin, FalseLiteral)
+          (code"""
+              ${ev.code}
+              $value = ${ev.value};
+            """, FalseLiteral)
         }
         val expr = ExprCode(isNull, value)
         val update = CodeGenerator.updateColumn(
@@ -81,7 +82,7 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
           i,
           expr,
           e.nullable)
-        (expr, code, update)
+        (expr, (oge, code), (e, code"$update"))
     }
     projectionCodes
   }
@@ -118,13 +119,11 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
     evaluate
   }
 
-  protected def functions(ctx: CodegenContext, allExpr: Seq[String], paramsDef: String, paramsCall: String,
-                          prefix: String): String = {
-    val variablesPerFunc: Int = 40
-    val variableFuncGroup: Int = 20 // defaults from rulerunner
-    val grouped = allExpr.map(c => code"$c").grouped(variablesPerFunc).grouped(variableFuncGroup)
+  protected def functions(ctx: CodegenContext, allExpr: Seq[(Expression, Block)], paramsDef: String, paramsCall: String,
+                          prefix: String, extraConfig: Map[String, String] = Map.empty): String = {
     val funNames: Iterator[String] =
-      RuleRunnerUtils.generateFunctionGroups(ctx, grouped, paramsDef, paramsCall, prefix = prefix)
+      RuleRunnerUtils.generateFunctionGroups(ctx, allExpr, 40, 20, paramsDef, paramsCall, prefix = prefix,
+        extraConfig = extraConfig)
 
     funNames.map { f => s"$f($paramsCall);" }.mkString("\n")
   }

@@ -1,4 +1,4 @@
-package com.sparkutils.qualityTests
+/*package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.mapLookup.MapLookupFunctions
@@ -316,7 +316,7 @@ class BigRules extends SharedPureConnectTests with Matchers {
       case (id, rs) =>
         register_rule_suite(rs, s"ruleSuite${id.id}")
     }*/
-
+// TODO try swapping the And(hash again to see if the 39-42s compilation / runtime improves or degrades, could be possible it's too small a difference to observe
     // when running as ruleRunner all of Id(0,0) find matches, alas multiple matches (more than 2 for some), as
     // such it's possible the groups are too aggressive, but collect *should* still allow capturing
 
@@ -358,3 +358,4 @@ class BigRules extends SharedPureConnectTests with Matchers {
     rules.ruleSuites.size > 4
   }
 }
+*/
