@@ -119,13 +119,11 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
     evaluate
   }
 
-  protected def functions(ctx: CodegenContext, allExpr: Seq[String], paramsDef: String, paramsCall: String,
-                          prefix: String): String = {
-    val variablesPerFunc: Int = 40
-    val variableFuncGroup: Int = 20 // defaults from rulerunner
-    val grouped = allExpr.map(c => code"$c").grouped(variablesPerFunc).grouped(variableFuncGroup)
+  protected def functions(ctx: CodegenContext, allExpr: Seq[(Expression, Block)], paramsDef: String, paramsCall: String,
+                          prefix: String, extraConfig: Map[String, String] = Map.empty): String = {
     val funNames: Iterator[String] =
-      RuleRunnerUtils.generateFunctionGroups(ctx, grouped, paramsDef, paramsCall, prefix = prefix)
+      RuleRunnerUtils.generateFunctionGroups(ctx, allExpr, 40, 20, paramsDef, paramsCall, prefix = prefix,
+        extraConfig = extraConfig)
 
     funNames.map { f => s"$f($paramsCall);" }.mkString("\n")
   }
