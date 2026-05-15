@@ -147,7 +147,7 @@ object TopLevelBoolean {
   }
 
   def bucket(triggers: Seq[Trigger], targetBucket: Int = 130, triggerPercentFilter: Double = 0.12): Seq[Group] = {
-    val expressions = MultiCommutativeOp.origin(triggers)
+    val expressions = MultiCommutativeOpOps.origin(triggers)
     val (orderedLarger, subs) = sorted(expressions, triggerPercentFilter)
 
     // remove duplicates

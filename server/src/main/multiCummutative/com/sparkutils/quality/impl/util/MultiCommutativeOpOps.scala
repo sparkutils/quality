@@ -3,7 +3,7 @@ package com.sparkutils.quality.impl.util
 import com.sparkutils.quality.impl.Trigger
 import org.apache.spark.sql.catalyst.expressions.{And, Expression, MultiCommutativeOp}
 
-object MultiCommutativeOp {
+object MultiCommutativeOpOps {
 
   lazy val multiOriginalRoot = {
     val o = classOf[MultiCommutativeOp].getDeclaredField("originalRoot")
