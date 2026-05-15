@@ -125,7 +125,7 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
       RuleRunnerUtils.generateFunctionGroups(ctx, allExpr.zipWithIndex.map{
         case ((exp, b), i) => (Trigger(exp, i, 0), b)
       }, 40, 20, paramsDef, paramsCall, prefix = prefix,
-        extraConfig = extraConfig)
+        extraConfig = extraConfig)._1
 
     funNames.map { f => s"$f($paramsCall);" }.mkString("\n")
   }
