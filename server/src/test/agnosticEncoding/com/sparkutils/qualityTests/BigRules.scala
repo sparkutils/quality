@@ -26,7 +26,7 @@ object RulesGen {
 
   def genRules1to1(s: SparkSession, withF: Boolean = false) = {
 
-    val d = s.read.option("header",true).csv("server/src/test/resources/20k_rule_suite.csv")
+    val d = s.read.option("header",true).csv("./src/test/resources/20k_rule_suite.csv")
     val cols = d.columns.toSet -- Set("k","l", "id") -- (
       if (withF)
         Set("f")
@@ -81,7 +81,7 @@ class BigRules extends SharedPureConnectTests with Matchers {
         _.select(expr("*"), expr("runner.result.*")), extraConfig: Map[String, String] = Map.empty): DataFrame = {
     var start = System.nanoTime()
     val s = sparkSession
-    val d = s.read.option("header",true).csv("server/src/test/resources/20k_rule_suite.csv")
+    val d = s.read.option("header",true).csv("./src/test/resources/20k_rule_suite.csv")
     val r = processor(d.select(expr("*"), topLevelRunner(ruleSuite, resultDataType, extraConfig).
       as("runner")))
     var end = System.nanoTime()
