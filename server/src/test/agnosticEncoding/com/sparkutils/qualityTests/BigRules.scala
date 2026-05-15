@@ -3,7 +3,7 @@ package com.sparkutils.qualityTests
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.{TopLevelBooleanGrouper, Triggers}
 import com.sparkutils.quality.impl.util.RuleSuiteGroupIOUtils
-import com.sparkutils.qualityTests.RulesGen.genRules1to1
+import com.sparkutils.qualityTests.RulesGen.{genRules1to1, testfile}
 import com.sparkutils.qualityTests.util.SharedPureConnectTests
 import com.sparkutils.testing.ConnectionType
 import org.apache.spark.sql.functions._
@@ -11,11 +11,12 @@ import org.apache.spark.sql.types._
 import org.apache.spark.sql.{Column, DataFrame, Dataset, SaveMode, SparkSession}
 import org.scalatest.Matchers
 
-import scala.collection.immutable
 import scala.concurrent.duration.Duration
 import scala.util.Try
 
 object RulesGen {
+
+  val testfile = getClass.getResource("/20k_rule_suite.csv").getPath
 
   // only available on 3.5
   val replace = org.apache.spark.sql.functions.udf((source: String, against: String, withWhat: String) =>
@@ -26,7 +27,7 @@ object RulesGen {
 
   def genRules1to1(s: SparkSession, withF: Boolean = false) = {
 
-    val d = s.read.option("header",true).csv("./src/test/resources/20k_rule_suite.csv")
+    val d = s.read.option("header",true).csv(testfile)
     val cols = d.columns.toSet -- Set("k","l", "id") -- (
       if (withF)
         Set("f")
@@ -81,7 +82,7 @@ class BigRules extends SharedPureConnectTests with Matchers {
         _.select(expr("*"), expr("runner.result.*")), extraConfig: Map[String, String] = Map.empty): DataFrame = {
     var start = System.nanoTime()
     val s = sparkSession
-    val d = s.read.option("header",true).csv("./src/test/resources/20k_rule_suite.csv")
+    val d = s.read.option("header",true).csv(testfile)
     val r = processor(d.select(expr("*"), topLevelRunner(ruleSuite, resultDataType, extraConfig).
       as("runner")))
     var end = System.nanoTime()
