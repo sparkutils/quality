@@ -1,14 +1,14 @@
 package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
-import com.sparkutils.quality.impl.{TopLevelBooleanGrouper, Triggers}
 import com.sparkutils.quality.impl.util.RuleSuiteGroupIOUtils
+import com.sparkutils.quality.impl.{TopLevelBooleanGrouper, Triggers}
 import com.sparkutils.qualityTests.RulesGen.{genRules1to1, testfile}
 import com.sparkutils.qualityTests.util.SharedPureConnectTests
 import com.sparkutils.testing.ConnectionType
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.{Column, DataFrame, Dataset, SaveMode, SparkSession}
+import org.apache.spark.sql._
 import org.scalatest.Matchers
 
 import scala.concurrent.duration.Duration
@@ -34,14 +34,14 @@ object RulesGen {
       else
         Set.empty
     )
-    def exprOf(name: String): String = s"if($name = '*', 'remove', '$name = ''' || $name || '''')"
+    def exprOf(name: String): String = s"if($name = '*', 'remove', '$name = \\'' || $name || '\\'')"
     val ruleGen = cols.toSeq.map(exprOf).mkString(" || ' and ' || ")
     val ruleDS = d.select(Seq(
       replace(
         replace(expr(ruleGen), lit("remove and "), lit("")),
         lit("and remove"), lit("")
       ).as("_1"),
-      expr("'struct(''' ||  k || ''',''' || l || ''')'").
+      expr("'struct(\\'' ||  k || '\\',\\'' || l || '\\')'").
         as("_2"), expr("id").cast(IntegerType).as("_3")) ++ (
       if (withF)
         Seq(expr("f"), expr(fModExpr).as("f_mod"))
