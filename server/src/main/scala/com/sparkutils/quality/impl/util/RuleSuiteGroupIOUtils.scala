@@ -1,4 +1,4 @@
-package com.sparkutils.quality.utils
+package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality.RuleSuiteGroup
 import com.sparkutils.quality.impl.RuleSuiteHelpers
@@ -7,7 +7,7 @@ import org.apache.commons.io.IOUtils
 import java.io.{FileInputStream, FileOutputStream}
 
 /**
- * usable during test break points
+ * Serialisation of RuleSuiteGroups
  */
 object RuleSuiteGroupIOUtils {
 
@@ -16,6 +16,7 @@ object RuleSuiteGroupIOUtils {
     if (file.exists()) {
       file.delete()
     }
+    file.mkdirs()
     val fos = new FileOutputStream(target)
     try {
       fos.write(

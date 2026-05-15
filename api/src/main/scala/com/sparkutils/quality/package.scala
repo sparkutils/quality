@@ -1,6 +1,6 @@
 package com.sparkutils
 
-import com.sparkutils.quality.impl.VariableProcessIfMissing
+import com.sparkutils.quality.impl.{TriggerGroupingConstants, VariableProcessIfMissing}
 import com.sparkutils.quality.impl.imports._
 import com.sparkutils.quality.impl.mapLookup.MapLookupImportsShared
 import com.sparkutils.quality.impl.util.{AddDataFunctionsImports, SerializingImports, VersionSpecificSerializingImports}
@@ -13,7 +13,8 @@ import org.apache.spark.sql.internal.SQLConf
 package object quality extends RuleRunnerImports with Serializable with MapLookupImportsShared with SerializingImports
   with AddDataFunctionsImports with LambdaFunctionsImports with RuleEngineRunnerImports
   with RuleFolderRunnerImports with ViewLoading with ExpressionRunnerImports
-  with VersionSpecificSerializingImports with VariableProcessIfMissing with CollectRunnerImports {
+  with VersionSpecificSerializingImports with VariableProcessIfMissing
+  with CollectRunnerImports with TriggerGroupingConstants {
   // NB it must inherit Serializable due to the nested types and sparks serialization
 
   /**
@@ -35,12 +36,6 @@ package object quality extends RuleRunnerImports with Serializable with MapLooku
   } catch {
     case _: Throwable => default
   }
-
-  /**
-   * Processing implementation for trigger grouping.  This is used by all engine runners to access their
-   * extraConfig Map, then via getConfig and finally the runner appropriate default.
-   */
-  val groupProcessorKey = "quality.runnerGroupProcessor"
 
   /**
    * Simplified registerQualityFunctions, use classicFunction import when the other features are needed.

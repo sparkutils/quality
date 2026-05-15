@@ -48,7 +48,11 @@ private[quality] object RuleFolderRunnerUtils extends ClassicRuleFolderRunnerImp
   * Children will be rewritten by the plan, it's then re-incorporated into ruleSuite
   * expressionOffsets.length is the length of the trigger expressions in realChildren, realChildren(expressionOffsets.length + expressionOffsets(x)) will be the correct OutputExpression
   */
-trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation {
+trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation with HasTriggers {
+
+  def groupedSqlCall(ruleSuiteCall: String): String = s"rule_folder_runner($ruleSuiteCall, ${startingStruct.sql})"
+
+  override def canAudit: Boolean = super.canAudit && startingStruct.resolved
 
   val ruleSuite: RuleSuite
   val resultDataType: () => DataType
@@ -290,8 +294,11 @@ case class RuleFolderRunner(ruleSuite: RuleSuite, children: Seq[Expression], res
                             triggerCount: Int, extraConfig: Map[String, String]
                                ) extends RuleFolderRunnerBase[RuleFolderRunner] {
 
-  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
-    copy(children = processNewChildren(newChildren))
+  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = {
+    val r = copy(children = processNewChildren(newChildren))
+    r.performGroupingAuditDump()
+    r
+  }
 
   override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = doGenCodeI(ctx, ev)
 

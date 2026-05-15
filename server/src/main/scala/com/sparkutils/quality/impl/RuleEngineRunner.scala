@@ -12,7 +12,7 @@ import com.sparkutils.quality.impl.DefaultProcessorImpl.DefaultProcessorImplOps
 import com.sparkutils.quality.impl.ExpressionRuleExpr.ExpressionRuleOps
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
 import com.sparkutils.quality.impl.RunOnPassProcessorImpl.RunOnPassProcessorImplOps
-import com.sparkutils.quality.impl.util.{NonPassThrough, ParameterInformation, PassThroughCompileEvals, PassThroughEvalOnly, SeparateCompilation, Trigger}
+import com.sparkutils.quality.impl.util.{NonPassThrough, ParameterInformation, PassThroughCompileEvals, PassThroughEvalOnly, SeparateCompilation}
 import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCoercion
@@ -23,11 +23,13 @@ import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression}
 import org.apache.spark.sql.catalyst.util.{GenericArrayData, truncatedString}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.{ClassicQualitySparkUtils, Column, DataFrame, ShimUtils}
+import org.apache.spark.sql.{ClassicQualitySparkUtils, Column, DataFrame, SaveMode, ShimUtils}
 
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
+import scala.concurrent.duration.Duration
 import scala.reflect.ClassTag
+import scala.util.Try
 
 object RuleEngineRunnerImpl {
 
@@ -398,6 +400,9 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
 
 trait SplitCompilation {
 
+  val extraConfig: Map[String, String]
+  val ruleSuite: RuleSuite
+
   var generatorClassSource : CodeAndComment = _
 
   @transient
@@ -406,7 +411,15 @@ trait SplitCompilation {
   def generatorClazz: GeneratedClass = {
     // allow it to be replaced
     if (generatorClazz_ == null) {
+      val start = System.nanoTime()
+
       generatorClazz_ = CodeGenerator.compile(generatorClassSource)._1
+
+      val end = System.nanoTime()
+      val compileTime = Duration.fromNanos(end - start)
+      if (Try(Triggers.getValue(showSplitCompilationTime, extraConfig, "false").toBoolean).getOrElse(false)){
+        println(s"${this.getClass.getSimpleName} RuleSuite ${ruleSuite.id} - took ${compileTime.toMinutes}m${compileTime.toSeconds % 60}s to compile")
+      }
     }
     generatorClazz_
   }
@@ -417,7 +430,10 @@ trait SplitCompilation {
   * Children will be rewritten by the plan, it's then re-incorporated into ruleSuite
   * expressionOffsets.length is the length of the trigger expressions in realChildren, realChildren(expressionOffsets.length + expressionOffsets(x)) will be the correct OutputExpression
   */
-trait RuleEngineRunnerBase[T] extends NonSQLExpression with SplitCompilation {
+trait RuleEngineRunnerBase[T] extends NonSQLExpression with SplitCompilation with HasTriggers {
+
+  def groupedSqlCall(ruleSuiteCall: String): String = s"rule_engine_runner($ruleSuiteCall)"
+
   val ruleSuite: RuleSuite
   val compileEvals: Boolean
   val debugMode: Boolean
@@ -576,8 +592,9 @@ case class RuleEngineRunner(ruleSuite: RuleSuite, children: Seq[Expression], use
   extends RuleEngineRunnerBase[RuleEngineRunner] {
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = {
-    //SuiteBuilder.build("grouped", newChildren, this)
-    copy(children = newChildren)
+    val r = copy(children = newChildren)
+    r.performGroupingAuditDump()
+    r
   }
 
   override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = doGenCodeI(ctx, ev)

@@ -1,23 +1,21 @@
 package com.sparkutils.quality.impl.util
 
-import com.sparkutils.quality.impl.util
+import com.sparkutils.quality.impl.{Group, Trigger, util}
 import org.apache.spark.sql.catalyst.expressions.{Abs, And, EqualTo, Expression, Literal, Murmur3Hash, Remainder}
 import org.apache.spark.sql.types.BooleanType
 
 import scala.collection.mutable
-
-case class Trigger(expression: Expression, index: Int, salience: Int)
-
-case class Group(groupFilter: Expression, lowestSalience: Int, triggers: Seq[Trigger])
 
 object TopLevelBoolean {
 
   def apply(expressions: Seq[Trigger], triggerPercentFilter: Double): (Map[Expression, Seq[Trigger]], Map[Expression, Int]) = {
     val subs = SubExprsFrom.apply(expressions.map(_.expression)).toMap
 
+    val filterOut = ((expressions.size.toDouble / 100.toDouble) * triggerPercentFilter).toInt
+
     (expressions.foldLeft(Map.empty[Expression, Seq[Trigger]]){
       (cur, n) =>
-        val s = from(n.expression, subs, expressions.size, triggerPercentFilter)
+        val s = from(n.expression, subs, filterOut)
         util.MapOps.MapOps(cur).updatedWithF(s) {
           case Some(s) => Some(s :+ n)
           case None => Some(Seq(n))
@@ -88,7 +86,7 @@ object TopLevelBoolean {
       val operands = EqualToDiff.split(s.toSeq).map(_._2)
       EqualToDiff(operands.toSet) //TODO - and then for `a = `b tests can we simplify?
     case _ =>
-      println("didn't get an EqualTo in this test set that's strange")
+      //println("didn't get an EqualTo in this test set that's strange")
       NoIdeaDiff(expressions.toSeq)
   }
 
@@ -104,7 +102,7 @@ object TopLevelBoolean {
     var bucketSize = 0
 
     while(!found) {
-      println(s"running bucket $bucketSize for min $min and max $max with res $resCount")
+      //println(s"running bucket $bucketSize for min $min and max $max with res $resCount")
       val b = bucket(expressions = expressions, targetBucket = min, triggerPercentFilter)
       val bCount = b.maxBy(_.triggers.size).triggers.size + b.size
       val t = bucket(expressions = expressions, targetBucket = max, triggerPercentFilter)
@@ -134,7 +132,7 @@ object TopLevelBoolean {
             max -= step
             res
           }
-      println(s"ran - new counts - bucket $bucketSize for min $min and max $max with res $resCount")
+      //println(s"ran - new counts - bucket $bucketSize for min $min and max $max with res $resCount")
       if (max - min <= step) {
         step = 1
       }
@@ -144,7 +142,7 @@ object TopLevelBoolean {
       }
     }
 
-    println(s"'optimal' bucket size was $bucketSize")
+    //println(s"'optimal' bucket size was $bucketSize")
 
     (res, bucketSize)
   }
@@ -179,8 +177,8 @@ object TopLevelBoolean {
                   }
               }
 
-            println(s"differentiating booleans from $sub for ${triggers.size} triggers of:")
-            differentiatingBooleans.keys.foreach(println)
+            //println(s"differentiating booleans from $sub for ${triggers.size} triggers of:")
+            //differentiatingBooleans.keys.foreach(println)
 
             val newSeqs =
               differentiatingBooleans.flatMap {
@@ -192,7 +190,7 @@ object TopLevelBoolean {
                     else
                       (triggers.size / targetBucket + 1)
 
-                  println(s"target number of buckets $numberOfBuckets for ${triggers.size} for $differentiator")
+                  //println(s"target number of buckets $numberOfBuckets for ${triggers.size} for $differentiator")
 
                   val bucketed =
                     triggers.map{
@@ -223,8 +221,8 @@ object TopLevelBoolean {
       (topHitter :+ Group(Literal(true), rest.minBy(_.salience).salience, rest)).filter(_.triggers.nonEmpty)
   }
 
-  def from(expression: Expression, subExprs: Map[Expression, Int], populationSize: Int, triggerPercentFilter: Double): Expression = {
-    val filterOut = ((populationSize.toDouble / 100.toDouble) * triggerPercentFilter).toInt
+  def from(expression: Expression, subExprs: Map[Expression, Int], filterOut: Double): Expression = {
+
     // anything that hits more than x % is not useful to group with, any top bool that only applies to one trigger is
     // equally useless
     val res = fromParts(expression).filter(e => subExprs.get(e).exists(_ < filterOut))

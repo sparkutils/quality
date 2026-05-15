@@ -7,17 +7,16 @@ import com.sparkutils.quality.impl.PackId.packId
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.ExpressionRuleExpr.ExpressionRuleOps
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
-import com.sparkutils.quality.impl.RuleSuiteHelpers.getContextOrSparkClassLoader
 import types.ruleSuiteResultType
 import com.sparkutils.quality.impl.imports.RuleRunnerImports
 import com.sparkutils.quality.impl.util.Serializing.ruleResultToInt
-import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals, SeparateCompilation, Trigger}
+import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals, SeparateCompilation}
 import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
 import org.apache.spark.sql.ShimUtils.column
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
 import org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.isNullVariable
-import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodegenContext, CodegenFallback, ExprCode, ExprValue, QualityCodeGenUtils, VariableValue}
+import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodeGenerator, CodegenContext, CodegenFallback, ExprCode, ExprValue, VariableValue}
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression}
 import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, truncatedString}
 import org.apache.spark.sql.functions.lit
@@ -25,73 +24,9 @@ import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.DataType
 import org.apache.spark.sql.{ClassicQualitySparkUtils, Column, DataFrame, ShimUtils}
 
+import scala.concurrent.duration.Duration
 import scala.reflect.ClassTag
-import scala.runtime.AbstractFunction10
-
-/**
- * Allow customised grouping of runner triggers, DQ and ExpressionRunner should evaluate all so the default
- * implementation is sufficient.  This abstraction was added as part of #129 due to 20k trigger rules.
- */
-trait TriggerGrouper extends AbstractFunction10[CodegenContext, Seq[(Trigger, Block)],
-  Int, Int, String, String, String, () => Block, () => Block, Map[String, String], Iterator[String]] {
-
-  def apply(ctx: CodegenContext, expressions: Seq[(Trigger, Block)],
-            variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String): Iterator[String] =
-    apply(
-      ctx: CodegenContext, expressions: Seq[(Trigger, Block)],
-      variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String,
-      prefix = "ruleRunner", exprEnd = () => code"",
-      exprFunEnd = () => code"", Map.empty
-    )
-
-  def apply(ctx: CodegenContext, expressions: Seq[(Trigger, Block)],
-            variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String,
-            prefix: String, exprEnd: () => Block, exprFunEnd: () => Block,
-            extraConfig: Map[String, String]): Iterator[String]
-
-}
-
-
-case class DefaultTriggerGrouper() extends TriggerGrouper {
-
-  override def apply(
-                      ctx: CodegenContext, expressions: Seq[(Trigger, Block)],
-                      variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String,
-                      prefix: String, exprEnd: () => Block, exprFunEnd: () => Block, extraConfig: Map[String,String]):
-  Iterator[String] = {
-
-    val allExpr = expressions.map(_._2).grouped(variablesPerFunc).grouped(variableFuncGroup)
-
-    val funNames =
-      for (exprGroup <- allExpr) yield {
-        val groupName = ctx.freshName(prefix+"EGroup")
-        ctx.addNewFunction(groupName, {
-          val funNames =
-            for {
-              exprFunc <- exprGroup
-            } yield {
-              val exprFuncName = ctx.freshName(prefix+"EFuncGroup")
-              ctx.addNewFunction(exprFuncName,
-                code"""
-   private void $exprFuncName($paramsDef) {
-     ${exprFunc.mkString(s"${exprEnd()}\n")}
-   }
-  """.code
-              )
-            }
-
-          code"""
-   private void $groupName($paramsDef) {
-     ${funNames.map { f => s"$f($paramsCall);" }.mkString(s"${exprFunEnd()}\n")}
-   }
-   """.code
-
-        })
-      }
-    funNames
-  }
-
-}
+import scala.util.Try
 
 protected[quality] object RuleRunnerImpl {
 
@@ -266,21 +201,22 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
     prefix: String = "ruleRunner", exprEnd: () => Block = () => code"",
     exprFunEnd: () => Block = () => code""): Iterator[String] = {
 
-    val name =
-      extraConfig.get(groupProcessorKey).orElse(
-        Option(getConfig(groupProcessorKey, default = null))
-      ).getOrElse(classOf[DefaultTriggerGrouper].getName)
+    val impl: TriggerGrouper = Triggers.loadTriggerGrouper(extraConfig)
 
-    val impl =
-      try {
-        Class.forName(name, false, getContextOrSparkClassLoader).newInstance().asInstanceOf[TriggerGrouper]
-      } catch {
-        case t: Throwable => throw QualityException(s"Could not load TriggerGrouper of name $name", t)
-      }
+    val start = System.nanoTime()
 
-    impl.apply(ctx, expressions,
-      variablesPerFunc, variableFuncGroup, paramsDef, paramsCall,
-      prefix, exprEnd, exprFunEnd, extraConfig)
+    val res =
+      impl.apply(ctx, expressions,
+        variablesPerFunc, variableFuncGroup, paramsDef, paramsCall,
+        prefix, exprEnd, exprFunEnd, extraConfig)
+
+    val end = System.nanoTime()
+    val groupingTime = Duration.fromNanos(end - start)
+    if (Try(Triggers.getValue(showGroupingTime, extraConfig, "false").toBoolean).getOrElse(false)){
+      println(s"$prefix RuleSuite - took ${groupingTime.toMinutes}m${groupingTime.toSeconds % 60}s to group")
+    }
+
+    res
   }
 
   def genRuleSuiteTerm[T: ClassTag](ctx: CodegenContext, ruleRunnerExpressionIdx: Int): (String, (String, String) => String) = {

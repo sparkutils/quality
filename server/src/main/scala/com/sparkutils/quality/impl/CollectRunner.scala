@@ -168,7 +168,11 @@ object CollectRunner {
   * Children will be rewritten by the plan, it's then re-incorporated into ruleSuite
   * expressionOffsets.length is the length of the trigger expressions in realChildren, realChildren(expressionOffsets.length + expressionOffsets(x)) will be the correct OutputExpression
   */
-trait CollectRunnerBase[T] extends Expression with NonSQLExpression with SplitCompilation {
+trait CollectRunnerBase[T] extends Expression with NonSQLExpression with SplitCompilation with HasTriggers {
+
+  def groupedSqlCall(ruleSuiteCall: String): String = s"collect_runner($ruleSuiteCall)"
+
+  def realChildren: Seq[Expression] = children
 
   val ruleSuite: RuleSuite
   val resultDataType: Option[DataType]
@@ -506,7 +510,9 @@ case class CollectRunnerRunner(ruleSuite: RuleSuite, children: Seq[Expression], 
                                ) extends CollectRunnerBase[CollectRunnerRunner] {
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = {
-    copy(children = newChildren)
+    val r = copy(children = newChildren)
+    r.performGroupingAuditDump()
+    r
   }
 
   override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = doGenCodeI(ctx, ev)
