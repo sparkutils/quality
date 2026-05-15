@@ -52,7 +52,6 @@ trait TriggerGrouper extends AbstractFunction10[CodegenContext, Seq[(Trigger, Bl
 
 }
 
-
 case class DefaultTriggerGrouper() extends TriggerGrouper {
 
   override def apply(
@@ -95,6 +94,13 @@ case class DefaultTriggerGrouper() extends TriggerGrouper {
   def dumpAudit(runner: HasTriggers): Unit = {}
 }
 
+/**
+ * Groups by common top level Boolean And and EqualTo expressions with Literals, using buckets of hashes on the literal
+ * values.  Using this approach can lead to a 10x spread increase over the default grouper for very large truth table
+ * style rules (tested against the 20k_rule_suite.csv in the BigRules testsuite).
+ *
+ * Only supported with Spark 3.2 and above
+ */
 case class TopLevelBooleanGrouper() extends TriggerGrouper {
 
   override def apply(

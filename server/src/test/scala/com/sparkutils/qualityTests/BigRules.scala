@@ -112,7 +112,7 @@ class BigRules extends SharedPureConnectTests with Matchers {
     }
   }
 
-  test("grouped 129 via top level boolean grouping") { // runs in 4gb, at 12gb 2m44. 0.464 ms / row, grouping takes 3s
+  test("grouped 129 via top level boolean grouping") { not3_0_or_3_1 { // runs 12gb 2m44s. 0.464 ms / row, grouping takes 3s
     val s = sparkSession
 
     import s.implicits._
@@ -129,7 +129,7 @@ class BigRules extends SharedPureConnectTests with Matchers {
 
     play.filter("(k_out is null) or (k != k_out) or (l != l_out) or (l_out is null)").
       count() shouldBe 0
-  }
+  } }
 
   ignore("1:1 rules only") {  // requires a 12gb heap and patience, run takes 5m42s on 32g i9-9900 corsair with 12gb, 5.22 ms / row
     val s = sparkSession
@@ -148,7 +148,7 @@ class BigRules extends SharedPureConnectTests with Matchers {
       count() shouldBe 0
   }
 
-  test("dumpAudit should work") {
+  test("dumpAudit should work") { not3_0_or_3_1 {
     val s = sparkSession
 
     import s.implicits._
@@ -165,6 +165,6 @@ class BigRules extends SharedPureConnectTests with Matchers {
 
     // verify some of it is correct
     group.ruleSuites(Id(0,0)).ruleSets.exists(p => p.rules.exists(_.toString.contains("hash(a, b, c, f)"))) shouldBe true
-  }
+  } }
 
 }
