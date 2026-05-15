@@ -176,7 +176,9 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
           // setting the folder
           $folderV = ${starterEval.isNull} ? null : (InternalRow)${starterEval.value}; \n
 
-          ${funNames.map{f => s"$f($paramsCall);"}.mkString("\n")}
+          // group specific subexprs
+          ${grouped._2}
+          ${grouped._1.map { f => s"$f($paramsCall);" }.mkString("\n")}
 
           InternalRow $rsres = $utilsName.evalArrayForDefault($ruleSuitTerm, $ruleSuiteArrays, $resArrTerm);
           InternalRow $default = null;
@@ -271,7 +273,7 @@ case class RuleFolderRunnerEval(ruleSuite: RuleSuite, children: Seq[Expression],
                             compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
                             variableFuncGroup: Int, expressionOffsets: Array[Int],
                             dataRef: AtomicReference[DataType], forceTriggerEval: Boolean,
-                            triggerCount: Int, extraConfig: Map[String, String]
+                            triggerCount: Int, extraConfig: Map[String, String], audited: Boolean = false
                            ) extends RuleFolderRunnerBase[RuleFolderRunnerEval] with CodegenFallback {
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
@@ -291,12 +293,14 @@ case class RuleFolderRunner(ruleSuite: RuleSuite, children: Seq[Expression], res
                             compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
                             variableFuncGroup: Int, expressionOffsets: Array[Int],
                             dataRef: AtomicReference[DataType], forceTriggerEval: Boolean,
-                            triggerCount: Int, extraConfig: Map[String, String]
+                            triggerCount: Int, extraConfig: Map[String, String], audited: Boolean = false
                                ) extends RuleFolderRunnerBase[RuleFolderRunner] {
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = {
-    val r = copy(children = processNewChildren(newChildren))
-    r.performGroupingAuditDump()
+    val r = copy(children = processNewChildren(newChildren), audited = true)
+    if (!audited) {
+      r.performGroupingAuditDump()
+    }
     r
   }
 

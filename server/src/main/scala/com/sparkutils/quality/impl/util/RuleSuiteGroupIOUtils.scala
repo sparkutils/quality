@@ -16,7 +16,11 @@ object RuleSuiteGroupIOUtils {
     if (file.exists()) {
       file.delete()
     }
-    file.mkdirs()
+    file.getAbsoluteFile.mkdirs()
+    if (file.getAbsoluteFile.isDirectory) {
+      // mkdirs creates this as a directory
+      file.getAbsoluteFile.delete()
+    }
     val fos = new FileOutputStream(target)
     try {
       fos.write(

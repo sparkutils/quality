@@ -220,7 +220,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
         else output(currentOutputIndex)
       )
 
-  case class CompilerTerms(funNames: _root_.scala.collection.Iterator[_root_.scala.Predef.String],
+  case class CompilerTerms(grouped: (_root_.scala.collection.Iterator[_root_.scala.Predef.String], String),
                            utilsName: String, ruleSuitTerm: String, ruleSuiteArrays: String, resArrTerm: String,
                            currentSalience: String, ruleTupleArrTerm: String, currentOutputIndex: String, outArrTerm: String,
                            salienceArrTerm: String, hasAPassTerm: String, currRuleResTerm: String,
@@ -398,10 +398,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
   }
 }
 
-trait SplitCompilation {
-
-  val extraConfig: Map[String, String]
-  val ruleSuite: RuleSuite
+trait SplitCompilation extends Runner {
 
   var generatorClassSource : CodeAndComment = _
 
@@ -523,7 +520,9 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
               java.util.Arrays.fill((Object[])$resArrTerm, new Integer($UnevaluatedRuleInt));
               java.util.Arrays.fill($outArrTerm, null);
 
-              ${funNames.map { f => s"$f($paramsCall);" }.mkString("\n")}
+              // group specific subexprs
+              ${grouped._2}
+              ${grouped._1.map { f => s"$f($paramsCall);" }.mkString("\n")}
           """
 
         val resName = ctx.freshName("result")
@@ -575,7 +574,8 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
 case class RuleEngineRunnerEval(ruleSuite: RuleSuite, children: Seq[Expression], userResultDataType: Option[DataType],
                             compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
                             variableFuncGroup: Int, expressionOffsets: Array[Int],
-                            forceTriggerEval: Boolean, triggerCount: Int, extraConfig: Map[String, String])
+                            forceTriggerEval: Boolean, triggerCount: Int, extraConfig: Map[String, String],
+                            audited: Boolean = false)
   extends RuleEngineRunnerBase[RuleEngineRunnerEval] with CodegenFallback {
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
@@ -588,12 +588,15 @@ case class RuleEngineRunnerEval(ruleSuite: RuleSuite, children: Seq[Expression],
 case class RuleEngineRunner(ruleSuite: RuleSuite, children: Seq[Expression], userResultDataType: Option[DataType],
                                 compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
                                 variableFuncGroup: Int, expressionOffsets: Array[Int],
-                                forceTriggerEval: Boolean, triggerCount: Int, extraConfig: Map[String, String])
+                                forceTriggerEval: Boolean, triggerCount: Int, extraConfig: Map[String, String],
+                                audited: Boolean = false)
   extends RuleEngineRunnerBase[RuleEngineRunner] {
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = {
-    val r = copy(children = newChildren)
-    r.performGroupingAuditDump()
+    val r = copy(children = newChildren, audited = true)
+    if (!audited) {
+      r.performGroupingAuditDump()
+    }
     r
   }
 

@@ -2,7 +2,6 @@ package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality.impl.{Group, Trigger, util}
 import org.apache.spark.sql.catalyst.expressions.{Abs, And, EqualTo, Expression, Literal, Murmur3Hash, Remainder}
-import org.apache.spark.sql.types.BooleanType
 
 import scala.collection.mutable
 
@@ -103,9 +102,9 @@ object TopLevelBoolean {
 
     while(!found) {
       //println(s"running bucket $bucketSize for min $min and max $max with res $resCount")
-      val b = bucket(expressions = expressions, targetBucket = min, triggerPercentFilter)
+      val b = bucket(triggers = expressions, targetBucket = min, triggerPercentFilter)
       val bCount = b.maxBy(_.triggers.size).triggers.size + b.size
-      val t = bucket(expressions = expressions, targetBucket = max, triggerPercentFilter)
+      val t = bucket(triggers = expressions, targetBucket = max, triggerPercentFilter)
       val tCount = t.maxBy(_.triggers.size).triggers.size + t.size
       res =
         if (tCount <= bCount)
@@ -147,10 +146,11 @@ object TopLevelBoolean {
     (res, bucketSize)
   }
 
-  def bucket(expressions: Seq[Trigger], targetBucket: Int = 130, triggerPercentFilter: Double = 0.12): Seq[Group] = {
+  def bucket(triggers: Seq[Trigger], targetBucket: Int = 130, triggerPercentFilter: Double = 0.12): Seq[Group] = {
+    val expressions = MultiCommutativeOp.origin(triggers)
     val (orderedLarger, subs) = sorted(expressions, triggerPercentFilter)
-    // remove duplicates
 
+    // remove duplicates
     val seen = new mutable.HashSet[Expression]
 
     def addSeen(pop: Seq[Trigger]) = {
@@ -207,11 +207,13 @@ object TopLevelBoolean {
                   }
               }
             cur ++ newSeqs
-          } else {
+          } else if (triggers.size > 4) { // TODO random number
+            // very small groups are expensive and should fall to the true bucket
             // likely no benefit in reducing further
             val newTriggers = addSeen(triggers)
             cur :+ Group(sub, newTriggers.minBy(_.salience).salience, newTriggers)
-          }
+          } else
+            cur
       }
 
     val rest = expressions.filterNot(p => seen(p.expression))
@@ -234,12 +236,9 @@ object TopLevelBoolean {
   }
 
   def fromParts(expression: Expression): Set[Expression] = expression match {
-    /*case And(left: And, right: And) => fromParts(left) ++ fromParts(right)
-    case And(left, right: And) => fromParts(left) ++ fromParts(right)
-    case And(left: And, right) => fromParts(left) ++ fromParts(right)
-    case a@ And(left, right) => Set(a) ++ fromParts(left) ++ fromParts(right)*/
     case And(left, right) => fromParts(left) ++ fromParts(right)
-    case e: Expression if e.dataType == BooleanType => Set(e)
+    case e: EqualTo => Set(e)
+    //case e: Expression if e.dataType == BooleanType => Set(e)
     case _ => Set.empty
   }
 

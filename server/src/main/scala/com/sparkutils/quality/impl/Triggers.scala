@@ -1,12 +1,11 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenSalience
 import com.sparkutils.quality.impl.RuleSuiteHelpers.getContextOrSparkClassLoader
 import com.sparkutils.quality.impl.util.{TopLevelBoolean, TopLevelBooleanSuiteBuilder}
 import com.sparkutils.quality.{QualityException, RuleSuite, getConfig, groupProcessorAuditKey, groupProcessorBucketSizeKey, groupProcessorKey, groupProcessorPercentFilter}
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
-import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodegenContext}
+import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodegenContext, QualityCodeGenUtils, QualityExprUtils}
 
 import scala.runtime.AbstractFunction10
 import scala.util.Try
@@ -18,12 +17,14 @@ case class Group(groupFilter: Expression, lowestSalience: Int, triggers: Seq[Tri
 /**
  * Allow customised grouping of runner triggers, DQ and ExpressionRunner should evaluate all so the default
  * implementation is sufficient.  This abstraction was added as part of #129 due to 20k trigger rules.
+ *
+ * The return type is the list of function names to call and any extra common subexpressions needed to group
  */
 trait TriggerGrouper extends AbstractFunction10[CodegenContext, Seq[(Trigger, Block)],
-  Int, Int, String, String, String, () => Block, () => Block, Map[String, String], Iterator[String]] {
+  Int, Int, String, String, String, () => Block, () => Block, Map[String, String],  (Iterator[String], String)] {
 
   def apply(ctx: CodegenContext, expressions: Seq[(Trigger, Block)],
-            variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String): Iterator[String] =
+            variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String):  (Iterator[String], String) =
     apply(
       ctx: CodegenContext, expressions: Seq[(Trigger, Block)],
       variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String,
@@ -34,13 +35,16 @@ trait TriggerGrouper extends AbstractFunction10[CodegenContext, Seq[(Trigger, Bl
   def apply(ctx: CodegenContext, expressions: Seq[(Trigger, Block)],
             variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String,
             prefix: String, exprEnd: () => Block, exprFunEnd: () => Block,
-            extraConfig: Map[String, String]): Iterator[String]
+            extraConfig: Map[String, String]): (Iterator[String], String)
 
   /**
    * provides a dump of the plan with defaults or provided by extraConfig and by any optimisation results.
    * This is designed to run in withNewChildren, typically on the first call, when resolved == true, allowing
    * for an audit friendly version of the rules to be examined.  As this takes place during the Spark analysis phase
    * it is recommended that the binary RuleSuiteGroup format is used.
+   *
+   * The binary results should not be used across Quality releases and may contain "boundreference()" entries instead of
+   * actual field names.
    *
    * The DefaultTriggerGrouper does not have any output.
    */
@@ -55,7 +59,7 @@ case class DefaultTriggerGrouper() extends TriggerGrouper {
                       ctx: CodegenContext, expressions: Seq[(Trigger, Block)],
                       variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String,
                       prefix: String, exprEnd: () => Block, exprFunEnd: () => Block, extraConfig: Map[String,String]):
-  Iterator[String] = {
+    (Iterator[String], String)= {
 
     val allExpr = expressions.map(_._2).grouped(variablesPerFunc).grouped(variableFuncGroup)
 
@@ -85,7 +89,7 @@ case class DefaultTriggerGrouper() extends TriggerGrouper {
 
         })
       }
-    funNames
+    (funNames, "")
   }
 
   def dumpAudit(runner: HasTriggers): Unit = {}
@@ -97,7 +101,7 @@ case class TopLevelBooleanGrouper() extends TriggerGrouper {
                       ctx: CodegenContext, expressions: Seq[(Trigger, Block)],
                       variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String,
                       prefix: String, exprEnd: () => Block, exprFunEnd: () => Block, extraConfig: Map[String,String]):
-  Iterator[String] = {
+    (Iterator[String], String) = {
 
     val targetBucket = Try(Triggers.getValue(groupProcessorBucketSizeKey, extraConfig, "130").toInt).
       getOrElse(130)
@@ -109,56 +113,75 @@ case class TopLevelBooleanGrouper() extends TriggerGrouper {
     val groups = TopLevelBoolean.bucket(expressions.map(_._1), targetBucket, triggerPercentFilter)
     val simpleGrouper = DefaultTriggerGrouper()
 
-    val grouped = groups.grouped(variablesPerFunc).grouped(variableFuncGroup)
+    val groupExprs = groups.map(_.groupFilter)
 
-    val funNames =
-      for (exprGroup <- grouped) yield {
-        val groupName = ctx.freshName(prefix+"GEGroup")
-        ctx.addNewFunction(groupName, {
-          val funNames =
-            for {
-              exprFunc <- exprGroup
-            } yield {
-              val exprFuncName = ctx.freshName(prefix+"GEFuncGroup")
+    def builder = {
+      val grouped = groups.grouped(variablesPerFunc).grouped(variableFuncGroup)
 
-              val groupCalls =
-                exprFunc.map {
-                  group =>
-                    // group the group
-                    val funNames =
-                      simpleGrouper(ctx, group.triggers.map(t => (t, map(t))), variablesPerFunc,
-                        variableFuncGroup, paramsDef, paramsCall, prefix, exprEnd, exprFunEnd, extraConfig)
+      val funNames =
+        for (exprGroup <- grouped) yield {
+          val groupName = ctx.freshName(prefix + "GEGroup")
+          ctx.addNewFunction(groupName, {
+            val funNames =
+              for {
+                exprFunc <- exprGroup
+              } yield {
+                val exprFuncName = ctx.freshName(prefix + "GEFuncGroup")
 
-                    val eval = group.groupFilter.genCode(ctx)
-                    code"""
+                val groupCalls =
+                  exprFunc.map {
+                    group =>
+                      // group the group, there is no sub expression usage for common
+                      val funNames =
+                        simpleGrouper(ctx, group.triggers.map(t => (t, map(t))), variablesPerFunc,
+                          variableFuncGroup, paramsDef, paramsCall, prefix, exprEnd, exprFunEnd, extraConfig)._1
+
+                      val eval = group.groupFilter.genCode(ctx)
+                      code"""
                       ${exprEnd()}\n
                       ${eval.code}
                       if ((!${eval.isNull}) && ${eval.value}  ) {
                         ${funNames.map { f => s"$f($paramsCall);" }.mkString("\n")}
                       }
                     """
-                }
+                  }
 
-              ctx.addNewFunction(exprFuncName,
-                code"""
+                ctx.addNewFunction(exprFuncName,
+                  code"""
    private void $exprFuncName($paramsDef) {
-     ${exprFunEnd()}
-     ${groupCalls.mkString(s"${exprFunEnd()}\n")}
+     ${groupCalls.mkString(s"\n")}
    }
   """.code
-              )
-            }
+                )
+              }
 
-          code"""
+            code"""
    private void $groupName($paramsDef) {
      ${exprFunEnd()}
      ${funNames.map { f => s"$f($paramsCall);" }.mkString(s"${exprFunEnd()}\n")}
    }
    """.code
 
-        })
-      }
-    funNames
+          })
+        }
+      val s = funNames.toSeq
+      s.iterator
+    }
+
+    if (ctx.currentVars eq null) {
+      // only fails on "via ProcessFactory with Avro inputs" RowToRowTest shows it doesn't always work for projections
+
+      val subExpressionCode = QualityCodeGenUtils.nonWholeStageSubexpressionElimination(ctx, groupExprs)
+
+      (builder, subExpressionCode)
+    } else {
+      val subExprs = ctx.subexpressionEliminationForWholeStageCodegen(groupExprs)
+      val subExpressionCode = QualityExprUtils.evaluateSubExprEliminationState(ctx, subExprs)
+
+      (QualityCodeGenUtils.withSubExprEliminationExprs(ctx, subExprs.states) {
+        builder
+      }, subExpressionCode)
+    }
   }
 
   override def dumpAudit(runner: HasTriggers): Unit = {
@@ -167,16 +190,21 @@ case class TopLevelBooleanGrouper() extends TriggerGrouper {
 
 }
 
-/**
- * Base class for runners that use triggers_ collector, engine and folder
- */
-trait HasTriggers {
+trait Runner extends Expression {
 
   val ruleSuite: RuleSuite
-  val triggerCount: Int
   val extraConfig: Map[String, String]
   val variablesPerFunc: Int
   val variableFuncGroup: Int
+
+}
+
+/**
+ * Base class for runners that use triggers_ collector, engine and folder
+ */
+trait HasTriggers extends Runner {
+
+  val triggerCount: Int
 
   def realChildren: Seq[Expression]
 
@@ -196,14 +224,13 @@ trait HasTriggers {
 
   private lazy val shouldAudit = Try(Triggers.getValue(groupProcessorAuditKey, extraConfig, "false").toBoolean).getOrElse(false)
 
-  private var audited: Boolean = false
+  val audited: Boolean
 
   def performGroupingAuditDump(): Unit = {
-    if (shouldAudit && !audited && canAudit) {
+    if (shouldAudit && canAudit) {
 
       Triggers.loadTriggerGrouper(extraConfig).dumpAudit(this)
 
-      audited = true
     }
   }
 }

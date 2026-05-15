@@ -199,7 +199,7 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
     variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String,
     extraConfig: Map[String, String],
     prefix: String = "ruleRunner", exprEnd: () => Block = () => code"",
-    exprFunEnd: () => Block = () => code""): Iterator[String] = {
+    exprFunEnd: () => Block = () => code""): (Iterator[String], String) = {
 
     val impl: TriggerGrouper = Triggers.loadTriggerGrouper(extraConfig)
 
@@ -264,7 +264,7 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
 
     val funNames: Iterator[String] =
       RuleRunnerUtils.generateFunctionGroups(ctx, allExpr,
-        variablesPerFunc, variableFuncGroup, paramsDef, paramsCall, extraConfig)
+        variablesPerFunc, variableFuncGroup, paramsDef, paramsCall, extraConfig)._1
 
 
     val resName = ctx.freshName("result")

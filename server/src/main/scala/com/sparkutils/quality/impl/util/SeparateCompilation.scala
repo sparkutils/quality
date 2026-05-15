@@ -2,10 +2,13 @@ package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality.VersionedId
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.CompilerTerms
+import com.sparkutils.quality.impl.{Runner, Triggers}
 import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodegenContext, ExprCode, QualityCodeGenUtils, QualityExprUtils}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
+
+import scala.util.Try
 
 /**
  * Implemented by the separate compilation to allow for nondeterministic / stateful
@@ -68,7 +71,7 @@ object SeparateCompilation {
       terms.runnerClassName, ctx, codeBody, ev, ruleSuiteId, subExpressions)
 
   def withSubExpressions[T: ParamsAndName](
-      theThis: Expression, children: Seq[Expression],
+      theThis: Runner, children: Seq[Expression],
       outerCtx: CodegenContext, ev: ExprCode, ruleSuiteId: VersionedId)(
       generate: (CodegenContext,Int) => (T, ExprCode) ): (CodeAndComment, ExprCode) = {
 
@@ -97,7 +100,8 @@ object SeparateCompilation {
     // need to use the top level params as they are isolated, internally the params will shift to using any subexprs
     runnerCompilation(outerctx = outerCtx, params,
       implicitly[ParamsAndName[T]].apply(compilerTerms)._2, ctx = ctx, codeBody = codeBody, ev = ev,
-      ruleSuiteId = ruleSuiteId, subExpressions = subExpressionCode)
+      ruleSuiteId = ruleSuiteId, subExpressions = subExpressionCode,
+        generateStatsEvery = Try(Triggers.getValue("statsEvery", theThis.extraConfig, "0").toInt).getOrElse(0))
   }
 
   /**
@@ -105,7 +109,8 @@ object SeparateCompilation {
    */
   def runnerCompilation(outerctx: CodegenContext, parameterInformation: ParameterInformation,
                         runnerClassName: String, ctx: CodegenContext, codeBody: ExprCode,
-                        ev: ExprCode, ruleSuiteId: VersionedId, subExpressions: String = ""):
+                        ev: ExprCode, ruleSuiteId: VersionedId, subExpressions: String = "",
+                        generateStatsEvery: Int = 0):
     (CodeAndComment, ExprCode) = {
     val fullParams = parameterInformation
 
@@ -122,6 +127,33 @@ object SeparateCompilation {
 
     val id = s"${ruleSuiteId.id}_${ruleSuiteId.version}".replaceAll("-","__")
 
+    val (statsState, rowStart, statDump) =
+      if (generateStatsEvery == 0)
+        ("","","")
+      else {
+        val rowCount = ctx.freshName("rowCount")
+        val accTime = ctx.freshName("accTime")
+        val start = ctx.freshName("start")
+        val end = ctx.freshName("end")
+        (s"""
+          private long $rowCount = 0;
+          private long $accTime = 0;
+          """,
+          s"""
+          $rowCount = $rowCount + 1;
+          long $start = System.nanoTime();
+          """,
+          s"""
+          long $end = System.nanoTime();
+          $accTime = $accTime + ($end - $start);
+          if ($rowCount == $generateStatsEvery) {
+            System.out.println("RunnerCompilation$id avg \t"+ $accTime +"\t ns per every \t$generateStatsEvery\t rows");
+            $rowCount = 0;
+            $accTime = 0;
+          }
+          """)
+      }
+
     // TODO maximum is 255 params, the codegenerator code has no upper limit, but it's 22 for function, need a array wrapper approach
     val runnerClassBody = s"""
       public RunnerCompilation$id generate(Object[] references) {
@@ -135,6 +167,8 @@ object SeparateCompilation {
         ${ctx.declareMutableStates()}
         // extra params global (outer ctx subexprs and state)
         ${fullParams.aritySafeParamDecl}
+        // stats state
+        $statsState
 
         public RunnerCompilation$id(Object[] references) {
           this.references = references;
@@ -148,6 +182,9 @@ object SeparateCompilation {
         }
 
         public java.lang.Object apply(${fullParams.aritySafeParamDef}) {
+
+          $rowStart
+
           // here to use extraApplyParamDef
           ${fullParams.aritySafeParamConversion}
 
@@ -156,6 +193,10 @@ object SeparateCompilation {
 
           // rule runner code body
           ${codeBody.code}
+
+          // stat dump
+          $statDump
+
           return ${codeBody.isNull} ? ((Object)null) : ((Object)${codeBody.value});
         }
 
