@@ -18,7 +18,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.Block._
 import org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.isNullVariable
 import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodeGenerator, CodegenContext, CodegenFallback, ExprCode, ExprValue, VariableValue}
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression}
-import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, truncatedString}
+import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, GenericArrayData, truncatedString}
 import org.apache.spark.sql.functions.lit
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.DataType
@@ -134,46 +134,43 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
       ruleSetIds.toArray, rulesArrays.toArray)
   }
 
-  def evalArray(ruleSuite: RuleSuite, ruleSuiteArrays: RuleSuiteResultArray, results: Array[Any], startingResult: Int, processOverall: (Int, Int, Double) => Int): InternalRow = {
-    import ruleSuite._
+  case class InPlaceOffset(level1: Int, level2: Int, processOverall: (Int, Int) => Int) {
+    /**
+     * rolls the overalls up in place - must be genericarraydata / arraybasedmap data with a copy from createDefaultRuleResult
+     */
+    def applyResult(result: InternalRow, ruleResult: Int): Unit = {
+      val sar = result.getMap(2).asInstanceOf[ArrayBasedMapData]
+      // update result directly
+      val sv = sar.valueArray.asInstanceOf[GenericArrayData]
+      val struct = sv.getStruct(level1, 2)
+      struct.getMap(1).valueArray.asInstanceOf[GenericArrayData].update(level2, ruleResult)
 
-    val ruleSetRes = Array.ofDim[InternalRow](ruleSuiteArrays.ruleSetIds.length)
-
-    var rsOverall = startingResult
-
-    var offset = 0
-
-    for (rsi <- 0 until ruleSuiteArrays.ruleSetIds.length) {
-
-      val rulesetSize = ruleSuiteArrays.ruleSets(rsi).length
-
-      val ruleSetResults = results.slice(offset, offset + rulesetSize)
-      offset += rulesetSize
-
-      val overall = ruleSetResults.foldLeft(startingResult) {
-        (ov, res) =>
-          processOverall(res.asInstanceOf[Int], ov, probablePass) // convert needed for process
-      }
-
-      rsOverall = processOverall(overall, rsOverall, probablePass)
-
-      ruleSetRes(rsi) = InternalRow(
-        overall: java.lang.Integer,
-        ArrayBasedMapData(ruleSuiteArrays.ruleSets(rsi), ruleSetResults)
-      )
+      // processOverall
+      val cur = struct.getInt(0)
+      val nr = processOverall(ruleResult, cur)
+      struct.update(0, nr)
+      result.update(1, processOverall(nr, result.getInt(1)))
     }
-
-    InternalRow(ruleSuiteArrays.packedId,
-      rsOverall: java.lang.Integer,
-      ArrayBasedMapData(ruleSuiteArrays.ruleSetIds, ruleSetRes)
-    )
+    /**
+     * only for expression runner
+     */
+    def applyExpression(result: InternalRow, ruleResult: Any): Unit = {
+      val sar = result.getMap(2).asInstanceOf[ArrayBasedMapData]
+      // update result directly
+      val sv = sar.valueArray.asInstanceOf[GenericArrayData]
+      val struct = sv.getStruct(level1, 2)
+      struct.getMap(1).valueArray.asInstanceOf[GenericArrayData].update(level2, ruleResult)
+    }
   }
 
-  def evalArray(ruleSuite: RuleSuite, ruleSuiteArrays: RuleSuiteResultArray, results: Array[Any]): InternalRow =
-    evalArray(ruleSuite, ruleSuiteArrays, results, PassedInt, OverallResultHelper.inplaceInt)
-
-  def evalArrayForDefault(ruleSuite: RuleSuite, ruleSuiteArrays: RuleSuiteResultArray, results: Array[Any]): InternalRow =
-    evalArray(ruleSuite, ruleSuiteArrays, results, FailedInt, OverallResultHelper.inplaceForDefaultInt)
+  def inPlaceArrayOffsets(ruleSuite: RuleSuite, processOverall: (Int, Int, Double) => Int): Array[InPlaceOffset] =
+    ruleSuite.ruleSets.zipWithIndex.flatMap{
+      case (ruleSet, level1) =>
+        ruleSet.rules.zipWithIndex.map{
+          case (_, level2) =>
+            InPlaceOffset(level1, level2, processOverall(_,_, ruleSuite.probablePass))
+        }
+    }.toArray
 
   def ruleResultToRow(ruleSuiteResult: RuleSuiteResult): InternalRow =
     InternalRow(
@@ -235,21 +232,16 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
     (ruleSuitTerm, realChildrenTerm)
   }
 
-  def nonOutputRuleGen(ctx: CodegenContext, runner: Expression, ev: ExprCode, ruleSuitTerm: String, utilsName: String,
+  def nonOutputRuleGen[T: ClassTag](ctx: CodegenContext, runner: Expression, ev: ExprCode, utilsName: String,
                        realChildren: Seq[Expression], variablesPerFunc: Int, variableFuncGroup: Int,
-                       resultF: (ExprValue, Int) => String, extraConfig: Map[String, String]
+                       resultF: (ExprValue, Int) => String, extraConfig: Map[String, String],
+                       ruleRunnerExpressionIdx: Int, applyResult: String = "applyResult"
                       ): ExprCode = {
-    val ruleSuiteArrays = ctx.addMutableState(classOf[RuleSuiteResultArray].getName,
-      ctx.freshName("ruleSuiteArrays"),
-      v => s"$v = com.sparkutils.quality.impl.RuleRunnerUtils.ruleSuiteArrays($ruleSuitTerm);"
-    )
-
     val paramInfo = genParams(ctx, runner)
     import paramInfo._
 
-    val ruleRes = "java.lang.Object"
-    val arrTerm = ctx.addMutableState(ruleRes + "[]", ctx.freshName("results"),
-      v => s"$v = new $ruleRes[${realChildren.size}];")
+    val resTerms = resultRowTerms(ctx, ruleRunnerExpressionIdx)
+    import resTerms._
 
     val allExpr = realChildren.zipWithIndex.map { case (child, idx) =>
       val eval = child.genCode(ctx)
@@ -257,7 +249,8 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
       val converted =
         code"""${eval.code}\n
 
-             $arrTerm[$idx] = ${eval.isNull} ? null : ${resultF(eval.value, idx)};"""
+            (($inPlaceOffsetClassName) $inPlaceOffsets[$idx]).$applyResult($resultRow, ${resultF(eval.value, idx)});
+             """
 
       (Trigger(child, idx, 0), converted)
     }
@@ -274,9 +267,11 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
 
     val res = exp.copy(code =
       code"""
+      // copy row
+      $resultRowCopy
       ${funNames.map { f => s"$f($paramsCall);" }.mkString("\n")}
 
-      InternalRow ${exp.value} = $utilsName.evalArray($ruleSuitTerm, $ruleSuiteArrays, $arrTerm);
+      InternalRow ${exp.value} = $resultRow;
       boolean ${exp.isNull} = false;
       """
     )
@@ -284,6 +279,24 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
     res
   }
 
+  case class ResultRowTerms(runnerClassName: String, resultRow: String, resultRowCopy: String,
+                            inPlaceOffsetClassName: String, inPlaceOffsets: String)
+
+  protected[quality] def resultRowTerms[T: ClassTag](ctx: CodegenContext, ruleRunnerExpressionIdx: Int):
+    ResultRowTerms = {
+    val runnerClassName = implicitly[ClassTag[T]].runtimeClass.getName
+
+    val original = ctx.addMutableState("InternalRow", "theOriginal", v =>
+      s"$v = (($runnerClassName)references[$ruleRunnerExpressionIdx]).createDefaultRuleResult();")
+    val resultRow = ctx.addMutableState("InternalRow", "resultRow", v => s"$v = null;")
+    val resultRowCopy = s"$resultRow = $original.copy();"
+
+    val inPlaceOffsetClassName = classOf[InPlaceOffset].getName
+    val inPlaceOffsets = ctx.freshName("inPlaceOffsets")
+    ctx.addImmutableStateIfNotExists(s"$inPlaceOffsetClassName[]", inPlaceOffsets, v =>
+      s"$v = (($runnerClassName)references[$ruleRunnerExpressionIdx]).inPlaceArrayOffsets();")
+    ResultRowTerms(runnerClassName, resultRow, resultRowCopy, inPlaceOffsetClassName, inPlaceOffsets)
+  }
 }
 
 /**
@@ -297,6 +310,9 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
  * @param variableFuncGroup How many functions are then grouped into a new function
  */
 trait RuleRunnerBase[T] extends NonSQLExpression with SplitCompilation {
+  val defaultOverallProcessor: (Int, Int, Double) => Int = OverallResultHelper.inplaceInt
+  val defaultRuleResult: Int = PassedInt
+  val defaultOverallResult: Int = PassedInt
 
   val ruleSuite: RuleSuite
   val compileEvals: Boolean
@@ -341,13 +357,12 @@ trait RuleRunnerBase[T] extends NonSQLExpression with SplitCompilation {
         val params = genParams(ctx, this)
 
         // bind the rules
-        val ruleSuitTerm = genRuleSuiteTerm[T](ctx, ruleRunnerExpressionIdx)._1
         val utilsName = "com.sparkutils.quality.impl.RuleRunnerUtils"
 
         val res =
-          nonOutputRuleGen(ctx, this, ev, ruleSuitTerm, utilsName, realChildren, variablesPerFunc, variableFuncGroup,
+          nonOutputRuleGen[T](ctx, this, ev, utilsName, realChildren, variablesPerFunc, variableFuncGroup,
             (code: ExprValue, idx: Int) => s"com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt($code)",
-            extraConfig
+            extraConfig, ruleRunnerExpressionIdx
           )
 
       ((params, classOf[RuleRunnerBase[T]].getName), res)

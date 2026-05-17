@@ -1,11 +1,14 @@
 package com.sparkutils.quality.impl
 
+import com.sparkutils.quality.impl.RuleRunnerUtils.packTheId
 import com.sparkutils.quality.impl.RuleSuiteHelpers.getContextOrSparkClassLoader
 import com.sparkutils.quality.impl.util.{TopLevelBoolean, TopLevelBooleanSuiteBuilder}
-import com.sparkutils.quality.{QualityException, RuleSuite, getConfig, groupProcessorAuditKey, groupProcessorBucketSizeKey, groupProcessorKey, groupProcessorPercentFilter}
+import com.sparkutils.quality.{FailedInt, QualityException, RuleSuite, UnevaluatedRule, UnevaluatedRuleInt, getConfig, groupProcessorAuditKey, groupProcessorBucketSizeKey, groupProcessorKey, groupProcessorPercentFilter}
+import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodegenContext, QualityCodeGenUtils, QualityExprUtils}
+import org.apache.spark.sql.catalyst.util.ArrayBasedMapData
 
 import scala.runtime.AbstractFunction10
 import scala.util.Try
@@ -181,7 +184,9 @@ case class TopLevelBooleanGrouper() extends TriggerGrouper {
 
       (builder, subExpressionCode)
     } else {
-      val subExprs = ctx.subexpressionEliminationForWholeStageCodegen(groupExprs)
+      // hopefully doesn't generate again
+      val subExprs = ctx.subexpressionEliminationForWholeStageCodegen(groupExprs ++
+        QualityExprUtils.currentSubExprState(ctx).map(_._1.e))
       val subExpressionCode = QualityExprUtils.evaluateSubExprEliminationState(ctx, subExprs)
 
       (QualityCodeGenUtils.withSubExprEliminationExprs(ctx, subExprs.states) {
@@ -203,12 +208,41 @@ trait Runner extends Expression {
   val variablesPerFunc: Int
   val variableFuncGroup: Int
 
+  val defaultRuleResult: Int
+  val defaultOverallResult: Int
+
+  /**
+   * Used by compilation
+   * @return
+   */
+  def createDefaultRuleResult(): InternalRow =
+    InternalRow(packTheId(ruleSuite.id), defaultOverallResult,
+      ArrayBasedMapData(
+        ruleSuite.ruleSets.map{
+          ruleSet =>
+            packTheId(ruleSet.id) -> InternalRow(defaultOverallResult,
+              ArrayBasedMapData(
+                ruleSet.rules.map( r => packTheId(r.id) -> defaultRuleResult).toMap
+              ))
+        }.toMap
+      )
+    )
+
+  val defaultOverallProcessor: (Int, Int, Double) => Int
+
+  // only used for compilation
+  def inPlaceArrayOffsets: Array[RuleRunnerUtils.InPlaceOffset] = RuleRunnerUtils.inPlaceArrayOffsets(ruleSuite, defaultOverallProcessor)
+
 }
 
 /**
  * Base class for runners that use triggers_ collector, engine and folder
  */
 trait HasTriggers extends Runner {
+
+  val defaultRuleResult: Int = UnevaluatedRuleInt
+  val defaultOverallResult: Int = FailedInt
+  val defaultOverallProcessor: (Int, Int, Double) => Int = OverallResultHelper.inplaceForDefaultInt
 
   val triggerCount: Int
 

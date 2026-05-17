@@ -124,6 +124,9 @@ private[quality] object ExpressionRunnerUtils {
  *
  */
 trait ExpressionRunnerBase[T] extends NonSQLExpression with SplitCompilation {
+  val defaultOverallProcessor: (Int, Int, Double) => Int = OverallResultHelper.inplaceInt
+  val defaultRuleResult: Int = PassedInt
+  val defaultOverallResult: Int = PassedInt
 
   val ruleSuite: RuleSuite
   val ddlType: DataType
@@ -160,7 +163,6 @@ trait ExpressionRunnerBase[T] extends NonSQLExpression with SplitCompilation {
 
         val termF = genRuleSuiteTerm[T](ctx, ruleRunnerExpressionIdx)
         // bind the rules
-        val ruleSuitTerm = termF._1
         val utilsName = "com.sparkutils.quality.impl.ExpressionRunnerUtils"
 
         val ruleRes = "java.lang.Object"
@@ -186,8 +188,8 @@ trait ExpressionRunnerBase[T] extends NonSQLExpression with SplitCompilation {
             s"$code"
 
         val res =
-          nonOutputRuleGen(ctx, this, ev, ruleSuitTerm, utilsName, realChildren, variablesPerFunc, variableFuncGroup,
-            yamlOrType(_, _), extraConfig
+          nonOutputRuleGen(ctx, this, ev, utilsName, realChildren, variablesPerFunc, variableFuncGroup,
+            yamlOrType(_, _), extraConfig, ruleRunnerExpressionIdx, "applyExpression"
           )
 
       ((params, classOf[ExpressionRunnerBase[T]].getName), res)

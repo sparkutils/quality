@@ -127,32 +127,42 @@ object SeparateCompilation {
 
     val id = s"${ruleSuiteId.id}_${ruleSuiteId.version}".replaceAll("-","__")
 
-    val (statsState, rowStart, statDump) =
+    val (statsState, statsRowStart, statBeforeCodeBody, statDump) =
       if (generateStatsEvery == 0)
-        ("","","")
+        ("","","","")
       else {
         val rowCount = ctx.freshName("rowCount")
         val accTime = ctx.freshName("accTime")
+        val bodyAccTime = ctx.freshName("bodyAccTime")
         val start = ctx.freshName("start")
+        val beforeCodeBody = ctx.freshName("statBeforeCodeBody")
         val end = ctx.freshName("end")
         (s"""
           private long $rowCount = 0;
           private long $accTime = 0;
+          private long $bodyAccTime = 0;
           """,
           s"""
           $rowCount = $rowCount + 1;
           long $start = System.nanoTime();
           """,
           s"""
+          long $beforeCodeBody = System.nanoTime();
+          """,
+          s"""
           long $end = System.nanoTime();
           $accTime = $accTime + ($end - $start);
+          $bodyAccTime = $bodyAccTime + ($end - $beforeCodeBody);
           if ($rowCount == $generateStatsEvery) {
-            System.out.println("RunnerCompilation$id avg \t"+ $accTime +"\t ns per every \t$generateStatsEvery\t rows");
+            System.out.println(this.getClass().getName() + " - RunnerCompilation$id avg \t"+ $accTime +"\t"+$bodyAccTime+"\t ns per every \t$generateStatsEvery\t rows");
             $rowCount = 0;
             $accTime = 0;
+            $bodyAccTime = 0;
           }
           """)
       }
+
+    val fakeIt = ctx.freshName("fakeit")
 
     // TODO maximum is 255 params, the codegenerator code has no upper limit, but it's 22 for function, need a array wrapper approach
     val runnerClassBody = s"""
@@ -183,13 +193,15 @@ object SeparateCompilation {
 
         public java.lang.Object apply(${fullParams.aritySafeParamDef}) {
 
-          $rowStart
+          $statsRowStart
 
           // here to use extraApplyParamDef
           ${fullParams.aritySafeParamConversion}
 
           // this context common sub exprs
           $subExpressions
+
+          $statBeforeCodeBody
 
           // rule runner code body
           ${codeBody.code}

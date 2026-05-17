@@ -1,10 +1,9 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality.impl.RuleRunnerUtils.RuleSuiteResultArray
+import com.sparkutils.quality.impl.RuleRunnerUtils.{genRuleSuiteTerm, packTheId, resultRowTerms}
 import com.sparkutils.quality._
 import com.sparkutils.quality.QualityException.qualityException
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.{flattenExpressions, outputExpressionType}
-import com.sparkutils.quality.impl.RuleRunnerUtils.{genRuleSuiteTerm, packTheId}
 import com.sparkutils.quality.impl.imports.RuleEngineRunnerImports
 import PackId.packId
 import com.sparkutils.quality
@@ -23,7 +22,7 @@ import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression}
 import org.apache.spark.sql.catalyst.util.{GenericArrayData, truncatedString}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.{ClassicQualitySparkUtils, Column, DataFrame, SaveMode, ShimUtils}
+import org.apache.spark.sql.{ClassicQualitySparkUtils, Column, DataFrame, ShimUtils}
 
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
@@ -221,10 +220,11 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
       )
 
   case class CompilerTerms(grouped: (_root_.scala.collection.Iterator[_root_.scala.Predef.String], String),
-                           utilsName: String, ruleSuitTerm: String, ruleSuiteArrays: String, resArrTerm: String,
-                           currentSalience: String, ruleTupleArrTerm: String, currentOutputIndex: String, outArrTerm: String,
+                           utilsName: String, ruleSuitTerm: String, currentSalience: String, ruleTupleArrTerm: String,
+                           currentOutputIndex: String, outArrTerm: String,
                            salienceArrTerm: String, hasAPassTerm: String, currRuleResTerm: String,
-                           runnerClassName: String, parameterInformation: ParameterInformation)
+                           runnerClassName: String, parameterInformation: ParameterInformation,
+                           resultRow: String, resultRowCopy: String, outArrayType: String)
 
   // exprEnd and exprFunEnd take currRuleResTerm as params
   def genCompilerTerms[T: ClassTag](ruleRunnerExpressionIdx: Int,
@@ -233,7 +233,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
                        child: Expression, expressionOffsets: Array[Int], realChildren: Seq[Expression],
                        debugMode: Boolean, variablesPerFunc: Int, variableFuncGroup: Int, forceTriggerEval: Boolean,
                        extraConfig: Map[String, String],
-                       extraResult: (String, Int, String) => String = (_ : String, _: Int, _: String) => "",
+                       extraResult: (String, Int) => String = (_ : String, _: Int) => "",
                        extraSetup: (String, Int) => String = (_ : String, _: Int) => "",
                        orderOffset: Int => Int = identity,
                        salienceCheck: Boolean = true, sizeAdjustment: Int = 0,
@@ -246,6 +246,9 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
 
     val paramsInfo = genParams(ctx, child)
 
+    val resTerms = resultRowTerms(ctx, ruleRunnerExpressionIdx)
+    import resTerms._
+
     import paramsInfo._
 
     // bind the rules
@@ -256,11 +259,6 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
 
     val childrenFuncTerm = termFun("compiledRealChildren", classOf[ExpressionWrapper].getName + "[]")
 
-    val ruleSuiteArrays = ctx.addMutableState(classOf[RuleSuiteResultArray].getName,
-      ctx.freshName("ruleSuiteArrays"),
-      v => s"$v = $utilsName.ruleSuiteArrays($ruleSuitTerm);"
-    )
-
     val currentSalience = ctx.addMutableState("int", ctx.freshName("currentSalience"),
       v => s"$v = java.lang.Integer.MAX_VALUE;"
     )
@@ -268,11 +266,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
       v => s"$v = -1;"
     )
 
-    val offset = expressionOffsets.size + sizeAdjustment
-
-    val ruleRes = "java.lang.Object"
-    val resArrTerm = ctx.addMutableState(ruleRes+"[]", ctx.freshName("results"),
-      v => s"$v = new $ruleRes[$offset];")
+    val offset = expressionOffsets.length + sizeAdjustment
 
     val currRuleRes = "int"
     val currRuleResTerm = ctx.addMutableState(currRuleRes, ctx.freshName("currRuleRes"),
@@ -316,9 +310,9 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
             $evalPre
             $currRuleResTerm = $eval;
 
-            $resArrTerm[$idx] = (Integer) $currRuleResTerm;
             if ( ( $currRuleResTerm == $PassedInt ) ${if (!debugMode && salienceCheck) s" && ( $currentSalience > $salienceArrTerm[$idx] ) " else "" }) {
               $hasAPassTerm = true;
+              (($inPlaceOffsetClassName) $inPlaceOffsets[$idx]).applyResult($resultRow, $currRuleResTerm);
               $funName($paramsCall${if (paramsCall.isEmpty) "" else ","} $idx);
             } ${if (!debugMode) "" else s"""
               else {
@@ -345,7 +339,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
               ${eval.code} \n
 
               $outArrTerm[$i] = ${eval.isNull} ? null : ($output)${eval.value}; \n
-              ${extraResult(s"$outArrTerm[$i]", i, resArrTerm)}
+              ${extraResult(s"$outArrTerm[$i]", i)}
         """
 
         ctx.addNewFunction(exprFuncName,
@@ -390,10 +384,9 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
       RuleRunnerUtils.generateFunctionGroups(ctx, allExpr, variablesPerFunc, variableFuncGroup,
         paramsDef, paramsCall, extraConfig, exprEnd = () => exprEnd(currRuleResTerm),
         exprFunEnd = () => exprFunEnd(currRuleResTerm)),
-      utilsName, ruleSuitTerm, ruleSuiteArrays, resArrTerm,
-      currentSalience, ruleTupleArrTerm, currentOutputIndex, outArrTerm,
+      utilsName, ruleSuitTerm, currentSalience, ruleTupleArrTerm, currentOutputIndex, outArrTerm,
       salienceArrTerm, hasAPassTerm, currRuleResTerm,
-      runnerClassName = implicitly[ClassTag[T]].runtimeClass.getName, paramsInfo)
+      runnerClassName = runnerClassName, paramsInfo, resultRow, resultRowCopy, output)
 
   }
 }
@@ -459,13 +452,14 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
   lazy val realChildren = getRealChildren(children)
 
   // only used for compilation
+  @transient
   lazy val compiledRealChildren = realChildren.slice(0, triggerCount).map(ExpressionWrapper(_, compileEvals)).toArray
 
   override def nullable: Boolean = false
   override def toString: String = "RuleEngineRunner" + truncatedString(
     realChildren, "(", ", ", ")", SQLConf.get.maxToStringFields)
 
-  // used only for eval, compiled uses the children directly TODO TEST ENGINE
+  // used only for eval, compiled uses the children directly
   lazy val reincorporated = reincorporateExpressions(ruleSuite, realChildren, compileEvals, expressionOffsets, triggerCount)
 
   // keep it simple for this one. - can return an internal row or whatever..
@@ -508,6 +502,10 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
         import compilerTerms._
         import parameterInformation._
 
+        val theCopy = ctx.addMutableState("Object[]", "thecopy",v => s"$v = new Object[$triggerCount];")
+        ctx.addPartitionInitializationStatement(s"""
+          java.util.Arrays.fill((Object[])$theCopy, new Integer($UnevaluatedRuleInt));
+          """)
         // for debug currentOutputIndex is the count of matches, new Integer for #128 as janino isn't happy
 
         val pre =
@@ -517,8 +515,10 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
               $hasAPassTerm = false;
               // #128 enable early exit
               $currRuleResTerm = $UnevaluatedRuleInt;
-              java.util.Arrays.fill((Object[])$resArrTerm, new Integer($UnevaluatedRuleInt));
-              java.util.Arrays.fill($outArrTerm, null);
+              $outArrTerm = new $outArrayType[$triggerCount];
+
+              // copy row
+              $resultRowCopy
 
               // group specific subexprs
               ${grouped._2}
@@ -544,7 +544,7 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
 
               InternalRow ${exp.value} =
                 com.sparkutils.quality.impl.RuleEngineRunnerUtils.compiledEvalDebug(
-                  $utilsName.evalArrayForDefault($ruleSuitTerm, $ruleSuiteArrays, $resArrTerm),
+                  $resultRow,
                 ($currentOutputIndex < 0) ? null : com.sparkutils.quality.impl.RuleEngineRunnerUtils.debugOutput($salienceArrTerm, $outArrTerm, $currentOutputIndex, null));
 
               $post
@@ -557,7 +557,7 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
 
               InternalRow ${exp.value} =
                 com.sparkutils.quality.impl.RuleEngineRunnerUtils.compiledEval(
-                  $utilsName.evalArrayForDefault($ruleSuitTerm, $ruleSuiteArrays, $resArrTerm),
+                  $resultRow,
                   $currentSalience, $ruleTupleArrTerm, $currentOutputIndex, $outArrTerm);
 
               $post

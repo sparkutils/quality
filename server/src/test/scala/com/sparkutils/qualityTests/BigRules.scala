@@ -148,7 +148,7 @@ class BigRules extends SharedPureConnectTests with Matchers {
       count() shouldBe 0
   }
 
-  test("dumpAudit should work") { not3_0_or_3_1 {
+  ignore("dumpAudit should work") { not3_0_or_3_1 { // this is a beast do by hand or on 16gb
     val s = sparkSession
 
     import s.implicits._

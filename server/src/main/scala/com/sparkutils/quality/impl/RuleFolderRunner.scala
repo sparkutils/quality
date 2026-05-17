@@ -144,7 +144,7 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
           RuleEngineRunnerUtils.genCompilerTerms[T](ruleRunnerExpressionIdx, outerCtx, ctx, PassThroughEvalOnly(realChildren), expressionOffsets, realChildren,
             debugMode, variablesPerFunc, variableFuncGroup, forceTriggerEval, extraConfig,
             // capture the current
-            extraResult = (outArrTerm: String, _, _) => s"$folderV = $outArrTerm;",
+            extraResult = (outArrTerm: String, _) => s"$folderV = $outArrTerm;",
             extraSetup = (_, i: Int) =>
               s"""
           // set the current row for the fold for flattened rule $i
@@ -163,7 +163,6 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
         // generate the starting struct
         val starterEval = startingStruct.genCode(ctx)
 
-        val rsres = ctx.freshName("ruleSuiteRes")
         val default = ctx.freshName("defaultRes")
 
         val pre = code"""
@@ -176,11 +175,12 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
           // setting the folder
           $folderV = ${starterEval.isNull} ? null : (InternalRow)${starterEval.value}; \n
 
+          // copy row
+          $resultRowCopy
           // group specific subexprs
           ${grouped._2}
           ${grouped._1.map { f => s"$f($paramsCall);" }.mkString("\n")}
 
-          InternalRow $rsres = $utilsName.evalArrayForDefault($ruleSuitTerm, $ruleSuiteArrays, $resArrTerm);
           InternalRow $default = null;
 
          ${hasDefault {
@@ -196,7 +196,7 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
                   // System.out.println("DefaultProcessor result is ${defP.value}" + ${defP.value});
                   $default = ${defP.value};
 
-                  $rsres.update(1, ${DefaultRuleInt});
+                  $resultRow.update(1, ${DefaultRuleInt});
                 """
           }
             }
@@ -220,7 +220,7 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
           $pre
 
           InternalRow ${exp.value} =
-            com.sparkutils.quality.impl.RuleFolderRunnerUtils.compiledEvalDebug($rsres,
+            com.sparkutils.quality.impl.RuleFolderRunnerUtils.compiledEvalDebug($resultRow,
              (($currentOutputIndex < 0) && ($default == null)) ? null :
               com.sparkutils.quality.impl.RuleEngineRunnerUtils.debugOutput($salienceArrTerm, $outArrTerm, $currentOutputIndex, $default));
 
@@ -232,7 +232,7 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
           $pre
 
           InternalRow ${exp.value} =
-            com.sparkutils.quality.impl.RuleFolderRunnerUtils.compiledEval($rsres,
+            com.sparkutils.quality.impl.RuleFolderRunnerUtils.compiledEval($resultRow,
               $currentSalience, $ruleTupleArrTerm, $currentOutputIndex, $outArrTerm, $default);
 
           $post

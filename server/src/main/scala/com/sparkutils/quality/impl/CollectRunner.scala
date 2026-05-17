@@ -397,7 +397,7 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression with SplitCo
           RuleEngineRunnerUtils.genCompilerTerms[T](ruleRunnerExpressionIdx, outerCtx, ctx, PassThroughEvalOnly(children), expressionOffsets, children,
             false, variablesPerFunc, variableFuncGroup, false, extraConfig,
             // capture the current
-            extraResult = (outArrTerm: String, i: Int, resArrTerm: String) =>
+            extraResult = (outArrTerm: String, i: Int) =>
               s"""
                  if (($outArrTerm != null) || $includeNulls) {
                     if (($outArrTerm == null) || ${!(flatten && canFlatten)}) {
@@ -427,9 +427,25 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression with SplitCo
               $hasAPassTerm = false;
               $bufferTerm = new ${classOf[ArrayBuffer[_]].getName}($starterSize);
 
+              // copy row
+              $resultRowCopy
+
               // group specific subexprs
               ${grouped._2}
               ${grouped._1.map { f => s"$f($paramsCall);" }.mkString("\n")}
+
+              ${
+                hasDefault(
+                  // if we have a default the result type should be DefaultRule
+                  s"""
+                    if (!$hasAPassTerm) {
+                      $resultRow.update(1, ${
+                        DefaultRuleInt
+                      });
+                    }
+
+                  """)
+              }
           """
 
 
@@ -442,8 +458,6 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression with SplitCo
 
               boolean ${exp.isNull} = false;
           """
-
-        val rsres = ctx.freshName("ruleSuiteRes")
 
         val res =
           exp.copy(code = code"""
@@ -472,21 +486,9 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression with SplitCo
             """
             }}
 
-            InternalRow $rsres = $utilsName.evalArrayForDefault($ruleSuitTerm, $ruleSuiteArrays, $resArrTerm);
-
-            ${
-              hasDefault(
-                // if we have a default the result type should be DefaultRule
-                s"""
-                if (!$hasAPassTerm) {
-                  $rsres.update(1, ${DefaultRuleInt});
-                }
-                """)
-            }
-
             InternalRow ${exp.value} =
               com.sparkutils.quality.impl.CollectRunnerUtils.compiledEval(
-                $rsres,
+                $resultRow,
                 $bufferTerm);
 
             $post
