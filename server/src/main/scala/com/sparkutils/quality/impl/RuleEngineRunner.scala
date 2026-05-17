@@ -310,9 +310,9 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
             $evalPre
             $currRuleResTerm = $eval;
 
+            (($inPlaceOffsetClassName) $inPlaceOffsets[$idx]).applyResult($resultRow, $currRuleResTerm);
             if ( ( $currRuleResTerm == $PassedInt ) ${if (!debugMode && salienceCheck) s" && ( $currentSalience > $salienceArrTerm[$idx] ) " else "" }) {
               $hasAPassTerm = true;
-              (($inPlaceOffsetClassName) $inPlaceOffsets[$idx]).applyResult($resultRow, $currRuleResTerm);
               $funName($paramsCall${if (paramsCall.isEmpty) "" else ","} $idx);
             } ${if (!debugMode) "" else s"""
               else {
