@@ -51,7 +51,7 @@ trait TriggerGrouper extends AbstractFunction10[CodegenContext, Seq[(Trigger, Bl
    *
    * The DefaultTriggerGrouper does not have any output.
    */
-  def dumpAudit(runner: HasTriggers): Unit
+  def dumpAudit(runner: HasOutput): Unit
 
 }
 
@@ -94,7 +94,7 @@ case class DefaultTriggerGrouper() extends TriggerGrouper {
     (funNames, "")
   }
 
-  def dumpAudit(runner: HasTriggers): Unit = {}
+  def dumpAudit(runner: HasOutput): Unit = {}
 }
 
 /**
@@ -195,84 +195,10 @@ case class TopLevelBooleanGrouper() extends TriggerGrouper {
     }
   }
 
-  override def dumpAudit(runner: HasTriggers): Unit = {
+  override def dumpAudit(runner: HasOutput): Unit = {
     TopLevelBooleanSuiteBuilder.build(runner)
   }
 
-}
-
-trait Runner extends Expression {
-
-  val ruleSuite: RuleSuite
-  val extraConfig: Map[String, String]
-  val variablesPerFunc: Int
-  val variableFuncGroup: Int
-
-  val defaultRuleResult: Int
-  val defaultOverallResult: Int
-
-  /**
-   * Used by compilation
-   * @return
-   */
-  def createDefaultRuleResult(): InternalRow =
-    InternalRow(packTheId(ruleSuite.id), defaultOverallResult,
-      ArrayBasedMapData(
-        ruleSuite.ruleSets.map{
-          ruleSet =>
-            packTheId(ruleSet.id) -> InternalRow(defaultOverallResult,
-              ArrayBasedMapData(
-                ruleSet.rules.map( r => packTheId(r.id) -> defaultRuleResult).toMap
-              ))
-        }.toMap
-      )
-    )
-
-  val defaultOverallProcessor: (Int, Int, Double) => Int
-
-  // only used for compilation
-  def inPlaceArrayOffsets: Array[RuleRunnerUtils.InPlaceOffset] = RuleRunnerUtils.inPlaceArrayOffsets(ruleSuite, defaultOverallProcessor)
-
-}
-
-/**
- * Base class for runners that use triggers_ collector, engine and folder
- */
-trait HasTriggers extends Runner {
-
-  val defaultRuleResult: Int = UnevaluatedRuleInt
-  val defaultOverallResult: Int = FailedInt
-  val defaultOverallProcessor: (Int, Int, Double) => Int = OverallResultHelper.inplaceForDefaultInt
-
-  val triggerCount: Int
-
-  def realChildren: Seq[Expression]
-
-  def triggerRules: Seq[Expression] = realChildren.slice(0, triggerCount)
-
-  def canAudit: Boolean = triggerRules.forall(_.resolved)
-
-  /**
-   * For collector and engine it's typically just their sql function name, for folder
-   * it must also include the starting expression.sql.  This will be called with resolved
-   * expressions but not with structs so the folder starter expression is expected to be
-   * executable
-   * @param ruleSuiteCall provided by the grouping code but resolves to a rulesuite
-   * @return
-   */
-  def groupedSqlCall(ruleSuiteCall: String): String
-
-  private lazy val shouldAudit = Try(Triggers.getValue(groupProcessorAuditKey, extraConfig, "false").toBoolean).getOrElse(false)
-
-  val audited: Boolean
-
-  def performGroupingAuditDump(): Unit = {
-    if (shouldAudit && canAudit) {
-
-      Triggers.loadTriggerGrouper(extraConfig).dumpAudit(this)
-
-    }
-  }
 }
 
 object Triggers {

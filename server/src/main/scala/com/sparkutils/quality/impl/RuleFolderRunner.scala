@@ -48,7 +48,7 @@ private[quality] object RuleFolderRunnerUtils extends ClassicRuleFolderRunnerImp
   * Children will be rewritten by the plan, it's then re-incorporated into ruleSuite
   * expressionOffsets.length is the length of the trigger expressions in realChildren, realChildren(expressionOffsets.length + expressionOffsets(x)) will be the correct OutputExpression
   */
-trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation with HasTriggers {
+trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation with HasOutput {
 
   def groupedSqlCall(ruleSuiteCall: String): String = s"rule_folder_runner($ruleSuiteCall, ${startingStruct.sql})"
 
@@ -141,7 +141,8 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
         val salienceFromOffsets = flattenSalience(ruleSuite)
 
         val compilerTerms =
-          RuleEngineRunnerUtils.genCompilerTerms[T](ruleRunnerExpressionIdx, outerCtx, ctx, PassThroughEvalOnly(realChildren), expressionOffsets, realChildren,
+          RuleEngineRunnerUtils.genCompilerTerms[T](this, ruleRunnerExpressionIdx, outerCtx, ctx,
+            PassThroughEvalOnly(realChildren), expressionOffsets, realChildren,
             debugMode, variablesPerFunc, variableFuncGroup, forceTriggerEval, extraConfig,
             // capture the current
             extraResult = (outArrTerm: String, _) => s"$folderV = $outArrTerm;",

@@ -1,8 +1,8 @@
 package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenSalience
-import com.sparkutils.quality.{groupProcessorPercentFilter, _}
-import com.sparkutils.quality.impl.{HasTriggers, Trigger, Triggers}
+import com.sparkutils.quality._
+import com.sparkutils.quality.impl.{HasOutput, Trigger, Triggers}
 
 import scala.util.Try
 
@@ -15,7 +15,7 @@ object TopLevelBooleanSuiteBuilder {
       expr
     }))
 
-  def build(runner: HasTriggers): Unit = {
+  def build(runner: HasOutput): Unit = {
     import runner._
     val targetBucket = Try(Triggers.getValue(groupProcessorBucketSizeKey, runner.extraConfig, "130").toInt).
       getOrElse(130)

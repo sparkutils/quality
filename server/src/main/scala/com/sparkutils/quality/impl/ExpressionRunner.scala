@@ -123,17 +123,10 @@ private[quality] object ExpressionRunnerUtils {
  * Creates an extensible wrapper result column for aggregate expressions, storing the results as yaml
  *
  */
-trait ExpressionRunnerBase[T] extends NonSQLExpression with SplitCompilation {
-  val defaultOverallProcessor: (Int, Int, Double) => Int = OverallResultHelper.inplaceInt
-  val defaultRuleResult: Int = PassedInt
-  val defaultOverallResult: Int = PassedInt
+trait ExpressionRunnerBase[T] extends NonSQLExpression with SplitCompilation with TriggerOnly  {
 
-  val ruleSuite: RuleSuite
   val ddlType: DataType
   val compileEvals: Boolean
-  val variablesPerFunc: Int
-  val variableFuncGroup: Int
-  val extraConfig: Map[String, String]
 
   implicit val classTagT: ClassTag[T]
 

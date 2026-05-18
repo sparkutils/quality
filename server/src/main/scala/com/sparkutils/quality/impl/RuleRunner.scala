@@ -134,44 +134,6 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
       ruleSetIds.toArray, rulesArrays.toArray)
   }
 
-  case class InPlaceOffset(level1: Int, level2: Int, processOverall: (Int, Int) => Int) {
-    /**
-     * rolls the overalls up in place - must be genericarraydata / arraybasedmap data with a copy from createDefaultRuleResult
-     */
-    def applyResult(result: InternalRow, ruleResult: Int): Unit = {
-      val sar = result.getMap(2).asInstanceOf[ArrayBasedMapData]
-      // update result directly
-      val sv = sar.valueArray.asInstanceOf[GenericArrayData]
-      val struct = sv.getStruct(level1, 2)
-      struct.getMap(1).valueArray.asInstanceOf[GenericArrayData].update(level2, ruleResult)
-
-      // processOverall
-      val cur = struct.getInt(0)
-      val nr = processOverall(ruleResult, cur)
-      struct.update(0, nr)
-      result.update(1, processOverall(nr, result.getInt(1)))
-    }
-    /**
-     * only for expression runner
-     */
-    def applyExpression(result: InternalRow, ruleResult: Any): Unit = {
-      val sar = result.getMap(2).asInstanceOf[ArrayBasedMapData]
-      // update result directly
-      val sv = sar.valueArray.asInstanceOf[GenericArrayData]
-      val struct = sv.getStruct(level1, 2)
-      struct.getMap(1).valueArray.asInstanceOf[GenericArrayData].update(level2, ruleResult)
-    }
-  }
-
-  def inPlaceArrayOffsets(ruleSuite: RuleSuite, processOverall: (Int, Int, Double) => Int): Array[InPlaceOffset] =
-    ruleSuite.ruleSets.zipWithIndex.flatMap{
-      case (ruleSet, level1) =>
-        ruleSet.rules.zipWithIndex.map{
-          case (_, level2) =>
-            InPlaceOffset(level1, level2, processOverall(_,_, ruleSuite.probablePass))
-        }
-    }.toArray
-
   def ruleResultToRow(ruleSuiteResult: RuleSuiteResult): InternalRow =
     InternalRow(
       packId(ruleSuiteResult.id),
@@ -232,7 +194,7 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
     (ruleSuitTerm, realChildrenTerm)
   }
 
-  def nonOutputRuleGen[T: ClassTag](ctx: CodegenContext, runner: Expression, ev: ExprCode, utilsName: String,
+  def nonOutputRuleGen[T: ClassTag](ctx: CodegenContext, runner: Runner, ev: ExprCode, utilsName: String,
                        realChildren: Seq[Expression], variablesPerFunc: Int, variableFuncGroup: Int,
                        resultF: (ExprValue, Int) => String, extraConfig: Map[String, String],
                        ruleRunnerExpressionIdx: Int, applyResult: String = "applyResult"
@@ -243,13 +205,15 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
     val resTerms = resultRowTerms(ctx, ruleRunnerExpressionIdx)
     import resTerms._
 
+    val inPlaceOffsets = runner.inPlaceArrayOffsets(ctx, resultRow, ruleRunnerExpressionIdx)
+
     val allExpr = realChildren.zipWithIndex.map { case (child, idx) =>
       val eval = child.genCode(ctx)
 
       val converted =
         code"""${eval.code}\n
 
-            (($inPlaceOffsetClassName) $inPlaceOffsets[$idx]).$applyResult($resultRow, ${resultF(eval.value, idx)});
+            ${inPlaceOffsets.offsets(idx).apply(resultF(eval.value, idx))}
              """
 
       (Trigger(child, idx, 0), converted)
@@ -279,8 +243,7 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
     res
   }
 
-  case class ResultRowTerms(runnerClassName: String, resultRow: String, resultRowCopy: String,
-                            inPlaceOffsetClassName: String, inPlaceOffsets: String)
+  case class ResultRowTerms(runnerClassName: String, resultRow: String, resultRowCopy: String)
 
   protected[quality] def resultRowTerms[T: ClassTag](ctx: CodegenContext, ruleRunnerExpressionIdx: Int):
     ResultRowTerms = {
@@ -290,12 +253,12 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
       s"$v = (($runnerClassName)references[$ruleRunnerExpressionIdx]).createDefaultRuleResult();")
     val resultRow = ctx.addMutableState("InternalRow", "resultRow", v => s"$v = null;")
     val resultRowCopy = s"$resultRow = $original.copy();"
-
+/*
     val inPlaceOffsetClassName = classOf[InPlaceOffset].getName
     val inPlaceOffsets = ctx.freshName("inPlaceOffsets")
     ctx.addImmutableStateIfNotExists(s"$inPlaceOffsetClassName[]", inPlaceOffsets, v =>
-      s"$v = (($runnerClassName)references[$ruleRunnerExpressionIdx]).inPlaceArrayOffsets();")
-    ResultRowTerms(runnerClassName, resultRow, resultRowCopy, inPlaceOffsetClassName, inPlaceOffsets)
+      s"$v = (($runnerClassName)references[$ruleRunnerExpressionIdx]).inPlaceArrayOffsets();")*/
+    ResultRowTerms(runnerClassName, resultRow, resultRowCopy)
   }
 }
 
@@ -309,16 +272,9 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
  * @param variablesPerFunc How many variables are in a function
  * @param variableFuncGroup How many functions are then grouped into a new function
  */
-trait RuleRunnerBase[T] extends NonSQLExpression with SplitCompilation {
-  val defaultOverallProcessor: (Int, Int, Double) => Int = OverallResultHelper.inplaceInt
-  val defaultRuleResult: Int = PassedInt
-  val defaultOverallResult: Int = PassedInt
+trait RuleRunnerBase[T] extends NonSQLExpression with SplitCompilation with TriggerOnly {
 
-  val ruleSuite: RuleSuite
   val compileEvals: Boolean
-  val variablesPerFunc: Int
-  val variableFuncGroup: Int
-  val extraConfig: Map[String, String]
 
   implicit val tClass: ClassTag[T]
 

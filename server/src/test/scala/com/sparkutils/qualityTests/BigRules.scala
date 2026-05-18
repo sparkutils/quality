@@ -131,7 +131,7 @@ class BigRules extends SharedPureConnectTests with Matchers {
       count() shouldBe 0
   } }
 
-  ignore("1:1 rules only") {  // requires a 12gb heap and patience, run takes 5m42s on 32g i9-9900 corsair with 12gb, 5.22 ms / row
+  test("1:1 rules only") {  // requires a 12gb heap and patience, run takes 5m42s on 32g i9-9900 corsair with 12gb, 5.22 ms / row
     val s = sparkSession
 
     import s.implicits._
