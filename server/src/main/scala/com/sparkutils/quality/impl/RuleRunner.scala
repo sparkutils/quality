@@ -116,24 +116,6 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
     }
   }
 
-  case class RuleSuiteResultArray(packedId: Long, ruleSetIds: Array[Long], ruleSets: Array[Array[Long]]) {
-
-  }
-
-  // create base arrays for each maps
-  def ruleSuiteArrays(ruleSuite: RuleSuite): RuleSuiteResultArray = {
-    val (ruleSetIds, rulesArrays) =
-      ruleSuite.ruleSets.map{
-        ruleSet =>
-          packTheId(ruleSet.id) ->
-            ruleSet.rules.map(r => packTheId(r.id)).toArray
-
-      }.unzip // make sure no funkyness on ordering occurs
-
-    RuleSuiteResultArray(packTheId(ruleSuite.id),
-      ruleSetIds.toArray, rulesArrays.toArray)
-  }
-
   def ruleResultToRow(ruleSuiteResult: RuleSuiteResult): InternalRow =
     InternalRow(
       packId(ruleSuiteResult.id),
@@ -253,11 +235,7 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
       s"$v = (($runnerClassName)references[$ruleRunnerExpressionIdx]).createDefaultRuleResult();")
     val resultRow = ctx.addMutableState("InternalRow", "resultRow", v => s"$v = null;")
     val resultRowCopy = s"$resultRow = $original.copy();"
-/*
-    val inPlaceOffsetClassName = classOf[InPlaceOffset].getName
-    val inPlaceOffsets = ctx.freshName("inPlaceOffsets")
-    ctx.addImmutableStateIfNotExists(s"$inPlaceOffsetClassName[]", inPlaceOffsets, v =>
-      s"$v = (($runnerClassName)references[$ruleRunnerExpressionIdx]).inPlaceArrayOffsets();")*/
+
     ResultRowTerms(runnerClassName, resultRow, resultRowCopy)
   }
 }

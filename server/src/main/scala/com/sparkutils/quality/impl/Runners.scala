@@ -40,43 +40,6 @@ object Runners {
 
 }
 
-/* TODO
-the processOverall needs to be a runner level function,
-eavh ruleset needs the array and the struct in vars
-the processOverall should be done on class variables only then inserted
-two functions, one to reset the 2/3 vars per set and one to integrate them again
-then at codegen site just array updates are used via level2 for result storage and process via the class vars
-potentially need to create a java version of the processsOverall logic.
- */
-case class InPlaceOffset(level1: Int, level2: Int) {
-  /**f
-   * rolls the overalls up in place - must be genericarraydata / arraybasedmap data with a copy from createDefaultRuleResult
-   */
-  def applyResult(result: InternalRow, ruleResult: Int, processOverall: (Int, Int) => Int): Unit = {
-    val sar = result.getMap(2).asInstanceOf[ArrayBasedMapData]
-    // update result directly
-    val sv = sar.valueArray.asInstanceOf[GenericArrayData]
-    val struct = sv.getStruct(level1, 2)
-    struct.getMap(1).valueArray.asInstanceOf[GenericArrayData].update(level2, ruleResult)
-
-    // processOverall
-    val cur = struct.getInt(0)
-    val nr = processOverall(ruleResult, cur)
-    struct.update(0, nr)
-    result.update(1, processOverall(nr, result.getInt(1)))
-  }
-  /**
-   * only for expression runner
-   */
-  def applyExpression(result: InternalRow, ruleResult: Any): Unit = {
-    val sar = result.getMap(2).asInstanceOf[ArrayBasedMapData]
-    // update result directly
-    val sv = sar.valueArray.asInstanceOf[GenericArrayData]
-    val struct = sv.getStruct(level1, 2)
-    struct.getMap(1).valueArray.asInstanceOf[GenericArrayData].update(level2, ruleResult)
-  }
-}
-
 /**
  * Used for compilation
  * @param offsets each trigger offset
@@ -102,8 +65,7 @@ trait Runner extends Expression {
   val defaultOverallProcessor: (Int, Int) => Int
 
   /**
-   * Used by compilation
-   * @return
+   * Used by codegen
    */
   def createDefaultRuleResult(): InternalRow =
     InternalRow(packTheId(ruleSuite.id), defaultOverallResult,
@@ -118,104 +80,40 @@ trait Runner extends Expression {
       )
     )
 
-    /**
-     * rolls the overalls up in place - must be genericarraydata / arraybasedmap data with a copy from createDefaultRuleResult
-     */
-    def applyResult(level1: Int, level2: Int, result: InternalRow, ruleResult: Int): Unit = {
-      val sar = result.getMap(2).asInstanceOf[ArrayBasedMapData]
-      // update result directly
-      val sv = sar.valueArray.asInstanceOf[GenericArrayData]
-      val struct = sv.getStruct(level1, 2)
-      struct.getMap(1).valueArray.asInstanceOf[GenericArrayData].update(level2, ruleResult)
+  /**
+   * rolls the overalls up in place - must be genericarraydata / arraybasedmap data with a copy from createDefaultRuleResult
+   * used by codegen
+   */
+  def applyResult(level1: Int, level2: Int, result: InternalRow, ruleResult: Int): Unit = {
+    val sar = result.getMap(2).asInstanceOf[ArrayBasedMapData]
+    // update result directly
+    val sv = sar.valueArray.asInstanceOf[GenericArrayData]
+    val struct = sv.getStruct(level1, 2)
+    struct.getMap(1).valueArray.asInstanceOf[GenericArrayData].update(level2, ruleResult)
 
-      // processOverall
-      val cur = struct.getInt(0)
-      val nr = defaultOverallProcessor(ruleResult, cur)
-      struct.update(0, nr)
-      result.update(1, defaultOverallProcessor(nr, result.getInt(1)))
-    }
+    // processOverall
+    val cur = struct.getInt(0)
+    val nr = defaultOverallProcessor(ruleResult, cur)
+    struct.update(0, nr)
+    result.update(1, defaultOverallProcessor(nr, result.getInt(1)))
+  }
 
-    def inPlaceArrayOffsets(ctx: CodegenContext, resultRow: String, ruleRunnerExpressionIdx: Int): InPlaceOffsets = {
-      val className = this.getClass.getName
-      val runner = ctx.freshName("runner")
-      ctx.addImmutableStateIfNotExists(className, runner,
-        v => s"$v = (($className)references[$ruleRunnerExpressionIdx]);")
+  def inPlaceArrayOffsets(ctx: CodegenContext, resultRow: String, ruleRunnerExpressionIdx: Int): InPlaceOffsets = {
+    val className = this.getClass.getName
+    val runner = ctx.freshName("runner")
+    ctx.addImmutableStateIfNotExists(className, runner,
+      v => s"$v = (($className)references[$ruleRunnerExpressionIdx]);")
 
-      InPlaceOffsets(ruleSuite.ruleSets.zipWithIndex.flatMap{
-        case (ruleSet, level1) =>
-          ruleSet.rules.zipWithIndex.map{
-            case (_, level2) =>
-              result =>
-                code"""
-                 $runner.applyResult($level1, $level2, $resultRow, $result);
-                  """
-          }
-      }, code"", code"")
-    }
-    def inPlaceArrayOffsetsB(ctx: CodegenContext, resultRow: String, ruleRunnerExpressionIdx: Int): InPlaceOffsets = {
-      val className = this.getClass.getName
-
-      val currentSetOverall = ctx.addMutableState("int[]", "currentSetOverall",
-        v => s"$v = new int[${ruleSuite.ruleSets.size}];")
-      val currentOverall = ctx.addMutableState("int", "currentOverall")
-      val setArray = ctx.addMutableState("Object[][]", "setArray",
-        v => s"$v = new Object[${ruleSuite.ruleSets.size}][];")
-      val processOverall = ctx.freshName("processOverall")
-      ctx.addImmutableStateIfNotExists("scala.Function2<Integer,Integer,Integer>", processOverall,
-        v => s"$v = ((($className)references[$ruleRunnerExpressionIdx]).defaultOverallProcessor());")
-
-      val sar = ctx.freshName("sar")
-      val sv = ctx.freshName("sv")
-      val struct = ctx.freshName("struct")
-
-      val gad = "org.apache.spark.sql.catalyst.util.GenericArrayData"
-      val abd = "org.apache.spark.sql.catalyst.util.ArrayBasedMapData"
-
-      InPlaceOffsets(ruleSuite.ruleSets.zipWithIndex.flatMap{
-        case (ruleSet, level1) =>
-          ruleSet.rules.zipWithIndex.map{
-            case (_, level2) =>
-              result =>
-                code"""
-                 $setArray[$level1][$level2] = (Integer) $result;
-
-                  if ($result != $currentSetOverall[$level1]) {
-                   $currentSetOverall[$level1] = (Integer) $processOverall.apply((Integer)$result, (Integer)$currentSetOverall[$level1]);
-                   $currentOverall =  (Integer) $processOverall.apply((Integer)$currentSetOverall[$level1], (Integer)$currentOverall);
-                 }
-                 """
-          }
-        }, {
-        code"""
-           $abd $sar = ($abd)$resultRow.getMap(2);
-           $gad $sv = ($gad)$sar.valueArray();
-           InternalRow $struct = null;
-           $currentOverall = $resultRow.getInt(1);
-           ${
-             ruleSuite.ruleSets.zipWithIndex.map {
-               case (_, index) =>
-                 s"""
-                   $struct = $sv.getStruct($index, 2);
-                   $currentSetOverall[$index] = $struct.getInt(0);
-                   $setArray[$index] = (Object[]) ( ($gad)( ($abd) $struct.getMap(1) ).valueArray() ).array();"""
-             }.mkString("\n")
-           }
-          """
-        },
-        code"""
-           ${
-            ruleSuite.ruleSets.zipWithIndex.map {
-              case (_, index) =>
-                s"""
-                $struct = $sv.getStruct($index, 2);
-                $struct.update(0,$currentSetOverall[$index]);
+    InPlaceOffsets(ruleSuite.ruleSets.zipWithIndex.flatMap{
+      case (ruleSet, level1) =>
+        ruleSet.rules.zipWithIndex.map{
+          case (_, level2) =>
+            result =>
+              code"""
+               $runner.applyResult($level1, $level2, $resultRow, $result);
                 """
-              }.mkString("\n")
-            }
-           $resultRow.update(1, $currentOverall);
-          """
-      )
-
+        }
+    }, code"", code"")
   }
 
 }

@@ -504,11 +504,7 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
 
         import compilerTerms._
         import parameterInformation._
-/*
-        val theCopy = ctx.addMutableState("Object[]", "thecopy",v => s"$v = new Object[$triggerCount];")
-        ctx.addPartitionInitializationStatement(s"""
-          java.util.Arrays.fill((Object[])$theCopy, new Integer($UnevaluatedRuleInt));
-          """)*/
+
         // for debug currentOutputIndex is the count of matches, new Integer for #128 as janino isn't happy
 
         val pre =

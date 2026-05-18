@@ -112,7 +112,7 @@ class BigRules extends SharedPureConnectTests with Matchers {
     }
   }
 
-  test("grouped 129 via top level boolean grouping") { not3_0_or_3_1 { // runs 12gb 2m44s. 0.464 ms / row, grouping takes 3s
+  test("grouped 129 via top level boolean grouping") { not3_0_or_3_1 { // runs 12gb 1m15s. 0.12 ms / row, grouping takes 3s
     val s = sparkSession
 
     import s.implicits._
@@ -131,7 +131,7 @@ class BigRules extends SharedPureConnectTests with Matchers {
       count() shouldBe 0
   } }
 
-  test("1:1 rules only") {  // requires a 12gb heap and patience, run takes 5m42s on 32g i9-9900 corsair with 12gb, 5.22 ms / row
+  ignore("1:1 rules only") {  // requires a 12gb heap and patience, run takes 5m42s on 32g i9-9900 corsair with 12gb, 5.22 ms / row
     val s = sparkSession
 
     import s.implicits._

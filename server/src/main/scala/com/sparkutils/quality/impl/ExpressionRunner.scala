@@ -2,16 +2,15 @@ package com.sparkutils.quality.impl
 
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
-import com.sparkutils.quality.impl.RuleRunnerUtils.{RuleSuiteResultArray, flattenExpressions, genRuleSuiteTerm, nonOutputRuleGen, reincorporateExpressions}
+import com.sparkutils.quality.impl.RuleRunnerUtils.{flattenExpressions, genRuleSuiteTerm, nonOutputRuleGen, packTheId, reincorporateExpressions}
 import com.sparkutils.quality.impl.PackId.packId
 import com.sparkutils.quality.impl.util.{Arrays, PassThroughCompileEvals, SeparateCompilation}
 import com.sparkutils.quality.impl.yaml.YamlEncoderExpr
 import com.sparkutils.quality.impl.types._
-import com.sparkutils.quality.impl.util.SeparateCompilation.runnerCompilation
 import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
 import org.apache.spark.sql.{Column, ShimUtils}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode, ExprValue, QualityCodeGenUtils}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode, ExprValue}
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression, UnaryExpression}
 import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, GenericArrayData, MapData, truncatedString}
 import org.apache.spark.sql.internal.SQLConf
@@ -94,29 +93,6 @@ private[quality] object ExpressionRunnerUtils {
     }
   }
 
-  // ruleSuite is not used, its for compat with nonOutputRuleGen
-  def evalArray(ruleSuite: RuleSuite, ruleSuiteArrays: RuleSuiteResultArray, results: Array[Any]): InternalRow = {
-    val ruleSetRes = Array.ofDim[ArrayBasedMapData](ruleSuiteArrays.ruleSetIds.length)
-
-    var offset = 0
-
-    for( rsi <- ruleSuiteArrays.ruleSetIds.indices) {
-
-      val rulesetSize = ruleSuiteArrays.ruleSets(rsi).length
-
-      val ruleSetResults = results.slice(offset, offset + rulesetSize)
-      offset += rulesetSize
-
-      ruleSetRes(rsi) =
-        ArrayBasedMapData( ruleSuiteArrays.ruleSets(rsi), ruleSetResults )
-
-    }
-
-    InternalRow( ruleSuiteArrays.packedId,
-      ArrayBasedMapData( ruleSuiteArrays.ruleSetIds, ruleSetRes)
-    )
-  }
-
 }
 
 /**
@@ -144,6 +120,38 @@ trait ExpressionRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
   override def eval(input: InternalRow): Any = {
     val res = RuleSuiteFunctions.evalExpressions(reincorporated, input, ddlType)
     ExpressionRunnerUtils.expressionsResultToRow[Any](res)
+  }
+
+  /**
+   * Used by codegen
+   */
+  override def createDefaultRuleResult(): InternalRow =
+    InternalRow(packTheId(ruleSuite.id),
+      ArrayBasedMapData(
+        ruleSuite.ruleSets.map{
+          ruleSet =>
+            packTheId(ruleSet.id) ->
+              ArrayBasedMapData(
+                ruleSet.rules.map( r => packTheId(r.id) -> null).toMap
+              )
+        }.toMap
+      )
+    )
+
+  /**
+   * used by codegen
+   */
+  override def applyResult(level1: Int, level2: Int, result: InternalRow, ruleResult: Int): Unit =
+    applyResult(level1, level2, result, ruleResult.asInstanceOf[Object])
+
+  /**
+   * used by codegen
+   */
+  def applyResult(level1: Int, level2: Int, result: InternalRow, ruleResult: Object): Unit = {
+    val sar = result.getMap(1).asInstanceOf[ArrayBasedMapData]
+    // update result directly
+    val sv = sar.valueArray.asInstanceOf[GenericArrayData]
+    sv.getMap(level1).valueArray.asInstanceOf[GenericArrayData].update(level2, ruleResult)
   }
 
   protected def doGenCodeI(outerCtx: CodegenContext, ev: ExprCode): ExprCode = {
