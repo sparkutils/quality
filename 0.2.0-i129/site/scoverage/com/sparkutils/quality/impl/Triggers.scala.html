@@ -24,267 +24,227 @@
           <div class="tab-pane active" id="codegrid">
             <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality.impl
 </span>2 <span style=''>
-</span>3 <span style=''>import com.sparkutils.quality.impl.RuleSuiteHelpers.getContextOrSparkClassLoader
-</span>4 <span style=''>import com.sparkutils.quality.impl.util.{TopLevelBoolean, TopLevelBooleanSuiteBuilder}
-</span>5 <span style=''>import com.sparkutils.quality.{QualityException, RuleSuite, getConfig, groupProcessorAuditKey, groupProcessorBucketSizeKey, groupProcessorKey, groupProcessorPercentFilter}
-</span>6 <span style=''>import org.apache.spark.sql.catalyst.expressions.Expression
-</span>7 <span style=''>import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
-</span>8 <span style=''>import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodegenContext, QualityCodeGenUtils, QualityExprUtils}
-</span>9 <span style=''>
-</span>10 <span style=''>import scala.runtime.AbstractFunction10
-</span>11 <span style=''>import scala.util.Try
+</span>3 <span style=''>import com.sparkutils.quality.impl.RuleRunnerUtils.packTheId
+</span>4 <span style=''>import com.sparkutils.quality.impl.RuleSuiteHelpers.getContextOrSparkClassLoader
+</span>5 <span style=''>import com.sparkutils.quality.impl.util.{TopLevelBoolean, TopLevelBooleanSuiteBuilder}
+</span>6 <span style=''>import com.sparkutils.quality.{FailedInt, QualityException, RuleSuite, UnevaluatedRule, UnevaluatedRuleInt, getConfig, groupProcessorAuditKey, groupProcessorBucketSizeKey, groupProcessorKey, groupProcessorPercentFilter}
+</span>7 <span style=''>import org.apache.spark.sql.catalyst.InternalRow
+</span>8 <span style=''>import org.apache.spark.sql.catalyst.expressions.Expression
+</span>9 <span style=''>import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
+</span>10 <span style=''>import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodegenContext, QualityCodeGenUtils, QualityExprUtils}
+</span>11 <span style=''>import org.apache.spark.sql.catalyst.util.ArrayBasedMapData
 </span>12 <span style=''>
-</span>13 <span style=''>case class Trigger(expression: Expression, index: Int, salience: Int)
-</span>14 <span style=''>
-</span>15 <span style=''>case class Group(groupFilter: Expression, lowestSalience: Int, triggers: Seq[Trigger])
-</span>16 <span style=''>
-</span>17 <span style=''>/**
-</span>18 <span style=''> * Allow customised grouping of runner triggers, DQ and ExpressionRunner should evaluate all so the default
-</span>19 <span style=''> * implementation is sufficient.  This abstraction was added as part of #129 due to 20k trigger rules.
-</span>20 <span style=''> *
-</span>21 <span style=''> * The return type is the list of function names to call and any extra common subexpressions needed to group
-</span>22 <span style=''> */
-</span>23 <span style=''>trait TriggerGrouper extends AbstractFunction10[CodegenContext, Seq[(Trigger, Block)],
-</span>24 <span style=''>  Int, Int, String, String, String, () =&gt; Block, () =&gt; Block, Map[String, String],  (Iterator[String], String)] {
-</span>25 <span style=''>
-</span>26 <span style=''>  def apply(ctx: CodegenContext, expressions: Seq[(Trigger, Block)],
-</span>27 <span style=''>            variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String):  (Iterator[String], String) =
-</span>28 <span style=''>    </span><span style='background: #F0ADAD'>apply(
-</span>29 <span style=''></span><span style='background: #F0ADAD'>      ctx: CodegenContext, expressions: Seq[(Trigger, Block)],
-</span>30 <span style=''></span><span style='background: #F0ADAD'>      variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String,
-</span>31 <span style=''></span><span style='background: #F0ADAD'>      prefix = &quot;ruleRunner&quot;, exprEnd = () =&gt; code&quot;&quot;,
-</span>32 <span style=''></span><span style='background: #F0ADAD'>      exprFunEnd = () =&gt; code&quot;&quot;, Map.empty
-</span>33 <span style=''></span><span style='background: #F0ADAD'>    )</span><span style=''>
-</span>34 <span style=''>
-</span>35 <span style=''>  def apply(ctx: CodegenContext, expressions: Seq[(Trigger, Block)],
-</span>36 <span style=''>            variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String,
-</span>37 <span style=''>            prefix: String, exprEnd: () =&gt; Block, exprFunEnd: () =&gt; Block,
-</span>38 <span style=''>            extraConfig: Map[String, String]): (Iterator[String], String)
-</span>39 <span style=''>
-</span>40 <span style=''>  /**
-</span>41 <span style=''>   * provides a dump of the plan with defaults or provided by extraConfig and by any optimisation results.
-</span>42 <span style=''>   * This is designed to run in withNewChildren, typically on the first call, when resolved == true, allowing
-</span>43 <span style=''>   * for an audit friendly version of the rules to be examined.  As this takes place during the Spark analysis phase
-</span>44 <span style=''>   * it is recommended that the binary RuleSuiteGroup format is used.
-</span>45 <span style=''>   *
-</span>46 <span style=''>   * The binary results should not be used across Quality releases and may contain &quot;boundreference()&quot; entries instead of
-</span>47 <span style=''>   * actual field names.
+</span>13 <span style=''>import scala.runtime.AbstractFunction10
+</span>14 <span style=''>import scala.util.Try
+</span>15 <span style=''>
+</span>16 <span style=''>case class Trigger(expression: Expression, index: Int, salience: Int)
+</span>17 <span style=''>
+</span>18 <span style=''>case class Group(groupFilter: Expression, lowestSalience: Int, triggers: Seq[Trigger])
+</span>19 <span style=''>
+</span>20 <span style=''>/**
+</span>21 <span style=''> * Allow customised grouping of runner triggers, DQ and ExpressionRunner should evaluate all so the default
+</span>22 <span style=''> * implementation is sufficient.  This abstraction was added as part of #129 due to 20k trigger rules.
+</span>23 <span style=''> *
+</span>24 <span style=''> * The return type is the list of function names to call and any extra common subexpressions needed to group
+</span>25 <span style=''> */
+</span>26 <span style=''>trait TriggerGrouper extends AbstractFunction10[CodegenContext, Seq[(Trigger, Block)],
+</span>27 <span style=''>  Int, Int, String, String, String, () =&gt; Block, () =&gt; Block, Map[String, String],  (Iterator[String], String)] {
+</span>28 <span style=''>
+</span>29 <span style=''>  def apply(ctx: CodegenContext, expressions: Seq[(Trigger, Block)],
+</span>30 <span style=''>            variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String):  (Iterator[String], String) =
+</span>31 <span style=''>    </span><span style='background: #F0ADAD'>apply(
+</span>32 <span style=''></span><span style='background: #F0ADAD'>      ctx: CodegenContext, expressions: Seq[(Trigger, Block)],
+</span>33 <span style=''></span><span style='background: #F0ADAD'>      variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String,
+</span>34 <span style=''></span><span style='background: #F0ADAD'>      prefix = &quot;ruleRunner&quot;, exprEnd = () =&gt; code&quot;&quot;,
+</span>35 <span style=''></span><span style='background: #F0ADAD'>      exprFunEnd = () =&gt; code&quot;&quot;, Map.empty
+</span>36 <span style=''></span><span style='background: #F0ADAD'>    )</span><span style=''>
+</span>37 <span style=''>
+</span>38 <span style=''>  def apply(ctx: CodegenContext, expressions: Seq[(Trigger, Block)],
+</span>39 <span style=''>            variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String,
+</span>40 <span style=''>            prefix: String, exprEnd: () =&gt; Block, exprFunEnd: () =&gt; Block,
+</span>41 <span style=''>            extraConfig: Map[String, String]): (Iterator[String], String)
+</span>42 <span style=''>
+</span>43 <span style=''>  /**
+</span>44 <span style=''>   * provides a dump of the plan with defaults or provided by extraConfig and by any optimisation results.
+</span>45 <span style=''>   * This is designed to run in withNewChildren, typically on the first call, when resolved == true, allowing
+</span>46 <span style=''>   * for an audit friendly version of the rules to be examined.  As this takes place during the Spark analysis phase
+</span>47 <span style=''>   * it is recommended that the binary RuleSuiteGroup format is used.
 </span>48 <span style=''>   *
-</span>49 <span style=''>   * The DefaultTriggerGrouper does not have any output.
-</span>50 <span style=''>   */
-</span>51 <span style=''>  def dumpAudit(runner: HasTriggers): Unit
-</span>52 <span style=''>
-</span>53 <span style=''>}
-</span>54 <span style=''>
-</span>55 <span style=''>case class DefaultTriggerGrouper() extends TriggerGrouper {
-</span>56 <span style=''>
-</span>57 <span style=''>  override def apply(
-</span>58 <span style=''>                      ctx: CodegenContext, expressions: Seq[(Trigger, Block)],
-</span>59 <span style=''>                      variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String,
-</span>60 <span style=''>                      prefix: String, exprEnd: () =&gt; Block, exprFunEnd: () =&gt; Block, extraConfig: Map[String,String]):
-</span>61 <span style=''>    (Iterator[String], String)= {
-</span>62 <span style=''>
-</span>63 <span style=''>    val allExpr = </span><span style='background: #AEF1AE'>expressions.map(_._2).grouped(variablesPerFunc).grouped(variableFuncGroup)</span><span style=''>
-</span>64 <span style=''>
-</span>65 <span style=''>    val funNames =
-</span>66 <span style=''>      </span><span style='background: #AEF1AE'>for (exprGroup &lt;- allExpr) yield {
-</span>67 <span style=''></span><span style='background: #AEF1AE'>        val groupName = ctx.freshName(prefix+&quot;EGroup&quot;)
-</span>68 <span style=''></span><span style='background: #AEF1AE'>        ctx.addNewFunction(groupName, {
-</span>69 <span style=''></span><span style='background: #AEF1AE'>          val funNames =
-</span>70 <span style=''></span><span style='background: #AEF1AE'>            for {
-</span>71 <span style=''></span><span style='background: #AEF1AE'>              exprFunc &lt;- exprGroup
-</span>72 <span style=''></span><span style='background: #AEF1AE'>            } yield {
-</span>73 <span style=''></span><span style='background: #AEF1AE'>              val exprFuncName = ctx.freshName(prefix+&quot;EFuncGroup&quot;)
-</span>74 <span style=''></span><span style='background: #AEF1AE'>              ctx.addNewFunction(exprFuncName,
-</span>75 <span style=''></span><span style='background: #AEF1AE'>                code&quot;&quot;&quot;
-</span>76 <span style=''></span><span style='background: #AEF1AE'>   private void $exprFuncName($paramsDef) {
-</span>77 <span style=''></span><span style='background: #AEF1AE'>     ${exprFunc.mkString(s&quot;${exprEnd()}\n&quot;)}
-</span>78 <span style=''></span><span style='background: #AEF1AE'>   }
-</span>79 <span style=''></span><span style='background: #AEF1AE'>  &quot;&quot;&quot;.code
-</span>80 <span style=''></span><span style='background: #AEF1AE'>              )
-</span>81 <span style=''></span><span style='background: #AEF1AE'>            }
-</span>82 <span style=''></span><span style='background: #AEF1AE'>
-</span>83 <span style=''></span><span style='background: #AEF1AE'>          code&quot;&quot;&quot;
-</span>84 <span style=''></span><span style='background: #AEF1AE'>   private void $groupName($paramsDef) {
-</span>85 <span style=''></span><span style='background: #AEF1AE'>     ${funNames.map { f =&gt; s&quot;$f($paramsCall);&quot; }.mkString(s&quot;${exprFunEnd()}\n&quot;)}
-</span>86 <span style=''></span><span style='background: #AEF1AE'>   }
-</span>87 <span style=''></span><span style='background: #AEF1AE'>   &quot;&quot;&quot;.code
-</span>88 <span style=''></span><span style='background: #AEF1AE'>
-</span>89 <span style=''></span><span style='background: #AEF1AE'>        })
-</span>90 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
-</span>91 <span style=''>    </span><span style='background: #AEF1AE'>(funNames, &quot;&quot;)</span><span style=''>
-</span>92 <span style=''>  }
-</span>93 <span style=''>
-</span>94 <span style=''>  def dumpAudit(runner: HasTriggers): Unit = </span><span style='background: #F0ADAD'>{}</span><span style=''>
-</span>95 <span style=''>}
+</span>49 <span style=''>   * The binary results should not be used across Quality releases and may contain &quot;boundreference()&quot; entries instead of
+</span>50 <span style=''>   * actual field names.
+</span>51 <span style=''>   *
+</span>52 <span style=''>   * The DefaultTriggerGrouper does not have any output.
+</span>53 <span style=''>   */
+</span>54 <span style=''>  def dumpAudit(runner: HasOutput): Unit
+</span>55 <span style=''>
+</span>56 <span style=''>}
+</span>57 <span style=''>
+</span>58 <span style=''>case class DefaultTriggerGrouper() extends TriggerGrouper {
+</span>59 <span style=''>
+</span>60 <span style=''>  override def apply(
+</span>61 <span style=''>                      ctx: CodegenContext, expressions: Seq[(Trigger, Block)],
+</span>62 <span style=''>                      variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String,
+</span>63 <span style=''>                      prefix: String, exprEnd: () =&gt; Block, exprFunEnd: () =&gt; Block, extraConfig: Map[String,String]):
+</span>64 <span style=''>    (Iterator[String], String)= {
+</span>65 <span style=''>
+</span>66 <span style=''>    val allExpr = </span><span style='background: #AEF1AE'>expressions.map(_._2).grouped(variablesPerFunc).grouped(variableFuncGroup)</span><span style=''>
+</span>67 <span style=''>
+</span>68 <span style=''>    val funNames =
+</span>69 <span style=''>      </span><span style='background: #AEF1AE'>for (exprGroup &lt;- allExpr) yield {
+</span>70 <span style=''></span><span style='background: #AEF1AE'>        val groupName = ctx.freshName(prefix+&quot;EGroup&quot;)
+</span>71 <span style=''></span><span style='background: #AEF1AE'>        ctx.addNewFunction(groupName, {
+</span>72 <span style=''></span><span style='background: #AEF1AE'>          val funNames =
+</span>73 <span style=''></span><span style='background: #AEF1AE'>            for {
+</span>74 <span style=''></span><span style='background: #AEF1AE'>              exprFunc &lt;- exprGroup
+</span>75 <span style=''></span><span style='background: #AEF1AE'>            } yield {
+</span>76 <span style=''></span><span style='background: #AEF1AE'>              val exprFuncName = ctx.freshName(prefix+&quot;EFuncGroup&quot;)
+</span>77 <span style=''></span><span style='background: #AEF1AE'>              ctx.addNewFunction(exprFuncName,
+</span>78 <span style=''></span><span style='background: #AEF1AE'>                code&quot;&quot;&quot;
+</span>79 <span style=''></span><span style='background: #AEF1AE'>   private void $exprFuncName($paramsDef) {
+</span>80 <span style=''></span><span style='background: #AEF1AE'>     ${exprFunc.mkString(s&quot;${exprEnd()}\n&quot;)}
+</span>81 <span style=''></span><span style='background: #AEF1AE'>   }
+</span>82 <span style=''></span><span style='background: #AEF1AE'>  &quot;&quot;&quot;.code
+</span>83 <span style=''></span><span style='background: #AEF1AE'>              )
+</span>84 <span style=''></span><span style='background: #AEF1AE'>            }
+</span>85 <span style=''></span><span style='background: #AEF1AE'>
+</span>86 <span style=''></span><span style='background: #AEF1AE'>          code&quot;&quot;&quot;
+</span>87 <span style=''></span><span style='background: #AEF1AE'>   private void $groupName($paramsDef) {
+</span>88 <span style=''></span><span style='background: #AEF1AE'>     ${funNames.map { f =&gt; s&quot;$f($paramsCall);&quot; }.mkString(s&quot;${exprFunEnd()}\n&quot;)}
+</span>89 <span style=''></span><span style='background: #AEF1AE'>   }
+</span>90 <span style=''></span><span style='background: #AEF1AE'>   &quot;&quot;&quot;.code
+</span>91 <span style=''></span><span style='background: #AEF1AE'>
+</span>92 <span style=''></span><span style='background: #AEF1AE'>        })
+</span>93 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>94 <span style=''>    </span><span style='background: #AEF1AE'>(funNames, &quot;&quot;)</span><span style=''>
+</span>95 <span style=''>  }
 </span>96 <span style=''>
-</span>97 <span style=''>/**
-</span>98 <span style=''> * Groups by common top level Boolean And and EqualTo expressions with Literals, using buckets of hashes on the literal
-</span>99 <span style=''> * values.  Using this approach can lead to a 10x spread increase over the default grouper for very large truth table
-</span>100 <span style=''> * style rules (tested against the 20k_rule_suite.csv in the BigRules testsuite).
-</span>101 <span style=''> *
-</span>102 <span style=''> * Only supported with Spark 3.2 and above
-</span>103 <span style=''> */
-</span>104 <span style=''>case class TopLevelBooleanGrouper() extends TriggerGrouper {
-</span>105 <span style=''>
-</span>106 <span style=''>  override def apply(
-</span>107 <span style=''>                      ctx: CodegenContext, expressions: Seq[(Trigger, Block)],
-</span>108 <span style=''>                      variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String,
-</span>109 <span style=''>                      prefix: String, exprEnd: () =&gt; Block, exprFunEnd: () =&gt; Block, extraConfig: Map[String,String]):
-</span>110 <span style=''>    (Iterator[String], String) = {
-</span>111 <span style=''>
-</span>112 <span style=''>    val targetBucket = </span><span style='background: #AEF1AE'>Try(Triggers.getValue(groupProcessorBucketSizeKey, extraConfig, &quot;130&quot;).toInt).
-</span>113 <span style=''></span><span style='background: #AEF1AE'>      getOrElse(130)</span><span style=''>
-</span>114 <span style=''>    val triggerPercentFilter = </span><span style='background: #AEF1AE'>Try(Triggers.getValue(groupProcessorPercentFilter, extraConfig, &quot;0.12&quot;).toDouble).
-</span>115 <span style=''></span><span style='background: #AEF1AE'>      getOrElse(0.12)</span><span style=''>
-</span>116 <span style=''>
-</span>117 <span style=''>    val map = </span><span style='background: #AEF1AE'>expressions.toMap</span><span style=''>
-</span>118 <span style=''>
-</span>119 <span style=''>    val groups = </span><span style='background: #AEF1AE'>TopLevelBoolean.bucket(expressions.map(_._1), targetBucket, triggerPercentFilter)</span><span style=''>
-</span>120 <span style=''>    val simpleGrouper = </span><span style='background: #AEF1AE'>DefaultTriggerGrouper()</span><span style=''>
+</span>97 <span style=''>  def dumpAudit(runner: HasOutput): Unit = </span><span style='background: #F0ADAD'>{}</span><span style=''>
+</span>98 <span style=''>}
+</span>99 <span style=''>
+</span>100 <span style=''>/**
+</span>101 <span style=''> * Groups by common top level Boolean And and EqualTo expressions with Literals, using buckets of hashes on the literal
+</span>102 <span style=''> * values.  Using this approach can lead to a 10x spread increase over the default grouper for very large truth table
+</span>103 <span style=''> * style rules (tested against the 20k_rule_suite.csv in the BigRules testsuite).
+</span>104 <span style=''> *
+</span>105 <span style=''> * Only supported with Spark 3.2 and above
+</span>106 <span style=''> */
+</span>107 <span style=''>case class TopLevelBooleanGrouper() extends TriggerGrouper {
+</span>108 <span style=''>
+</span>109 <span style=''>  override def apply(
+</span>110 <span style=''>                      ctx: CodegenContext, expressions: Seq[(Trigger, Block)],
+</span>111 <span style=''>                      variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String,
+</span>112 <span style=''>                      prefix: String, exprEnd: () =&gt; Block, exprFunEnd: () =&gt; Block, extraConfig: Map[String,String]):
+</span>113 <span style=''>    (Iterator[String], String) = {
+</span>114 <span style=''>
+</span>115 <span style=''>    val targetBucket = </span><span style='background: #AEF1AE'>Try(Triggers.getValue(groupProcessorBucketSizeKey, extraConfig, &quot;130&quot;).toInt).
+</span>116 <span style=''></span><span style='background: #AEF1AE'>      getOrElse(130)</span><span style=''>
+</span>117 <span style=''>    val triggerPercentFilter = </span><span style='background: #AEF1AE'>Try(Triggers.getValue(groupProcessorPercentFilter, extraConfig, &quot;0.12&quot;).toDouble).
+</span>118 <span style=''></span><span style='background: #AEF1AE'>      getOrElse(0.12)</span><span style=''>
+</span>119 <span style=''>
+</span>120 <span style=''>    val map = </span><span style='background: #AEF1AE'>expressions.toMap</span><span style=''>
 </span>121 <span style=''>
-</span>122 <span style=''>    val groupExprs = </span><span style='background: #AEF1AE'>groups.map(_.groupFilter)</span><span style=''>
-</span>123 <span style=''>
-</span>124 <span style=''>    def builder = {
-</span>125 <span style=''>      val grouped = </span><span style='background: #AEF1AE'>groups.grouped(variablesPerFunc).grouped(variableFuncGroup)</span><span style=''>
+</span>122 <span style=''>    val groups = </span><span style='background: #AEF1AE'>TopLevelBoolean.bucket(expressions.map(_._1), targetBucket, triggerPercentFilter)</span><span style=''>
+</span>123 <span style=''>    val simpleGrouper = </span><span style='background: #AEF1AE'>DefaultTriggerGrouper()</span><span style=''>
+</span>124 <span style=''>
+</span>125 <span style=''>    val groupExprs = </span><span style='background: #AEF1AE'>groups.map(_.groupFilter)</span><span style=''>
 </span>126 <span style=''>
-</span>127 <span style=''>      val funNames =
-</span>128 <span style=''>        </span><span style='background: #AEF1AE'>for (exprGroup &lt;- grouped) yield {
-</span>129 <span style=''></span><span style='background: #AEF1AE'>          val groupName = ctx.freshName(prefix + &quot;GEGroup&quot;)
-</span>130 <span style=''></span><span style='background: #AEF1AE'>          ctx.addNewFunction(groupName, {
-</span>131 <span style=''></span><span style='background: #AEF1AE'>            val funNames =
-</span>132 <span style=''></span><span style='background: #AEF1AE'>              for {
-</span>133 <span style=''></span><span style='background: #AEF1AE'>                exprFunc &lt;- exprGroup
-</span>134 <span style=''></span><span style='background: #AEF1AE'>              } yield {
-</span>135 <span style=''></span><span style='background: #AEF1AE'>                val exprFuncName = ctx.freshName(prefix + &quot;GEFuncGroup&quot;)
-</span>136 <span style=''></span><span style='background: #AEF1AE'>
-</span>137 <span style=''></span><span style='background: #AEF1AE'>                val groupCalls =
-</span>138 <span style=''></span><span style='background: #AEF1AE'>                  exprFunc.map {
-</span>139 <span style=''></span><span style='background: #AEF1AE'>                    group =&gt;
-</span>140 <span style=''></span><span style='background: #AEF1AE'>                      // group the group, there is no sub expression usage for common
-</span>141 <span style=''></span><span style='background: #AEF1AE'>                      val funNames =
-</span>142 <span style=''></span><span style='background: #AEF1AE'>                        simpleGrouper(ctx, group.triggers.map(t =&gt; (t, map(t))), variablesPerFunc,
-</span>143 <span style=''></span><span style='background: #AEF1AE'>                          variableFuncGroup, paramsDef, paramsCall, prefix, exprEnd, exprFunEnd, extraConfig)._1
-</span>144 <span style=''></span><span style='background: #AEF1AE'>
-</span>145 <span style=''></span><span style='background: #AEF1AE'>                      val eval = group.groupFilter.genCode(ctx)
-</span>146 <span style=''></span><span style='background: #AEF1AE'>                      code&quot;&quot;&quot;
-</span>147 <span style=''></span><span style='background: #AEF1AE'>                      ${exprEnd()}\n
-</span>148 <span style=''></span><span style='background: #AEF1AE'>                      ${eval.code}
-</span>149 <span style=''></span><span style='background: #AEF1AE'>                      if ((!${eval.isNull}) &amp;&amp; ${eval.value}  ) {
-</span>150 <span style=''></span><span style='background: #AEF1AE'>                        ${funNames.map { f =&gt; s&quot;$f($paramsCall);&quot; }.mkString(&quot;\n&quot;)}
-</span>151 <span style=''></span><span style='background: #AEF1AE'>                      }
-</span>152 <span style=''></span><span style='background: #AEF1AE'>                    &quot;&quot;&quot;
-</span>153 <span style=''></span><span style='background: #AEF1AE'>                  }
-</span>154 <span style=''></span><span style='background: #AEF1AE'>
-</span>155 <span style=''></span><span style='background: #AEF1AE'>                ctx.addNewFunction(exprFuncName,
-</span>156 <span style=''></span><span style='background: #AEF1AE'>                  code&quot;&quot;&quot;
-</span>157 <span style=''></span><span style='background: #AEF1AE'>   private void $exprFuncName($paramsDef) {
-</span>158 <span style=''></span><span style='background: #AEF1AE'>     ${groupCalls.mkString(s&quot;\n&quot;)}
-</span>159 <span style=''></span><span style='background: #AEF1AE'>   }
-</span>160 <span style=''></span><span style='background: #AEF1AE'>  &quot;&quot;&quot;.code
-</span>161 <span style=''></span><span style='background: #AEF1AE'>                )
-</span>162 <span style=''></span><span style='background: #AEF1AE'>              }
-</span>163 <span style=''></span><span style='background: #AEF1AE'>
-</span>164 <span style=''></span><span style='background: #AEF1AE'>            code&quot;&quot;&quot;
-</span>165 <span style=''></span><span style='background: #AEF1AE'>   private void $groupName($paramsDef) {
-</span>166 <span style=''></span><span style='background: #AEF1AE'>     ${exprFunEnd()}
-</span>167 <span style=''></span><span style='background: #AEF1AE'>     ${funNames.map { f =&gt; s&quot;$f($paramsCall);&quot; }.mkString(s&quot;${exprFunEnd()}\n&quot;)}
-</span>168 <span style=''></span><span style='background: #AEF1AE'>   }
-</span>169 <span style=''></span><span style='background: #AEF1AE'>   &quot;&quot;&quot;.code
-</span>170 <span style=''></span><span style='background: #AEF1AE'>
-</span>171 <span style=''></span><span style='background: #AEF1AE'>          })
-</span>172 <span style=''></span><span style='background: #AEF1AE'>        }</span><span style=''>
-</span>173 <span style=''>      val s = </span><span style='background: #AEF1AE'>funNames.toSeq</span><span style=''>
-</span>174 <span style=''>      </span><span style='background: #AEF1AE'>s.iterator</span><span style=''>
-</span>175 <span style=''>    }
-</span>176 <span style=''>
-</span>177 <span style=''>    if (</span><span style='background: #AEF1AE'>ctx.currentVars eq null</span><span style=''>) </span><span style='background: #F0ADAD'>{
-</span>178 <span style=''></span><span style='background: #F0ADAD'>      // only fails on &quot;via ProcessFactory with Avro inputs&quot; RowToRowTest shows it doesn't always work for projections
-</span>179 <span style=''></span><span style='background: #F0ADAD'>
-</span>180 <span style=''></span><span style='background: #F0ADAD'>      val subExpressionCode = QualityCodeGenUtils.nonWholeStageSubexpressionElimination(ctx, groupExprs)
-</span>181 <span style=''></span><span style='background: #F0ADAD'>
-</span>182 <span style=''></span><span style='background: #F0ADAD'>      (builder, subExpressionCode)
-</span>183 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''> else </span><span style='background: #AEF1AE'>{
-</span>184 <span style=''></span><span style='background: #AEF1AE'>      val subExprs = ctx.subexpressionEliminationForWholeStageCodegen(groupExprs)
-</span>185 <span style=''></span><span style='background: #AEF1AE'>      val subExpressionCode = QualityExprUtils.evaluateSubExprEliminationState(ctx, subExprs)
-</span>186 <span style=''></span><span style='background: #AEF1AE'>
-</span>187 <span style=''></span><span style='background: #AEF1AE'>      (QualityCodeGenUtils.withSubExprEliminationExprs(ctx, subExprs.states) {
-</span>188 <span style=''></span><span style='background: #AEF1AE'>        builder
-</span>189 <span style=''></span><span style='background: #AEF1AE'>      }, subExpressionCode)
-</span>190 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
-</span>191 <span style=''>  }
-</span>192 <span style=''>
-</span>193 <span style=''>  override def dumpAudit(runner: HasTriggers): Unit = {
-</span>194 <span style=''>    </span><span style='background: #AEF1AE'>TopLevelBooleanSuiteBuilder.build(runner)</span><span style=''>
-</span>195 <span style=''>  }
-</span>196 <span style=''>
-</span>197 <span style=''>}
-</span>198 <span style=''>
-</span>199 <span style=''>trait Runner extends Expression {
-</span>200 <span style=''>
-</span>201 <span style=''>  val ruleSuite: RuleSuite
-</span>202 <span style=''>  val extraConfig: Map[String, String]
-</span>203 <span style=''>  val variablesPerFunc: Int
-</span>204 <span style=''>  val variableFuncGroup: Int
+</span>127 <span style=''>    def builder = {
+</span>128 <span style=''>      val grouped = </span><span style='background: #AEF1AE'>groups.grouped(variablesPerFunc).grouped(variableFuncGroup)</span><span style=''>
+</span>129 <span style=''>
+</span>130 <span style=''>      val funNames =
+</span>131 <span style=''>        </span><span style='background: #AEF1AE'>for (exprGroup &lt;- grouped) yield {
+</span>132 <span style=''></span><span style='background: #AEF1AE'>          val groupName = ctx.freshName(prefix + &quot;GEGroup&quot;)
+</span>133 <span style=''></span><span style='background: #AEF1AE'>          ctx.addNewFunction(groupName, {
+</span>134 <span style=''></span><span style='background: #AEF1AE'>            val funNames =
+</span>135 <span style=''></span><span style='background: #AEF1AE'>              for {
+</span>136 <span style=''></span><span style='background: #AEF1AE'>                exprFunc &lt;- exprGroup
+</span>137 <span style=''></span><span style='background: #AEF1AE'>              } yield {
+</span>138 <span style=''></span><span style='background: #AEF1AE'>                val exprFuncName = ctx.freshName(prefix + &quot;GEFuncGroup&quot;)
+</span>139 <span style=''></span><span style='background: #AEF1AE'>
+</span>140 <span style=''></span><span style='background: #AEF1AE'>                val groupCalls =
+</span>141 <span style=''></span><span style='background: #AEF1AE'>                  exprFunc.map {
+</span>142 <span style=''></span><span style='background: #AEF1AE'>                    group =&gt;
+</span>143 <span style=''></span><span style='background: #AEF1AE'>                      // group the group, there is no sub expression usage for common
+</span>144 <span style=''></span><span style='background: #AEF1AE'>                      val funNames =
+</span>145 <span style=''></span><span style='background: #AEF1AE'>                        simpleGrouper(ctx, group.triggers.map(t =&gt; (t, map(t))), variablesPerFunc,
+</span>146 <span style=''></span><span style='background: #AEF1AE'>                          variableFuncGroup, paramsDef, paramsCall, prefix, exprEnd, exprFunEnd, extraConfig)._1
+</span>147 <span style=''></span><span style='background: #AEF1AE'>
+</span>148 <span style=''></span><span style='background: #AEF1AE'>                      val eval = group.groupFilter.genCode(ctx)
+</span>149 <span style=''></span><span style='background: #AEF1AE'>                      code&quot;&quot;&quot;
+</span>150 <span style=''></span><span style='background: #AEF1AE'>                      ${exprEnd()}\n
+</span>151 <span style=''></span><span style='background: #AEF1AE'>                      ${eval.code}
+</span>152 <span style=''></span><span style='background: #AEF1AE'>                      if ((!${eval.isNull}) &amp;&amp; ${eval.value}  ) {
+</span>153 <span style=''></span><span style='background: #AEF1AE'>                        ${funNames.map { f =&gt; s&quot;$f($paramsCall);&quot; }.mkString(&quot;\n&quot;)}
+</span>154 <span style=''></span><span style='background: #AEF1AE'>                      }
+</span>155 <span style=''></span><span style='background: #AEF1AE'>                    &quot;&quot;&quot;
+</span>156 <span style=''></span><span style='background: #AEF1AE'>                  }
+</span>157 <span style=''></span><span style='background: #AEF1AE'>
+</span>158 <span style=''></span><span style='background: #AEF1AE'>                ctx.addNewFunction(exprFuncName,
+</span>159 <span style=''></span><span style='background: #AEF1AE'>                  code&quot;&quot;&quot;
+</span>160 <span style=''></span><span style='background: #AEF1AE'>   private void $exprFuncName($paramsDef) {
+</span>161 <span style=''></span><span style='background: #AEF1AE'>     ${groupCalls.mkString(s&quot;\n&quot;)}
+</span>162 <span style=''></span><span style='background: #AEF1AE'>   }
+</span>163 <span style=''></span><span style='background: #AEF1AE'>  &quot;&quot;&quot;.code
+</span>164 <span style=''></span><span style='background: #AEF1AE'>                )
+</span>165 <span style=''></span><span style='background: #AEF1AE'>              }
+</span>166 <span style=''></span><span style='background: #AEF1AE'>
+</span>167 <span style=''></span><span style='background: #AEF1AE'>            code&quot;&quot;&quot;
+</span>168 <span style=''></span><span style='background: #AEF1AE'>   private void $groupName($paramsDef) {
+</span>169 <span style=''></span><span style='background: #AEF1AE'>     ${exprFunEnd()}
+</span>170 <span style=''></span><span style='background: #AEF1AE'>     ${funNames.map { f =&gt; s&quot;$f($paramsCall);&quot; }.mkString(s&quot;${exprFunEnd()}\n&quot;)}
+</span>171 <span style=''></span><span style='background: #AEF1AE'>   }
+</span>172 <span style=''></span><span style='background: #AEF1AE'>   &quot;&quot;&quot;.code
+</span>173 <span style=''></span><span style='background: #AEF1AE'>
+</span>174 <span style=''></span><span style='background: #AEF1AE'>          })
+</span>175 <span style=''></span><span style='background: #AEF1AE'>        }</span><span style=''>
+</span>176 <span style=''>      val s = </span><span style='background: #AEF1AE'>funNames.toSeq</span><span style=''>
+</span>177 <span style=''>      </span><span style='background: #AEF1AE'>s.iterator</span><span style=''>
+</span>178 <span style=''>    }
+</span>179 <span style=''>
+</span>180 <span style=''>    if (</span><span style='background: #AEF1AE'>ctx.currentVars eq null</span><span style=''>) </span><span style='background: #F0ADAD'>{
+</span>181 <span style=''></span><span style='background: #F0ADAD'>      // only fails on &quot;via ProcessFactory with Avro inputs&quot; RowToRowTest shows it doesn't always work for projections
+</span>182 <span style=''></span><span style='background: #F0ADAD'>
+</span>183 <span style=''></span><span style='background: #F0ADAD'>      val subExpressionCode = QualityCodeGenUtils.nonWholeStageSubexpressionElimination(ctx, groupExprs)
+</span>184 <span style=''></span><span style='background: #F0ADAD'>
+</span>185 <span style=''></span><span style='background: #F0ADAD'>      (builder, subExpressionCode)
+</span>186 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''> else </span><span style='background: #AEF1AE'>{
+</span>187 <span style=''></span><span style='background: #AEF1AE'>      // hopefully doesn't generate again
+</span>188 <span style=''></span><span style='background: #AEF1AE'>      val subExprs = ctx.subexpressionEliminationForWholeStageCodegen(groupExprs ++
+</span>189 <span style=''></span><span style='background: #AEF1AE'>        QualityExprUtils.currentSubExprState(ctx).map(_._1.e))
+</span>190 <span style=''></span><span style='background: #AEF1AE'>      val subExpressionCode = QualityExprUtils.evaluateSubExprEliminationState(ctx, subExprs)
+</span>191 <span style=''></span><span style='background: #AEF1AE'>
+</span>192 <span style=''></span><span style='background: #AEF1AE'>      (QualityCodeGenUtils.withSubExprEliminationExprs(ctx, subExprs.states) {
+</span>193 <span style=''></span><span style='background: #AEF1AE'>        builder
+</span>194 <span style=''></span><span style='background: #AEF1AE'>      }, subExpressionCode)
+</span>195 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>196 <span style=''>  }
+</span>197 <span style=''>
+</span>198 <span style=''>  override def dumpAudit(runner: HasOutput): Unit = {
+</span>199 <span style=''>    </span><span style='background: #F0ADAD'>TopLevelBooleanSuiteBuilder.build(runner)</span><span style=''>
+</span>200 <span style=''>  }
+</span>201 <span style=''>
+</span>202 <span style=''>}
+</span>203 <span style=''>
+</span>204 <span style=''>object Triggers {
 </span>205 <span style=''>
-</span>206 <span style=''>}
-</span>207 <span style=''>
-</span>208 <span style=''>/**
-</span>209 <span style=''> * Base class for runners that use triggers_ collector, engine and folder
-</span>210 <span style=''> */
-</span>211 <span style=''>trait HasTriggers extends Runner {
-</span>212 <span style=''>
-</span>213 <span style=''>  val triggerCount: Int
-</span>214 <span style=''>
-</span>215 <span style=''>  def realChildren: Seq[Expression]
-</span>216 <span style=''>
-</span>217 <span style=''>  def triggerRules: Seq[Expression] = </span><span style='background: #AEF1AE'>realChildren.slice(0, triggerCount)</span><span style=''>
-</span>218 <span style=''>
-</span>219 <span style=''>  def canAudit: Boolean = </span><span style='background: #AEF1AE'>triggerRules.forall(_.resolved)</span><span style=''>
-</span>220 <span style=''>
-</span>221 <span style=''>  /**
-</span>222 <span style=''>   * For collector and engine it's typically just their sql function name, for folder
-</span>223 <span style=''>   * it must also include the starting expression.sql.  This will be called with resolved
-</span>224 <span style=''>   * expressions but not with structs so the folder starter expression is expected to be
-</span>225 <span style=''>   * executable
-</span>226 <span style=''>   * @param ruleSuiteCall provided by the grouping code but resolves to a rulesuite
-</span>227 <span style=''>   * @return
-</span>228 <span style=''>   */
-</span>229 <span style=''>  def groupedSqlCall(ruleSuiteCall: String): String
-</span>230 <span style=''>
-</span>231 <span style=''>  private lazy val shouldAudit = Try(Triggers.getValue(groupProcessorAuditKey, extraConfig, &quot;false&quot;).toBoolean).getOrElse(false)
-</span>232 <span style=''>
-</span>233 <span style=''>  val audited: Boolean
-</span>234 <span style=''>
-</span>235 <span style=''>  def performGroupingAuditDump(): Unit = {
-</span>236 <span style=''>    if (</span><span style='background: #AEF1AE'>shouldAudit &amp;&amp; canAudit</span><span style=''>) {
-</span>237 <span style=''>
-</span>238 <span style=''>      </span><span style='background: #AEF1AE'>Triggers.loadTriggerGrouper(extraConfig).dumpAudit(this)</span><span style=''>
-</span>239 <span style=''>
-</span>240 <span style=''>    }
-</span>241 <span style=''>  }
-</span>242 <span style=''>}
-</span>243 <span style=''>
-</span>244 <span style=''>object Triggers {
-</span>245 <span style=''>
-</span>246 <span style=''>  def getValue(key: String, extraConfig: Map[String, String], default: String): String =
-</span>247 <span style=''>    </span><span style='background: #AEF1AE'>extraConfig.get(key).orElse(
-</span>248 <span style=''></span><span style='background: #AEF1AE'>      Option(getConfig(key, default = null))
-</span>249 <span style=''></span><span style='background: #AEF1AE'>    ).getOrElse(default)</span><span style=''>
-</span>250 <span style=''>
-</span>251 <span style=''>  def loadTriggerGrouper(extraConfig: Map[String, String]): TriggerGrouper = {
-</span>252 <span style=''>    val name = </span><span style='background: #AEF1AE'>getValue(groupProcessorKey, extraConfig, classOf[DefaultTriggerGrouper].getName)</span><span style=''>
-</span>253 <span style=''>
-</span>254 <span style=''>    val impl =
-</span>255 <span style=''>      try {
-</span>256 <span style=''>        </span><span style='background: #AEF1AE'>Class.forName(name, false, getContextOrSparkClassLoader).newInstance().asInstanceOf[TriggerGrouper]</span><span style=''>
-</span>257 <span style=''>      } catch {
-</span>258 <span style=''>        case t: Throwable =&gt; </span><span style='background: #F0ADAD'>throw QualityException(s&quot;Could not load TriggerGrouper of name $name&quot;, t)</span><span style=''>
-</span>259 <span style=''>      }
-</span>260 <span style=''>    impl
-</span>261 <span style=''>  }
-</span>262 <span style=''>
-</span>263 <span style=''>}
+</span>206 <span style=''>  def getValue(key: String, extraConfig: Map[String, String], default: String): String =
+</span>207 <span style=''>    </span><span style='background: #AEF1AE'>extraConfig.get(key).orElse(
+</span>208 <span style=''></span><span style='background: #AEF1AE'>      Option(getConfig(key, default = null))
+</span>209 <span style=''></span><span style='background: #AEF1AE'>    ).getOrElse(default)</span><span style=''>
+</span>210 <span style=''>
+</span>211 <span style=''>  def loadTriggerGrouper(extraConfig: Map[String, String]): TriggerGrouper = {
+</span>212 <span style=''>    val name = </span><span style='background: #AEF1AE'>getValue(groupProcessorKey, extraConfig, classOf[DefaultTriggerGrouper].getName)</span><span style=''>
+</span>213 <span style=''>
+</span>214 <span style=''>    val impl =
+</span>215 <span style=''>      try {
+</span>216 <span style=''>        </span><span style='background: #AEF1AE'>Class.forName(name, false, getContextOrSparkClassLoader).newInstance().asInstanceOf[TriggerGrouper]</span><span style=''>
+</span>217 <span style=''>      } catch {
+</span>218 <span style=''>        case t: Throwable =&gt; </span><span style='background: #F0ADAD'>throw QualityException(s&quot;Could not load TriggerGrouper of name $name&quot;, t)</span><span style=''>
+</span>219 <span style=''>      }
+</span>220 <span style=''>    impl
+</span>221 <span style=''>  }
+</span>222 <span style=''>
+</span>223 <span style=''>}
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -299,15 +259,15 @@
         <th>Code</th>
       </tr><tr>
         <td>
-          28
+          31
         </td>
         <td>
-          7151
+          7162
         </td>
         <td>
-          1590
+          1808
           -
-          1853
+          2071
         </td>
         <td>
           Apply
@@ -323,15 +283,15 @@
         </td>
       </tr><tr>
         <td>
-          31
+          34
         </td>
         <td>
-          7147
+          7158
         </td>
         <td>
-          1767
+          1985
           -
-          1779
+          1997
         </td>
         <td>
           Literal
@@ -347,15 +307,15 @@
         </td>
       </tr><tr>
         <td>
-          31
+          34
         </td>
         <td>
-          7148
+          7159
         </td>
         <td>
-          1797
+          2015
           -
-          1803
+          2021
         </td>
         <td>
           Apply
@@ -371,15 +331,15 @@
         </td>
       </tr><tr>
         <td>
-          32
+          35
         </td>
         <td>
-          7149
+          7160
         </td>
         <td>
-          1830
+          2048
           -
-          1836
+          2054
         </td>
         <td>
           Apply
@@ -395,15 +355,15 @@
         </td>
       </tr><tr>
         <td>
-          32
+          35
         </td>
         <td>
-          7150
+          7161
         </td>
         <td>
-          1838
+          2056
           -
-          1847
+          2065
         </td>
         <td>
           TypeApply
@@ -419,15 +379,15 @@
         </td>
       </tr><tr>
         <td>
-          63
+          66
         </td>
         <td>
-          7152
+          7163
         </td>
         <td>
-          3290
+          3506
           -
-          3364
+          3580
         </td>
         <td>
           Apply
@@ -443,15 +403,15 @@
         </td>
       </tr><tr>
         <td>
-          66
+          69
         </td>
         <td>
-          7166
+          7177
         </td>
         <td>
-          3391
+          3607
           -
-          4073
+          4289
         </td>
         <td>
           Apply
@@ -476,15 +436,15 @@
         </td>
       </tr><tr>
         <td>
-          67
+          70
         </td>
         <td>
-          7153
+          7164
         </td>
         <td>
-          3464
+          3680
           -
-          3479
+          3695
         </td>
         <td>
           Apply
@@ -500,15 +460,15 @@
         </td>
       </tr><tr>
         <td>
-          67
+          70
         </td>
         <td>
-          7154
+          7165
         </td>
         <td>
-          3450
+          3666
           -
-          3480
+          3696
         </td>
         <td>
           Apply
@@ -524,15 +484,15 @@
         </td>
       </tr><tr>
         <td>
-          68
+          71
         </td>
         <td>
-          7165
+          7176
         </td>
         <td>
-          3489
+          3705
           -
-          4065
+          4281
         </td>
         <td>
           Apply
@@ -554,15 +514,15 @@
         </td>
       </tr><tr>
         <td>
-          71
+          74
         </td>
         <td>
-          7161
+          7172
         </td>
         <td>
-          3558
+          3774
           -
-          3895
+          4111
         </td>
         <td>
           Apply
@@ -581,15 +541,15 @@
         </td>
       </tr><tr>
         <td>
-          73
+          76
         </td>
         <td>
-          7155
+          7166
         </td>
         <td>
-          3669
+          3885
           -
-          3688
+          3904
         </td>
         <td>
           Apply
@@ -605,15 +565,15 @@
         </td>
       </tr><tr>
         <td>
-          73
+          76
         </td>
         <td>
-          7156
+          7167
         </td>
         <td>
-          3655
+          3871
           -
-          3689
+          3905
         </td>
         <td>
           Apply
@@ -629,15 +589,15 @@
         </td>
       </tr><tr>
         <td>
-          74
+          77
         </td>
         <td>
-          7160
+          7171
         </td>
         <td>
-          3704
+          3920
           -
-          3881
+          4097
         </td>
         <td>
           Apply
@@ -653,15 +613,15 @@
         </td>
       </tr><tr>
         <td>
-          75
+          78
         </td>
         <td>
-          7157
+          7168
         </td>
         <td>
-          3753
+          3969
           -
-          3860
+          4076
         </td>
         <td>
           Apply
@@ -677,15 +637,15 @@
         </td>
       </tr><tr>
         <td>
-          77
+          80
         </td>
         <td>
-          7158
+          7169
         </td>
         <td>
-          3812
+          4028
           -
-          3848
+          4064
         </td>
         <td>
           Apply
@@ -701,15 +661,15 @@
         </td>
       </tr><tr>
         <td>
-          79
+          82
         </td>
         <td>
-          7159
+          7170
         </td>
         <td>
-          3753
+          3969
           -
-          3865
+          4081
         </td>
         <td>
           Select
@@ -725,15 +685,15 @@
         </td>
       </tr><tr>
         <td>
-          83
+          86
         </td>
         <td>
-          7162
+          7173
         </td>
         <td>
-          3907
+          4123
           -
-          4048
+          4264
         </td>
         <td>
           Apply
@@ -749,15 +709,15 @@
         </td>
       </tr><tr>
         <td>
-          85
+          88
         </td>
         <td>
-          7163
+          7174
         </td>
         <td>
-          3963
+          4179
           -
-          4035
+          4251
         </td>
         <td>
           Apply
@@ -773,15 +733,15 @@
         </td>
       </tr><tr>
         <td>
-          87
+          90
         </td>
         <td>
-          7164
+          7175
         </td>
         <td>
-          3907
+          4123
           -
-          4053
+          4269
         </td>
         <td>
           Select
@@ -797,15 +757,15 @@
         </td>
       </tr><tr>
         <td>
-          91
+          94
         </td>
         <td>
-          7167
+          7178
         </td>
         <td>
-          4078
+          4294
           -
-          4092
+          4308
         </td>
         <td>
           Apply
@@ -821,15 +781,15 @@
         </td>
       </tr><tr>
         <td>
-          94
+          97
         </td>
         <td>
-          7168
+          7179
         </td>
         <td>
-          4143
+          4357
           -
-          4145
+          4359
         </td>
         <td>
           Literal
@@ -845,15 +805,15 @@
         </td>
       </tr><tr>
         <td>
-          113
+          116
         </td>
         <td>
-          7169
+          7180
         </td>
         <td>
-          4972
+          5186
           -
-          5071
+          5285
         </td>
         <td>
           Apply
@@ -869,15 +829,15 @@
         </td>
       </tr><tr>
         <td>
-          115
+          118
         </td>
         <td>
-          7170
+          7181
         </td>
         <td>
-          5103
+          5317
           -
-          5207
+          5421
         </td>
         <td>
           Apply
@@ -893,15 +853,15 @@
         </td>
       </tr><tr>
         <td>
-          117
+          120
         </td>
         <td>
-          7171
+          7182
         </td>
         <td>
-          5235
+          5449
           -
-          5235
+          5449
         </td>
         <td>
           TypeApply
@@ -917,15 +877,15 @@
         </td>
       </tr><tr>
         <td>
-          117
+          120
         </td>
         <td>
-          7172
+          7183
         </td>
         <td>
-          5223
+          5437
           -
-          5240
+          5454
         </td>
         <td>
           ApplyToImplicitArgs
@@ -941,15 +901,15 @@
         </td>
       </tr><tr>
         <td>
-          119
+          122
         </td>
         <td>
-          7173
+          7184
         </td>
         <td>
-          5298
+          5512
           -
-          5302
+          5516
         </td>
         <td>
           Select
@@ -965,15 +925,15 @@
         </td>
       </tr><tr>
         <td>
-          119
+          122
         </td>
         <td>
-          7174
+          7185
         </td>
         <td>
-          5282
+          5496
           -
-          5303
+          5517
         </td>
         <td>
           Apply
@@ -989,15 +949,15 @@
         </td>
       </tr><tr>
         <td>
-          119
+          122
         </td>
         <td>
-          7175
+          7186
         </td>
         <td>
-          5259
+          5473
           -
-          5340
+          5554
         </td>
         <td>
           Apply
@@ -1013,15 +973,15 @@
         </td>
       </tr><tr>
         <td>
-          120
+          123
         </td>
         <td>
-          7176
+          7187
         </td>
         <td>
-          5365
+          5579
           -
-          5388
+          5602
         </td>
         <td>
           Apply
@@ -1037,15 +997,15 @@
         </td>
       </tr><tr>
         <td>
-          122
+          125
         </td>
         <td>
-          7177
+          7188
         </td>
         <td>
-          5422
+          5636
           -
-          5435
+          5649
         </td>
         <td>
           Select
@@ -1061,15 +1021,15 @@
         </td>
       </tr><tr>
         <td>
-          122
+          125
         </td>
         <td>
-          7178
+          7189
         </td>
         <td>
-          5411
+          5625
           -
-          5436
+          5650
         </td>
         <td>
           Apply
@@ -1085,15 +1045,15 @@
         </td>
       </tr><tr>
         <td>
-          125
+          128
         </td>
         <td>
-          7179
+          7190
         </td>
         <td>
-          5478
+          5692
           -
-          5537
+          5751
         </td>
         <td>
           Apply
@@ -1109,15 +1069,15 @@
         </td>
       </tr><tr>
         <td>
-          128
+          131
         </td>
         <td>
-          7207
+          7218
         </td>
         <td>
-          5568
+          5782
           -
-          7112
+          7326
         </td>
         <td>
           Apply
@@ -1147,15 +1107,15 @@
         </td>
       </tr><tr>
         <td>
-          129
+          132
         </td>
         <td>
-          7180
+          7191
         </td>
         <td>
-          5643
+          5857
           -
-          5661
+          5875
         </td>
         <td>
           Apply
@@ -1171,15 +1131,15 @@
         </td>
       </tr><tr>
         <td>
-          129
+          132
         </td>
         <td>
-          7181
+          7192
         </td>
         <td>
-          5629
+          5843
           -
-          5662
+          5876
         </td>
         <td>
           Apply
@@ -1195,15 +1155,15 @@
         </td>
       </tr><tr>
         <td>
-          130
+          133
         </td>
         <td>
-          7206
+          7217
         </td>
         <td>
-          5673
+          5887
           -
-          7102
+          7316
         </td>
         <td>
           Apply
@@ -1230,15 +1190,15 @@
         </td>
       </tr><tr>
         <td>
-          133
+          136
         </td>
         <td>
-          7201
+          7212
         </td>
         <td>
-          5746
+          5960
           -
-          6907
+          7121
         </td>
         <td>
           Apply
@@ -1262,15 +1222,15 @@
         </td>
       </tr><tr>
         <td>
-          135
+          138
         </td>
         <td>
-          7182
+          7193
         </td>
         <td>
-          5863
+          6077
           -
-          5885
+          6099
         </td>
         <td>
           Apply
@@ -1286,15 +1246,15 @@
         </td>
       </tr><tr>
         <td>
-          135
+          138
         </td>
         <td>
-          7183
+          7194
         </td>
         <td>
-          5849
+          6063
           -
-          5886
+          6100
         </td>
         <td>
           Apply
@@ -1310,15 +1270,15 @@
         </td>
       </tr><tr>
         <td>
-          138
+          141
         </td>
         <td>
-          7196
+          7207
         </td>
         <td>
-          5939
+          6153
           -
-          6702
+          6916
         </td>
         <td>
           Apply
@@ -1338,15 +1298,15 @@
         </td>
       </tr><tr>
         <td>
-          142
+          145
         </td>
         <td>
-          7184
+          7195
         </td>
         <td>
-          6177
+          6391
           -
-          6183
+          6397
         </td>
         <td>
           Apply
@@ -1362,15 +1322,15 @@
         </td>
       </tr><tr>
         <td>
-          142
+          145
         </td>
         <td>
-          7185
+          7196
         </td>
         <td>
-          6173
+          6387
           -
-          6184
+          6398
         </td>
         <td>
           Apply
@@ -1386,15 +1346,15 @@
         </td>
       </tr><tr>
         <td>
-          142
+          145
         </td>
         <td>
-          7186
+          7197
         </td>
         <td>
-          6149
+          6363
           -
-          6185
+          6399
         </td>
         <td>
           Apply
@@ -1410,15 +1370,15 @@
         </td>
       </tr><tr>
         <td>
-          143
+          146
         </td>
         <td>
-          7187
+          7198
         </td>
         <td>
-          6130
+          6344
           -
-          6317
+          6531
         </td>
         <td>
           Select
@@ -1434,15 +1394,15 @@
         </td>
       </tr><tr>
         <td>
-          145
+          148
         </td>
         <td>
-          7188
+          7199
         </td>
         <td>
-          6352
+          6566
           -
-          6382
+          6596
         </td>
         <td>
           Apply
@@ -1458,15 +1418,15 @@
         </td>
       </tr><tr>
         <td>
-          146
+          149
         </td>
         <td>
-          7189
+          7200
         </td>
         <td>
-          6405
+          6619
           -
-          6682
+          6896
         </td>
         <td>
           Apply
@@ -1482,15 +1442,15 @@
         </td>
       </tr><tr>
         <td>
-          146
+          149
         </td>
         <td>
-          7195
+          7206
         </td>
         <td>
-          6405
+          6619
           -
-          6682
+          6896
         </td>
         <td>
           Apply
@@ -1506,15 +1466,15 @@
         </td>
       </tr><tr>
         <td>
-          147
+          150
         </td>
         <td>
-          7190
+          7201
         </td>
         <td>
-          6437
+          6651
           -
-          6446
+          6660
         </td>
         <td>
           Apply
@@ -1530,15 +1490,15 @@
         </td>
       </tr><tr>
         <td>
-          148
+          151
         </td>
         <td>
-          7191
+          7202
         </td>
         <td>
-          6474
+          6688
           -
-          6483
+          6697
         </td>
         <td>
           Select
@@ -1554,15 +1514,15 @@
         </td>
       </tr><tr>
         <td>
-          149
+          152
         </td>
         <td>
-          7192
+          7203
         </td>
         <td>
-          6515
+          6729
           -
-          6526
+          6740
         </td>
         <td>
           Select
@@ -1578,15 +1538,15 @@
         </td>
       </tr><tr>
         <td>
-          149
+          152
         </td>
         <td>
-          7193
+          7204
         </td>
         <td>
-          6534
+          6748
           -
-          6544
+          6758
         </td>
         <td>
           Select
@@ -1602,15 +1562,15 @@
         </td>
       </tr><tr>
         <td>
-          150
+          153
         </td>
         <td>
-          7194
+          7205
         </td>
         <td>
-          6577
+          6791
           -
-          6633
+          6847
         </td>
         <td>
           Apply
@@ -1626,15 +1586,15 @@
         </td>
       </tr><tr>
         <td>
-          155
+          158
         </td>
         <td>
-          7200
+          7211
         </td>
         <td>
-          6720
+          6934
           -
-          6891
+          7105
         </td>
         <td>
           Apply
@@ -1650,15 +1610,15 @@
         </td>
       </tr><tr>
         <td>
-          156
+          159
         </td>
         <td>
-          7197
+          7208
         </td>
         <td>
-          6771
+          6985
           -
-          6868
+          7082
         </td>
         <td>
           Apply
@@ -1674,15 +1634,15 @@
         </td>
       </tr><tr>
         <td>
-          158
+          161
         </td>
         <td>
-          7198
+          7209
         </td>
         <td>
-          6830
+          7044
           -
-          6856
+          7070
         </td>
         <td>
           Apply
@@ -1698,15 +1658,15 @@
         </td>
       </tr><tr>
         <td>
-          160
+          163
         </td>
         <td>
-          7199
+          7210
         </td>
         <td>
-          6771
+          6985
           -
-          6873
+          7087
         </td>
         <td>
           Select
@@ -1722,15 +1682,15 @@
         </td>
       </tr><tr>
         <td>
-          164
+          167
         </td>
         <td>
-          7202
+          7213
         </td>
         <td>
-          6921
+          7135
           -
-          7083
+          7297
         </td>
         <td>
           Apply
@@ -1746,15 +1706,15 @@
         </td>
       </tr><tr>
         <td>
-          166
+          169
         </td>
         <td>
-          7203
+          7214
         </td>
         <td>
-          6977
+          7191
           -
-          6989
+          7203
         </td>
         <td>
           Apply
@@ -1770,15 +1730,15 @@
         </td>
       </tr><tr>
         <td>
-          167
+          170
         </td>
         <td>
-          7204
+          7215
         </td>
         <td>
-          6998
+          7212
           -
-          7070
+          7284
         </td>
         <td>
           Apply
@@ -1794,15 +1754,15 @@
         </td>
       </tr><tr>
         <td>
-          169
+          172
         </td>
         <td>
-          7205
+          7216
         </td>
         <td>
-          6921
+          7135
           -
-          7088
+          7302
         </td>
         <td>
           Select
@@ -1818,15 +1778,15 @@
         </td>
       </tr><tr>
         <td>
-          173
+          176
         </td>
         <td>
-          7208
+          7219
         </td>
         <td>
-          7127
+          7341
           -
-          7141
+          7355
         </td>
         <td>
           Select
@@ -1842,15 +1802,15 @@
         </td>
       </tr><tr>
         <td>
-          174
+          177
         </td>
         <td>
-          7209
+          7220
         </td>
         <td>
-          7148
+          7362
           -
-          7158
+          7372
         </td>
         <td>
           Select
@@ -1866,15 +1826,15 @@
         </td>
       </tr><tr>
         <td>
-          177
+          180
         </td>
         <td>
-          7210
+          7221
         </td>
         <td>
-          7174
+          7388
           -
-          7197
+          7411
         </td>
         <td>
           Apply
@@ -1890,15 +1850,15 @@
         </td>
       </tr><tr>
         <td>
-          177
+          180
         </td>
         <td>
-          7213
+          7224
         </td>
         <td>
-          7199
+          7413
           -
-          7467
+          7681
         </td>
         <td>
           Block
@@ -1917,15 +1877,15 @@
         </td>
       </tr><tr>
         <td>
-          180
+          183
         </td>
         <td>
-          7211
+          7222
         </td>
         <td>
-          7351
+          7565
           -
-          7425
+          7639
         </td>
         <td>
           Apply
@@ -1941,15 +1901,15 @@
         </td>
       </tr><tr>
         <td>
-          182
+          185
         </td>
         <td>
-          7212
+          7223
         </td>
         <td>
-          7433
+          7647
           -
-          7461
+          7675
         </td>
         <td>
           Apply
@@ -1965,15 +1925,15 @@
         </td>
       </tr><tr>
         <td>
-          183
+          186
         </td>
         <td>
-          7218
+          7232
         </td>
         <td>
-          7473
+          7687
           -
-          7780
+          8101
         </td>
         <td>
           Block
@@ -1986,22 +1946,46 @@
         </td>
         <td style="background: #AEF1AE">
           {
-  val subExprs: org.apache.spark.sql.catalyst.expressions.codegen.SubExprCodes = ctx.subexpressionEliminationForWholeStageCodegen(groupExprs);
+  val subExprs: org.apache.spark.sql.catalyst.expressions.codegen.SubExprCodes = ctx.subexpressionEliminationForWholeStageCodegen(groupExprs.++[org.apache.spark.sql.catalyst.expressions.Expression](org.apache.spark.sql.catalyst.expressions.codegen.QualityExprUtils.currentSubExprState(ctx).map[org.apache.spark.sql.catalyst.expressions.Expression](((x$4: (org.apache.spark.sql.catalyst.expressions.codegen.QualityExprUtils.ExprEquals, org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState)) =&gt; x$4._1.e))));
   val subExpressionCode: String = org.apache.spark.sql.catalyst.expressions.codegen.QualityExprUtils.evaluateSubExprEliminationState(ctx, subExprs);
   scala.Tuple2.apply[Iterator[String], String](org.apache.spark.sql.catalyst.expressions.codegen.QualityCodeGenUtils.withSubExprEliminationExprs[Iterator[String]](ctx, subExprs.states)(builder), subExpressionCode)
 }
         </td>
       </tr><tr>
         <td>
-          184
+          188
         </td>
         <td>
-          7214
+          7227
         </td>
         <td>
-          7496
+          7801
           -
-          7556
+          7876
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOps.++
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          groupExprs.++[org.apache.spark.sql.catalyst.expressions.Expression](org.apache.spark.sql.catalyst.expressions.codegen.QualityExprUtils.currentSubExprState(ctx).map[org.apache.spark.sql.catalyst.expressions.Expression](((x$4: (org.apache.spark.sql.catalyst.expressions.codegen.QualityExprUtils.ExprEquals, org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState)) =&gt; x$4._1.e)))
+        </td>
+      </tr><tr>
+        <td>
+          188
+        </td>
+        <td>
+          7228
+        </td>
+        <td>
+          7752
+          -
+          7877
         </td>
         <td>
           Apply
@@ -2013,19 +1997,67 @@
           
         </td>
         <td style="background: #AEF1AE">
-          ctx.subexpressionEliminationForWholeStageCodegen(groupExprs)
+          ctx.subexpressionEliminationForWholeStageCodegen(groupExprs.++[org.apache.spark.sql.catalyst.expressions.Expression](org.apache.spark.sql.catalyst.expressions.codegen.QualityExprUtils.currentSubExprState(ctx).map[org.apache.spark.sql.catalyst.expressions.Expression](((x$4: (org.apache.spark.sql.catalyst.expressions.codegen.QualityExprUtils.ExprEquals, org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState)) =&gt; x$4._1.e))))
         </td>
       </tr><tr>
         <td>
-          185
+          189
         </td>
         <td>
-          7215
+          7225
         </td>
         <td>
-          7587
+          7869
           -
-          7650
+          7875
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.ExpressionEquals.e
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$4._1.e
+        </td>
+      </tr><tr>
+        <td>
+          189
+        </td>
+        <td>
+          7226
+        </td>
+        <td>
+          7823
+          -
+          7876
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOps.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.codegen.QualityExprUtils.currentSubExprState(ctx).map[org.apache.spark.sql.catalyst.expressions.Expression](((x$4: (org.apache.spark.sql.catalyst.expressions.codegen.QualityExprUtils.ExprEquals, org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState)) =&gt; x$4._1.e))
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          7229
+        </td>
+        <td>
+          7908
+          -
+          7971
         </td>
         <td>
           Apply
@@ -2041,15 +2073,15 @@
         </td>
       </tr><tr>
         <td>
-          187
+          192
         </td>
         <td>
-          7216
+          7230
         </td>
         <td>
-          7659
+          7980
           -
-          7754
+          8075
         </td>
         <td>
           Apply
@@ -2065,15 +2097,15 @@
         </td>
       </tr><tr>
         <td>
-          187
+          192
         </td>
         <td>
-          7217
+          7231
         </td>
         <td>
-          7658
+          7979
           -
-          7774
+          8095
         </td>
         <td>
           Apply
@@ -2089,15 +2121,15 @@
         </td>
       </tr><tr>
         <td>
-          194
+          199
         </td>
         <td>
-          7219
+          7233
         </td>
         <td>
-          7846
+          8165
           -
-          7887
+          8206
         </td>
         <td>
           Apply
@@ -2108,284 +2140,20 @@
         <td>
           
         </td>
-        <td style="background: #AEF1AE">
+        <td style="background: #F0ADAD">
           com.sparkutils.quality.impl.util.TopLevelBooleanSuiteBuilder.build(runner)
         </td>
       </tr><tr>
         <td>
-          217
+          209
         </td>
         <td>
-          7220
+          7234
         </td>
         <td>
-          8295
+          8327
           -
-          8296
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          0
-        </td>
-      </tr><tr>
-        <td>
-          217
-        </td>
-        <td>
-          7221
-        </td>
-        <td>
-          8298
-          -
-          8310
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.HasTriggers.triggerCount
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          HasTriggers.this.triggerCount
-        </td>
-      </tr><tr>
-        <td>
-          217
-        </td>
-        <td>
-          7222
-        </td>
-        <td>
-          8276
-          -
-          8311
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.collection.IterableOps.slice
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          HasTriggers.this.realChildren.slice(0, HasTriggers.this.triggerCount)
-        </td>
-      </tr><tr>
-        <td>
-          219
-        </td>
-        <td>
-          7223
-        </td>
-        <td>
-          8339
-          -
-          8370
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.collection.IterableOnceOps.forall
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          HasTriggers.this.triggerRules.forall(((x$4: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; x$4.resolved))
-        </td>
-      </tr><tr>
-        <td>
-          236
-        </td>
-        <td>
-          7224
-        </td>
-        <td>
-          9035
-          -
-          9043
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.HasTriggers.canAudit
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          HasTriggers.this.canAudit
-        </td>
-      </tr><tr>
-        <td>
-          236
-        </td>
-        <td>
-          7225
-        </td>
-        <td>
-          9020
-          -
-          9043
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Boolean.&amp;&amp;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          HasTriggers.this.shouldAudit.&amp;&amp;(HasTriggers.this.canAudit)
-        </td>
-      </tr><tr>
-        <td>
-          236
-        </td>
-        <td>
-          7229
-        </td>
-        <td>
-          9016
-          -
-          9016
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          236
-        </td>
-        <td>
-          7230
-        </td>
-        <td>
-          9016
-          -
-          9016
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          238
-        </td>
-        <td>
-          7226
-        </td>
-        <td>
-          9082
-          -
-          9093
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.sparkutils.quality.impl.Runner.extraConfig
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          HasTriggers.this.extraConfig
-        </td>
-      </tr><tr>
-        <td>
-          238
-        </td>
-        <td>
-          7227
-        </td>
-        <td>
-          9054
-          -
-          9110
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.sparkutils.quality.impl.TriggerGrouper.dumpAudit
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          Triggers.loadTriggerGrouper(HasTriggers.this.extraConfig).dumpAudit(this)
-        </td>
-      </tr><tr>
-        <td>
-          238
-        </td>
-        <td>
-          7228
-        </td>
-        <td>
-          9054
-          -
-          9110
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          com.sparkutils.quality.impl.TriggerGrouper.dumpAudit
-        </td>
-        <td>
-          
-        </td>
-        <td style="background: #AEF1AE">
-          Triggers.loadTriggerGrouper(HasTriggers.this.extraConfig).dumpAudit(this)
-        </td>
-      </tr><tr>
-        <td>
-          249
-        </td>
-        <td>
-          7231
-        </td>
-        <td>
-          9237
-          -
-          9335
+          8425
         </td>
         <td>
           Apply
@@ -2401,15 +2169,15 @@
         </td>
       </tr><tr>
         <td>
-          252
+          212
         </td>
         <td>
-          7232
+          7235
         </td>
         <td>
-          9440
+          8530
           -
-          9457
+          8547
         </td>
         <td>
           Select
@@ -2425,15 +2193,15 @@
         </td>
       </tr><tr>
         <td>
-          252
+          212
         </td>
         <td>
-          7233
+          7236
         </td>
         <td>
-          9472
+          8562
           -
-          9510
+          8600
         </td>
         <td>
           Apply
@@ -2449,15 +2217,15 @@
         </td>
       </tr><tr>
         <td>
-          252
+          212
         </td>
         <td>
-          7234
+          7237
         </td>
         <td>
-          9431
+          8521
           -
-          9511
+          8601
         </td>
         <td>
           Apply
@@ -2473,15 +2241,15 @@
         </td>
       </tr><tr>
         <td>
-          256
+          216
         </td>
         <td>
-          7235
+          7238
         </td>
         <td>
-          9568
+          8658
           -
-          9573
+          8663
         </td>
         <td>
           Literal
@@ -2497,15 +2265,15 @@
         </td>
       </tr><tr>
         <td>
-          256
+          216
         </td>
         <td>
-          7236
+          7239
         </td>
         <td>
-          9575
+          8665
           -
-          9603
+          8693
         </td>
         <td>
           Select
@@ -2521,15 +2289,15 @@
         </td>
       </tr><tr>
         <td>
-          256
+          216
         </td>
         <td>
-          7237
+          7240
         </td>
         <td>
-          9548
+          8638
           -
-          9647
+          8737
         </td>
         <td>
           TypeApply
@@ -2545,15 +2313,15 @@
         </td>
       </tr><tr>
         <td>
-          256
+          216
         </td>
         <td>
-          7238
+          7241
         </td>
         <td>
-          9548
+          8638
           -
-          9647
+          8737
         </td>
         <td>
           Block
@@ -2569,15 +2337,15 @@
         </td>
       </tr><tr>
         <td>
-          258
+          218
         </td>
         <td>
-          7239
+          7242
         </td>
         <td>
-          9693
+          8783
           -
-          9766
+          8856
         </td>
         <td>
           Throw
@@ -2593,15 +2361,15 @@
         </td>
       </tr><tr>
         <td>
-          258
+          218
         </td>
         <td>
-          7240
+          7243
         </td>
         <td>
-          9693
+          8783
           -
-          9766
+          8856
         </td>
         <td>
           Block
