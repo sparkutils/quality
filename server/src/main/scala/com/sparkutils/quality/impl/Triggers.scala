@@ -186,7 +186,7 @@ case class TopLevelBooleanGrouper() extends TriggerGrouper {
     } else {
       // hopefully doesn't generate again
       val subExprs = ctx.subexpressionEliminationForWholeStageCodegen(groupExprs ++
-        QualityExprUtils.currentSubExprState(ctx).map(_._1.e))
+        QualityExprUtils.currentSubExprState(ctx).map(s => QualityExprUtils.fromState(s._1)))
       val subExpressionCode = QualityExprUtils.evaluateSubExprEliminationState(ctx, subExprs)
 
       (QualityCodeGenUtils.withSubExprEliminationExprs(ctx, subExprs.states) {

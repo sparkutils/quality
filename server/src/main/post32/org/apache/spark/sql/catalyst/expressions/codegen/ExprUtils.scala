@@ -19,6 +19,8 @@ object QualityExprUtils {
     ctx.subExprEliminationExprs += (ExpressionEquals(expression) -> state)
   }
 
+  def fromState(exprEquals: ExprEquals): Expression = exprEquals.e
+
   def evaluateSubExprEliminationState(ctx: CodegenContext, subExprs: SubExprCodes): String = {
     ctx.evaluateSubExprEliminationState(subExprs.states.values)
   }
