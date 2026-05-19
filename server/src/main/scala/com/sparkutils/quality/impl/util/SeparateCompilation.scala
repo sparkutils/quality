@@ -162,8 +162,6 @@ object SeparateCompilation {
           """)
       }
 
-    val fakeIt = ctx.freshName("fakeit")
-
     // TODO maximum is 255 params, the codegenerator code has no upper limit, but it's 22 for function, need a array wrapper approach
     val runnerClassBody = s"""
       public RunnerCompilation$id generate(Object[] references) {

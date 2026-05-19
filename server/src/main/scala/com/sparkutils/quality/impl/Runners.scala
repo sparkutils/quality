@@ -108,7 +108,7 @@ trait Runner extends Expression {
       case (ruleSet, level1) =>
         ruleSet.rules.zipWithIndex.map{
           case (_, level2) =>
-            result =>
+            (result: String) =>
               code"""
                $runner.applyResult($level1, $level2, $resultRow, $result);
                 """
