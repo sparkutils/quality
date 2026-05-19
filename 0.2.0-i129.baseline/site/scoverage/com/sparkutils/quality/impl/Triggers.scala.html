@@ -1,0 +1,2391 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/sparkutils/quality/impl/Triggers.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality.impl
+</span>2 <span style=''>
+</span>3 <span style=''>import com.sparkutils.quality.impl.RuleRunnerUtils.packTheId
+</span>4 <span style=''>import com.sparkutils.quality.impl.RuleSuiteHelpers.getContextOrSparkClassLoader
+</span>5 <span style=''>import com.sparkutils.quality.impl.util.{TopLevelBoolean, TopLevelBooleanSuiteBuilder}
+</span>6 <span style=''>import com.sparkutils.quality.{FailedInt, QualityException, RuleSuite, UnevaluatedRule, UnevaluatedRuleInt, getConfig, groupProcessorAuditKey, groupProcessorBucketSizeKey, groupProcessorKey, groupProcessorPercentFilter}
+</span>7 <span style=''>import org.apache.spark.sql.catalyst.InternalRow
+</span>8 <span style=''>import org.apache.spark.sql.catalyst.expressions.Expression
+</span>9 <span style=''>import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
+</span>10 <span style=''>import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodegenContext, QualityCodeGenUtils, QualityExprUtils}
+</span>11 <span style=''>import org.apache.spark.sql.catalyst.util.ArrayBasedMapData
+</span>12 <span style=''>
+</span>13 <span style=''>import scala.runtime.AbstractFunction10
+</span>14 <span style=''>import scala.util.Try
+</span>15 <span style=''>
+</span>16 <span style=''>case class Trigger(expression: Expression, index: Int, salience: Int)
+</span>17 <span style=''>
+</span>18 <span style=''>case class Group(groupFilter: Expression, lowestSalience: Int, triggers: Seq[Trigger])
+</span>19 <span style=''>
+</span>20 <span style=''>/**
+</span>21 <span style=''> * Allow customised grouping of runner triggers, DQ and ExpressionRunner should evaluate all so the default
+</span>22 <span style=''> * implementation is sufficient.  This abstraction was added as part of #129 due to 20k trigger rules.
+</span>23 <span style=''> *
+</span>24 <span style=''> * The return type is the list of function names to call and any extra common subexpressions needed to group
+</span>25 <span style=''> */
+</span>26 <span style=''>trait TriggerGrouper extends AbstractFunction10[CodegenContext, Seq[(Trigger, Block)],
+</span>27 <span style=''>  Int, Int, String, String, String, () =&gt; Block, () =&gt; Block, Map[String, String],  (Iterator[String], String)] {
+</span>28 <span style=''>
+</span>29 <span style=''>  def apply(ctx: CodegenContext, expressions: Seq[(Trigger, Block)],
+</span>30 <span style=''>            variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String):  (Iterator[String], String) =
+</span>31 <span style=''>    </span><span style='background: #F0ADAD'>apply(
+</span>32 <span style=''></span><span style='background: #F0ADAD'>      ctx: CodegenContext, expressions: Seq[(Trigger, Block)],
+</span>33 <span style=''></span><span style='background: #F0ADAD'>      variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String,
+</span>34 <span style=''></span><span style='background: #F0ADAD'>      prefix = &quot;ruleRunner&quot;, exprEnd = () =&gt; code&quot;&quot;,
+</span>35 <span style=''></span><span style='background: #F0ADAD'>      exprFunEnd = () =&gt; code&quot;&quot;, Map.empty
+</span>36 <span style=''></span><span style='background: #F0ADAD'>    )</span><span style=''>
+</span>37 <span style=''>
+</span>38 <span style=''>  def apply(ctx: CodegenContext, expressions: Seq[(Trigger, Block)],
+</span>39 <span style=''>            variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String,
+</span>40 <span style=''>            prefix: String, exprEnd: () =&gt; Block, exprFunEnd: () =&gt; Block,
+</span>41 <span style=''>            extraConfig: Map[String, String]): (Iterator[String], String)
+</span>42 <span style=''>
+</span>43 <span style=''>  /**
+</span>44 <span style=''>   * provides a dump of the plan with defaults or provided by extraConfig and by any optimisation results.
+</span>45 <span style=''>   * This is designed to run in withNewChildren, typically on the first call, when resolved == true, allowing
+</span>46 <span style=''>   * for an audit friendly version of the rules to be examined.  As this takes place during the Spark analysis phase
+</span>47 <span style=''>   * it is recommended that the binary RuleSuiteGroup format is used.
+</span>48 <span style=''>   *
+</span>49 <span style=''>   * The binary results should not be used across Quality releases and may contain &quot;boundreference()&quot; entries instead of
+</span>50 <span style=''>   * actual field names.
+</span>51 <span style=''>   *
+</span>52 <span style=''>   * The DefaultTriggerGrouper does not have any output.
+</span>53 <span style=''>   */
+</span>54 <span style=''>  def dumpAudit(runner: HasOutput): Unit
+</span>55 <span style=''>
+</span>56 <span style=''>}
+</span>57 <span style=''>
+</span>58 <span style=''>case class DefaultTriggerGrouper() extends TriggerGrouper {
+</span>59 <span style=''>
+</span>60 <span style=''>  override def apply(
+</span>61 <span style=''>                      ctx: CodegenContext, expressions: Seq[(Trigger, Block)],
+</span>62 <span style=''>                      variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String,
+</span>63 <span style=''>                      prefix: String, exprEnd: () =&gt; Block, exprFunEnd: () =&gt; Block, extraConfig: Map[String,String]):
+</span>64 <span style=''>    (Iterator[String], String)= {
+</span>65 <span style=''>
+</span>66 <span style=''>    val allExpr = </span><span style='background: #AEF1AE'>expressions.map(_._2).grouped(variablesPerFunc).grouped(variableFuncGroup)</span><span style=''>
+</span>67 <span style=''>
+</span>68 <span style=''>    val funNames =
+</span>69 <span style=''>      </span><span style='background: #AEF1AE'>for (exprGroup &lt;- allExpr) yield {
+</span>70 <span style=''></span><span style='background: #AEF1AE'>        val groupName = ctx.freshName(prefix+&quot;EGroup&quot;)
+</span>71 <span style=''></span><span style='background: #AEF1AE'>        ctx.addNewFunction(groupName, {
+</span>72 <span style=''></span><span style='background: #AEF1AE'>          val funNames =
+</span>73 <span style=''></span><span style='background: #AEF1AE'>            for {
+</span>74 <span style=''></span><span style='background: #AEF1AE'>              exprFunc &lt;- exprGroup
+</span>75 <span style=''></span><span style='background: #AEF1AE'>            } yield {
+</span>76 <span style=''></span><span style='background: #AEF1AE'>              val exprFuncName = ctx.freshName(prefix+&quot;EFuncGroup&quot;)
+</span>77 <span style=''></span><span style='background: #AEF1AE'>              ctx.addNewFunction(exprFuncName,
+</span>78 <span style=''></span><span style='background: #AEF1AE'>                code&quot;&quot;&quot;
+</span>79 <span style=''></span><span style='background: #AEF1AE'>   private void $exprFuncName($paramsDef) {
+</span>80 <span style=''></span><span style='background: #AEF1AE'>     ${exprFunc.mkString(s&quot;${exprEnd()}\n&quot;)}
+</span>81 <span style=''></span><span style='background: #AEF1AE'>   }
+</span>82 <span style=''></span><span style='background: #AEF1AE'>  &quot;&quot;&quot;.code
+</span>83 <span style=''></span><span style='background: #AEF1AE'>              )
+</span>84 <span style=''></span><span style='background: #AEF1AE'>            }
+</span>85 <span style=''></span><span style='background: #AEF1AE'>
+</span>86 <span style=''></span><span style='background: #AEF1AE'>          code&quot;&quot;&quot;
+</span>87 <span style=''></span><span style='background: #AEF1AE'>   private void $groupName($paramsDef) {
+</span>88 <span style=''></span><span style='background: #AEF1AE'>     ${funNames.map { f =&gt; s&quot;$f($paramsCall);&quot; }.mkString(s&quot;${exprFunEnd()}\n&quot;)}
+</span>89 <span style=''></span><span style='background: #AEF1AE'>   }
+</span>90 <span style=''></span><span style='background: #AEF1AE'>   &quot;&quot;&quot;.code
+</span>91 <span style=''></span><span style='background: #AEF1AE'>
+</span>92 <span style=''></span><span style='background: #AEF1AE'>        })
+</span>93 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>94 <span style=''>    </span><span style='background: #AEF1AE'>(funNames, &quot;&quot;)</span><span style=''>
+</span>95 <span style=''>  }
+</span>96 <span style=''>
+</span>97 <span style=''>  def dumpAudit(runner: HasOutput): Unit = </span><span style='background: #F0ADAD'>{}</span><span style=''>
+</span>98 <span style=''>}
+</span>99 <span style=''>
+</span>100 <span style=''>/**
+</span>101 <span style=''> * Groups by common top level Boolean And and EqualTo expressions with Literals, using buckets of hashes on the literal
+</span>102 <span style=''> * values.  Using this approach can lead to a 10x spread increase over the default grouper for very large truth table
+</span>103 <span style=''> * style rules (tested against the 20k_rule_suite.csv in the BigRules testsuite).
+</span>104 <span style=''> *
+</span>105 <span style=''> * Only supported with Spark 3.2 and above
+</span>106 <span style=''> */
+</span>107 <span style=''>case class TopLevelBooleanGrouper() extends TriggerGrouper {
+</span>108 <span style=''>
+</span>109 <span style=''>  override def apply(
+</span>110 <span style=''>                      ctx: CodegenContext, expressions: Seq[(Trigger, Block)],
+</span>111 <span style=''>                      variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String,
+</span>112 <span style=''>                      prefix: String, exprEnd: () =&gt; Block, exprFunEnd: () =&gt; Block, extraConfig: Map[String,String]):
+</span>113 <span style=''>    (Iterator[String], String) = {
+</span>114 <span style=''>
+</span>115 <span style=''>    val targetBucket = </span><span style='background: #AEF1AE'>Try(Triggers.getValue(groupProcessorBucketSizeKey, extraConfig, &quot;130&quot;).toInt).
+</span>116 <span style=''></span><span style='background: #AEF1AE'>      getOrElse(130)</span><span style=''>
+</span>117 <span style=''>    val triggerPercentFilter = </span><span style='background: #AEF1AE'>Try(Triggers.getValue(groupProcessorPercentFilter, extraConfig, &quot;0.12&quot;).toDouble).
+</span>118 <span style=''></span><span style='background: #AEF1AE'>      getOrElse(0.12)</span><span style=''>
+</span>119 <span style=''>
+</span>120 <span style=''>    val map = </span><span style='background: #AEF1AE'>expressions.toMap</span><span style=''>
+</span>121 <span style=''>
+</span>122 <span style=''>    val groups = </span><span style='background: #AEF1AE'>TopLevelBoolean.bucket(expressions.map(_._1), targetBucket, triggerPercentFilter)</span><span style=''>
+</span>123 <span style=''>    val simpleGrouper = </span><span style='background: #AEF1AE'>DefaultTriggerGrouper()</span><span style=''>
+</span>124 <span style=''>
+</span>125 <span style=''>    val groupExprs = </span><span style='background: #AEF1AE'>groups.map(_.groupFilter)</span><span style=''>
+</span>126 <span style=''>
+</span>127 <span style=''>    def builder = {
+</span>128 <span style=''>      val grouped = </span><span style='background: #AEF1AE'>groups.grouped(variablesPerFunc).grouped(variableFuncGroup)</span><span style=''>
+</span>129 <span style=''>
+</span>130 <span style=''>      val funNames =
+</span>131 <span style=''>        </span><span style='background: #AEF1AE'>for (exprGroup &lt;- grouped) yield {
+</span>132 <span style=''></span><span style='background: #AEF1AE'>          val groupName = ctx.freshName(prefix + &quot;GEGroup&quot;)
+</span>133 <span style=''></span><span style='background: #AEF1AE'>          ctx.addNewFunction(groupName, {
+</span>134 <span style=''></span><span style='background: #AEF1AE'>            val funNames =
+</span>135 <span style=''></span><span style='background: #AEF1AE'>              for {
+</span>136 <span style=''></span><span style='background: #AEF1AE'>                exprFunc &lt;- exprGroup
+</span>137 <span style=''></span><span style='background: #AEF1AE'>              } yield {
+</span>138 <span style=''></span><span style='background: #AEF1AE'>                val exprFuncName = ctx.freshName(prefix + &quot;GEFuncGroup&quot;)
+</span>139 <span style=''></span><span style='background: #AEF1AE'>
+</span>140 <span style=''></span><span style='background: #AEF1AE'>                val groupCalls =
+</span>141 <span style=''></span><span style='background: #AEF1AE'>                  exprFunc.map {
+</span>142 <span style=''></span><span style='background: #AEF1AE'>                    group =&gt;
+</span>143 <span style=''></span><span style='background: #AEF1AE'>                      // group the group, there is no sub expression usage for common
+</span>144 <span style=''></span><span style='background: #AEF1AE'>                      val funNames =
+</span>145 <span style=''></span><span style='background: #AEF1AE'>                        simpleGrouper(ctx, group.triggers.map(t =&gt; (t, map(t))), variablesPerFunc,
+</span>146 <span style=''></span><span style='background: #AEF1AE'>                          variableFuncGroup, paramsDef, paramsCall, prefix, exprEnd, exprFunEnd, extraConfig)._1
+</span>147 <span style=''></span><span style='background: #AEF1AE'>
+</span>148 <span style=''></span><span style='background: #AEF1AE'>                      val eval = group.groupFilter.genCode(ctx)
+</span>149 <span style=''></span><span style='background: #AEF1AE'>                      code&quot;&quot;&quot;
+</span>150 <span style=''></span><span style='background: #AEF1AE'>                      ${exprEnd()}\n
+</span>151 <span style=''></span><span style='background: #AEF1AE'>                      ${eval.code}
+</span>152 <span style=''></span><span style='background: #AEF1AE'>                      if ((!${eval.isNull}) &amp;&amp; ${eval.value}  ) {
+</span>153 <span style=''></span><span style='background: #AEF1AE'>                        ${funNames.map { f =&gt; s&quot;$f($paramsCall);&quot; }.mkString(&quot;\n&quot;)}
+</span>154 <span style=''></span><span style='background: #AEF1AE'>                      }
+</span>155 <span style=''></span><span style='background: #AEF1AE'>                    &quot;&quot;&quot;
+</span>156 <span style=''></span><span style='background: #AEF1AE'>                  }
+</span>157 <span style=''></span><span style='background: #AEF1AE'>
+</span>158 <span style=''></span><span style='background: #AEF1AE'>                ctx.addNewFunction(exprFuncName,
+</span>159 <span style=''></span><span style='background: #AEF1AE'>                  code&quot;&quot;&quot;
+</span>160 <span style=''></span><span style='background: #AEF1AE'>   private void $exprFuncName($paramsDef) {
+</span>161 <span style=''></span><span style='background: #AEF1AE'>     ${groupCalls.mkString(s&quot;\n&quot;)}
+</span>162 <span style=''></span><span style='background: #AEF1AE'>   }
+</span>163 <span style=''></span><span style='background: #AEF1AE'>  &quot;&quot;&quot;.code
+</span>164 <span style=''></span><span style='background: #AEF1AE'>                )
+</span>165 <span style=''></span><span style='background: #AEF1AE'>              }
+</span>166 <span style=''></span><span style='background: #AEF1AE'>
+</span>167 <span style=''></span><span style='background: #AEF1AE'>            code&quot;&quot;&quot;
+</span>168 <span style=''></span><span style='background: #AEF1AE'>   private void $groupName($paramsDef) {
+</span>169 <span style=''></span><span style='background: #AEF1AE'>     ${exprFunEnd()}
+</span>170 <span style=''></span><span style='background: #AEF1AE'>     ${funNames.map { f =&gt; s&quot;$f($paramsCall);&quot; }.mkString(s&quot;${exprFunEnd()}\n&quot;)}
+</span>171 <span style=''></span><span style='background: #AEF1AE'>   }
+</span>172 <span style=''></span><span style='background: #AEF1AE'>   &quot;&quot;&quot;.code
+</span>173 <span style=''></span><span style='background: #AEF1AE'>
+</span>174 <span style=''></span><span style='background: #AEF1AE'>          })
+</span>175 <span style=''></span><span style='background: #AEF1AE'>        }</span><span style=''>
+</span>176 <span style=''>      val s = </span><span style='background: #AEF1AE'>funNames.toSeq</span><span style=''>
+</span>177 <span style=''>      </span><span style='background: #AEF1AE'>s.iterator</span><span style=''>
+</span>178 <span style=''>    }
+</span>179 <span style=''>
+</span>180 <span style=''>    if (</span><span style='background: #AEF1AE'>ctx.currentVars eq null</span><span style=''>) </span><span style='background: #F0ADAD'>{
+</span>181 <span style=''></span><span style='background: #F0ADAD'>      // only fails on &quot;via ProcessFactory with Avro inputs&quot; RowToRowTest shows it doesn't always work for projections
+</span>182 <span style=''></span><span style='background: #F0ADAD'>
+</span>183 <span style=''></span><span style='background: #F0ADAD'>      val subExpressionCode = QualityCodeGenUtils.nonWholeStageSubexpressionElimination(ctx, groupExprs)
+</span>184 <span style=''></span><span style='background: #F0ADAD'>
+</span>185 <span style=''></span><span style='background: #F0ADAD'>      (builder, subExpressionCode)
+</span>186 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''> else </span><span style='background: #AEF1AE'>{
+</span>187 <span style=''></span><span style='background: #AEF1AE'>      // hopefully doesn't generate again
+</span>188 <span style=''></span><span style='background: #AEF1AE'>      val subExprs = ctx.subexpressionEliminationForWholeStageCodegen(groupExprs ++
+</span>189 <span style=''></span><span style='background: #AEF1AE'>        QualityExprUtils.currentSubExprState(ctx).map(_._1.e))
+</span>190 <span style=''></span><span style='background: #AEF1AE'>      val subExpressionCode = QualityExprUtils.evaluateSubExprEliminationState(ctx, subExprs)
+</span>191 <span style=''></span><span style='background: #AEF1AE'>
+</span>192 <span style=''></span><span style='background: #AEF1AE'>      (QualityCodeGenUtils.withSubExprEliminationExprs(ctx, subExprs.states) {
+</span>193 <span style=''></span><span style='background: #AEF1AE'>        builder
+</span>194 <span style=''></span><span style='background: #AEF1AE'>      }, subExpressionCode)
+</span>195 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>196 <span style=''>  }
+</span>197 <span style=''>
+</span>198 <span style=''>  override def dumpAudit(runner: HasOutput): Unit = {
+</span>199 <span style=''>    </span><span style='background: #F0ADAD'>TopLevelBooleanSuiteBuilder.build(runner)</span><span style=''>
+</span>200 <span style=''>  }
+</span>201 <span style=''>
+</span>202 <span style=''>}
+</span>203 <span style=''>
+</span>204 <span style=''>object Triggers {
+</span>205 <span style=''>
+</span>206 <span style=''>  def getValue(key: String, extraConfig: Map[String, String], default: String): String =
+</span>207 <span style=''>    </span><span style='background: #AEF1AE'>extraConfig.get(key).orElse(
+</span>208 <span style=''></span><span style='background: #AEF1AE'>      Option(getConfig(key, default = null))
+</span>209 <span style=''></span><span style='background: #AEF1AE'>    ).getOrElse(default)</span><span style=''>
+</span>210 <span style=''>
+</span>211 <span style=''>  def loadTriggerGrouper(extraConfig: Map[String, String]): TriggerGrouper = {
+</span>212 <span style=''>    val name = </span><span style='background: #AEF1AE'>getValue(groupProcessorKey, extraConfig, classOf[DefaultTriggerGrouper].getName)</span><span style=''>
+</span>213 <span style=''>
+</span>214 <span style=''>    val impl =
+</span>215 <span style=''>      try {
+</span>216 <span style=''>        </span><span style='background: #AEF1AE'>Class.forName(name, false, getContextOrSparkClassLoader).newInstance().asInstanceOf[TriggerGrouper]</span><span style=''>
+</span>217 <span style=''>      } catch {
+</span>218 <span style=''>        case t: Throwable =&gt; </span><span style='background: #F0ADAD'>throw QualityException(s&quot;Could not load TriggerGrouper of name $name&quot;, t)</span><span style=''>
+</span>219 <span style=''>      }
+</span>220 <span style=''>    impl
+</span>221 <span style=''>  }
+</span>222 <span style=''>
+</span>223 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          7162
+        </td>
+        <td>
+          1808
+          -
+          2071
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.TriggerGrouper.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          TriggerGrouper.this.apply((ctx: org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext), (expressions: Seq[(com.sparkutils.quality.impl.Trigger, org.apache.spark.sql.catalyst.expressions.codegen.Block)]), (variablesPerFunc: Int), (variableFuncGroup: Int), (paramsDef: String), (paramsCall: String), &quot;ruleRunner&quot;, (() =&gt; org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;&quot;)).code()), (() =&gt; org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;&quot;)).code()), scala.Predef.Map.empty[String, Nothing])
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          7158
+        </td>
+        <td>
+          1985
+          -
+          1997
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;ruleRunner&quot;
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          7159
+        </td>
+        <td>
+          2015
+          -
+          2021
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper.code
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;&quot;)).code()
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          7160
+        </td>
+        <td>
+          2048
+          -
+          2054
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper.code
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;&quot;)).code()
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          7161
+        </td>
+        <td>
+          2056
+          -
+          2065
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Map.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.Map.empty[String, Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          7163
+        </td>
+        <td>
+          3506
+          -
+          3580
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.Iterator.grouped
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          expressions.map[org.apache.spark.sql.catalyst.expressions.codegen.Block](((x$1: (com.sparkutils.quality.impl.Trigger, org.apache.spark.sql.catalyst.expressions.codegen.Block)) =&gt; x$1._2)).grouped(variablesPerFunc).grouped[Seq[org.apache.spark.sql.catalyst.expressions.codegen.Block]](variableFuncGroup)
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          7177
+        </td>
+        <td>
+          3607
+          -
+          4289
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.Iterator.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          allExpr.map[String](((exprGroup: Seq[Seq[org.apache.spark.sql.catalyst.expressions.codegen.Block]]) =&gt; {
+  val groupName: String = ctx.freshName(prefix.+(&quot;EGroup&quot;));
+  ctx.addNewFunction(groupName, {
+    val funNames: Seq[String] = exprGroup.map[String](((exprFunc: Seq[org.apache.spark.sql.catalyst.expressions.codegen.Block]) =&gt; {
+      val exprFuncName: String = ctx.freshName(prefix.+(&quot;EFuncGroup&quot;));
+      ctx.addNewFunction(exprFuncName, org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n   private void &quot;, &quot;(&quot;, &quot;) {\n     &quot;, &quot;\n   }\n  &quot;)).code(exprFuncName, paramsDef, exprFunc.mkString(&quot;&quot;.+(exprEnd.apply()).+(&quot;\n&quot;))).code, ctx.addNewFunction$default$3)
+    }));
+    org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n   private void &quot;, &quot;(&quot;, &quot;) {\n     &quot;, &quot;\n   }\n   &quot;)).code(groupName, paramsDef, funNames.map[String](((f: String) =&gt; &quot;&quot;.+(f).+(&quot;(&quot;).+(paramsCall).+(&quot;);&quot;))).mkString(&quot;&quot;.+(exprFunEnd.apply()).+(&quot;\n&quot;))).code
+  }, ctx.addNewFunction$default$3)
+}))
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          7164
+        </td>
+        <td>
+          3680
+          -
+          3695
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          prefix.+(&quot;EGroup&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          7165
+        </td>
+        <td>
+          3666
+          -
+          3696
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.freshName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.freshName(prefix.+(&quot;EGroup&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          7176
+        </td>
+        <td>
+          3705
+          -
+          4281
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.addNewFunction
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.addNewFunction(groupName, {
+  val funNames: Seq[String] = exprGroup.map[String](((exprFunc: Seq[org.apache.spark.sql.catalyst.expressions.codegen.Block]) =&gt; {
+    val exprFuncName: String = ctx.freshName(prefix.+(&quot;EFuncGroup&quot;));
+    ctx.addNewFunction(exprFuncName, org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n   private void &quot;, &quot;(&quot;, &quot;) {\n     &quot;, &quot;\n   }\n  &quot;)).code(exprFuncName, paramsDef, exprFunc.mkString(&quot;&quot;.+(exprEnd.apply()).+(&quot;\n&quot;))).code, ctx.addNewFunction$default$3)
+  }));
+  org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n   private void &quot;, &quot;(&quot;, &quot;) {\n     &quot;, &quot;\n   }\n   &quot;)).code(groupName, paramsDef, funNames.map[String](((f: String) =&gt; &quot;&quot;.+(f).+(&quot;(&quot;).+(paramsCall).+(&quot;);&quot;))).mkString(&quot;&quot;.+(exprFunEnd.apply()).+(&quot;\n&quot;))).code
+}, ctx.addNewFunction$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          7172
+        </td>
+        <td>
+          3774
+          -
+          4111
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOps.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          exprGroup.map[String](((exprFunc: Seq[org.apache.spark.sql.catalyst.expressions.codegen.Block]) =&gt; {
+  val exprFuncName: String = ctx.freshName(prefix.+(&quot;EFuncGroup&quot;));
+  ctx.addNewFunction(exprFuncName, org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n   private void &quot;, &quot;(&quot;, &quot;) {\n     &quot;, &quot;\n   }\n  &quot;)).code(exprFuncName, paramsDef, exprFunc.mkString(&quot;&quot;.+(exprEnd.apply()).+(&quot;\n&quot;))).code, ctx.addNewFunction$default$3)
+}))
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          7166
+        </td>
+        <td>
+          3885
+          -
+          3904
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          prefix.+(&quot;EFuncGroup&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          7167
+        </td>
+        <td>
+          3871
+          -
+          3905
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.freshName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.freshName(prefix.+(&quot;EFuncGroup&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          7171
+        </td>
+        <td>
+          3920
+          -
+          4097
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.addNewFunction
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.addNewFunction(exprFuncName, org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n   private void &quot;, &quot;(&quot;, &quot;) {\n     &quot;, &quot;\n   }\n  &quot;)).code(exprFuncName, paramsDef, exprFunc.mkString(&quot;&quot;.+(exprEnd.apply()).+(&quot;\n&quot;))).code, ctx.addNewFunction$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          7168
+        </td>
+        <td>
+          3969
+          -
+          4076
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;\n   private void &quot;, &quot;(&quot;, &quot;) {\n     &quot;, &quot;\n   }\n  &quot;)
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          7169
+        </td>
+        <td>
+          4028
+          -
+          4064
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.mkString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          exprFunc.mkString(&quot;&quot;.+(exprEnd.apply()).+(&quot;\n&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          7170
+        </td>
+        <td>
+          3969
+          -
+          4081
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.code
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n   private void &quot;, &quot;(&quot;, &quot;) {\n     &quot;, &quot;\n   }\n  &quot;)).code(exprFuncName, paramsDef, exprFunc.mkString(&quot;&quot;.+(exprEnd.apply()).+(&quot;\n&quot;))).code
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          7173
+        </td>
+        <td>
+          4123
+          -
+          4264
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;\n   private void &quot;, &quot;(&quot;, &quot;) {\n     &quot;, &quot;\n   }\n   &quot;)
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          7174
+        </td>
+        <td>
+          4179
+          -
+          4251
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.mkString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          funNames.map[String](((f: String) =&gt; &quot;&quot;.+(f).+(&quot;(&quot;).+(paramsCall).+(&quot;);&quot;))).mkString(&quot;&quot;.+(exprFunEnd.apply()).+(&quot;\n&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          7175
+        </td>
+        <td>
+          4123
+          -
+          4269
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.code
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n   private void &quot;, &quot;(&quot;, &quot;) {\n     &quot;, &quot;\n   }\n   &quot;)).code(groupName, paramsDef, funNames.map[String](((f: String) =&gt; &quot;&quot;.+(f).+(&quot;(&quot;).+(paramsCall).+(&quot;);&quot;))).mkString(&quot;&quot;.+(exprFunEnd.apply()).+(&quot;\n&quot;))).code
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          7178
+        </td>
+        <td>
+          4294
+          -
+          4308
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[Iterator[String], String](funNames, &quot;&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          7179
+        </td>
+        <td>
+          4357
+          -
+          4359
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          116
+        </td>
+        <td>
+          7180
+        </td>
+        <td>
+          5186
+          -
+          5285
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Try.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.util.Try.apply[Int](scala.Predef.augmentString(Triggers.getValue(com.sparkutils.quality.`package`.groupProcessorBucketSizeKey, extraConfig, &quot;130&quot;)).toInt).getOrElse[Int](130)
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          7181
+        </td>
+        <td>
+          5317
+          -
+          5421
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Try.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.util.Try.apply[Double](scala.Predef.augmentString(Triggers.getValue(com.sparkutils.quality.`package`.groupProcessorPercentFilter, extraConfig, &quot;0.12&quot;)).toDouble).getOrElse[Double](0.12)
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          7182
+        </td>
+        <td>
+          5449
+          -
+          5449
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.&lt;:&lt;.refl
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.&lt;:&lt;.refl[(com.sparkutils.quality.impl.Trigger, org.apache.spark.sql.catalyst.expressions.codegen.Block)]
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          7183
+        </td>
+        <td>
+          5437
+          -
+          5454
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.toMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          expressions.toMap[com.sparkutils.quality.impl.Trigger, org.apache.spark.sql.catalyst.expressions.codegen.Block](scala.this.&lt;:&lt;.refl[(com.sparkutils.quality.impl.Trigger, org.apache.spark.sql.catalyst.expressions.codegen.Block)])
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          7184
+        </td>
+        <td>
+          5512
+          -
+          5516
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$2._1
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          7185
+        </td>
+        <td>
+          5496
+          -
+          5517
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOps.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          expressions.map[com.sparkutils.quality.impl.Trigger](((x$2: (com.sparkutils.quality.impl.Trigger, org.apache.spark.sql.catalyst.expressions.codegen.Block)) =&gt; x$2._1))
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          7186
+        </td>
+        <td>
+          5473
+          -
+          5554
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.TopLevelBoolean.bucket
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.TopLevelBoolean.bucket(expressions.map[com.sparkutils.quality.impl.Trigger](((x$2: (com.sparkutils.quality.impl.Trigger, org.apache.spark.sql.catalyst.expressions.codegen.Block)) =&gt; x$2._1)), targetBucket, triggerPercentFilter)
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          7187
+        </td>
+        <td>
+          5579
+          -
+          5602
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.DefaultTriggerGrouper.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          DefaultTriggerGrouper.apply()
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          7188
+        </td>
+        <td>
+          5636
+          -
+          5649
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.Group.groupFilter
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$3.groupFilter
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          7189
+        </td>
+        <td>
+          5625
+          -
+          5650
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOps.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          groups.map[org.apache.spark.sql.catalyst.expressions.Expression](((x$3: com.sparkutils.quality.impl.Group) =&gt; x$3.groupFilter))
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          7190
+        </td>
+        <td>
+          5692
+          -
+          5751
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.Iterator.grouped
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          groups.grouped(variablesPerFunc).grouped[Seq[com.sparkutils.quality.impl.Group]](variableFuncGroup)
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          7218
+        </td>
+        <td>
+          5782
+          -
+          7326
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.Iterator.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          grouped.map[String](((exprGroup: Seq[Seq[com.sparkutils.quality.impl.Group]]) =&gt; {
+  val groupName: String = ctx.freshName(prefix.+(&quot;GEGroup&quot;));
+  ctx.addNewFunction(groupName, {
+    val funNames: Seq[String] = exprGroup.map[String](((exprFunc: Seq[com.sparkutils.quality.impl.Group]) =&gt; {
+      val exprFuncName: String = ctx.freshName(prefix.+(&quot;GEFuncGroup&quot;));
+      val groupCalls: Seq[org.apache.spark.sql.catalyst.expressions.codegen.Block] = exprFunc.map[org.apache.spark.sql.catalyst.expressions.codegen.Block](((group: com.sparkutils.quality.impl.Group) =&gt; {
+        val funNames: Iterator[String] = simpleGrouper.apply(ctx, group.triggers.map[(com.sparkutils.quality.impl.Trigger, org.apache.spark.sql.catalyst.expressions.codegen.Block)](((t: com.sparkutils.quality.impl.Trigger) =&gt; scala.Tuple2.apply[com.sparkutils.quality.impl.Trigger, org.apache.spark.sql.catalyst.expressions.codegen.Block](t, map.apply(t)))), variablesPerFunc, variableFuncGroup, paramsDef, paramsCall, prefix, exprEnd, exprFunEnd, extraConfig)._1;
+        val eval: org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = group.groupFilter.genCode(ctx);
+        org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n                      &quot;, &quot;\\n\n                      &quot;, &quot;\n                      if ((!&quot;, &quot;) &amp;&amp; &quot;, &quot;  ) {\n                        &quot;, &quot;\n                      }\n                    &quot;)).code(exprEnd.apply(), eval.code, eval.isNull, eval.value, funNames.map[String](((f: String) =&gt; &quot;&quot;.+(f).+(&quot;(&quot;).+(paramsCall).+(&quot;);&quot;))).mkString(&quot;\n&quot;))
+      }));
+      ctx.addNewFunction(exprFuncName, org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n   private void &quot;, &quot;(&quot;, &quot;) {\n     &quot;, &quot;\n   }\n  &quot;)).code(exprFuncName, paramsDef, groupCalls.mkString(&quot;\n&quot;)).code, ctx.addNewFunction$default$3)
+    }));
+    org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n   private void &quot;, &quot;(&quot;, &quot;) {\n     &quot;, &quot;\n     &quot;, &quot;\n   }\n   &quot;)).code(groupName, paramsDef, exprFunEnd.apply(), funNames.map[String](((f: String) =&gt; &quot;&quot;.+(f).+(&quot;(&quot;).+(paramsCall).+(&quot;);&quot;))).mkString(&quot;&quot;.+(exprFunEnd.apply()).+(&quot;\n&quot;))).code
+  }, ctx.addNewFunction$default$3)
+}))
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          7191
+        </td>
+        <td>
+          5857
+          -
+          5875
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          prefix.+(&quot;GEGroup&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          7192
+        </td>
+        <td>
+          5843
+          -
+          5876
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.freshName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.freshName(prefix.+(&quot;GEGroup&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          7217
+        </td>
+        <td>
+          5887
+          -
+          7316
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.addNewFunction
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.addNewFunction(groupName, {
+  val funNames: Seq[String] = exprGroup.map[String](((exprFunc: Seq[com.sparkutils.quality.impl.Group]) =&gt; {
+    val exprFuncName: String = ctx.freshName(prefix.+(&quot;GEFuncGroup&quot;));
+    val groupCalls: Seq[org.apache.spark.sql.catalyst.expressions.codegen.Block] = exprFunc.map[org.apache.spark.sql.catalyst.expressions.codegen.Block](((group: com.sparkutils.quality.impl.Group) =&gt; {
+      val funNames: Iterator[String] = simpleGrouper.apply(ctx, group.triggers.map[(com.sparkutils.quality.impl.Trigger, org.apache.spark.sql.catalyst.expressions.codegen.Block)](((t: com.sparkutils.quality.impl.Trigger) =&gt; scala.Tuple2.apply[com.sparkutils.quality.impl.Trigger, org.apache.spark.sql.catalyst.expressions.codegen.Block](t, map.apply(t)))), variablesPerFunc, variableFuncGroup, paramsDef, paramsCall, prefix, exprEnd, exprFunEnd, extraConfig)._1;
+      val eval: org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = group.groupFilter.genCode(ctx);
+      org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n                      &quot;, &quot;\\n\n                      &quot;, &quot;\n                      if ((!&quot;, &quot;) &amp;&amp; &quot;, &quot;  ) {\n                        &quot;, &quot;\n                      }\n                    &quot;)).code(exprEnd.apply(), eval.code, eval.isNull, eval.value, funNames.map[String](((f: String) =&gt; &quot;&quot;.+(f).+(&quot;(&quot;).+(paramsCall).+(&quot;);&quot;))).mkString(&quot;\n&quot;))
+    }));
+    ctx.addNewFunction(exprFuncName, org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n   private void &quot;, &quot;(&quot;, &quot;) {\n     &quot;, &quot;\n   }\n  &quot;)).code(exprFuncName, paramsDef, groupCalls.mkString(&quot;\n&quot;)).code, ctx.addNewFunction$default$3)
+  }));
+  org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n   private void &quot;, &quot;(&quot;, &quot;) {\n     &quot;, &quot;\n     &quot;, &quot;\n   }\n   &quot;)).code(groupName, paramsDef, exprFunEnd.apply(), funNames.map[String](((f: String) =&gt; &quot;&quot;.+(f).+(&quot;(&quot;).+(paramsCall).+(&quot;);&quot;))).mkString(&quot;&quot;.+(exprFunEnd.apply()).+(&quot;\n&quot;))).code
+}, ctx.addNewFunction$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          7212
+        </td>
+        <td>
+          5960
+          -
+          7121
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOps.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          exprGroup.map[String](((exprFunc: Seq[com.sparkutils.quality.impl.Group]) =&gt; {
+  val exprFuncName: String = ctx.freshName(prefix.+(&quot;GEFuncGroup&quot;));
+  val groupCalls: Seq[org.apache.spark.sql.catalyst.expressions.codegen.Block] = exprFunc.map[org.apache.spark.sql.catalyst.expressions.codegen.Block](((group: com.sparkutils.quality.impl.Group) =&gt; {
+    val funNames: Iterator[String] = simpleGrouper.apply(ctx, group.triggers.map[(com.sparkutils.quality.impl.Trigger, org.apache.spark.sql.catalyst.expressions.codegen.Block)](((t: com.sparkutils.quality.impl.Trigger) =&gt; scala.Tuple2.apply[com.sparkutils.quality.impl.Trigger, org.apache.spark.sql.catalyst.expressions.codegen.Block](t, map.apply(t)))), variablesPerFunc, variableFuncGroup, paramsDef, paramsCall, prefix, exprEnd, exprFunEnd, extraConfig)._1;
+    val eval: org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = group.groupFilter.genCode(ctx);
+    org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n                      &quot;, &quot;\\n\n                      &quot;, &quot;\n                      if ((!&quot;, &quot;) &amp;&amp; &quot;, &quot;  ) {\n                        &quot;, &quot;\n                      }\n                    &quot;)).code(exprEnd.apply(), eval.code, eval.isNull, eval.value, funNames.map[String](((f: String) =&gt; &quot;&quot;.+(f).+(&quot;(&quot;).+(paramsCall).+(&quot;);&quot;))).mkString(&quot;\n&quot;))
+  }));
+  ctx.addNewFunction(exprFuncName, org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n   private void &quot;, &quot;(&quot;, &quot;) {\n     &quot;, &quot;\n   }\n  &quot;)).code(exprFuncName, paramsDef, groupCalls.mkString(&quot;\n&quot;)).code, ctx.addNewFunction$default$3)
+}))
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          7193
+        </td>
+        <td>
+          6077
+          -
+          6099
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          prefix.+(&quot;GEFuncGroup&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          7194
+        </td>
+        <td>
+          6063
+          -
+          6100
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.freshName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.freshName(prefix.+(&quot;GEFuncGroup&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          7207
+        </td>
+        <td>
+          6153
+          -
+          6916
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOps.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          exprFunc.map[org.apache.spark.sql.catalyst.expressions.codegen.Block](((group: com.sparkutils.quality.impl.Group) =&gt; {
+  val funNames: Iterator[String] = simpleGrouper.apply(ctx, group.triggers.map[(com.sparkutils.quality.impl.Trigger, org.apache.spark.sql.catalyst.expressions.codegen.Block)](((t: com.sparkutils.quality.impl.Trigger) =&gt; scala.Tuple2.apply[com.sparkutils.quality.impl.Trigger, org.apache.spark.sql.catalyst.expressions.codegen.Block](t, map.apply(t)))), variablesPerFunc, variableFuncGroup, paramsDef, paramsCall, prefix, exprEnd, exprFunEnd, extraConfig)._1;
+  val eval: org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = group.groupFilter.genCode(ctx);
+  org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n                      &quot;, &quot;\\n\n                      &quot;, &quot;\n                      if ((!&quot;, &quot;) &amp;&amp; &quot;, &quot;  ) {\n                        &quot;, &quot;\n                      }\n                    &quot;)).code(exprEnd.apply(), eval.code, eval.isNull, eval.value, funNames.map[String](((f: String) =&gt; &quot;&quot;.+(f).+(&quot;(&quot;).+(paramsCall).+(&quot;);&quot;))).mkString(&quot;\n&quot;))
+}))
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          7195
+        </td>
+        <td>
+          6391
+          -
+          6397
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapOps.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          map.apply(t)
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          7196
+        </td>
+        <td>
+          6387
+          -
+          6398
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[com.sparkutils.quality.impl.Trigger, org.apache.spark.sql.catalyst.expressions.codegen.Block](t, map.apply(t))
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          7197
+        </td>
+        <td>
+          6363
+          -
+          6399
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOps.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          group.triggers.map[(com.sparkutils.quality.impl.Trigger, org.apache.spark.sql.catalyst.expressions.codegen.Block)](((t: com.sparkutils.quality.impl.Trigger) =&gt; scala.Tuple2.apply[com.sparkutils.quality.impl.Trigger, org.apache.spark.sql.catalyst.expressions.codegen.Block](t, map.apply(t))))
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          7198
+        </td>
+        <td>
+          6344
+          -
+          6531
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          simpleGrouper.apply(ctx, group.triggers.map[(com.sparkutils.quality.impl.Trigger, org.apache.spark.sql.catalyst.expressions.codegen.Block)](((t: com.sparkutils.quality.impl.Trigger) =&gt; scala.Tuple2.apply[com.sparkutils.quality.impl.Trigger, org.apache.spark.sql.catalyst.expressions.codegen.Block](t, map.apply(t)))), variablesPerFunc, variableFuncGroup, paramsDef, paramsCall, prefix, exprEnd, exprFunEnd, extraConfig)._1
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          7199
+        </td>
+        <td>
+          6566
+          -
+          6596
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.genCode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          group.groupFilter.genCode(ctx)
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          7200
+        </td>
+        <td>
+          6619
+          -
+          6896
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;\n                      &quot;, &quot;\\n\n                      &quot;, &quot;\n                      if ((!&quot;, &quot;) &amp;&amp; &quot;, &quot;  ) {\n                        &quot;, &quot;\n                      }\n                    &quot;)
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          7206
+        </td>
+        <td>
+          6619
+          -
+          6896
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper.code
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n                      &quot;, &quot;\\n\n                      &quot;, &quot;\n                      if ((!&quot;, &quot;) &amp;&amp; &quot;, &quot;  ) {\n                        &quot;, &quot;\n                      }\n                    &quot;)).code(exprEnd.apply(), eval.code, eval.isNull, eval.value, funNames.map[String](((f: String) =&gt; &quot;&quot;.+(f).+(&quot;(&quot;).+(paramsCall).+(&quot;);&quot;))).mkString(&quot;\n&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          7201
+        </td>
+        <td>
+          6651
+          -
+          6660
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function0.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          exprEnd.apply()
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          7202
+        </td>
+        <td>
+          6688
+          -
+          6697
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.code
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          eval.code
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          7203
+        </td>
+        <td>
+          6729
+          -
+          6740
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.isNull
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          eval.isNull
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          7204
+        </td>
+        <td>
+          6748
+          -
+          6758
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.ExprCode.value
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          eval.value
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          7205
+        </td>
+        <td>
+          6791
+          -
+          6847
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.mkString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          funNames.map[String](((f: String) =&gt; &quot;&quot;.+(f).+(&quot;(&quot;).+(paramsCall).+(&quot;);&quot;))).mkString(&quot;\n&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          7211
+        </td>
+        <td>
+          6934
+          -
+          7105
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.addNewFunction
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.addNewFunction(exprFuncName, org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n   private void &quot;, &quot;(&quot;, &quot;) {\n     &quot;, &quot;\n   }\n  &quot;)).code(exprFuncName, paramsDef, groupCalls.mkString(&quot;\n&quot;)).code, ctx.addNewFunction$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          7208
+        </td>
+        <td>
+          6985
+          -
+          7082
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;\n   private void &quot;, &quot;(&quot;, &quot;) {\n     &quot;, &quot;\n   }\n  &quot;)
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          7209
+        </td>
+        <td>
+          7044
+          -
+          7070
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.mkString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          groupCalls.mkString(&quot;\n&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          163
+        </td>
+        <td>
+          7210
+        </td>
+        <td>
+          6985
+          -
+          7087
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.code
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n   private void &quot;, &quot;(&quot;, &quot;) {\n     &quot;, &quot;\n   }\n  &quot;)).code(exprFuncName, paramsDef, groupCalls.mkString(&quot;\n&quot;)).code
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          7213
+        </td>
+        <td>
+          7135
+          -
+          7297
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;\n   private void &quot;, &quot;(&quot;, &quot;) {\n     &quot;, &quot;\n     &quot;, &quot;\n   }\n   &quot;)
+        </td>
+      </tr><tr>
+        <td>
+          169
+        </td>
+        <td>
+          7214
+        </td>
+        <td>
+          7191
+          -
+          7203
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function0.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          exprFunEnd.apply()
+        </td>
+      </tr><tr>
+        <td>
+          170
+        </td>
+        <td>
+          7215
+        </td>
+        <td>
+          7212
+          -
+          7284
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.mkString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          funNames.map[String](((f: String) =&gt; &quot;&quot;.+(f).+(&quot;(&quot;).+(paramsCall).+(&quot;);&quot;))).mkString(&quot;&quot;.+(exprFunEnd.apply()).+(&quot;\n&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          7216
+        </td>
+        <td>
+          7135
+          -
+          7302
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.code
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper(scala.StringContext.apply(&quot;\n   private void &quot;, &quot;(&quot;, &quot;) {\n     &quot;, &quot;\n     &quot;, &quot;\n   }\n   &quot;)).code(groupName, paramsDef, exprFunEnd.apply(), funNames.map[String](((f: String) =&gt; &quot;&quot;.+(f).+(&quot;(&quot;).+(paramsCall).+(&quot;);&quot;))).mkString(&quot;&quot;.+(exprFunEnd.apply()).+(&quot;\n&quot;))).code
+        </td>
+      </tr><tr>
+        <td>
+          176
+        </td>
+        <td>
+          7219
+        </td>
+        <td>
+          7341
+          -
+          7355
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.toSeq
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          funNames.toSeq
+        </td>
+      </tr><tr>
+        <td>
+          177
+        </td>
+        <td>
+          7220
+        </td>
+        <td>
+          7362
+          -
+          7372
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IterableOnce.iterator
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          s.iterator
+        </td>
+      </tr><tr>
+        <td>
+          180
+        </td>
+        <td>
+          7221
+        </td>
+        <td>
+          7388
+          -
+          7411
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.eq
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.currentVars.eq(null)
+        </td>
+      </tr><tr>
+        <td>
+          180
+        </td>
+        <td>
+          7224
+        </td>
+        <td>
+          7413
+          -
+          7681
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val subExpressionCode: String = org.apache.spark.sql.catalyst.expressions.codegen.QualityCodeGenUtils.nonWholeStageSubexpressionElimination(ctx, groupExprs);
+  scala.Tuple2.apply[Iterator[String], String](builder, subExpressionCode)
+}
+        </td>
+      </tr><tr>
+        <td>
+          183
+        </td>
+        <td>
+          7222
+        </td>
+        <td>
+          7565
+          -
+          7639
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.QualityCodeGenUtils.nonWholeStageSubexpressionElimination
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.catalyst.expressions.codegen.QualityCodeGenUtils.nonWholeStageSubexpressionElimination(ctx, groupExprs)
+        </td>
+      </tr><tr>
+        <td>
+          185
+        </td>
+        <td>
+          7223
+        </td>
+        <td>
+          7647
+          -
+          7675
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Tuple2.apply[Iterator[String], String](builder, subExpressionCode)
+        </td>
+      </tr><tr>
+        <td>
+          186
+        </td>
+        <td>
+          7232
+        </td>
+        <td>
+          7687
+          -
+          8101
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val subExprs: org.apache.spark.sql.catalyst.expressions.codegen.SubExprCodes = ctx.subexpressionEliminationForWholeStageCodegen(groupExprs.++[org.apache.spark.sql.catalyst.expressions.Expression](org.apache.spark.sql.catalyst.expressions.codegen.QualityExprUtils.currentSubExprState(ctx).map[org.apache.spark.sql.catalyst.expressions.Expression](((x$4: (org.apache.spark.sql.catalyst.expressions.codegen.QualityExprUtils.ExprEquals, org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState)) =&gt; x$4._1.e))));
+  val subExpressionCode: String = org.apache.spark.sql.catalyst.expressions.codegen.QualityExprUtils.evaluateSubExprEliminationState(ctx, subExprs);
+  scala.Tuple2.apply[Iterator[String], String](org.apache.spark.sql.catalyst.expressions.codegen.QualityCodeGenUtils.withSubExprEliminationExprs[Iterator[String]](ctx, subExprs.states)(builder), subExpressionCode)
+}
+        </td>
+      </tr><tr>
+        <td>
+          188
+        </td>
+        <td>
+          7227
+        </td>
+        <td>
+          7801
+          -
+          7876
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOps.++
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          groupExprs.++[org.apache.spark.sql.catalyst.expressions.Expression](org.apache.spark.sql.catalyst.expressions.codegen.QualityExprUtils.currentSubExprState(ctx).map[org.apache.spark.sql.catalyst.expressions.Expression](((x$4: (org.apache.spark.sql.catalyst.expressions.codegen.QualityExprUtils.ExprEquals, org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState)) =&gt; x$4._1.e)))
+        </td>
+      </tr><tr>
+        <td>
+          188
+        </td>
+        <td>
+          7228
+        </td>
+        <td>
+          7752
+          -
+          7877
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext.subexpressionEliminationForWholeStageCodegen
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.subexpressionEliminationForWholeStageCodegen(groupExprs.++[org.apache.spark.sql.catalyst.expressions.Expression](org.apache.spark.sql.catalyst.expressions.codegen.QualityExprUtils.currentSubExprState(ctx).map[org.apache.spark.sql.catalyst.expressions.Expression](((x$4: (org.apache.spark.sql.catalyst.expressions.codegen.QualityExprUtils.ExprEquals, org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState)) =&gt; x$4._1.e))))
+        </td>
+      </tr><tr>
+        <td>
+          189
+        </td>
+        <td>
+          7225
+        </td>
+        <td>
+          7869
+          -
+          7875
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.ExpressionEquals.e
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$4._1.e
+        </td>
+      </tr><tr>
+        <td>
+          189
+        </td>
+        <td>
+          7226
+        </td>
+        <td>
+          7823
+          -
+          7876
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOps.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.codegen.QualityExprUtils.currentSubExprState(ctx).map[org.apache.spark.sql.catalyst.expressions.Expression](((x$4: (org.apache.spark.sql.catalyst.expressions.codegen.QualityExprUtils.ExprEquals, org.apache.spark.sql.catalyst.expressions.codegen.SubExprEliminationState)) =&gt; x$4._1.e))
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          7229
+        </td>
+        <td>
+          7908
+          -
+          7971
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.QualityExprUtils.evaluateSubExprEliminationState
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.codegen.QualityExprUtils.evaluateSubExprEliminationState(ctx, subExprs)
+        </td>
+      </tr><tr>
+        <td>
+          192
+        </td>
+        <td>
+          7230
+        </td>
+        <td>
+          7980
+          -
+          8075
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.codegen.QualityCodeGenUtils.withSubExprEliminationExprs
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.codegen.QualityCodeGenUtils.withSubExprEliminationExprs[Iterator[String]](ctx, subExprs.states)(builder)
+        </td>
+      </tr><tr>
+        <td>
+          192
+        </td>
+        <td>
+          7231
+        </td>
+        <td>
+          7979
+          -
+          8095
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[Iterator[String], String](org.apache.spark.sql.catalyst.expressions.codegen.QualityCodeGenUtils.withSubExprEliminationExprs[Iterator[String]](ctx, subExprs.states)(builder), subExpressionCode)
+        </td>
+      </tr><tr>
+        <td>
+          199
+        </td>
+        <td>
+          7233
+        </td>
+        <td>
+          8165
+          -
+          8206
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.TopLevelBooleanSuiteBuilder.build
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.sparkutils.quality.impl.util.TopLevelBooleanSuiteBuilder.build(runner)
+        </td>
+      </tr><tr>
+        <td>
+          209
+        </td>
+        <td>
+          7234
+        </td>
+        <td>
+          8327
+          -
+          8425
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          extraConfig.get(key).orElse[String](scala.Option.apply[String](com.sparkutils.quality.`package`.getConfig(key, null))).getOrElse[String](default)
+        </td>
+      </tr><tr>
+        <td>
+          212
+        </td>
+        <td>
+          7235
+        </td>
+        <td>
+          8530
+          -
+          8547
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.TriggerGroupingConstants.groupProcessorKey
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.`package`.groupProcessorKey
+        </td>
+      </tr><tr>
+        <td>
+          212
+        </td>
+        <td>
+          7236
+        </td>
+        <td>
+          8562
+          -
+          8600
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Class.getName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          classOf[com.sparkutils.quality.impl.DefaultTriggerGrouper].getName()
+        </td>
+      </tr><tr>
+        <td>
+          212
+        </td>
+        <td>
+          7237
+        </td>
+        <td>
+          8521
+          -
+          8601
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.Triggers.getValue
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          Triggers.this.getValue(com.sparkutils.quality.`package`.groupProcessorKey, extraConfig, classOf[com.sparkutils.quality.impl.DefaultTriggerGrouper].getName())
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          7238
+        </td>
+        <td>
+          8658
+          -
+          8663
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          7239
+        </td>
+        <td>
+          8665
+          -
+          8693
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.RuleSuiteHelpers.getContextOrSparkClassLoader
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.RuleSuiteHelpers.getContextOrSparkClassLoader
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          7240
+        </td>
+        <td>
+          8638
+          -
+          8737
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          java.lang.Class.forName(name, false, com.sparkutils.quality.impl.RuleSuiteHelpers.getContextOrSparkClassLoader).newInstance().asInstanceOf[com.sparkutils.quality.impl.TriggerGrouper]
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          7241
+        </td>
+        <td>
+          8638
+          -
+          8737
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          java.lang.Class.forName(name, false, com.sparkutils.quality.impl.RuleSuiteHelpers.getContextOrSparkClassLoader).newInstance().asInstanceOf[com.sparkutils.quality.impl.TriggerGrouper]
+        </td>
+      </tr><tr>
+        <td>
+          218
+        </td>
+        <td>
+          7242
+        </td>
+        <td>
+          8783
+          -
+          8856
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw com.sparkutils.quality.QualityException.apply(&quot;Could not load TriggerGrouper of name &quot;.+(name), t)
+        </td>
+      </tr><tr>
+        <td>
+          218
+        </td>
+        <td>
+          7243
+        </td>
+        <td>
+          8783
+          -
+          8856
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw com.sparkutils.quality.QualityException.apply(&quot;Could not load TriggerGrouper of name &quot;.+(name), t)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
