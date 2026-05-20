@@ -12,7 +12,6 @@ import org.apache.spark.sql.types.DataType
  * Cannot be used as part of the initial expression trees, but can be used to swap out a runner to reduce
  * compilation time and size.  Added as part of #129 as Databricks could not generate a 20k rulesuite, despite #131's
  * separate compilation, the common subexpressions were already too much for databricks.
- * @param realChild
  */
 case class ZeroCodeGen(child: Expression, realChild: Expression) extends UnaryExpression with Logging {
 
@@ -27,7 +26,7 @@ case class ZeroCodeGen(child: Expression, realChild: Expression) extends UnaryEx
   override def dataType: DataType = realChild.dataType
 
   protected def withNewChildInternal(newChild: Expression): Expression =
-    if (newChild.children.exists(c => c.children.exists(_.isInstanceOf[Unevaluable])))
+    if (newChild.collect(c => c.isInstanceOf[Unevaluable]).nonEmpty)
       copy(child = newChild, realChild = newChild)
     else // hopefully late enough to not be an issue to swap a nullable, the below match is a safeguard
       newChild match {
