@@ -4,10 +4,11 @@ import com.sparkutils.quality.impl.RuleRunnerUtils.packTheId
 import com.sparkutils.quality.impl.RuleSuiteHelpers.getContextOrSparkClassLoader
 import com.sparkutils.quality.impl.util.{TopLevelBoolean, TopLevelBooleanSuiteBuilder}
 import com.sparkutils.quality.{FailedInt, QualityException, RuleSuite, UnevaluatedRule, UnevaluatedRuleInt, getConfig, groupProcessorAuditKey, groupProcessorBucketSizeKey, groupProcessorKey, groupProcessorPercentFilter}
+import com.sparkutils.shim.codegen.SubExprCodeGen
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
-import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodegenContext, QualityCodeGenUtils, QualityExprUtils}
+import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodegenContext, QualityCodeGenUtils, ShimExprUtils}
 import org.apache.spark.sql.catalyst.util.ArrayBasedMapData
 
 import scala.runtime.AbstractFunction10
@@ -184,10 +185,10 @@ case class TopLevelBooleanGrouper() extends TriggerGrouper {
 
       (builder, subExpressionCode)
     } else {
-      // hopefully doesn't generate again
-      val subExprs = ctx.subexpressionEliminationForWholeStageCodegen(groupExprs ++
-        QualityExprUtils.currentSubExprState(ctx).map(s => QualityExprUtils.fromState(s._1)))
-      val subExpressionCode = QualityExprUtils.evaluateSubExprEliminationState(ctx, subExprs)
+      // will generate again, the sub exprs will be present on the projection unless ZeroCodeGen is enabled
+      val subExprs = SubExprCodeGen.subexpressionEliminationForWholeStageCodegen(ctx, groupExprs ++
+        ShimExprUtils.currentSubExprState(ctx).map(s => ShimExprUtils.fromState(s._1)))
+      val subExpressionCode = ShimExprUtils.evaluateSubExprEliminationState(ctx, subExprs)
 
       (QualityCodeGenUtils.withSubExprEliminationExprs(ctx, subExprs.states) {
         builder

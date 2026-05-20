@@ -256,7 +256,7 @@ trait RoundTripTestBase extends SharedPureConnectTests with RowTools with Matche
     val s = sparkSession
     import s.implicits._
     val rereadWithLambdas = integrateLambdas(rereadWithoutLambdas, lambdas)
-    val rereadWithRSOutput = integrateRuleSuites(rereadWithLambdas, readRuleSuitesFromDF(Seq(rsr).toDS))
+    val rereadWithRSOutput = integrateRuleSuites(rereadWithLambdas, readRuleSuitesFromDF(Seq(rsr).toDS()))
     val (reread, missingOutputExpressions) = integrateOutputExpressions(rereadWithRSOutput, outputExpressions, Some(global))
 
     missingOutputExpressions.size

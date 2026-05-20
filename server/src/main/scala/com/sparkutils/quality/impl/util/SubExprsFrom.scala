@@ -1,6 +1,6 @@
 package com.sparkutils.quality.impl.util
 
-import org.apache.spark.sql.catalyst.expressions.codegen.QualityExprUtils
+import org.apache.spark.sql.catalyst.expressions.codegen.ShimExprUtils
 import org.apache.spark.sql.catalyst.expressions.{EquivalentExpressions, Expression}
 
 object SubExprsFrom {
@@ -8,9 +8,9 @@ object SubExprsFrom {
     val eq = new EquivalentExpressions
 
     expressions.foreach(e => eq.addExprTree(e))
-    val subs = QualityExprUtils.getAllEquivalentExprs(eq)
+    val subs = ShimExprUtils.getAllEquivalentExprs(eq)
 
-    QualityExprUtils.orderedByCount(subs, eq)
+    ShimExprUtils.orderedByCount(subs, eq)
   }
 
 }

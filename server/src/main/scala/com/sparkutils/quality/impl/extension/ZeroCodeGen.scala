@@ -2,11 +2,10 @@ package com.sparkutils.quality.impl.extension
 
 import com.sparkutils.quality.groupProcessorKey
 import com.sparkutils.quality.impl.{Runner, Triggers}
+import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
 import org.apache.spark.sql.catalyst.expressions.{Expression, Literal, UnaryExpression, Unevaluable}
-import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
-import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.types.DataType
 
 /**
@@ -15,7 +14,7 @@ import org.apache.spark.sql.types.DataType
  * separate compilation, the common subexpressions were already too much for databricks.
  * @param realChild
  */
-case class ZeroCodeGen(child: Expression, realChild: Expression) extends UnaryExpression {
+case class ZeroCodeGen(child: Expression, realChild: Expression) extends UnaryExpression with Logging {
 
   override def nullable: Boolean = realChild.nullable
 
@@ -30,13 +29,30 @@ case class ZeroCodeGen(child: Expression, realChild: Expression) extends UnaryEx
   override protected def withNewChildInternal(newChild: Expression): Expression =
     if (newChild.children.exists(c => c.exists(_.isInstanceOf[Unevaluable])))
       copy(child = newChild, realChild = newChild)
-    else
-      copy(child = Literal(null, newChild.dataType), realChild = newChild) // hopefully late enough to not be an issue to swap a nullable
+    else // hopefully late enough to not be an issue to swap a nullable, the below match is a safeguard
+      newChild match {
+        case Literal(null, dt) if dt == dataType =>
+          logTrace("ZeroCodeGen doesn't expect another expression optimisation after Unevaluable's are removed but got "+newChild)
+          copy(child = newChild)
+        case _ =>
+          copy(child = Literal(null, newChild.dataType), realChild = newChild)
+      }
+}
+
+object ZeroCodeGen {
+
+  def wrap(runner: Runner): Expression =
+    if (runner.children.size > 800 || Triggers.getValue(groupProcessorKey, runner.extraConfig, "").nonEmpty) {
+      val nr = runner.withZeroCode()
+      ZeroCodeGen(nr, nr)
+    } else
+      runner
+
 }
 
 /**
  * Swaps out runners with over 400 rules (800 actual expressions) or extraConfig has defined a trigger grouping
- */
+
 object ZeroCodeGenRule extends Rule[LogicalPlan] {
 
   override def apply(plan: LogicalPlan): LogicalPlan =
@@ -47,3 +63,4 @@ object ZeroCodeGenRule extends Rule[LogicalPlan] {
         ZeroCodeGen(nr, nr)
     }
 }
+ */

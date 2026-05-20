@@ -2,6 +2,7 @@ package com.sparkutils.quality.impl.imports
 
 import com.sparkutils.quality.RuleSuite
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenExpressions
+import com.sparkutils.quality.impl.extension.ZeroCodeGen
 import com.sparkutils.quality.impl.{RuleFolderRunner, RuleFolderRunnerEval, RuleLogicUtils, RuleSuiteHelpers}
 import com.sparkutils.quality.impl.util.{InputWrapper, NonPassThrough, PassThroughCompileEvals}
 import org.apache.spark.sql.ShimUtils.{column, expression}
@@ -137,7 +138,7 @@ trait ClassicRuleFolderRunnerImports {
           case PassThroughCompileEvals(child) => NonPassThrough(child)
           case child => NonPassThrough(child)
         })
-      } getOrElse runner
+      } getOrElse ZeroCodeGen.wrap(runner)
     )
   }
 }

@@ -11,6 +11,7 @@ import com.sparkutils.quality.impl.DefaultProcessorImpl.DefaultProcessorImplOps
 import com.sparkutils.quality.impl.ExpressionRuleExpr.ExpressionRuleOps
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
 import com.sparkutils.quality.impl.RunOnPassProcessorImpl.RunOnPassProcessorImplOps
+import com.sparkutils.quality.impl.extension.ZeroCodeGen
 import com.sparkutils.quality.impl.util.{NonPassThrough, ParameterInformation, PassThroughCompileEvals, PassThroughEvalOnly, SeparateCompilation}
 import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
 import org.apache.spark.sql.catalyst.InternalRow
@@ -85,7 +86,7 @@ object RuleEngineRunnerImpl {
           case PassThroughCompileEvals(child) => NonPassThrough(child)
           case child => NonPassThrough(child)
         })
-      } getOrElse runner
+      } getOrElse ZeroCodeGen.wrap(runner)
     )
   }
 }

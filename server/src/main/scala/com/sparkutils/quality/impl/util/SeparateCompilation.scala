@@ -3,9 +3,10 @@ package com.sparkutils.quality.impl.util
 import com.sparkutils.quality.VersionedId
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.CompilerTerms
 import com.sparkutils.quality.impl.{Runner, Triggers}
+import com.sparkutils.shim.codegen.SubExprCodeGen
 import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
 import org.apache.spark.sql.catalyst.expressions.Expression
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodegenContext, ExprCode, QualityCodeGenUtils, QualityExprUtils}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodegenContext, ExprCode, QualityCodeGenUtils, ShimExprUtils}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
 
 import scala.util.Try
@@ -89,8 +90,8 @@ object SeparateCompilation {
 
         (generate(ctx, ruleRunnerExpressionIdx), subExpressionCode)
       } else {
-        val subExprs = ctx.subexpressionEliminationForWholeStageCodegen(children)
-        val subExpressionCode = QualityExprUtils.evaluateSubExprEliminationState(ctx, subExprs)
+        val subExprs = SubExprCodeGen.subexpressionEliminationForWholeStageCodegen(ctx, children)
+        val subExpressionCode = ShimExprUtils.evaluateSubExprEliminationState(ctx, subExprs)
 
         (QualityCodeGenUtils.withSubExprEliminationExprs(ctx, subExprs.states) {
           generate(ctx, ruleRunnerExpressionIdx)

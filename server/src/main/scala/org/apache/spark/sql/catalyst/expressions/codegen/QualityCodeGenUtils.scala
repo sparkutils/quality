@@ -2,6 +2,7 @@ package org.apache.spark.sql.catalyst.expressions.codegen
 
 import org.apache.spark.sql.ShimUtils
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
+import org.apache.spark.sql.catalyst.expressions.codegen.ShimExprUtils
 import org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.{JAVA_BOOLEAN, javaType}
 import org.apache.spark.sql.catalyst.expressions.{EquivalentExpressions, Expression}
 
@@ -65,7 +66,7 @@ object QualityCodeGenUtils {
    * @tparam T
    * @return
    */
-  def withSubExprEliminationExprs[T](ctx: CodegenContext, newSubExprEliminationExprs: Map[QualityExprUtils.ExprEquals, SubExprEliminationState])(
+  def withSubExprEliminationExprs[T](ctx: CodegenContext, newSubExprEliminationExprs: Map[ShimExprUtils.ExprEquals, SubExprEliminationState])(
     f: => T): T = {
     val oldsubExprEliminationExprs = ctx.subExprEliminationExprs
     ctx.subExprEliminationExprs = newSubExprEliminationExprs
@@ -92,7 +93,7 @@ object QualityCodeGenUtils {
     var subexprFunctions = ""
     // Get all the expressions that appear at least twice and set up the state for subexpression
     // elimination.
-    val commonExprs = QualityExprUtils.getAllEquivalentExprs(equivalentExpressions)
+    val commonExprs = ShimExprUtils.getAllEquivalentExprs(equivalentExpressions)
     commonExprs.foreach { expr =>
       val fnName = freshName("subExpr")
       val isNull = addMutableState(JAVA_BOOLEAN, "subExprIsNull")
@@ -125,11 +126,11 @@ object QualityCodeGenUtils {
 
       val subExprCode = s"${addNewFunction(fnName, fn)}($INPUT_ROW);"
       subexprFunctions += subExprCode
-      val state = QualityExprUtils.state(
+      val state = ShimExprUtils.state(
         ExprCode(code"$subExprCode",
           JavaCode.isNullGlobal(isNull),
           JavaCode.global(value, expr.dataType)))
-      QualityExprUtils.addSubExpr(ctx, expr, state)
+      ShimExprUtils.addSubExpr(ctx, expr, state)
     }
 
     subexprFunctions

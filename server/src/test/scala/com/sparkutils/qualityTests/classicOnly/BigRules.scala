@@ -1,21 +1,18 @@
 package com.sparkutils.qualityTests.classicOnly
 
-import com.globalmentor.apache.hadoop.fs.BareLocalFileSystem
 import com.sparkutils.quality._
 import com.sparkutils.quality.classicFunctions.enableOptimizations
-import com.sparkutils.quality.impl.extension.{QualitySparkExtension, ZeroCodeGenRule}
 import com.sparkutils.quality.impl.util.RuleSuiteGroupIOUtils
 import com.sparkutils.quality.impl.{TopLevelBooleanGrouper, Triggers}
 import com.sparkutils.qualityTests.classicOnly.RulesGen.{genRules1to1, testFile}
-import com.sparkutils.qualityTests.util.SharedPureConnectTests
-import com.sparkutils.testing.{ConnectionType, TestUtilsEnvironment}
+import com.sparkutils.qualityTests.util.{ClassicSharedTests, SharedPureConnectTests}
+import com.sparkutils.testing.ConnectionType
 import org.apache.commons.io.IOUtils
-import org.apache.hadoop.fs.local.BareStreamingLocalFileSystem
 import org.apache.spark.sql._
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._
 import org.apache.spark.storage.StorageLevel
-import org.scalatest.{Matchers, TestSuite, fixture}
+import org.scalatest.Matchers
 
 import scala.concurrent.duration.Duration
 import scala.util.Try
@@ -84,8 +81,6 @@ trait BigRulesBase extends Matchers {
 
   def outputDir: String
 
-  val useOptimiser: Boolean
-
   def rules(s: SparkSession, dataSet: Dataset[(String, String, Int)]) = {
     //.write.mode(SaveMode.Overwrite).option("header",true).csv(outputDir + "/rules.csv")
     val rules = dataSet.orderBy("_3").collect().map{
@@ -107,10 +102,6 @@ trait BigRulesBase extends Matchers {
   )), topLevelRunner: (RuleSuite, Option[DataType], Map[String, String]) => Column =
       (rs, dt, op) => ruleEngineRunner(rs, dt, extraConfig = op), processor: DataFrame => DataFrame =
         _.select(expr("*"), expr("runner.result.*")), extraConfig: Map[String, String] = Map.empty): DataFrame = {
-
-    if (useOptimiser) {
-      enableOptimizations(Seq(ZeroCodeGenRule))
-    }
 
     var start = System.nanoTime()
     val d = s.read.option("header",true).csv(testFile(s,outputDir))
@@ -199,7 +190,7 @@ trait BigRulesBase extends Matchers {
 /**
  * Force the optimiser
  */
-class BigRules extends SharedPureConnectTests with BigRulesBase {
+class BigRules extends ClassicSharedTests with BigRulesBase {
 
   override val runWith: ConnectionType = com.sparkutils.testing.ClassicOnly
 
@@ -222,120 +213,3 @@ class BigRules extends SharedPureConnectTests with BigRulesBase {
   } }
 
 }
-
-/*
-/**
- * Only runs on OSS, Databricks cannot manage this
- */
-class BigRulesOSS extends SharedPureConnectTests with BigRulesBase {
-
-  val useOptimiser: Boolean = false
-
-  override val runWith: ConnectionType = com.sparkutils.testing.ClassicOnly
-
-  test("Trigger getValue should work") { not_Cluster {
-    doTriggerGetValueShouldWork(sparkSession)
-  } }
-
-  test("grouped 129 via top level boolean grouping") { not_Cluster { not3_0_or_3_1 { // runs 12gb 1m15s. 0.12 ms / row, grouping takes 3s
-    doGrouped129ViaTopLevelBooleanGrouping(sparkSession)
-  } } }
-
-  ignore("1:1 rules only") { not_Cluster{ // requires a 12gb heap and patience, run takes 5m42s on 32g i9-9900 corsair with 12gb, 5.22 ms / row
-    do1to1RulesOnly(sparkSession)
-  } }
-
-  ignore("dumpAudit should work") { not_Cluster{ not3_0_or_3_1 { // this is a beast do by hand or on 16gb
-    doDumpAuditShouldWork(sparkSession)
-  } } }
-
-}
-
-/**
- * Only runs on OSS, probably can't run on CI.  No easy way to see it's been run through
- * [[com.sparkutils.quality.impl.extension.ZeroCodeGen]] other than to actually debug
- */
-class BigRulesOSSNewSessionWithExtension extends SharedPureConnectTests with BigRulesBase {
-
-  override val runWith: ConnectionType = com.sparkutils.testing.ClassicOnly
-
-  val useOptimiser: Boolean = false
-
-  override def sparkSession: SparkSession = {
-
-    {
-      val builder = SparkSession.builder()
-      if (System.getProperty("os.name").startsWith("Windows"))
-        builder.config("spark.hadoop.fs.file.impl", classOf[BareLocalFileSystem].getName).
-          config("spark.hadoop.fs.AbstractFileSystem.file.impl", classOf[BareStreamingLocalFileSystem].getName)
-      else
-        builder
-    }.withExtensions(new QualitySparkExtension).create()
-
-  }
-
-  def newExtensionSession(thunk: SparkSession => Unit): Unit = not_Cluster {
-    val s = sparkSession
-    try {
-      thunk(s)
-    } finally {
-      s.close()
-    }
-  }
-
-  test("Trigger getValue should work") { newExtensionSession { sparkSession =>
-    doTriggerGetValueShouldWork(sparkSession)
-  } }
-
-  // runs 12gb 1m15s. 0.12 ms / row, grouping takes 3s
-  test("grouped 129 via top level boolean grouping") { not3_0_or_3_1 { newExtensionSession { sparkSession =>
-    doGrouped129ViaTopLevelBooleanGrouping(sparkSession)
-  } } }
-
-  // requires a 12gb heap and patience, run takes 5m42s on 32g i9-9900 corsair with 12gb, 5.22 ms / row
-  ignore("1:1 rules only") { newExtensionSession { sparkSession =>
-    do1to1RulesOnly(sparkSession)
-  } }
-
-  // this is a beast do by hand or on 16gb
-  ignore("dumpAudit should work") { not3_0_or_3_1 { newExtensionSession { sparkSession =>
-    doDumpAuditShouldWork(sparkSession)
-  } } }
-
-}
-
-/**
- * For running when the extensions are enabled.  The connect test cannot work as it takes too much memory so BigRuleOSS
- * will be used on CI, this for shade only
- */
-class BigRulesOnClusterExtensions extends SharedPureConnectTests with BigRulesBase {
-
-  override val runWith: ConnectionType = com.sparkutils.testing.ClassicOnly
-
-  val useOptimiser: Boolean = false
-
-  def onlyOnClusterExtension(thunk: => Unit): Unit = onlyWithExtension {
-    if (TestUtilsEnvironment.onDatabricksFS || TestUtilsEnvironment.onFabricOrSynapse(sparkSession)) {
-      thunk
-    }
-  }
-
-  test("Trigger getValue should work") { onlyOnClusterExtension {
-    doTriggerGetValueShouldWork(sparkSession)
-  } }
-
-  test("grouped 129 via top level boolean grouping") { onlyOnClusterExtension { not3_0_or_3_1 { // runs 12gb 1m15s. 0.12 ms / row, grouping takes 3s
-    doGrouped129ViaTopLevelBooleanGrouping(sparkSession)
-  } } }
-
-  ignore("1:1 rules only") { not_Cluster{ // requires a 12gb heap and patience, run takes 5m42s on 32g i9-9900 corsair with 12gb, 5.22 ms / row
-    do1to1RulesOnly(sparkSession)
-  } }
-
-  ignore("dumpAudit should work") { onlyOnClusterExtension { not3_0_or_3_1 { // this is a beast do by hand or on 16gb
-    doDumpAuditShouldWork(sparkSession)
-  } } }
-
-}
-
-*/
