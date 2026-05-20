@@ -2,7 +2,7 @@ package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.{OverallResult, RuleEngineRunner}
-import com.sparkutils.quality.impl.extension.{FunNRewrite, ZeroCodeGenWrap}
+import com.sparkutils.quality.impl.extension.{FunNRewrite, ZeroCodeGen}
 import com.sparkutils.qualityTests.util.SharedConnectTests
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.ShimUtils.expression
@@ -62,7 +62,7 @@ class RuleEngineClassicTest extends SharedConnectTests with RuleEngineTestBase {
 
           val rs = expression(rer) match {
             case r: RuleEngineRunner => r.ruleSuite
-            case ZeroCodeGenWrap(_, r: RuleEngineRunner) => r.ruleSuite
+            case ZeroCodeGen(_, r: RuleEngineRunner) => r.ruleSuite
           }
           val ds = toDS(rs)
 
