@@ -1,16 +1,17 @@
 package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.impl.RuleRunnerUtils.packTheId
-import com.sparkutils.quality.{FailedInt, PassedInt, RuleSuite, UnevaluatedRuleInt, classicFunctions, groupProcessorAuditKey}
+import com.sparkutils.quality.{FailedInt, PassedInt, RuleSuite, UnevaluatedRuleInt, classicFunctions, groupProcessorAuditKey, showSplitCompilationTime}
 import com.sparkutils.testing.ConnectWhenForced.someOrForcedConnect
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
-import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodegenContext}
+import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodeAndComment, CodeGenerator, CodegenContext, GeneratedClass}
 import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, GenericArrayData}
 import org.apache.spark.sql.types.{DataType, StructType}
 import org.apache.spark.sql.{Column, DataFrame}
 
+import scala.concurrent.duration.Duration
 import scala.util.Try
 
 /**
@@ -54,6 +55,15 @@ case class InPlaceOffsets(offsets: Seq[String => Block], beforeProcessing: Block
  */
 trait Runner extends Expression {
 
+  /**
+   * After calling now wrapping of zero code will be performed when the [[com.sparkutils.quality.impl.extension.ZeroCodeGen]]
+   * optimisation is enabled
+   * @return
+   */
+  def withZeroCode(): Runner
+
+  val alreadyZero: Boolean
+
   def ruleSuite: RuleSuite
   val extraConfig: Map[String, String]
   val variablesPerFunc: Int
@@ -74,7 +84,7 @@ trait Runner extends Expression {
           ruleSet =>
             packTheId(ruleSet.id) -> InternalRow(defaultOverallResult,
               ArrayBasedMapData(
-                ruleSet.rules.map( r => packTheId(r.id) -> defaultRuleResult).toMap
+                ruleSet.rules.map( r => packTheId(r.id) -> defaultRuleResult).toMap// Map.empty[Int,Int]
               ))
         }.toMap
       )
@@ -89,7 +99,7 @@ trait Runner extends Expression {
     // update result directly
     val sv = sar.valueArray.asInstanceOf[GenericArrayData]
     val struct = sv.getStruct(level1, 2)
-    struct.getMap(1).valueArray.asInstanceOf[GenericArrayData].update(level2, ruleResult)
+    struct.getMap(1).valueArray().asInstanceOf[GenericArrayData].update(level2, ruleResult) // comment out to squeeze extra, spark still more expensive by 20s, nothing in quality code
 
     // processOverall
     val cur = struct.getInt(0)
@@ -166,4 +176,33 @@ trait HasOutput extends Runner {
 
     }
   }
+}
+
+/**
+ * Handles state management for separate compilation, the generated source code is cached locally and then compiled on
+ * demand
+ */
+trait SplitCompilation extends Runner {
+
+  var generatorClassSource : CodeAndComment = _
+
+  @transient
+  var generatorClazz_ : GeneratedClass = _
+
+  def generatorClazz: GeneratedClass = {
+    // allow it to be replaced
+    if (generatorClazz_ == null) {
+      val start = System.nanoTime()
+
+      generatorClazz_ = CodeGenerator.compile(generatorClassSource)._1
+
+      val end = System.nanoTime()
+      val compileTime = Duration.fromNanos(end - start)
+      if (Try(Triggers.getValue(showSplitCompilationTime, extraConfig, "false").toBoolean).getOrElse(false)){
+        println(s"${this.getClass.getSimpleName} RuleSuite ${ruleSuite.id} - took ${compileTime.toMinutes}m${compileTime.toSeconds % 60}s to compile")
+      }
+    }
+    generatorClazz_
+  }
+
 }

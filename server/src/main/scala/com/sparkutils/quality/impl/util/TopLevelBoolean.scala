@@ -49,7 +49,7 @@ object TopLevelBoolean {
   case class EqualToDiff(operands: Set[Expression]) extends Differentiator {
 
     def bucketer(bucket: Int, bucketSize: Int) =
-      EqualTo(Remainder(Abs(Murmur3Hash(operands.toSeq.sortBy(_.hashCode()), 42)), Literal(bucketSize)), Literal(bucket))
+      EqualTo(new Remainder(Abs(Murmur3Hash(operands.toSeq.sortBy(_.hashCode()), 42)), Literal(bucketSize)), Literal(bucket))
 
     override def bucket(trigger: Expression, bucketSize: Int): Int = {
       val pairs =

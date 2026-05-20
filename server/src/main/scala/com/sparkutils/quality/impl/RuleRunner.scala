@@ -16,9 +16,9 @@ import org.apache.spark.sql.ShimUtils.column
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
 import org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.isNullVariable
-import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodeGenerator, CodegenContext, CodegenFallback, ExprCode, ExprValue, VariableValue}
+import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodegenContext, CodegenFallback, ExprCode, ExprValue, VariableValue}
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression}
-import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, GenericArrayData, truncatedString}
+import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, truncatedString}
 import org.apache.spark.sql.functions.lit
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.DataType
@@ -155,6 +155,7 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
     val groupingTime = Duration.fromNanos(end - start)
     if (Try(Triggers.getValue(showGroupingTime, extraConfig, "false").toBoolean).getOrElse(false)){
       println(s"$prefix RuleSuite - took ${groupingTime.toMinutes}m${groupingTime.toSeconds % 60}s to group")
+      System.out.flush()
     }
 
     res
@@ -307,17 +308,21 @@ trait RuleRunnerBase[T] extends NonSQLExpression with SplitCompilation with Trig
 }
 
 case class RuleRunnerEval(ruleSuite: RuleSuite, children: Seq[Expression], compileEvals: Boolean,
-                      variablesPerFunc: Int, variableFuncGroup: Int, extraConfig: Map[String, String])
+                          variablesPerFunc: Int, variableFuncGroup: Int, extraConfig: Map[String, String],
+                          alreadyZero: Boolean = false)
   extends RuleRunnerBase[RuleRunnerEval] with CodegenFallback {
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
     copy(children = newChildren)
 
   override implicit val tClass: ClassTag[RuleRunnerEval] = ClassTag(classOf[RuleRunnerEval])
+
+  override def withZeroCode(): Runner = copy(alreadyZero = true)
 }
 
 case class RuleRunner(ruleSuite: RuleSuite, children: Seq[Expression], compileEvals: Boolean,
-                          variablesPerFunc: Int, variableFuncGroup: Int, extraConfig: Map[String, String])
+                      variablesPerFunc: Int, variableFuncGroup: Int, extraConfig: Map[String, String],
+                      alreadyZero: Boolean = false)
   extends RuleRunnerBase[RuleRunner] {
 
   protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = doGenCodeI(ctx, ev)
@@ -326,4 +331,6 @@ case class RuleRunner(ruleSuite: RuleSuite, children: Seq[Expression], compileEv
     copy(children = newChildren)
 
   override implicit val tClass: ClassTag[RuleRunner] = ClassTag(classOf[RuleRunner])
+
+  override def withZeroCode(): Runner = copy(alreadyZero = true)
 }

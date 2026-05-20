@@ -511,7 +511,7 @@ case class CollectRunnerRunner(ruleSuite: RuleSuite, children: Seq[Expression], 
                                 variablesPerFunc: Int, variableFuncGroup: Int, expressionOffsets: Array[Int],
                                triggerCount: Int, flatten: Boolean, includeNulls: Boolean, canUnroll: Array[Int],
                                isInPlace: Array[Boolean], unroll: Boolean, unrollOutputArraySize: Int,
-                               extraConfig: Map[String, String], audited: Boolean = false
+                               extraConfig: Map[String, String], audited: Boolean = false, alreadyZero: Boolean = false
                                ) extends CollectRunnerBase[CollectRunnerRunner] {
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = {
@@ -526,4 +526,6 @@ case class CollectRunnerRunner(ruleSuite: RuleSuite, children: Seq[Expression], 
 
   override implicit val classTagT: ClassTag[CollectRunnerRunner] = ClassTag(classOf[CollectRunnerRunner])
   override val tClass: Class[CollectRunnerRunner] = classOf[CollectRunnerRunner]
+
+  override def withZeroCode(): Runner = copy(alreadyZero = true)
 }

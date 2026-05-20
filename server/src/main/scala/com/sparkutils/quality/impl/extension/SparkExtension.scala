@@ -70,7 +70,7 @@ class QualitySparkExtension extends ((SparkSessionExtensions) => Unit) with Logg
    */
   def optimiserRules: Seq[(String, SparkSession => Rule[LogicalPlan])] =
     Seq((AsUUIDFilter.getClass.getName, _ => AsUUIDFilter), (IDBase64Filter.getClass.getName, _ => IDBase64Filter),
-      (FunNRewrite.getClass.getName, _ => FunNRewrite))
+      (FunNRewrite.getClass.getName, _ => FunNRewrite), (ZeroCodeGenRule.getClass.getName, _ => ZeroCodeGenRule))
 
   override def apply(extensions: SparkSessionExtensions): Unit = {
     val func =

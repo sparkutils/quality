@@ -60,7 +60,7 @@ object ExpressionRunner {
           ddl_type, variablesPerFunc = variablesPerFunc, variableFuncGroup = variableFuncGroup,
           compileEvals = compileEvals, extraConfig = extraConfig)
       else
-        new ExpressionRunner(cleaned, exprs,
+        new ExpressionRunnerCompiled(cleaned, exprs,
           ddl_type, variablesPerFunc = variablesPerFunc, variableFuncGroup = variableFuncGroup,
           compileEvals = compileEvals, extraConfig = extraConfig)
     ).as(name)
@@ -151,7 +151,7 @@ trait ExpressionRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
     val sar = result.getMap(1).asInstanceOf[ArrayBasedMapData]
     // update result directly
     val sv = sar.valueArray.asInstanceOf[GenericArrayData]
-    sv.getMap(level1).valueArray.asInstanceOf[GenericArrayData].update(level2, ruleResult)
+    sv.getMap(level1).valueArray().asInstanceOf[GenericArrayData].update(level2, ruleResult)
   }
 
   protected def doGenCodeI(outerCtx: CodegenContext, ev: ExprCode): ExprCode = {
@@ -209,28 +209,32 @@ trait ExpressionRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
  */
 case class ExpressionRunnerEval(ruleSuite: RuleSuite, children: Seq[Expression], ddlType: DataType,
                             compileEvals: Boolean, variablesPerFunc: Int,
-                            variableFuncGroup: Int, extraConfig: Map[String, String])
+                            variableFuncGroup: Int, extraConfig: Map[String, String], alreadyZero: Boolean = false)
   extends ExpressionRunnerBase[ExpressionRunnerEval] with CodegenFallback {
 
   override implicit val classTagT: ClassTag[ExpressionRunnerEval] = ClassTag(classOf[ExpressionRunnerEval])
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
+
+  override def withZeroCode(): Runner = copy(alreadyZero = true)
 }
 
 /**
  * Creates an extensible wrapper result column for aggregate expressions, storing the results as yaml
  *
  */
-case class ExpressionRunner(ruleSuite: RuleSuite, children: Seq[Expression], ddlType: DataType,
+case class ExpressionRunnerCompiled(ruleSuite: RuleSuite, children: Seq[Expression], ddlType: DataType,
                                 compileEvals: Boolean, variablesPerFunc: Int,
-                                variableFuncGroup: Int, extraConfig: Map[String, String])
-  extends ExpressionRunnerBase[ExpressionRunner] {
+                                variableFuncGroup: Int, extraConfig: Map[String, String], alreadyZero: Boolean = false)
+  extends ExpressionRunnerBase[ExpressionRunnerCompiled] {
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
 
   override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = doGenCodeI(ctx, ev)
 
-  override implicit val classTagT: ClassTag[ExpressionRunner] = ClassTag(classOf[ExpressionRunner])
+  override implicit val classTagT: ClassTag[ExpressionRunnerCompiled] = ClassTag(classOf[ExpressionRunnerCompiled])
+
+  override def withZeroCode(): Runner = copy(alreadyZero = true)
 }
 
 case class StripResultTypes(child: Expression) extends UnaryExpression with CodegenFallback with InputTypeChecks {

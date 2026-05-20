@@ -155,6 +155,7 @@ object SeparateCompilation {
           $bodyAccTime = $bodyAccTime + ($end - $beforeCodeBody);
           if ($rowCount == $generateStatsEvery) {
             System.out.println(this.getClass().getName() + " - RunnerCompilation$id avg \t"+ $accTime +"\t"+$bodyAccTime+"\t ns per every \t$generateStatsEvery\t rows");
+            System.out.flush();
             $rowCount = 0;
             $accTime = 0;
             $bodyAccTime = 0;

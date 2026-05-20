@@ -274,7 +274,8 @@ case class RuleFolderRunnerEval(ruleSuite: RuleSuite, children: Seq[Expression],
                             compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
                             variableFuncGroup: Int, expressionOffsets: Array[Int],
                             dataRef: AtomicReference[DataType], forceTriggerEval: Boolean,
-                            triggerCount: Int, extraConfig: Map[String, String], audited: Boolean = false
+                            triggerCount: Int, extraConfig: Map[String, String], audited: Boolean = false,
+                            alreadyZero: Boolean = false
                            ) extends RuleFolderRunnerBase[RuleFolderRunnerEval] with CodegenFallback {
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
@@ -283,6 +284,8 @@ case class RuleFolderRunnerEval(ruleSuite: RuleSuite, children: Seq[Expression],
   override implicit val classTagT: ClassTag[RuleFolderRunnerEval] = ClassTag(classOf[RuleFolderRunnerEval])
 
   override val tClass: Class[RuleFolderRunnerEval] = classOf[RuleFolderRunnerEval]
+
+  override def withZeroCode(): Runner = copy(alreadyZero = true)
 }
 
 
@@ -294,7 +297,8 @@ case class RuleFolderRunner(ruleSuite: RuleSuite, children: Seq[Expression], res
                             compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
                             variableFuncGroup: Int, expressionOffsets: Array[Int],
                             dataRef: AtomicReference[DataType], forceTriggerEval: Boolean,
-                            triggerCount: Int, extraConfig: Map[String, String], audited: Boolean = false
+                            triggerCount: Int, extraConfig: Map[String, String], audited: Boolean = false,
+                            alreadyZero: Boolean = false
                                ) extends RuleFolderRunnerBase[RuleFolderRunner] {
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = {
@@ -309,4 +313,7 @@ case class RuleFolderRunner(ruleSuite: RuleSuite, children: Seq[Expression], res
 
   override implicit val classTagT: ClassTag[RuleFolderRunner] = ClassTag(classOf[RuleFolderRunner])
   override val tClass: Class[RuleFolderRunner] = classOf[RuleFolderRunner]
+
+  override def withZeroCode(): Runner = copy(alreadyZero = true)
+
 }

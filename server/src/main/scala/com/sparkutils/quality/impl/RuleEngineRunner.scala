@@ -17,7 +17,7 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCoercion
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.isNullVariable
-import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodeAndComment, CodeGenerator, CodegenContext, CodegenFallback, ExprCode, GeneratedClass, VariableValue}
+import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodeGenerator, CodegenContext, CodegenFallback, ExprCode, VariableValue}
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression}
 import org.apache.spark.sql.catalyst.util.{GenericArrayData, truncatedString}
 import org.apache.spark.sql.internal.SQLConf
@@ -26,9 +26,7 @@ import org.apache.spark.sql.{ClassicQualitySparkUtils, Column, DataFrame, ShimUt
 
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
-import scala.concurrent.duration.Duration
 import scala.reflect.ClassTag
-import scala.util.Try
 
 object RuleEngineRunnerImpl {
 
@@ -393,31 +391,6 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
   }
 }
 
-trait SplitCompilation extends Runner {
-
-  var generatorClassSource : CodeAndComment = _
-
-  @transient
-  var generatorClazz_ : GeneratedClass = _
-
-  def generatorClazz: GeneratedClass = {
-    // allow it to be replaced
-    if (generatorClazz_ == null) {
-      val start = System.nanoTime()
-
-      generatorClazz_ = CodeGenerator.compile(generatorClassSource)._1
-
-      val end = System.nanoTime()
-      val compileTime = Duration.fromNanos(end - start)
-      if (Try(Triggers.getValue(showSplitCompilationTime, extraConfig, "false").toBoolean).getOrElse(false)){
-        println(s"${this.getClass.getSimpleName} RuleSuite ${ruleSuite.id} - took ${compileTime.toMinutes}m${compileTime.toSeconds % 60}s to compile")
-      }
-    }
-    generatorClazz_
-  }
-
-}
-
 /**
   * Children will be rewritten by the plan, it's then re-incorporated into ruleSuite
   * expressionOffsets.length is the length of the trigger expressions in realChildren, realChildren(expressionOffsets.length + expressionOffsets(x)) will be the correct OutputExpression
@@ -576,13 +549,14 @@ case class RuleEngineRunnerEval(ruleSuite: RuleSuite, children: Seq[Expression],
                             compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
                             variableFuncGroup: Int, expressionOffsets: Array[Int],
                             forceTriggerEval: Boolean, triggerCount: Int, extraConfig: Map[String, String],
-                            audited: Boolean = false)
+                            audited: Boolean = false, alreadyZero: Boolean = false)
   extends RuleEngineRunnerBase[RuleEngineRunnerEval] with CodegenFallback {
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(children = newChildren)
 
   override implicit val classTagT: ClassTag[RuleEngineRunnerEval] = ClassTag(classOf[RuleEngineRunnerEval])
 
+  override def withZeroCode(): Runner = copy(alreadyZero = true)
 }
 
 
@@ -590,7 +564,7 @@ case class RuleEngineRunner(ruleSuite: RuleSuite, children: Seq[Expression], use
                                 compileEvals: Boolean, debugMode: Boolean, variablesPerFunc: Int,
                                 variableFuncGroup: Int, expressionOffsets: Array[Int],
                                 forceTriggerEval: Boolean, triggerCount: Int, extraConfig: Map[String, String],
-                                audited: Boolean = false)
+                                audited: Boolean = false, alreadyZero: Boolean = false)
   extends RuleEngineRunnerBase[RuleEngineRunner] {
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = {
@@ -604,5 +578,7 @@ case class RuleEngineRunner(ruleSuite: RuleSuite, children: Seq[Expression], use
   override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = doGenCodeI(ctx, ev)
 
   override implicit val classTagT: ClassTag[RuleEngineRunner] = ClassTag(classOf[RuleEngineRunner])
+
+  override def withZeroCode(): Runner = copy(alreadyZero = true)
 }
 
