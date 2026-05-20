@@ -100,9 +100,10 @@ Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1 and 3.3.2 are deprecated as are DBR's 12.2
 > ```scala
 > groupProcessorAuditKey /* "quality.runnerGroupProcessor.audit" */ : Boolean = false 
 > ```
-> will generate a RuleSuiteGroup file, this is likely only possible on OSS Spark due to file:// usage. This group 
-> contains a RuleSuite(0,0) 'parent' Rule Suite that calls the child 'bucket' rule suites, using the same grouping as the
-> normal TopLevelBooleanGrouper uses, but in an auditable but executable form for easy verification of bucketing correctness.
+> will generate a RuleSuiteGroup file, this is likely only possible on OSS Spark due to file:// usage and it has significant 
+> RAM requirements. This group contains a RuleSuite(0,0) 'parent' Rule Suite that calls the child 'bucket' rule suites, 
+> using the same grouping as the normal TopLevelBooleanGrouper uses, but in an auditable but executable form for easy
+> verification of bucketing correctness.
 > 
 > This initial experimental version brings the BigRules test case runtime from 5m42s to just under a minute and a per row
 > Quality processing time of 5ms per row to 0.12ms per row on a 20k rule RuleSuite (across 9 comparisons per rule).  If
