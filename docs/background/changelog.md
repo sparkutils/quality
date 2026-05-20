@@ -74,6 +74,40 @@ Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1 and 3.3.2 are deprecated as are DBR's 12.2
 
 #131 - Compilation of runners is now split from Spark's typical single java file.  This reduces compilation times in general for nested or chained runners and removes limits on the number of rules suites that can be run in one action.  
 
+#129 - Compilation of large RuleSuites (the test case has 20k rules) can now be managed by optional TriggerGrouping:
+
+> In addition to workarounds added to shim for bad Databricks compilation approaches (no 64kb code size handling as per OSS),
+> Quality now allows customisable grouping of Triggers via an also newly optional extraConfig parameter:
+> ```scala
+>  extraConfig = Map(
+>    groupProcessorKey /* "quality.runnerGroupProcessor" */ -> classOf[TopLevelBooleanGrouper].getName
+>  ))
+> ```
+> These parameters can be provided directly when calling a runner or via System properties and Spark conf.
+> 
+> The experimental TopLevelBooleanGrouper, in addition to whole stage compilation improvements and #131, allows reduction of evaluation
+> cost by 20x in the test case, grouping by common "and" expressions and bucketing via " field = 'value' " comparisons.
+> These buckets can be configured by the:
+> ```scala
+> groupProcessorBucketSizeKey /* "quality.runnerGroupProcessor.bucketSize" */: Int = 130, 
+> groupProcessorPercentFilter /* "quality.runnerGroupProcessor.percentFilter" */: Double = 0.12
+> ```
+> parameters, which aim to manage a target bucket size and filter out expressions that are only present in 1.2% of the rules or less.
+> 
+> The processing and compilation cost on Databricks is noticeably higher than OSS Spark, likely due to old Janino versions.
+> 
+> An optional extraConfig parameter of:
+> ```scala
+> groupProcessorAuditKey /* "quality.runnerGroupProcessor.audit" */ : Boolean = false 
+> ```
+> will generate a RuleSuiteGroup file, this is likely only possible on OSS Spark due to file:// usage. This group 
+> contains a RuleSuite(0,0) 'parent' Rule Suite that calls the child 'bucket' rule suites, using the same grouping as the
+> normal TopLevelBooleanGrouper uses, but in an auditable but executable form for easy verification of bucketing correctness.
+> 
+> This initial experimental version brings the BigRules test case runtime from 5m42s to just under a minute and a per row
+> Quality processing time of 5ms per row to 0.12ms per row on a 20k rule RuleSuite (across 9 comparisons per rule).  If
+> the results from a non-grouped runner differ with grouping please raise an issue.
+
 ### [0.1.4](https://github.com/sparkutils/quality/milestone/10?closed=1) <small>24th February, 2026</small>
 
 This release provides a new runner type - collectRunner and a new RuleResult type of ignoredRule.
