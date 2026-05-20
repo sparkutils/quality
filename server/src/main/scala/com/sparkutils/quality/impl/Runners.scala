@@ -56,7 +56,7 @@ case class InPlaceOffsets(offsets: Seq[String => Block], beforeProcessing: Block
 trait Runner extends Expression {
 
   /**
-   * After calling now wrapping of zero code will be performed when the [[com.sparkutils.quality.impl.extension.ZeroCodeGen]]
+   * After calling now wrapping of zero code will be performed when the [[com.sparkutils.quality.impl.extension.ZeroCodeGenWrap]]
    * optimisation is enabled
    * @return
    */

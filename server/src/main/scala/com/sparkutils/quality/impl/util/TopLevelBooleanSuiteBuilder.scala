@@ -5,6 +5,8 @@ import com.sparkutils.quality._
 import com.sparkutils.quality.impl.{HasOutput, Trigger, Triggers}
 
 import scala.util.Try
+// test is too memory intensive for CI
+// $COVERAGE-OFF$
 
 object TopLevelBooleanSuiteBuilder {
 
@@ -55,3 +57,4 @@ object TopLevelBooleanSuiteBuilder {
   }
 
 }
+// $COVERAGE-ON$

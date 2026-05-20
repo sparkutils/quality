@@ -4,7 +4,7 @@ import com.sparkutils.quality._
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
 import com.sparkutils.quality.impl.RuleRunnerUtils.{flattenExpressions, genRuleSuiteTerm, nonOutputRuleGen, packTheId, reincorporateExpressions}
 import com.sparkutils.quality.impl.PackId.packId
-import com.sparkutils.quality.impl.extension.ZeroCodeGen
+import com.sparkutils.quality.impl.extension.ZeroCodeGenWrap
 import com.sparkutils.quality.impl.util.{Arrays, PassThroughCompileEvals, SeparateCompilation}
 import com.sparkutils.quality.impl.yaml.YamlEncoderExpr
 import com.sparkutils.quality.impl.types._
@@ -55,7 +55,7 @@ object ExpressionRunner {
 
     val cleaned = RuleLogicUtils.cleanExprs(ruleSuite)
 
-    ShimUtils.column(ZeroCodeGen.wrap(
+    ShimUtils.column(ZeroCodeGenWrap.wrap(
       if (forceRunnerEval)
         new ExpressionRunnerEval(cleaned, exprs,
           ddl_type, variablesPerFunc = variablesPerFunc, variableFuncGroup = variableFuncGroup,

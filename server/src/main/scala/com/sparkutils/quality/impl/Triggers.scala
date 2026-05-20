@@ -28,15 +28,6 @@ trait TriggerGrouper extends AbstractFunction10[CodegenContext, Seq[(Trigger, Bl
   Int, Int, String, String, String, () => Block, () => Block, Map[String, String],  (Iterator[String], String)] {
 
   def apply(ctx: CodegenContext, expressions: Seq[(Trigger, Block)],
-            variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String):  (Iterator[String], String) =
-    apply(
-      ctx: CodegenContext, expressions: Seq[(Trigger, Block)],
-      variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String,
-      prefix = "ruleRunner", exprEnd = () => code"",
-      exprFunEnd = () => code"", Map.empty
-    )
-
-  def apply(ctx: CodegenContext, expressions: Seq[(Trigger, Block)],
             variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String,
             prefix: String, exprEnd: () => Block, exprFunEnd: () => Block,
             extraConfig: Map[String, String]): (Iterator[String], String)

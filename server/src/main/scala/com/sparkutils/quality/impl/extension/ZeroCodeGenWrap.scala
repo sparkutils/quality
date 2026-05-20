@@ -26,8 +26,8 @@ case class ZeroCodeGen(child: Expression, realChild: Expression) extends UnaryEx
 
   override def dataType: DataType = realChild.dataType
 
-  override protected def withNewChildInternal(newChild: Expression): Expression =
-    if (newChild.children.exists(c => c.exists(_.isInstanceOf[Unevaluable])))
+  protected def withNewChildInternal(newChild: Expression): Expression =
+    if (newChild.children.exists(c => c.children.exists(_.isInstanceOf[Unevaluable])))
       copy(child = newChild, realChild = newChild)
     else // hopefully late enough to not be an issue to swap a nullable, the below match is a safeguard
       newChild match {
@@ -37,17 +37,6 @@ case class ZeroCodeGen(child: Expression, realChild: Expression) extends UnaryEx
         case _ =>
           copy(child = Literal(null, newChild.dataType), realChild = newChild)
       }
-}
-
-object ZeroCodeGen {
-
-  def wrap(runner: Runner): Expression =
-    if (runner.children.size > 800 || Triggers.getValue(groupProcessorKey, runner.extraConfig, "").nonEmpty) {
-      val nr = runner.withZeroCode()
-      ZeroCodeGen(nr, nr)
-    } else
-      runner
-
 }
 
 /**

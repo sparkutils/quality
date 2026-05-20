@@ -3,7 +3,7 @@ package com.sparkutils.quality.impl
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.CollectRunner.UnrollOutputArraySize
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.{flattenExpressions, outputExpressionType}
-import com.sparkutils.quality.impl.extension.ZeroCodeGen
+import com.sparkutils.quality.impl.extension.ZeroCodeGenWrap
 import com.sparkutils.quality.impl.imports.RuleFolderRunnerImports
 import com.sparkutils.quality.impl.util.{PassThroughEvalOnly, SeparateCompilation}
 import com.sparkutils.quality.impl.util.SeparateCompilation.runnerCompilation
@@ -156,7 +156,7 @@ object CollectRunner {
       }.toArray
 
     column(
-      ZeroCodeGen.wrap(
+      ZeroCodeGenWrap.wrap(
       CollectRunnerRunner(cleaned, expressions, resultDataType,
         variablesPerFunc, variableFuncGroup,
         expressionOffsets = indexes, triggerCount = triggerCount, flatten = flatten,

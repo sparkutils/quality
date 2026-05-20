@@ -7,7 +7,7 @@ import com.sparkutils.quality.impl.PackId.packId
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.ExpressionRuleExpr.ExpressionRuleOps
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
-import com.sparkutils.quality.impl.extension.ZeroCodeGen
+import com.sparkutils.quality.impl.extension.ZeroCodeGenWrap
 import types.ruleSuiteResultType
 import com.sparkutils.quality.impl.imports.RuleRunnerImports
 import com.sparkutils.quality.impl.util.Serializing.ruleResultToInt
@@ -72,7 +72,7 @@ protected[quality] object RuleRunnerImpl {
           case PassThroughCompileEvals(child) => NonPassThrough(child)
           case child => NonPassThrough(child)
         })
-      } getOrElse ZeroCodeGen.wrap(runner)
+      } getOrElse ZeroCodeGenWrap.wrap(runner)
     )
   }
 

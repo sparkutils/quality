@@ -65,6 +65,8 @@ object TopLevelBoolean {
       Abs(Murmur3Hash(lits, 42)).eval().asInstanceOf[Int] % bucketSize
     }
   }
+  // code can't reach this yet
+  // $COVERAGE-OFF$
 
   case class NoIdeaDiff(exprs: Seq[Expression]) extends Differentiator {
     def bucketer(bucket: Int, bucketSize: Int) =
@@ -75,6 +77,7 @@ object TopLevelBoolean {
 
     override def bucket(trigger: Expression, bucketSize: Int): Int = 0
   }
+  // $COVERAGE-ON$
 
   def differentiate(expressions: Set[Expression]): Differentiator = expressions match {
     case s if s.forall {
@@ -88,6 +91,9 @@ object TopLevelBoolean {
       //println("didn't get an EqualTo in this test set that's strange")
       NoIdeaDiff(expressions.toSeq)
   }
+
+  // too memory intensive for CI
+  // $COVERAGE-OFF$
 
   def bestFit(expressions: Seq[Trigger], triggerPercentFilter: Double): (Seq[Group], Int) = {
     var min = 30
@@ -145,6 +151,7 @@ object TopLevelBoolean {
 
     (res, bucketSize)
   }
+  // $COVERAGE-ON$
 
   def bucket(triggers: Seq[Trigger], targetBucket: Int = 130, triggerPercentFilter: Double = 0.12): Seq[Group] = {
     val expressions = MultiCommutativeOpOps.origin(triggers)
