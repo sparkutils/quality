@@ -1,0 +1,888 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/sparkutils/quality/impl/extension/ZeroCodeGen.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality.impl.extension
+</span>2 <span style=''>
+</span>3 <span style=''>import com.sparkutils.quality.groupProcessorKey
+</span>4 <span style=''>import com.sparkutils.quality.impl.{Runner, Triggers}
+</span>5 <span style=''>import org.apache.spark.internal.Logging
+</span>6 <span style=''>import org.apache.spark.sql.catalyst.InternalRow
+</span>7 <span style=''>import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
+</span>8 <span style=''>import org.apache.spark.sql.catalyst.expressions.{Expression, Literal, UnaryExpression, Unevaluable}
+</span>9 <span style=''>import org.apache.spark.sql.types.DataType
+</span>10 <span style=''>
+</span>11 <span style=''>/**
+</span>12 <span style=''> * Cannot be used as part of the initial expression trees, but can be used to swap out a runner to reduce
+</span>13 <span style=''> * compilation time and size.  Added as part of #129 as Databricks could not generate a 20k rulesuite, despite #131's
+</span>14 <span style=''> * separate compilation, the common subexpressions were already too much for databricks.
+</span>15 <span style=''> * @param realChild
+</span>16 <span style=''> */
+</span>17 <span style=''>case class ZeroCodeGen(child: Expression, realChild: Expression) extends UnaryExpression with Logging {
+</span>18 <span style=''>
+</span>19 <span style=''>  override def nullable: Boolean = </span><span style='background: #AEF1AE'>realChild.nullable</span><span style=''>
+</span>20 <span style=''>
+</span>21 <span style=''>  override def eval(input: InternalRow): Any = </span><span style='background: #F0ADAD'>realChild.eval(input)</span><span style=''>
+</span>22 <span style=''>
+</span>23 <span style=''>  override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
+</span>24 <span style=''>    </span><span style='background: #AEF1AE'>realChild.genCode(ctx)</span><span style=''>
+</span>25 <span style=''>  }
+</span>26 <span style=''>
+</span>27 <span style=''>  override def dataType: DataType = </span><span style='background: #AEF1AE'>realChild.dataType</span><span style=''>
+</span>28 <span style=''>
+</span>29 <span style=''>  override protected def withNewChildInternal(newChild: Expression): Expression =
+</span>30 <span style=''>    if (</span><span style='background: #AEF1AE'>newChild.children.exists(c =&gt; c.exists(_.isInstanceOf[Unevaluable]))</span><span style=''>)
+</span>31 <span style=''>      </span><span style='background: #AEF1AE'>copy(child = newChild, realChild = newChild)</span><span style=''>
+</span>32 <span style=''>    else // hopefully late enough to not be an issue to swap a nullable, the below match is a safeguard
+</span>33 <span style=''>      </span><span style='background: #AEF1AE'>newChild match {
+</span>34 <span style=''></span><span style='background: #AEF1AE'>        case Literal(null, dt) if </span><span style='background: #F0ADAD'>dt == dataType</span><span style='background: #AEF1AE'> </span><span style='background: #F0ADAD'>=&gt;
+</span>35 <span style=''></span><span style='background: #F0ADAD'>          logTrace(&quot;ZeroCodeGen doesn't expect another expression optimisation after Unevaluable's are removed but got &quot;+newChild)
+</span>36 <span style=''></span><span style='background: #F0ADAD'>          copy(child = newChild)</span><span style='background: #AEF1AE'>
+</span>37 <span style=''></span><span style='background: #AEF1AE'>        case _ =&gt;
+</span>38 <span style=''></span><span style='background: #AEF1AE'>          copy(child = Literal(null, newChild.dataType), realChild = newChild)
+</span>39 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>40 <span style=''>}
+</span>41 <span style=''>
+</span>42 <span style=''>object ZeroCodeGen {
+</span>43 <span style=''>
+</span>44 <span style=''>  def wrap(runner: Runner): Expression =
+</span>45 <span style=''>    if (</span><span style='background: #AEF1AE'>runner.children.size &gt; 800 || Triggers.getValue(groupProcessorKey, runner.extraConfig, &quot;&quot;).nonEmpty</span><span style=''>) </span><span style='background: #AEF1AE'>{
+</span>46 <span style=''></span><span style='background: #AEF1AE'>      val nr = runner.withZeroCode()
+</span>47 <span style=''></span><span style='background: #AEF1AE'>      ZeroCodeGen(nr, nr)
+</span>48 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''> else
+</span>49 <span style=''>      </span><span style='background: #AEF1AE'>runner</span><span style=''>
+</span>50 <span style=''>
+</span>51 <span style=''>}
+</span>52 <span style=''>
+</span>53 <span style=''>/**
+</span>54 <span style=''> * Swaps out runners with over 400 rules (800 actual expressions) or extraConfig has defined a trigger grouping
+</span>55 <span style=''>
+</span>56 <span style=''>object ZeroCodeGenRule extends Rule[LogicalPlan] {
+</span>57 <span style=''>
+</span>58 <span style=''>  override def apply(plan: LogicalPlan): LogicalPlan =
+</span>59 <span style=''>    plan.transformAllExpressions {
+</span>60 <span style=''>      case r: Runner if (r.children.size &gt; 800 || Triggers.getValue(groupProcessorKey, r.extraConfig, &quot;&quot;).nonEmpty)
+</span>61 <span style=''>        &amp;&amp; !r.alreadyZero =&gt;
+</span>62 <span style=''>        val nr = r.withZeroCode()
+</span>63 <span style=''>        ZeroCodeGen(nr, nr)
+</span>64 <span style=''>    }
+</span>65 <span style=''>}
+</span>66 <span style=''> */
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          19
+        </td>
+        <td>
+          9346
+        </td>
+        <td>
+          949
+          -
+          967
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.nullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ZeroCodeGen.this.realChild.nullable
+        </td>
+      </tr><tr>
+        <td>
+          21
+        </td>
+        <td>
+          9347
+        </td>
+        <td>
+          1016
+          -
+          1037
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.eval
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ZeroCodeGen.this.realChild.eval(input)
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          9348
+        </td>
+        <td>
+          1127
+          -
+          1149
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.genCode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ZeroCodeGen.this.realChild.genCode(ctx)
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          9349
+        </td>
+        <td>
+          1191
+          -
+          1209
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ZeroCodeGen.this.realChild.dataType
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          9350
+        </td>
+        <td>
+          1340
+          -
+          1367
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.isInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$1.isInstanceOf[org.apache.spark.sql.catalyst.expressions.Unevaluable]
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          9351
+        </td>
+        <td>
+          1331
+          -
+          1368
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.trees.TreeNode.exists
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          c.exists(((x$1: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; x$1.isInstanceOf[org.apache.spark.sql.catalyst.expressions.Unevaluable]))
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          9352
+        </td>
+        <td>
+          1301
+          -
+          1369
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.exists
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          newChild.children.exists(((c: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; c.exists(((x$1: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; x$1.isInstanceOf[org.apache.spark.sql.catalyst.expressions.Unevaluable]))))
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          9353
+        </td>
+        <td>
+          1377
+          -
+          1421
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.extension.ZeroCodeGen.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ZeroCodeGen.this.copy(newChild, newChild)
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          9354
+        </td>
+        <td>
+          1377
+          -
+          1421
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.extension.ZeroCodeGen.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ZeroCodeGen.this.copy(newChild, newChild)
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          9366
+        </td>
+        <td>
+          1532
+          -
+          1869
+        </td>
+        <td>
+          Match
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          newChild match {
+  case (value: Any, dataType: org.apache.spark.sql.types.DataType): org.apache.spark.sql.catalyst.expressions.Literal(null, (dt @ _)) if dt.==(ZeroCodeGen.this.dataType) =&gt; {
+    ZeroCodeGen.this.logTrace(&quot;ZeroCodeGen doesn\'t expect another expression optimisation after Unevaluable\'s are removed but got &quot;.+(newChild));
+    ZeroCodeGen.this.copy(newChild, ZeroCodeGen.this.copy$default$2)
+  }
+  case _ =&gt; ZeroCodeGen.this.copy(org.apache.spark.sql.catalyst.expressions.Literal.apply(null, newChild.dataType), newChild)
+}
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          9355
+        </td>
+        <td>
+          1589
+          -
+          1597
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.extension.ZeroCodeGen.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ZeroCodeGen.this.dataType
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          9356
+        </td>
+        <td>
+          1583
+          -
+          1597
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          dt.==(ZeroCodeGen.this.dataType)
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          9360
+        </td>
+        <td>
+          1598
+          -
+          1764
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  ZeroCodeGen.this.logTrace(&quot;ZeroCodeGen doesn\'t expect another expression optimisation after Unevaluable\'s are removed but got &quot;.+(newChild));
+  ZeroCodeGen.this.copy(newChild, ZeroCodeGen.this.copy$default$2)
+}
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          9357
+        </td>
+        <td>
+          1620
+          -
+          1730
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;ZeroCodeGen doesn\'t expect another expression optimisation after Unevaluable\'s are removed but got &quot;.+(newChild)
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          9358
+        </td>
+        <td>
+          1611
+          -
+          1731
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.internal.Logging.logTrace
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ZeroCodeGen.this.logTrace(&quot;ZeroCodeGen doesn\'t expect another expression optimisation after Unevaluable\'s are removed but got &quot;.+(newChild))
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          9359
+        </td>
+        <td>
+          1742
+          -
+          1764
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.extension.ZeroCodeGen.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ZeroCodeGen.this.copy(newChild, ZeroCodeGen.this.copy$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          9361
+        </td>
+        <td>
+          1814
+          -
+          1818
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          9362
+        </td>
+        <td>
+          1820
+          -
+          1837
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          newChild.dataType
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          9363
+        </td>
+        <td>
+          1806
+          -
+          1838
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Literal.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.Literal.apply(null, newChild.dataType)
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          9364
+        </td>
+        <td>
+          1793
+          -
+          1861
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.extension.ZeroCodeGen.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ZeroCodeGen.this.copy(org.apache.spark.sql.catalyst.expressions.Literal.apply(null, newChild.dataType), newChild)
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          9365
+        </td>
+        <td>
+          1793
+          -
+          1861
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.extension.ZeroCodeGen.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ZeroCodeGen.this.copy(org.apache.spark.sql.catalyst.expressions.Literal.apply(null, newChild.dataType), newChild)
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          9367
+        </td>
+        <td>
+          1967
+          -
+          1970
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          800
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          9368
+        </td>
+        <td>
+          1992
+          -
+          2009
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.TriggerGroupingConstants.groupProcessorKey
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.`package`.groupProcessorKey
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          9369
+        </td>
+        <td>
+          2011
+          -
+          2029
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.Runner.extraConfig
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          runner.extraConfig
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          9370
+        </td>
+        <td>
+          2031
+          -
+          2033
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          9371
+        </td>
+        <td>
+          1974
+          -
+          2034
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.Triggers.getValue
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.Triggers.getValue(com.sparkutils.quality.`package`.groupProcessorKey, runner.extraConfig, &quot;&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          9372
+        </td>
+        <td>
+          1974
+          -
+          2043
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.StringOps.nonEmpty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.augmentString(com.sparkutils.quality.impl.Triggers.getValue(com.sparkutils.quality.`package`.groupProcessorKey, runner.extraConfig, &quot;&quot;)).nonEmpty
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          9373
+        </td>
+        <td>
+          1944
+          -
+          2043
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.||
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          runner.children.size.&gt;(800).||(scala.Predef.augmentString(com.sparkutils.quality.impl.Triggers.getValue(com.sparkutils.quality.`package`.groupProcessorKey, runner.extraConfig, &quot;&quot;)).nonEmpty)
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          9376
+        </td>
+        <td>
+          2045
+          -
+          2115
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val nr: com.sparkutils.quality.impl.Runner = runner.withZeroCode();
+  ZeroCodeGen.apply(nr, nr)
+}
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          9374
+        </td>
+        <td>
+          2062
+          -
+          2083
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.Runner.withZeroCode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          runner.withZeroCode()
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          9375
+        </td>
+        <td>
+          2090
+          -
+          2109
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.extension.ZeroCodeGen.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ZeroCodeGen.apply(nr, nr)
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          9377
+        </td>
+        <td>
+          2127
+          -
+          2133
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.sparkutils.quality.impl.extension.ZeroCodeGen.runner
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          runner
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
