@@ -13,7 +13,7 @@ import org.apache.spark.sql.catalyst.analysis.{Analyzer, ResolveCatalogs, Resolv
 import org.apache.spark.sql.catalyst.catalog.SessionCatalog
 import org.apache.spark.sql.catalyst.encoders.RowEncoder
 import org.apache.spark.sql.catalyst.errors.TreeNodeException
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode, GenerateMutableProjection, QualityExprUtils}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode, GenerateMutableProjection, ShimExprUtils}
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, BindReferences, CreateNamedStruct, EqualNullSafe, Expression, ExpressionSet, ExtractValue, GetStructField, If, InterpretedMutableProjection, IsNull, LeafExpression, Literal, Projection, UnaryExpression, Unevaluable}
 import org.apache.spark.sql.catalyst.optimizer.{BooleanSimplification, CollapseProject, CombineConcats, CombineTypedFilters, ConstantFolding, ConstantPropagation, EliminateMapObjects, EliminateSerialization, FoldablePropagation, LikeSimplification, NormalizeFloatingNumbers, NullPropagation, ObjectSerializerPruning, OptimizeIn, OptimizeUpdateFields, ReassignLambdaVariableID, RemoveDispensableExpressions, RemoveNoopOperators, RemoveRedundantAliases, ReorderAssociativeOperator, ReplaceExpressions, ReplaceNullWithFalseInPredicate, ReplaceUpdateFieldsExpression, SimplifyBinaryComparison, SimplifyCaseConversionExpressions, SimplifyCasts, SimplifyConditionals, SimplifyExtractValueOps, UnwrapCastInBinaryComparison}
 import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, LogicalPlan, Project, UnaryNode}
@@ -39,7 +39,7 @@ object ClassicQualitySparkUtils {
    * @return (parameters for function decleration, parmaters for calling, code that must be before fungroup)
    */
   def genParams(ctx: CodegenContext, child: Expression): ParameterInformation = {
-    val (a, b) = CodeGenerator.getLocalInputVariableValues(ctx, child, QualityExprUtils.currentSubExprState(ctx))
+    val (a, b) = CodeGenerator.getLocalInputVariableValues(ctx, child, ShimExprUtils.currentSubExprState(ctx))
 
     val p = formatParams(ctx, a.toSeq)
 

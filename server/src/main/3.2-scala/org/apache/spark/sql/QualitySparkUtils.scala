@@ -9,7 +9,7 @@ import org.apache.spark.sql.qualityFunctions.{FunN, LambdaFunctions}
 import com.sparkutils.shim.expressions.{HigherOrderFunctionLike, PredicateHelperPlus}
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveHigherOrderFunctions, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, TimeWindowing, TypeCoercion}
 import org.apache.spark.sql.catalyst.encoders.RowEncoder
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, QualityExprUtils, GenerateMutableProjection}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, ShimExprUtils, GenerateMutableProjection}
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, BindReferences, EqualNullSafe, Expression, ExpressionSet, HigherOrderFunction, InterpretedMutableProjection, Literal, Projection, UpdateFields}
 import org.apache.spark.sql.catalyst.optimizer.{BooleanSimplification, CollapseProject, CombineConcats, CombineTypedFilters, ConstantFolding, ConstantPropagation, EliminateMapObjects, EliminateSerialization, FoldablePropagation, LikeSimplification, NormalizeFloatingNumbers, NullPropagation, ObjectSerializerPruning, OptimizeCsvJsonExprs, OptimizeIn, OptimizeUpdateFields, PushFoldableIntoBranches, ReassignLambdaVariableID, RemoveDispensableExpressions, RemoveNoopOperators, RemoveRedundantAliases, ReorderAssociativeOperator, ReplaceExpressions, ReplaceNullWithFalseInPredicate, ReplaceUpdateFieldsExpression, SimplifyBinaryComparison, SimplifyCaseConversionExpressions, SimplifyCasts, SimplifyConditionals, SimplifyExtractValueOps, UnwrapCastInBinaryComparison}
 import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, LogicalPlan, Project, UnaryNode}
@@ -34,7 +34,7 @@ object ClassicQualitySparkUtils {
    * @return (parameters for function decleration, parmaters for calling, code that must be before fungroup)
    */
   def genParams(ctx: CodegenContext, child: Expression): ParameterInformation = {
-    val (a, b) = CodeGenerator.getLocalInputVariableValues(ctx, child, QualityExprUtils.currentSubExprState(ctx))
+    val (a, b) = CodeGenerator.getLocalInputVariableValues(ctx, child, ShimExprUtils.currentSubExprState(ctx))
 
     val p = formatParams(ctx, a.toSeq)
 

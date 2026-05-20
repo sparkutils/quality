@@ -13,7 +13,7 @@ import org.apache.spark.sql.catalyst.analysis.{Analyzer, ResolveCreateNamedStruc
 import org.apache.spark.sql.catalyst.catalog.SessionCatalog
 import org.apache.spark.sql.catalyst.encoders.RowEncoder
 import org.apache.spark.sql.catalyst.errors.TreeNodeException
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode, QualityExprUtils, GenerateMutableProjection}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode, ShimExprUtils, GenerateMutableProjection}
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, BindReferences, CreateNamedStruct, EqualNullSafe, Expression, ExtractValue, GetStructField, If, InterpretedMutableProjection, IsNull, LeafExpression, Literal, Projection, UnaryExpression, Unevaluable}
 import org.apache.spark.sql.catalyst.optimizer.{BooleanSimplification, CollapseProject, CombineConcats, CombineTypedFilters, ConstantFolding, ConstantPropagation, EliminateMapObjects, EliminateSerialization, FoldablePropagation, LikeSimplification, NormalizeFloatingNumbers, NullPropagation, ObjectSerializerPruning, OptimizeIn, ReassignLambdaVariableID, RemoveDispensableExpressions, RemoveNoopOperators, RemoveRedundantAliases, ReorderAssociativeOperator, ReplaceExpressions, ReplaceNullWithFalseInPredicate, SimplifyBinaryComparison, SimplifyCaseConversionExpressions, SimplifyCasts, SimplifyConditionals, SimplifyExtractValueOps}
 import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, LogicalPlan, Project, UnaryNode}
@@ -39,7 +39,7 @@ object ClassicQualitySparkUtils {
    * @return (parameters for function decleration, parmaters for calling, code that must be before fungroup)
    */
   def genParams(ctx: CodegenContext, child: Expression): ParameterInformation = {
-    val a = CodeGenerator.getLocalInputVariableValues(ctx, child, QualityExprUtils.currentSubExprState(ctx))
+    val a = CodeGenerator.getLocalInputVariableValues(ctx, child, ShimExprUtils.currentSubExprState(ctx))
 
     formatParams( ctx, a.toSeq )
   }
