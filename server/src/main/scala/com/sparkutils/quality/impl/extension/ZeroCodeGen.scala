@@ -26,7 +26,7 @@ case class ZeroCodeGen(child: Expression, realChild: Expression) extends UnaryEx
   override def dataType: DataType = realChild.dataType
 
   protected def withNewChildInternal(newChild: Expression): Expression =
-    if (newChild.collect(c => c.isInstanceOf[Unevaluable]).nonEmpty)
+    if (newChild.collect{ case c => c.isInstanceOf[Unevaluable] }.nonEmpty)
       copy(child = newChild, realChild = newChild)
     else // hopefully late enough to not be an issue to swap a nullable, the below match is a safeguard
       newChild match {
