@@ -11,13 +11,13 @@ import com.sparkutils.quality.impl.extension.ZeroCodeGenWrap
 import types.ruleSuiteResultType
 import com.sparkutils.quality.impl.imports.RuleRunnerImports
 import com.sparkutils.quality.impl.util.Serializing.ruleResultToInt
-import com.sparkutils.quality.impl.util.{NonPassThrough, PassThroughCompileEvals, SeparateCompilation}
+import com.sparkutils.quality.impl.util.{NonPassThrough, ParameterInformation, PassThroughCompileEvals, SeparateCompilation}
 import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
 import org.apache.spark.sql.ShimUtils.column
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
 import org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.isNullVariable
-import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodegenContext, CodegenFallback, ExprCode, ExprValue, VariableValue}
+import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodeAndComment, CodegenContext, CodegenFallback, ExprCode, ExprValue, VariableValue}
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression}
 import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, truncatedString}
 import org.apache.spark.sql.functions.lit
@@ -137,12 +137,12 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
   def packTheId(obj: Object) = packId(obj)//: java.lang.Long
 
   protected[quality] def generateFunctionGroups(
-    ctx: CodegenContext, runner: Runner, resultRow: String, additionalParams: Seq[VariableValue],
-    expressions: Seq[(Trigger, CodegenContext => Block)],
-    variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String,
-    extraConfig: Map[String, String],
-    prefix: String = "ruleRunner", exprEnd: () => Block = () => code"",
-    exprFunEnd: () => Block = () => code""): (Iterator[String], String, Seq[String]) = {
+               ctx: CodegenContext, runner: Runner, params: ParameterInformation, resultRow: String, additionalParams: Seq[VariableValue],
+               expressions: Seq[(Trigger, (CodegenContext, ParameterInformation) => Block)],
+               variablesPerFunc: Int, variableFuncGroup: Int,
+               extraConfig: Map[String, String],
+               prefix: String = "ruleRunner", exprEnd: () => Block = () => code"",
+               exprFunEnd: () => Block = () => code""): (Iterator[String], String, Seq[CodeAndComment]) = {
 
     val impl: TriggerGrouper = Triggers.loadTriggerGrouper(extraConfig)
 
@@ -150,7 +150,7 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
 
     val res =
       impl.apply(ctx, runner, resultRow, additionalParams, expressions,
-        variablesPerFunc, variableFuncGroup, paramsDef, paramsCall,
+        variablesPerFunc, variableFuncGroup, params,
         prefix, exprEnd, exprFunEnd, extraConfig)
 
     val end = System.nanoTime()
@@ -194,7 +194,7 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
 
     val allExpr = realChildren.zipWithIndex.map { case (child, idx) =>
       val generate =
-        (ctx: CodegenContext) => {
+        (ctx: CodegenContext, p: ParameterInformation) => {
           val eval = child.genCode(ctx)
 
           code"""${eval.code}\n
@@ -209,9 +209,9 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
     val resNull = ctx.freshName("isNull")
 
     val funNames: Iterator[String] =
-      RuleRunnerUtils.generateFunctionGroups(ctx, runner, resultRow,
+      RuleRunnerUtils.generateFunctionGroups(ctx, runner, paramInfo, resultRow,
         Seq(VariableValue(resultRow, classOf[InternalRow])), allExpr,
-        variablesPerFunc, variableFuncGroup, paramsDef, paramsCall, extraConfig)._1
+        variablesPerFunc, variableFuncGroup, extraConfig)._1
 
     val exp = ExprCode(VariableValue(resName, ev.value.javaType), isNullVariable(resNull))
 
@@ -289,7 +289,7 @@ trait RuleRunnerBase[T] extends NonSQLExpression with SplitCompilation with Trig
   protected def doGenCodeI(outerCtx: CodegenContext, ev: ExprCode): ExprCode = {
 
     val (clazz, fres) = SeparateCompilation.withSubExpressions(this, realChildren, outerCtx, ev, ruleSuite.id) {
-      (ctx, ruleRunnerExpressionIdx) =>
+      (ctx, ruleRunnerExpressionIdx, _) =>
 
         // must be called before the rule gen runs
         val params = genParams(ctx, this)

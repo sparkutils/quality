@@ -185,17 +185,17 @@ trait HasOutput extends Runner {
  */
 trait SplitCompilation extends Runner {
 
-  var generatorClassSource : CodeAndComment = _
+  var generatorClassSource : Seq[CodeAndComment] = _
 
   @transient
-  var generatorClazz_ : GeneratedClass = _
+  var generatorClazz_ : Seq[GeneratedClass] = _
 
-  def generatorClazz: GeneratedClass = {
+  def generatorClazz(i: Int): GeneratedClass = {
     // allow it to be replaced
     if (generatorClazz_ == null) {
       val start = System.nanoTime()
 
-      generatorClazz_ = CodeGenerator.compile(generatorClassSource)._1
+      generatorClazz_ = generatorClassSource.map(CodeGenerator.compile(_)._1)
 
       val end = System.nanoTime()
       val compileTime = Duration.fromNanos(end - start)
@@ -203,7 +203,7 @@ trait SplitCompilation extends Runner {
         println(s"${this.getClass.getSimpleName} RuleSuite ${ruleSuite.id} - took ${compileTime.toMinutes}m${compileTime.toSeconds % 60}s to compile")
       }
     }
-    generatorClazz_
+    generatorClazz_(i)
   }
 
 }

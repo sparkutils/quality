@@ -246,7 +246,7 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression with SplitCo
   protected def doGenCodeI(outerCtx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = {
 
     val (clazz, fres) = SeparateCompilation.withSubExpressions(this, children, outerCtx, ev, ruleSuite.id) {
-      (ctx, ruleRunnerExpressionIdx) =>
+      (ctx, ruleRunnerExpressionIdx, _) =>
 
         def hasDefault(when: => String, els: String = ""): String =
           if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp)

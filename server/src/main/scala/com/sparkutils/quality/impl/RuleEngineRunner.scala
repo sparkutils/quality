@@ -18,7 +18,7 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCoercion
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.isNullVariable
-import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodeGenerator, CodegenContext, CodegenFallback, ExprCode, VariableValue}
+import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodeAndComment, CodeGenerator, CodegenContext, CodegenFallback, ExprCode, VariableValue}
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression}
 import org.apache.spark.sql.catalyst.util.{GenericArrayData, truncatedString}
 import org.apache.spark.sql.internal.SQLConf
@@ -218,7 +218,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
         else output(currentOutputIndex)
       )
 
-  case class CompilerTerms(grouped: (_root_.scala.collection.Iterator[_root_.scala.Predef.String], String, Seq[String]),
+  case class CompilerTerms(grouped: (_root_.scala.collection.Iterator[_root_.scala.Predef.String], String, Seq[CodeAndComment]),
                            utilsName: String, ruleSuitTerm: String, currentSalience: String, ruleTupleArrTerm: String,
                            currentOutputIndex: String, outArrTerm: String,
                            salienceArrTerm: String, hasAPassTerm: String, currRuleResTerm: String,
@@ -293,7 +293,9 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
 
     val triggerRules = realChildren.slice(0, offset)
 
-    def codeGen(ctx: CodegenContext, exp: Expression, idx: Int, funName: String) = {
+    def codeGen(ctx: CodegenContext, exp: Expression, idx: Int, funName: String, params: ParameterInformation) = {
+      import params._
+
       val (evalPre, eval) =
         if (forceTriggerEval)
           ("", s"com.sparkutils.quality.impl.RuleSuiteHelpers.ruleResultToInt($childrenFuncTerm[$idx].eval($i))")
@@ -333,8 +335,9 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
         val exprFuncName = ctx.freshName(s"outputExprFun$i")
 
         val exp = realChildren(offset + i)
-        (ctx: CodegenContext) => {
+        (ctx: CodegenContext, params: ParameterInformation) => {
           val eval = exp.genCode(ctx)
+          import params._
 
           val body =
             code"""
@@ -378,7 +381,9 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
       val offset = expressionOffsets(realI)
       val funName = outExprFunTerms(offset)
       val trigger = triggerRules(realI) // the original trigger is useless
-      val stepWithIf = (ctx: CodegenContext) => codeGen(ctx, trigger, realI, funName(ctx))
+      val stepWithIf =
+        (ctx: CodegenContext, params: ParameterInformation) =>
+          codeGen(ctx, trigger, realI, funName(ctx, params), params)
 
       (Trigger(trigger, realI, salience(realI)), stepWithIf)
     }
@@ -397,9 +402,9 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
     )
 
     CompilerTerms(
-      RuleRunnerUtils.generateFunctionGroups(ctx, runner, resultRow,
+      RuleRunnerUtils.generateFunctionGroups(ctx, runner, paramsInfo, resultRow,
         additionalParams, allExpr, variablesPerFunc, variableFuncGroup,
-        paramsDef, paramsCall, extraConfig, exprEnd = () => exprEnd(currRuleResTerm),
+        extraConfig, exprEnd = () => exprEnd(currRuleResTerm),
         exprFunEnd = () => exprFunEnd(currRuleResTerm)),
       utilsName, ruleSuitTerm, currentSalience, ruleTupleArrTerm, currentOutputIndex, outArrTerm,
       salienceArrTerm, hasAPassTerm, currRuleResTerm,
@@ -471,7 +476,7 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
   protected def doGenCodeI(outerCtx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = {
 
     val (clazz, fres) = SeparateCompilation.withSubExpressions(this, realChildren, outerCtx, ev, ruleSuite.id) {
-      (ctx, ruleRunnerExpressionIdx) =>
+      (ctx, ruleRunnerExpressionIdx, _) =>
 
         // #128 jump out of expr or rule groups
         val earlyReturn =

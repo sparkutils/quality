@@ -207,7 +207,9 @@ object SubQueryWrapper {
  * @param params pairs of variable name to java type used for declaration and the class type for boxing
  */
 case class ParameterInformation(paramsDef: String, paramsCall: String, arity: Int,
-                                params: Seq[(String, String, Class[_])], pushToTop: String = "") {
+                                params: Seq[(String, String, Class[_])], pushToTop: String = "",
+                                outerCallParams: String = ""
+                               ) {
 
   val useArity = if (arity > 22) 1 else arity
 
@@ -222,11 +224,11 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
     s"$prefix$useArity<InternalRow${if (arity > 0) "," else ""}" +
       (
         if (arity <= 22)
-          params.map { p =>
-            if (p._3.isPrimitive)
+          params.map { p => "Object"
+/*            if (p._3.isPrimitive)
               CodeGenerator.boxedType(p._3.getSimpleName)
             else
-              p._1
+              p._1*/
           }.mkString(",")
         else
           "Object"
@@ -241,33 +243,15 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
       "Object input_ppp"
 
   def aritySafeParamDecl: String =
-    if (arity <= 22)
-      params.map { p =>
-/*
-        val cast =
-          if (p._3.isPrimitive)
-            CodeGenerator.boxedType(p._3.getSimpleName)
-          else
-            p._1
-*/
-        s"private ${p._1} ${p._2};"
-      }.mkString("\n")
-    else
-      params.map { p =>
-        val (arrayExtraDecl, arrayExtraDim) =
-          if (p._3.isArray)
-            ("[]", s"") // = new ${p._3.componentType().getName}[1][]
-          else
-            ("","")
-        /* mutableStateArray_5 = new org.apache.spark.sql.catalyst.InternalRow[1][];
-                val cast =
-                  if (p._3.isPrimitive)
-                    CodeGenerator.boxedType(p._3.getSimpleName)
-                  else
-                    p._1
-        */ // TODO extra length params?
-        s"private ${p._1}$arrayExtraDecl ${p._2}$arrayExtraDim;"
-      }.mkString("\n")
+    params.map { p =>
+      val (arrayExtraDecl, arrayExtraDim) =
+        if (p._3.isArray)
+          ("[]","") // s" = new ${p._3.componentType().getName}[1][]
+        else
+          ("","")
+
+      s"private ${p._1}$arrayExtraDecl ${p._2}$arrayExtraDim;"
+    }.mkString("\n")
 
   def aritySafeParamConversion: String =
     if (arity <= 22)
@@ -278,8 +262,13 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
             CodeGenerator.boxedType(p._3.getSimpleName)
           else
             p._1
+        val (arrayExtraDim) =
+          if (p._3.isArray)
+            ("[]")//
+          else
+            ("")
 
-        s"${p._2} = ($cast) ${p._2}_ppp;"
+        s"${p._2} = ($cast$arrayExtraDim) ${p._2}_ppp;"
       }.mkString("\n")
     else
       params.zipWithIndex.map {
@@ -300,7 +289,7 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
 
   def aritySafeParamCall: String =
     if (arity <= 22)
-      paramsCall
+      outerCallParams
     else
       s"""
         new Object[] {
@@ -308,7 +297,6 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
         }
         """
 }
-
 
 object Params {
 
@@ -320,38 +308,62 @@ object Params {
       (v.variableName.dropRight(v.length - openb), v.variableName.drop(openb))
   }
 
-  def formatParams(ctx: CodegenContext, a: Seq[ExprValue], callsKeepArrays: Boolean = false): ParameterInformation = {
-    // filter out any top level arrays, the input is a set, so params need the same order
-    val ordered = a.flatMap {
+  def formatParams(ctx: CodegenContext, a: Seq[ExprValue], additional: Seq[ExprValue] = Seq.empty, callsKeepArrays: Boolean = false): ParameterInformation = {
+    def filterOutArrays(use: Seq[ExprValue]) = use.flatMap {
       case a: VariableValue => Some(a)
       case _ => None
     }
 
-    val pairs = ordered.map { v =>
-      val (stripped, arrayInName) = stripBrackets(v)
+    val filteredA = filterOutArrays(a)
+    val filteredAdditional = filterOutArrays(additional)
 
-      val (typ, array) =
-        if (v.javaType.isArray)
-          (s"${v.javaType.getComponentType.getName}", "[]")
-        else if (v.javaType.isPrimitive)
-          (v.javaType.toString, arrayInName.replaceAll("[^\\[\\]]",""))
+    val size = filteredA.size + filteredAdditional.size
+    val use =
+      if (size <= 22)
+        filteredA ++ filteredAdditional
+      else
+        filteredA // additional are then handled via class level
+
+    // filter out any top level arrays, the input is a set, so params need the same order
+    val ordered = use
+
+    def prepFields(ordered: Seq[VariableValue]) =
+      ordered.map { v =>
+        val (stripped, arrayInName) = stripBrackets(v)
+
+        val (typ, array) =
+          if (v.javaType.isArray)
+            (s"${v.javaType.getComponentType.getName}", "[]")
+          else if (v.javaType.isPrimitive)
+            (v.javaType.toString, arrayInName.replaceAll("[^\\[\\]]",""))
+          else
+            (v.javaType.getName, arrayInName.replaceAll("[^\\[\\]]",""))
+
+        (s"$typ$array", stripped, v.javaType)
+      }
+
+    val pairs = prepFields(ordered)
+
+    val combined =
+      if (size <= 22)
+        pairs
+      else
+        pairs ++ prepFields(filteredAdditional)
+
+    val paramsCall =
+      ordered.map(v =>
+        if (v.javaType.isArray && callsKeepArrays)
+          v.variableName
         else
-          (v.javaType.getName, arrayInName.replaceAll("[^\\[\\]]",""))
-
-      (s"$typ$array", stripped, v.javaType)
-    }
+          stripBrackets(v)._1
+      ).mkString(", ")
 
     ParameterInformation(pairs.map {
       case (typ, stripped, _) =>
 
         s"$typ $stripped"
       }.mkString(", ")
-      , ordered.map(v =>
-        if (v.javaType.isArray && callsKeepArrays)
-          v.variableName
-        else
-          stripBrackets(v)._1
-      ).mkString(", "), ordered.size, pairs)
+      , paramsCall, size, combined, outerCallParams = paramsCall)
   }
 }
 

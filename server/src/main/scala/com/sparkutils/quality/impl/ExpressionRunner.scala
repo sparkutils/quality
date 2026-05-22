@@ -158,7 +158,7 @@ trait ExpressionRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
   protected def doGenCodeI(outerCtx: CodegenContext, ev: ExprCode): ExprCode = {
 
     val (clazz, fres) = SeparateCompilation.withSubExpressions(this, realChildren, outerCtx, ev, ruleSuite.id) {
-      (ctx, ruleRunnerExpressionIdx) =>
+      (ctx, ruleRunnerExpressionIdx, _) =>
 
         // must be called before the rule gen runs
         val params = genParams(ctx, this)

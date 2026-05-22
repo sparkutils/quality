@@ -109,7 +109,7 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
   protected def doGenCodeI(outerCtx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = {
 
     val (clazz, fres) = SeparateCompilation.withSubExpressions(this, realChildren, outerCtx, ev, ruleSuite.id) {
-      (ctx, ruleRunnerExpressionIdx) =>
+      (ctx, ruleRunnerExpressionIdx, _) =>
 
         // need to setup the folder variable to pass around, create it with "left"
         // thread it through

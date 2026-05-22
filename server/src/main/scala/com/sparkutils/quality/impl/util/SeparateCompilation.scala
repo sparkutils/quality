@@ -47,12 +47,12 @@ trait ClazzGenerator[T] {
   def outerResultProcessing(t: T): (CodegenContext, ExprValue) => String
 }
 
-case class SeparateClassGenerator(className: String, extraParams: Seq[ExprValue])
+case class SeparateClassGenerator(className: String, extraParams: Seq[ExprValue], index: Int)
 
 object ClazzGenerator {
 
-  def classGen(name: String, ruleRunnerExpressionIdx: Int ) =
-    s"(($name) references[$ruleRunnerExpressionIdx]).generatorClazz().generate( references )"
+  def classGen(name: String, ruleRunnerExpressionIdx: Int, index: Int = 0 ) =
+    s"(($name) references[$ruleRunnerExpressionIdx]).generatorClazz($index).generate( references )"
 
   implicit val direct: ClazzGenerator[(ParameterInformation, String)] = new ClazzGenerator[(ParameterInformation, String)] {
 
@@ -68,7 +68,7 @@ object ClazzGenerator {
   }
   implicit val viaName: ClazzGenerator[SeparateClassGenerator] = new ClazzGenerator[SeparateClassGenerator] {
 
-    override def apply(t: SeparateClassGenerator): Int => String = _ => s"new ${t.className}(references)"
+    override def apply(t: SeparateClassGenerator): Int => String = i => classGen(t.className, i, t.index)
 
     override def outerResultProcessing(t: SeparateClassGenerator): (CodegenContext, ExprValue) => String = {
       case (ctx, e) =>
@@ -120,15 +120,19 @@ object SeparateCompilation {
   def withSubExpressions[T: ClazzGenerator, I: IdGen](
       theThis: Runner, children: Seq[Expression],
       outerCtx: CodegenContext, ev: ExprCode, id: I,
-      createGenerateFunction: Boolean = true, extraParams: Seq[ExprValue] = Seq.empty )(
-      generate: (CodegenContext,Int) => (T, ExprCode, Seq[String])
-    ): (CodeAndComment, ExprCode) = {
+      createGenerateFunction: Boolean = true, extraParams: Seq[ExprValue] = Seq.empty, useParams: CodegenContext => ParameterInformation = null )(
+      generate: (CodegenContext, Int, ParameterInformation) => (T, ExprCode, Seq[CodeAndComment])
+    ): (Seq[CodeAndComment], ExprCode) = {
 
     val ruleRunnerExpressionIdx = outerCtx.references.length
     outerCtx.references += theThis
     val ctx = QualityCodeGenUtils.clone(outerCtx)
 
-    val params = genParams(ctx, theThis, extraParams)
+    val params =
+      if (useParams ne null)
+        useParams(ctx)
+      else
+        genParams(ctx, theThis, extraParams)
 
     val ((clazzGenerator, codeBody, furtherClasses), subExpressionCode) =
       if (ctx.currentVars eq null) {
@@ -136,13 +140,13 @@ object SeparateCompilation {
 
         val subExpressionCode = QualityCodeGenUtils.nonWholeStageSubexpressionElimination(ctx, children)
 
-        (generate(ctx, ruleRunnerExpressionIdx), subExpressionCode)
+        (generate(ctx, ruleRunnerExpressionIdx, params), subExpressionCode)
       } else {
         val subExprs = SubExprCodeGen.subexpressionEliminationForWholeStageCodegen(ctx, children)
         val subExpressionCode = ShimExprUtils.evaluateSubExprEliminationState(ctx, subExprs)
 
         (QualityCodeGenUtils.withSubExprEliminationExprs(ctx, subExprs.states) {
-          generate(ctx, ruleRunnerExpressionIdx)
+          generate(ctx, ruleRunnerExpressionIdx, params)
         }, subExpressionCode)
       }
 
@@ -164,9 +168,9 @@ object SeparateCompilation {
                                   parameterInformation: ParameterInformation,
                                   clazzGenerator: T, ctx: CodegenContext, codeBody: ExprCode,
                                   ev: ExprCode, idParam: I, subExpressions: String = "",
-                                  generateStatsEvery: Int = 0, furtherClasses: Seq[String] = Seq.empty,
+                                  generateStatsEvery: Int = 0, furtherClasses: Seq[CodeAndComment] = Seq.empty,
                                   createGenerateFunction: Boolean = true):
-    (CodeAndComment, ExprCode) = {
+    (Seq[CodeAndComment], ExprCode) = {
     val fullParams = parameterInformation
 
     // TODO - As Spark has already added ctx vars for codebody null and value, we need to remove them
@@ -233,9 +237,6 @@ object SeparateCompilation {
     val runnerClassBody = s"""
       $generate
 
-      // additional classes
-      ${furtherClasses.mkString("\n")}
-
       // main runner
       class $clazzName extends ${fullParams.aritySafeApplyType("scala.runtime.AbstractFunction")} implements $initType {
         private final Object[] references;
@@ -294,8 +295,18 @@ object SeparateCompilation {
 
     // update the state to the current ctx
     QualityCodeGenUtils.bump(outerctx, ctx)
+    /*
+    declareMutableStates does this:
+          // initializer had a one-dimensional array variable
+          val baseType = javaType.substring(0, javaType.length - 2)
+
+          s"private $javaType[] $arrayName = new $baseType[$length][];"
+
+    which leaves Runner>[] looking like Runne[] , which is nice, so an extra two spaces are added to the type
+     */
+
     // this needs to be after bump so the states aren't reset
-    val runner = outerctx.addMutableState(funX, "runner", initFunc = // new reference stack
+    val runner = outerctx.addMutableState(s"$funX  ", "runner", initFunc = // new reference stack
       v => s"$v = ($funX) ${implicitly[ClazzGenerator[T]].apply(clazzGenerator)(ruleRunnerExpressionIdx)};")
 
     val res = ev.copy( code =
@@ -319,6 +330,6 @@ object SeparateCompilation {
         """
     )
 
-    (code, res)
+    (Seq(code) ++ furtherClasses , res)
   }
 }
