@@ -6,7 +6,7 @@ import com.sparkutils.quality.impl.{Runner, Triggers}
 import com.sparkutils.shim.codegen.SubExprCodeGen
 import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
 import org.apache.spark.sql.catalyst.expressions.Expression
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodegenContext, ExprCode, QualityCodeGenUtils, ShimExprUtils}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext, ExprCode, ExprValue, QualityCodeGenUtils, ShimExprUtils}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
 
 import scala.util.Try
@@ -42,47 +42,95 @@ trait InitPartitionWholeStage {
 
 }
 
-trait ParamsAndName[T] {
-  def apply(t: T): (ParameterInformation, String)
+trait ClazzGenerator[T] {
+  def apply(t: T): Int => String
+  def outerResultProcessing(t: T): (CodegenContext, ExprValue) => String
 }
-object ParamsAndName {
-  implicit val direct: ParamsAndName[(ParameterInformation, String)] = new ParamsAndName[(ParameterInformation, String)] {
 
-    override def apply(t: (ParameterInformation, String)): (ParameterInformation, String) = t
-  }
-  implicit val viaTerms: ParamsAndName[CompilerTerms] = new ParamsAndName[CompilerTerms] {
+case class SeparateClassGenerator(className: String, extraParams: Seq[ExprValue])
 
-    override def apply(t: CompilerTerms): (ParameterInformation, String) = (t.parameterInformation, t.runnerClassName)
+object ClazzGenerator {
+
+  def classGen(name: String, ruleRunnerExpressionIdx: Int ) =
+    s"(($name) references[$ruleRunnerExpressionIdx]).generatorClazz().generate( references )"
+
+  implicit val direct: ClazzGenerator[(ParameterInformation, String)] = new ClazzGenerator[(ParameterInformation, String)] {
+
+    override def apply(t: (ParameterInformation, String)): Int => String = classGen(t._2, _)
+
+    override def outerResultProcessing(t: (ParameterInformation, String)): (CodegenContext, ExprValue) => String = (_,_) => ""
   }
+  implicit val viaTerms: ClazzGenerator[CompilerTerms] = new ClazzGenerator[CompilerTerms] {
+
+    override def apply(t: CompilerTerms): Int => String = classGen(t.runnerClassName, _ )
+
+    override def outerResultProcessing(t: CompilerTerms): (CodegenContext, ExprValue) => String = (_,_) => ""
+  }
+  implicit val viaName: ClazzGenerator[SeparateClassGenerator] = new ClazzGenerator[SeparateClassGenerator] {
+
+    override def apply(t: SeparateClassGenerator): Int => String = _ => s"new ${t.className}(references)"
+
+    override def outerResultProcessing(t: SeparateClassGenerator): (CodegenContext, ExprValue) => String = {
+      case (ctx, e) =>
+        val tmpArr = ctx.freshName("tempArr")
+        s"""
+           Object[] $tmpArr = ((org.apache.spark.sql.catalyst.expressions.GenericInternalRow)${e.code}).values();
+           ${t.extraParams.filterNot(_.javaType.isArray).zipWithIndex.map{
+              case (v,index) =>
+                val cast =
+                  if (v.javaType.isPrimitive)
+                    CodeGenerator.boxedType(v.javaType.getSimpleName)
+                  else
+                    v.javaType.getName
+
+                s"${v.code} = ($cast) $tmpArr[$index];"}.mkString("\n")
+            }
+           """
+    }
+  }
+}
+
+trait IdGen[I] {
+  def gen(i: I): String
+  def forComment(i: I): String
+}
+
+case class SubCompilation(id: String, forComment: String)
+
+object IdGen {
+
+  implicit def versionedIdGen[T <: VersionedId]: IdGen[T] = new IdGen[T] {
+
+    override def gen(ruleSuiteId: T): String = s"${ruleSuiteId.id}_${ruleSuiteId.version}".replaceAll("-","__")
+
+    override def forComment(i: T): String = s"RuleSuite Id(${i.id},${i.version})"
+  }
+
+  implicit val subCompilation: IdGen[SubCompilation] = new IdGen[SubCompilation] {
+
+    override def gen(i: SubCompilation): String = i.id
+
+    override def forComment(i: SubCompilation): String = i.forComment
+  }
+
 }
 
 object SeparateCompilation {
 
-  /**
-   * creates a new clazz, but it is linked and created in the outer context.  Used by ExpressionRunner and RuleRunner
-   */
-  def runnerCompilation(outerctx: CodegenContext, terms: CompilerTerms, ctx: CodegenContext, codeBody: ExprCode,
-                        ev: ExprCode, ruleSuiteId: VersionedId): (CodeAndComment, ExprCode) =
-    SeparateCompilation.runnerCompilation(outerctx, terms.parameterInformation,
-      terms.runnerClassName, ctx, codeBody, ev, ruleSuiteId, "")
-
-  def runnerCompilation(outerctx: CodegenContext, terms: CompilerTerms, ctx: CodegenContext, codeBody: ExprCode,
-                        ev: ExprCode, ruleSuiteId: VersionedId, subExpressions: String): (CodeAndComment, ExprCode) =
-    SeparateCompilation.runnerCompilation(outerctx, terms.parameterInformation,
-      terms.runnerClassName, ctx, codeBody, ev, ruleSuiteId, subExpressions)
-
-  def withSubExpressions[T: ParamsAndName](
+  def withSubExpressions[T: ClazzGenerator, I: IdGen](
       theThis: Runner, children: Seq[Expression],
-      outerCtx: CodegenContext, ev: ExprCode, ruleSuiteId: VersionedId)(
-      generate: (CodegenContext,Int) => (T, ExprCode) ): (CodeAndComment, ExprCode) = {
+      outerCtx: CodegenContext, ev: ExprCode, id: I,
+      createGenerateFunction: Boolean = true, extraParams: Seq[ExprValue] = Seq.empty )(
+      generate: (CodegenContext,Int) => (T, ExprCode, Seq[String])
+    ): (CodeAndComment, ExprCode) = {
 
     val ruleRunnerExpressionIdx = outerCtx.references.length
     outerCtx.references += theThis
     val ctx = QualityCodeGenUtils.clone(outerCtx)
 
-    val params = genParams(ctx, theThis)
+    val params = genParams(ctx, theThis, extraParams)
 
-    val ((compilerTerms, codeBody), subExpressionCode) =
+    val ((clazzGenerator, codeBody, furtherClasses), subExpressionCode) =
       if (ctx.currentVars eq null) {
         // only fails on "via ProcessFactory with Avro inputs" RowToRowTest shows it doesn't always work for projections
 
@@ -99,19 +147,25 @@ object SeparateCompilation {
       }
 
     // need to use the top level params as they are isolated, internally the params will shift to using any subexprs
-    runnerCompilation(outerctx = outerCtx, params,
-      implicitly[ParamsAndName[T]].apply(compilerTerms)._2, ctx = ctx, codeBody = codeBody, ev = ev,
-      ruleSuiteId = ruleSuiteId, subExpressions = subExpressionCode,
-        generateStatsEvery = Try(Triggers.getValue("statsEvery", theThis.extraConfig, "0").toInt).getOrElse(0))
+    runnerCompilation(outerctx = outerCtx, params, clazzGenerator, ctx = ctx, codeBody = codeBody, ev = ev,
+      idParam = id, subExpressions = subExpressionCode,
+        generateStatsEvery = Try(Triggers.getValue("statsEvery", theThis.extraConfig, "0").toInt).getOrElse(0),
+      furtherClasses, createGenerateFunction
+    )
   }
 
+  def className(id: String) = s"RunnerCompilation$id"
+
   /**
-   * creates a new clazz, but it is linked and created in the outer context.  Used by the engines
+   * creates a new clazz, but it is linked and created in the outer context.  Used by all runners.
    */
-  def runnerCompilation(outerctx: CodegenContext, parameterInformation: ParameterInformation,
-                        runnerClassName: String, ctx: CodegenContext, codeBody: ExprCode,
-                        ev: ExprCode, ruleSuiteId: VersionedId, subExpressions: String = "",
-                        generateStatsEvery: Int = 0):
+  def runnerCompilation[T: ClazzGenerator, I: IdGen](
+                                  outerctx: CodegenContext,
+                                  parameterInformation: ParameterInformation,
+                                  clazzGenerator: T, ctx: CodegenContext, codeBody: ExprCode,
+                                  ev: ExprCode, idParam: I, subExpressions: String = "",
+                                  generateStatsEvery: Int = 0, furtherClasses: Seq[String] = Seq.empty,
+                                  createGenerateFunction: Boolean = true):
     (CodeAndComment, ExprCode) = {
     val fullParams = parameterInformation
 
@@ -126,7 +180,7 @@ object SeparateCompilation {
       else
         ("int partitionIndex","","", classOf[InitPartitionSimple].getName, false)
 
-    val id = s"${ruleSuiteId.id}_${ruleSuiteId.version}".replaceAll("-","__")
+    val id = implicitly[IdGen[I]].gen(idParam)
 
     val (statsState, statsRowStart, statBeforeCodeBody, statDump) =
       if (generateStatsEvery == 0)
@@ -164,13 +218,26 @@ object SeparateCompilation {
           """)
       }
 
+    val clazzName = className(id)
+
+    val generate =
+      if (createGenerateFunction)
+        s"""
+        public $clazzName generate(Object[] references) {
+          return new $clazzName(references);
+        }
+        """
+      else ""
+
     // TODO maximum is 255 params, the codegenerator code has no upper limit, but it's 22 for function, need a array wrapper approach
     val runnerClassBody = s"""
-      public RunnerCompilation$id generate(Object[] references) {
-        return new RunnerCompilation$id(references);
-      }
+      $generate
 
-      class RunnerCompilation$id extends ${fullParams.aritySafeApplyType("scala.runtime.AbstractFunction")} implements $initType {
+      // additional classes
+      ${furtherClasses.mkString("\n")}
+
+      // main runner
+      class $clazzName extends ${fullParams.aritySafeApplyType("scala.runtime.AbstractFunction")} implements $initType {
         private final Object[] references;
         $initDecl
         // ctx mutable states
@@ -180,7 +247,7 @@ object SeparateCompilation {
         // stats state
         $statsState
 
-        public RunnerCompilation$id(Object[] references) {
+        public $clazzName(Object[] references) {
           this.references = references;
         }
 
@@ -229,14 +296,15 @@ object SeparateCompilation {
     QualityCodeGenUtils.bump(outerctx, ctx)
     // this needs to be after bump so the states aren't reset
     val runner = outerctx.addMutableState(funX, "runner", initFunc = // new reference stack
-      v => s"$v = ($funX) (($runnerClassName) references[$ruleRunnerExpressionIdx]).generatorClazz().generate( references );")
+      v => s"$v = ($funX) ${implicitly[ClazzGenerator[T]].apply(clazzGenerator)(ruleRunnerExpressionIdx)};")
 
     val res = ev.copy( code =
       code"""
         // push to top
         ${parameterInformation.pushToTop}
-        // Call to RuleSuite Id(${ruleSuiteId.id},${ruleSuiteId.version})
+        // Call to ${implicitly[IdGen[I]].forComment(idParam)}
         InternalRow ${ev.value} = (InternalRow) (($funX)$runner).apply(${fullParams.aritySafeParamCall});
+        ${implicitly[ClazzGenerator[T]].outerResultProcessing(clazzGenerator)(outerctx, ev.value)}
         boolean ${ev.isNull} = false;
           """)
 

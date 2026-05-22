@@ -14,7 +14,7 @@ object MultiCommutativeOpOps {
   def origin(triggers: Seq[Trigger]): Seq[Trigger] =
     triggers.map{
       // 3.4 makes life difficult for this
-      case t@ Trigger(m: MultiCommutativeOp, _, _) if m.opCls == classOf[And] =>
+      case t@ Trigger(m: MultiCommutativeOp, _, _, _) if m.opCls == classOf[And] =>
         t.copy(expression = multiOriginalRoot.get(m).asInstanceOf[Expression])
       case t => t
     }

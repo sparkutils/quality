@@ -218,7 +218,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
         else output(currentOutputIndex)
       )
 
-  case class CompilerTerms(grouped: (_root_.scala.collection.Iterator[_root_.scala.Predef.String], String),
+  case class CompilerTerms(grouped: (_root_.scala.collection.Iterator[_root_.scala.Predef.String], String, Seq[String]),
                            utilsName: String, ruleSuitTerm: String, currentSalience: String, ruleTupleArrTerm: String,
                            currentOutputIndex: String, outArrTerm: String,
                            salienceArrTerm: String, hasAPassTerm: String, currRuleResTerm: String,
@@ -273,7 +273,8 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
     val currRuleResTerm = ctx.addMutableState(currRuleRes, ctx.freshName("currRuleRes"),
       v => s"$v = 0;")
 
-    val ruleTupleRes = classOf[Tuple3[_,_,_]].getName
+    val ruleTupleClass = classOf[Tuple3[_,_,_]]
+    val ruleTupleRes = ruleTupleClass.getName
     val ruleTupleArrTerm = ctx.addMutableState(ruleTupleRes+"[]", ctx.freshName("ruleId"),
       v => s"$v = com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenEngineIds($ruleSuitTerm);")
 
@@ -281,10 +282,10 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
     val salienceArrTerm = ctx.addMutableState(salienceType+"[]", ctx.freshName("salience"),
       v => s"$v = com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenSalience($ruleSuitTerm);")
 
-    val output = {
+    val (output, outputJavaType) = {
       val javaType = realChildren.last.genCode(ctx).value.javaType // last should always be good
       // can't use the primitive type as it can't handle nulls
-      if (javaType.isPrimitive) CodeGenerator.boxedType(javaType.getSimpleName) else javaType.getName
+      (if (javaType.isPrimitive) CodeGenerator.boxedType(javaType.getSimpleName) else javaType.getName, javaType)
     }
 
     val outArrTerm = ctx.addMutableState(output+"[]", ctx.freshName("output"),
@@ -292,7 +293,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
 
     val triggerRules = realChildren.slice(0, offset)
 
-    def codeGen(exp: Expression, idx: Int, funName: String) = {
+    def codeGen(ctx: CodegenContext, exp: Expression, idx: Int, funName: String) = {
       val (evalPre, eval) =
         if (forceTriggerEval)
           ("", s"com.sparkutils.quality.impl.RuleSuiteHelpers.ruleResultToInt($childrenFuncTerm[$idx].eval($i))")
@@ -332,39 +333,40 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
         val exprFuncName = ctx.freshName(s"outputExprFun$i")
 
         val exp = realChildren(offset + i)
-        val eval = exp.genCode(ctx)
+        (ctx: CodegenContext) => {
+          val eval = exp.genCode(ctx)
 
-        val body =
-          code"""
-              ${extraSetup(index, i)} \n
-              ${eval.code} \n
+          val body =
+            code"""
+                ${extraSetup(index, i)} \n
+                ${eval.code} \n
 
-              $outArrTerm[$i] = ${eval.isNull} ? null : ($output)${eval.value}; \n
-              ${extraResult(s"$outArrTerm[$i]", i)}
-        """
+                $outArrTerm[$i] = ${eval.isNull} ? null : ($output)${eval.value}; \n
+                ${extraResult(s"$outArrTerm[$i]", i)}
+          """
 
-        ctx.addNewFunction(exprFuncName,
-          code"""
-   private void $exprFuncName($paramsDef${if (paramsDef.isEmpty) "" else ","} int $index) {
-            $body
+          ctx.addNewFunction(exprFuncName,
+            code"""
+     private void $exprFuncName($paramsDef${if (paramsDef.isEmpty) "" else ","} int $index) {
+              $body
 
-      ${
-            if (debugMode)
-              s"""
-              $currentOutputIndex += 1; \n
+        ${
+              if (debugMode)
+                s"""
+                $currentOutputIndex += 1; \n
 
-              """
-            else
-              s"""
+                """
+              else
+                s"""
 
-              $currentSalience = $salienceArrTerm[$index]; \n
-              $currentOutputIndex = $index; \n
-              """
-          }
-      }
-  """.code
-            )
-
+                $currentSalience = $salienceArrTerm[$index]; \n
+                $currentOutputIndex = $index; \n
+                """
+            }
+        }
+    """.code
+             )
+        }
 
       }
 
@@ -376,13 +378,27 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
       val offset = expressionOffsets(realI)
       val funName = outExprFunTerms(offset)
       val trigger = triggerRules(realI) // the original trigger is useless
-      val stepWithIf = codeGen(trigger, realI, funName)
+      val stepWithIf = (ctx: CodegenContext) => codeGen(ctx, trigger, realI, funName(ctx))
 
       (Trigger(trigger, realI, salience(realI)), stepWithIf)
     }
 
+    // required for any TriggerGrouping or further splitting of code
+    val additionalParams = Seq(
+      VariableValue(resultRow, classOf[InternalRow]),
+      VariableValue(outArrTerm, java.lang.reflect.Array.newInstance(outputJavaType, 0).getClass),
+      VariableValue(salienceArrTerm, java.lang.reflect.Array.newInstance(java.lang.Integer.TYPE, 0).getClass),
+      VariableValue(currentOutputIndex, java.lang.Integer.TYPE),
+      VariableValue(currentSalience, java.lang.Integer.TYPE),
+      VariableValue(hasAPassTerm, java.lang.Boolean.TYPE),
+      VariableValue(currRuleResTerm, java.lang.Integer.TYPE),
+      VariableValue(ruleTupleArrTerm, java.lang.reflect.Array.newInstance(ruleTupleClass, 0).getClass),
+      VariableValue(inPlaceOffsets.runner, inPlaceOffsets.runnerClazz)
+    )
+
     CompilerTerms(
-      RuleRunnerUtils.generateFunctionGroups(ctx, allExpr, variablesPerFunc, variableFuncGroup,
+      RuleRunnerUtils.generateFunctionGroups(ctx, runner, resultRow,
+        additionalParams, allExpr, variablesPerFunc, variableFuncGroup,
         paramsDef, paramsCall, extraConfig, exprEnd = () => exprEnd(currRuleResTerm),
         exprFunEnd = () => exprFunEnd(currRuleResTerm)),
       utilsName, ruleSuitTerm, currentSalience, ruleTupleArrTerm, currentOutputIndex, outArrTerm,
@@ -539,7 +555,7 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
               """
             )
 
-        (compilerTerms, res)
+        (compilerTerms, res, grouped._3)
     }
     generatorClassSource = clazz
     fres

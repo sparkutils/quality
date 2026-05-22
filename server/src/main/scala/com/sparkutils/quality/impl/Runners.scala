@@ -48,7 +48,8 @@ object Runners {
  *                         class variables for each ruleSet
  * @param resultRowPrep must be called after processing and re-integrates the overallResult's from each set and suite
  */
-case class InPlaceOffsets(offsets: Seq[String => Block], beforeProcessing: Block, resultRowPrep: Block)
+case class InPlaceOffsets(offsets: Seq[String => Block], beforeProcessing: Block, resultRowPrep: Block,
+                          runner: String, runnerClazz: Class[_])
 
 /**
  * Shared trait for all runners
@@ -123,7 +124,7 @@ trait Runner extends Expression {
                $runner.applyResult($level1, $level2, $resultRow, $result);
                 """
         }
-    }, code"", code"")
+    }, code"", code"", runner, this.getClass)
   }
 
 }

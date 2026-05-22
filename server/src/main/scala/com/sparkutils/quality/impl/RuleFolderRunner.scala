@@ -239,7 +239,7 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
           $post
           """
             )
-        (compilerTerms, res)
+        (compilerTerms, res, grouped._3)
     }
 
     generatorClassSource = clazz

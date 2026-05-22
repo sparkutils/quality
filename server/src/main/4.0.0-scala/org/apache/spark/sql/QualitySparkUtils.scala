@@ -8,7 +8,7 @@ import com.sparkutils.quality.impl.{LambdaFunction, RuleEngineRunnerBase, RuleFo
 import com.sparkutils.shim.expressions.{HigherOrderFunctionLike, PredicateHelperPlus}
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, DeduplicateRelations, ResolveCatalogs, ResolveExpressionsWithNamePlaceholders, ResolveInlineTables, ResolveLambdaVariables, ResolvePartitionSpec, ResolveTimeZone, ResolveUnion, ResolveWithCTE, SessionWindowing, SimpleAnalyzer, TimeWindowing, TypeCoercion}
 import org.apache.spark.sql.catalyst.encoders.{ExpressionEncoder, RowEncoder}
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, GenerateMutableProjection, ShimExprUtils}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, ExprValue, GenerateMutableProjection, ShimExprUtils}
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, EqualNullSafe, Expression, ExpressionSet, HigherOrderFunction, InterpretedMutableProjection, Literal, NamedExpression, Projection, UpdateFields}
 import org.apache.spark.sql.catalyst.optimizer.{BooleanSimplification, CollapseProject, CombineConcats, CombineTypedFilters, ConstantFolding, ConstantPropagation, EliminateMapObjects, EliminateSerialization, FoldablePropagation, LikeSimplification, NormalizeFloatingNumbers, NullDownPropagation, NullPropagation, ObjectSerializerPruning, OptimizeCsvJsonExprs, OptimizeIn, OptimizeRand, OptimizeUpdateFields, PruneFilters, PushFoldableIntoBranches, ReassignLambdaVariableID, RemoveNoopOperators, RemoveRedundantAggregates, RemoveRedundantAliases, ReorderAssociativeOperator, ReplaceExpressions, ReplaceNullWithFalseInPredicate, ReplaceUpdateFieldsExpression, RewriteCorrelatedScalarSubquery, RewriteLateralSubquery, SimplifyBinaryComparison, SimplifyCaseConversionExpressions, SimplifyCasts, SimplifyConditionals, SimplifyExtractValueOps, UnwrapCastInBinaryComparison}
 import org.apache.spark.sql.catalyst.plans.logical.{CatalystSerde, DeserializeToObject, LocalRelation, LogicalPlan, Project, UnaryNode}
@@ -32,10 +32,10 @@ object ClassicQualitySparkUtils {
    * @param ctx
    * @return (parameters for function decleration, parmaters for calling, code that must be before fungroup)
    */
-  def genParams(ctx: CodegenContext, child: Expression): ParameterInformation = {
+  def genParams(ctx: CodegenContext, child: Expression, additional: Seq[ExprValue] = Seq.empty): ParameterInformation = {
     val (a, b) = CodeGenerator.getLocalInputVariableValues(ctx, child, ShimExprUtils.currentSubExprState(ctx))
 
-    val p = formatParams(ctx, a.toSeq)
+    val p = formatParams(ctx, a.toSeq ++ additional)
 
     p.copy(pushToTop = b.map(_.code.code).mkString("\n"))
   }

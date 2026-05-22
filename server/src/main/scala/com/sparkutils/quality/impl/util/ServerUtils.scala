@@ -209,6 +209,8 @@ object SubQueryWrapper {
 case class ParameterInformation(paramsDef: String, paramsCall: String, arity: Int,
                                 params: Seq[(String, String, Class[_])], pushToTop: String = "") {
 
+  val useArity = if (arity > 22) 1 else arity
+
   /**
    * When arity is over 22 we still need a type, so the type becomes an array we unpack..., boxing is unavoidable
    *
@@ -217,7 +219,7 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
    * @return
    */
   def aritySafeApplyType(prefix: String): String =
-    s"$prefix$arity<InternalRow${if (arity > 0) "," else ""}" +
+    s"$prefix$useArity<InternalRow${if (arity > 0) "," else ""}" +
       (
         if (arity <= 22)
           params.map { p =>
@@ -227,7 +229,7 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
               p._1
           }.mkString(",")
         else
-          ""
+          "Object"
         ) + ">"
 
   def aritySafeParamDef: String =
@@ -236,22 +238,36 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
         s"Object ${p._2}_ppp" // only object will compile, janino no generics
       }.mkString(",")
     else
-      ""
+      "Object input_ppp"
 
   def aritySafeParamDecl: String =
     if (arity <= 22)
       params.map { p =>
-
+/*
         val cast =
           if (p._3.isPrimitive)
             CodeGenerator.boxedType(p._3.getSimpleName)
           else
             p._1
-
+*/
         s"private ${p._1} ${p._2};"
       }.mkString("\n")
     else
-      ""
+      params.map { p =>
+        val (arrayExtraDecl, arrayExtraDim) =
+          if (p._3.isArray)
+            ("[]", s"") // = new ${p._3.componentType().getName}[1][]
+          else
+            ("","")
+        /* mutableStateArray_5 = new org.apache.spark.sql.catalyst.InternalRow[1][];
+                val cast =
+                  if (p._3.isPrimitive)
+                    CodeGenerator.boxedType(p._3.getSimpleName)
+                  else
+                    p._1
+        */ // TODO extra length params?
+        s"private ${p._1}$arrayExtraDecl ${p._2}$arrayExtraDim;"
+      }.mkString("\n")
 
   def aritySafeParamConversion: String =
     if (arity <= 22)
@@ -266,13 +282,31 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
         s"${p._2} = ($cast) ${p._2}_ppp;"
       }.mkString("\n")
     else
-      ""
+      params.zipWithIndex.map {
+        case (p, index) =>
+          val cast =
+            if (p._3.isPrimitive)
+              CodeGenerator.boxedType(p._3.getSimpleName)
+            else
+              p._1
+          val (arrayExtraDim) =
+            if (p._3.isArray)
+              ("[]")// [0]
+            else
+              ("")
+
+          s"${p._2} = ($cast$arrayExtraDim) ((Object[])input_ppp)[$index];"
+      }.mkString("\n")
 
   def aritySafeParamCall: String =
     if (arity <= 22)
       paramsCall
     else
-      ""
+      s"""
+        new Object[] {
+         ${params.map(_._2).mkString(",\n")}
+        }
+        """
 }
 
 

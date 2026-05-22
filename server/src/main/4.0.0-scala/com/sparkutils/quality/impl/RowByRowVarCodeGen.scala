@@ -118,10 +118,10 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
     evaluate
   }
 
-  protected def functions(ctx: CodegenContext, allExpr: Seq[(Expression, Block)], paramsDef: String, paramsCall: String,
+  protected def functions(ctx: CodegenContext, allExpr: Seq[(Expression, CodegenContext => Block)], paramsDef: String, paramsCall: String,
                           prefix: String, extraConfig: Map[String, String] = Map.empty): String = {
     val funNames: Iterator[String] =
-      RuleRunnerUtils.generateFunctionGroups(ctx, allExpr.zipWithIndex.map{
+      RuleRunnerUtils.generateFunctionGroups(ctx, null, "", Seq.empty, allExpr.zipWithIndex.map{
         case ((exp, b), i) => (Trigger(exp, i, 0), b)
       }, 40, 20, paramsDef, paramsCall, prefix = prefix,
         extraConfig = extraConfig)._1
@@ -194,8 +194,8 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
       case p if allOrdinals(p._2) => p._1
     }
 
-    val encProjections = functions(ctx, encProjectionCodesToUse.map(_._2), "InternalRow enc", "enc", "encoder")
-    val encUpdates = functions(ctx, encProjectionCodesToUse.map(_._3), "InternalRow enc", "enc", "encoder")
+    val encProjections = functions(ctx, encProjectionCodesToUse.map(t => (t._2._1, (ctx: CodegenContext) => t._2._2)), "InternalRow enc", "enc", "encoder")
+    val encUpdates = functions(ctx, encProjectionCodesToUse.map(t => (t._3._1, (ctx: CodegenContext) => t._3._2)), "InternalRow enc", "enc", "encoder")
 
     // need to keep all that may be used
     val exprVals = encProjectionCodes.map(_._1.copy(code = EmptyBlock))
@@ -220,7 +220,7 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
       JavaCode.variable(ctx.INPUT_ROW, classOf[InternalRow]), callsKeepArrays = true
     )
 
-    val allProjections = functions(ctx, projectionCodes.map(_._2), projectionParamsDecl, projectionParamsCall, "projection")
+    val allProjections = functions(ctx, projectionCodes.map(t => (t._2._1, (ctx: CodegenContext) => t._2._2)), projectionParamsDecl, projectionParamsCall, "projection")
 
     // val allUpdates = projectionCodes.map(_._3).mkString("\n")
 
@@ -253,7 +253,7 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
 
     val decProjectionCodes = projections(ctx, Seq(exprTo), "decRow", decSubExprStates).toIndexedSeq // streams suck
 
-    val decProjections = functions(ctx, decProjectionCodes.map(_._2), decParamsDecl, decParamsCall, "decoding")
+    val decProjections = functions(ctx, decProjectionCodes.map(t => (t._2._1, (ctx: CodegenContext) => t._2._2)), decParamsDecl, decParamsCall, "decoding")
 
     val returnValue = decProjectionCodes.last._1.value
 

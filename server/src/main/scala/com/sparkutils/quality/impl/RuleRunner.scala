@@ -137,18 +137,19 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
   def packTheId(obj: Object) = packId(obj)//: java.lang.Long
 
   protected[quality] def generateFunctionGroups(
-    ctx: CodegenContext, expressions: Seq[(Trigger, Block)],
+    ctx: CodegenContext, runner: Runner, resultRow: String, additionalParams: Seq[VariableValue],
+    expressions: Seq[(Trigger, CodegenContext => Block)],
     variablesPerFunc: Int, variableFuncGroup: Int, paramsDef: String, paramsCall: String,
     extraConfig: Map[String, String],
     prefix: String = "ruleRunner", exprEnd: () => Block = () => code"",
-    exprFunEnd: () => Block = () => code""): (Iterator[String], String) = {
+    exprFunEnd: () => Block = () => code""): (Iterator[String], String, Seq[String]) = {
 
     val impl: TriggerGrouper = Triggers.loadTriggerGrouper(extraConfig)
 
     val start = System.nanoTime()
 
     val res =
-      impl.apply(ctx, expressions,
+      impl.apply(ctx, runner, resultRow, additionalParams, expressions,
         variablesPerFunc, variableFuncGroup, paramsDef, paramsCall,
         prefix, exprEnd, exprFunEnd, extraConfig)
 
@@ -181,7 +182,7 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
   def nonOutputRuleGen[T: ClassTag](ctx: CodegenContext, runner: Runner, ev: ExprCode, utilsName: String,
                        realChildren: Seq[Expression], variablesPerFunc: Int, variableFuncGroup: Int,
                        resultF: (ExprValue, Int) => String, extraConfig: Map[String, String],
-                       ruleRunnerExpressionIdx: Int, applyResult: String = "applyResult"
+                       ruleRunnerExpressionIdx: Int
                       ): ExprCode = {
     val paramInfo = genParams(ctx, runner)
     import paramInfo._
@@ -192,24 +193,25 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
     val inPlaceOffsets = runner.inPlaceArrayOffsets(ctx, resultRow, ruleRunnerExpressionIdx)
 
     val allExpr = realChildren.zipWithIndex.map { case (child, idx) =>
-      val eval = child.genCode(ctx)
+      val generate =
+        (ctx: CodegenContext) => {
+          val eval = child.genCode(ctx)
 
-      val converted =
-        code"""${eval.code}\n
+          code"""${eval.code}\n
 
             ${inPlaceOffsets.offsets(idx).apply(resultF(eval.value, idx))}
              """
-
-      (Trigger(child, idx, 0), converted)
+        }
+      (Trigger(child, idx, 0), generate)
     }
-
-    val funNames: Iterator[String] =
-      RuleRunnerUtils.generateFunctionGroups(ctx, allExpr,
-        variablesPerFunc, variableFuncGroup, paramsDef, paramsCall, extraConfig)._1
-
 
     val resName = ctx.freshName("result")
     val resNull = ctx.freshName("isNull")
+
+    val funNames: Iterator[String] =
+      RuleRunnerUtils.generateFunctionGroups(ctx, runner, resultRow,
+        Seq(VariableValue(resultRow, classOf[InternalRow])), allExpr,
+        variablesPerFunc, variableFuncGroup, paramsDef, paramsCall, extraConfig)._1
 
     val exp = ExprCode(VariableValue(resName, ev.value.javaType), isNullVariable(resNull))
 
@@ -301,7 +303,7 @@ trait RuleRunnerBase[T] extends NonSQLExpression with SplitCompilation with Trig
             extraConfig, ruleRunnerExpressionIdx
           )
 
-      ((params, classOf[RuleRunnerBase[T]].getName), res)
+      ((params, classOf[RuleRunnerBase[T]].getName), res, Seq.empty)
     }
     generatorClassSource = clazz
     fres

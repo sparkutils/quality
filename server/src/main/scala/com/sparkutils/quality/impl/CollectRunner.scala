@@ -499,7 +499,7 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression with SplitCo
             """
           )
 
-        (compilerTerms, res)
+        (compilerTerms, res, grouped._3)
     }
     generatorClassSource = clazz
     fres
