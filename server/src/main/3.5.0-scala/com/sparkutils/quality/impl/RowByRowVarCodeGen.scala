@@ -5,15 +5,14 @@ import com.sparkutils.quality.impl.util.ParameterInformation
 import com.sparkutils.quality.impl.util.Params.formatParams
 import com.sparkutils.quality.sparkless.impl.DecoderOpEncoderProjection
 import com.sparkutils.quality.sparkless.impl.Processors.{NO_QUERY_PLANS, isCopyNeeded}
-
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.{ClassicQualitySparkUtils, Encoder, ShimUtils}
+import org.apache.spark.sql.{Encoder, ShimUtils}
 import org.apache.spark.sql.catalyst.expressions.BindReferences.bindReferences
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate.NoOp
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen._
-import org.apache.spark.sql.types.{DataType, StructField, StructType}
+import org.apache.spark.sql.types.{DataType, StructType}
 
 //import scala.collection.immutable.{Map, Seq}
 
@@ -119,15 +118,15 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
     evaluate
   }
 
-  protected def functions(ctx: CodegenContext, allExpr: Seq[(Expression, Block)], paramsDef: String, paramsCall: String,
+  protected def functions(ctx: CodegenContext, allExpr: Seq[(Expression, (CodegenContext, ParameterInformation) => Block)], params: ParameterInformation,
                           prefix: String, extraConfig: Map[String, String] = Map.empty): String = {
     val funNames: Iterator[String] =
-      RuleRunnerUtils.generateFunctionGroups(ctx, allExpr.zipWithIndex.map{
+      RuleRunnerUtils.generateFunctionGroups(ctx, null, params, "", Seq.empty, allExpr.zipWithIndex.map{
         case ((exp, b), i) => (Trigger(exp, i, 0), b)
-      }, 40, 20, paramsDef, paramsCall, prefix = prefix,
+      }, 40, 20, prefix = prefix,
         extraConfig = extraConfig)._1
 
-    funNames.map { f => s"$f($paramsCall);" }.mkString("\n")
+    funNames.map { f => s"$f(${params.paramsCall});" }.mkString("\n")
   }
 
   def create[I: Encoder, O: Encoder](expressions: Seq[Expression], toSize: Int,
@@ -195,8 +194,10 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
       case p if allOrdinals(p._2) => p._1
     }
 
-    val encProjections = functions(ctx, encProjectionCodesToUse.map(_._2), "InternalRow enc", "enc", "encoder")
-    val encUpdates = functions(ctx, encProjectionCodesToUse.map(_._3), "InternalRow enc", "enc", "encoder")
+    val encParams = ParameterInformation("InternalRow enc", "enc", 2, Seq.empty)
+
+    val encProjections = functions(ctx, encProjectionCodesToUse.map(t => (t._2._1, (ctx: CodegenContext, _: ParameterInformation) => t._2._2)), encParams, "encoder")
+    val encUpdates = functions(ctx, encProjectionCodesToUse.map(t => (t._3._1, (ctx: CodegenContext, _: ParameterInformation) => t._3._2)), encParams, "encoder")
 
     // need to keep all that may be used
     val exprVals = encProjectionCodes.map(_._1.copy(code = EmptyBlock))
@@ -214,14 +215,14 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
     // generate the full set
     val projectionCodes = projections(ctx, cExpressions, "mutableRow", projectionSubExprStates).toIndexedSeq // streams suck
 
-    val ParameterInformation(projectionParamsDecl, projectionParamsCall, _, _, _) = formatParams( ctx, ctx.currentVars.flatMap(e => Seq(e.value, e.isNull)) :+
+    val projectionParams = formatParams( ctx, ctx.currentVars.flatMap(e => Seq(e.value, e.isNull)) :+
       JavaCode.variable(ctx.INPUT_ROW, classOf[InternalRow])
     )
-    val ParameterInformation(_, topProjectionParamsCall, _, _, _) = formatParams( ctx, ctx.currentVars.flatMap(e => Seq(e.value, e.isNull)) :+
+    val topProjectionParams = formatParams( ctx, ctx.currentVars.flatMap(e => Seq(e.value, e.isNull)) :+
       JavaCode.variable(ctx.INPUT_ROW, classOf[InternalRow]), callsKeepArrays = true
     )
 
-    val allProjections = functions(ctx, projectionCodes.map(_._2), projectionParamsDecl, projectionParamsCall, "projection")
+    val allProjections = functions(ctx, projectionCodes.map(t => (t._2._1, (ctx: CodegenContext, _: ParameterInformation) => t._2._2)), projectionParams, "projection")
 
     // val allUpdates = projectionCodes.map(_._3).mkString("\n")
 
@@ -245,16 +246,16 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
 
     ///ctx.currentVars = null // it requires the vars to be provided for each input param
     ctx.INPUT_ROW = "dec"
-    val ParameterInformation(decParamsDecl, decParamsCall, _, _, _) = formatParams( ctx, ctx.currentVars.flatMap(e => Seq(e.value, e.isNull)) :+
+    val decParams = formatParams( ctx, ctx.currentVars.flatMap(e => Seq(e.value, e.isNull)) :+
       JavaCode.variable(ctx.INPUT_ROW, classOf[InternalRow])
     )
-    val ParameterInformation(_, topDecParamsCall, _, _, _) = formatParams( ctx, ctx.currentVars.flatMap(e => Seq(e.value, e.isNull)) :+
+    val ParameterInformation(_, topDecParamsCall, _, _, _, _) = formatParams( ctx, ctx.currentVars.flatMap(e => Seq(e.value, e.isNull)) :+
       JavaCode.variable(ctx.INPUT_ROW, classOf[InternalRow]), callsKeepArrays = true
     )
 
     val decProjectionCodes = projections(ctx, Seq(exprTo), "decRow", decSubExprStates).toIndexedSeq // streams suck
 
-    val decProjections = functions(ctx, decProjectionCodes.map(_._2), decParamsDecl, decParamsCall, "decoding")
+    val decProjections = functions(ctx, decProjectionCodes.map(t => (t._2._1, (ctx: CodegenContext, _: ParameterInformation) => t._2._2)), decParams, "decoding")
 
     val returnValue = decProjectionCodes.last._1.value
 
@@ -304,11 +305,11 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
           $encUpdates
         }
 
-        public void projections($projectionParamsDecl){
+        public void projections(${projectionParams.params}){
           $allProjections
         }
 
-        public void decode($decParamsDecl) {
+        public void decode(${decParams.params}) {
           // dec subexprs setup
           ${evaluateVariables(decSubExprInputs)}
           // the code
@@ -341,7 +342,7 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
           $projectionSubExprsCode
 
           // projections doing the actual work
-          projections($topProjectionParamsCall);
+          projections(${topProjectionParams.paramsCall});
           // copy all the results into MutableRow
           // allUpdates
           ${

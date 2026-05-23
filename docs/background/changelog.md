@@ -98,16 +98,22 @@ Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1 and 3.3.2 are deprecated as are DBR's 12.2
 > 
 > An optional extraConfig parameter of:
 > ```scala
-> groupProcessorAuditKey /* "quality.runnerGroupProcessor.audit" */ : Boolean = false 
+> groupProcessorAuditKey /* "quality.runnerGroupProcessor.audit" */ : Boolean = false,
+> groupProcessorAuditLocation /* "quality.runnerGroupProcessor.auditLocation" */ : String = "./" 
 > ```
-> will generate a RuleSuiteGroup file, this is likely only possible on OSS Spark due to file:// usage and it has significant 
-> RAM requirements. This group contains a RuleSuite(0,0) 'parent' Rule Suite that calls the child 'bucket' rule suites, 
+> will generate a RuleSuiteGroup file using the specified location (this is required on Databricks).
+> This group contains a RuleSuite(0,0) 'parent' Rule Suite that calls the child 'bucket' rule suites, 
 > using the same grouping as the normal TopLevelBooleanGrouper uses, but in an auditable but executable form for easy
 > verification of bucketing correctness.
 > 
-> This initial experimental version brings the BigRules test case runtime from 5m42s to just under a minute and a per row
-> Quality processing time of 5ms per row to 0.12ms per row on a 20k rule RuleSuite (across 9 comparisons per rule).  If
-> the results from a non-grouped runner differ with grouping please raise an issue.
+> This initial experimental version brings the BigRules test case runtime from 5m42s (requiring -Xmx12g) to just under
+> 45s (requiring only -Xmx2g) and a per row Quality processing time of 0.12ms per row (down from 5ms) on a 20k rule RuleSuite
+> (across 9 comparisons per rule, 380m expressions in total).
+> If the results from a non-grouped runner differ with grouping please raise an issue.
+> 
+> TopLevelBooleanGrouper cannot work on 3.0 or 3.1 and, although functional on 3.2 / 3.21, is only recommended on 3.3 and
+> above as 3.2's performance is slower overall due in part to still requiring sub expressions to be evaluated multiple extra times for the entire tree.
+> 3.3 and above will only use subexpressions within the runner itself as needed by the groups.
 
 ### [0.1.4](https://github.com/sparkutils/quality/milestone/10?closed=1) <small>24th February, 2026</small>
 

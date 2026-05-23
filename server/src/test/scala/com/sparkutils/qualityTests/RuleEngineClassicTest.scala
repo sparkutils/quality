@@ -62,7 +62,7 @@ class RuleEngineClassicTest extends SharedConnectTests with RuleEngineTestBase {
 
           val rs = expression(rer) match {
             case r: RuleEngineRunner => r.ruleSuite
-            case ZeroCodeGen(_, r: RuleEngineRunner) => r.ruleSuite
+            case ZeroCodeGen(_, r: RuleEngineRunner,_,_) => r.ruleSuite
           }
           val ds = toDS(rs)
 

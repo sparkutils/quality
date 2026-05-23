@@ -5,8 +5,6 @@ import com.sparkutils.quality.impl.RuleSuiteHelpers
 import org.apache.commons.io.IOUtils
 
 import java.io.{FileInputStream, FileOutputStream}
-// can't coverage on ci as the memory requirement is over 14gb
-// $COVERAGE-OFF$
 
 /**
  * Serialisation of RuleSuiteGroups
@@ -44,5 +42,3 @@ object RuleSuiteGroupIOUtils {
   }
 
 }
-
-// $COVERAGE-ON$

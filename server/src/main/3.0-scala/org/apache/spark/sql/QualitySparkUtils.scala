@@ -2,19 +2,19 @@ package org.apache.spark.sql
 
 import com.sparkutils.quality.impl.util.DebugTime.debugTime
 import com.sparkutils.quality.impl.util.Params.formatParams
-import com.sparkutils.quality.impl.util.{EmbeddedTypeCorrection, PassThrough, PassThroughCompileEvals, ParameterInformation}
+import com.sparkutils.quality.impl.util.{EmbeddedTypeCorrection, ParameterInformation, PassThrough, PassThroughCompileEvals}
 import com.sparkutils.quality.impl.{LambdaFunction, RuleEngineRunnerBase, RuleFolderRunnerBase, RuleRunnerBase}
 import org.apache.spark.sql.qualityFunctions.{FunN, LambdaFunctions}
 import com.sparkutils.shim.expressions.PredicateHelperPlus
 import org.apache.spark.sql.QualityStructFunctions.UpdateFields
-import org.apache.spark.sql.ShimUtils.{column, toSQLExpr, toSQLType, expressionEncoder}
+import org.apache.spark.sql.ShimUtils.{column, expressionEncoder, toSQLExpr, toSQLType}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, ResolveCreateNamedStruct, ResolveHigherOrderFunctions, ResolveInlineTables, ResolveLambdaVariables, ResolveTimeZone, Resolver, TypeCheckResult, TypeCoercion, UnresolvedAttribute, UnresolvedExtractValue}
 import org.apache.spark.sql.catalyst.catalog.SessionCatalog
 import org.apache.spark.sql.catalyst.encoders.RowEncoder
 import org.apache.spark.sql.catalyst.errors.TreeNodeException
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, ExprCode, ShimExprUtils, GenerateMutableProjection}
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, BindReferences, CreateNamedStruct, EqualNullSafe, Expression, ExtractValue, GetStructField, If, InterpretedMutableProjection, IsNull, LeafExpression, Literal, Projection, UnaryExpression, Unevaluable}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, CodegenFallback, EmptyBlock, ExprCode, ExprValue, GenerateMutableProjection, JavaCode, ShimExprUtils, SubExprEliminationState, VariableValue}
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, BindReferences, BoundReference, CreateNamedStruct, EqualNullSafe, Expression, ExtractValue, GetStructField, If, InterpretedMutableProjection, IsNull, LeafExpression, Literal, Projection, UnaryExpression, Unevaluable}
 import org.apache.spark.sql.catalyst.optimizer.{BooleanSimplification, CollapseProject, CombineConcats, CombineTypedFilters, ConstantFolding, ConstantPropagation, EliminateMapObjects, EliminateSerialization, FoldablePropagation, LikeSimplification, NormalizeFloatingNumbers, NullPropagation, ObjectSerializerPruning, OptimizeIn, ReassignLambdaVariableID, RemoveDispensableExpressions, RemoveNoopOperators, RemoveRedundantAliases, ReorderAssociativeOperator, ReplaceExpressions, ReplaceNullWithFalseInPredicate, SimplifyBinaryComparison, SimplifyCaseConversionExpressions, SimplifyCasts, SimplifyConditionals, SimplifyExtractValueOps}
 import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, LogicalPlan, Project, UnaryNode}
 import org.apache.spark.sql.catalyst.rules.Rule
@@ -25,23 +25,87 @@ import org.apache.spark.sql.types.{DataType, StructField, StructType}
 import org.apache.spark.util.Utils
 
 import scala.collection.mutable.ArrayBuffer
+import scala.collection.mutable
 
 /**
  * Set of utilities to reach in to private functions
  */
 object ClassicQualitySparkUtils {
 
+  // based on Spark 4.1 CodeGenerator.getLocalInputVariableValues
+  def getLocalInputVariableValues(
+                                   ctx: CodegenContext,
+                                   expr: Seq[Expression],
+                                   subExprs: Map[Expression, SubExprEliminationState])
+  : (Set[VariableValue], Set[ExprCode]) = {
+    val argSet = mutable.Set[VariableValue]()
+    val exprCodesNeedEvaluate = mutable.Set[ExprCode]()
+
+    if (ctx.INPUT_ROW != null) {
+      argSet += JavaCode.variable(ctx.INPUT_ROW, classOf[InternalRow])
+    }
+
+    // Collects local variables from a given `expr` tree
+    val collectLocalVariable = (ev: ExprValue) => ev match {
+      case vv: VariableValue => argSet += vv
+      case _ =>
+    }
+
+    val stack = mutable.Stack[Expression]()
+    stack.pushAll(expr)
+    while (stack.nonEmpty) {
+      stack.pop() match {
+        case ref: BoundReference if ctx.currentVars != null &&
+          ctx.currentVars(ref.ordinal) != null =>
+          val exprCode = ctx.currentVars(ref.ordinal)
+          // If the referred variable is not evaluated yet.
+          if (exprCode.code != EmptyBlock) {
+            exprCodesNeedEvaluate += exprCode.copy()
+            exprCode.code = EmptyBlock
+          }
+          collectLocalVariable(exprCode.value)
+          collectLocalVariable(exprCode.isNull)
+
+        case e =>
+          subExprs.get(e) match {
+            case Some(state) =>
+              collectLocalVariable(state.value)
+              collectLocalVariable(state.isNull)
+            case None =>
+              stack.pushAll(e.children)
+          }
+      }
+    }
+
+    (argSet.toSet, exprCodesNeedEvaluate.toSet)
+  }
+
   /**
-   * Spark >3.1 supports the very useful getLocalInputVariableValues, 2.4 needs the previous approach
+   * Only evaluates against subexpressions
    *
    * @param i
    * @param ctx
    * @return (parameters for function decleration, parmaters for calling, code that must be before fungroup)
    */
-  def genParams(ctx: CodegenContext, child: Expression): ParameterInformation = {
+  def genParamsForNested(ctx: CodegenContext, children: Seq[Expression], additional: Seq[ExprValue]): ParameterInformation = {
+    val (a, b) = getLocalInputVariableValues(ctx, children, ShimExprUtils.currentSubExprState(ctx))
+
+    val p = formatParams(ctx, a.toSeq, additional)
+
+    p.copy(pushToTop = b.map(_.code.code).mkString("\n"))
+  }
+
+  /**
+   * Spark >3.1 supports the very useful getLocalInputVariableValues, 2.4 needs the previous approach
+   *
+   * @param i
+   * @param ctx
+   * @return (parameters for function declaration, parameters for calling, code that must be before fungroup)
+   */
+  def genParams(ctx: CodegenContext, child: Expression, additional: Seq[ExprValue] = Seq.empty): ParameterInformation = {
     val a = CodeGenerator.getLocalInputVariableValues(ctx, child, ShimExprUtils.currentSubExprState(ctx))
 
-    formatParams( ctx, a.toSeq )
+    formatParams( ctx, a.toSeq, additional)
   }
 
   def funNRewrite(plan: LogicalPlan, expressionToExpression: PartialFunction[Expression, Expression]): LogicalPlan =

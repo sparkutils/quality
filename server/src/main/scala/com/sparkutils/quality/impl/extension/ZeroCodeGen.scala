@@ -1,7 +1,6 @@
 package com.sparkutils.quality.impl.extension
 
-import com.sparkutils.quality.groupProcessorKey
-import com.sparkutils.quality.impl.{Runner, Triggers}
+import com.sparkutils.quality.impl.Runner
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
@@ -13,7 +12,7 @@ import org.apache.spark.sql.types.DataType
  * compilation time and size.  Added as part of #129 as Databricks could not generate a 20k rulesuite, despite #131's
  * separate compilation, the common subexpressions were already too much for databricks.
  */
-case class ZeroCodeGen(child: Expression, realChild: Expression) extends UnaryExpression with Logging {
+case class ZeroCodeGen(child: Expression, realChild: Expression, on32: Boolean = false, wrapped: Boolean = false) extends UnaryExpression with Logging {
 
   override def nullable: Boolean = realChild.nullable
 
@@ -26,29 +25,14 @@ case class ZeroCodeGen(child: Expression, realChild: Expression) extends UnaryEx
   override def dataType: DataType = realChild.dataType
 
   protected def withNewChildInternal(newChild: Expression): Expression =
-    if (newChild.collect{ case c => c.isInstanceOf[Unevaluable] }.nonEmpty)
+    if ((!wrapped && newChild.collect{ case u: Unevaluable => u }.nonEmpty) || on32) // remove in 0.3.0 when we drop 3.2, 3.2 puts the apply call into a subexpression and doesn't pass params as well Literal doesn't have any
       copy(child = newChild, realChild = newChild)
-    else // hopefully late enough to not be an issue to swap a nullable, the below match is a safeguard
-      newChild match {
-        case Literal(null, dt) if dt == dataType =>
+    else  // hopefully late enough to not be an issue to swap a nullable, the below match is a safeguard
+      if (wrapped) {
           logTrace("ZeroCodeGen doesn't expect another expression optimisation after Unevaluable's are removed but got "+newChild)
-          copy(child = newChild)
-        case _ =>
-          copy(child = Literal(null, newChild.dataType), realChild = newChild)
+        copy(child = newChild)
+      } else {
+        copy(child = Literal(null, newChild.dataType), realChild = newChild, wrapped = true)
       }
+
 }
-
-/**
- * Swaps out runners with over 400 rules (800 actual expressions) or extraConfig has defined a trigger grouping
-
-object ZeroCodeGenRule extends Rule[LogicalPlan] {
-
-  override def apply(plan: LogicalPlan): LogicalPlan =
-    plan.transformAllExpressions {
-      case r: Runner if (r.children.size > 800 || Triggers.getValue(groupProcessorKey, r.extraConfig, "").nonEmpty)
-        && !r.alreadyZero =>
-        val nr = r.withZeroCode()
-        ZeroCodeGen(nr, nr)
-    }
-}
- */
