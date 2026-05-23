@@ -1,0 +1,4802 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/sparkutils/quality/impl/util/TopLevelBoolean.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>package com.sparkutils.quality.impl.util
+</span>2 <span style=''>
+</span>3 <span style=''>import com.sparkutils.quality.impl.{Group, Trigger, util}
+</span>4 <span style=''>import org.apache.spark.sql.catalyst.expressions.{Abs, And, EqualTo, Expression, Literal, Murmur3Hash, Remainder}
+</span>5 <span style=''>
+</span>6 <span style=''>import scala.collection.mutable
+</span>7 <span style=''>
+</span>8 <span style=''>object TopLevelBoolean {
+</span>9 <span style=''>
+</span>10 <span style=''>  def apply(expressions: Seq[Trigger], triggerPercentFilter: Double): (Map[Expression, Seq[Trigger]], Map[Expression, Int]) = {
+</span>11 <span style=''>    val subs = </span><span style='background: #AEF1AE'>SubExprsFrom.apply(expressions.map(_.expression)).toMap</span><span style=''>
+</span>12 <span style=''>
+</span>13 <span style=''>    val filterOut = </span><span style='background: #AEF1AE'>((expressions.size.toDouble / 100.toDouble) * triggerPercentFilter).toInt</span><span style=''>
+</span>14 <span style=''>
+</span>15 <span style=''>    </span><span style='background: #AEF1AE'>(expressions.foldLeft(Map.empty[Expression, Seq[Trigger]]){
+</span>16 <span style=''></span><span style='background: #AEF1AE'>      (cur, n) =&gt;
+</span>17 <span style=''></span><span style='background: #AEF1AE'>        val s = from(n.expression, subs, filterOut)
+</span>18 <span style=''></span><span style='background: #AEF1AE'>        util.MapOps.MapOps(cur).updatedWithF(s) {
+</span>19 <span style=''></span><span style='background: #AEF1AE'>          case Some(s) =&gt; Some(s :+ n)
+</span>20 <span style=''></span><span style='background: #AEF1AE'>          case None =&gt; Some(Seq(n))
+</span>21 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>22 <span style=''></span><span style='background: #AEF1AE'>    }.filter(p =&gt; p._1.collectLeaves().size &gt; 2), subs)</span><span style=''>
+</span>23 <span style=''>  }
+</span>24 <span style=''>
+</span>25 <span style=''>  def sorted(expressions: Seq[Trigger], triggerPercentFilter: Double): (Seq[(Expression, Seq[Trigger])], Map[Expression, Int]) = {
+</span>26 <span style=''>    val </span><span style='background: #AEF1AE'>(res,subs)</span><span style=''> = </span><span style='background: #AEF1AE'>apply(expressions, triggerPercentFilter)</span><span style=''>
+</span>27 <span style=''>
+</span>28 <span style=''>    </span><span style='background: #AEF1AE'>(res.toSeq.sortBy(_._1.collectLeaves().size).reverse, subs)</span><span style=''>
+</span>29 <span style=''>  }
+</span>30 <span style=''>
+</span>31 <span style=''>  sealed trait Differentiator {
+</span>32 <span style=''>    def bucketer(bucket: Int, bucketSize: Int): Expression
+</span>33 <span style=''>
+</span>34 <span style=''>    // operates over the entire trigger rule to get a bucket
+</span>35 <span style=''>    def bucket(trigger: Expression, bucketSize: Int): Int
+</span>36 <span style=''>  }
+</span>37 <span style=''>
+</span>38 <span style=''>  object EqualToDiff {
+</span>39 <span style=''>
+</span>40 <span style=''>    protected[quality] def split(exprs: Seq[Expression]) = {
+</span>41 <span style=''>
+</span>42 <span style=''>      </span><span style='background: #AEF1AE'>exprs.flatMap {
+</span>43 <span style=''></span><span style='background: #AEF1AE'>        case e@EqualTo(left: Literal, operand) =&gt; </span><span style='background: #F0ADAD'>Some(left -&gt; operand)</span><span style='background: #AEF1AE'>
+</span>44 <span style=''></span><span style='background: #AEF1AE'>        case e@EqualTo(operand, right: Literal) =&gt; Some(right -&gt; operand)
+</span>45 <span style=''></span><span style='background: #AEF1AE'>        case _ =&gt; </span><span style='background: #F0ADAD'>None</span><span style='background: #AEF1AE'>
+</span>46 <span style=''></span><span style='background: #AEF1AE'>      }.sortBy(_._1.hashCode())</span><span style=''>
+</span>47 <span style=''>    }
+</span>48 <span style=''>  }
+</span>49 <span style=''>  case class EqualToDiff(operands: Set[Expression]) extends Differentiator {
+</span>50 <span style=''>
+</span>51 <span style=''>    def bucketer(bucket: Int, bucketSize: Int) =
+</span>52 <span style=''>      </span><span style='background: #AEF1AE'>EqualTo(new Remainder(Abs(Murmur3Hash(operands.toSeq.sortBy(_.hashCode()), 42)), Literal(bucketSize)), Literal(bucket))</span><span style=''>
+</span>53 <span style=''>
+</span>54 <span style=''>    override def bucket(trigger: Expression, bucketSize: Int): Int = {
+</span>55 <span style=''>      val pairs =
+</span>56 <span style=''>        </span><span style='background: #AEF1AE'>EqualToDiff.split(trigger.collect{ case e: EqualTo =&gt; e} ++ (
+</span>57 <span style=''></span><span style='background: #AEF1AE'>          if (trigger.isInstanceOf[EqualTo])
+</span>58 <span style=''></span><span style='background: #AEF1AE'>            </span><span style='background: #F0ADAD'>Set(trigger)</span><span style='background: #AEF1AE'>
+</span>59 <span style=''></span><span style='background: #AEF1AE'>          else
+</span>60 <span style=''></span><span style='background: #AEF1AE'>            Set.empty
+</span>61 <span style=''></span><span style='background: #AEF1AE'>        ).toSeq)</span><span style=''>
+</span>62 <span style=''>
+</span>63 <span style=''>      val lits = </span><span style='background: #AEF1AE'>pairs.filter(p =&gt; operands.contains(p._2)).sortBy(_._2.hashCode()).map(_._1)</span><span style=''>
+</span>64 <span style=''>
+</span>65 <span style=''>      </span><span style='background: #AEF1AE'>Abs(Murmur3Hash(lits, 42)).eval().asInstanceOf[Int] % bucketSize</span><span style=''>
+</span>66 <span style=''>    }
+</span>67 <span style=''>  }
+</span>68 <span style=''>  // code can't reach this yet
+</span>69 <span style=''>  // $COVERAGE-OFF$
+</span>70 <span style=''>
+</span>71 <span style=''>  case class NoIdeaDiff(exprs: Seq[Expression]) extends Differentiator {
+</span>72 <span style=''>    def bucketer(bucket: Int, bucketSize: Int) =
+</span>73 <span style=''>      exprs match {
+</span>74 <span style=''>        case s if s.size == 1 =&gt; s.head
+</span>75 <span style=''>        case _ =&gt; exprs.reduce(And)
+</span>76 <span style=''>      }
+</span>77 <span style=''>
+</span>78 <span style=''>    override def bucket(trigger: Expression, bucketSize: Int): Int = 0
+</span>79 <span style=''>  }
+</span>80 <span style=''>  // $COVERAGE-ON$
+</span>81 <span style=''>
+</span>82 <span style=''>  def differentiate(expressions: Set[Expression]): Differentiator = expressions match {
+</span>83 <span style=''>    case s if </span><span style='background: #AEF1AE'>s.forall {
+</span>84 <span style=''></span><span style='background: #AEF1AE'>      case e@ EqualTo(left: Literal, operand) =&gt; </span><span style='background: #F0ADAD'>true</span><span style='background: #AEF1AE'>
+</span>85 <span style=''></span><span style='background: #AEF1AE'>      case e@ EqualTo(operand, right: Literal) =&gt; true
+</span>86 <span style=''></span><span style='background: #AEF1AE'>      case e =&gt; </span><span style='background: #F0ADAD'>false</span><span style='background: #AEF1AE'>
+</span>87 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''> </span><span style='background: #AEF1AE'>=&gt;
+</span>88 <span style=''></span><span style='background: #AEF1AE'>      val operands = EqualToDiff.split(s.toSeq).map(_._2)
+</span>89 <span style=''></span><span style='background: #AEF1AE'>      EqualToDiff(operands.toSet)</span><span style=''> //TODO - and then for `a = `b tests can we simplify?
+</span>90 <span style=''>    case _ =&gt;
+</span>91 <span style=''>      //println(&quot;didn't get an EqualTo in this test set that's strange&quot;)
+</span>92 <span style=''>      </span><span style='background: #F0ADAD'>NoIdeaDiff(expressions.toSeq)</span><span style=''>
+</span>93 <span style=''>  }
+</span>94 <span style=''>
+</span>95 <span style=''>  // too memory intensive for CI
+</span>96 <span style=''>  // $COVERAGE-OFF$
+</span>97 <span style=''>
+</span>98 <span style=''>  def bestFit(expressions: Seq[Trigger], triggerPercentFilter: Double): (Seq[Group], Int) = {
+</span>99 <span style=''>    var min = 30
+</span>100 <span style=''>    var max = 140
+</span>101 <span style=''>
+</span>102 <span style=''>    var step = 10
+</span>103 <span style=''>
+</span>104 <span style=''>    var found = false
+</span>105 <span style=''>    var res: Seq[Group] = Seq.empty
+</span>106 <span style=''>    var resCount = Integer.MAX_VALUE
+</span>107 <span style=''>    var bucketSize = 0
+</span>108 <span style=''>
+</span>109 <span style=''>    while(!found) {
+</span>110 <span style=''>      //println(s&quot;running bucket $bucketSize for min $min and max $max with res $resCount&quot;)
+</span>111 <span style=''>      val b = bucket(triggers = expressions, targetBucket = min, triggerPercentFilter)
+</span>112 <span style=''>      val bCount = b.maxBy(_.triggers.size).triggers.size + b.size
+</span>113 <span style=''>      val t = bucket(triggers = expressions, targetBucket = max, triggerPercentFilter)
+</span>114 <span style=''>      val tCount = t.maxBy(_.triggers.size).triggers.size + t.size
+</span>115 <span style=''>      res =
+</span>116 <span style=''>        if (tCount &lt;= bCount)
+</span>117 <span style=''>          if (tCount &lt;= resCount) {
+</span>118 <span style=''>            resCount = tCount
+</span>119 <span style=''>            bucketSize = max
+</span>120 <span style=''>
+</span>121 <span style=''>            min += step
+</span>122 <span style=''>            t
+</span>123 <span style=''>          } else {
+</span>124 <span style=''>            min += step
+</span>125 <span style=''>            max -= step
+</span>126 <span style=''>            res
+</span>127 <span style=''>          }
+</span>128 <span style=''>        else
+</span>129 <span style=''>          if (bCount &lt;= resCount) {
+</span>130 <span style=''>            resCount = bCount
+</span>131 <span style=''>            bucketSize = min
+</span>132 <span style=''>
+</span>133 <span style=''>            max -= step
+</span>134 <span style=''>            b
+</span>135 <span style=''>          } else {
+</span>136 <span style=''>            min += step
+</span>137 <span style=''>            max -= step
+</span>138 <span style=''>            res
+</span>139 <span style=''>          }
+</span>140 <span style=''>      //println(s&quot;ran - new counts - bucket $bucketSize for min $min and max $max with res $resCount&quot;)
+</span>141 <span style=''>      if (max - min &lt;= step) {
+</span>142 <span style=''>        step = 1
+</span>143 <span style=''>      }
+</span>144 <span style=''>
+</span>145 <span style=''>      if (max &lt;= min) {
+</span>146 <span style=''>        found = true
+</span>147 <span style=''>      }
+</span>148 <span style=''>    }
+</span>149 <span style=''>
+</span>150 <span style=''>    //println(s&quot;'optimal' bucket size was $bucketSize&quot;)
+</span>151 <span style=''>
+</span>152 <span style=''>    (res, bucketSize)
+</span>153 <span style=''>  }
+</span>154 <span style=''>  // $COVERAGE-ON$
+</span>155 <span style=''>
+</span>156 <span style=''>  def bucket(triggers: Seq[Trigger], targetBucket: Int = 130, triggerPercentFilter: Double = 0.12): Seq[Group] = {
+</span>157 <span style=''>    val expressions = </span><span style='background: #AEF1AE'>MultiCommutativeOpOps.origin(triggers)</span><span style=''>
+</span>158 <span style=''>    val </span><span style='background: #AEF1AE'>(orderedLarger, subs)</span><span style=''> = </span><span style='background: #AEF1AE'>sorted(expressions, triggerPercentFilter)</span><span style=''>
+</span>159 <span style=''>
+</span>160 <span style=''>    // remove duplicates
+</span>161 <span style=''>    val seen = </span><span style='background: #AEF1AE'>new mutable.HashSet[Expression]</span><span style=''>
+</span>162 <span style=''>
+</span>163 <span style=''>    def addSeen(pop: Seq[Trigger]) = {
+</span>164 <span style=''>      val newPopSeqs = </span><span style='background: #AEF1AE'>pop.filterNot(p =&gt; seen(p.expression))</span><span style=''>
+</span>165 <span style=''>      </span><span style='background: #AEF1AE'>seen.++=(newPopSeqs.map(_.expression))</span><span style=''>
+</span>166 <span style=''>      newPopSeqs
+</span>167 <span style=''>    }
+</span>168 <span style=''>
+</span>169 <span style=''>    val topHitter =
+</span>170 <span style=''>      </span><span style='background: #AEF1AE'>orderedLarger.foldLeft(Seq.empty[Group]) {
+</span>171 <span style=''></span><span style='background: #AEF1AE'>        case (cur, (sub, triggers)) =&gt;
+</span>172 <span style=''></span><span style='background: #AEF1AE'>
+</span>173 <span style=''></span><span style='background: #AEF1AE'>          if (triggers.size &gt; targetBucket) {
+</span>174 <span style=''></span><span style='background: #AEF1AE'>            // should be the maximal list already as all elements are subexprs, what is left are differentiators
+</span>175 <span style=''></span><span style='background: #AEF1AE'>
+</span>176 <span style=''></span><span style='background: #AEF1AE'>            val differentiatingBooleans =
+</span>177 <span style=''></span><span style='background: #AEF1AE'>              triggers.foldLeft(Map.empty[Differentiator, Seq[Trigger]]){
+</span>178 <span style=''></span><span style='background: #AEF1AE'>                case (map, trigger) =&gt;
+</span>179 <span style=''></span><span style='background: #AEF1AE'>                  val theseParts = differentiate(fromParts(trigger.expression).filterNot(i =&gt; subs.contains(i)))
+</span>180 <span style=''></span><span style='background: #AEF1AE'>
+</span>181 <span style=''></span><span style='background: #AEF1AE'>                  util.MapOps.MapOps(map).updatedWithF(theseParts) {
+</span>182 <span style=''></span><span style='background: #AEF1AE'>                      case Some(s) =&gt; Some(s :+ trigger)
+</span>183 <span style=''></span><span style='background: #AEF1AE'>                      case None =&gt; Some(Seq(trigger))
+</span>184 <span style=''></span><span style='background: #AEF1AE'>                  }
+</span>185 <span style=''></span><span style='background: #AEF1AE'>              }
+</span>186 <span style=''></span><span style='background: #AEF1AE'>
+</span>187 <span style=''></span><span style='background: #AEF1AE'>            //println(s&quot;differentiating booleans from $sub for ${triggers.size} triggers of:&quot;)
+</span>188 <span style=''></span><span style='background: #AEF1AE'>            //differentiatingBooleans.keys.foreach(println)
+</span>189 <span style=''></span><span style='background: #AEF1AE'>
+</span>190 <span style=''></span><span style='background: #AEF1AE'>            val newSeqs =
+</span>191 <span style=''></span><span style='background: #AEF1AE'>              differentiatingBooleans.flatMap {
+</span>192 <span style=''></span><span style='background: #AEF1AE'>                case (differentiator, triggers) =&gt;
+</span>193 <span style=''></span><span style='background: #AEF1AE'>
+</span>194 <span style=''></span><span style='background: #AEF1AE'>                  val numberOfBuckets =
+</span>195 <span style=''></span><span style='background: #AEF1AE'>                    if (triggers.size % targetBucket == 0)
+</span>196 <span style=''></span><span style='background: #AEF1AE'>                      </span><span style='background: #F0ADAD'>triggers.size / targetBucket</span><span style='background: #AEF1AE'>
+</span>197 <span style=''></span><span style='background: #AEF1AE'>                    else
+</span>198 <span style=''></span><span style='background: #AEF1AE'>                      (triggers.size / targetBucket + 1)
+</span>199 <span style=''></span><span style='background: #AEF1AE'>
+</span>200 <span style=''></span><span style='background: #AEF1AE'>                  //println(s&quot;target number of buckets $numberOfBuckets for ${triggers.size} for $differentiator&quot;)
+</span>201 <span style=''></span><span style='background: #AEF1AE'>
+</span>202 <span style=''></span><span style='background: #AEF1AE'>                  val bucketed =
+</span>203 <span style=''></span><span style='background: #AEF1AE'>                    triggers.map{
+</span>204 <span style=''></span><span style='background: #AEF1AE'>                      t =&gt;
+</span>205 <span style=''></span><span style='background: #AEF1AE'>                        differentiator.bucket(t.expression, numberOfBuckets) -&gt; t
+</span>206 <span style=''></span><span style='background: #AEF1AE'>                    }.groupBy(_._1)
+</span>207 <span style=''></span><span style='background: #AEF1AE'>
+</span>208 <span style=''></span><span style='background: #AEF1AE'>                  bucketed.foldLeft(Seq.empty[Group]){
+</span>209 <span style=''></span><span style='background: #AEF1AE'>                    case (cur, (bucket, trips)) =&gt;
+</span>210 <span style=''></span><span style='background: #AEF1AE'>                      val bucketedExp = differentiator.bucketer(bucket, numberOfBuckets)
+</span>211 <span style=''></span><span style='background: #AEF1AE'>
+</span>212 <span style=''></span><span style='background: #AEF1AE'>                      val corrected = addSeen(trips.map(_._2))
+</span>213 <span style=''></span><span style='background: #AEF1AE'>                      cur :+ Group(And(bucketedExp, sub), corrected.minBy(_.salience).salience, corrected)
+</span>214 <span style=''></span><span style='background: #AEF1AE'>                  }
+</span>215 <span style=''></span><span style='background: #AEF1AE'>              }
+</span>216 <span style=''></span><span style='background: #AEF1AE'>            cur ++ newSeqs
+</span>217 <span style=''></span><span style='background: #AEF1AE'>          } else if (triggers.size &gt; 4) { // TODO random number
+</span>218 <span style=''></span><span style='background: #AEF1AE'>            // very small groups are expensive and should fall to the true bucket
+</span>219 <span style=''></span><span style='background: #AEF1AE'>            // likely no benefit in reducing further
+</span>220 <span style=''></span><span style='background: #AEF1AE'>            val newTriggers = addSeen(triggers)
+</span>221 <span style=''></span><span style='background: #AEF1AE'>            cur :+ Group(sub, newTriggers.minBy(_.salience).salience, newTriggers)
+</span>222 <span style=''></span><span style='background: #AEF1AE'>          } else
+</span>223 <span style=''></span><span style='background: #AEF1AE'>            cur
+</span>224 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>225 <span style=''>
+</span>226 <span style=''>    val rest = </span><span style='background: #AEF1AE'>expressions.filterNot(p =&gt; seen(p.expression))</span><span style=''>
+</span>227 <span style=''>    if (</span><span style='background: #AEF1AE'>rest.isEmpty</span><span style=''>)
+</span>228 <span style=''>      </span><span style='background: #F0ADAD'>topHitter</span><span style=''>
+</span>229 <span style=''>    else
+</span>230 <span style=''>      </span><span style='background: #AEF1AE'>(topHitter :+ Group(Literal(true), rest.minBy(_.salience).salience, rest)).filter(_.triggers.nonEmpty)</span><span style=''>
+</span>231 <span style=''>  }
+</span>232 <span style=''>
+</span>233 <span style=''>  def from(expression: Expression, subExprs: Map[Expression, Int], filterOut: Double): Expression = {
+</span>234 <span style=''>
+</span>235 <span style=''>    // anything that hits more than x % is not useful to group with, any top bool that only applies to one trigger is
+</span>236 <span style=''>    // equally useless
+</span>237 <span style=''>    val res = </span><span style='background: #AEF1AE'>fromParts(expression).filter(e =&gt; subExprs.get(e).exists(_ &lt; filterOut))</span><span style=''>
+</span>238 <span style=''>    res match {
+</span>239 <span style=''>      case Seq(head: Expression) =&gt; </span><span style='background: #F0ADAD'>head</span><span style=''>
+</span>240 <span style=''>      case _ if </span><span style='background: #AEF1AE'>res.isEmpty</span><span style=''>  =&gt; </span><span style='background: #AEF1AE'>expression</span><span style=''>
+</span>241 <span style=''>      case _ =&gt; </span><span style='background: #AEF1AE'>res.reduce(And(_,_))</span><span style=''>
+</span>242 <span style=''>    }
+</span>243 <span style=''>  }
+</span>244 <span style=''>
+</span>245 <span style=''>  def fromParts(expression: Expression): Set[Expression] = expression match {
+</span>246 <span style=''>    case And(left, right) =&gt; </span><span style='background: #AEF1AE'>fromParts(left) ++ fromParts(right)</span><span style=''>
+</span>247 <span style=''>    case e: EqualTo =&gt; </span><span style='background: #AEF1AE'>Set(e)</span><span style=''>
+</span>248 <span style=''>    //case e: Expression if e.dataType == BooleanType =&gt; Set(e)
+</span>249 <span style=''>    case _ =&gt; </span><span style='background: #F0ADAD'>Set.empty</span><span style=''>
+</span>250 <span style=''>  }
+</span>251 <span style=''>
+</span>252 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          11
+        </td>
+        <td>
+          11585
+        </td>
+        <td>
+          452
+          -
+          464
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.Trigger.expression
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$1.expression
+        </td>
+      </tr><tr>
+        <td>
+          11
+        </td>
+        <td>
+          11586
+        </td>
+        <td>
+          436
+          -
+          465
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOps.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          expressions.map[org.apache.spark.sql.catalyst.expressions.Expression](((x$1: com.sparkutils.quality.impl.Trigger) =&gt; x$1.expression))
+        </td>
+      </tr><tr>
+        <td>
+          11
+        </td>
+        <td>
+          11587
+        </td>
+        <td>
+          467
+          -
+          467
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.&lt;:&lt;.refl
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.&lt;:&lt;.refl[(org.apache.spark.sql.catalyst.expressions.Expression, Int)]
+        </td>
+      </tr><tr>
+        <td>
+          11
+        </td>
+        <td>
+          11588
+        </td>
+        <td>
+          417
+          -
+          472
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.toMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SubExprsFrom.apply(expressions.map[org.apache.spark.sql.catalyst.expressions.Expression](((x$1: com.sparkutils.quality.impl.Trigger) =&gt; x$1.expression))).toMap[org.apache.spark.sql.catalyst.expressions.Expression, Int](scala.this.&lt;:&lt;.refl[(org.apache.spark.sql.catalyst.expressions.Expression, Int)])
+        </td>
+      </tr><tr>
+        <td>
+          13
+        </td>
+        <td>
+          11589
+        </td>
+        <td>
+          524
+          -
+          536
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          100.0
+        </td>
+      </tr><tr>
+        <td>
+          13
+        </td>
+        <td>
+          11590
+        </td>
+        <td>
+          494
+          -
+          567
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Double.toInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          expressions.size.toDouble./(100.0).*(triggerPercentFilter).toInt
+        </td>
+      </tr><tr>
+        <td>
+          15
+        </td>
+        <td>
+          11591
+        </td>
+        <td>
+          595
+          -
+          630
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Map.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.Map.empty[org.apache.spark.sql.catalyst.expressions.Expression, Seq[com.sparkutils.quality.impl.Trigger]]
+        </td>
+      </tr><tr>
+        <td>
+          15
+        </td>
+        <td>
+          11604
+        </td>
+        <td>
+          573
+          -
+          893
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[scala.collection.immutable.Map[org.apache.spark.sql.catalyst.expressions.Expression,Seq[com.sparkutils.quality.impl.Trigger]], scala.collection.immutable.Map[org.apache.spark.sql.catalyst.expressions.Expression,Int]](expressions.foldLeft[scala.collection.immutable.Map[org.apache.spark.sql.catalyst.expressions.Expression,Seq[com.sparkutils.quality.impl.Trigger]]](scala.Predef.Map.empty[org.apache.spark.sql.catalyst.expressions.Expression, Seq[com.sparkutils.quality.impl.Trigger]])(((cur: scala.collection.immutable.Map[org.apache.spark.sql.catalyst.expressions.Expression,Seq[com.sparkutils.quality.impl.Trigger]], n: com.sparkutils.quality.impl.Trigger) =&gt; {
+  val s: org.apache.spark.sql.catalyst.expressions.Expression = TopLevelBoolean.this.from(n.expression, subs, filterOut.toDouble);
+  com.sparkutils.quality.impl.util.MapOps.MapOps[org.apache.spark.sql.catalyst.expressions.Expression, Seq[com.sparkutils.quality.impl.Trigger]](cur).updatedWithF[Seq[com.sparkutils.quality.impl.Trigger]](s)(((x0$1: Option[Seq[com.sparkutils.quality.impl.Trigger]]) =&gt; x0$1 match {
+    case (value: Seq[com.sparkutils.quality.impl.Trigger]): Some[Seq[com.sparkutils.quality.impl.Trigger]]((s @ _)) =&gt; scala.Some.apply[Seq[com.sparkutils.quality.impl.Trigger]](s.:+[com.sparkutils.quality.impl.Trigger](n))
+    case scala.None =&gt; scala.Some.apply[Seq[com.sparkutils.quality.impl.Trigger]](scala.`package`.Seq.apply[com.sparkutils.quality.impl.Trigger](n))
+  }))
+})).filter(((p: (org.apache.spark.sql.catalyst.expressions.Expression, Seq[com.sparkutils.quality.impl.Trigger])) =&gt; p._1.collectLeaves().size.&gt;(2))), subs)
+        </td>
+      </tr><tr>
+        <td>
+          17
+        </td>
+        <td>
+          11592
+        </td>
+        <td>
+          672
+          -
+          684
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.Trigger.expression
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          n.expression
+        </td>
+      </tr><tr>
+        <td>
+          17
+        </td>
+        <td>
+          11593
+        </td>
+        <td>
+          692
+          -
+          701
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Int.toDouble
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          filterOut.toDouble
+        </td>
+      </tr><tr>
+        <td>
+          17
+        </td>
+        <td>
+          11594
+        </td>
+        <td>
+          667
+          -
+          702
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.TopLevelBoolean.from
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          TopLevelBoolean.this.from(n.expression, subs, filterOut.toDouble)
+        </td>
+      </tr><tr>
+        <td>
+          18
+        </td>
+        <td>
+          11601
+        </td>
+        <td>
+          711
+          -
+          837
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.MapOps.MapOps.updatedWithF
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.MapOps.MapOps[org.apache.spark.sql.catalyst.expressions.Expression, Seq[com.sparkutils.quality.impl.Trigger]](cur).updatedWithF[Seq[com.sparkutils.quality.impl.Trigger]](s)(((x0$1: Option[Seq[com.sparkutils.quality.impl.Trigger]]) =&gt; x0$1 match {
+  case (value: Seq[com.sparkutils.quality.impl.Trigger]): Some[Seq[com.sparkutils.quality.impl.Trigger]]((s @ _)) =&gt; scala.Some.apply[Seq[com.sparkutils.quality.impl.Trigger]](s.:+[com.sparkutils.quality.impl.Trigger](n))
+  case scala.None =&gt; scala.Some.apply[Seq[com.sparkutils.quality.impl.Trigger]](scala.`package`.Seq.apply[com.sparkutils.quality.impl.Trigger](n))
+}))
+        </td>
+      </tr><tr>
+        <td>
+          19
+        </td>
+        <td>
+          11595
+        </td>
+        <td>
+          784
+          -
+          790
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqOps.:+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          s.:+[com.sparkutils.quality.impl.Trigger](n)
+        </td>
+      </tr><tr>
+        <td>
+          19
+        </td>
+        <td>
+          11596
+        </td>
+        <td>
+          779
+          -
+          791
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[Seq[com.sparkutils.quality.impl.Trigger]](s.:+[com.sparkutils.quality.impl.Trigger](n))
+        </td>
+      </tr><tr>
+        <td>
+          19
+        </td>
+        <td>
+          11597
+        </td>
+        <td>
+          779
+          -
+          791
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[Seq[com.sparkutils.quality.impl.Trigger]](s.:+[com.sparkutils.quality.impl.Trigger](n))
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          11598
+        </td>
+        <td>
+          820
+          -
+          826
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqFactory.Delegate.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.`package`.Seq.apply[com.sparkutils.quality.impl.Trigger](n)
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          11599
+        </td>
+        <td>
+          815
+          -
+          827
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[Seq[com.sparkutils.quality.impl.Trigger]](scala.`package`.Seq.apply[com.sparkutils.quality.impl.Trigger](n))
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          11600
+        </td>
+        <td>
+          815
+          -
+          827
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[Seq[com.sparkutils.quality.impl.Trigger]](scala.`package`.Seq.apply[com.sparkutils.quality.impl.Trigger](n))
+        </td>
+      </tr><tr>
+        <td>
+          22
+        </td>
+        <td>
+          11602
+        </td>
+        <td>
+          856
+          -
+          885
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          p._1.collectLeaves().size.&gt;(2)
+        </td>
+      </tr><tr>
+        <td>
+          22
+        </td>
+        <td>
+          11603
+        </td>
+        <td>
+          574
+          -
+          886
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOps.filter
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          expressions.foldLeft[scala.collection.immutable.Map[org.apache.spark.sql.catalyst.expressions.Expression,Seq[com.sparkutils.quality.impl.Trigger]]](scala.Predef.Map.empty[org.apache.spark.sql.catalyst.expressions.Expression, Seq[com.sparkutils.quality.impl.Trigger]])(((cur: scala.collection.immutable.Map[org.apache.spark.sql.catalyst.expressions.Expression,Seq[com.sparkutils.quality.impl.Trigger]], n: com.sparkutils.quality.impl.Trigger) =&gt; {
+  val s: org.apache.spark.sql.catalyst.expressions.Expression = TopLevelBoolean.this.from(n.expression, subs, filterOut.toDouble);
+  com.sparkutils.quality.impl.util.MapOps.MapOps[org.apache.spark.sql.catalyst.expressions.Expression, Seq[com.sparkutils.quality.impl.Trigger]](cur).updatedWithF[Seq[com.sparkutils.quality.impl.Trigger]](s)(((x0$1: Option[Seq[com.sparkutils.quality.impl.Trigger]]) =&gt; x0$1 match {
+    case (value: Seq[com.sparkutils.quality.impl.Trigger]): Some[Seq[com.sparkutils.quality.impl.Trigger]]((s @ _)) =&gt; scala.Some.apply[Seq[com.sparkutils.quality.impl.Trigger]](s.:+[com.sparkutils.quality.impl.Trigger](n))
+    case scala.None =&gt; scala.Some.apply[Seq[com.sparkutils.quality.impl.Trigger]](scala.`package`.Seq.apply[com.sparkutils.quality.impl.Trigger](n))
+  }))
+})).filter(((p: (org.apache.spark.sql.catalyst.expressions.Expression, Seq[com.sparkutils.quality.impl.Trigger])) =&gt; p._1.collectLeaves().size.&gt;(2)))
+        </td>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          11605
+        </td>
+        <td>
+          1051
+          -
+          1091
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.TopLevelBoolean.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          TopLevelBoolean.this.apply(expressions, triggerPercentFilter)
+        </td>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          11606
+        </td>
+        <td>
+          1038
+          -
+          1048
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[Map[org.apache.spark.sql.catalyst.expressions.Expression,Seq[com.sparkutils.quality.impl.Trigger]], Map[org.apache.spark.sql.catalyst.expressions.Expression,Int]](res, subs)
+        </td>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          11607
+        </td>
+        <td>
+          1038
+          -
+          1048
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[Map[org.apache.spark.sql.catalyst.expressions.Expression,Seq[com.sparkutils.quality.impl.Trigger]], Map[org.apache.spark.sql.catalyst.expressions.Expression,Int]](res, subs)
+        </td>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          11608
+        </td>
+        <td>
+          1039
+          -
+          1039
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$2._1
+        </td>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          11609
+        </td>
+        <td>
+          1043
+          -
+          1043
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$2._2
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          11610
+        </td>
+        <td>
+          1115
+          -
+          1140
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.SeqOps.size
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$3._1.collectLeaves().size
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          11611
+        </td>
+        <td>
+          1114
+          -
+          1114
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.math.Ordering.Int
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          math.this.Ordering.Int
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          11612
+        </td>
+        <td>
+          1098
+          -
+          1149
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.SeqOps.reverse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.toSeq.sortBy[Int](((x$3: (org.apache.spark.sql.catalyst.expressions.Expression, Seq[com.sparkutils.quality.impl.Trigger])) =&gt; x$3._1.collectLeaves().size))(math.this.Ordering.Int).reverse
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          11613
+        </td>
+        <td>
+          1097
+          -
+          1156
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[Seq[(org.apache.spark.sql.catalyst.expressions.Expression, Seq[com.sparkutils.quality.impl.Trigger])], Map[org.apache.spark.sql.catalyst.expressions.Expression,Int]](res.toSeq.sortBy[Int](((x$3: (org.apache.spark.sql.catalyst.expressions.Expression, Seq[com.sparkutils.quality.impl.Trigger])) =&gt; x$3._1.collectLeaves().size))(math.this.Ordering.Int).reverse, subs)
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          11614
+        </td>
+        <td>
+          1541
+          -
+          1556
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.ArrowAssoc[org.apache.spark.sql.catalyst.expressions.Literal](left).-&gt;[org.apache.spark.sql.catalyst.expressions.Expression](operand)
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          11615
+        </td>
+        <td>
+          1536
+          -
+          1557
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[(org.apache.spark.sql.catalyst.expressions.Literal, org.apache.spark.sql.catalyst.expressions.Expression)](scala.Predef.ArrowAssoc[org.apache.spark.sql.catalyst.expressions.Literal](left).-&gt;[org.apache.spark.sql.catalyst.expressions.Expression](operand))
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          11616
+        </td>
+        <td>
+          1536
+          -
+          1557
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[(org.apache.spark.sql.catalyst.expressions.Literal, org.apache.spark.sql.catalyst.expressions.Expression)](scala.Predef.ArrowAssoc[org.apache.spark.sql.catalyst.expressions.Literal](left).-&gt;[org.apache.spark.sql.catalyst.expressions.Expression](operand))
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          11617
+        </td>
+        <td>
+          1614
+          -
+          1630
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.ArrowAssoc[org.apache.spark.sql.catalyst.expressions.Literal](right).-&gt;[org.apache.spark.sql.catalyst.expressions.Expression](operand)
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          11618
+        </td>
+        <td>
+          1609
+          -
+          1631
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[(org.apache.spark.sql.catalyst.expressions.Literal, org.apache.spark.sql.catalyst.expressions.Expression)](scala.Predef.ArrowAssoc[org.apache.spark.sql.catalyst.expressions.Literal](right).-&gt;[org.apache.spark.sql.catalyst.expressions.Expression](operand))
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          11619
+        </td>
+        <td>
+          1609
+          -
+          1631
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[(org.apache.spark.sql.catalyst.expressions.Literal, org.apache.spark.sql.catalyst.expressions.Expression)](scala.Predef.ArrowAssoc[org.apache.spark.sql.catalyst.expressions.Literal](right).-&gt;[org.apache.spark.sql.catalyst.expressions.Expression](operand))
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          11620
+        </td>
+        <td>
+          1650
+          -
+          1654
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          11621
+        </td>
+        <td>
+          1650
+          -
+          1654
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          11622
+        </td>
+        <td>
+          1670
+          -
+          1685
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Literal.hashCode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$4._1.hashCode()
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          11623
+        </td>
+        <td>
+          1669
+          -
+          1669
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.math.Ordering.Int
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          math.this.Ordering.Int
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          11624
+        </td>
+        <td>
+          1470
+          -
+          1686
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.SeqOps.sortBy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          exprs.flatMap[(org.apache.spark.sql.catalyst.expressions.Literal, org.apache.spark.sql.catalyst.expressions.Expression)](((x0$1: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; x0$1 match {
+  case (e @ (left: org.apache.spark.sql.catalyst.expressions.Expression, right: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.EqualTo((left @ (_: org.apache.spark.sql.catalyst.expressions.Literal)), (operand @ _))) =&gt; scala.Some.apply[(org.apache.spark.sql.catalyst.expressions.Literal, org.apache.spark.sql.catalyst.expressions.Expression)](scala.Predef.ArrowAssoc[org.apache.spark.sql.catalyst.expressions.Literal](left).-&gt;[org.apache.spark.sql.catalyst.expressions.Expression](operand))
+  case (e @ (left: org.apache.spark.sql.catalyst.expressions.Expression, right: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.EqualTo((operand @ _), (right @ (_: org.apache.spark.sql.catalyst.expressions.Literal)))) =&gt; scala.Some.apply[(org.apache.spark.sql.catalyst.expressions.Literal, org.apache.spark.sql.catalyst.expressions.Expression)](scala.Predef.ArrowAssoc[org.apache.spark.sql.catalyst.expressions.Literal](right).-&gt;[org.apache.spark.sql.catalyst.expressions.Expression](operand))
+  case _ =&gt; scala.None
+})).sortBy[Int](((x$4: (org.apache.spark.sql.catalyst.expressions.Literal, org.apache.spark.sql.catalyst.expressions.Expression)) =&gt; x$4._1.hashCode()))(math.this.Ordering.Int)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          11625
+        </td>
+        <td>
+          1890
+          -
+          1902
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.trees.TreeNode.hashCode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$5.hashCode()
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          11626
+        </td>
+        <td>
+          1889
+          -
+          1889
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.math.Ordering.Int
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          math.this.Ordering.Int
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          11627
+        </td>
+        <td>
+          1868
+          -
+          1903
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.SeqOps.sortBy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          EqualToDiff.this.operands.toSeq.sortBy[Int](((x$5: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; x$5.hashCode()))(math.this.Ordering.Int)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          11628
+        </td>
+        <td>
+          1905
+          -
+          1907
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          42
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          11629
+        </td>
+        <td>
+          1856
+          -
+          1908
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Murmur3Hash.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.Murmur3Hash.apply(EqualToDiff.this.operands.toSeq.sortBy[Int](((x$5: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; x$5.hashCode()))(math.this.Ordering.Int), 42)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          11630
+        </td>
+        <td>
+          1852
+          -
+          1909
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Abs.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.Abs.apply(org.apache.spark.sql.catalyst.expressions.Murmur3Hash.apply(EqualToDiff.this.operands.toSeq.sortBy[Int](((x$5: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; x$5.hashCode()))(math.this.Ordering.Int), 42), org.apache.spark.sql.catalyst.expressions.Abs.apply$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          11631
+        </td>
+        <td>
+          1911
+          -
+          1930
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Literal.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.Literal.apply(bucketSize)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          11632
+        </td>
+        <td>
+          1838
+          -
+          1931
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Remainder.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.spark.sql.catalyst.expressions.Remainder(org.apache.spark.sql.catalyst.expressions.Abs.apply(org.apache.spark.sql.catalyst.expressions.Murmur3Hash.apply(EqualToDiff.this.operands.toSeq.sortBy[Int](((x$5: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; x$5.hashCode()))(math.this.Ordering.Int), 42), org.apache.spark.sql.catalyst.expressions.Abs.apply$default$2), org.apache.spark.sql.catalyst.expressions.Literal.apply(bucketSize))
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          11633
+        </td>
+        <td>
+          1933
+          -
+          1948
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Literal.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.Literal.apply(bucket)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          11634
+        </td>
+        <td>
+          1830
+          -
+          1949
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.EqualTo.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.EqualTo.apply(new org.apache.spark.sql.catalyst.expressions.Remainder(org.apache.spark.sql.catalyst.expressions.Abs.apply(org.apache.spark.sql.catalyst.expressions.Murmur3Hash.apply(EqualToDiff.this.operands.toSeq.sortBy[Int](((x$5: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; x$5.hashCode()))(math.this.Ordering.Int), 42), org.apache.spark.sql.catalyst.expressions.Abs.apply$default$2), org.apache.spark.sql.catalyst.expressions.Literal.apply(bucketSize)), org.apache.spark.sql.catalyst.expressions.Literal.apply(bucket))
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          11635
+        </td>
+        <td>
+          2102
+          -
+          2103
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.TopLevelBoolean.EqualToDiff.$anonfun.e
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          e
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          11636
+        </td>
+        <td>
+          2081
+          -
+          2081
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.TopLevelBoolean.EqualToDiff.$anonfun.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          11643
+        </td>
+        <td>
+          2066
+          -
+          2232
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOps.++
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          trigger.collect[org.apache.spark.sql.catalyst.expressions.EqualTo](({
+  @SerialVersionUID(value = 0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.EqualTo] with java.io.Serializable {
+    def &lt;init&gt;(): &lt;$anon: org.apache.spark.sql.catalyst.expressions.Expression =&gt; org.apache.spark.sql.catalyst.expressions.EqualTo&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: org.apache.spark.sql.catalyst.expressions.Expression, B1 &gt;: org.apache.spark.sql.catalyst.expressions.EqualTo](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (e @ (_: org.apache.spark.sql.catalyst.expressions.EqualTo)) =&gt; e
+      case (defaultCase$ @ _) =&gt; default.apply(x1)
+    };
+    final def isDefinedAt(x1: org.apache.spark.sql.catalyst.expressions.Expression): Boolean = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (e @ (_: org.apache.spark.sql.catalyst.expressions.EqualTo)) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.EqualTo])).++[org.apache.spark.sql.catalyst.expressions.Expression](if (trigger.isInstanceOf[org.apache.spark.sql.catalyst.expressions.EqualTo])
+  scala.Predef.Set.apply[org.apache.spark.sql.catalyst.expressions.Expression](trigger)
+else
+  scala.Predef.Set.empty[Nothing].toSeq)
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          11644
+        </td>
+        <td>
+          2048
+          -
+          2233
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.TopLevelBoolean.EqualToDiff.split
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          TopLevelBoolean.this.EqualToDiff.split(trigger.collect[org.apache.spark.sql.catalyst.expressions.EqualTo](({
+  @SerialVersionUID(value = 0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.EqualTo] with java.io.Serializable {
+    def &lt;init&gt;(): &lt;$anon: org.apache.spark.sql.catalyst.expressions.Expression =&gt; org.apache.spark.sql.catalyst.expressions.EqualTo&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: org.apache.spark.sql.catalyst.expressions.Expression, B1 &gt;: org.apache.spark.sql.catalyst.expressions.EqualTo](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (e @ (_: org.apache.spark.sql.catalyst.expressions.EqualTo)) =&gt; e
+      case (defaultCase$ @ _) =&gt; default.apply(x1)
+    };
+    final def isDefinedAt(x1: org.apache.spark.sql.catalyst.expressions.Expression): Boolean = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (e @ (_: org.apache.spark.sql.catalyst.expressions.EqualTo)) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.EqualTo])).++[org.apache.spark.sql.catalyst.expressions.Expression](if (trigger.isInstanceOf[org.apache.spark.sql.catalyst.expressions.EqualTo])
+  scala.Predef.Set.apply[org.apache.spark.sql.catalyst.expressions.Expression](trigger)
+else
+  scala.Predef.Set.empty[Nothing].toSeq))
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          11637
+        </td>
+        <td>
+          2124
+          -
+          2153
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.isInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          trigger.isInstanceOf[org.apache.spark.sql.catalyst.expressions.EqualTo]
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          11638
+        </td>
+        <td>
+          2167
+          -
+          2179
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableFactory.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.Set.apply[org.apache.spark.sql.catalyst.expressions.Expression](trigger)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          11639
+        </td>
+        <td>
+          2167
+          -
+          2179
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.IterableFactory.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.Set.apply[org.apache.spark.sql.catalyst.expressions.Expression](trigger)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          11640
+        </td>
+        <td>
+          2207
+          -
+          2216
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Set.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.Set.empty[Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          11641
+        </td>
+        <td>
+          2207
+          -
+          2216
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.immutable.Set.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.Set.empty[Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          11642
+        </td>
+        <td>
+          2108
+          -
+          2232
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.toSeq
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          if (trigger.isInstanceOf[org.apache.spark.sql.catalyst.expressions.EqualTo])
+  scala.Predef.Set.apply[org.apache.spark.sql.catalyst.expressions.Expression](trigger)
+else
+  scala.Predef.Set.empty[Nothing].toSeq
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          11645
+        </td>
+        <td>
+          2288
+          -
+          2292
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          p._2
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          11646
+        </td>
+        <td>
+          2270
+          -
+          2293
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SetOps.contains
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          EqualToDiff.this.operands.contains(p._2)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          11647
+        </td>
+        <td>
+          2302
+          -
+          2317
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.trees.TreeNode.hashCode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$6._2.hashCode()
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          11648
+        </td>
+        <td>
+          2301
+          -
+          2301
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.math.Ordering.Int
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          math.this.Ordering.Int
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          11649
+        </td>
+        <td>
+          2323
+          -
+          2327
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$7._1
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          11650
+        </td>
+        <td>
+          2252
+          -
+          2328
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOps.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          pairs.filter(((p: (org.apache.spark.sql.catalyst.expressions.Literal, org.apache.spark.sql.catalyst.expressions.Expression)) =&gt; EqualToDiff.this.operands.contains(p._2))).sortBy[Int](((x$6: (org.apache.spark.sql.catalyst.expressions.Literal, org.apache.spark.sql.catalyst.expressions.Expression)) =&gt; x$6._2.hashCode()))(math.this.Ordering.Int).map[org.apache.spark.sql.catalyst.expressions.Literal](((x$7: (org.apache.spark.sql.catalyst.expressions.Literal, org.apache.spark.sql.catalyst.expressions.Expression)) =&gt; x$7._1))
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          11651
+        </td>
+        <td>
+          2336
+          -
+          2400
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.%
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  &lt;artifact&gt; val qual$1: org.apache.spark.sql.catalyst.expressions.Abs = org.apache.spark.sql.catalyst.expressions.Abs.apply(org.apache.spark.sql.catalyst.expressions.Murmur3Hash.apply(lits, 42), org.apache.spark.sql.catalyst.expressions.Abs.apply$default$2);
+  &lt;artifact&gt; val x$1: org.apache.spark.sql.catalyst.InternalRow = qual$1.eval$default$1;
+  qual$1.eval(x$1)
+}.asInstanceOf[Int].%(bucketSize)
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          11658
+        </td>
+        <td>
+          2887
+          -
+          3034
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.forall
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          s.forall(((x0$1: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; x0$1 match {
+  case (e @ (left: org.apache.spark.sql.catalyst.expressions.Expression, right: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.EqualTo((left @ (_: org.apache.spark.sql.catalyst.expressions.Literal)), (operand @ _))) =&gt; true
+  case (e @ (left: org.apache.spark.sql.catalyst.expressions.Expression, right: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.EqualTo((operand @ _), (right @ (_: org.apache.spark.sql.catalyst.expressions.Literal)))) =&gt; true
+  case (e @ _) =&gt; false
+}))
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          11652
+        </td>
+        <td>
+          2947
+          -
+          2951
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          11653
+        </td>
+        <td>
+          2947
+          -
+          2951
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          11654
+        </td>
+        <td>
+          3002
+          -
+          3006
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          11655
+        </td>
+        <td>
+          3002
+          -
+          3006
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          11656
+        </td>
+        <td>
+          3023
+          -
+          3028
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          11657
+        </td>
+        <td>
+          3023
+          -
+          3028
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          11664
+        </td>
+        <td>
+          3035
+          -
+          3129
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val operands: Seq[org.apache.spark.sql.catalyst.expressions.Expression] = TopLevelBoolean.this.EqualToDiff.split(s.toSeq).map[org.apache.spark.sql.catalyst.expressions.Expression](((x$8: (org.apache.spark.sql.catalyst.expressions.Literal, org.apache.spark.sql.catalyst.expressions.Expression)) =&gt; x$8._2));
+  TopLevelBoolean.this.EqualToDiff.apply(operands.toSet[org.apache.spark.sql.catalyst.expressions.Expression])
+}
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          11659
+        </td>
+        <td>
+          3077
+          -
+          3084
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.toSeq
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          s.toSeq
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          11660
+        </td>
+        <td>
+          3090
+          -
+          3094
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$8._2
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          11661
+        </td>
+        <td>
+          3059
+          -
+          3095
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOps.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          TopLevelBoolean.this.EqualToDiff.split(s.toSeq).map[org.apache.spark.sql.catalyst.expressions.Expression](((x$8: (org.apache.spark.sql.catalyst.expressions.Literal, org.apache.spark.sql.catalyst.expressions.Expression)) =&gt; x$8._2))
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          11662
+        </td>
+        <td>
+          3114
+          -
+          3128
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.toSet
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          operands.toSet[org.apache.spark.sql.catalyst.expressions.Expression]
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          11663
+        </td>
+        <td>
+          3102
+          -
+          3129
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.TopLevelBoolean.EqualToDiff.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          TopLevelBoolean.this.EqualToDiff.apply(operands.toSet[org.apache.spark.sql.catalyst.expressions.Expression])
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          11665
+        </td>
+        <td>
+          3287
+          -
+          3304
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.toSeq
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          expressions.toSeq
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          11666
+        </td>
+        <td>
+          3276
+          -
+          3305
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.TopLevelBoolean.NoIdeaDiff.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          TopLevelBoolean.this.NoIdeaDiff.apply(expressions.toSeq)
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          11667
+        </td>
+        <td>
+          3276
+          -
+          3305
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.TopLevelBoolean.NoIdeaDiff.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          TopLevelBoolean.this.NoIdeaDiff.apply(expressions.toSeq)
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          11668
+        </td>
+        <td>
+          5026
+          -
+          5064
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.MultiCommutativeOpOps.origin
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          MultiCommutativeOpOps.origin(triggers)
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          11669
+        </td>
+        <td>
+          5097
+          -
+          5138
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.TopLevelBoolean.sorted
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          TopLevelBoolean.this.sorted(expressions, triggerPercentFilter)
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          11670
+        </td>
+        <td>
+          5073
+          -
+          5094
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[Seq[(org.apache.spark.sql.catalyst.expressions.Expression, Seq[com.sparkutils.quality.impl.Trigger])], Map[org.apache.spark.sql.catalyst.expressions.Expression,Int]](orderedLarger, subs)
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          11671
+        </td>
+        <td>
+          5073
+          -
+          5094
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[Seq[(org.apache.spark.sql.catalyst.expressions.Expression, Seq[com.sparkutils.quality.impl.Trigger])], Map[org.apache.spark.sql.catalyst.expressions.Expression,Int]](orderedLarger, subs)
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          11672
+        </td>
+        <td>
+          5074
+          -
+          5074
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$11._1
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          11673
+        </td>
+        <td>
+          5089
+          -
+          5089
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$11._2
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          11674
+        </td>
+        <td>
+          5180
+          -
+          5211
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.HashSet.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new scala.collection.mutable.HashSet[org.apache.spark.sql.catalyst.expressions.Expression]()
+        </td>
+      </tr><tr>
+        <td>
+          164
+        </td>
+        <td>
+          11675
+        </td>
+        <td>
+          5299
+          -
+          5311
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.Trigger.expression
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          p.expression
+        </td>
+      </tr><tr>
+        <td>
+          164
+        </td>
+        <td>
+          11676
+        </td>
+        <td>
+          5294
+          -
+          5312
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SetOps.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          seen.apply(p.expression)
+        </td>
+      </tr><tr>
+        <td>
+          164
+        </td>
+        <td>
+          11677
+        </td>
+        <td>
+          5275
+          -
+          5313
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOps.filterNot
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          pop.filterNot(((p: com.sparkutils.quality.impl.Trigger) =&gt; seen.apply(p.expression)))
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          11678
+        </td>
+        <td>
+          5344
+          -
+          5356
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.Trigger.expression
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$12.expression
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          11679
+        </td>
+        <td>
+          5329
+          -
+          5357
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOps.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          newPopSeqs.map[org.apache.spark.sql.catalyst.expressions.Expression](((x$12: com.sparkutils.quality.impl.Trigger) =&gt; x$12.expression))
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          11680
+        </td>
+        <td>
+          5320
+          -
+          5358
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.Growable.++=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          seen.++=(newPopSeqs.map[org.apache.spark.sql.catalyst.expressions.Expression](((x$12: com.sparkutils.quality.impl.Trigger) =&gt; x$12.expression)))
+        </td>
+      </tr><tr>
+        <td>
+          170
+        </td>
+        <td>
+          11681
+        </td>
+        <td>
+          5432
+          -
+          5448
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.SeqFactory.Delegate.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.`package`.Seq.empty[com.sparkutils.quality.impl.Group]
+        </td>
+      </tr><tr>
+        <td>
+          170
+        </td>
+        <td>
+          11733
+        </td>
+        <td>
+          5409
+          -
+          7781
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.foldLeft
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          orderedLarger.foldLeft[Seq[com.sparkutils.quality.impl.Group]](scala.`package`.Seq.empty[com.sparkutils.quality.impl.Group])(((x0$1: Seq[com.sparkutils.quality.impl.Group], x1$1: (org.apache.spark.sql.catalyst.expressions.Expression, Seq[com.sparkutils.quality.impl.Trigger])) =&gt; scala.Tuple2.apply[Seq[com.sparkutils.quality.impl.Group], (org.apache.spark.sql.catalyst.expressions.Expression, Seq[com.sparkutils.quality.impl.Trigger])](x0$1, x1$1) match {
+  case (_1: Seq[com.sparkutils.quality.impl.Group], _2: (org.apache.spark.sql.catalyst.expressions.Expression, Seq[com.sparkutils.quality.impl.Trigger])): (Seq[com.sparkutils.quality.impl.Group], (org.apache.spark.sql.catalyst.expressions.Expression, Seq[com.sparkutils.quality.impl.Trigger]))((cur @ _), (_1: org.apache.spark.sql.catalyst.expressions.Expression, _2: Seq[com.sparkutils.quality.impl.Trigger]): (org.apache.spark.sql.catalyst.expressions.Expression, Seq[com.sparkutils.quality.impl.Trigger])((sub @ _), (triggers @ _))) =&gt; if (triggers.size.&gt;(targetBucket))
+    {
+      val differentiatingBooleans: scala.collection.immutable.Map[com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator,Seq[com.sparkutils.quality.impl.Trigger]] = triggers.foldLeft[scala.collection.immutable.Map[com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator,Seq[com.sparkutils.quality.impl.Trigger]]](scala.Predef.Map.empty[com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator, Seq[com.sparkutils.quality.impl.Trigger]])(((x0$2: scala.collection.immutable.Map[com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator,Seq[com.sparkutils.quality.impl.Trigger]], x1$2: com.sparkutils.quality.impl.Trigger) =&gt; scala.Tuple2.apply[scala.collection.immutable.Map[com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator,Seq[com.sparkutils.quality.impl.Trigger]], com.sparkutils.quality.impl.Trigger](x0$2, x1$2) match {
+        case (_1: scala.collection.immutable.Map[com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator,Seq[com.sparkutils.quality.impl.Trigger]], _2: com.sparkutils.quality.impl.Trigger): (scala.collection.immutable.Map[com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator,Seq[com.sparkutils.quality.impl.Trigger]], com.sparkutils.quality.impl.Trigger)((map @ _), (trigger @ _)) =&gt; {
+          val theseParts: com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator = TopLevelBoolean.this.differentiate(TopLevelBoolean.this.fromParts(trigger.expression).filterNot(((i: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; subs.contains(i))));
+          com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator, Seq[com.sparkutils.quality.impl.Trigger]](map).updatedWithF[Seq[com.sparkutils.quality.impl.Trigger]](theseParts)(((x0$3: Option[Seq[com.sparkutils.quality.impl.Trigger]]) =&gt; x0$3 match {
+            case (value: Seq[com.sparkutils.quality.impl.Trigger]): Some[Seq[com.sparkutils.quality.impl.Trigger]]((s @ _)) =&gt; scala.Some.apply[Seq[com.sparkutils.quality.impl.Trigger]](s.:+[com.sparkutils.quality.impl.Trigger](trigger))
+            case scala.None =&gt; scala.Some.apply[Seq[com.sparkutils.quality.impl.Trigger]](scala.`package`.Seq.apply[com.sparkutils.quality.impl.Trigger](trigger))
+          }))
+        }
+      }));
+      val newSeqs: scala.collection.immutable.Iterable[com.sparkutils.quality.impl.Group] = differentiatingBooleans.flatMap[com.sparkutils.quality.impl.Group](((x0$4: (com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator, Seq[com.sparkutils.quality.impl.Trigger])) =&gt; x0$4 match {
+        case (_1: com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator, _2: Seq[com.sparkutils.quality.impl.Trigger]): (com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator, Seq[com.sparkutils.quality.impl.Trigger])((differentiator @ _), (triggers @ _)) =&gt; {
+          val numberOfBuckets: Int = if (triggers.size.%(targetBucket).==(0))
+            triggers.size./(targetBucket)
+          else
+            triggers.size./(targetBucket).+(1);
+          val bucketed: scala.collection.immutable.Map[Int,Seq[(Int, com.sparkutils.quality.impl.Trigger)]] = triggers.map[(Int, com.sparkutils.quality.impl.Trigger)](((t: com.sparkutils.quality.impl.Trigger) =&gt; scala.Predef.ArrowAssoc[Int](differentiator.bucket(t.expression, numberOfBuckets)).-&gt;[com.sparkutils.quality.impl.Trigger](t))).groupBy[Int](((x$13: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$13._1));
+          bucketed.foldLeft[Seq[com.sparkutils.quality.impl.Group]](scala.`package`.Seq.empty[com.sparkutils.quality.impl.Group])(((x0$5: Seq[com.sparkutils.quality.impl.Group], x1$3: (Int, Seq[(Int, com.sparkutils.quality.impl.Trigger)])) =&gt; scala.Tuple2.apply[Seq[com.sparkutils.quality.impl.Group], (Int, Seq[(Int, com.sparkutils.quality.impl.Trigger)])](x0$5, x1$3) match {
+            case (_1: Seq[com.sparkutils.quality.impl.Group], _2: (Int, Seq[(Int, com.sparkutils.quality.impl.Trigger)])): (Seq[com.sparkutils.quality.impl.Group], (Int, Seq[(Int, com.sparkutils.quality.impl.Trigger)]))((cur @ _), (_1: Int, _2: Seq[(Int, com.sparkutils.quality.impl.Trigger)]): (Int, Seq[(Int, com.sparkutils.quality.impl.Trigger)])((bucket @ _), (trips @ _))) =&gt; {
+              val bucketedExp: org.apache.spark.sql.catalyst.expressions.Expression = differentiator.bucketer(bucket, numberOfBuckets);
+              val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(trips.map[com.sparkutils.quality.impl.Trigger](((x$14: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$14._2)));
+              cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(org.apache.spark.sql.catalyst.expressions.And.apply(bucketedExp, sub), corrected.minBy[Int](((x$15: com.sparkutils.quality.impl.Trigger) =&gt; x$15.salience))(math.this.Ordering.Int).salience, corrected))
+            }
+          }))
+        }
+      }));
+      cur.++[com.sparkutils.quality.impl.Group](newSeqs)
+    }
+  else
+    if (triggers.size.&gt;(4))
+      {
+        val newTriggers: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(triggers);
+        cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, newTriggers.minBy[Int](((x$16: com.sparkutils.quality.impl.Trigger) =&gt; x$16.salience))(math.this.Ordering.Int).salience, newTriggers))
+      }
+    else
+      cur
+}))
+        </td>
+      </tr><tr>
+        <td>
+          173
+        </td>
+        <td>
+          11682
+        </td>
+        <td>
+          5506
+          -
+          5534
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          triggers.size.&gt;(targetBucket)
+        </td>
+      </tr><tr>
+        <td>
+          173
+        </td>
+        <td>
+          11721
+        </td>
+        <td>
+          5536
+          -
+          7422
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val differentiatingBooleans: scala.collection.immutable.Map[com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator,Seq[com.sparkutils.quality.impl.Trigger]] = triggers.foldLeft[scala.collection.immutable.Map[com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator,Seq[com.sparkutils.quality.impl.Trigger]]](scala.Predef.Map.empty[com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator, Seq[com.sparkutils.quality.impl.Trigger]])(((x0$2: scala.collection.immutable.Map[com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator,Seq[com.sparkutils.quality.impl.Trigger]], x1$2: com.sparkutils.quality.impl.Trigger) =&gt; scala.Tuple2.apply[scala.collection.immutable.Map[com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator,Seq[com.sparkutils.quality.impl.Trigger]], com.sparkutils.quality.impl.Trigger](x0$2, x1$2) match {
+    case (_1: scala.collection.immutable.Map[com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator,Seq[com.sparkutils.quality.impl.Trigger]], _2: com.sparkutils.quality.impl.Trigger): (scala.collection.immutable.Map[com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator,Seq[com.sparkutils.quality.impl.Trigger]], com.sparkutils.quality.impl.Trigger)((map @ _), (trigger @ _)) =&gt; {
+      val theseParts: com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator = TopLevelBoolean.this.differentiate(TopLevelBoolean.this.fromParts(trigger.expression).filterNot(((i: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; subs.contains(i))));
+      com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator, Seq[com.sparkutils.quality.impl.Trigger]](map).updatedWithF[Seq[com.sparkutils.quality.impl.Trigger]](theseParts)(((x0$3: Option[Seq[com.sparkutils.quality.impl.Trigger]]) =&gt; x0$3 match {
+        case (value: Seq[com.sparkutils.quality.impl.Trigger]): Some[Seq[com.sparkutils.quality.impl.Trigger]]((s @ _)) =&gt; scala.Some.apply[Seq[com.sparkutils.quality.impl.Trigger]](s.:+[com.sparkutils.quality.impl.Trigger](trigger))
+        case scala.None =&gt; scala.Some.apply[Seq[com.sparkutils.quality.impl.Trigger]](scala.`package`.Seq.apply[com.sparkutils.quality.impl.Trigger](trigger))
+      }))
+    }
+  }));
+  val newSeqs: scala.collection.immutable.Iterable[com.sparkutils.quality.impl.Group] = differentiatingBooleans.flatMap[com.sparkutils.quality.impl.Group](((x0$4: (com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator, Seq[com.sparkutils.quality.impl.Trigger])) =&gt; x0$4 match {
+    case (_1: com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator, _2: Seq[com.sparkutils.quality.impl.Trigger]): (com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator, Seq[com.sparkutils.quality.impl.Trigger])((differentiator @ _), (triggers @ _)) =&gt; {
+      val numberOfBuckets: Int = if (triggers.size.%(targetBucket).==(0))
+        triggers.size./(targetBucket)
+      else
+        triggers.size./(targetBucket).+(1);
+      val bucketed: scala.collection.immutable.Map[Int,Seq[(Int, com.sparkutils.quality.impl.Trigger)]] = triggers.map[(Int, com.sparkutils.quality.impl.Trigger)](((t: com.sparkutils.quality.impl.Trigger) =&gt; scala.Predef.ArrowAssoc[Int](differentiator.bucket(t.expression, numberOfBuckets)).-&gt;[com.sparkutils.quality.impl.Trigger](t))).groupBy[Int](((x$13: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$13._1));
+      bucketed.foldLeft[Seq[com.sparkutils.quality.impl.Group]](scala.`package`.Seq.empty[com.sparkutils.quality.impl.Group])(((x0$5: Seq[com.sparkutils.quality.impl.Group], x1$3: (Int, Seq[(Int, com.sparkutils.quality.impl.Trigger)])) =&gt; scala.Tuple2.apply[Seq[com.sparkutils.quality.impl.Group], (Int, Seq[(Int, com.sparkutils.quality.impl.Trigger)])](x0$5, x1$3) match {
+        case (_1: Seq[com.sparkutils.quality.impl.Group], _2: (Int, Seq[(Int, com.sparkutils.quality.impl.Trigger)])): (Seq[com.sparkutils.quality.impl.Group], (Int, Seq[(Int, com.sparkutils.quality.impl.Trigger)]))((cur @ _), (_1: Int, _2: Seq[(Int, com.sparkutils.quality.impl.Trigger)]): (Int, Seq[(Int, com.sparkutils.quality.impl.Trigger)])((bucket @ _), (trips @ _))) =&gt; {
+          val bucketedExp: org.apache.spark.sql.catalyst.expressions.Expression = differentiator.bucketer(bucket, numberOfBuckets);
+          val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(trips.map[com.sparkutils.quality.impl.Trigger](((x$14: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$14._2)));
+          cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(org.apache.spark.sql.catalyst.expressions.And.apply(bucketedExp, sub), corrected.minBy[Int](((x$15: com.sparkutils.quality.impl.Trigger) =&gt; x$15.salience))(math.this.Ordering.Int).salience, corrected))
+        }
+      }))
+    }
+  }));
+  cur.++[com.sparkutils.quality.impl.Group](newSeqs)
+}
+        </td>
+      </tr><tr>
+        <td>
+          173
+        </td>
+        <td>
+          11732
+        </td>
+        <td>
+          5502
+          -
+          7773
+        </td>
+        <td>
+          If
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          if (triggers.size.&gt;(targetBucket))
+  {
+    val differentiatingBooleans: scala.collection.immutable.Map[com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator,Seq[com.sparkutils.quality.impl.Trigger]] = triggers.foldLeft[scala.collection.immutable.Map[com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator,Seq[com.sparkutils.quality.impl.Trigger]]](scala.Predef.Map.empty[com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator, Seq[com.sparkutils.quality.impl.Trigger]])(((x0$2: scala.collection.immutable.Map[com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator,Seq[com.sparkutils.quality.impl.Trigger]], x1$2: com.sparkutils.quality.impl.Trigger) =&gt; scala.Tuple2.apply[scala.collection.immutable.Map[com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator,Seq[com.sparkutils.quality.impl.Trigger]], com.sparkutils.quality.impl.Trigger](x0$2, x1$2) match {
+      case (_1: scala.collection.immutable.Map[com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator,Seq[com.sparkutils.quality.impl.Trigger]], _2: com.sparkutils.quality.impl.Trigger): (scala.collection.immutable.Map[com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator,Seq[com.sparkutils.quality.impl.Trigger]], com.sparkutils.quality.impl.Trigger)((map @ _), (trigger @ _)) =&gt; {
+        val theseParts: com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator = TopLevelBoolean.this.differentiate(TopLevelBoolean.this.fromParts(trigger.expression).filterNot(((i: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; subs.contains(i))));
+        com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator, Seq[com.sparkutils.quality.impl.Trigger]](map).updatedWithF[Seq[com.sparkutils.quality.impl.Trigger]](theseParts)(((x0$3: Option[Seq[com.sparkutils.quality.impl.Trigger]]) =&gt; x0$3 match {
+          case (value: Seq[com.sparkutils.quality.impl.Trigger]): Some[Seq[com.sparkutils.quality.impl.Trigger]]((s @ _)) =&gt; scala.Some.apply[Seq[com.sparkutils.quality.impl.Trigger]](s.:+[com.sparkutils.quality.impl.Trigger](trigger))
+          case scala.None =&gt; scala.Some.apply[Seq[com.sparkutils.quality.impl.Trigger]](scala.`package`.Seq.apply[com.sparkutils.quality.impl.Trigger](trigger))
+        }))
+      }
+    }));
+    val newSeqs: scala.collection.immutable.Iterable[com.sparkutils.quality.impl.Group] = differentiatingBooleans.flatMap[com.sparkutils.quality.impl.Group](((x0$4: (com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator, Seq[com.sparkutils.quality.impl.Trigger])) =&gt; x0$4 match {
+      case (_1: com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator, _2: Seq[com.sparkutils.quality.impl.Trigger]): (com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator, Seq[com.sparkutils.quality.impl.Trigger])((differentiator @ _), (triggers @ _)) =&gt; {
+        val numberOfBuckets: Int = if (triggers.size.%(targetBucket).==(0))
+          triggers.size./(targetBucket)
+        else
+          triggers.size./(targetBucket).+(1);
+        val bucketed: scala.collection.immutable.Map[Int,Seq[(Int, com.sparkutils.quality.impl.Trigger)]] = triggers.map[(Int, com.sparkutils.quality.impl.Trigger)](((t: com.sparkutils.quality.impl.Trigger) =&gt; scala.Predef.ArrowAssoc[Int](differentiator.bucket(t.expression, numberOfBuckets)).-&gt;[com.sparkutils.quality.impl.Trigger](t))).groupBy[Int](((x$13: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$13._1));
+        bucketed.foldLeft[Seq[com.sparkutils.quality.impl.Group]](scala.`package`.Seq.empty[com.sparkutils.quality.impl.Group])(((x0$5: Seq[com.sparkutils.quality.impl.Group], x1$3: (Int, Seq[(Int, com.sparkutils.quality.impl.Trigger)])) =&gt; scala.Tuple2.apply[Seq[com.sparkutils.quality.impl.Group], (Int, Seq[(Int, com.sparkutils.quality.impl.Trigger)])](x0$5, x1$3) match {
+          case (_1: Seq[com.sparkutils.quality.impl.Group], _2: (Int, Seq[(Int, com.sparkutils.quality.impl.Trigger)])): (Seq[com.sparkutils.quality.impl.Group], (Int, Seq[(Int, com.sparkutils.quality.impl.Trigger)]))((cur @ _), (_1: Int, _2: Seq[(Int, com.sparkutils.quality.impl.Trigger)]): (Int, Seq[(Int, com.sparkutils.quality.impl.Trigger)])((bucket @ _), (trips @ _))) =&gt; {
+            val bucketedExp: org.apache.spark.sql.catalyst.expressions.Expression = differentiator.bucketer(bucket, numberOfBuckets);
+            val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(trips.map[com.sparkutils.quality.impl.Trigger](((x$14: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$14._2)));
+            cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(org.apache.spark.sql.catalyst.expressions.And.apply(bucketedExp, sub), corrected.minBy[Int](((x$15: com.sparkutils.quality.impl.Trigger) =&gt; x$15.salience))(math.this.Ordering.Int).salience, corrected))
+          }
+        }))
+      }
+    }));
+    cur.++[com.sparkutils.quality.impl.Group](newSeqs)
+  }
+else
+  if (triggers.size.&gt;(4))
+    {
+      val newTriggers: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(triggers);
+      cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, newTriggers.minBy[Int](((x$16: com.sparkutils.quality.impl.Trigger) =&gt; x$16.salience))(math.this.Ordering.Int).salience, newTriggers))
+    }
+  else
+    cur
+        </td>
+      </tr><tr>
+        <td>
+          177
+        </td>
+        <td>
+          11683
+        </td>
+        <td>
+          5726
+          -
+          5765
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Map.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.Map.empty[com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator, Seq[com.sparkutils.quality.impl.Trigger]]
+        </td>
+      </tr><tr>
+        <td>
+          177
+        </td>
+        <td>
+          11696
+        </td>
+        <td>
+          5708
+          -
+          6136
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.foldLeft
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          triggers.foldLeft[scala.collection.immutable.Map[com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator,Seq[com.sparkutils.quality.impl.Trigger]]](scala.Predef.Map.empty[com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator, Seq[com.sparkutils.quality.impl.Trigger]])(((x0$2: scala.collection.immutable.Map[com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator,Seq[com.sparkutils.quality.impl.Trigger]], x1$2: com.sparkutils.quality.impl.Trigger) =&gt; scala.Tuple2.apply[scala.collection.immutable.Map[com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator,Seq[com.sparkutils.quality.impl.Trigger]], com.sparkutils.quality.impl.Trigger](x0$2, x1$2) match {
+  case (_1: scala.collection.immutable.Map[com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator,Seq[com.sparkutils.quality.impl.Trigger]], _2: com.sparkutils.quality.impl.Trigger): (scala.collection.immutable.Map[com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator,Seq[com.sparkutils.quality.impl.Trigger]], com.sparkutils.quality.impl.Trigger)((map @ _), (trigger @ _)) =&gt; {
+    val theseParts: com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator = TopLevelBoolean.this.differentiate(TopLevelBoolean.this.fromParts(trigger.expression).filterNot(((i: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; subs.contains(i))));
+    com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator, Seq[com.sparkutils.quality.impl.Trigger]](map).updatedWithF[Seq[com.sparkutils.quality.impl.Trigger]](theseParts)(((x0$3: Option[Seq[com.sparkutils.quality.impl.Trigger]]) =&gt; x0$3 match {
+      case (value: Seq[com.sparkutils.quality.impl.Trigger]): Some[Seq[com.sparkutils.quality.impl.Trigger]]((s @ _)) =&gt; scala.Some.apply[Seq[com.sparkutils.quality.impl.Trigger]](s.:+[com.sparkutils.quality.impl.Trigger](trigger))
+      case scala.None =&gt; scala.Some.apply[Seq[com.sparkutils.quality.impl.Trigger]](scala.`package`.Seq.apply[com.sparkutils.quality.impl.Trigger](trigger))
+    }))
+  }
+}))
+        </td>
+      </tr><tr>
+        <td>
+          178
+        </td>
+        <td>
+          11695
+        </td>
+        <td>
+          5804
+          -
+          6120
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val theseParts: com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator = TopLevelBoolean.this.differentiate(TopLevelBoolean.this.fromParts(trigger.expression).filterNot(((i: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; subs.contains(i))));
+  com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator, Seq[com.sparkutils.quality.impl.Trigger]](map).updatedWithF[Seq[com.sparkutils.quality.impl.Trigger]](theseParts)(((x0$3: Option[Seq[com.sparkutils.quality.impl.Trigger]]) =&gt; x0$3 match {
+    case (value: Seq[com.sparkutils.quality.impl.Trigger]): Some[Seq[com.sparkutils.quality.impl.Trigger]]((s @ _)) =&gt; scala.Some.apply[Seq[com.sparkutils.quality.impl.Trigger]](s.:+[com.sparkutils.quality.impl.Trigger](trigger))
+    case scala.None =&gt; scala.Some.apply[Seq[com.sparkutils.quality.impl.Trigger]](scala.`package`.Seq.apply[com.sparkutils.quality.impl.Trigger](trigger))
+  }))
+}
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          11684
+        </td>
+        <td>
+          5866
+          -
+          5884
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.Trigger.expression
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          trigger.expression
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          11685
+        </td>
+        <td>
+          5901
+          -
+          5917
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapOps.contains
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          subs.contains(i)
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          11686
+        </td>
+        <td>
+          5856
+          -
+          5918
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOps.filterNot
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          TopLevelBoolean.this.fromParts(trigger.expression).filterNot(((i: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; subs.contains(i)))
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          11687
+        </td>
+        <td>
+          5842
+          -
+          5919
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.TopLevelBoolean.differentiate
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          TopLevelBoolean.this.differentiate(TopLevelBoolean.this.fromParts(trigger.expression).filterNot(((i: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; subs.contains(i))))
+        </td>
+      </tr><tr>
+        <td>
+          181
+        </td>
+        <td>
+          11694
+        </td>
+        <td>
+          5939
+          -
+          6120
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.MapOps.MapOps.updatedWithF
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.util.MapOps.MapOps[com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator, Seq[com.sparkutils.quality.impl.Trigger]](map).updatedWithF[Seq[com.sparkutils.quality.impl.Trigger]](theseParts)(((x0$3: Option[Seq[com.sparkutils.quality.impl.Trigger]]) =&gt; x0$3 match {
+  case (value: Seq[com.sparkutils.quality.impl.Trigger]): Some[Seq[com.sparkutils.quality.impl.Trigger]]((s @ _)) =&gt; scala.Some.apply[Seq[com.sparkutils.quality.impl.Trigger]](s.:+[com.sparkutils.quality.impl.Trigger](trigger))
+  case scala.None =&gt; scala.Some.apply[Seq[com.sparkutils.quality.impl.Trigger]](scala.`package`.Seq.apply[com.sparkutils.quality.impl.Trigger](trigger))
+}))
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          11688
+        </td>
+        <td>
+          6033
+          -
+          6045
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqOps.:+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          s.:+[com.sparkutils.quality.impl.Trigger](trigger)
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          11689
+        </td>
+        <td>
+          6028
+          -
+          6046
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[Seq[com.sparkutils.quality.impl.Trigger]](s.:+[com.sparkutils.quality.impl.Trigger](trigger))
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          11690
+        </td>
+        <td>
+          6028
+          -
+          6046
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[Seq[com.sparkutils.quality.impl.Trigger]](s.:+[com.sparkutils.quality.impl.Trigger](trigger))
+        </td>
+      </tr><tr>
+        <td>
+          183
+        </td>
+        <td>
+          11691
+        </td>
+        <td>
+          6087
+          -
+          6099
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqFactory.Delegate.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.`package`.Seq.apply[com.sparkutils.quality.impl.Trigger](trigger)
+        </td>
+      </tr><tr>
+        <td>
+          183
+        </td>
+        <td>
+          11692
+        </td>
+        <td>
+          6082
+          -
+          6100
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[Seq[com.sparkutils.quality.impl.Trigger]](scala.`package`.Seq.apply[com.sparkutils.quality.impl.Trigger](trigger))
+        </td>
+      </tr><tr>
+        <td>
+          183
+        </td>
+        <td>
+          11693
+        </td>
+        <td>
+          6082
+          -
+          6100
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[Seq[com.sparkutils.quality.impl.Trigger]](scala.`package`.Seq.apply[com.sparkutils.quality.impl.Trigger](trigger))
+        </td>
+      </tr><tr>
+        <td>
+          191
+        </td>
+        <td>
+          11719
+        </td>
+        <td>
+          6334
+          -
+          7383
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOps.flatMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          differentiatingBooleans.flatMap[com.sparkutils.quality.impl.Group](((x0$4: (com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator, Seq[com.sparkutils.quality.impl.Trigger])) =&gt; x0$4 match {
+  case (_1: com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator, _2: Seq[com.sparkutils.quality.impl.Trigger]): (com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator, Seq[com.sparkutils.quality.impl.Trigger])((differentiator @ _), (triggers @ _)) =&gt; {
+    val numberOfBuckets: Int = if (triggers.size.%(targetBucket).==(0))
+      triggers.size./(targetBucket)
+    else
+      triggers.size./(targetBucket).+(1);
+    val bucketed: scala.collection.immutable.Map[Int,Seq[(Int, com.sparkutils.quality.impl.Trigger)]] = triggers.map[(Int, com.sparkutils.quality.impl.Trigger)](((t: com.sparkutils.quality.impl.Trigger) =&gt; scala.Predef.ArrowAssoc[Int](differentiator.bucket(t.expression, numberOfBuckets)).-&gt;[com.sparkutils.quality.impl.Trigger](t))).groupBy[Int](((x$13: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$13._1));
+    bucketed.foldLeft[Seq[com.sparkutils.quality.impl.Group]](scala.`package`.Seq.empty[com.sparkutils.quality.impl.Group])(((x0$5: Seq[com.sparkutils.quality.impl.Group], x1$3: (Int, Seq[(Int, com.sparkutils.quality.impl.Trigger)])) =&gt; scala.Tuple2.apply[Seq[com.sparkutils.quality.impl.Group], (Int, Seq[(Int, com.sparkutils.quality.impl.Trigger)])](x0$5, x1$3) match {
+      case (_1: Seq[com.sparkutils.quality.impl.Group], _2: (Int, Seq[(Int, com.sparkutils.quality.impl.Trigger)])): (Seq[com.sparkutils.quality.impl.Group], (Int, Seq[(Int, com.sparkutils.quality.impl.Trigger)]))((cur @ _), (_1: Int, _2: Seq[(Int, com.sparkutils.quality.impl.Trigger)]): (Int, Seq[(Int, com.sparkutils.quality.impl.Trigger)])((bucket @ _), (trips @ _))) =&gt; {
+        val bucketedExp: org.apache.spark.sql.catalyst.expressions.Expression = differentiator.bucketer(bucket, numberOfBuckets);
+        val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(trips.map[com.sparkutils.quality.impl.Trigger](((x$14: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$14._2)));
+        cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(org.apache.spark.sql.catalyst.expressions.And.apply(bucketedExp, sub), corrected.minBy[Int](((x$15: com.sparkutils.quality.impl.Trigger) =&gt; x$15.salience))(math.this.Ordering.Int).salience, corrected))
+      }
+    }))
+  }
+}))
+        </td>
+      </tr><tr>
+        <td>
+          192
+        </td>
+        <td>
+          11718
+        </td>
+        <td>
+          6416
+          -
+          7367
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val numberOfBuckets: Int = if (triggers.size.%(targetBucket).==(0))
+    triggers.size./(targetBucket)
+  else
+    triggers.size./(targetBucket).+(1);
+  val bucketed: scala.collection.immutable.Map[Int,Seq[(Int, com.sparkutils.quality.impl.Trigger)]] = triggers.map[(Int, com.sparkutils.quality.impl.Trigger)](((t: com.sparkutils.quality.impl.Trigger) =&gt; scala.Predef.ArrowAssoc[Int](differentiator.bucket(t.expression, numberOfBuckets)).-&gt;[com.sparkutils.quality.impl.Trigger](t))).groupBy[Int](((x$13: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$13._1));
+  bucketed.foldLeft[Seq[com.sparkutils.quality.impl.Group]](scala.`package`.Seq.empty[com.sparkutils.quality.impl.Group])(((x0$5: Seq[com.sparkutils.quality.impl.Group], x1$3: (Int, Seq[(Int, com.sparkutils.quality.impl.Trigger)])) =&gt; scala.Tuple2.apply[Seq[com.sparkutils.quality.impl.Group], (Int, Seq[(Int, com.sparkutils.quality.impl.Trigger)])](x0$5, x1$3) match {
+    case (_1: Seq[com.sparkutils.quality.impl.Group], _2: (Int, Seq[(Int, com.sparkutils.quality.impl.Trigger)])): (Seq[com.sparkutils.quality.impl.Group], (Int, Seq[(Int, com.sparkutils.quality.impl.Trigger)]))((cur @ _), (_1: Int, _2: Seq[(Int, com.sparkutils.quality.impl.Trigger)]): (Int, Seq[(Int, com.sparkutils.quality.impl.Trigger)])((bucket @ _), (trips @ _))) =&gt; {
+      val bucketedExp: org.apache.spark.sql.catalyst.expressions.Expression = differentiator.bucketer(bucket, numberOfBuckets);
+      val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(trips.map[com.sparkutils.quality.impl.Trigger](((x$14: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$14._2)));
+      cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(org.apache.spark.sql.catalyst.expressions.And.apply(bucketedExp, sub), corrected.minBy[Int](((x$15: com.sparkutils.quality.impl.Trigger) =&gt; x$15.salience))(math.this.Ordering.Int).salience, corrected))
+    }
+  }))
+}
+        </td>
+      </tr><tr>
+        <td>
+          195
+        </td>
+        <td>
+          11697
+        </td>
+        <td>
+          6484
+          -
+          6517
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          triggers.size.%(targetBucket).==(0)
+        </td>
+      </tr><tr>
+        <td>
+          196
+        </td>
+        <td>
+          11698
+        </td>
+        <td>
+          6541
+          -
+          6569
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int./
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          triggers.size./(targetBucket)
+        </td>
+      </tr><tr>
+        <td>
+          196
+        </td>
+        <td>
+          11699
+        </td>
+        <td>
+          6541
+          -
+          6569
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Int./
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          triggers.size./(targetBucket)
+        </td>
+      </tr><tr>
+        <td>
+          198
+        </td>
+        <td>
+          11700
+        </td>
+        <td>
+          6618
+          -
+          6650
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          triggers.size./(targetBucket).+(1)
+        </td>
+      </tr><tr>
+        <td>
+          198
+        </td>
+        <td>
+          11701
+        </td>
+        <td>
+          6618
+          -
+          6650
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Int.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          triggers.size./(targetBucket).+(1)
+        </td>
+      </tr><tr>
+        <td>
+          205
+        </td>
+        <td>
+          11702
+        </td>
+        <td>
+          6887
+          -
+          6944
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.ArrowAssoc[Int](differentiator.bucket(t.expression, numberOfBuckets)).-&gt;[com.sparkutils.quality.impl.Trigger](t)
+        </td>
+      </tr><tr>
+        <td>
+          206
+        </td>
+        <td>
+          11703
+        </td>
+        <td>
+          6975
+          -
+          6979
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$13._1
+        </td>
+      </tr><tr>
+        <td>
+          206
+        </td>
+        <td>
+          11704
+        </td>
+        <td>
+          6822
+          -
+          6980
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOps.groupBy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          triggers.map[(Int, com.sparkutils.quality.impl.Trigger)](((t: com.sparkutils.quality.impl.Trigger) =&gt; scala.Predef.ArrowAssoc[Int](differentiator.bucket(t.expression, numberOfBuckets)).-&gt;[com.sparkutils.quality.impl.Trigger](t))).groupBy[Int](((x$13: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$13._1))
+        </td>
+      </tr><tr>
+        <td>
+          208
+        </td>
+        <td>
+          11705
+        </td>
+        <td>
+          7018
+          -
+          7034
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.SeqFactory.Delegate.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.`package`.Seq.empty[com.sparkutils.quality.impl.Group]
+        </td>
+      </tr><tr>
+        <td>
+          208
+        </td>
+        <td>
+          11717
+        </td>
+        <td>
+          7000
+          -
+          7367
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.foldLeft
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          bucketed.foldLeft[Seq[com.sparkutils.quality.impl.Group]](scala.`package`.Seq.empty[com.sparkutils.quality.impl.Group])(((x0$5: Seq[com.sparkutils.quality.impl.Group], x1$3: (Int, Seq[(Int, com.sparkutils.quality.impl.Trigger)])) =&gt; scala.Tuple2.apply[Seq[com.sparkutils.quality.impl.Group], (Int, Seq[(Int, com.sparkutils.quality.impl.Trigger)])](x0$5, x1$3) match {
+  case (_1: Seq[com.sparkutils.quality.impl.Group], _2: (Int, Seq[(Int, com.sparkutils.quality.impl.Trigger)])): (Seq[com.sparkutils.quality.impl.Group], (Int, Seq[(Int, com.sparkutils.quality.impl.Trigger)]))((cur @ _), (_1: Int, _2: Seq[(Int, com.sparkutils.quality.impl.Trigger)]): (Int, Seq[(Int, com.sparkutils.quality.impl.Trigger)])((bucket @ _), (trips @ _))) =&gt; {
+    val bucketedExp: org.apache.spark.sql.catalyst.expressions.Expression = differentiator.bucketer(bucket, numberOfBuckets);
+    val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(trips.map[com.sparkutils.quality.impl.Trigger](((x$14: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$14._2)));
+    cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(org.apache.spark.sql.catalyst.expressions.And.apply(bucketedExp, sub), corrected.minBy[Int](((x$15: com.sparkutils.quality.impl.Trigger) =&gt; x$15.salience))(math.this.Ordering.Int).salience, corrected))
+  }
+}))
+        </td>
+      </tr><tr>
+        <td>
+          209
+        </td>
+        <td>
+          11716
+        </td>
+        <td>
+          7085
+          -
+          7347
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val bucketedExp: org.apache.spark.sql.catalyst.expressions.Expression = differentiator.bucketer(bucket, numberOfBuckets);
+  val corrected: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(trips.map[com.sparkutils.quality.impl.Trigger](((x$14: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$14._2)));
+  cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(org.apache.spark.sql.catalyst.expressions.And.apply(bucketedExp, sub), corrected.minBy[Int](((x$15: com.sparkutils.quality.impl.Trigger) =&gt; x$15.salience))(math.this.Ordering.Int).salience, corrected))
+}
+        </td>
+      </tr><tr>
+        <td>
+          210
+        </td>
+        <td>
+          11706
+        </td>
+        <td>
+          7128
+          -
+          7176
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.TopLevelBoolean.Differentiator.bucketer
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          differentiator.bucketer(bucket, numberOfBuckets)
+        </td>
+      </tr><tr>
+        <td>
+          212
+        </td>
+        <td>
+          11707
+        </td>
+        <td>
+          7234
+          -
+          7238
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$14._2
+        </td>
+      </tr><tr>
+        <td>
+          212
+        </td>
+        <td>
+          11708
+        </td>
+        <td>
+          7224
+          -
+          7239
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOps.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          trips.map[com.sparkutils.quality.impl.Trigger](((x$14: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$14._2))
+        </td>
+      </tr><tr>
+        <td>
+          212
+        </td>
+        <td>
+          11709
+        </td>
+        <td>
+          7216
+          -
+          7240
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.TopLevelBoolean.addSeen
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          addSeen(trips.map[com.sparkutils.quality.impl.Trigger](((x$14: (Int, com.sparkutils.quality.impl.Trigger)) =&gt; x$14._2)))
+        </td>
+      </tr><tr>
+        <td>
+          213
+        </td>
+        <td>
+          11710
+        </td>
+        <td>
+          7276
+          -
+          7297
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.And.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.And.apply(bucketedExp, sub)
+        </td>
+      </tr><tr>
+        <td>
+          213
+        </td>
+        <td>
+          11711
+        </td>
+        <td>
+          7315
+          -
+          7325
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.Trigger.salience
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$15.salience
+        </td>
+      </tr><tr>
+        <td>
+          213
+        </td>
+        <td>
+          11712
+        </td>
+        <td>
+          7314
+          -
+          7314
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.math.Ordering.Int
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          math.this.Ordering.Int
+        </td>
+      </tr><tr>
+        <td>
+          213
+        </td>
+        <td>
+          11713
+        </td>
+        <td>
+          7299
+          -
+          7335
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.Trigger.salience
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          corrected.minBy[Int](((x$15: com.sparkutils.quality.impl.Trigger) =&gt; x$15.salience))(math.this.Ordering.Int).salience
+        </td>
+      </tr><tr>
+        <td>
+          213
+        </td>
+        <td>
+          11714
+        </td>
+        <td>
+          7270
+          -
+          7347
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.Group.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.Group.apply(org.apache.spark.sql.catalyst.expressions.And.apply(bucketedExp, sub), corrected.minBy[Int](((x$15: com.sparkutils.quality.impl.Trigger) =&gt; x$15.salience))(math.this.Ordering.Int).salience, corrected)
+        </td>
+      </tr><tr>
+        <td>
+          213
+        </td>
+        <td>
+          11715
+        </td>
+        <td>
+          7263
+          -
+          7347
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqOps.:+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(org.apache.spark.sql.catalyst.expressions.And.apply(bucketedExp, sub), corrected.minBy[Int](((x$15: com.sparkutils.quality.impl.Trigger) =&gt; x$15.salience))(math.this.Ordering.Int).salience, corrected))
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          11720
+        </td>
+        <td>
+          7396
+          -
+          7410
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOps.++
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cur.++[com.sparkutils.quality.impl.Group](newSeqs)
+        </td>
+      </tr><tr>
+        <td>
+          217
+        </td>
+        <td>
+          11722
+        </td>
+        <td>
+          7432
+          -
+          7449
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          triggers.size.&gt;(4)
+        </td>
+      </tr><tr>
+        <td>
+          217
+        </td>
+        <td>
+          11729
+        </td>
+        <td>
+          7451
+          -
+          7752
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val newTriggers: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(triggers);
+  cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, newTriggers.minBy[Int](((x$16: com.sparkutils.quality.impl.Trigger) =&gt; x$16.salience))(math.this.Ordering.Int).salience, newTriggers))
+}
+        </td>
+      </tr><tr>
+        <td>
+          217
+        </td>
+        <td>
+          11731
+        </td>
+        <td>
+          7428
+          -
+          7773
+        </td>
+        <td>
+          If
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          if (triggers.size.&gt;(4))
+  {
+    val newTriggers: Seq[com.sparkutils.quality.impl.Trigger] = addSeen(triggers);
+    cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, newTriggers.minBy[Int](((x$16: com.sparkutils.quality.impl.Trigger) =&gt; x$16.salience))(math.this.Ordering.Int).salience, newTriggers))
+  }
+else
+  cur
+        </td>
+      </tr><tr>
+        <td>
+          220
+        </td>
+        <td>
+          11723
+        </td>
+        <td>
+          7640
+          -
+          7657
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.TopLevelBoolean.addSeen
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          addSeen(triggers)
+        </td>
+      </tr><tr>
+        <td>
+          221
+        </td>
+        <td>
+          11724
+        </td>
+        <td>
+          7706
+          -
+          7716
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.Trigger.salience
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$16.salience
+        </td>
+      </tr><tr>
+        <td>
+          221
+        </td>
+        <td>
+          11725
+        </td>
+        <td>
+          7705
+          -
+          7705
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.math.Ordering.Int
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          math.this.Ordering.Int
+        </td>
+      </tr><tr>
+        <td>
+          221
+        </td>
+        <td>
+          11726
+        </td>
+        <td>
+          7688
+          -
+          7726
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.Trigger.salience
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          newTriggers.minBy[Int](((x$16: com.sparkutils.quality.impl.Trigger) =&gt; x$16.salience))(math.this.Ordering.Int).salience
+        </td>
+      </tr><tr>
+        <td>
+          221
+        </td>
+        <td>
+          11727
+        </td>
+        <td>
+          7677
+          -
+          7740
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.Group.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.Group.apply(sub, newTriggers.minBy[Int](((x$16: com.sparkutils.quality.impl.Trigger) =&gt; x$16.salience))(math.this.Ordering.Int).salience, newTriggers)
+        </td>
+      </tr><tr>
+        <td>
+          221
+        </td>
+        <td>
+          11728
+        </td>
+        <td>
+          7670
+          -
+          7740
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqOps.:+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cur.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(sub, newTriggers.minBy[Int](((x$16: com.sparkutils.quality.impl.Trigger) =&gt; x$16.salience))(math.this.Ordering.Int).salience, newTriggers))
+        </td>
+      </tr><tr>
+        <td>
+          223
+        </td>
+        <td>
+          11730
+        </td>
+        <td>
+          7770
+          -
+          7773
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.TopLevelBoolean.cur
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cur
+        </td>
+      </tr><tr>
+        <td>
+          226
+        </td>
+        <td>
+          11734
+        </td>
+        <td>
+          7830
+          -
+          7842
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.Trigger.expression
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          p.expression
+        </td>
+      </tr><tr>
+        <td>
+          226
+        </td>
+        <td>
+          11735
+        </td>
+        <td>
+          7825
+          -
+          7843
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SetOps.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          seen.apply(p.expression)
+        </td>
+      </tr><tr>
+        <td>
+          226
+        </td>
+        <td>
+          11736
+        </td>
+        <td>
+          7798
+          -
+          7844
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOps.filterNot
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          expressions.filterNot(((p: com.sparkutils.quality.impl.Trigger) =&gt; seen.apply(p.expression)))
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          11737
+        </td>
+        <td>
+          7853
+          -
+          7865
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.SeqOps.isEmpty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          rest.isEmpty
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          11738
+        </td>
+        <td>
+          7873
+          -
+          7882
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.TopLevelBoolean.topHitter
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          topHitter
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          11739
+        </td>
+        <td>
+          7918
+          -
+          7931
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Literal.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.Literal.apply(true)
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          11740
+        </td>
+        <td>
+          7944
+          -
+          7954
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.Trigger.salience
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$17.salience
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          11741
+        </td>
+        <td>
+          7943
+          -
+          7943
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.math.Ordering.Int
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          math.this.Ordering.Int
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          11742
+        </td>
+        <td>
+          7933
+          -
+          7964
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.sparkutils.quality.impl.Trigger.salience
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          rest.minBy[Int](((x$17: com.sparkutils.quality.impl.Trigger) =&gt; x$17.salience))(math.this.Ordering.Int).salience
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          11743
+        </td>
+        <td>
+          7912
+          -
+          7971
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.Group.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.sparkutils.quality.impl.Group.apply(org.apache.spark.sql.catalyst.expressions.Literal.apply(true), rest.minBy[Int](((x$17: com.sparkutils.quality.impl.Trigger) =&gt; x$17.salience))(math.this.Ordering.Int).salience, rest)
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          11744
+        </td>
+        <td>
+          7980
+          -
+          7999
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.nonEmpty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$18.triggers.nonEmpty
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          11745
+        </td>
+        <td>
+          7898
+          -
+          8000
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOps.filter
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          topHitter.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(org.apache.spark.sql.catalyst.expressions.Literal.apply(true), rest.minBy[Int](((x$17: com.sparkutils.quality.impl.Trigger) =&gt; x$17.salience))(math.this.Ordering.Int).salience, rest)).filter(((x$18: com.sparkutils.quality.impl.Group) =&gt; x$18.triggers.nonEmpty))
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          11746
+        </td>
+        <td>
+          7898
+          -
+          8000
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.IterableOps.filter
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          topHitter.:+[com.sparkutils.quality.impl.Group](com.sparkutils.quality.impl.Group.apply(org.apache.spark.sql.catalyst.expressions.Literal.apply(true), rest.minBy[Int](((x$17: com.sparkutils.quality.impl.Trigger) =&gt; x$17.salience))(math.this.Ordering.Int).salience, rest)).filter(((x$18: com.sparkutils.quality.impl.Group) =&gt; x$18.triggers.nonEmpty))
+        </td>
+      </tr><tr>
+        <td>
+          237
+        </td>
+        <td>
+          11747
+        </td>
+        <td>
+          8321
+          -
+          8334
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&lt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$19.&lt;(filterOut)
+        </td>
+      </tr><tr>
+        <td>
+          237
+        </td>
+        <td>
+          11748
+        </td>
+        <td>
+          8298
+          -
+          8335
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.exists
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          subExprs.get(e).exists(((x$19: Int) =&gt; x$19.&lt;(filterOut)))
+        </td>
+      </tr><tr>
+        <td>
+          237
+        </td>
+        <td>
+          11749
+        </td>
+        <td>
+          8264
+          -
+          8336
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOps.filter
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          TopLevelBoolean.this.fromParts(expression).filter(((e: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; subExprs.get(e).exists(((x$19: Int) =&gt; x$19.&lt;(filterOut)))))
+        </td>
+      </tr><tr>
+        <td>
+          239
+        </td>
+        <td>
+          11750
+        </td>
+        <td>
+          8389
+          -
+          8393
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.TopLevelBoolean.head
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          head
+        </td>
+      </tr><tr>
+        <td>
+          240
+        </td>
+        <td>
+          11751
+        </td>
+        <td>
+          8410
+          -
+          8421
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.isEmpty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.isEmpty
+        </td>
+      </tr><tr>
+        <td>
+          240
+        </td>
+        <td>
+          11752
+        </td>
+        <td>
+          8426
+          -
+          8436
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.TopLevelBoolean.expression
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          expression
+        </td>
+      </tr><tr>
+        <td>
+          241
+        </td>
+        <td>
+          11753
+        </td>
+        <td>
+          8464
+          -
+          8472
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.And.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.catalyst.expressions.And.apply(x$20, x$21)
+        </td>
+      </tr><tr>
+        <td>
+          241
+        </td>
+        <td>
+          11754
+        </td>
+        <td>
+          8453
+          -
+          8473
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.reduce
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.reduce[org.apache.spark.sql.catalyst.expressions.Expression](((x$20: org.apache.spark.sql.catalyst.expressions.Expression, x$21: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; org.apache.spark.sql.catalyst.expressions.And.apply(x$20, x$21)))
+        </td>
+      </tr><tr>
+        <td>
+          241
+        </td>
+        <td>
+          11755
+        </td>
+        <td>
+          8453
+          -
+          8473
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.IterableOnceOps.reduce
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          res.reduce[org.apache.spark.sql.catalyst.expressions.Expression](((x$20: org.apache.spark.sql.catalyst.expressions.Expression, x$21: org.apache.spark.sql.catalyst.expressions.Expression) =&gt; org.apache.spark.sql.catalyst.expressions.And.apply(x$20, x$21)))
+        </td>
+      </tr><tr>
+        <td>
+          246
+        </td>
+        <td>
+          11756
+        </td>
+        <td>
+          8611
+          -
+          8627
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sparkutils.quality.impl.util.TopLevelBoolean.fromParts
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          TopLevelBoolean.this.fromParts(right)
+        </td>
+      </tr><tr>
+        <td>
+          246
+        </td>
+        <td>
+          11757
+        </td>
+        <td>
+          8592
+          -
+          8627
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SetOps.++
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          TopLevelBoolean.this.fromParts(left).++(TopLevelBoolean.this.fromParts(right))
+        </td>
+      </tr><tr>
+        <td>
+          246
+        </td>
+        <td>
+          11758
+        </td>
+        <td>
+          8592
+          -
+          8627
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.SetOps.++
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          TopLevelBoolean.this.fromParts(left).++(TopLevelBoolean.this.fromParts(right))
+        </td>
+      </tr><tr>
+        <td>
+          247
+        </td>
+        <td>
+          11759
+        </td>
+        <td>
+          8651
+          -
+          8657
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableFactory.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.Set.apply[org.apache.spark.sql.catalyst.expressions.Expression](e)
+        </td>
+      </tr><tr>
+        <td>
+          247
+        </td>
+        <td>
+          11760
+        </td>
+        <td>
+          8651
+          -
+          8657
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.IterableFactory.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.Set.apply[org.apache.spark.sql.catalyst.expressions.Expression](e)
+        </td>
+      </tr><tr>
+        <td>
+          249
+        </td>
+        <td>
+          11761
+        </td>
+        <td>
+          8736
+          -
+          8745
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Set.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.Set.empty[org.apache.spark.sql.catalyst.expressions.Expression]
+        </td>
+      </tr><tr>
+        <td>
+          249
+        </td>
+        <td>
+          11762
+        </td>
+        <td>
+          8736
+          -
+          8745
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.immutable.Set.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.Set.empty[org.apache.spark.sql.catalyst.expressions.Expression]
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
