@@ -83,7 +83,8 @@ Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1 and 3.3.2 are deprecated as are DBR's 12.2
 >    groupProcessorKey /* "quality.runnerGroupProcessor" */ -> classOf[TopLevelBooleanGrouper].getName
 >  ))
 > ```
-> These parameters can be provided directly when calling a runner or via System properties and Spark conf.
+> These parameters can be provided directly when calling a specific runner or via System properties and Spark conf
+> which apply across all runners.
 > 
 > The experimental TopLevelBooleanGrouper, in addition to whole stage compilation improvements and #131, allows reduction of evaluation
 > cost by 20x in the test case, grouping by common "and" expressions and bucketing via " field = 'value' " comparisons.
