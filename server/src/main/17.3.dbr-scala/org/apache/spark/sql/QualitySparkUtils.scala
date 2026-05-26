@@ -83,7 +83,7 @@ object ClassicQualitySparkUtils {
    *
    * @param i
    * @param ctx
-   * @return (parameters for function decleration, parmaters for calling, code that must be before fungroup)
+   * @return (parameters for function declaration, parameters for calling, code that must be before fungroup)
    */
   def genParamsForNested(ctx: CodegenContext, children: Seq[Expression], additional: Seq[ExprValue]): ParameterInformation = {
     val (a, b) = getLocalInputVariableValues(ctx, children, ShimExprUtils.currentSubExprState(ctx))

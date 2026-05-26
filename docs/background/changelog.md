@@ -91,11 +91,8 @@ Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1 and 3.3.2 are deprecated as are DBR's 12.2
 > These buckets can be configured by the:
 > ```scala
 > groupProcessorBucketSizeKey /* "quality.runnerGroupProcessor.bucketSize" */: Int = 130, 
-> groupProcessorPercentFilter /* "quality.runnerGroupProcessor.percentFilter" */: Double = 0.12
 > ```
-> parameters, which aim to manage a target bucket size and filter out expressions that are only present in 1.2% of the rules or less.
-> 
-> The processing and compilation cost on Databricks is noticeably higher than OSS Spark, likely due to old Janino versions.
+> parameters, which aim to manage a target bucket size of 130, and is used as a guide in the bucketing approach.
 > 
 > An optional extraConfig parameter of:
 > ```scala

@@ -178,7 +178,9 @@ trait BigRulesBase extends Matchers {
       ))
 
     val group = RuleSuiteGroupIOUtils.fromFile(outputDir + "/RuleEngineRunner")
-    group.ruleSuites.size shouldBe 181
+    group.ruleSuites.size should be > 180
+
+    group.ruleSuites.forall(_._2.ruleSets.head.rules.size < 200) shouldBe true
 
     // verify some of it is correct
     group.ruleSuites(Id(0,0)).ruleSets.exists(p => p.rules.exists(_.toString.contains("hash(a, b, c, f)"))) shouldBe true

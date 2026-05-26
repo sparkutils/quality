@@ -139,23 +139,20 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
   protected[quality] def generateFunctionGroups(
                ctx: CodegenContext, runner: Runner, params: ParameterInformation, resultRow: String, additionalParams: Seq[VariableValue],
                expressions: Seq[(Trigger, (CodegenContext, ParameterInformation) => Block)],
-               variablesPerFunc: Int, variableFuncGroup: Int,
-               extraConfig: Map[String, String],
                prefix: String = "ruleRunner", exprEnd: () => Block = () => code"",
                exprFunEnd: () => Block = () => code""): (Iterator[String], String, Seq[CodeAndComment]) = {
 
-    val impl: TriggerGrouper = Triggers.loadTriggerGrouper(extraConfig)
+    val impl: TriggerGrouper = Triggers.loadTriggerGrouper(runner.extraConfig)
 
     val start = System.nanoTime()
 
     val res =
-      impl.apply(ctx, runner, resultRow, additionalParams, expressions,
-        variablesPerFunc, variableFuncGroup, params,
-        prefix, exprEnd, exprFunEnd, extraConfig)
+      impl.apply(ctx, runner, resultRow, additionalParams, expressions, params,
+        prefix, exprEnd, exprFunEnd)
 
     val end = System.nanoTime()
     val groupingTime = Duration.fromNanos(end - start)
-    if (Try(Triggers.getValue(showGroupingTime, extraConfig, "false").toBoolean).getOrElse(false)){
+    if (Try(Triggers.getValue(showGroupingTime, runner.extraConfig, "false").toBoolean).getOrElse(false)){
       println(s"$prefix RuleSuite - took ${groupingTime.toMinutes}m${groupingTime.toSeconds % 60}s to group")
       System.out.flush()
     }
@@ -180,8 +177,7 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
   }
 
   def nonOutputRuleGen[T: ClassTag](ctx: CodegenContext, runner: Runner, ev: ExprCode, utilsName: String,
-                       realChildren: Seq[Expression], variablesPerFunc: Int, variableFuncGroup: Int,
-                       resultF: (ExprValue, Int) => String, extraConfig: Map[String, String],
+                       realChildren: Seq[Expression], resultF: (ExprValue, Int) => String,
                        ruleRunnerExpressionIdx: Int
                       ): ExprCode = {
     val paramInfo = genParams(ctx, runner)
@@ -210,8 +206,7 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
 
     val funNames: Iterator[String] =
       RuleRunnerUtils.generateFunctionGroups(ctx, runner, paramInfo, resultRow,
-        Seq(VariableValue(resultRow, classOf[InternalRow])), allExpr,
-        variablesPerFunc, variableFuncGroup, extraConfig)._1
+        Seq(VariableValue(resultRow, classOf[InternalRow])), allExpr)._1
 
     val exp = ExprCode(VariableValue(resName, ev.value.javaType), isNullVariable(resNull))
 
@@ -298,9 +293,9 @@ trait RuleRunnerBase[T] extends NonSQLExpression with SplitCompilation with Trig
         val utilsName = "com.sparkutils.quality.impl.RuleRunnerUtils"
 
         val res =
-          nonOutputRuleGen[T](ctx, this, ev, utilsName, realChildren, variablesPerFunc, variableFuncGroup,
+          nonOutputRuleGen[T](ctx, this, ev, utilsName, realChildren,
             (code: ExprValue, idx: Int) => s"com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt($code)",
-            extraConfig, ruleRunnerExpressionIdx
+            ruleRunnerExpressionIdx
           )
 
       ((params, classOf[RuleRunnerBase[T]].getName), res, Seq.empty)

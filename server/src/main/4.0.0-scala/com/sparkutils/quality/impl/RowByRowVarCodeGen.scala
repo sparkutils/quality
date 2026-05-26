@@ -1,6 +1,6 @@
 package com.sparkutils.quality.impl
 
-import com.sparkutils.quality.QualityException
+import com.sparkutils.quality.{QualityException, RuleSuite}
 import com.sparkutils.quality.impl.util.ParameterInformation
 import com.sparkutils.quality.impl.util.Params.formatParams
 import com.sparkutils.quality.sparkless.impl.DecoderOpEncoderProjection
@@ -118,13 +118,29 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
     evaluate
   }
 
+  case class RunnerLike(alreadyZero: Boolean = false,
+    ruleSuite: RuleSuite = null,
+    extraConfig: Map[String, String] = Map.empty,
+    variablesPerFunc: Int = 40,
+    variableFuncGroup: Int = 20) extends LeafExpression with Runner with Unevaluable {
+
+    override def withZeroCode(): Runner = ???
+
+    override val defaultRuleResult: Int = ???
+    override val defaultOverallResult: Int = ???
+    override val defaultOverallProcessor: (Int, Int) => Int = ???
+
+    override def nullable: Boolean = ???
+
+    override def dataType: DataType = ???
+  }
+
   protected def functions(ctx: CodegenContext, allExpr: Seq[(Expression, (CodegenContext, ParameterInformation) => Block)], params: ParameterInformation,
-                          prefix: String, extraConfig: Map[String, String] = Map.empty): String = {
+                          prefix: String): String = {
     val funNames: Iterator[String] =
-      RuleRunnerUtils.generateFunctionGroups(ctx, null, params, "", Seq.empty, allExpr.zipWithIndex.map{
+      RuleRunnerUtils.generateFunctionGroups(ctx, RunnerLike(), params, "", Seq.empty, allExpr.zipWithIndex.map {
         case ((exp, b), i) => (Trigger(exp, i, 0), b)
-      }, 40, 20, prefix = prefix,
-        extraConfig = extraConfig)._1
+      }, prefix = prefix)._1
 
     funNames.map { f => s"$f(${params.paramsCall});" }.mkString("\n")
   }

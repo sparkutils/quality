@@ -1,29 +1,55 @@
 package com.sparkutils.quality.impl.util
 
-import com.sparkutils.quality.impl.{Group, Trigger, util}
+import com.sparkutils.quality.groupProcessorBucketSizeKey
+import com.sparkutils.quality.impl.{Group, Runner, Trigger, Triggers, util}
 import org.apache.spark.sql.catalyst.expressions.{Abs, And, EqualTo, Expression, Literal, Murmur3Hash, Remainder}
 
-import scala.collection.mutable
+import scala.collection.{Set, mutable}
+import scala.util.Try
 
 object TopLevelBoolean {
 
-  def apply(expressions: Seq[Trigger], triggerPercentFilter: Double): (Map[Expression, Seq[Trigger]], Map[Expression, Int]) = {
-    val subs = SubExprsFrom.apply(expressions.map(_.expression)).toMap
+  def params(runner: Runner): Int = {
+    val targetBucket = Try(Triggers.getValue(groupProcessorBucketSizeKey, runner.extraConfig, "130").toInt).
+      getOrElse(130)
+    targetBucket
+  }
 
-    val filterOut = ((expressions.size.toDouble / 100.toDouble) * triggerPercentFilter).toInt
+  def apply(expressions: Seq[Trigger]): (Map[Expression, Seq[Trigger]], Expression => Option[(Int, Expression)]) = {
+    val osubs = SubExprsFrom.apply(expressions.map(_.expression))
 
-    (expressions.foldLeft(Map.empty[Expression, Seq[Trigger]]){
+    val subs = (e: Expression) => osubs(e).filter(r => r._1 > 1)
+
+ //   var count = 0
+
+    def group() = expressions.foldLeft(Map.empty[Set[Expression], Seq[Trigger]]){
       (cur, n) =>
-        val s = from(n.expression, subs, filterOut)
+
+        val s = from(n.expression, subs)
+/*
+        if (s.isEmpty && count < 10) {
+          count += 1
+          System.out.println(s"Got empty for ${n.expression.getClass.getName} - ${n.expression.toString()}")
+        }
+*/
         util.MapOps.MapOps(cur).updatedWithF(s) {
           case Some(s) => Some(s :+ n)
           case None => Some(Seq(n))
         }
-    }.filter(p => p._1.collectLeaves().size > 2), subs)
+    }.map{
+      case (k, v) =>
+        (k match {
+          case _ if k.size == 1 => k.head
+          //case _ if k.isEmpty => Literal(true) // happens on Databricks
+          case _ => k.reduce(And(_,_))
+        }, v)
+    }.filter(p => p._1.collectLeaves().size > 2)
+
+    (group() : Map[Expression, Seq[Trigger]], subs)
   }
 
-  def sorted(expressions: Seq[Trigger], triggerPercentFilter: Double): (Seq[(Expression, Seq[Trigger])], Map[Expression, Int]) = {
-    val (res,subs) = apply(expressions, triggerPercentFilter)
+  def sorted(expressions: Seq[Trigger]): (Seq[(Expression, Seq[Trigger])], Expression => Option[(Int, Expression)]) = {
+    val (res,subs) = apply(expressions)
 
     (res.toSeq.sortBy(_._1.collectLeaves().size).reverse, subs)
   }
@@ -37,7 +63,7 @@ object TopLevelBoolean {
 
   object EqualToDiff {
 
-    protected[quality] def split(exprs: Seq[Expression]) = {
+    protected[quality] def split(exprs: Seq[Expression]): Seq[(Literal, Expression)] = {
 
       exprs.flatMap {
         case e@EqualTo(left: Literal, operand) => Some(left -> operand)
@@ -46,6 +72,7 @@ object TopLevelBoolean {
       }.sortBy(_._1.hashCode())
     }
   }
+
   case class EqualToDiff(operands: Set[Expression]) extends Differentiator {
 
     def bucketer(bucket: Int, bucketSize: Int) =
@@ -84,20 +111,20 @@ object TopLevelBoolean {
       case e@ EqualTo(left: Literal, operand) => true
       case e@ EqualTo(operand, right: Literal) => true
       case e => false
-    } =>
+    } && s.nonEmpty =>
       val operands = EqualToDiff.split(s.toSeq).map(_._2)
       EqualToDiff(operands.toSet) //TODO - and then for `a = `b tests can we simplify?
     case _ =>
-      //println("didn't get an EqualTo in this test set that's strange")
+      System.out.println(s"didn't get an EqualTo in this test set that's strange got $expressions")
       NoIdeaDiff(expressions.toSeq)
   }
 
   // too memory intensive for CI
   // $COVERAGE-OFF$
 
-  def bestFit(expressions: Seq[Trigger], triggerPercentFilter: Double): (Seq[Group], Int) = {
-    var min = 30
-    var max = 140
+  def bestFit(expressions: Seq[Trigger]): (Seq[Group], Int) = {
+    var min = 100
+    var max = 200
 
     var step = 10
 
@@ -108,9 +135,9 @@ object TopLevelBoolean {
 
     while(!found) {
       //println(s"running bucket $bucketSize for min $min and max $max with res $resCount")
-      val b = bucket(triggers = expressions, targetBucket = min, triggerPercentFilter)
+      val b = bucket(triggers = expressions, targetBucket = min)
       val bCount = b.maxBy(_.triggers.size).triggers.size + b.size
-      val t = bucket(triggers = expressions, targetBucket = max, triggerPercentFilter)
+      val t = bucket(triggers = expressions, targetBucket = max)
       val tCount = t.maxBy(_.triggers.size).triggers.size + t.size
       res =
         if (tCount <= bCount)
@@ -153,9 +180,11 @@ object TopLevelBoolean {
   }
   // $COVERAGE-ON$
 
-  def bucket(triggers: Seq[Trigger], targetBucket: Int = 130, triggerPercentFilter: Double = 0.12): Seq[Group] = {
+  def bucket(triggers: Seq[Trigger], targetBucket: Int = 130): Seq[Group] = {
     val expressions = MultiCommutativeOpOps.origin(triggers)
-    val (orderedLarger, subs) = sorted(expressions, triggerPercentFilter)
+    val (orderedLarger, subs) = sorted(expressions)
+
+//    System.out.println(s"bucket input had orderedLarger size of ${orderedLarger.size} ")
 
     // remove duplicates
     val seen = new mutable.HashSet[Expression]
@@ -176,7 +205,10 @@ object TopLevelBoolean {
             val differentiatingBooleans =
               triggers.foldLeft(Map.empty[Differentiator, Seq[Trigger]]){
                 case (map, trigger) =>
-                  val theseParts = differentiate(fromParts(trigger.expression).filterNot(i => subs.contains(i)))
+                  val theseParts = differentiate(fromParts(trigger.expression).filterNot{
+                    i =>
+                      subs(i).isDefined
+                  })
 
                   util.MapOps.MapOps(map).updatedWithF(theseParts) {
                       case Some(s) => Some(s :+ trigger)
@@ -230,22 +262,16 @@ object TopLevelBoolean {
       (topHitter :+ Group(Literal(true), rest.minBy(_.salience).salience, rest)).filter(_.triggers.nonEmpty)
   }
 
-  def from(expression: Expression, subExprs: Map[Expression, Int], filterOut: Double): Expression = {
-
-    // anything that hits more than x % is not useful to group with, any top bool that only applies to one trigger is
-    // equally useless
-    val res = fromParts(expression).filter(e => subExprs.get(e).exists(_ < filterOut))
-    res match {
-      case Seq(head: Expression) => head
-      case _ if res.isEmpty  => expression
-      case _ => res.reduce(And(_,_))
+  def from(expression: Expression, subExprs: Expression => Option[(Int, Expression)]): Set[Expression] = {
+    val res = fromParts(expression).filter {e =>
+      subExprs(e).isDefined
     }
+    res
   }
 
   def fromParts(expression: Expression): Set[Expression] = expression match {
     case And(left, right) => fromParts(left) ++ fromParts(right)
     case e: EqualTo => Set(e)
-    //case e: Expression if e.dataType == BooleanType => Set(e)
     case _ => Set.empty
   }
 

@@ -5,9 +5,10 @@ import com.sparkutils.quality.impl.RuleEngineRunnerUtils.CompilerTerms
 import com.sparkutils.quality.impl.{Runner, Triggers}
 import com.sparkutils.shim.codegen.SubExprCodeGen
 import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
-import org.apache.spark.sql.catalyst.expressions.Expression
+import org.apache.spark.sql.catalyst.expressions.{Expression, Unevaluable}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext, ExprCode, ExprValue, QualityCodeGenUtils, ShimExprUtils}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
+import org.apache.spark.sql.types.DataType
 
 import scala.util.Try
 
@@ -117,6 +118,15 @@ object IdGen {
 
 object SeparateCompilation {
 
+  case class Holder(children: Seq[Expression]) extends Expression with Unevaluable {
+
+    override def nullable: Boolean = ???
+
+    override def dataType: DataType = ???
+
+    protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = copy(newChildren)
+  }
+
   def withSubExpressions[T: ClazzGenerator, I: IdGen](
       theThis: Runner, children: Seq[Expression],
       outerCtx: CodegenContext, ev: ExprCode, id: I,
@@ -139,14 +149,15 @@ object SeparateCompilation {
         // only fails on "via ProcessFactory with Avro inputs" RowToRowTest shows it doesn't always work for projections
 
         val subExpressionCode = QualityCodeGenUtils.nonWholeStageSubexpressionElimination(ctx, children)
-
-        (generate(ctx, ruleRunnerExpressionIdx, params), subExpressionCode)
+        val childParams = genParams(ctx, Holder(children), Seq.empty)
+        (generate(ctx, ruleRunnerExpressionIdx, childParams), subExpressionCode)
       } else {
         val subExprs = SubExprCodeGen.subexpressionEliminationForWholeStageCodegen(ctx, children)
         val subExpressionCode = ShimExprUtils.evaluateSubExprEliminationState(ctx, subExprs)
 
         (QualityCodeGenUtils.withSubExprEliminationExprs(ctx, subExprs.states) {
-          generate(ctx, ruleRunnerExpressionIdx, params)
+          val childParams = genParams(ctx, Holder(children), Seq.empty)
+          generate(ctx, ruleRunnerExpressionIdx, childParams)
         }, subExpressionCode)
       }
 

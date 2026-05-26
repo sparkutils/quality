@@ -190,9 +190,7 @@ trait ExpressionRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
             s"$code"
 
         val res =
-          nonOutputRuleGen(ctx, this, ev, utilsName, realChildren, variablesPerFunc, variableFuncGroup,
-            yamlOrType(_, _), extraConfig, ruleRunnerExpressionIdx
-          )
+          nonOutputRuleGen(ctx, this, ev, utilsName, realChildren, yamlOrType(_, _), ruleRunnerExpressionIdx)
 
       ((params, classOf[ExpressionRunnerBase[T]].getName), res, Seq.empty)
     }

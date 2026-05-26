@@ -36,3 +36,10 @@ case class ZeroCodeGen(child: Expression, realChild: Expression, on32: Boolean =
       }
 
 }
+
+case class Zero(child: Expression) extends UnaryExpression with Unevaluable {
+
+  override def dataType: DataType = child.dataType
+
+  protected def withNewChildInternal(newChild: Expression): Expression = copy(newChild)
+}

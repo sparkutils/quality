@@ -10,21 +10,16 @@ trait TriggerGroupingConstants {
 
   /**
    * When present and true will trigger the dumpAudit process for a given group processing implementation.  By
-   * default, this is a no-op.
+   * default, no dumpAudit is run.
    */
   val groupProcessorAuditKey = "quality.runnerGroupProcessor.audit"
 
   /**
-   * Defaulting to 130, the default bucket size can be overridden.  NOTE this size is a guide to bucketing only
+   * Defaulting to 130, the default bucket size can be overridden.  NOTE this size is a guide to bucketing only, use
+   * dumpAudit via [[groupProcessorAuditKey]] to identify the optimum size for a given rule suite, this can take many
+   * minutes to run.
    */
   val groupProcessorBucketSizeKey = "quality.runnerGroupProcessor.bucketSize"
-
-  /**
-   * Defaulting to 0.12, this filter size can be overridden.  NOTE this is a guide to bucketing only and implies
-   * what percentage a given sub expression should be filtered out from grouping. e.g. If the subexpression is only
-   * used in less than 1.2% of the trigger rules then it should not be used as a grouping tool.
-   */
-  val groupProcessorPercentFilter = "quality.runnerGroupProcessor.percentFilter"
 
   /**
    * Defaulting to "./", specifies the location of where to save any audit files

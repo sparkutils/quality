@@ -15,15 +15,17 @@ object TopLevelBooleanSuiteBuilder {
       expr
     }))
 
+  def triggers(runner: HasOutput): Seq[Trigger] = {
+    import runner._
+    triggerRules.zipWithIndex.zip(flattenSalience(ruleSuite)).
+      map(t => Trigger(t._1._1, t._1._2, t._2))
+  }
+
   def build(runner: HasOutput): Unit = {
     import runner._
-    val targetBucket = Try(Triggers.getValue(groupProcessorBucketSizeKey, runner.extraConfig, "130").toInt).
-      getOrElse(130)
-    val triggerPercentFilter = Try(Triggers.getValue(groupProcessorPercentFilter, runner.extraConfig, "0.12").toDouble).
-      getOrElse(0.12)
+    val targetBucket = TopLevelBoolean.params(runner)
 
-    val grouped = TopLevelBoolean.bucket(triggerRules.zipWithIndex.zip(flattenSalience(ruleSuite)).
-      map(t => Trigger(t._1._1, t._1._2, t._2)), targetBucket, triggerPercentFilter)
+    val grouped = TopLevelBoolean.bucket(triggers(runner), targetBucket)
 
     val rules = flattenRules(ruleSuite)
 

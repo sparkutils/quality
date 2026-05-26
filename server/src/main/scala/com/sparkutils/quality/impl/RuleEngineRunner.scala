@@ -403,8 +403,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
 
     CompilerTerms(
       RuleRunnerUtils.generateFunctionGroups(ctx, runner, paramsInfo, resultRow,
-        additionalParams, allExpr, variablesPerFunc, variableFuncGroup,
-        extraConfig, exprEnd = () => exprEnd(currRuleResTerm),
+        additionalParams, allExpr, exprEnd = () => exprEnd(currRuleResTerm),
         exprFunEnd = () => exprFunEnd(currRuleResTerm)),
       utilsName, ruleSuitTerm, currentSalience, ruleTupleArrTerm, currentOutputIndex, outArrTerm,
       salienceArrTerm, hasAPassTerm, currRuleResTerm,
