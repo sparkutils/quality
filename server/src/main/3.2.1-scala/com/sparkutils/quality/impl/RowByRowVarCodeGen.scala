@@ -140,7 +140,7 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
     val funNames: Iterator[String] =
       RuleRunnerUtils.generateFunctionGroups(ctx, RunnerLike(), params, "", Seq.empty, allExpr.zipWithIndex.map {
         case ((exp, b), i) => (Trigger(exp, i, 0), b)
-      }, prefix = prefix)._1
+      }, prefix = prefix).groupCalls
 
     funNames.map { f => s"$f(${params.paramsCall});" }.mkString("\n")
   }
@@ -264,9 +264,9 @@ object GenerateDecoderOpEncoderVarProjection extends CodeGenerator[Seq[Expressio
     val decParams = formatParams( ctx, ctx.currentVars.flatMap(e => Seq(e.value, e.isNull)) :+
       JavaCode.variable(ctx.INPUT_ROW, classOf[InternalRow])
     )
-    val ParameterInformation(_, topDecParamsCall, _, _, _, _) = formatParams( ctx, ctx.currentVars.flatMap(e => Seq(e.value, e.isNull)) :+
+    val topDecParamsCall = formatParams( ctx, ctx.currentVars.flatMap(e => Seq(e.value, e.isNull)) :+
       JavaCode.variable(ctx.INPUT_ROW, classOf[InternalRow]), callsKeepArrays = true
-    )
+    ).paramsCall
 
     val decProjectionCodes = projections(ctx, Seq(exprTo), "decRow", decSubExprStates).toIndexedSeq // streams suck
 
