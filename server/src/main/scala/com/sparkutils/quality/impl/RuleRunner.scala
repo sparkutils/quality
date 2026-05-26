@@ -11,7 +11,7 @@ import com.sparkutils.quality.impl.extension.ZeroCodeGenWrap
 import types.ruleSuiteResultType
 import com.sparkutils.quality.impl.imports.RuleRunnerImports
 import com.sparkutils.quality.impl.util.Serializing.ruleResultToInt
-import com.sparkutils.quality.impl.util.{NonPassThrough, ParameterInformation, PassThroughCompileEvals, SeparateCompilation}
+import com.sparkutils.quality.impl.util.{GenerateResult, NonPassThrough, ParameterInformation, PassThroughCompileEvals, SeparateCompilation}
 import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
 import org.apache.spark.sql.ShimUtils.column
 import org.apache.spark.sql.catalyst.InternalRow
@@ -140,7 +140,7 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
                ctx: CodegenContext, runner: Runner, params: ParameterInformation, resultRow: String, additionalParams: Seq[VariableValue],
                expressions: Seq[(Trigger, (CodegenContext, ParameterInformation) => Block)],
                prefix: String = "ruleRunner", exprEnd: () => Block = () => code"",
-               exprFunEnd: () => Block = () => code""): (Iterator[String], String, Seq[CodeAndComment]) = {
+               exprFunEnd: () => Block = () => code""): TriggerResult = {
 
     val impl: TriggerGrouper = Triggers.loadTriggerGrouper(runner.extraConfig)
 
@@ -179,7 +179,7 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
   def nonOutputRuleGen[T: ClassTag](ctx: CodegenContext, runner: Runner, ev: ExprCode, utilsName: String,
                        realChildren: Seq[Expression], resultF: (ExprValue, Int) => String,
                        ruleRunnerExpressionIdx: Int
-                      ): ExprCode = {
+                      ): (ExprCode, TriggerResult) = {
     val paramInfo = genParams(ctx, runner)
     import paramInfo._
 
@@ -204,9 +204,10 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
     val resName = ctx.freshName("result")
     val resNull = ctx.freshName("isNull")
 
-    val funNames: Iterator[String] =
-      RuleRunnerUtils.generateFunctionGroups(ctx, runner, paramInfo, resultRow,
-        Seq(VariableValue(resultRow, classOf[InternalRow])), allExpr)._1
+    val groups = RuleRunnerUtils.generateFunctionGroups(ctx, runner, paramInfo, resultRow,
+      Seq(VariableValue(resultRow, classOf[InternalRow])), allExpr)
+
+    val funNames: Iterator[String] = groups.groupCalls
 
     val exp = ExprCode(VariableValue(resName, ev.value.javaType), isNullVariable(resNull))
 
@@ -221,7 +222,7 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
       """
     )
 
-    res
+    (res, groups)
   }
 
   case class ResultRowTerms(runnerClassName: String, resultRow: String, resultRowCopy: String)
@@ -292,13 +293,14 @@ trait RuleRunnerBase[T] extends NonSQLExpression with SplitCompilation with Trig
         // bind the rules
         val utilsName = "com.sparkutils.quality.impl.RuleRunnerUtils"
 
-        val res =
+        val (res, triggerRes) =
           nonOutputRuleGen[T](ctx, this, ev, utilsName, realChildren,
             (code: ExprValue, idx: Int) => s"com.sparkutils.quality.impl.RuleLogicUtils.anyToRuleResultInt($code)",
             ruleRunnerExpressionIdx
           )
 
-      ((params, classOf[RuleRunnerBase[T]].getName), res, Seq.empty)
+      GenerateResult((params, classOf[RuleRunnerBase[T]].getName), res, Seq.empty,
+        triggerRes.ignoreTopLevelSubExpressions)
     }
     generatorClassSource = clazz
     fres

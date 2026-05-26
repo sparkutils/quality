@@ -208,7 +208,9 @@ object SubQueryWrapper {
  */
 case class ParameterInformation(paramsDef: String, paramsCall: String, arity: Int,
                                 params: Seq[(String, String, Class[_])], pushToTop: String = "",
-                                outerCallParams: String = ""
+                                outerCallParams: String = "",
+                                // split expressions pairs
+                                nonCombinedParams: Seq[(String, String, Class[_])] = Seq.empty
                                ) {
 
   val useArity = if (arity > 22) 1 else arity
@@ -363,7 +365,7 @@ object Params {
 
         s"$typ $stripped"
       }.mkString(", ")
-      , paramsCall, size, combined, outerCallParams = paramsCall)
+      , paramsCall, size, combined, outerCallParams = paramsCall, nonCombinedParams = pairs)
   }
 }
 

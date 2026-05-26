@@ -12,7 +12,7 @@ import com.sparkutils.quality.impl.ExpressionRuleExpr.ExpressionRuleOps
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
 import com.sparkutils.quality.impl.RunOnPassProcessorImpl.RunOnPassProcessorImplOps
 import com.sparkutils.quality.impl.extension.ZeroCodeGenWrap
-import com.sparkutils.quality.impl.util.{NonPassThrough, ParameterInformation, PassThroughCompileEvals, PassThroughEvalOnly, SeparateCompilation}
+import com.sparkutils.quality.impl.util.{GenerateResult, NonPassThrough, ParameterInformation, PassThroughCompileEvals, PassThroughEvalOnly, SeparateCompilation}
 import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCoercion
@@ -218,7 +218,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
         else output(currentOutputIndex)
       )
 
-  case class CompilerTerms(grouped: (_root_.scala.collection.Iterator[_root_.scala.Predef.String], String, Seq[CodeAndComment]),
+  case class CompilerTerms(grouped: TriggerResult,
                            utilsName: String, ruleSuitTerm: String, currentSalience: String, ruleTupleArrTerm: String,
                            currentOutputIndex: String, outArrTerm: String,
                            salienceArrTerm: String, hasAPassTerm: String, currRuleResTerm: String,
@@ -515,8 +515,10 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
               ${inPlaceOffsets.beforeProcessing}
 
               // group specific subexprs
-              ${grouped._2}
-              ${grouped._1.map { f => s"$f($paramsCall);" }.mkString("\n")}
+              ${grouped.subExpressions}
+              // group calls
+              ${grouped.groupCalls.map { f => s"$f($paramsCall);" }.mkString("\n")}
+              // result row code
               ${inPlaceOffsets.resultRowPrep}
           """
 
@@ -559,7 +561,7 @@ trait RuleEngineRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
               """
             )
 
-        (compilerTerms, res, grouped._3)
+        GenerateResult(compilerTerms, res, grouped.extraClasses, grouped.ignoreTopLevelSubExpressions)
     }
     generatorClassSource = clazz
     fres

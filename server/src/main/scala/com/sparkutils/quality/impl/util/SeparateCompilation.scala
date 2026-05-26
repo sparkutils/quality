@@ -116,6 +116,9 @@ object IdGen {
 
 }
 
+case class GenerateResult[T](resultType: T, resultExpr: ExprCode, extraClasses: Seq[CodeAndComment],
+                             ignoreTopLevelSubExpressions: Boolean)
+
 object SeparateCompilation {
 
   case class Holder(children: Seq[Expression]) extends Expression with Unevaluable {
@@ -131,7 +134,7 @@ object SeparateCompilation {
       theThis: Runner, children: Seq[Expression],
       outerCtx: CodegenContext, ev: ExprCode, id: I,
       createGenerateFunction: Boolean = true, extraParams: Seq[ExprValue] = Seq.empty, useParams: CodegenContext => ParameterInformation = null )(
-      generate: (CodegenContext, Int, ParameterInformation) => (T, ExprCode, Seq[CodeAndComment])
+      generate: (CodegenContext, Int, ParameterInformation) => GenerateResult[T]
     ): (Seq[CodeAndComment], ExprCode) = {
 
     val ruleRunnerExpressionIdx = outerCtx.references.length
@@ -144,7 +147,7 @@ object SeparateCompilation {
       else
         genParams(ctx, theThis, extraParams)
 
-    val ((clazzGenerator, codeBody, furtherClasses), subExpressionCode) =
+    val (genResult, subExpressionCode) =
       if (ctx.currentVars eq null) {
         // only fails on "via ProcessFactory with Avro inputs" RowToRowTest shows it doesn't always work for projections
 
@@ -162,10 +165,10 @@ object SeparateCompilation {
       }
 
     // need to use the top level params as they are isolated, internally the params will shift to using any subexprs
-    runnerCompilation(outerctx = outerCtx, params, clazzGenerator, ctx = ctx, codeBody = codeBody, ev = ev,
+    runnerCompilation(outerctx = outerCtx, params, genResult, ctx = ctx, ev = ev,
       idParam = id, subExpressions = subExpressionCode,
         generateStatsEvery = Try(Triggers.getValue("statsEvery", theThis.extraConfig, "0").toInt).getOrElse(0),
-      furtherClasses, createGenerateFunction
+      createGenerateFunction
     )
   }
 
@@ -177,9 +180,9 @@ object SeparateCompilation {
   def runnerCompilation[T: ClazzGenerator, I: IdGen](
                                   outerctx: CodegenContext,
                                   parameterInformation: ParameterInformation,
-                                  clazzGenerator: T, ctx: CodegenContext, codeBody: ExprCode,
+                                  genResult: GenerateResult[T], ctx: CodegenContext,
                                   ev: ExprCode, idParam: I, subExpressions: String = "",
-                                  generateStatsEvery: Int = 0, furtherClasses: Seq[CodeAndComment] = Seq.empty,
+                                  generateStatsEvery: Int = 0,
                                   createGenerateFunction: Boolean = true):
     (Seq[CodeAndComment], ExprCode) = {
     val fullParams = parameterInformation
@@ -244,6 +247,12 @@ object SeparateCompilation {
         """
       else ""
 
+    val splitSubs =
+      if (genResult.ignoreTopLevelSubExpressions) // already provided by the grouper
+        ""
+      else
+        splitGlobalSubExprs(ctx, subExpressions)
+
     // TODO maximum is 255 params, the codegenerator code has no upper limit, but it's 22 for function, need a array wrapper approach
     val runnerClassBody = s"""
       $generate
@@ -278,17 +287,17 @@ object SeparateCompilation {
           ${fullParams.aritySafeParamConversion}
 
           // this context common sub exprs
-          $subExpressions
+          $splitSubs
 
           $statBeforeCodeBody
 
           // rule runner code body
-          ${codeBody.code}
+          ${genResult.resultExpr.code}
 
           // stat dump
           $statDump
 
-          return ${codeBody.isNull} ? ((Object)null) : ((Object)${codeBody.value});
+          return ${genResult.resultExpr.isNull} ? ((Object)null) : ((Object)${genResult.resultExpr.value});
         }
 
         ${ctx.emitExtraCode()}
@@ -318,7 +327,7 @@ object SeparateCompilation {
 
     // this needs to be after bump so the states aren't reset
     val runner = outerctx.addMutableState(s"$funX  ", "runner", initFunc = // new reference stack
-      v => s"$v = ($funX) ${implicitly[ClazzGenerator[T]].apply(clazzGenerator)(ruleRunnerExpressionIdx)};")
+      v => s"$v = ($funX) ${implicitly[ClazzGenerator[T]].apply(genResult.resultType)(ruleRunnerExpressionIdx)};")
 
     val res = ev.copy( code =
       code"""
@@ -326,7 +335,7 @@ object SeparateCompilation {
         ${parameterInformation.pushToTop}
         // Call to ${implicitly[IdGen[I]].forComment(idParam)}
         InternalRow ${ev.value} = (InternalRow) (($funX)$runner).apply(${fullParams.aritySafeParamCall});
-        ${implicitly[ClazzGenerator[T]].outerResultProcessing(clazzGenerator)(outerctx, ev.value)}
+        ${implicitly[ClazzGenerator[T]].outerResultProcessing(genResult.resultType)(outerctx, ev.value)}
         boolean ${ev.isNull} = false;
           """)
 
@@ -341,6 +350,16 @@ object SeparateCompilation {
         """
     )
 
-    (Seq(code) ++ furtherClasses , res)
+    (Seq(code) ++ genResult.extraClasses , res)
   }
+
+  /**
+   * given we are already split for execution via params no args are needed for subexprs, groups in blocks of 20 to keep
+   * the main apply functions JITable, then does a split call on them
+   */
+  def splitGlobalSubExprs(ctx: CodegenContext, subExpressions: String): String = {
+    val preGrouped = subExpressions.split("\n").filter(_.nonEmpty).grouped(20).map(a => a.mkString("\n"))
+    ctx.splitExpressions(preGrouped.toSeq, "subExprGroup", Seq.empty)
+  }
+
 }

@@ -5,7 +5,7 @@ import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
 import com.sparkutils.quality.impl.RuleRunnerUtils.{flattenExpressions, genRuleSuiteTerm, nonOutputRuleGen, packTheId, reincorporateExpressions}
 import com.sparkutils.quality.impl.PackId.packId
 import com.sparkutils.quality.impl.extension.ZeroCodeGenWrap
-import com.sparkutils.quality.impl.util.{Arrays, PassThroughCompileEvals, SeparateCompilation}
+import com.sparkutils.quality.impl.util.{Arrays, GenerateResult, PassThroughCompileEvals, SeparateCompilation}
 import com.sparkutils.quality.impl.yaml.YamlEncoderExpr
 import com.sparkutils.quality.impl.types._
 import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
@@ -189,10 +189,11 @@ trait ExpressionRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
           else
             s"$code"
 
-        val res =
+        val (res, triggerRes) =
           nonOutputRuleGen(ctx, this, ev, utilsName, realChildren, yamlOrType(_, _), ruleRunnerExpressionIdx)
 
-      ((params, classOf[ExpressionRunnerBase[T]].getName), res, Seq.empty)
+      GenerateResult((params, classOf[ExpressionRunnerBase[T]].getName), res, Seq.empty,
+        triggerRes.ignoreTopLevelSubExpressions)
     }
     generatorClassSource = clazz
     fres

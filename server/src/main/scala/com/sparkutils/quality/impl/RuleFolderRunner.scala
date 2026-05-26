@@ -3,7 +3,7 @@ package com.sparkutils.quality.impl
 import com.sparkutils.quality.{impl, _}
 import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
 import com.sparkutils.quality.impl.imports.ClassicRuleFolderRunnerImports
-import com.sparkutils.quality.impl.util.{PassThroughEvalOnly, SeparateCompilation}
+import com.sparkutils.quality.impl.util.{GenerateResult, PassThroughEvalOnly, SeparateCompilation}
 import com.sparkutils.quality.impl.util.SeparateCompilation.runnerCompilation
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
@@ -179,8 +179,9 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
           // copy row
           $resultRowCopy
           // group specific subexprs
-          ${grouped._2}
-          ${grouped._1.map { f => s"$f($paramsCall);" }.mkString("\n")}
+          ${grouped.subExpressions}
+          // group calls
+          ${grouped.groupCalls.map { f => s"$f($paramsCall);" }.mkString("\n")}
 
           InternalRow $default = null;
 
@@ -239,7 +240,7 @@ trait RuleFolderRunnerBase[T] extends NonSQLExpression with SplitCompilation wit
           $post
           """
             )
-        (compilerTerms, res, grouped._3)
+        GenerateResult(compilerTerms, res, grouped.extraClasses, grouped.ignoreTopLevelSubExpressions)
     }
 
     generatorClassSource = clazz
