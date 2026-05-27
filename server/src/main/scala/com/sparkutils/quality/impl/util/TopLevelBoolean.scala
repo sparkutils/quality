@@ -22,7 +22,7 @@ object TopLevelBoolean {
       map.put(k, a)
       a
     }{ s =>
-      s.addOne(i)
+      s += i
     }
   }
 
