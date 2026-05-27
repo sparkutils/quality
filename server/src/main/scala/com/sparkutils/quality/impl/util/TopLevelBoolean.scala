@@ -2,7 +2,7 @@ package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality.groupProcessorBucketSizeKey
 import com.sparkutils.quality.impl.{Group, Runner, Trigger, Triggers, util}
-import org.apache.spark.sql.catalyst.expressions.{Abs, And, EqualTo, Expression, Literal, Murmur3Hash, Remainder}
+import org.apache.spark.sql.catalyst.expressions.{Abs, And, BinaryComparison, EqualNullSafe, EqualTo, Expression, GreaterThan, GreaterThanOrEqual, LessThan, LessThanOrEqual, Literal, Murmur3Hash, Or, Remainder}
 
 import scala.collection.mutable.ArrayBuffer
 import scala.collection.{Set, mutable}
@@ -39,7 +39,7 @@ object TopLevelBoolean {
     expressions.foreach {
       n =>
 
-        val s = from(n.expression, subs)
+        val s = topLevelFrom(n.expression, i => subs(i).isDefined)
 /*
         if (s.isEmpty && count < 10) {
           count += 1
@@ -220,10 +220,7 @@ object TopLevelBoolean {
 
             triggers.foreach {
               trigger =>
-                val theseParts = differentiate(fromParts(trigger.expression).filterNot{
-                  i =>
-                    subs(i).isDefined
-                })
+                val theseParts = differentiate(differentiateFrom(trigger.expression, i => subs(i).isEmpty))
 
                 addToMap(differentiatingBooleans, theseParts, trigger)
             }
@@ -274,17 +271,31 @@ object TopLevelBoolean {
       (topHitter :+ Group(Literal(true), rest.minBy(_.salience).salience, rest)).filter(_.triggers.nonEmpty)
   }
 
-  def from(expression: Expression, subExprs: Expression => Option[(Int, Expression)]): Set[Expression] = {
-    val res = fromParts(expression).filter {e =>
-      subExprs(e).isDefined
-    }
-    res
+  def differentiateFrom(e: Expression, p: Expression => Boolean): Set[Expression] = {
+    from(e, differentiateFromParts, p)
+  }
+
+  def topLevelFrom(e: Expression, p: Expression => Boolean): Set[Expression] = {
+    from(e, fromParts, p)
+  }
+
+  def differentiateFromParts(expression: Expression): Set[Expression] = expression match {
+    case And(left, right) => differentiateFromParts(left) ++ differentiateFromParts(right)
+    case e: EqualTo => Set(e)
+    case _ => Set.empty
   }
 
   def fromParts(expression: Expression): Set[Expression] = expression match {
+    case _: Or => Set.empty
     case And(left, right) => fromParts(left) ++ fromParts(right)
-    case e: EqualTo => Set(e)
+    case e: BinaryComparison => Set(e)
     case _ => Set.empty
+  }
+
+  private def from(expression: Expression, t: Expression => Set[Expression], p: Expression => Boolean): Set[Expression] = {
+    val resDiff = t(expression).filter(p)
+
+    resDiff
   }
 
 }
