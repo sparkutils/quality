@@ -10,7 +10,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen._
 import org.apache.spark.sql.catalyst.expressions.{Expression, GenericInternalRow}
 
-import scala.runtime.AbstractFunction9
+import scala.runtime.{AbstractFunction10, AbstractFunction9}
 
 case class Trigger(expression: Expression, index: Int, salience: Int, outputExpression: Option[Expression] = None)
 
@@ -25,13 +25,13 @@ case class TriggerResult(groupCalls: Iterator[String], subExpressions: String,
  *
  * The return type is the list of function names to call and any extra common subexpressions needed to group
  */
-trait TriggerGrouper extends AbstractFunction9[CodegenContext, Runner, String, Seq[VariableValue],
+trait TriggerGrouper extends AbstractFunction10[CodegenContext, Runner, String, Seq[VariableValue],
   Seq[(Trigger, (CodegenContext, ParameterInformation) => Block)], ParameterInformation,
-  String, () => Block, () => Block, TriggerResult] {
+  String, () => Block, () => Block, String => Block, TriggerResult] {
 
   def apply(ctx: CodegenContext, runner: Runner, resultRow: String, additionalParams: Seq[VariableValue],
             expressions: Seq[(Trigger, (CodegenContext, ParameterInformation) => Block)], params: ParameterInformation,
-            prefix: String, exprEnd: () => Block, exprFunEnd: () => Block): TriggerResult
+            prefix: String, exprEnd: () => Block, exprFunEnd: () => Block, groupSalienceCheck: String => Block): TriggerResult
 
   /**
    * provides a dump of the plan with defaults or provided by extraConfig and by any optimisation results.
@@ -52,7 +52,8 @@ case class DefaultTriggerGrouper() extends TriggerGrouper {
 
   override def apply( ctx: CodegenContext, runner: Runner, resultRow: String, additionalParams: Seq[VariableValue],
                       expressions: Seq[(Trigger, (CodegenContext, ParameterInformation) => Block)],
-                      params: ParameterInformation, prefix: String, exprEnd: () => Block, exprFunEnd: () => Block):
+                      params: ParameterInformation, prefix: String, exprEnd: () => Block, exprFunEnd: () => Block,
+                      groupSalienceCheck: String => Block):
     TriggerResult = {
 
     val allExpr = expressions.map(_._2).grouped(runner.variablesPerFunc).grouped(runner.variableFuncGroup)
@@ -95,24 +96,17 @@ case class DefaultTriggerGrouper() extends TriggerGrouper {
 }
 
 /**
- * Groups by common top level Boolean And and EqualTo expressions with Literals, using buckets of hashes on the literal
- * values.  Using this approach can lead to a 10x spread increase over the default grouper for very large truth table
- * style rules (tested against the 20k_rule_suite.csv in the BigRules testsuite).
- *
- * Only supported with Spark 3.2 and above
+ * Default grouping approach, implementations may call performGrouping with their own Groups.
  */
-case class TopLevelBooleanGrouper() extends TriggerGrouper {
-
-  override def apply( ctx: CodegenContext, runner: Runner, resultRow: String, additionalParams: Seq[VariableValue],
-                      expressions: Seq[(Trigger, (CodegenContext, ParameterInformation) => Block)],
-                      params: ParameterInformation, prefix: String, exprEnd: () => Block, exprFunEnd: () => Block):
-    TriggerResult = {
-
-    val targetBucket = TopLevelBoolean.params(runner)
-
+trait GroupBasedGrouper extends TriggerGrouper {
+  protected def performGrouping(ctx: CodegenContext, runner: Runner, resultRow: String,
+                                additionalParams: Seq[VariableValue],
+                                expressions: Seq[(Trigger, (CodegenContext, ParameterInformation) => Block)],
+                                params: ParameterInformation, prefix: String, exprEnd: () => Block,
+                                exprFunEnd: () => Block, groupSalienceCheck: String => Block,
+                                groups: Seq[Group]): TriggerResult = {
     val map = expressions.toMap
 
-    val groups = TopLevelBoolean.bucket(expressions.map(_._1), targetBucket)
     val simpleGrouper = DefaultTriggerGrouper()
 
     //System.out.println(s"the groups had ${groups.size} entries")
@@ -139,7 +133,7 @@ case class TopLevelBooleanGrouper() extends TriggerGrouper {
 
                     val id = s"Group$groupIndex"
 
-                    val allGroupExprs = group.triggers.flatMap{
+                    val allGroupExprs = group.triggers.flatMap {
                       trigger =>
                         Seq(trigger.expression) ++ trigger.outputExpression.map(Seq(_)).getOrElse(Seq.empty)
                     }
@@ -162,7 +156,7 @@ case class TopLevelBooleanGrouper() extends TriggerGrouper {
                         val grpResult = ctx.freshName("groupResult")
 
                         val sgr = simpleGrouper(ctx, runner, grpResult, additionalParams,
-                          group.triggers.map(t => (t, map(t))), params, prefix, exprEnd, exprFunEnd)
+                          group.triggers.map(t => (t, map(t))), params, prefix, exprEnd, exprFunEnd, groupSalienceCheck)
 
                         val funNames = sgr.groupCalls
                         val exprRunner =
@@ -172,7 +166,8 @@ case class TopLevelBooleanGrouper() extends TriggerGrouper {
 
                         // the top level is 0 arrays are filtered out from the row as they don't need explicit returning
                         GenerateResult(SeparateClassGenerator(runner.getClass.getName, additionalParams, groupIndex + 1), exprRunner.copy(
-                          code = code"""
+                          code =
+                            code"""
                               boolean ${exprRunner.isNull} = false;
                               ${funNames.map { f => s"$f(${params.paramsCall});" }.mkString("\n")}
                               GenericInternalRow ${exprRunner.value} = new org.apache.spark.sql.catalyst.expressions.GenericInternalRow(
@@ -186,19 +181,16 @@ case class TopLevelBooleanGrouper() extends TriggerGrouper {
 
                     val eval = group.groupFilter.genCode(ctx)
                     /*
-                    //if (groupIndex > 40 && groupIndex < 45) {
+                    if (groupIndex > 40 && groupIndex < 45) {
                       System.out.println(s"""${s"$id - Size ${group.triggers.size} filter is ${group.groupFilter.toString.replaceAll("\n","")}"}""")
-                    //}
-                    // dump some samples of the 16k population on databricks
-                    if (groupIndex == 43 && groups.size == 43) {
-                      System.out.println("dumping every 1k of Group 43's 'true'")
-                      (0 until 16).foreach(i => System.out.println(group.triggers(i * 1000).expression.toString()))
-                    }*/
-
-                    (code"""
+                    }
+                    */
+                    // if ruleEngine is used salience may need comparison, if it's expression or dq any comparison is meaningless
+                    (
+                      code"""
                         ${exprEnd()}\n
                         ${eval.code}
-                        if ((!${eval.isNull}) && ${eval.value}  ) {
+                        if ((!${eval.isNull}) && ${eval.value} ${groupSalienceCheck(group.lowestSalience.toString)} ) {
                           ${expr.code}
                         }
                       """, body)
@@ -207,9 +199,9 @@ case class TopLevelBooleanGrouper() extends TriggerGrouper {
               val argPairs = params.nonCombinedParams.map(t => t._1 -> t._2)
               val body =
                 QualityCodeGenUtils.splitExpressions(ctx, groupCalls.map(_._1.code + s"${exprEnd()}\n"), exprFuncName, argPairs,
-                  foldFunctions =  _.mkString(s"${exprEnd()}\n", s";\n${exprEnd()}\n", ";")
+                  foldFunctions = _.mkString(s"${exprEnd()}\n", s";\n${exprEnd()}\n", ";")
                 )
-//${groupCalls.map(_._1).mkString(s"\n")}
+              //${groupCalls.map(_._1).mkString(s"\n")}
               (ctx.addNewFunction(exprFuncName,
                 code"""
                  private void $exprFuncName(${params.paramsDef}) {
@@ -228,10 +220,10 @@ case class TopLevelBooleanGrouper() extends TriggerGrouper {
              }
              """.code
 
-          ),subClasses.flatMap(_._2))
+          ), subClasses.flatMap(_._2))
         }
       funPairs
-    }.foldLeft((Seq.empty[String], Seq.empty[CodeAndComment])){
+    }.foldLeft((Seq.empty[String], Seq.empty[CodeAndComment])) {
       case ((ns, cs), (n, c)) => (ns :+ n, cs ++ c.flatten)
     }
 
@@ -255,6 +247,31 @@ case class TopLevelBooleanGrouper() extends TriggerGrouper {
         }
       TriggerResult(funNames.iterator, SeparateCompilation.splitGlobalSubExprs(ctx, subExpressionCode), extraClasses, true)
     }
+  }
+
+}
+
+/**
+ * Groups by common top level Boolean And and EqualTo expressions with Literals, using buckets of hashes on the literal
+ * values.  Using this approach can lead to a 10x spread increase over the default grouper for very large truth table
+ * style rules (tested against the 20k_rule_suite.csv in the BigRules testsuite).
+ *
+ * Only supported with Spark 3.2 and above
+ */
+case class TopLevelBooleanGrouper() extends GroupBasedGrouper {
+
+  override def apply( ctx: CodegenContext, runner: Runner, resultRow: String, additionalParams: Seq[VariableValue],
+                      expressions: Seq[(Trigger, (CodegenContext, ParameterInformation) => Block)],
+                      params: ParameterInformation, prefix: String, exprEnd: () => Block, exprFunEnd: () => Block,
+                      groupSalienceCheck: String => Block):
+    TriggerResult = {
+
+    val targetBucket = TopLevelBoolean.params(runner)
+
+    val groups = TopLevelBoolean.bucket(expressions.map(_._1), targetBucket)
+
+    performGrouping(ctx, runner, resultRow, additionalParams, expressions, params, prefix, exprEnd,
+      exprFunEnd, groupSalienceCheck, groups)
   }
 
   override def dumpAudit(runner: HasOutput): Unit = {

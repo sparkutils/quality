@@ -140,7 +140,8 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
                ctx: CodegenContext, runner: Runner, params: ParameterInformation, resultRow: String, additionalParams: Seq[VariableValue],
                expressions: Seq[(Trigger, (CodegenContext, ParameterInformation) => Block)],
                prefix: String = "ruleRunner", exprEnd: () => Block = () => code"",
-               exprFunEnd: () => Block = () => code""): TriggerResult = {
+               exprFunEnd: () => Block = () => code"",
+               groupSalienceCheck: String => Block = _ => code""): TriggerResult = {
 
     val impl: TriggerGrouper = Triggers.loadTriggerGrouper(runner.extraConfig)
 
@@ -148,7 +149,7 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
 
     val res =
       impl.apply(ctx, runner, resultRow, additionalParams, expressions, params,
-        prefix, exprEnd, exprFunEnd)
+        prefix, exprEnd, exprFunEnd, groupSalienceCheck)
 
     val end = System.nanoTime()
     val groupingTime = Duration.fromNanos(end - start)

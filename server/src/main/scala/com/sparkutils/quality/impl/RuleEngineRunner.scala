@@ -238,7 +238,9 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
                        salienceCheck: Boolean = true, sizeAdjustment: Int = 0,
                        exprEnd: String => Block = _ => code"",
                        exprFunEnd: String => Block = _ => code"",
-                       salience: Int => Int = _ => 0
+                       salience: Int => Int = _ => 0,
+                       groupSalienceCheck: (String, String) => Block = // String for externalSalience as it may be a term
+                         (externalSalience, currentSalience) => code" && ($externalSalience <= $currentSalience)"
                       ):
     CompilerTerms = {
     val i = ctx.INPUT_ROW
@@ -404,7 +406,7 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
     CompilerTerms(
       RuleRunnerUtils.generateFunctionGroups(ctx, runner, paramsInfo, resultRow,
         additionalParams, allExpr, exprEnd = () => exprEnd(currRuleResTerm),
-        exprFunEnd = () => exprFunEnd(currRuleResTerm)),
+        exprFunEnd = () => exprFunEnd(currRuleResTerm), groupSalienceCheck = a => groupSalienceCheck(a, currentSalience)),
       utilsName, ruleSuitTerm, currentSalience, ruleTupleArrTerm, currentOutputIndex, outArrTerm,
       salienceArrTerm, hasAPassTerm, currRuleResTerm,
       runnerClassName = runnerClassName, paramsInfo, resultRow, resultRowCopy, output, inPlaceOffsets)
