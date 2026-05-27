@@ -68,7 +68,7 @@ case class DefaultTriggerGrouper() extends TriggerGrouper {
               val exprFuncName = ctx.freshName(prefix+"EFuncGroup")
               val argPairs = params.nonCombinedParams.map(t => t._1 -> t._2)
               val body =
-                ctx.splitExpressions(exprFunc.map(_.apply(ctx, params).code + s"${exprEnd()}\n"), exprFuncName, argPairs,
+                QualityCodeGenUtils.splitExpressions(ctx, exprFunc.map(_.apply(ctx, params).code + s"${exprEnd()}\n"), exprFuncName, argPairs,
                   foldFunctions =  _.mkString(s"${exprEnd()}\n", s";\n${exprEnd()}\n", ";")
                 )
               ctx.addNewFunction(exprFuncName,
@@ -206,7 +206,7 @@ case class TopLevelBooleanGrouper() extends TriggerGrouper {
 
               val argPairs = params.nonCombinedParams.map(t => t._1 -> t._2)
               val body =
-                ctx.splitExpressions(groupCalls.map(_._1.code + s"${exprEnd()}\n"), exprFuncName, argPairs,
+                QualityCodeGenUtils.splitExpressions(ctx, groupCalls.map(_._1.code + s"${exprEnd()}\n"), exprFuncName, argPairs,
                   foldFunctions =  _.mkString(s"${exprEnd()}\n", s";\n${exprEnd()}\n", ";")
                 )
 //${groupCalls.map(_._1).mkString(s"\n")}

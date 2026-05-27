@@ -3,8 +3,9 @@ package org.apache.spark.sql.catalyst.expressions.codegen
 import org.apache.spark.sql.ShimUtils
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.expressions.codegen.ShimExprUtils
-import org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.{JAVA_BOOLEAN, javaType}
+import org.apache.spark.sql.catalyst.expressions.codegen.CodeGenerator.{GENERATED_CLASS_SIZE_THRESHOLD, JAVA_BOOLEAN, javaType}
 import org.apache.spark.sql.catalyst.expressions.{EquivalentExpressions, Expression}
+import org.apache.spark.sql.internal.SQLConf
 
 import scala.collection.mutable.ArrayBuffer
 
@@ -136,5 +137,103 @@ object QualityCodeGenUtils {
     subexprFunctions
   }
 
+
+/** based on Spark's splitExpressions without the very expensive formatting regex */
+
+  lazy val addNewFunctionInternal = {
+    val method = classOf[CodegenContext].getDeclaredMethods.filter(_.getName == "addNewFunctionInternal").head
+    method.setAccessible(true)
+    method
+  }
+
+  lazy val generateInnerClassesFunctionCall = {
+    val method = classOf[CodegenContext].getDeclaredMethods.filter(_.getName == "generateInnerClassesFunctionCalls").head
+    method.setAccessible(true)
+    method
+  }
+
+  /**
+   * Splits the generated code of expressions into multiple functions, because function has
+   * 64kb code size limit in JVM. If the class to which the function would be inlined would grow
+   * beyond 1000kb, we declare a private, inner sub-class, and the function is inlined to it
+   * instead, because classes have a constant pool limit of 65,536 named values.
+   *
+   * @param expressions the codes to evaluate expressions.
+   * @param funcName the split function name base.
+   * @param arguments the list of (type, name) of the arguments of the split function.
+   * @param returnType the return type of the split function.
+   * @param makeSplitFunction makes split function body, e.g. add preparation or cleanup.
+   * @param foldFunctions folds the split function calls.
+   */
+  def splitExpressions(ctx: CodegenContext,
+                       expressions: Seq[String],
+                       funcName: String,
+                       arguments: Seq[(String, String)],
+                       returnType: String = "void",
+                       makeSplitFunction: String => String = identity,
+                       foldFunctions: Seq[String] => String = _.mkString("", ";\n", ";")): String = {
+    val blocks = buildCodeBlocks(expressions)
+
+    if (blocks.length == 1) {
+      // inline execution if only one block
+      blocks.head
+    } else {
+      val func = ctx.freshName(funcName)
+      val argString = arguments.map { case (t, name) => s"$t $name" }.mkString(", ")
+      val functions = blocks.zipWithIndex.map { case (body, i) =>
+        val name = s"${func}_$i"
+        val code = s"""
+                      |private $returnType $name($argString) {
+                      |  ${makeSplitFunction(body)}
+                      |}
+         """.stripMargin
+        addNewFunctionInternal.invoke(ctx, name, code, false).asInstanceOf[NewFunctionSpec]
+      }
+
+      val (outerClassFunctions, innerClassFunctions) = functions.partition(_.innerClassName.isEmpty)
+
+      val argsString = arguments.map(_._2).mkString(", ")
+      val outerClassFunctionCalls = outerClassFunctions.map(f => s"${f.functionName}($argsString)")
+
+      val innerClassFunctionCalls = generateInnerClassesFunctionCall.invoke(ctx,
+        innerClassFunctions,
+        func,
+        arguments,
+        returnType,
+        makeSplitFunction,
+        foldFunctions).asInstanceOf[Iterable[String]]
+
+      foldFunctions(outerClassFunctionCalls ++ innerClassFunctionCalls)
+    }
+  }
+
+
+  /**
+   * Splits the generated code of expressions into multiple sequences of String
+   * based on a threshold of length of a String
+   *
+   * @param expressions the codes to evaluate expressions.
+   */
+  private def buildCodeBlocks(expressions: Seq[String]): Seq[String] = {
+    val blocks = new ArrayBuffer[String]()
+    val blockBuilder = new StringBuilder()
+    var length = 0
+    val splitThreshold = SQLConf.get.methodSplitThreshold
+    for (code <- expressions) {
+      // We can't know how many bytecode will be generated, so use the length of source code
+      // as metric. A method should not go beyond 8K, otherwise it will not be JITted, should
+      // also not be too small, or it will have many function calls (for wide table), see the
+      // results in BenchmarkWideTable.
+      if (length > splitThreshold) {
+        blocks += blockBuilder.toString()
+        blockBuilder.clear()
+        length = 0
+      }
+      blockBuilder.append(code)
+      length += code.length//CodeFormatter.stripExtraNewLinesAndComments(code).length
+    }
+    blocks += blockBuilder.toString()
+    blocks.toSeq
+  }
 
 }
