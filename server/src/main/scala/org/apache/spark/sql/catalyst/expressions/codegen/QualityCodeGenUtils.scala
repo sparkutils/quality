@@ -187,7 +187,7 @@ object QualityCodeGenUtils {
                       |  ${makeSplitFunction(body)}
                       |}
          """.stripMargin
-        addNewFunctionInternal.invoke(ctx, name, code, false).asInstanceOf[NewFunctionSpec]
+        addNewFunctionInternal.invoke(ctx, name, code, java.lang.Boolean.FALSE).asInstanceOf[NewFunctionSpec]
       }
 
       val (outerClassFunctions, innerClassFunctions) = functions.partition(_.innerClassName.isEmpty)
