@@ -4,6 +4,7 @@ import com.sparkutils.quality.groupProcessorBucketSizeKey
 import com.sparkutils.quality.impl.{Group, Runner, Trigger, Triggers, util}
 import org.apache.spark.sql.catalyst.expressions.{Abs, And, EqualTo, Expression, Literal, Murmur3Hash, Remainder}
 
+import scala.collection.mutable.ArrayBuffer
 import scala.collection.{Set, mutable}
 import scala.util.Try
 
@@ -15,15 +16,28 @@ object TopLevelBoolean {
     targetBucket
   }
 
-  def apply(expressions: Seq[Trigger]): (Map[Expression, Seq[Trigger]], Expression => Option[(Int, Expression)]) = {
+  def addToMap[K,I](map: mutable.HashMap[K, ArrayBuffer[I]], k: K, i: I): Unit = {
+    map.get(k).fold{
+      val a = ArrayBuffer(i)
+      map.put(k, a)
+      a
+    }{ s =>
+      s.addOne(i)
+    }
+  }
+
+  def apply(expressions: Seq[Trigger]): (mutable.Map[Expression, mutable.ArrayBuffer[Trigger]], Expression => Option[(Int, Expression)]) = {
     val osubs = SubExprsFrom.apply(expressions.map(_.expression))
 
     val subs = (e: Expression) => osubs(e).filter(r => r._1 > 1)
 
  //   var count = 0
+// 2s of time here, move to mutable?
 
-    def group() = expressions.foldLeft(Map.empty[Set[Expression], Seq[Trigger]]){
-      (cur, n) =>
+    val hmap = new mutable.HashMap[Set[Expression], ArrayBuffer[Trigger]]()
+
+    expressions.foreach {
+      n =>
 
         val s = from(n.expression, subs)
 /*
@@ -32,23 +46,23 @@ object TopLevelBoolean {
           System.out.println(s"Got empty for ${n.expression.getClass.getName} - ${n.expression.toString()}")
         }
 */
-        util.MapOps.MapOps(cur).updatedWithF(s) {
-          case Some(s) => Some(s :+ n)
-          case None => Some(Seq(n))
-        }
-    }.map{
-      case (k, v) =>
-        (k match {
-          case _ if k.size == 1 => k.head
-          //case _ if k.isEmpty => Literal(true) // happens on Databricks
-          case _ => k.reduce(And(_,_))
-        }, v)
-    }.filter(p => p._1.collectLeaves().size > 2)
+        addToMap(hmap, s, n)
+    }
 
-    (group() : Map[Expression, Seq[Trigger]], subs)
+    val r =
+      hmap.map{
+        case (k, v) =>
+          (k match {
+            case _ if k.size == 1 => k.head
+            //case _ if k.isEmpty => Literal(true) // happens on Databricks
+            case _ => k.reduce(And(_,_))
+          }, v)
+      }.filter(p => p._1.collectLeaves().size > 2)
+
+    (r, subs)
   }
 
-  def sorted(expressions: Seq[Trigger]): (Seq[(Expression, Seq[Trigger])], Expression => Option[(Int, Expression)]) = {
+  def sorted(expressions: Seq[Trigger]): (Seq[(Expression, mutable.ArrayBuffer[Trigger])], Expression => Option[(Int, Expression)]) = {
     val (res,subs) = apply(expressions)
 
     (res.toSeq.sortBy(_._1.collectLeaves().size).reverse, subs)
@@ -189,10 +203,10 @@ object TopLevelBoolean {
     // remove duplicates
     val seen = new mutable.HashSet[Expression]
 
-    def addSeen(pop: Seq[Trigger]) = {
+    def addSeen(pop: Iterable[Trigger]) = {
       val newPopSeqs = pop.filterNot(p => seen(p.expression))
       seen.++=(newPopSeqs.map(_.expression))
-      newPopSeqs
+      newPopSeqs.toSeq
     }
 
     val topHitter =
@@ -202,19 +216,17 @@ object TopLevelBoolean {
           if (triggers.size > targetBucket) {
             // should be the maximal list already as all elements are subexprs, what is left are differentiators
 
-            val differentiatingBooleans =
-              triggers.foldLeft(Map.empty[Differentiator, Seq[Trigger]]){
-                case (map, trigger) =>
-                  val theseParts = differentiate(fromParts(trigger.expression).filterNot{
-                    i =>
-                      subs(i).isDefined
-                  })
+            val differentiatingBooleans = new mutable.HashMap[Differentiator, ArrayBuffer[Trigger]]()
 
-                  util.MapOps.MapOps(map).updatedWithF(theseParts) {
-                      case Some(s) => Some(s :+ trigger)
-                      case None => Some(Seq(trigger))
-                  }
-              }
+            triggers.foreach {
+              trigger =>
+                val theseParts = differentiate(fromParts(trigger.expression).filterNot{
+                  i =>
+                    subs(i).isDefined
+                })
+
+                addToMap(differentiatingBooleans, theseParts, trigger)
+            }
 
             //println(s"differentiating booleans from $sub for ${triggers.size} triggers of:")
             //differentiatingBooleans.keys.foreach(println)
