@@ -3,6 +3,7 @@ package com.sparkutils.quality.impl.util
 import com.sparkutils.quality.groupProcessorBucketSizeKey
 import com.sparkutils.quality.impl.{Group, Runner, Trigger, Triggers, util}
 import org.apache.spark.sql.catalyst.expressions.{Abs, And, BinaryComparison, EqualNullSafe, EqualTo, Expression, GreaterThan, GreaterThanOrEqual, LessThan, LessThanOrEqual, Literal, Murmur3Hash, Or, Remainder}
+import org.apache.spark.sql.types.{BooleanType, DataType}
 
 import scala.collection.mutable.ArrayBuffer
 import scala.collection.{Set, mutable}
@@ -286,9 +287,10 @@ object TopLevelBoolean {
   }
 
   def fromParts(expression: Expression): Set[Expression] = expression match {
+    // TODO: intentionally excluded from subexpression elimination
     case _: Or => Set.empty
     case And(left, right) => fromParts(left) ++ fromParts(right)
-    case e: BinaryComparison => Set(e)
+    case e: Expression if e.dataType == BooleanType => Set(e)
     case _ => Set.empty
   }
 
