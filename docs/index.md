@@ -25,6 +25,11 @@ Your rules are just versioned data, store them wherever convenient, use them by 
 
 Rules are evaluated lazily during Spark actions, such as writing a row, with results saved in a single predictable column.
 
+!!! warn "Databricks 18 changes it's release process"
+    Per [this link](https://docs.databricks.com/aws/en/release-notes/runtime/18) Databricks will no longer have minor releases.
+    It is unclear at this time (28.05.2026) how this will be supportable given the high degree of change typically found
+    within a release over time, let alone between minor releases. 
+
 ## Enhanced Spark Functionality
 
 * [Lambda Functions](advanced/userFunctions/) - user provided re-usable sql functions over late bound columns
