@@ -62,6 +62,8 @@ class IntegerArray(val ints: Array[Int]) extends GenericArrayData(null: Array[An
     new IntegerArray(nar)
   }
 
+  override def isNullAt(ordinal: Int): Boolean = false
+
   def update(i: Int, value: Int): Unit = ints.update(i, value)
 
   override def getInt(ordinal: Int): Int = ints(ordinal)
@@ -83,6 +85,8 @@ class LongArray(val longs: Array[Long]) extends GenericArrayData(null: Array[Any
     System.arraycopy(longs, 0, nar, 0, longs.length)
     new LongArray(nar)
   }
+
+  override def isNullAt(ordinal: Int): Boolean = false
 
   override def getLong(ordinal: Int): Long = longs(ordinal)
 
