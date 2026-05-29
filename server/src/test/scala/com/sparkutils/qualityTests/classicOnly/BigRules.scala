@@ -100,12 +100,12 @@ trait BigRulesBase extends Matchers {
     )
   )), topLevelRunner: (RuleSuite, Option[DataType], Map[String, String]) => Column =
       (rs, dt, op) => ruleEngineRunner(rs, dt, extraConfig = op), processor: DataFrame => DataFrame =
-        _.select(expr("*"), expr("result.*")), extraConfig: Map[String, String] = Map.empty): DataFrame = {//runner.
+        _.select(expr("*"), expr("runner.result.*")), extraConfig: Map[String, String] = Map.empty): DataFrame = {
 
     var start = System.nanoTime()
     val d = s.read.option("header",true).csv(testFile(s,outputDir))
     val r = processor(d.select(expr("*"), topLevelRunner(ruleSuite, resultDataType, extraConfig).
-      as("runner"), col("runner.result"), col("runner.salientRule")))
+      as("runner")/*, col("runner.result"), col("runner.salientRule")*/))
     var end = System.nanoTime()
 
     println(s"$typ - took ${Duration.fromNanos(end - start).toSeconds}s to do logical plan")
