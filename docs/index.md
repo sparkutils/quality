@@ -19,9 +19,16 @@ Your rules are just versioned data, store them wherever convenient, use them by 
 
 * :new:{.pulseABit} Spark 4.1 and 4.x [Connect Support](getting_started/connect/)
 * :new:{.pulseABit} Folder can use a DefaultProcessor, both Folder and Engine now use the improved collectRunner result processing logic
-* :new:{.pulseABit} RuleSuiteGroups, manage a single group of rules by name and use it to access ruleSuites in nested runners and group the results 
+* :new:{.pulseABit} RuleSuiteGroups, manage a single group of rules by name and use it to access ruleSuites in nested runners and group the results
+* :new:{.pulseABit} Improved compilation performance for large scale RuleSuites by separate compilation
+* :new:{.pulseABit} Experimental and optional support for optimised large scale rules (>20k RuleSuites) with 2x speed improvements and lower memory requirements via TriggerGrouper
 
 Rules are evaluated lazily during Spark actions, such as writing a row, with results saved in a single predictable column.
+
+!!! warn "Databricks 18 changes it's release process"
+    Per [this link](https://docs.databricks.com/aws/en/release-notes/runtime/18) Databricks will no longer have minor releases.
+    It is unclear at this time (28.05.2026) how this will be supportable given the high degree of change typically found
+    within a release over time, let alone between minor releases. 
 
 ## Enhanced Spark Functionality
 

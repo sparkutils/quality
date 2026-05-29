@@ -64,6 +64,9 @@ allow multiple client applications to exist and safely share the server, enabled
 * use the Scala dev environment of your choice,
 * or build directly using Maven
 
+If using IntelliJ the ide / nailgun compiler combo will not be able to handle the project correctly.
+Use the Maven clean and compile on an appropriate profile, following the compile IDEA will work correctly. 
+
 ### Building via commandline
 
 For OSS versions (non Databricks runtime - dbr):

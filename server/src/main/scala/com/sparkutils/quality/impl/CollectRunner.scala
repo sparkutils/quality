@@ -3,15 +3,18 @@ package com.sparkutils.quality.impl
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.CollectRunner.UnrollOutputArraySize
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.{flattenExpressions, outputExpressionType}
+import com.sparkutils.quality.impl.extension.ZeroCodeGenWrap
 import com.sparkutils.quality.impl.imports.RuleFolderRunnerImports
-import com.sparkutils.quality.impl.util.PassThroughEvalOnly
+import com.sparkutils.quality.impl.util.{GenerateResult, PassThroughEvalOnly, SeparateCompilation}
+import com.sparkutils.quality.impl.util.SeparateCompilation.runnerCompilation
 import com.sparkutils.shim.expressions.Names
 import org.apache.spark.sql.Column
 import org.apache.spark.sql.ShimUtils.column
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.UnresolvedFunction
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, ExprCode, FalseLiteral, GlobalValue}
+import org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.isNullVariable
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, ExprCode, FalseLiteral, GlobalValue, QualityCodeGenUtils, VariableValue}
 import org.apache.spark.sql.catalyst.expressions.{CreateArray, Expression, NonSQLExpression}
 import org.apache.spark.sql.catalyst.util.{GenericArrayData, truncatedString}
 import org.apache.spark.sql.internal.SQLConf
@@ -25,8 +28,6 @@ private[quality] object CollectRunnerUtils extends RuleFolderRunnerImports {
 
   def compiledEval[T](results: InternalRow, output: ArrayBuffer[T]): InternalRow =
     InternalRow(results, new GenericArrayData(output))
-
-  def addOne[T](output: ArrayBuffer[T], an: T): Unit = output.+=(an)
 
 }
 
@@ -122,7 +123,7 @@ object CollectRunner {
   def collectRunnerClassic(ruleSuite: RuleSuite, resultDataType: Option[DataType] = None, variablesPerFunc: Int = 40,
                            variableFuncGroup: Int = 20, flatten: Boolean = true, includeNulls: Boolean = false,
                            useInPlaceArray: Boolean = true, unrollInPlaceArray: Boolean = false,
-                           unrollOutputArraySize: Int = 1): Column = {
+                           unrollOutputArraySize: Int = 1, extraConfig: Map[String, String] = Map.empty): Column = {
     com.sparkutils.quality.registerLambdaFunctions( ruleSuite.lambdaFunctions )
 
     val (expressionsRaw, indexes, triggerCount) = flattenExpressions(ruleSuite)
@@ -155,11 +156,13 @@ object CollectRunner {
       }.toArray
 
     column(
+      ZeroCodeGenWrap.wrap(
       CollectRunnerRunner(cleaned, expressions, resultDataType,
         variablesPerFunc, variableFuncGroup,
         expressionOffsets = indexes, triggerCount = triggerCount, flatten = flatten,
         includeNulls = includeNulls, canUnroll = canUnroll, isInPlace = isInPlace, unroll = unroll,
-        unrollOutputArraySize = unrollOutputArraySize)
+        unrollOutputArraySize = unrollOutputArraySize, extraConfig = extraConfig)
+      )
     )
   }
 }
@@ -168,7 +171,11 @@ object CollectRunner {
   * Children will be rewritten by the plan, it's then re-incorporated into ruleSuite
   * expressionOffsets.length is the length of the trigger expressions in realChildren, realChildren(expressionOffsets.length + expressionOffsets(x)) will be the correct OutputExpression
   */
-trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
+trait CollectRunnerBase[T] extends Expression with NonSQLExpression with SplitCompilation with HasOutput {
+
+  def groupedSqlCall(ruleSuiteCall: String): String = s"collect_runner($ruleSuiteCall)"
+
+  def realChildren: Seq[Expression] = children
 
   val ruleSuite: RuleSuite
   val resultDataType: Option[DataType]
@@ -182,6 +189,7 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
   val unroll: Boolean
   val isInPlace: Array[Boolean]
   val unrollOutputArraySize: Int
+  val extraConfig: Map[String, String]
 
   implicit val classTagT: ClassTag[T]
   val tClass: Class[T]
@@ -235,245 +243,267 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
         nullable = true)
     ))
 
-  protected def doGenCodeI(ctx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = {
-    ctx.references += this
+  protected def doGenCodeI(outerCtx:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.CodegenContext, ev:  _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode): _root_.org.apache.spark.sql.catalyst.expressions.codegen.ExprCode = {
 
-    def hasDefault(when: => String, els: String = ""): String =
-      if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp)
-        when
-      else
-        els
+    val (clazz, fres) = SeparateCompilation.withSubExpressions(this, children, outerCtx, ev, ruleSuite.id) {
+      (ctx, ruleRunnerExpressionIdx, _) =>
+
+        def hasDefault(when: => String, els: String = ""): String =
+          if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp)
+            when
+          else
+            els
 
 
-    // tester to prove compilation on throughput tests
-    // print("I AM GENERATING CODE!!!!")
+        // tester to prove compilation on throughput tests
+        // print("I AM GENERATING CODE!!!!")
 
-    // needs resetting every row
-    val bufferTerm = ctx.addMutableState(classOf[ArrayBuffer[_]].getName, ctx.freshName("results"))
+        // needs resetting every row
+        val bufferTerm = ctx.addMutableState(classOf[ArrayBuffer[_]].getName, ctx.freshName("results"))
 
-    // order by salience
-    val salience = com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenSalience(ruleSuite)
-    val outputs = 0 until triggerCount
-    val reordered = outputs zip salience sortBy(_._2) map(_._1)
+        // order by salience
+        val salience = com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenSalience(ruleSuite)
+        val outputs = 0 until triggerCount
+        val reordered = outputs zip salience sortBy(_._2) map(_._1)
 
-    //val outputExprs = children.drop(expressionOffsets.length).map(_.genCode(ctx))
+        //val outputExprs = children.drop(expressionOffsets.length).map(_.genCode(ctx))
 
-    val arrayData = ctx.freshName("arrayData")
-    val z = ctx.freshName("z")
-    val o = ctx.freshName("o")
-
-    // needs addOne as janino can't compile .$plus$eq( and .addOne only exists on 2.13
-    def wrapperIf(o: String) =
-      if (includeNulls)
-        s"com.sparkutils.quality.impl.CollectRunnerUtils.addOne($bufferTerm, $o);"
-      else
-        s"""
-        if ($o != null) {
-          com.sparkutils.quality.impl.CollectRunnerUtils.addOne($bufferTerm, $o);
-        }
-        """
-
-    def processFlattenResult(i: Int, outArrTerm: String) =
-      if ((canUnroll(i) > 0 && unroll) && isInPlace(i)) {
-        // it may have been replaced by subexpr, but it was at one stage an InPlaceArray
+        val arrayData = ctx.freshName("arrayData")
+        val z = ctx.freshName("z")
         val o = ctx.freshName("o")
-        val a = ctx.freshName("a")
+
+        val addOneS = "org.apache.spark.sql.catalyst.expressions.codegen.QualityCodeGenUtils.addOne"
+
+        // needs addOne as janino can't compile .$plus$eq( and .addOne only exists on 2.13
+        def wrapperIf(o: String) =
+          if (includeNulls)
+            s"$addOneS($bufferTerm, $o);"
+          else
+            s"""
+            if ($o != null) {
+              $addOneS($bufferTerm, $o);
+            }
+            """
+
+        def processFlattenResult(i: Int, outArrTerm: String) =
+          if ((canUnroll(i) > 0 && unroll) && isInPlace(i)) {
+            // it may have been replaced by subexpr, but it was at one stage an InPlaceArray
+            val o = ctx.freshName("o")
+            val a = ctx.freshName("a")
+
+            val pre = s"""
+              // flatten and canUnroll for InPlaceArray
+              Object $o = null;
+              Object[] $a = $outArrTerm.array();
+            """
+
+            val groupSize = getConfig(UnrollOutputArraySize, s"$unrollOutputArraySize").toInt
+
+            val entries = (0 until canUnroll(i)).grouped(groupSize).toSeq
+            val hasLastToDrop =
+              entries.lastOption.exists { l =>
+                if (l.size == groupSize)
+                  false
+                else
+                  true
+              }
+            val ofSize =
+              if (hasLastToDrop)
+                entries.dropRight(1)
+              else
+                entries
+
+            val lastChunks =
+              if (hasLastToDrop)
+                entries.last
+              else
+                Seq.empty
+
+            val loopChunk =
+              (0 until groupSize).foldLeft("") {
+                (cur, i) =>
+
+                  s"""
+                    $cur
+                    $o = $a[($z * $groupSize) + $i];
+                    ${wrapperIf(o)}
+                   """
+              }
+
+            val lastChunk =
+              lastChunks.indices.foldLeft("") {
+                (cur, i) =>
+
+                  s"""
+                  $cur
+
+                  $o = $a[${ofSize.size * groupSize} + $i];
+                  ${wrapperIf(o)}
+                """
+              }
+
+            val loop =
+              if (ofSize.nonEmpty)
+                s"""
+                  for (int $z = 0; $z < ${ofSize.size}; $z++) {
+                    $loopChunk
+                  }
+                """
+              else
+                ""
+
+            val out =
+              s"""
+                $pre
+                $loop
+                $lastChunk
+                 """
+            out
+
+          } else {
+            if (isInPlace(i)) { // it may have been replaced but it was at one stage an InPlaceArray
+              val o = ctx.freshName("o")
+              val a = ctx.freshName("a")
+
+              val pre = s"""
+                // flatten case and InPlaceArray - no unroll
+                Object $o = null;
+                Object[] $a = $outArrTerm.array();
+              """
+
+              val out =
+              s"""
+                $pre
+
+                for (int $z = 0; $z < ${canUnroll(i)}; $z++) {
+                  $o = $a[$z];
+                  ${wrapperIf(o)}
+                }
+              """
+
+              out
+            } else
+              if (canFlatten) s"""
+                // flatten case and native CreateArray
+                ArrayData $arrayData = (ArrayData) $outArrTerm;
+                for (int $z = 0; $z < $arrayData.numElements(); $z++) {
+                  Object $o = ${CodeGenerator.getValue(arrayData, elementType, z)};
+                  ${wrapperIf(o)}
+                }
+              """
+              else ""
+          }
+
+        val salienceFromOffsets = flattenSalience(ruleSuite)
+
+        val compilerTerms =
+          RuleEngineRunnerUtils.genCompilerTerms[T](this, ruleRunnerExpressionIdx, outerCtx, ctx,
+            PassThroughEvalOnly(children), expressionOffsets, children,
+            false, variablesPerFunc, variableFuncGroup, false, extraConfig,
+            // capture the current
+            extraResult = (outArrTerm: String, i: Int) =>
+              s"""
+                 if (($outArrTerm != null) || $includeNulls) {
+                    if (($outArrTerm == null) || ${!(flatten && canFlatten)}) {
+                      $addOneS($bufferTerm, $outArrTerm);
+                    } else {
+                      ${ processFlattenResult(i, outArrTerm) }
+                    }
+                 }
+               """,
+            orderOffset = (idx: Int) => reordered(idx),
+            // we shouldn't check salience as we are already ordered by it
+            salienceCheck = false,
+            sizeAdjustment =
+              if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp)
+                -1 // don't generate the default, there isn't a trigger
+              else
+                0,
+            salience = salienceFromOffsets(_)
+          )
+
+        import compilerTerms._
+        import parameterInformation._
 
         val pre = s"""
-          // flatten and canUnroll for InPlaceArray
-          Object $o = null;
-          Object[] $a = $outArrTerm.array();
-        """
+              $currentSalience = java.lang.Integer.MAX_VALUE;
+              $currentOutputIndex = -1;
+              $hasAPassTerm = false;
+              $bufferTerm = new ${classOf[ArrayBuffer[_]].getName}($starterSize);
 
-        val groupSize = getConfig(UnrollOutputArraySize, s"$unrollOutputArraySize").toInt
+              // copy row
+              $resultRowCopy
 
-        val entries = (0 until canUnroll(i)).grouped(groupSize).toSeq
-        val hasLastToDrop =
-          entries.lastOption.exists { l =>
-            if (l.size == groupSize)
-              false
-            else
-              true
-          }
-        val ofSize =
-          if (hasLastToDrop)
-            entries.dropRight(1)
-          else
-            entries
+              // group specific subexprs
+              ${grouped.subExpressions}
+              // group calls
+              ${grouped.groupCalls.map { f => s"$f($paramsCall);" }.mkString("\n")}
 
-        val lastChunks =
-          if (hasLastToDrop)
-            entries.last
-          else
-            Seq.empty
-
-        val loopChunk =
-          (0 until groupSize).foldLeft("") {
-            (cur, i) =>
-
-              s"""
-                $cur
-                $o = $a[($z * $groupSize) + $i];
-                ${wrapperIf(o)}
-               """
-          }
-
-        val lastChunk =
-          lastChunks.indices.foldLeft("") {
-            (cur, i) =>
-
-              s"""
-              $cur
-
-              $o = $a[${ofSize.size * groupSize} + $i];
-              ${wrapperIf(o)}
-            """
-          }
-
-        val loop =
-          if (ofSize.nonEmpty)
-            s"""
-              for (int $z = 0; $z < ${ofSize.size}; $z++) {
-                $loopChunk
-              }
-            """
-          else
-            ""
-
-        val out =
-          s"""
-            $pre
-            $loop
-            $lastChunk
-             """
-        out
-
-      } else {
-        if (isInPlace(i)) { // it may have been replaced but it was at one stage an InPlaceArray
-          val o = ctx.freshName("o")
-          val a = ctx.freshName("a")
-
-          val pre = s"""
-            // flatten case and InPlaceArray - no unroll
-            Object $o = null;
-            Object[] $a = $outArrTerm.array();
-          """
-
-          val out =
-          s"""
-            $pre
-
-            for (int $z = 0; $z < ${canUnroll(i)}; $z++) {
-              $o = $a[$z];
-              ${wrapperIf(o)}
-            }
-          """
-
-          out
-        } else
-          if (canFlatten) s"""
-            // flatten case and native CreateArray
-            ArrayData $arrayData = (ArrayData) $outArrTerm;
-            for (int $z = 0; $z < $arrayData.numElements(); $z++) {
-              Object $o = ${CodeGenerator.getValue(arrayData, elementType, z)};
-              ${wrapperIf(o)}
-            }
-          """
-          else ""
-      }
-
-    val compilerTerms =
-      RuleEngineRunnerUtils.genCompilerTerms[T](ctx, PassThroughEvalOnly(children), expressionOffsets, children,
-        false, variablesPerFunc, variableFuncGroup, false,
-        // capture the current
-        extraResult = (outArrTerm: String, i: Int, resArrTerm: String) =>
-          s"""
-             if (($outArrTerm != null) || $includeNulls) {
-                if (($outArrTerm == null) || ${!(flatten && canFlatten)}) {
-                  com.sparkutils.quality.impl.CollectRunnerUtils.addOne($bufferTerm, $outArrTerm);
-                } else {
-                  ${ processFlattenResult(i, outArrTerm) }
-                }
-             }
-           """,
-        orderOffset = (idx: Int) => reordered(idx),
-        // we shouldn't check salience as we are already ordered by it
-        salienceCheck = false,
-        sizeAdjustment =
-          if (ruleSuite.defaultProcessor != NoOpDefaultProcessor.noOp)
-            -1 // don't generate the default, there isn't a trigger
-          else
-            0
-      )
-
-    import compilerTerms._
-
-    val pre = s"""
-          $currentSalience = java.lang.Integer.MAX_VALUE;
-          $currentOutputIndex = -1;
-          $hasAPassTerm = false;
-          $pushToTop
-          $bufferTerm = new ${classOf[ArrayBuffer[_]].getName}($starterSize);
-
-          ${funNames.map{f => s"$f($paramsCall);"}.mkString("\n")}
-      """
-    val post = s"""
-
-          boolean ${ev.isNull} = false;
-      """
-
-    val rsres = ctx.freshName("ruleSuiteRes")
-
-    val res =
-      ev.copy(code = code"""
-        $pre
-
-        ${hasDefault{
-        s"""
-            if (!$hasAPassTerm) {
               ${
-                val defP = children.last.genCode(ctx)
-                s"""
-                    ${defP.code}
-
-                    //System.out.println("DefaultProcessor result is ${defP.value}" + ${defP.value});
-
-                    if ((${defP.value} == null) || ${!(flatten && canFlatten)}) {
-                      com.sparkutils.quality.impl.CollectRunnerUtils.addOne($bufferTerm, ${defP.value});
-                    } else {
-                      ${ // -1 for normal last
-                        processFlattenResult(canUnroll.length - 1, defP.value)
-                        }
+                hasDefault(
+                  // if we have a default the result type should be DefaultRule
+                  s"""
+                    if (!$hasAPassTerm) {
+                      $resultRow.update(1, ${
+                        DefaultRuleInt
+                      });
                     }
-                  """
+
+                  """)
               }
-            }
-        """
-        }}
+          """
 
-        InternalRow $rsres = $utilsName.evalArrayForDefault($ruleSuitTerm, $ruleSuiteArrays, $resArrTerm);
 
-        ${
-          hasDefault(
-            // if we have a default the result type should be DefaultRule
+        val resName = ctx.freshName("result")
+        val resNull = ctx.freshName("isNull")
+
+        val exp = ExprCode(VariableValue(resName, ev.value.javaType), isNullVariable(resNull))
+
+        val post = s"""
+
+              boolean ${exp.isNull} = false;
+          """
+
+        val res =
+          exp.copy(code = code"""
+            $pre
+
+            ${hasDefault{
             s"""
-            if (!$hasAPassTerm) {
-              $rsres.update(1, ${DefaultRuleInt});
-            }
-            """)
-        }
+                if (!$hasAPassTerm) {
+                  ${
+                    val defP = children.last.genCode(ctx)
+                    s"""
+                        ${defP.code}
 
-        InternalRow ${ev.value} =
-          com.sparkutils.quality.impl.CollectRunnerUtils.compiledEval(
-            $rsres,
-            $bufferTerm);
+                        //System.out.println("DefaultProcessor result is ${defP.value}" + ${defP.value});
 
-        $post
-        """
-      )
+                        if ((${defP.value} == null) || ${!(flatten && canFlatten)}) {
+                          $addOneS($bufferTerm, ${defP.value});
+                        } else {
+                          ${ // -1 for normal last
+                            processFlattenResult(canUnroll.length - 1, defP.value)
+                            }
+                        }
+                      """
+                  }
+                }
+            """
+            }}
 
-    res
+            InternalRow ${exp.value} =
+              com.sparkutils.quality.impl.CollectRunnerUtils.compiledEval(
+                $resultRow,
+                $bufferTerm);
 
+            $post
+            """
+          )
+
+        GenerateResult(compilerTerms, res, grouped.extraClasses, grouped.ignoreTopLevelSubExpressions)
+    }
+    generatorClassSource = clazz
+    fres
   }
 }
 
@@ -484,15 +514,22 @@ trait CollectRunnerBase[T] extends Expression with NonSQLExpression {
 case class CollectRunnerRunner(ruleSuite: RuleSuite, children: Seq[Expression], resultDataType: Option[DataType],
                                 variablesPerFunc: Int, variableFuncGroup: Int, expressionOffsets: Array[Int],
                                triggerCount: Int, flatten: Boolean, includeNulls: Boolean, canUnroll: Array[Int],
-                               isInPlace: Array[Boolean], unroll: Boolean, unrollOutputArraySize: Int
+                               isInPlace: Array[Boolean], unroll: Boolean, unrollOutputArraySize: Int,
+                               extraConfig: Map[String, String], audited: Boolean = false, alreadyZero: Boolean = false
                                ) extends CollectRunnerBase[CollectRunnerRunner] {
 
   protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression = {
-    copy(children = newChildren)
+    val r = copy(children = newChildren, audited = true)
+    if (!audited) {
+      r.performGroupingAuditDump()
+    }
+    r
   }
 
   override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = doGenCodeI(ctx, ev)
 
   override implicit val classTagT: ClassTag[CollectRunnerRunner] = ClassTag(classOf[CollectRunnerRunner])
   override val tClass: Class[CollectRunnerRunner] = classOf[CollectRunnerRunner]
+
+  override def withZeroCode(): Runner = copy(alreadyZero = true)
 }

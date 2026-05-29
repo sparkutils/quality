@@ -2,7 +2,7 @@
 
 This release migrates Spark 4 support to use AgnosticEncoders and removes EOL runtimes: 2.4 and DBR's 9.1, 10.4, 11.3, 13.1 and 14.0.  
 
-Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1 and 3.3.2 are deprecated as are DBR's 12.2 and 13.3 and will be removed as of Quality version 0.3.0. 
+Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1 and 3.3.2 are deprecated as are DBR's 12.2 and 13.3 and will be removed as of Quality version 0.3.0.
 
 #90 - Migrate to Spark 4 sql-api, AgnosticEncoder's and support Connect:
 
@@ -71,6 +71,47 @@ Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1 and 3.3.2 are deprecated as are DBR's 12.2
 #123 - Simplified use of View and Map loading, default case classes are provided as well as simplified loadConfig functions using default columns classes.  Previously private impl classes have been made public to allow further re-use.
 
 #124 - Introduced group_audit function, allowing multiple Quality auditable columns to be combined into a RuleSuiteGroupResults column
+
+#131 - Compilation of runners is now split from Spark's typical single java file.  This reduces compilation times in general for nested or chained runners and removes limits on the number of rules suites that can be run in one action.  
+
+#129 - Compilation of large RuleSuites (the test case has 20k rules) can now be managed by optional TriggerGrouping:
+
+> In addition to workarounds added to shim for bad Databricks compilation approaches (no 64kb code size handling as per OSS),
+> Quality now allows customisable grouping of Triggers via an also newly optional extraConfig parameter:
+> ```scala
+>  extraConfig = Map(
+>    groupProcessorKey /* "quality.runnerGroupProcessor" */ -> classOf[TopLevelBooleanGrouper].getName
+>  ))
+> ```
+> These parameters can be provided directly when calling a specific runner or via System properties and Spark conf
+> which apply across all runners.
+> 
+> The experimental TopLevelBooleanGrouper, in addition to whole stage compilation improvements and #131, allows reduction of evaluation
+> cost by 20x in the test case, grouping by common "and" expressions and bucketing via " field = 'value' " comparisons.
+> These buckets can be configured by the:
+> ```scala
+> groupProcessorBucketSizeKey /* "quality.runnerGroupProcessor.bucketSize" */: Int = 130, 
+> ```
+> parameters, which aim to manage a target bucket size of 130, and is used as a guide in the bucketing approach.
+> 
+> An optional extraConfig parameter of:
+> ```scala
+> groupProcessorAuditKey /* "quality.runnerGroupProcessor.audit" */ : Boolean = false,
+> groupProcessorAuditLocation /* "quality.runnerGroupProcessor.auditLocation" */ : String = "./" 
+> ```
+> will generate a RuleSuiteGroup file using the specified location (this is required on Databricks).
+> This group contains a RuleSuite(0,0) 'parent' Rule Suite that calls the child 'bucket' rule suites, 
+> using the same grouping as the normal TopLevelBooleanGrouper uses, but in an auditable but executable form for easy
+> verification of bucketing correctness.
+> 
+> This initial experimental version brings the BigRules test case runtime from 5m42s (requiring -Xmx12g) to just under
+> 45s (requiring only -Xmx2g) and a per row Quality processing time of 0.12ms per row (down from 5ms) on a 20k rule RuleSuite
+> (across 9 comparisons per rule, 380m expressions in total).
+> If the results from a non-grouped runner differ with grouping please raise an issue.
+> 
+> TopLevelBooleanGrouper cannot work on 3.0 or 3.1 and, although functional on 3.2 / 3.21, is only recommended on 3.3 and
+> above as 3.2's performance is slower overall due in part to still requiring sub expressions to be evaluated multiple extra times for the entire tree.
+> 3.3 and above will only use subexpressions within the runner itself as needed by the groups.
 
 ### [0.1.4](https://github.com/sparkutils/quality/milestone/10?closed=1) <small>24th February, 2026</small>
 

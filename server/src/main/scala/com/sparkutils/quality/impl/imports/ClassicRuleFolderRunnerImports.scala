@@ -2,12 +2,13 @@ package com.sparkutils.quality.impl.imports
 
 import com.sparkutils.quality.RuleSuite
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenExpressions
+import com.sparkutils.quality.impl.extension.ZeroCodeGenWrap
 import com.sparkutils.quality.impl.{RuleFolderRunner, RuleFolderRunnerEval, RuleLogicUtils, RuleSuiteHelpers}
 import com.sparkutils.quality.impl.util.{InputWrapper, NonPassThrough, PassThroughCompileEvals}
 import org.apache.spark.sql.ShimUtils.{column, expression}
 import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
 import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression}
-import org.apache.spark.sql.functions.lit
+import org.apache.spark.sql.functions.{lit, typedLit}
 import org.apache.spark.sql.qualityFunctions.{FunN, RefExpressionLazyType}
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.{ClassicQualitySparkUtils, Column, DataFrame, ShimUtils}
@@ -38,14 +39,14 @@ trait ClassicRuleFolderRunnerImports {
   def ruleFolderRunner(ruleSuite: RuleSuite, startingStruct: Column, compileEvals: Boolean = false,
                        debugMode: Boolean = false, resolveWith: Option[DataFrame] = None, variablesPerFunc: Int = 40,
                        variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false, useType: Option[StructType] = None,
-                       forceTriggerEval: Boolean = false): Column =
+                       forceTriggerEval: Boolean = false, extraConfig: Map[String, String] = Map.empty): Column =
     if (ResolveUtil.checkResolveMakesSenseOrClassic(resolveWith))
       ruleFolderRunnerClassic(ruleSuite, startingStruct, compileEvals, debugMode, resolveWith, variablesPerFunc,
-        variableFuncGroup, forceRunnerEval, useType, forceTriggerEval)
+        variableFuncGroup, forceRunnerEval, useType, forceTriggerEval, extraConfig)
     else
       ShimUtils.callFunction("rule_folder_runner", lit(RuleSuiteHelpers.serialize(ruleSuite)),
         startingStruct, lit(useType.map(_.sql).getOrElse("")), lit(debugMode), lit(variablesPerFunc),
-        lit(variableFuncGroup)
+        lit(variableFuncGroup), typedLit(extraConfig)
       )
 
   /**
@@ -69,7 +70,7 @@ trait ClassicRuleFolderRunnerImports {
   def ruleFolderRunnerClassic(ruleSuite: RuleSuite, startingStruct: Column, compileEvals: Boolean = false,
                        debugMode: Boolean = false, resolveWith: Option[DataFrame] = None, variablesPerFunc: Int = 40,
                        variableFuncGroup: Int = 20, forceRunnerEval: Boolean = false, useType: Option[StructType] = None,
-                       forceTriggerEval: Boolean = false): Column = {
+                       forceTriggerEval: Boolean = false, extraConfig: Map[String, String] = Map.empty): Column = {
     com.sparkutils.quality.registerLambdaFunctions( ruleSuite.lambdaFunctions )
 
     // needed to resolve variables -- this changes between invocation and stops the type checks.  In the test case it's subcode that is on one type nullable and the other not
@@ -121,12 +122,12 @@ trait ClassicRuleFolderRunnerImports {
         new RuleFolderRunnerEval(cleaned, starter +: exprs,
           realType, compileEvals = compileEvals,
           debugMode = debugMode, variablesPerFunc, variableFuncGroup,
-          expressionOffsets = indexes, dataRef, forceTriggerEval, triggerCount = triggerCount)
+          expressionOffsets = indexes, dataRef, forceTriggerEval, triggerCount = triggerCount, extraConfig)
       else
         new RuleFolderRunner(cleaned, starter +: exprs,
           realType, compileEvals = compileEvals,
           debugMode = debugMode, variablesPerFunc, variableFuncGroup,
-          expressionOffsets = indexes, dataRef, forceTriggerEval, triggerCount = triggerCount)
+          expressionOffsets = indexes, dataRef, forceTriggerEval, triggerCount = triggerCount, extraConfig)
 
     column(
       ClassicQualitySparkUtils.resolveWithOverride(resolveWith).map { df =>
@@ -137,7 +138,7 @@ trait ClassicRuleFolderRunnerImports {
           case PassThroughCompileEvals(child) => NonPassThrough(child)
           case child => NonPassThrough(child)
         })
-      } getOrElse runner
+      } getOrElse ZeroCodeGenWrap.wrap(runner)
     )
   }
 }

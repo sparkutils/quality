@@ -172,42 +172,6 @@ case class TransientHolder[T](val initialise: () => T) extends Serializable {
 }
 
 /**
- * Frameless sets path in foldable encoders to nullable == false, but it really is nullable
- * Spark then just accesses the struct which is null.  This forces codegen only
- */
-case class ForceNullable(child: Expression) extends Expression {
-
-  val children = Seq(child)
-
-  override def nullable: Boolean = true
-
-  override def eval(input: InternalRow): Any = child.eval(input)
-
-  override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
-    val c = child.genCode(ctx)
-    val typ = JavaCode.javaType(dataType)
-    val boxed = JavaCode.boxedType(dataType)
-    ev.copy(code =
-      code"""
-            ${c.code}
-            boolean ${ev.isNull} = true;
-            $typ ${ev.value} = null;
-            if (${c.value} != null) {
-              ${ev.isNull} = false;
-              ${ev.value} = ($boxed) ${c.value};
-            }
-            """)
-  }
-
-
-  override def dataType: DataType = child.dataType
-
-  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): Expression =
-    copy(child = newChildren.head)
-}
-
-
-/**
  * wrap subexprs so we can correctly identify the subquery post bindreferences
  * @param children
  */
@@ -234,6 +198,108 @@ object SubQueryWrapper {
     }.isDefined)
 }
 
+/**
+ *
+ * @param paramsDef drop in for function lists
+ * @param paramsCall drop in for function calls
+ * @param arity the arity of the parameters, abstract function only goes to 22, 255 are available
+ * @param pushToTop any outer context information (spark 3.1 and higher)
+ * @param params pairs of variable name to java type used for declaration and the class type for boxing
+ */
+case class ParameterInformation(paramsDef: String, paramsCall: String, arity: Int,
+                                params: Seq[(String, String, Class[_])], pushToTop: String = "",
+                                outerCallParams: String = "",
+                                // split expressions pairs
+                                nonCombinedParams: Seq[(String, String, Class[_])] = Seq.empty
+                               ) {
+
+  val useArity = if (arity > 22) 1 else arity
+
+  /**
+   * When arity is over 22 we still need a type, so the type becomes an array we unpack..., boxing is unavoidable
+   *
+   * Arity of 0 implies no actual input information is needed, e.g. a rule is hardcode / folded to a constant
+   *
+   * @return
+   */
+  def aritySafeApplyType(prefix: String): String =
+    s"$prefix$useArity<InternalRow${if (arity > 0) "," else ""}" +
+      (
+        if (arity <= 22)
+          params.map { p => "Object"
+/*            if (p._3.isPrimitive)
+              CodeGenerator.boxedType(p._3.getSimpleName)
+            else
+              p._1*/
+          }.mkString(",")
+        else
+          "Object"
+        ) + ">"
+
+  def aritySafeParamDef: String =
+    if (arity <= 22)
+      params.map { p =>
+        s"Object ${p._2}_ppp" // only object will compile, janino no generics
+      }.mkString(",")
+    else
+      "Object input_ppp"
+
+  def aritySafeParamDecl: String =
+    params.map { p =>
+      val (arrayExtraDecl, arrayExtraDim) =
+        if (p._3.isArray)
+          ("[]","") // s" = new ${p._3.componentType().getName}[1][]
+        else
+          ("","")
+
+      s"private ${p._1}$arrayExtraDecl ${p._2}$arrayExtraDim;"
+    }.mkString("\n")
+
+  def aritySafeParamConversion: String =
+    if (arity <= 22)
+      params.map { p =>
+
+        val cast =
+          if (p._3.isPrimitive)
+            CodeGenerator.boxedType(p._3.getSimpleName)
+          else
+            p._1
+        val (arrayExtraDim) =
+          if (p._3.isArray)
+            ("[]")//
+          else
+            ("")
+
+        s"${p._2} = ($cast$arrayExtraDim) ${p._2}_ppp;"
+      }.mkString("\n")
+    else
+      params.zipWithIndex.map {
+        case (p, index) =>
+          val cast =
+            if (p._3.isPrimitive)
+              CodeGenerator.boxedType(p._3.getSimpleName)
+            else
+              p._1
+          val (arrayExtraDim) =
+            if (p._3.isArray)
+              ("[]")// [0]
+            else
+              ("")
+
+          s"${p._2} = ($cast$arrayExtraDim) ((Object[])input_ppp)[$index];"
+      }.mkString("\n")
+
+  def aritySafeParamCall: String =
+    if (arity <= 22)
+      outerCallParams
+    else
+      s"""
+        new Object[] {
+         ${params.map(_._2).mkString(",\n")}
+        }
+        """
+}
+
 object Params {
 
   def stripBrackets(v: VariableValue): (String, String) = {
@@ -244,32 +310,62 @@ object Params {
       (v.variableName.dropRight(v.length - openb), v.variableName.drop(openb))
   }
 
-  def formatParams(ctx: CodegenContext, a: Seq[ExprValue], callsKeepArrays: Boolean = false): (String, String) = {
-    // filter out any top level arrays, the input is a set, so params need the same order
-    val ordered = a.flatMap {
+  def formatParams(ctx: CodegenContext, a: Seq[ExprValue], additional: Seq[ExprValue] = Seq.empty, callsKeepArrays: Boolean = false): ParameterInformation = {
+    def filterOutArrays(use: Seq[ExprValue]) = use.flatMap {
       case a: VariableValue => Some(a)
       case _ => None
     }
 
-    (ordered.map { v =>
-      val (stripped, arrayInName) = stripBrackets(v)
+    val filteredA = filterOutArrays(a)
+    val filteredAdditional = filterOutArrays(additional)
 
-      val (typ, array) =
-        if (v.javaType.isArray)
-          (s"${v.javaType.getComponentType.getName}", "[]")
-        else if (v.javaType.isPrimitive)
-          (v.javaType.toString, arrayInName.replaceAll("[^\\[\\]]",""))
-        else
-          (v.javaType.getName, arrayInName.replaceAll("[^\\[\\]]",""))
+    val size = filteredA.size + filteredAdditional.size
+    val use =
+      if (size <= 22)
+        filteredA ++ filteredAdditional
+      else
+        filteredA // additional are then handled via class level
 
-      s"$typ$array $stripped"
-    }.mkString(", ")
-      , ordered.map(v =>
+    // filter out any top level arrays, the input is a set, so params need the same order
+    val ordered = use
+
+    def prepFields(ordered: Seq[VariableValue]) =
+      ordered.map { v =>
+        val (stripped, arrayInName) = stripBrackets(v)
+
+        val (typ, array) =
+          if (v.javaType.isArray)
+            (s"${v.javaType.getComponentType.getName}", "[]")
+          else if (v.javaType.isPrimitive)
+            (v.javaType.toString, arrayInName.replaceAll("[^\\[\\]]",""))
+          else
+            (v.javaType.getName, arrayInName.replaceAll("[^\\[\\]]",""))
+
+        (s"$typ$array", stripped, v.javaType)
+      }
+
+    val pairs = prepFields(ordered)
+
+    val combined =
+      if (size <= 22)
+        pairs
+      else
+        pairs ++ prepFields(filteredAdditional)
+
+    val paramsCall =
+      ordered.map(v =>
         if (v.javaType.isArray && callsKeepArrays)
           v.variableName
         else
           stripBrackets(v)._1
-      ).mkString(", "))
+      ).mkString(", ")
+
+    ParameterInformation(pairs.map {
+      case (typ, stripped, _) =>
+
+        s"$typ $stripped"
+      }.mkString(", ")
+      , paramsCall, size, combined, outerCallParams = paramsCall, nonCombinedParams = pairs)
   }
 }
 

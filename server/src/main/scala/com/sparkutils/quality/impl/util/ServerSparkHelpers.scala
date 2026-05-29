@@ -3,7 +3,7 @@ package com.sparkutils.quality.impl.util
 import org.apache.spark.sql.catalyst.CatalystTypeConverters
 import org.apache.spark.sql.catalyst.expressions.UnsafeArrayData
 import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, ArrayData, GenericArrayData, MapData}
-import org.apache.spark.sql.types.DataType
+import org.apache.spark.sql.types.{DataType, IntegerType, LongType}
 
 import scala.collection.mutable.ArrayBuffer
 import scala.reflect.ClassTag
@@ -50,6 +50,66 @@ object Arrays {
       case _ => array.array
     }
 
+}
+
+class IntegerArray(val ints: Array[Int]) extends GenericArrayData(null: Array[Any]) {
+
+  override def numElements(): Int = ints.length
+
+  override def copy(): IntegerArray = {
+    val nar = Array.ofDim[Int](ints.length)
+    System.arraycopy(ints, 0, nar, 0, ints.length)
+    new IntegerArray(nar)
+  }
+
+  override def isNullAt(ordinal: Int): Boolean = false
+
+  def update(i: Int, value: Int): Unit = ints.update(i, value)
+
+  override def getInt(ordinal: Int): Int = ints(ordinal)
+
+  override def get(ordinal: Int, dataType: DataType): AnyRef =
+    if (dataType == IntegerType)
+      getInt(ordinal).asInstanceOf[Integer]
+    else
+      ???
+
+}
+
+class LongArray(val longs: Array[Long]) extends GenericArrayData(null: Array[Any]) {
+
+  override def numElements(): Int = longs.length
+
+  override def copy(): LongArray = {
+    val nar = Array.ofDim[Long](longs.length)
+    System.arraycopy(longs, 0, nar, 0, longs.length)
+    new LongArray(nar)
+  }
+
+  override def isNullAt(ordinal: Int): Boolean = false
+
+  override def getLong(ordinal: Int): Long = longs(ordinal)
+
+  override def get(ordinal: Int, dataType: DataType): AnyRef =
+    if (dataType == LongType)
+      getLong(ordinal).asInstanceOf[java.lang.Long]
+    else
+      ???
+
+}
+
+class RuleSetMap(val ids: LongArray, val results: IntegerArray) extends MapData {
+  override val keyArray: ArrayData = ids
+  override val valueArray: ArrayData = results
+  override def numElements(): Int = 0
+
+  override def copy(): MapData = {
+    new RuleSetMap(ids.copy(), results.copy())
+  }
+
+  override def toString: String = {
+    s"keys: $keyArray, values: $valueArray"
+  }
 }
 
 object EmptyMap extends MapData {

@@ -38,7 +38,7 @@ protected[quality] object CombineImpl extends GeneratedUniqueName {
 
     val groupedLambdasN = uniqueName()
     val outsN = uniqueName()
-    outputExpressionRowsT.fold(ruleRows.sparkSession.createDataset[OutputExpressionRow](Seq.empty).toDF)(identity).
+    outputExpressionRowsT.fold(ruleRows.sparkSession.createDataset[OutputExpressionRow](Seq.empty).toDF())(identity).
       createOrReplaceTempView(outsN)
 
     val lun = uniqueName()

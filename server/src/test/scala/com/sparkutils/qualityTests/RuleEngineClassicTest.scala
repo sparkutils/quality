@@ -2,7 +2,7 @@ package com.sparkutils.qualityTests
 
 import com.sparkutils.quality._
 import com.sparkutils.quality.impl.{OverallResult, RuleEngineRunner}
-import com.sparkutils.quality.impl.extension.FunNRewrite
+import com.sparkutils.quality.impl.extension.{FunNRewrite, ZeroCodeGen}
 import com.sparkutils.qualityTests.util.SharedConnectTests
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.ShimUtils.expression
@@ -60,7 +60,10 @@ class RuleEngineClassicTest extends SharedConnectTests with RuleEngineTestBase {
                 OutputExpression("array(account_row('from', account), account_row('to', 'other_account1'))"))), compileEvals = false
           )(null.asInstanceOf[DataFrame]) // the df is irrelevant as we are NoResolving
 
-          val rs = expression(rer).asInstanceOf[RuleEngineRunner].ruleSuite
+          val rs = expression(rer) match {
+            case r: RuleEngineRunner => r.ruleSuite
+            case ZeroCodeGen(_, r: RuleEngineRunner,_,_) => r.ruleSuite
+          }
           val ds = toDS(rs)
 
           val so = toOutputExpressionDS(rs)

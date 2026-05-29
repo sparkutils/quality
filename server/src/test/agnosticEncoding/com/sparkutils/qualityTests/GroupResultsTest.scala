@@ -194,6 +194,7 @@ class GroupResultsTest extends GroupTestBase {
     type T = (RuleSuiteGroupResults, Seq[(Option[SalientRule], Option[Seq[NewPosting]])])
 
     import frameless._
+    import com.sparkutils.quality.implicits._
     implicit val tenc = TypedEncoder[T]
     engineResultShouldGroup[T](_._1)
   }

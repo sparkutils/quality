@@ -28,8 +28,8 @@ trait CollectRunnerImports {
   def collectRunner(ruleSuite: RuleSuite, resultDataType: Option[DataType] = None, variablesPerFunc: Int = 40,
                     variableFuncGroup: Int = 20, flatten: Boolean = true, includeNulls: Boolean = false,
                     useInPlaceArray: Boolean = true, unrollInPlaceArray: Boolean = false,
-                    unrollOutputArraySize: Int = 1): Column =
+                    unrollOutputArraySize: Int = 1, extraConfig: Map[String, String] = Map.empty): Column =
     CallFunctionImpls.collector(lit(RuleSuiteHelpers.serialize(ruleSuite)), resultDataType, variablesPerFunc,
-      variableFuncGroup, flatten, includeNulls, useInPlaceArray, unrollInPlaceArray, unrollOutputArraySize)
+      variableFuncGroup, flatten, includeNulls, useInPlaceArray, unrollInPlaceArray, unrollOutputArraySize, extraConfig)
 
 }
