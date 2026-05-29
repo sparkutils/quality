@@ -1,6 +1,7 @@
 package com.sparkutils
 
-import com.sparkutils.quality.impl.{TriggerGroupingConstants, VariableProcessIfMissing}
+import com.sparkutils.quality.impl.VariableProcessIfMissing
+import com.sparkutils.quality.impl.constants.RuleProcessingConstants
 import com.sparkutils.quality.impl.imports._
 import com.sparkutils.quality.impl.mapLookup.MapLookupImportsShared
 import com.sparkutils.quality.impl.util.{AddDataFunctionsImports, SerializingImports, VersionSpecificSerializingImports}
@@ -14,7 +15,7 @@ package object quality extends RuleRunnerImports with Serializable with MapLooku
   with AddDataFunctionsImports with LambdaFunctionsImports with RuleEngineRunnerImports
   with RuleFolderRunnerImports with ViewLoading with ExpressionRunnerImports
   with VersionSpecificSerializingImports with VariableProcessIfMissing
-  with CollectRunnerImports with TriggerGroupingConstants {
+  with CollectRunnerImports with RuleProcessingConstants {
   // NB it must inherit Serializable due to the nested types and sparks serialization
 
   /**

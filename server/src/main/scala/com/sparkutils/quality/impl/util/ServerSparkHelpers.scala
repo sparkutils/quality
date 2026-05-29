@@ -1,9 +1,10 @@
 package com.sparkutils.quality.impl.util
 
-import org.apache.spark.sql.catalyst.CatalystTypeConverters
+import org.apache.spark.sql.catalyst.{CatalystTypeConverters, InternalRow}
 import org.apache.spark.sql.catalyst.expressions.UnsafeArrayData
 import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, ArrayData, GenericArrayData, MapData}
-import org.apache.spark.sql.types.DataType
+import org.apache.spark.sql.types.{DataType, Decimal, IntegerType, LongType}
+import org.apache.spark.unsafe.types.{CalendarInterval, GeographyVal, GeometryVal, UTF8String, VariantVal}
 
 import scala.collection.mutable.ArrayBuffer
 import scala.reflect.ClassTag
@@ -50,6 +51,144 @@ object Arrays {
       case _ => array.array
     }
 
+}
+
+class IntegerArray(val ints: Array[Int]) extends ArrayData {
+
+  override def numElements(): Int = ints.length
+
+  override def copy(): IntegerArray = {
+    val nar = Array.ofDim[Int](ints.length)
+    System.arraycopy(ints, 0, nar, 0, ints.length)
+    new IntegerArray(nar)
+  }
+
+  def update(i: Int, value: Int): Unit = ints.update(i, value)
+
+  // $COVERAGE-OFF$
+  override def array: Array[Any] = ints.asInstanceOf[Array[Any]]
+
+  override def setNullAt(i: Int): Unit = {}
+
+  override def update(i: Int, value: Any): Unit = ints.update(i, value.asInstanceOf[Int])
+
+  override def isNullAt(ordinal: Int): Boolean = false
+
+  override def getBoolean(ordinal: Int): Boolean = ???
+
+  override def getByte(ordinal: Int): Byte = ???
+
+  override def getShort(ordinal: Int): Short = ???
+
+  override def getInt(ordinal: Int): Int = ints(ordinal)
+
+  override def getLong(ordinal: Int): Long = ???
+
+  override def getFloat(ordinal: Int): Float = ???
+
+  override def getDouble(ordinal: Int): Double = ???
+
+  override def getDecimal(ordinal: Int, precision: Int, scale: Int): Decimal = ???
+
+  override def getUTF8String(ordinal: Int): UTF8String = ???
+
+  override def getBinary(ordinal: Int): Array[Byte] = ???
+
+  override def getGeography(ordinal: Int): GeographyVal = ???
+
+  override def getGeometry(ordinal: Int): GeometryVal = ???
+
+  override def getInterval(ordinal: Int): CalendarInterval = ???
+
+  override def getVariant(ordinal: Int): VariantVal = ???
+
+  override def getStruct(ordinal: Int, numFields: Int): InternalRow = ???
+
+  override def getArray(ordinal: Int): ArrayData = ???
+
+  override def getMap(ordinal: Int): MapData = ???
+
+  override def get(ordinal: Int, dataType: DataType): AnyRef =
+    if (dataType == IntegerType)
+      getInt(ordinal).asInstanceOf[Integer]
+    else
+      ???
+
+  // $COVERAGE-ON$
+}
+
+class LongArray(val longs: Array[Long]) extends ArrayData {
+
+  override def numElements(): Int = longs.length
+
+  override def copy(): LongArray = {
+    val nar = Array.ofDim[Long](longs.length)
+    System.arraycopy(longs, 0, nar, 0, longs.length)
+    new LongArray(nar)
+  }
+  // $COVERAGE-OFF$
+  override def array: Array[Any] = longs.asInstanceOf[Array[Any]]
+
+  override def setNullAt(i: Int): Unit = {}
+
+  override def update(i: Int, value: Any): Unit = longs.update(i, value.asInstanceOf[Long])
+
+  override def isNullAt(ordinal: Int): Boolean = false
+
+  override def getBoolean(ordinal: Int): Boolean = ???
+
+  override def getByte(ordinal: Int): Byte = ???
+
+  override def getShort(ordinal: Int): Short = ???
+
+  override def getInt(ordinal: Int): Int = ???
+
+  override def getLong(ordinal: Int): Long = longs(ordinal)
+
+  override def getFloat(ordinal: Int): Float = ???
+
+  override def getDouble(ordinal: Int): Double = ???
+
+  override def getDecimal(ordinal: Int, precision: Int, scale: Int): Decimal = ???
+
+  override def getUTF8String(ordinal: Int): UTF8String = ???
+
+  override def getBinary(ordinal: Int): Array[Byte] = ???
+
+  override def getGeography(ordinal: Int): GeographyVal = ???
+
+  override def getGeometry(ordinal: Int): GeometryVal = ???
+
+  override def getInterval(ordinal: Int): CalendarInterval = ???
+
+  override def getVariant(ordinal: Int): VariantVal = ???
+
+  override def getStruct(ordinal: Int, numFields: Int): InternalRow = ???
+
+  override def getArray(ordinal: Int): ArrayData = ???
+
+  override def getMap(ordinal: Int): MapData = ???
+
+  override def get(ordinal: Int, dataType: DataType): AnyRef =
+    if (dataType == LongType)
+      getLong(ordinal).asInstanceOf[java.lang.Long]
+    else
+      ???
+  // $COVERAGE-ON$
+}
+
+class RuleSetMap(val ids: LongArray, val results: IntegerArray) extends MapData {
+  override val keyArray: ArrayData = ids
+  override val valueArray: ArrayData = results
+  override def numElements(): Int = 0
+
+  override def copy(): MapData = {
+    new RuleSetMap(ids.copy(), results.copy())
+  }
+
+  override def toString: String = {
+    s"keys: $keyArray, values: $valueArray"
+  }
 }
 
 object EmptyMap extends MapData {

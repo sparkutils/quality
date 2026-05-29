@@ -2,15 +2,14 @@ package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality.VersionedId
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.CompilerTerms
-import com.sparkutils.quality.impl.{Runner, Triggers}
+import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
+import com.sparkutils.quality.impl.Runner
 import com.sparkutils.shim.codegen.SubExprCodeGen
 import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
 import org.apache.spark.sql.catalyst.expressions.{Expression, Unevaluable}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeAndComment, CodeFormatter, CodeGenerator, CodegenContext, ExprCode, ExprValue, QualityCodeGenUtils, ShimExprUtils}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
 import org.apache.spark.sql.types.DataType
-
-import scala.util.Try
 
 /**
  * Implemented by the separate compilation to allow for nondeterministic / stateful
@@ -167,7 +166,7 @@ object SeparateCompilation {
     // need to use the top level params as they are isolated, internally the params will shift to using any subexprs
     runnerCompilation(outerctx = outerCtx, params, genResult, ctx = ctx, ev = ev,
       idParam = id, subExpressions = subExpressionCode,
-        generateStatsEvery = Try(Triggers.getValue("statsEvery", theThis.extraConfig, "0").toInt).getOrElse(0),
+        generateStatsEvery = theThis.extraConfig.int("statsEvery", 0),
       createGenerateFunction
     )
   }

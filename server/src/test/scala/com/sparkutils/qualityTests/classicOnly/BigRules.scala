@@ -1,8 +1,9 @@
 package com.sparkutils.qualityTests.classicOnly
 
 import com.sparkutils.quality._
+import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
 import com.sparkutils.quality.impl.util.RuleSuiteGroupIOUtils
-import com.sparkutils.quality.impl.{TopLevelBooleanGrouper, Triggers}
+import com.sparkutils.quality.impl.TopLevelBooleanGrouper
 import com.sparkutils.qualityTests.classicOnly.BigRulesGen.{genRules1to1, testFile}
 import com.sparkutils.qualityTests.util.ClassicSharedTests
 import com.sparkutils.testing.ConnectionType
@@ -14,7 +15,6 @@ import org.apache.spark.storage.StorageLevel
 import org.scalatest.Matchers
 
 import scala.concurrent.duration.Duration
-import scala.util.Try
 
 object BigRulesGen {
 
@@ -100,12 +100,12 @@ trait BigRulesBase extends Matchers {
     )
   )), topLevelRunner: (RuleSuite, Option[DataType], Map[String, String]) => Column =
       (rs, dt, op) => ruleEngineRunner(rs, dt, extraConfig = op), processor: DataFrame => DataFrame =
-        _.select(expr("*"), expr("runner.result.*")), extraConfig: Map[String, String] = Map.empty): DataFrame = {
+        _.select(expr("*"), expr("result.*")), extraConfig: Map[String, String] = Map.empty): DataFrame = {//runner.
 
     var start = System.nanoTime()
     val d = s.read.option("header",true).csv(testFile(s,outputDir))
     val r = processor(d.select(expr("*"), topLevelRunner(ruleSuite, resultDataType, extraConfig).
-      as("runner")))
+      as("runner"), col("runner.result"), col("runner.salientRule")))
     var end = System.nanoTime()
 
     println(s"$typ - took ${Duration.fromNanos(end - start).toSeconds}s to do logical plan")
@@ -119,15 +119,15 @@ trait BigRulesBase extends Matchers {
   }
 
   def doTriggerGetValueShouldWork(s: SparkSession): Unit = {
-    Try(Triggers.getValue(showSplitCompilationTime, Map.empty, "false").toBoolean).getOrElse(false) shouldBe false
+    Map.empty[String, String].boolean(showSplitCompilationTime, false) shouldBe false
 
-    Try(Triggers.getValue(showSplitCompilationTime, Map(
+    Map(
       showSplitCompilationTime -> "true"
-    ), "false").toBoolean).getOrElse(false) shouldBe true
+    ).boolean(showSplitCompilationTime, false) shouldBe true
 
     try {
       System.setProperty(showSplitCompilationTime, "true")
-      Try(Triggers.getValue(showSplitCompilationTime, Map.empty, "false").toBoolean).getOrElse(false) shouldBe true
+      Map.empty[String, String].boolean(showSplitCompilationTime, false) shouldBe true
     } finally {
       System.clearProperty(showSplitCompilationTime)
     }
@@ -139,10 +139,28 @@ trait BigRulesBase extends Matchers {
     val res = doRuleTest(s, rules(s, genRules1to1(s, outputDir).as[(String, String, Int)]),
       "1:1 loaded but should group via TopLevelBooleanGrouper",
       extraConfig = Map(
-        groupProcessorKey -> classOf[TopLevelBooleanGrouper].getName,
+        groupProcessorKey -> topLevelBooleanGrouper,
         showSplitCompilationTime -> "true",
         showGroupingTime -> "true",
         "statsEvery" -> "1000"
+      ))
+
+    val play = res.persist(StorageLevel.OFF_HEAP)
+
+    play.filter("(k_out is null) or (k != k_out) or (l != l_out) or (l_out is null)").
+      count() shouldBe 0
+  }
+
+  def doGrouped129ViaTopLevelBooleanGroupingEmpty(s: SparkSession): Unit = {
+    import s.implicits._
+    val res = doRuleTest(s, rules(s, genRules1to1(s, outputDir).as[(String, String, Int)]),
+      "1:1 loaded but should group via TopLevelBooleanGrouper",
+      extraConfig = Map(
+        groupProcessorKey -> topLevelBooleanGrouper,
+        showSplitCompilationTime -> "true",
+        showGroupingTime -> "true",
+        "statsEvery" -> "1000",
+        useEmptyRuleSetResults -> "true"
       ))
 
     val play = res.persist(StorageLevel.OFF_HEAP)
@@ -203,6 +221,10 @@ class BigRules extends ClassicSharedTests with BigRulesBase {
 
   test("grouped 129 via top level boolean grouping") { not3_0_or_3_1 { // runs 2g 2m. 0.12 ms / row, grouping takes 3s
     doGrouped129ViaTopLevelBooleanGrouping(sparkSession)
+  } }
+
+  test("grouped 129 via top level boolean grouping with empty result") { not3_0_or_3_1 { // runs 2g 2m. 0.12 ms / row, grouping takes 3s
+    doGrouped129ViaTopLevelBooleanGroupingEmpty(sparkSession)
   } }
 
   ignore("1:1 rules only") { // requires a 12gb heap and patience, run takes 5m42s on 32g i9-9900 corsair with 12gb heap, 5.22 ms / row

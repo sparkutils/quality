@@ -1,6 +1,7 @@
 package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.impl.RuleSuiteHelpers.getContextOrSparkClassLoader
+import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
 import com.sparkutils.quality.impl.util.TopLevelBooleanSuiteBuilder.triggers
 import com.sparkutils.quality.impl.util._
 import com.sparkutils.quality.{QualityException, getConfig, groupProcessorKey}
@@ -284,13 +285,8 @@ case class TopLevelBooleanGrouper() extends GroupBasedGrouper {
 
 object Triggers {
 
-  def getValue(key: String, extraConfig: Map[String, String], default: String): String =
-    extraConfig.get(key).orElse(
-      Option(getConfig(key, default = null))
-    ).getOrElse(default)
-
   def loadTriggerGrouper(extraConfig: Map[String, String]): TriggerGrouper = {
-    val name = getValue(groupProcessorKey, extraConfig, classOf[DefaultTriggerGrouper].getName)
+    val name = extraConfig.string(groupProcessorKey, classOf[DefaultTriggerGrouper].getName)
 
     val impl =
       try {

@@ -1,19 +1,18 @@
 package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality.groupProcessorBucketSizeKey
-import com.sparkutils.quality.impl.{Group, Runner, Trigger, Triggers, util}
+import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
+import com.sparkutils.quality.impl.{Group, Runner, Trigger}
 import org.apache.spark.sql.catalyst.expressions.{Abs, And, EqualTo, Expression, Literal, Murmur3Hash, Or, Remainder}
 import org.apache.spark.sql.types.BooleanType
 
 import scala.collection.mutable.ArrayBuffer
 import scala.collection.{Set, mutable}
-import scala.util.Try
 
 object TopLevelBoolean {
 
   def params(runner: Runner): Int = {
-    val targetBucket = Try(Triggers.getValue(groupProcessorBucketSizeKey, runner.extraConfig, "130").toInt).
-      getOrElse(130)
+    val targetBucket = runner.extraConfig.int(groupProcessorBucketSizeKey, 130)
     targetBucket
   }
 

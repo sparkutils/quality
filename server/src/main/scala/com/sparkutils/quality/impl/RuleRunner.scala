@@ -10,6 +10,7 @@ import com.sparkutils.quality.impl.GetRealChildren.getRealChildren
 import com.sparkutils.quality.impl.extension.ZeroCodeGenWrap
 import types.ruleSuiteResultType
 import com.sparkutils.quality.impl.imports.RuleRunnerImports
+import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
 import com.sparkutils.quality.impl.util.Serializing.ruleResultToInt
 import com.sparkutils.quality.impl.util.{GenerateResult, NonPassThrough, ParameterInformation, PassThroughCompileEvals, SeparateCompilation}
 import org.apache.spark.sql.ClassicQualitySparkUtils.genParams
@@ -17,7 +18,7 @@ import org.apache.spark.sql.ShimUtils.column
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
 import org.apache.spark.sql.catalyst.expressions.codegen.JavaCode.isNullVariable
-import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodeAndComment, CodegenContext, CodegenFallback, ExprCode, ExprValue, VariableValue}
+import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodegenContext, CodegenFallback, ExprCode, ExprValue, VariableValue}
 import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression}
 import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, truncatedString}
 import org.apache.spark.sql.functions.lit
@@ -27,7 +28,6 @@ import org.apache.spark.sql.{ClassicQualitySparkUtils, Column, DataFrame, ShimUt
 
 import scala.concurrent.duration.Duration
 import scala.reflect.ClassTag
-import scala.util.Try
 
 protected[quality] object RuleRunnerImpl {
 
@@ -153,7 +153,7 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
 
     val end = System.nanoTime()
     val groupingTime = Duration.fromNanos(end - start)
-    if (Try(Triggers.getValue(showGroupingTime, runner.extraConfig, "false").toBoolean).getOrElse(false)){
+    if (runner.extraConfig.boolean(showGroupingTime, false)){
       println(s"$prefix RuleSuite - took ${groupingTime.toMinutes}m${groupingTime.toSeconds % 60}s to group")
       System.out.flush()
     }

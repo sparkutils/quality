@@ -1,7 +1,9 @@
 package com.sparkutils.quality.impl
 
 import com.sparkutils.quality.impl.RuleRunnerUtils.packTheId
-import com.sparkutils.quality.{FailedInt, PassedInt, RuleSuite, UnevaluatedRuleInt, classicFunctions, groupProcessorAuditKey, showSplitCompilationTime}
+import com.sparkutils.quality.impl.util.{EmptyMap, IntegerArray, LongArray, RuleSetMap}
+import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
+import com.sparkutils.quality.{FailedInt, PassedInt, RuleSuite, UnevaluatedRuleInt, classicFunctions, groupProcessorAuditKey, showSplitCompilationTime, useEmptyRuleSetResults}
 import com.sparkutils.testing.ConnectWhenForced.someOrForcedConnect
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.Expression
@@ -12,7 +14,6 @@ import org.apache.spark.sql.types.{DataType, StructType}
 import org.apache.spark.sql.{Column, DataFrame}
 
 import scala.concurrent.duration.Duration
-import scala.util.Try
 
 /**
  * forwards to the server side implementations, when used in server, where stub is dropped, jar resolveWith can work
@@ -80,15 +81,23 @@ trait Runner extends Expression {
    */
   def createDefaultRuleResult(): InternalRow =
     InternalRow(packTheId(ruleSuite.id), defaultOverallResult,
-      ArrayBasedMapData(
-        ruleSuite.ruleSets.map{
-          ruleSet =>
-            packTheId(ruleSet.id) -> InternalRow(defaultOverallResult,
-              ArrayBasedMapData(
-                ruleSet.rules.map( r => packTheId(r.id) -> defaultRuleResult).toMap// Map.empty[Int,Int]
-              ))
-        }.toMap
-      )
+      if (extraConfig.boolean(useEmptyRuleSetResults, false))
+        EmptyMap  // copy is expensive
+      else
+        ArrayBasedMapData(
+          ruleSuite.ruleSets.map{
+            ruleSet =>
+              packTheId(ruleSet.id) -> InternalRow(defaultOverallResult, {
+                val ids = ruleSet.rules.map(r => packTheId(r.id)).toArray
+                val defaults = ruleSet.rules.map( _ => defaultRuleResult).toArray
+                // use optimised copys, by default generic array does scanning
+                new RuleSetMap(
+                  new LongArray(ids),
+                  new IntegerArray(defaults)
+                )
+              })
+          }.toMap
+        )
     )
 
   /**
@@ -100,7 +109,7 @@ trait Runner extends Expression {
     // update result directly
     val sv = sar.valueArray.asInstanceOf[GenericArrayData]
     val struct = sv.getStruct(level1, 2)
-    struct.getMap(1).valueArray().asInstanceOf[GenericArrayData].update(level2, ruleResult) // comment out to squeeze extra, spark still more expensive by 20s, nothing in quality code
+    struct.getMap(1).valueArray().asInstanceOf[IntegerArray].update(level2, ruleResult) // comment out to squeeze extra, spark still more expensive by 20s, nothing in quality code
 
     // processOverall
     val cur = struct.getInt(0)
@@ -109,11 +118,25 @@ trait Runner extends Expression {
     result.update(1, defaultOverallProcessor(nr, result.getInt(1)))
   }
 
+  /**
+   * only applies overallResult to the top level result and ignores any rule or ruleset level information
+   * used by codegen
+   */
+  def applyEmptyResult(level1: Int, level2: Int, result: InternalRow, ruleResult: Int): Unit = {
+    result.update(1, defaultOverallProcessor(ruleResult, result.getInt(1)))
+  }
+
   def inPlaceArrayOffsets(ctx: CodegenContext, resultRow: String, ruleRunnerExpressionIdx: Int): InPlaceOffsets = {
     val className = this.getClass.getName
     val runner = ctx.freshName("runner")
     ctx.addImmutableStateIfNotExists(className, runner,
       v => s"$v = (($className)references[$ruleRunnerExpressionIdx]);")
+
+    val empty =
+      if (extraConfig.boolean(useEmptyRuleSetResults, false))
+        "Empty"
+      else
+        ""
 
     InPlaceOffsets(ruleSuite.ruleSets.zipWithIndex.flatMap{
       case (ruleSet, level1) =>
@@ -121,7 +144,7 @@ trait Runner extends Expression {
           case (_, level2) =>
             (result: String) =>
               code"""
-               $runner.applyResult($level1, $level2, $resultRow, $result);
+               $runner.apply${empty}Result($level1, $level2, $resultRow, $result);
                 """
         }
     }, code"", code"", runner, this.getClass)
@@ -166,7 +189,7 @@ trait HasOutput extends Runner {
    */
   def groupedSqlCall(ruleSuiteCall: String): String
 
-  private lazy val shouldAudit = Try(Triggers.getValue(groupProcessorAuditKey, extraConfig, "false").toBoolean).getOrElse(false)
+  private lazy val shouldAudit = extraConfig.boolean(groupProcessorAuditKey, false)
 
   val audited: Boolean
 
@@ -199,7 +222,7 @@ trait SplitCompilation extends Runner {
 
       val end = System.nanoTime()
       val compileTime = Duration.fromNanos(end - start)
-      if (Try(Triggers.getValue(showSplitCompilationTime, extraConfig, "false").toBoolean).getOrElse(false)){
+      if (extraConfig.boolean(showSplitCompilationTime, false)){
         println(s"${this.getClass.getSimpleName} RuleSuite ${ruleSuite.id} - took ${compileTime.toMinutes}m${compileTime.toSeconds % 60}s to compile")
       }
     }

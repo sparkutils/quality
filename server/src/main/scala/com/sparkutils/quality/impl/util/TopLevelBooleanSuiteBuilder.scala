@@ -2,9 +2,8 @@ package com.sparkutils.quality.impl.util
 
 import com.sparkutils.quality.impl.RuleEngineRunnerUtils.flattenSalience
 import com.sparkutils.quality._
-import com.sparkutils.quality.impl.{HasOutput, Trigger, Triggers}
-
-import scala.util.Try
+import com.sparkutils.quality.impl.util.ExtraConfig.ConfigMapOps
+import com.sparkutils.quality.impl.{HasOutput, Trigger}
 
 object TopLevelBooleanSuiteBuilder {
 
@@ -49,8 +48,8 @@ object TopLevelBooleanSuiteBuilder {
 
     val nested = group.map(_._2)
 
-    val loc = Triggers.getValue(groupProcessorAuditLocation, runner.extraConfig, "./")
-    val name = Triggers.getValue(groupProcessorAuditName, runner.extraConfig, runner.getClass.getSimpleName)
+    val loc = runner.extraConfig.string(groupProcessorAuditLocation, "./")
+    val name = runner.extraConfig.string(groupProcessorAuditName, runner.getClass.getSimpleName)
 
     val rsgroup = RuleSuiteGroup(nested :+ topRuleSuite : _*)
     RuleSuiteGroupIOUtils.toFile(rsgroup, s"$loc/$name")
