@@ -62,18 +62,14 @@ class IntegerArray(val ints: Array[Int]) extends GenericArrayData(null: Array[An
     new IntegerArray(nar)
   }
 
+  override val array: Array[Any] = ints.toArray[Any]
+
   override def isNullAt(ordinal: Int): Boolean = false
 
   def update(i: Int, value: Int): Unit = ints.update(i, value)
 
   override def getInt(ordinal: Int): Int = ints(ordinal)
-/*
-  override def get(ordinal: Int, dataType: DataType): AnyRef =
-    if (dataType == IntegerType)
-      getInt(ordinal).asInstanceOf[Integer]
-    else
-      ???
-*/
+
 }
 
 class LongArray(val longs: Array[Long]) extends GenericArrayData(null: Array[Any]) {
@@ -86,15 +82,12 @@ class LongArray(val longs: Array[Long]) extends GenericArrayData(null: Array[Any
     new LongArray(nar)
   }
 
+  override val array: Array[Any] = longs.toArray[Any]
+
   override def isNullAt(ordinal: Int): Boolean = false
 
   override def getLong(ordinal: Int): Long = longs(ordinal)
-/*
-  override def get(ordinal: Int, dataType: DataType): AnyRef =
-    if (dataType == LongType)
-      getLong(ordinal).asInstanceOf[java.lang.Long]
-    else
-      ???*/
+
 }
 
 class RuleSetMap(val ids: LongArray, val results: IntegerArray) extends MapData {

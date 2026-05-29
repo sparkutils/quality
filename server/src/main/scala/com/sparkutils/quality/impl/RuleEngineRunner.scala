@@ -382,12 +382,12 @@ private[quality] object RuleEngineRunnerUtils extends RuleEngineRunnerImports {
 
       val offset = expressionOffsets(realI)
       val funName = outExprFunTerms(offset)
-      val trigger = triggerRules(realI) // the original trigger is useless
+      val starter = triggerRules(realI) // the original trigger is useless
       val stepWithIf =
-        (ctx: CodegenContext, params: ParameterInformation) =>
+        (ctx: CodegenContext, params: ParameterInformation, trigger: Expression) =>
           codeGen(ctx, trigger, realI, funName(ctx, params), params)
 
-      (Trigger(trigger, realI, salience(realI)), stepWithIf)
+      (Trigger(starter, realI, salience(realI)), stepWithIf)
     }
 
     // required for any TriggerGrouping or further splitting of code

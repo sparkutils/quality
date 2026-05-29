@@ -37,7 +37,7 @@ object TopLevelBooleanSuiteBuilder {
           val suite =
             RuleSuite(Id(index + 1, 0), ruleSets = Seq(RuleSet(Id(index,0), rules = group.triggers.map{
               trigger =>
-                rules(trigger.index)
+                rules(trigger.index).copy(expression = ExpressionRule(trigger.expression.sql))
             })))
 
           cur :+ (filter, suite)

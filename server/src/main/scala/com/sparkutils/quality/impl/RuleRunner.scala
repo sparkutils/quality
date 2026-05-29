@@ -138,7 +138,7 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
 
   protected[quality] def generateFunctionGroups(
                ctx: CodegenContext, runner: Runner, params: ParameterInformation, resultRow: String, additionalParams: Seq[VariableValue],
-               expressions: Seq[(Trigger, (CodegenContext, ParameterInformation) => Block)],
+               expressions: Seq[(Trigger, (CodegenContext, ParameterInformation, Expression) => Block)],
                prefix: String = "ruleRunner", exprEnd: () => Block = () => code"",
                exprFunEnd: () => Block = () => code"",
                groupSalienceCheck: String => Block = _ => code""): TriggerResult = {
@@ -191,8 +191,8 @@ private[quality] object RuleRunnerUtils extends RuleRunnerImports {
 
     val allExpr = realChildren.zipWithIndex.map { case (child, idx) =>
       val generate =
-        (ctx: CodegenContext, p: ParameterInformation) => {
-          val eval = child.genCode(ctx)
+        (ctx: CodegenContext, p: ParameterInformation, e: Expression) => {
+          val eval = e.genCode(ctx)
 
           code"""${eval.code}\n
 

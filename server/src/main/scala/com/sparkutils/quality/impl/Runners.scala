@@ -83,21 +83,24 @@ trait Runner extends Expression {
     InternalRow(packTheId(ruleSuite.id), defaultOverallResult,
       if (extraConfig.boolean(useEmptyRuleSetResults, false))
         EmptyMap  // copy is expensive
-      else
-        ArrayBasedMapData(
-          ruleSuite.ruleSets.map{
-            ruleSet =>
-              packTheId(ruleSet.id) -> InternalRow(defaultOverallResult, {
-                val ids = ruleSet.rules.map(r => packTheId(r.id)).toArray
-                val defaults = ruleSet.rules.map( _ => defaultRuleResult).toArray
-                // use optimised copys, by default generic array does scanning
-                new RuleSetMap(
-                  new LongArray(ids),
-                  new IntegerArray(defaults)
-                )
-              })
-          }.toMap
-        )
+      else {
+
+        val ids = new LongArray( ruleSuite.ruleSets.map{ ruleSet => packTheId(ruleSet.id) }.toArray )
+        val rules = ruleSuite.ruleSets.map{
+          ruleSet =>
+            InternalRow(defaultOverallResult, {
+              val ids = ruleSet.rules.map(r => packTheId(r.id)).toArray
+              val defaults = ruleSet.rules.map( _ => defaultRuleResult).toArray
+              // use optimised copys, by default generic array does scanning
+              new RuleSetMap(
+                new LongArray(ids),
+                new IntegerArray(defaults)
+              )
+            })
+        }
+
+        new ArrayBasedMapData(ids, new GenericArrayData(rules.toArray))
+      }
     )
 
   /**

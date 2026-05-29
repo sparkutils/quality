@@ -26,7 +26,7 @@ object TopLevelBoolean {
     }
   }
 
-  def apply(expressions: Seq[Trigger]): (mutable.Map[Expression, mutable.ArrayBuffer[Trigger]], Expression => Option[(Int, Expression)]) = {
+  def apply(expressions: Seq[Trigger]): (mutable.HashMap[Expression, (Set[Expression], ArrayBuffer[Trigger])], Expression => Option[(Int, Expression)]) = {
     val osubs = SubExprsFrom.apply(expressions.map(_.expression))
 
     val subs = (e: Expression) => osubs(e).filter(r => r._1 > 1)
@@ -54,15 +54,14 @@ object TopLevelBoolean {
         case (k, v) =>
           (k match {
             case _ if k.size == 1 => k.head
-            //case _ if k.isEmpty => Literal(true) // happens on Databricks
             case _ => k.reduce(And(_,_))
-          }, v)
+          }, (k, v))
       }.filter(p => p._1.collectLeaves().size > 2)
 
     (r, subs)
   }
 
-  def sorted(expressions: Seq[Trigger]): (Seq[(Expression, mutable.ArrayBuffer[Trigger])], Expression => Option[(Int, Expression)]) = {
+  def sorted(expressions: Seq[Trigger]): (Seq[(Expression, (Set[Expression], ArrayBuffer[Trigger]))], Expression => Option[(Int, Expression)]) = {
     val (res,subs) = apply(expressions)
 
     (res.toSeq.sortBy(_._1.collectLeaves().size).reverse, subs)
@@ -203,15 +202,16 @@ object TopLevelBoolean {
     // remove duplicates
     val seen = new mutable.HashSet[Expression]
 
-    def addSeen(pop: Iterable[Trigger]) = {
+    def addSeen(pop: Iterable[Trigger], groupParts: Set[Expression]) = {
       val newPopSeqs = pop.filterNot(p => seen(p.expression))
       seen.++=(newPopSeqs.map(_.expression))
-      newPopSeqs.toSeq
+      newPopSeqs.toSeq.map( t =>
+        t.copy(expression = removeTopLevels(groupParts, t.expression)))
     }
 
     val topHitter =
       orderedLarger.foldLeft(Seq.empty[Group]) {
-        case (cur, (sub, triggers)) =>
+        case (cur, (sub, (groupParts, triggers))) =>
 
           if (triggers.size > targetBucket) {
             // should be the maximal list already as all elements are subexprs, what is left are differentiators
@@ -250,7 +250,7 @@ object TopLevelBoolean {
                     case (cur, (bucket, trips)) =>
                       val bucketedExp = differentiator.bucketer(bucket, numberOfBuckets)
 
-                      val corrected = addSeen(trips.map(_._2))
+                      val corrected = addSeen(trips.map(_._2), groupParts)
                       cur :+ Group(And(bucketedExp, sub), corrected.minBy(_.salience).salience, corrected)
                   }
               }
@@ -258,7 +258,7 @@ object TopLevelBoolean {
           } else if (triggers.size > 4) { // TODO random number
             // very small groups are expensive and should fall to the true bucket
             // likely no benefit in reducing further
-            val newTriggers = addSeen(triggers)
+            val newTriggers = addSeen(triggers, groupParts)
             cur :+ Group(sub, newTriggers.minBy(_.salience).salience, newTriggers)
           } else
             cur
@@ -297,6 +297,17 @@ object TopLevelBoolean {
     val resDiff = t(expression).filter(p)
 
     resDiff
+  }
+
+  def removeTopLevels(groupExpressions: Set[Expression], expression: Expression): Expression = {
+    val T = Literal(true)
+    val replaced = expression.transformUp{
+      case e if groupExpressions.contains(e) => T
+      case And(T, right) => right
+      case And(left, T) => left
+      case And(T, T) => T
+    }
+    replaced
   }
 
 }
