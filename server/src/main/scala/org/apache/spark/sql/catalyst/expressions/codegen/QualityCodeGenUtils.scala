@@ -167,12 +167,13 @@ object QualityCodeGenUtils {
    */
   def splitExpressions(ctx: CodegenContext,
                        expressions: Seq[String],
+                       groupingSize: Int,
                        funcName: String,
                        arguments: Seq[(String, String)],
                        returnType: String = "void",
                        makeSplitFunction: String => String = identity,
                        foldFunctions: Seq[String] => String = _.mkString("", ";\n", ";")): String = {
-    val blocks = buildCodeBlocks(expressions)
+    val blocks = buildCodeBlocks(expressions.grouped(groupingSize).map(_.mkString("\n")).toSeq)
 
     if (blocks.length == 1) {
       // inline execution if only one block

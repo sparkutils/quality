@@ -115,6 +115,30 @@ trait BigRulesBase extends Matchers {
     val fullDump = Duration.fromNanos(end - start)
     println(s"$typ - took ${fullDump.toMinutes}m${fullDump.toSeconds % 60}s to do full noop write")
 
+    /*
+var start = System.nanoTime()
+    val d = s.read.option("header",true).csv("server/src/test/resources/20k_rule_suite.csv")
+    val r = d.select(expr("*"), ruleEngineRunner(ruleSuite, resultDataType = resultDataType).
+      as("runner")).select(expr("*"), expr("runner.result.*"))
+    var end = System.nanoTime()
+
+    println(s"$typ - took ${Duration.fromNanos(end - start).toSeconds}s to do logical plan")
+    *//*
+    start = System.nanoTime()
+    r.limit(1).write.format("noop").mode(SaveMode.Overwrite).save()
+    end = System.nanoTime()
+    val compilationEstimation = Duration.fromNanos(end - start)
+    println(s"$typ - took ${compilationEstimation.toMinutes}m${compilationEstimation.toSeconds % 60}s to do a limit 1, closest to compile time")
+*//*
+    start = System.nanoTime()
+    r.write.format("noop").mode(SaveMode.Overwrite).save()
+    end = System.nanoTime()
+    val fullDump = Duration.fromNanos(end - start)
+    val processOf20kx20k = fullDump // - compilationEstimation
+    println(s"$typ - took ${fullDump.toMinutes}m${fullDump.toSeconds % 60}s to do full noop write, of which" +
+      s" ${processOf20kx20k.toMinutes}m${processOf20kx20k.toSeconds % 60}s in processing 20kx20k")
+    r
+*/
     r
   }
 
@@ -171,17 +195,40 @@ trait BigRulesBase extends Matchers {
 
   def do1to1RulesOnly(s: SparkSession): Unit = {  // requires a 12gb heap and patience, run takes 5m42s on 32g i9-9900 corsair with 12gb, 5.22 ms / row
     import s.implicits._
-    val res = doRuleTest(s, rules(s, genRules1to1(s, outputDir).as[(String, String, Int)]),
+/*    val res = doRuleTest(s, rules(s, genRules1to1(s, outputDir).as[(String, String, Int)]),
       "1:1 loaded direct cost",
       extraConfig = Map(
         showSplitCompilationTime -> "true",
         "statsEvery" -> "1000"
-      ))
+      ))*/
 
+
+    var start = System.nanoTime()
+    val d = s.read.option("header",true).csv("server/src/test/resources/20k_rule_suite.csv")
+    val r = d.select(expr("*"), ruleEngineRunner(rules(s, genRules1to1(s, outputDir).as[(String, String, Int)])).
+      as("runner")).select(expr("*"), expr("runner.result.*"))
+    var end = System.nanoTime()
+    val typ ="1:1"
+    println(s"$typ - took ${Duration.fromNanos(end - start).toSeconds}s to do logical plan")
+  /*  start = System.nanoTime()
+    r.limit(1).write.format("noop").mode(SaveMode.Overwrite).save()
+    end = System.nanoTime()
+    val compilationEstimation = Duration.fromNanos(end - start)
+    println(s"$typ - took ${compilationEstimation.toMinutes}m${compilationEstimation.toSeconds % 60}s to do a limit 1, closest to compile time")
+*/
+    start = System.nanoTime()
+    r.write.format("noop").mode(SaveMode.Overwrite).save()
+    end = System.nanoTime()
+    val fullDump = Duration.fromNanos(end - start)
+    val processOf20kx20k = fullDump // - compilationEstimation
+    println(s"$typ - took ${fullDump.toMinutes}m${fullDump.toSeconds % 60}s to do full noop write, of which" +
+      s" ${processOf20kx20k.toMinutes}m${processOf20kx20k.toSeconds % 60}s in processing 20kx20k")
+    r
+/*
     val play = res.persist(StorageLevel.OFF_HEAP)
 
     play.filter("(k_out is null) or (k != k_out) or (l != l_out) or (l_out is null)").
-      count() shouldBe 0
+      count() shouldBe 0*/
   }
 
   // this is a beast do by hand or on 16gb

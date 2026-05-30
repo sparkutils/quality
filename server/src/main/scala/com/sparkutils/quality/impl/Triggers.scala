@@ -71,23 +71,27 @@ case class DefaultTriggerGrouper() extends TriggerGrouper {
               val argPairs = params.nonCombinedParams.map(t => t._1 -> t._2)
               val body =
                 QualityCodeGenUtils.splitExpressions(ctx, exprFunc.map( p =>
-                  p._2.apply(ctx, params, p._1.expression).code + s"${exprEnd()}\n"), exprFuncName, argPairs,
+                  p._2.apply(ctx, params, p._1.expression).code + s"${exprEnd()}\n")
+                  , runner.variableFuncGroup, exprFuncName, argPairs,
                   foldFunctions =  _.mkString(s"${exprEnd()}\n", s";\n${exprEnd()}\n", ";")
                 )
-              ctx.addNewFunction(exprFuncName,
+              /*ctx.addNewFunction(exprFuncName,
                 code"""
-   private void $exprFuncName(${params.paramsDef}) {
-     $body
-   }
-  """.code
-              )
+                 private void $exprFuncName(${params.paramsDef}) {
+                   $body
+                 }
+                """.code)*/
+              body
             }
 
           code"""
-   private void $groupName(${params.paramsDef}) {
-     ${funNames.map { f => s"$f(${params.paramsCall});" }.mkString(s"${exprFunEnd()}\n")}
-   }
-   """.code
+           private void $groupName(${params.paramsDef}) {
+             ${
+                //funNames.map { f => s"$f(${params.paramsCall});" }.mkString(s"${exprFunEnd()}\n")
+                funNames.mkString(s"${exprFunEnd()}\n")
+              }
+           }
+           """.code
 
         })
       }
@@ -200,7 +204,8 @@ trait GroupBasedGrouper extends TriggerGrouper {
 
               val argPairs = params.nonCombinedParams.map(t => t._1 -> t._2)
               val body =
-                QualityCodeGenUtils.splitExpressions(ctx, groupCalls.map(_._1.code + s"${exprEnd()}\n"), exprFuncName, argPairs,
+                QualityCodeGenUtils.splitExpressions(ctx, groupCalls.map(_._1.code + s"${exprEnd()}\n"),
+                  runner.variablesPerFunc, exprFuncName, argPairs,
                   foldFunctions = _.mkString(s"${exprEnd()}\n", s";\n${exprEnd()}\n", ";")
                 )
               //${groupCalls.map(_._1).mkString(s"\n")}
