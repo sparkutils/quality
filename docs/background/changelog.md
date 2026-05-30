@@ -4,6 +4,8 @@ This release migrates Spark 4 support to use AgnosticEncoders and removes EOL ru
 
 Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1 and 3.3.2 are deprecated as are DBR's 12.2 and 13.3 and will be removed as of Quality version 0.3.0.
 
+The optimisations added under #129 and #131 have also seen performance improvements across the board, 
+
 #90 - Migrate to Spark 4 sql-api, AgnosticEncoder's and support Connect:
 
 > The Sparkutils libraries Shim 0.3.0, Testing 0.1.0 and Frameless 2.0.0 provide support for
@@ -101,11 +103,11 @@ Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1 and 3.3.2 are deprecated as are DBR's 12.2
 > ```
 > will generate a RuleSuiteGroup file using the specified location (this is required on Databricks).
 > This group contains a RuleSuite(0,0) 'parent' Rule Suite that calls the child 'bucket' rule suites, 
-> using the same grouping as the normal TopLevelBooleanGrouper uses, but in an auditable but executable form for easy
+> using the same grouping as the normal TopLevelBooleanGrouper uses, but in an auditable and executable form for easy
 > verification of bucketing correctness.
 > 
-> This initial experimental version brings the BigRules test case runtime from 5m42s (requiring -Xmx12g) to just under
-> 45s (requiring only -Xmx2g) and a per row Quality processing time of 0.12ms per row (down from 5ms) on a 20k rule RuleSuite
+> This initial experimental version brings the BigRules test case runtime from 3m20s on an AMD Ryzen AI 9 HX 370 (requiring -Xmx16g) to just under
+> 30s (requiring only -Xmx2g) and a per row Quality processing time of sub 0.09ms per row (down from >5ms) on a 20k rule RuleSuite
 > (across 9 comparisons per rule, 380m expressions in total).
 > If the results from a non-grouped runner differ with grouping please raise an issue.
 > 
