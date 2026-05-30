@@ -333,6 +333,7 @@ object SeparateCompilation {
         // push to top
         ${parameterInformation.pushToTop}
         // Call to ${implicitly[IdGen[I]].forComment(idParam)}
+        ${fullParams.aritySafeParamCallPrep(outerctx)}
         InternalRow ${ev.value} = (InternalRow) (($funX)$runner).apply(${fullParams.aritySafeParamCall});
         ${implicitly[ClazzGenerator[T]].outerResultProcessing(genResult.resultType)(outerctx, ev.value)}
         boolean ${ev.isNull} = false;

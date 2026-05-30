@@ -289,15 +289,21 @@ case class ParameterInformation(paramsDef: String, paramsCall: String, arity: In
           s"${p._2} = ($cast$arrayExtraDim) ((Object[])input_ppp)[$index];"
       }.mkString("\n")
 
+  protected[quality] var paramCallObject = ""
+
+  def aritySafeParamCallPrep(ctx: CodegenContext): String = {
+    paramCallObject = ctx.addMutableState("Object[]", "paramCallAr", v => s"$v = new Object[${params.size}];")
+    params.zipWithIndex.map {
+      case (p, index) =>
+        s"$paramCallObject[$index] = ${p._2};"
+    }.mkString("\n")
+  }
+
   def aritySafeParamCall: String =
     if (arity <= 22)
       outerCallParams
     else
-      s"""
-        new Object[] {
-         ${params.map(_._2).mkString(",\n")}
-        }
-        """
+      paramCallObject
 }
 
 object Params {
