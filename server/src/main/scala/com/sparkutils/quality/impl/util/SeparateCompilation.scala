@@ -358,8 +358,8 @@ object SeparateCompilation {
    * the main apply functions JITable, then does a split call on them
    */
   def splitGlobalSubExprs(ctx: CodegenContext, subExpressions: String): String = {
-    val preGrouped = subExpressions.split("\n").filter(_.nonEmpty).grouped(250).map(a => a.mkString("\n"))
-    QualityCodeGenUtils.splitExpressions(ctx, preGrouped.toSeq, "subExprGroup", Seq.empty) // 250 chosen to leave headroom, 500 doesn't hit JIT either currently
+    val preGrouped = subExpressions.split("\n").filter(_.nonEmpty)
+    QualityCodeGenUtils.splitExpressions(ctx, preGrouped.toSeq, 250, "subExprGroup", Seq.empty) // 250 chosen to leave headroom, 500 doesn't hit JIT either currently
   }
 
 }
