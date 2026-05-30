@@ -75,17 +75,21 @@ case class DefaultTriggerGrouper() extends TriggerGrouper {
                   , runner.variableFuncGroup, exprFuncName, argPairs,
                   foldFunctions =  _.mkString(s"${exprEnd()}\n", s";\n${exprEnd()}\n", ";")
                 )
-              ctx.addNewFunction(exprFuncName,
+              /*ctx.addNewFunction(exprFuncName,
                 code"""
                  private void $exprFuncName(${params.paramsDef}) {
                    $body
                  }
-                """.code)
+                """.code)*/
+              body
             }
 
           code"""
            private void $groupName(${params.paramsDef}) {
-             ${funNames.map { f => s"$f(${params.paramsCall});" }.mkString(s"${exprFunEnd()}\n")}
+             ${
+                //funNames.map { f => s"$f(${params.paramsCall});" }.mkString(s"${exprFunEnd()}\n")
+                funNames.mkString(s"${exprFunEnd()}\n")
+              }
            }
            """.code
 
@@ -201,7 +205,7 @@ trait GroupBasedGrouper extends TriggerGrouper {
               val argPairs = params.nonCombinedParams.map(t => t._1 -> t._2)
               val body =
                 QualityCodeGenUtils.splitExpressions(ctx, groupCalls.map(_._1.code + s"${exprEnd()}\n"),
-                  1/*runner.variablesPerFunc*/, exprFuncName, argPairs,
+                  runner.variablesPerFunc, exprFuncName, argPairs,
                   foldFunctions = _.mkString(s"${exprEnd()}\n", s";\n${exprEnd()}\n", ";")
                 )
               //${groupCalls.map(_._1).mkString(s"\n")}
