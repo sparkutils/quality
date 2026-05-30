@@ -274,7 +274,7 @@ class BigRules extends ClassicSharedTests with BigRulesBase {
     doGrouped129ViaTopLevelBooleanGroupingEmpty(sparkSession)
   } }
 
-  test("1:1 rules only") { // requires a 12gb heap and patience, run takes 5m42s on 32g i9-9900 corsair with 12gb heap, 5.22 ms / row
+  ignore("1:1 rules only") { // requires a 12gb heap and patience, run takes 5m42s on 32g i9-9900 corsair with 12gb heap, 5.22 ms / row
     do1to1RulesOnly(sparkSession)
   }
 
