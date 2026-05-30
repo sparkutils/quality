@@ -4,7 +4,8 @@ This release migrates Spark 4 support to use AgnosticEncoders and removes EOL ru
 
 Spark runtimes 3, 3.1.3, 3.2.0, 3.2.1 and 3.3.2 are deprecated as are DBR's 12.2 and 13.3 and will be removed as of Quality version 0.3.0.
 
-The optimisations added under #129 and #131 have also seen performance improvements across the board, 
+The optimisations added under #129 and #131 have also seen performance improvements across the board, particularly in
+large rule suites, the imaginatively named BigRules test case showing an improvement of 2m to write data down to 
 
 #90 - Migrate to Spark 4 sql-api, AgnosticEncoder's and support Connect:
 
@@ -106,7 +107,7 @@ The optimisations added under #129 and #131 have also seen performance improveme
 > using the same grouping as the normal TopLevelBooleanGrouper uses, but in an auditable and executable form for easy
 > verification of bucketing correctness.
 > 
-> This initial experimental version brings the BigRules test case runtime from 3m20s on an AMD Ryzen AI 9 HX 370 (requiring -Xmx16g) to just under
+> This initial experimental version brings the BigRules test case runtime from 2m on an AMD Ryzen AI 9 HX 370 (requiring -Xmx16g) to just under
 > 30s (requiring only -Xmx2g) and a per row Quality processing time of sub 0.09ms per row (down from >5ms) on a 20k rule RuleSuite
 > (across 9 comparisons per rule, 380m expressions in total).
 > If the results from a non-grouped runner differ with grouping please raise an issue.
